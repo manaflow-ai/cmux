@@ -26,6 +26,10 @@ try to iron out all the lag spikes". This measures them:
          (goToWorkspace, reply and shown), scroll (terminal.scrollPageUp/Down on the typing workspace: no shipped
          control action scrolls the agent pane), 5 New Tabs opened and closed, 20 typed lines timed to the shell;
        - launch marks, `log stream` of subsystem com.cmuxterm*, hang files under the private home, updates.status.
+  Diagnostics (hq#11994): when a control call goes unanswered (a socket timeout, or an action `not_run`) in any
+  phase, it keeps `sample PID 3`, a `screencapture`, the app's on-screen windows and the home's Library/Logs under
+  OUT/<phase>/diagnostics/, at once and again 60, 300 and 600 s later, and prints a DIAG line with the top of the
+  main thread's heaviest stack. FROM's phase (seed, stage) also keeps a `log stream` with Sparkle's processes.
 
 Isolation: the app's daemon (cmux-tui) socket is the account's temp dir by session name (DaemonLauncher
 runtimeBase is confstr(_CS_DARWIN_USER_TEMP_DIR), not TMPDIR), and its remembered daemon socket and its other state
@@ -74,12 +78,14 @@ RECORDER_SRC = REPO / "scripts/measure/tab-switch-frames/recorder.swift"
 TURNS_AGENT = ("puh-turns", REPO / "scripts/cmux-next/chat_open_agent.py")
 PROBE_METHOD = "notifications.status"
 PROBE_EVERY_S, STALL_MS = 0.020, 50.0
+PROBE_DIAG_S = 2.0  # a probe unanswered this long takes the diagnostics (Diagnostics) while the stall lasts
 ROUNDS_AT_S = (None, 30.0, 90.0, 150.0)  # None: 5 s after the socket answers
 SYSTEM = ("amfid", "syspolicyd", "XprotectService", "XProtect", "XProtectPluginService", "XProtectBehaviorService",
           "trustd", "mds", "mds_stores", "mdworker_shared", "mdworker", "kernel_task", "launchservicesd", "lsd",
           "WindowServer", "cfprefsd", "tccd", "fseventsd")
 LOOP = "while :; do date; ls -la /usr/bin | tail -n 20; sleep 0.05; done\r"
 USER_AGENT = {"User-Agent": "cmux-post-update-hitches/1"}
+DIAG_AT_S = (0, 60, 300, 600)  # diagnostics at the first unanswered control call and this long after it
 
 
 def say(*parts):
@@ -310,6 +316,152 @@ def rpc(path, method, params=None, timeout=30.0):
     return reply.get("result") if reply.get("result") is not None else {}
 
 
+def unanswered(reply):
+    """Whether a control reply means the app never got to the call: a socket timeout, or an action its main actor
+    did not run within the deadline (`not_run`)."""
+    error = reply.get("error") if isinstance(reply, dict) else None
+    text = json.dumps(error) if error is not None else ""
+    return "timed out" in text or "not_run" in text
+
+
+class Diagnostics:
+    """What the app was doing when a control call went unanswered (hq#11994): `sample PID 3` (a hang is one main-thread
+    stack, a modal loop shows -[NSApplication runModal...]), `screencapture` of the console (a window the socket can't
+    see), the app's on-screen windows, and the private home's Library/Logs. Taken at the first unanswered call and
+    again DIAG_AT_S after it, under OUT/diagnostics/<n>-at<s>s/."""
+
+    def __init__(self, out: Path, home: Path, tools: Path):
+        self.out, self.home, self.tools = out / "diagnostics", home, tools
+        self.first_at, self.taken = None, []
+        self.lock = threading.Lock()
+
+    def on_unanswered(self, app, method, reply):
+        if app.pid is None or not app.alive() or not self.lock.acquire(blocking=False):
+            return  # another thread is taking them now
+        try:
+            now = time.monotonic()
+            if self.first_at is None:
+                self.first_at = now
+            due = [at for at in DIAG_AT_S if at not in self.taken and now - self.first_at >= at]
+            if due:
+                self.taken.append(due[-1])
+                self.take(app, f"{len(self.taken)}-at{int(now - self.first_at)}s", method, reply)
+        finally:
+            self.lock.release()
+
+    def take(self, app, label, method, reply):
+        folder = self.out / label
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "reason.txt").write_text(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} pid {app.pid} "
+                                           f"{method}: {json.dumps(reply)[:400]}\n")
+        results = {}
+        for name, args, limit in (("sample", ["/usr/bin/sample", str(app.pid), "3", "-file", str(folder / "sample.txt")], 60),
+                                  ("screencapture", ["/usr/sbin/screencapture", "-x", str(folder / "screen.png")], 30)):
+            try:
+                results[name] = subprocess.run(args, capture_output=True, text=True, timeout=limit).returncode
+            except (OSError, subprocess.SubprocessError) as error:
+                results[name] = str(error)
+        lister = build_window_lister(self.tools)
+        if lister:
+            try:
+                listed = subprocess.run([str(lister), str(app.pid)], capture_output=True, text=True, timeout=30)
+                (folder / "windows.txt").write_text(listed.stdout + listed.stderr)
+                results["windows"] = listed.stdout.count("\n")
+            except (OSError, subprocess.SubprocessError) as error:
+                results["windows"] = str(error)
+        logs = self.home / "Library/Logs"
+        if logs.is_dir():
+            shutil.copytree(logs, folder / "Logs", dirs_exist_ok=True, symlinks=True,
+                            ignore=lambda _d, names: [n for n in names if n.endswith(".sock")])
+        stack = main_thread_stack(folder / "sample.txt")
+        (folder / "main-thread.txt").write_text("\n".join(stack) + "\n")
+        say(f"DIAG {label} after unanswered {method}: {json.dumps(results)}; main thread (innermost first): "
+            + (" < ".join(stack[::-1][:8]) if stack else "no stack read"))
+
+
+class LogStream:
+    """`log stream --style ndjson` of PREDICATE into PATH while the block runs; stopped by its own pid after."""
+
+    def __init__(self, path: Path, predicate: str):
+        self.path, self.predicate = path, predicate
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.file = open(self.path, "wb")
+        self.process = subprocess.Popen(["/usr/bin/log", "stream", "--style", "ndjson", "--level", "debug",
+                                         "--predicate", self.predicate], stdout=self.file, stderr=subprocess.STDOUT,
+                                        start_new_session=True)
+        return self
+
+    def __exit__(self, *_exc):
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        self.file.close()
+        return False
+
+
+def main_thread_stack(sample_file: Path, limit=80):
+    """The main thread's heaviest path in a `sample` report, outermost frame first: at each depth, the first (heaviest)
+    child. `sample` prints a call graph per thread: `Thread_N  DispatchQueue_1: com.apple.main-thread`, then lines
+    like `    + 2345 symbol  (in Image) + 12  [0x...]` indented by depth."""
+    try:
+        lines = sample_file.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    frames, inside, last_depth = [], False, -1
+    for line in lines:
+        if not inside:
+            inside = "Thread_" in line and "com.apple.main-thread" in line
+            continue
+        if not line.strip() or "Thread_" in line:
+            break
+        match = re.match(r"^([\s+!:|]*)\d+\s+(.*?)(?:\s{2}\(in |\s+\[0x|$)", line)
+        if not match:
+            continue
+        depth = len(match.group(1))
+        if depth <= last_depth:
+            continue  # a sibling (lighter branch) of a frame already kept
+        frames.append(match.group(2).strip())
+        last_depth = depth
+        if len(frames) >= limit:
+            break
+    return frames
+
+
+WINDOW_LISTER_SRC = r"""
+import CoreGraphics
+import Foundation
+// post-update-hitches window lister: the on-screen windows of PID (every window with no PID): layer, owner, name, bounds.
+let pid = CommandLine.arguments.count > 1 ? Int32(CommandLine.arguments[1]) : nil
+let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+for w in list {
+    let owner = w[kCGWindowOwnerPID as String] as? Int32 ?? -1
+    if let pid, owner != pid { continue }
+    let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+    print("pid \(owner) layer \(w[kCGWindowLayer as String] ?? "?") owner \(w[kCGWindowOwnerName as String] ?? "?") name \(w[kCGWindowName as String] ?? "") bounds \(b["X"] ?? 0),\(b["Y"] ?? 0) \(b["Width"] ?? 0)x\(b["Height"] ?? 0)")
+}
+"""
+
+
+def build_window_lister(cache: Path):
+    binary = cache / "window-lister"
+    if binary.exists():
+        return binary
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        source = cache / "window-lister.swift"
+        source.write_text(WINDOW_LISTER_SRC)
+        done = subprocess.run(["swiftc", "-O", "-o", str(binary), str(source)], capture_output=True, text=True,
+                              timeout=600)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return binary if done.returncode == 0 and binary.exists() else None
+
+
 class Probe(threading.Thread):
     """`notifications.status` every 20 ms, one request in flight, new connection each: [(t_send, ms | None)]."""
 
@@ -318,6 +470,17 @@ class Probe(threading.Thread):
         self.sock, self.t0, self.seconds = sock, t0, seconds
         self.samples, self.socket_at, self.first_reply_at = [], None, None
         self.stop = threading.Event()
+        self.app = None  # App: a probe unanswered for PROBE_DIAG_S takes the app's diagnostics, during the stall
+        self.in_flight_since = None
+
+    def watch(self):
+        """The probe's stall watchdog: one in flight PROBE_DIAG_S or longer takes the diagnostics while it hangs."""
+        while not self.stop.wait(0.25):
+            since = self.in_flight_since
+            if since is not None and self.first_reply_at is not None and time.monotonic() - since >= PROBE_DIAG_S \
+                    and self.app is not None and self.app.diagnostics is not None:
+                self.app.diagnostics.on_unanswered(self.app, PROBE_METHOD,
+                                                   {"error": f"in flight {time.monotonic() - since:.1f} s"})
 
     def run(self):
         while not self.stop.is_set() and time.monotonic() - self.t0 < self.seconds:
@@ -328,9 +491,11 @@ class Probe(threading.Thread):
                     time.sleep(0.005)  # harness: waiting for the socket file
                     continue
             sent = time.monotonic()
+            self.in_flight_since = sent
             reply = rpc(self.sock, PROBE_METHOD, timeout=30)
             ms = (time.monotonic() - sent) * 1000
             ok = not (isinstance(reply, dict) and reply.get("error"))
+            self.in_flight_since = None
             if ok and self.first_reply_at is None:
                 self.first_reply_at = time.monotonic() - self.t0
             if self.first_reply_at is not None:
@@ -448,6 +613,7 @@ class App:
         self.bundle_id, self.executable = smoke.bundle_info(path)
         self.process = None
         self.pid = None
+        self.diagnostics = None  # Diagnostics, set per phase: kept when a control call goes unanswered
 
     def env(self, marks_path, activate):
         env = smoke.fresh_env(self.root, self.sock, 0)
@@ -529,7 +695,10 @@ class App:
         return self.pid is not None and smoke.alive(self.pid)
 
     def call(self, method, params=None, timeout=30):
-        return rpc(self.sock, method, params, timeout)
+        reply = rpc(self.sock, method, params, timeout)
+        if self.diagnostics is not None and unanswered(reply):
+            self.diagnostics.on_unanswered(self, method, reply)
+        return reply
 
     def action(self, action_id, /, focus=True, timeout=60, **args):
         params = {"action": action_id, "args": args, "origin": "script", "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
@@ -850,9 +1019,12 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
     probe = Probe(app.sock, t0, opts.seconds)
     if app.sock.exists():
         app.sock.unlink()  # a socket file left by the quit would count as "socket exists"
+    app.diagnostics = Diagnostics(out, app.root / "h", Path(opts.tools))
+    probe.app = app
     t0 = app.launch(out, activate=recorder_bin is not None)
     sampler.t0 = probe.t0 = t0
     probe.start()
+    threading.Thread(target=probe.watch, daemon=True).start()
     result["pid"] = app.pid
     ready = app.wait_ready(120)
     result["ready_s"] = round(time.monotonic() - t0, 2) if ready else None
@@ -919,6 +1091,7 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
         json.dump(sampler.rows, handle)
     result["cpu_windows"], result["disk"] = cpu_windows(sampler.rows, opts.seconds)
     result["logs"] = log_digest(out / "log-stream.ndjson")
+    result["diagnostics"] = list(app.diagnostics.taken)
     return result
 
 
@@ -1116,24 +1289,28 @@ def run(opts, root: Path, report):
             {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}},
             indent=1))
         (home / ".zshrc").touch()
-        # N: seed, settle, stage, quit -> install.
-        app.launch(out / "N")
-        if not app.wait_ready(120):
-            raise StepFailed("FROM: the control socket never answered")
-        report["N_isolation"] = check_isolation(app, resident)
-        seed_info = seed(app, opts, report)
-        time.sleep(opts.settle)  # the asked settle before staging
-        app.action("palette.checkForUpdates", focus=False)
-        staged, deadline = None, time.monotonic() + 900
-        while time.monotonic() < deadline and not staged:
-            status = app.call("updates.status", timeout=10)
-            staged = status if isinstance(status, dict) and status.get("phase") == "installing" else None
-            time.sleep(2)  # harness: Sparkle downloads and verifies
-        report["staged_status"] = app.call("updates.status", timeout=10)
-        if not staged:
-            raise StepFailed(f"no update staged in 900 s: {json.dumps(report['staged_status'])[:400]}")
-        say(f"STAGED {staged.get('detected_version')}")
-        app.quit()
+        # N: seed, settle, stage, quit -> install. Its own log stream (with Sparkle's processes) and diagnostics.
+        app.diagnostics = Diagnostics(out / "N", home, Path(opts.tools))
+        report["N_diagnostics"] = app.diagnostics.taken  # the list itself: filled as they are taken
+        with LogStream(out / "N" / "log-stream.ndjson", 'subsystem BEGINSWITH "com.cmuxterm" OR '
+                       'process == "Autoupdate" OR process == "Updater"'):
+            app.launch(out / "N")
+            if not app.wait_ready(120):
+                raise StepFailed("FROM: the control socket never answered")
+            report["N_isolation"] = check_isolation(app, resident)
+            seed_info = seed(app, opts, report)
+            time.sleep(opts.settle)  # the asked settle before staging
+            app.action("palette.checkForUpdates", focus=False)
+            staged, deadline = None, time.monotonic() + 900
+            while time.monotonic() < deadline and not staged:
+                status = app.call("updates.status", timeout=10)
+                staged = status if isinstance(status, dict) and status.get("phase") == "installing" else None
+                time.sleep(2)  # harness: Sparkle downloads and verifies
+            report["staged_status"] = app.call("updates.status", timeout=10)
+            if not staged:
+                raise StepFailed(f"no update staged in 900 s: {json.dumps(report['staged_status'])[:400]}")
+            say(f"STAGED {staged.get('detected_version')}")
+            app.quit()
         deadline = time.monotonic() + 300
         while time.monotonic() < deadline and bundle_build(path) != to_item["build"]:
             time.sleep(1)  # harness: Sparkle's installer replaces the bundle
