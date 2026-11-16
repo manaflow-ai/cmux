@@ -199,6 +199,11 @@ public nonisolated struct SidebarBridgeRules: Sendable {
         (ask("app_activation", ["app": .string(app)], as: [AppReply].self) ?? []).map { ($0.action, $0.appArgument) }
     }
 
+    /// What opens app `app` when its `cmux.pane/1` is one cmux draws itself (`native`: Home, the App Store, Cloud):
+    /// its show action, the one its sidebar item runs (Rust `native_pane_show_action`). Such a pane has no scene or
+    /// web page, so `app.open` runs this instead of refusing; nil for every other app.
+    public func nativePaneShowAction(_ app: String) -> String? { appActivation(app).first { !$0.appArgument }?.action }
+
     // MARK: Machine links (MachineLinkState)
 
     /// Every machine status's dot and whether using the machine reconnects it, keyed by the status's word: the
