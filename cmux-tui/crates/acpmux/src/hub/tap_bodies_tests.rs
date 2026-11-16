@@ -150,7 +150,7 @@ mod pure_table {
     ) {
         let before = hub.store.events(&s.id, 0, usize::MAX).unwrap();
         let mut prepared = record::record_of(entry(direction, &msg), context);
-        if eligible_update && prepared.as_mut().is_some_and(|r| !r.trim_live_update(context)) {
+        if prepared.as_mut().is_some_and(|r| !r.trim_live_update(context, eligible_update)) {
             prepared = None;
         }
         assert!(tap(direction, &msg, Some(71)));
@@ -287,6 +287,37 @@ mod pure_table {
                 true,
             );
         }
+    }
+
+    #[test]
+    fn v2_record_method_and_logged_kind_collisions_match_v1() {
+        let hub = hub();
+        let s = claude_chat(&hub, "method-collisions");
+        let tap = hub.session_tap(&s);
+        let mut context = Context::default();
+        for kind in
+            ["session/request_permission", "response", "claude.stdin", "claude.control_response"]
+        {
+            for _ in 0..2 {
+                compare(
+                    &hub,
+                    &s,
+                    &tap,
+                    &mut context,
+                    Direction::In,
+                    update(json!({"sessionUpdate":kind,
+                        "toolCall":{"_meta":{"acpmux":{"display":"preserved"}}},
+                        "result":{"_meta":{"claude":{"commands":["help"]}}}})),
+                    true,
+                );
+            }
+        }
+        // Loading only adds .replay to notifications in v1. Requests keep their method kind.
+        context.loading = true;
+        s.loading.store(true, Ordering::SeqCst);
+        compare(&hub, &s, &tap, &mut context, Direction::In,
+            Message::from_value(json!({"id":88,"method":"session/update","params":{"update":{
+                "sessionUpdate":"available_commands_update","availableCommands":[{"name":"help"}]}}})).unwrap(), true);
     }
 
     #[test]

@@ -68,21 +68,27 @@ impl Record {
         }
     }
 
-    /// Called by the stateful stage only after its four repeat-eligibility flags permit it.
-    /// Returns false when the live update has nothing left to log. Replays never qualify.
-    pub fn trim_live_update(&mut self, context: &Context) -> bool {
-        if self.dir != "in" || context.loading || self.kind.ends_with(".replay") {
+    /// Called by the stateful stage with its live-update repeat eligibility decision.
+    /// The live-update branch precedes the response-kind fallback, exactly as in v1.
+    /// Returns false when the eligible update has nothing left to log.
+    pub fn trim_live_update(&mut self, context: &Context, eligible: bool) -> bool {
+        if self.dir != "in"
+            || self.msg.get("method").and_then(Value::as_str) != Some("session/update")
+        {
             return true;
         }
-        if self.msg.get("method").and_then(Value::as_str) != Some("session/update") {
-            return true;
-        }
-        if let Some(update) = self.msg.pointer_mut("/params/update") {
+        let update = (eligible && !self.kind.ends_with(".replay"))
+            .then(|| self.msg.pointer_mut("/params/update"))
+            .flatten();
+        if let Some(update) = update {
             let repeats = context.update_repeats.leave_out_repeats(&self.kind, update);
             if repeats.nothing_left {
                 return false;
             }
             self.repeats = Some(repeats);
+        } else if self.kind == "response" {
+            self.repeats =
+                Some(context.update_repeats.leave_out_repeats(&self.kind, &mut self.msg));
         }
         true
     }
@@ -118,6 +124,9 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
         }
         Entry::Response { direction, value } => (direction, "response".into(), value, false),
     };
+    // Preserve method predicates before a session/update replaces the logged kind.
+    let permission_request = kind == "session/request_permission";
+    let session_update = kind == "session/update";
     let dir = if direction == Direction::In { "in" } else { "out" };
     if notification && direction == Direction::In {
         let params = value.get("params");
@@ -155,12 +164,10 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
     model_copy::scrub_logged(&mut value);
     if direction == Direction::Out {
         logged_bodies::leave_out_prompt_bodies(&kind, &mut value);
-    } else if kind == "session/request_permission"
-        && let Some(params) = value.get_mut("params")
-    {
+    } else if permission_request && let Some(params) = value.get_mut("params") {
         drop_display_lines(params);
     }
-    let repeats = (direction == Direction::In && kind == "response")
+    let repeats = (direction == Direction::In && kind == "response" && !session_update)
         .then(|| context.update_repeats.leave_out_repeats(&kind, &mut value));
     Some(Record { dir, kind, msg: value, init: None, repeats })
 }
