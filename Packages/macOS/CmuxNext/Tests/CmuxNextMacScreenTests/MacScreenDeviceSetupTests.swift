@@ -175,6 +175,16 @@ import Testing
         await Self.settle { setup.runs["d1"]?.isRunning == false }
         #expect(setup.runs["d1"]?.phase == .needsNewerCmux)
         #expect(!setup.row(id: "d1", isMac: true, online: false).showsStart)
+        #expect(!setup.row(id: "d1", isMac: true, online: false).showsSetup)
+        #expect(!setup.row(id: "d2", isMac: true, online: true).showsSetup)
+    }
+
+    @Test func aHostThatBlocksThisMacOffersNoSetUp() {
+        let row = MacScreenDeviceSetupRow.make(isMac: true, online: false, verbs: .all, run: nil)
+        let blocked = row.blocking(allowsRequests: false)
+        #expect(!blocked.showsSetup)
+        #expect(blocked.showsStart)
+        #expect(row.blocking(allowsRequests: true) == row)
     }
 
     @Test func noDaemonShowsNoButton() {

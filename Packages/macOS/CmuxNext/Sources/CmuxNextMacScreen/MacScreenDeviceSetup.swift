@@ -214,6 +214,15 @@ public nonisolated struct MacScreenDeviceSetupRow: Equatable, Sendable {
                                        run: run)
     }
 
+    /// The row for a device whose host may block this Mac: a blocked host offers no Set Up cmux (it
+    /// refuses the request, and a blocked row has no More menu). Start stays; it shows only while offline.
+    public func blocking(allowsRequests: Bool) -> MacScreenDeviceSetupRow {
+        guard !allowsRequests else { return self }
+        var row = self
+        row.showsSetup = false
+        return row
+    }
+
     /// Whether a button of `verb` can be pressed now (no run of either verb in flight).
     public func canRun(_ verb: MacScreenDeviceVerb) -> Bool {
         run?.isRunning != true && (verb == .setup ? showsSetup : showsStart)
@@ -313,7 +322,8 @@ public final class MacScreenDeviceSetup {
             guard let self, !Task.isCancelled, runs[id]?.isRunning == true else { return }
             runs[id]?.end(stop)
             tasks[id] = nil
-            if runs[id]?.phase == .needsNewerCmux { verbs?.known.remove(verb) }
+            // Both verbs send the same `device-setup` command: a daemon that refuses one refuses both.
+            if runs[id]?.phase == .needsNewerCmux { verbs?.known.removeAll() }
             if runs[id]?.phase == .succeeded { succeeded(id, verb) }
         }
     }

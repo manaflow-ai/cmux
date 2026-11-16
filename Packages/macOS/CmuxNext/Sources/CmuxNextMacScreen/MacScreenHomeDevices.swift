@@ -230,7 +230,7 @@ extension MacScreenHomeView {
         }
         let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading, labelViews)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let setup = device.setup
+        let setup = device.setup.blocking(allowsRequests: device.access.allowsRequests)
         // Start cmux is the one button that can work while the Mac is offline: it is the row's default
         // button then, and Full Control steps down to a plain one (one primary per row).
         let startShows = setup.showsStart && placement != .below
