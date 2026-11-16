@@ -6,6 +6,8 @@ import { markRecapEntrance } from "../conversation/turnEndFold";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
+import { useLiveThoughtRow } from "../liveThought";
+import { useStreamingRowFor } from "../streamingRow";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
@@ -42,8 +44,9 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // A running command's output that moved on without the pane: this row alone draws it.
-    const row = useLiveToolRow(props.row, liveTools);
+    // What moved on without the pane (a running command's output, a thought, the streaming reply's
+    // text and the live line under it): this row alone draws it.
+    const row = useStreamingRowFor(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
     return <Component {...props} row={row} />;
   },
   (previous, next) => {

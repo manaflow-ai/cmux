@@ -1,4 +1,5 @@
 import { composerPickerEntries } from "./composerPickerEntries";
+import { useLiveSummary } from "./liveSummary";
 import { acpmuxPerf } from "./perf";
 import React, { useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
@@ -235,7 +236,8 @@ export function ComposerPickers({
   const chatAccounts = useChatAccounts();
   // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
   const claudeConnect = useClaudeConnectFlow();
-  const summary = snapshot.summary;
+  // A usage update reaches the context ring without the pane (liveSummary.ts).
+  const summary = useLiveSummary(snapshot.summary);
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
   // probe alone (a timeout) keeps it.
