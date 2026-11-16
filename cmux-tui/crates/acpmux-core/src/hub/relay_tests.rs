@@ -173,8 +173,13 @@ async fn keys_past_the_budget_are_rest_in_order_and_are_not_asked() {
     let relay = FakeRelay::new(peer, Answer::Peer);
     hub.set_page_relay(relay.clone());
     let asked = (0..100).map(key).collect::<Vec<_>>();
-    // Room for some keys past the reserve a page keeps for one more row of the widest size.
-    let max = 6 * acpmux_book::index::MAX_INDEX_RECORD_BYTES + 3_000;
+    // A page charges every key up front and keeps room for one more row of the widest size;
+    // past both, 2,500 bytes of rows: the plan cuts partway through the held keys.
+    let keys_bytes = asked
+        .iter()
+        .map(|key| serde_json::to_vec(&PageKey::Summary(key.clone())).unwrap().len() + 1)
+        .sum::<usize>();
+    let max = 6 * acpmux_book::index::MAX_INDEX_RECORD_BYTES + keys_bytes + 64 + 300 + 2_500;
     let frame = sent(&hub, &keys_page(asked.clone(), max as u32)).answer().await.unwrap();
     assert!(frame.encoded_len() <= max);
     let page: PageResult<Summary> = frame.decode_json().unwrap();
