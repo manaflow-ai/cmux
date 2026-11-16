@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ensureOutputFile, harnessEnsureScript, harnessGate, judgeEnsure, pickerHarnesses } from "../scripts/cmux-vm-image/harness-gate";
 
 // The image roll's harness gate (incident 2026-11-16, staging roll run 43919811234): a candidate image is promoted only
 // when a booted guest of it passes `acp ensure` for every harness the Cloud chat picker offers.
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The exact refusal staging guests gave after the 2026-11-16 roll (acpmux model_hint.rs). */
 const NO_CLAUDE = `{"error":{"code":"usage","detail":"usage","exit":2,"message":"unknown harness \\"claude\\"; families: chief, unii; profiles: chief, unii; presets: none. \\"claude\\" is a harness profile this host does not have: install it in config.json","promptId":null,"retryable":false,"sessionId":null}}\n@@exit 2\n`;
@@ -39,12 +42,16 @@ function fixtureGuest(have: string[]): { dir: string; cmux: string; out: string 
 }
 
 /** Runs the gate's guest script on a fixture guest and judges what it wrote, as the probe does on the candidate. */
-function runOnFixture(harnesses: readonly string[], have: string[]) {
+async function runOnFixture(harnesses: readonly string[], have: string[]) {
   const guest = fixtureGuest(have);
   try {
     const script = harnessEnsureScript({ cmux: guest.cmux, cwd: guest.dir, outDir: guest.out, harnesses });
-    const ran = spawnSync("bash", ["-c", script], { encoding: "utf8" });
-    expect(ran.status).toBe(0);
+    const status = await new Promise<number | null>((resolve, reject) => {
+      const child = spawn("bash", ["-c", script], { stdio: "ignore" });
+      child.on("error", reject);
+      child.on("close", resolve);
+    });
+    expect(status).toBe(0);
     const outputs: Record<string, string | undefined> = {};
     for (const h of harnesses) {
       try {
@@ -61,17 +68,17 @@ function runOnFixture(harnesses: readonly string[], have: string[]) {
 
 describe("image roll harness gate", () => {
   test("the harnesses come from the Cloud chat picker's list (cloud-chat-matrix.ts PICKER_HARNESSES), never a copy", async () => {
-    const matrix = (await import(path.join(import.meta.dir, "../../scripts/cmux-next/cloud-chat-matrix.ts"))) as { PICKER_HARNESSES: readonly string[] };
+    const matrix = (await import(path.join(HERE, "../../scripts/cmux-next/cloud-chat-matrix.ts"))) as { PICKER_HARNESSES: readonly string[] };
     const harnesses = await pickerHarnesses();
     expect(harnesses).toBe(matrix.PICKER_HARNESSES);
     expect(harnesses).toContain("claude");
-    const source = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/harness-gate.ts"), "utf8");
+    const source = readFileSync(path.join(HERE, "../scripts/cmux-vm-image/harness-gate.ts"), "utf8");
     for (const h of matrix.PICKER_HARNESSES.filter((x) => x !== "claude")) expect(source).not.toContain(`"${h}"`);
   });
 
   test("a fixture guest whose harness list lacks one picker harness blocks promotion, naming it and its ensure output", async () => {
     const harnesses = await pickerHarnesses();
-    const gate = runOnFixture(harnesses, harnesses.filter((h) => h !== "claude"));
+    const gate = await runOnFixture(harnesses, harnesses.filter((h) => h !== "claude"));
     expect(gate.passed).toBe(false);
     expect(gate.failures.map((f) => f.harness)).toEqual(["claude"]);
     expect(gate.failures[0]!.detail).toContain("claude");
@@ -80,7 +87,7 @@ describe("image roll harness gate", () => {
 
   test("a fixture guest with every picker harness passes", async () => {
     const harnesses = await pickerHarnesses();
-    const gate = runOnFixture(harnesses, [...harnesses]);
+    const gate = await runOnFixture(harnesses, [...harnesses]);
     expect(gate.failures).toEqual([]);
     expect(gate.passed).toBe(true);
   });
@@ -116,7 +123,7 @@ describe("image roll harness gate", () => {
   });
 
   test("the agent tools probe, the image roll's gate before promotion, runs the harness gate", () => {
-    const probe = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/agent-tools-probe.ts"), "utf8");
+    const probe = readFileSync(path.join(HERE, "../scripts/cmux-vm-image/agent-tools-probe.ts"), "utf8");
     const body = probe.slice(probe.indexOf("export async function agentToolsProbe"));
     expect(body.slice(0, body.indexOf("\n}\n"))).toContain("await harnessEnsureChecks(");
   });

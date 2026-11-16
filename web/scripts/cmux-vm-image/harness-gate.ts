@@ -16,13 +16,13 @@
  * there and the app then offers its own sign-in, the same rule as the matrix's `start` cells. Anything else fails:
  * an unknown or uninstalled harness, another refusal, a hang (the guest's `timeout` cuts it off) or no output at all.
  */
-import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sq } from "./lock";
 
 /** How long one harness's ensure may take on the guest (cloud-journey.ts gives ensure 120 s too). */
 export const ENSURE_SECONDS = 120;
 
-const MATRIX = path.join(import.meta.dir, "../../../scripts/cmux-next/cloud-chat-matrix.ts");
+const MATRIX = fileURLToPath(new URL("../../../scripts/cmux-next/cloud-chat-matrix.ts", import.meta.url));
 
 /** The harnesses the Cloud chat picker offers (cloud-chat-matrix.ts PICKER_HARNESSES). */
 export async function pickerHarnesses(): Promise<readonly string[]> {
