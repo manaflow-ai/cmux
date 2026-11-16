@@ -17,6 +17,7 @@ enum TerminalHandlers {
         bindKeep(registry, ctx)
         bindCopyMode(registry, ctx)
         TextBoxHandlers.bind(into: registry, context: ctx)
+        registry.bindAwaitingHandlers()
     }
 
     /// Runs a Ghostty binding action on the targeted or focused terminal.
@@ -41,14 +42,8 @@ enum TerminalHandlers {
             }
             entry.session.surfaceView.copy(nil)
         })
-        registry.bind("terminalPaste", invoke: { invocation in
-            guard let entry = ctx.terminal(invocation) else { return }
-            entry.session.surfaceView.paste(nil)
-        })
-        registry.bind("terminal.selectAll", invoke: { invocation in
-            guard let entry = ctx.terminal(invocation) else { return }
-            entry.session.surfaceView.selectAll(nil)
-        })
+        registry.bind("terminalPaste", invoke: { ctx.terminal($0)?.session.surfaceView.paste(nil) })
+        registry.bind("terminal.selectAll", invoke: { ctx.terminal($0)?.session.surfaceView.selectAll(nil) })
     }
 
     private static func bindSurfaceBindings(_ registry: ActionRegistry, _ ctx: AppActionContext) {
