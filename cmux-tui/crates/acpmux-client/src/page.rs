@@ -665,11 +665,12 @@ impl ListDriver {
     }
 
     fn remove_member(&mut self, sid: &str, key: &RowRef) {
-        if let Some(members) = self.members.get_mut(sid) {
+        let empty = self.members.get_mut(sid).map(|members| {
             members.remove(key);
-            if members.is_empty() {
-                self.members.remove(sid);
-            }
+            members.is_empty()
+        });
+        if empty == Some(true) {
+            self.members.remove(sid);
         }
         if !self.members.values().any(|members| members.contains(key)) {
             self.latest.remove(key);
