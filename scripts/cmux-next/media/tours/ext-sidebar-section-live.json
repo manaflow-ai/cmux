@@ -1,6 +1,13 @@
 {
   "title": "A sidebar extension in the real sidebar: an agent's save redraws it live; cmux ext reload and cmux reload-config reload on request",
   "customize": true,
+  "settings": {
+    "sidebar": {
+      "cards": {
+        "tips": false
+      }
+    }
+  },
   "steps": [
     {
       "title": "Launch",
