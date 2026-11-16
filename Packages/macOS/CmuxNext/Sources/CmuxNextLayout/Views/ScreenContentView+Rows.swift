@@ -58,7 +58,6 @@ extension ScreenContentView {
               let column = layout.columns.first(where: { $0.id == id }) else { return }
         let splits = Set(column.trees.flatMap(\.splits))
         for pane in column.trees.flatMap(\.panes) { paneFrames[pane]?.y.value -= offset }
-        closingPanes.shiftY(inRowColumn: id, by: -offset) // FRAME OWNER S3c: closing panes there keep where they show
         for kind in Array(dividerFrames.keys) {
             let inColumn: Bool = switch kind {
             case let .split(split): splits.contains(split)
@@ -109,7 +108,6 @@ extension ScreenContentView {
     }
 
     func beginRowScroll(_ column: ColumnID) {
-        scrollRidesFrames = false
         rowScrolls[column]?.state.reduce(.gestureBegan)
     }
 
@@ -132,7 +130,6 @@ extension ScreenContentView {
     /// One mouse wheel notch on the vertical axis.
     @discardableResult
     func discreteRowScroll(_ column: ColumnID, direction: Int) -> Bool {
-        scrollRidesFrames = false
         guard var scroll = rowScrolls[column] else { return false }
         let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
         rowScrolls[column] = scroll

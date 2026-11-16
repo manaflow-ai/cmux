@@ -22,9 +22,9 @@ extension ScreenContentView {
     /// `[fx, fy, fwidth, fheight]` (window points, top-left origin), the content view's size
     /// `[cwidth, cheight]`, and `header`, the share of the content's header (its tab strip)
     /// that shows (1: all of it; 0 without a header), then the content view in the window
-    /// `[cx, cy, cwidth, cheight]`. `closing`: each closing pane's ground (FRAME OWNER S3c: a springing close keeps the
-    /// pane's host, with only its ground, on what its neighbours have not covered yet) as `[pane, x, y, width, height,
-    /// alpha, z]`, apart from `panes`: it lays out no content.
+    /// `[cx, cy, cwidth, cheight]`. `late`: each pane that shows its ground because a producer in it was not ready when
+    /// its layout change showed (`PaneHostView.showsLateGround`), as `[pane, x, y, width, height, alpha, z]`; a pane in
+    /// it is in `panes` too.
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let screen = view as? ScreenContentView else { return nil }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor else { return [:] }
@@ -33,17 +33,14 @@ extension ScreenContentView {
             let shown = view.convert(rect, to: nil)
             return [shown.minX, height - shown.maxY, shown.width, shown.height].map { (Double($0) * 100).rounded() / 100 }
         }
-        var panes: [Any] = [], dividers: [Any] = [], closing: [Any] = []
+        var panes: [Any] = [], dividers: [Any] = [], late: [Any] = []
         for (index, subview) in screen.subviews.enumerated() {
             if let host = subview as? PaneHostView, !host.isHidden {
                 var visible = host.frame
                 if let mask = host.layer?.mask { visible = visible.intersection(mask.frame.offsetBy(dx: host.frame.minX, dy: host.frame.minY)) }
                 let rect = visible.isNull ? CGRect.zero : visible
                 let row: [Any] = [host.pane.rawValue as Any] + topLeft(rect, in: screen).map { $0 as Any } + [Double(host.alphaValue) as Any, index as Any]
-                if host.showsClosingGround {
-                    closing.append(row)
-                    continue
-                }
+                if host.showsLateGround { late.append(row) }
                 let header = CGRect(x: host.frame.minX + host.contentRect.minX, y: host.frame.minY + host.contentRect.minY,
                                     width: host.contentRect.width, height: host.headerHeight)
                 let shownHeader = header.intersection(rect)
@@ -57,7 +54,7 @@ extension ScreenContentView {
                 dividers.append(row)
             }
         }
-        return ["panes": panes, "dividers": dividers, "zoom": [screen.zoomMotion.pane?.rawValue ?? ""], "closing": closing]
+        return ["panes": panes, "dividers": dividers, "late": late]
     }
 }
 #endif

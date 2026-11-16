@@ -7,14 +7,14 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// RESIZE VIDEOS F1 (STATUS 6164, 6209; feat e34fecc1312): one refresh is lost at the start of every close. #31811
-/// keeps the closed pane's HOST until the motion lands, but its CONTENT still went in the close's first frames: the
-/// close's reply and the gone-tab watch (the tree no longer lists the tab) release the tab at once
-/// (`TabContentCache.release`), which takes the terminal view out of the closing pane (`surfaceWasDisplaced`) and
-/// closes its surface; the views then deallocate in the next autorelease pop and Core Animation commit. In the
-/// suite's xctrace profiles on the tip that teardown is about a quarter of the main thread's time in the close's
-/// first two intervals, which miss refreshes at 120 Hz. Work no frame shows must not run in the motion: the
-/// closed pane's content stays (hidden, with its host) until the pane is torn down at the landing, and goes then.
+/// RESIZE VIDEOS F1 (STATUS 6164, 6209; feat e34fecc1312): one refresh is lost at the start of every close. The
+/// closed pane's HOST stays until the close showed, but its CONTENT went before that: the close's reply and the
+/// gone-tab watch (the tree no longer lists the tab) release the tab at once (`TabContentCache.release`), which takes
+/// the terminal view out of the closing pane (`surfaceWasDisplaced`) and closes its surface; the views then deallocate
+/// in the next autorelease pop and Core Animation commit. In the suite's xctrace profiles on the tip that teardown is
+/// about a quarter of the main thread's time in the close's first two intervals, which miss refreshes at 120 Hz. Work
+/// no frame shows must not run in the frame that shows the close: the closed pane's content stays (with its host)
+/// until the pane is torn down after that frame's commit, and goes then.
 ///
 /// The test is the layout's clock (`DisplayLinkDriver.isManual`, 120 Hz steps); the daemon is an offline store.
 @Suite(.closesItsWindows)
@@ -106,7 +106,7 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aClosingPanesContentStaysUntilTheMotionLands() async throws {
+    func aClosedPanesContentStaysUntilTheFrameThatShowsTheCloseCommitted() async throws {
         let app = try await Fixture()
         defer { app.close() }
         let closing = try app.pane(2), closedTab = try app.tab(2), kept = try app.tab(1)
@@ -114,17 +114,18 @@ import Testing
         try #require(app.cache.existingTerminal(closedTab) != nil, "fixture: pane 2's terminal exists")
 
         // The close's turn, as Cmd-W on pane 2's last tab runs it (`PaneController.prepareClose`): the tab leaves the
-        // strip (the pane withdraws its terminal), the pane leaves its window and its neighbours spring into its place.
+        // strip (the pane withdraws its terminal), the pane leaves its window's layout and the close waits for its
+        // frame tick.
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
         let screen = try #require(app.root.screenViews.values.first { !$0.isHidden })
-        try #require(screen.hasMotion, "fixture: the close springs")
+        try #require(screen.frameInput.snapWaitsForContent, "fixture: the close waits for its frame tick")
         // The next frame's content presentation (the scheduler runs it on the display link): the pane withdraws the tab
         // the strip no longer lists, so the cache has no presenter for it any more.
         closing.showSelected()
         try #require(app.cache.presenter(of: closedTab) == nil, "fixture: the closing pane withdrew its tab")
-        // A close releases its tab more than once before it lands: the gone-tab watch on the tree that drops the pane and
-        // again on each later tree revision, then the reply's finish. Every one of them waits for the landing (review of
-        // #32197: the second release found no pane and ran in the motion).
+        // A close releases its tab more than once before it shows: the gone-tab watch on the tree that drops the pane and
+        // again on each later tree revision, then the reply's finish. Every one of them waits for the pane's teardown
+        // (review of #32197: the second release found no pane and ran at once).
         app.store.apply(snapshot: ClosedPaneContentStaysUntilLandingTests.tree([1, 3]))
         await ClosedPaneContentStaysUntilLandingTests.drainMain()
         // The test applies the tree as a whole snapshot, which shows the closing pane's tab again for a moment (the
@@ -140,23 +141,16 @@ import Testing
         await prepared.finish(false, false) // the reply's release
         #expect(app.cache.existingTerminal(closedTab) != nil, "the reply's release ran at once (\(state()))")
 
-        var releasedInFrame: Int?
-        var frames = 0
-        if app.cache.existingTerminal(closedTab) == nil { releasedInFrame = 0 }
-        while frames < 600 {
-            let moving = app.root.advanceFrame(Self.dt)
-            frames += 1
-            await Self.drainMain()
-            if !moving { break }
-            app.committed.run() // a motion frame's commit: nothing it ran may take the closed terminal
-            if releasedInFrame == nil, app.cache.existingTerminal(closedTab) == nil { releasedInFrame = frames }
-        }
-        #expect(frames > 10, "the close springs over several frames (\(frames))")
-        #expect(releasedInFrame == nil,
-                "the closed pane's terminal was torn down in motion frame \(releasedInFrame ?? -1) of \(frames): work no frame shows ran in the motion")
-        #expect(app.cache.existingTerminal(closedTab) != nil, "the landing frame itself tore the terminal down, before its commit")
-        app.committed.run() // the landing frame committed
-        #expect(app.cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the landing's commit")
+        // What the close's own turn queued for after its commit: nothing of it may take the closed terminal.
+        app.committed.run()
+        #expect(app.cache.existingTerminal(closedTab) != nil, "the close's own turn tore the terminal down")
+        // The frame tick that shows the close: one frame, and it carries no teardown.
+        _ = app.root.advanceFrame(Self.dt)
+        await Self.drainMain()
+        #expect(!screen.frameInput.snapWaitsForContent, "the close did not show at its first frame tick")
+        #expect(app.cache.existingTerminal(closedTab) != nil, "the frame that shows the close tore the terminal down, before its commit")
+        app.committed.run() // that frame committed
+        #expect(app.cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the commit of the frame that showed the close")
         #expect(app.cache.existingTerminal(kept) != nil, "a pane that stays lost its terminal")
     }
 
@@ -169,8 +163,8 @@ import Testing
         defer { app.close() }
         let closing = try app.pane(2), tab = try app.tab(2)
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
-        try #require(app.root.screenViews.values.contains { !$0.isHidden && $0.hasMotion }, "fixture: the close springs")
-        // A release while it closes (the gone-tab watch or the reply): held for the landing.
+        try #require(app.root.screenViews.values.contains { !$0.isHidden && $0.frameInput.snapWaitsForContent }, "fixture: the close waits for its frame tick")
+        // A release while it closes (the gone-tab watch or the reply): held for the pane's teardown.
         app.cache.release(tab)
         try #require(app.cache.existingTerminal(tab) != nil, "fixture: the release is held while the pane closes")
 

@@ -383,6 +383,60 @@ import Testing
         afterCommit = []
         for item in work { item() }
         #expect(harness.provider.released == [Self.added], "the closed pane was not torn down after that frame's commit: \(harness.provider.released)")
-        #expect(closed.superview == nil, "the closed pane's host is still in the screen")
+        #expect(closed.superview == nil && closed.chrome.superview == nil, "the closed pane's host or its ring is still in the view tree")
+    }
+
+    /// A close taken back before it showed (the daemon refused it): the pane never left the screen, it has the host and
+    /// the content it had, and nothing is released.
+    @Test func aCloseTakenBackBeforeItShowedKeepsThePaneAsItWas() throws {
+        let harness = Harness(Self.pairSplit(.horizontal), focused: Self.left, holds: false)
+        defer { harness.window.closeAfterTest() }
+        var afterCommit: [@MainActor () -> Void] = []
+        harness.root.context.afterCommit = { afterCommit.append($0) }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let whole = Rest(harness.model.screens, in: screen, style: style)
+        let closed = try #require(harness.root.context.hosts[Self.added])
+
+        harness.model.apply(screens: Self.pair)
+        harness.root.syncWithModel()
+        #expect(closed.hitTest(NSPoint(x: closed.frame.midX, y: closed.frame.midY)) == nil, "a pane that is leaving takes clicks")
+        harness.model.apply(screens: Self.pairSplit(.horizontal))
+        harness.root.syncWithModel()
+        #expect(harness.root.context.hosts[Self.added] === closed, "the pane that came back has another host")
+        #expect(whole.isShown(by: Self.shown(screen)), "the screen changed in the turns of a close and of its return")
+        for _ in 0..<Self.frames {
+            _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+            #expect(whole.isShown(by: Self.shown(screen)), "a frame shows another layout after the close was taken back")
+        }
+        let work = afterCommit
+        afterCommit = []
+        for item in work { item() }
+        #expect(harness.provider.released.isEmpty, "the pane that came back was released: \(harness.provider.released)")
+        #expect(!closed.isHidden && !closed.chrome.isHidden && closed.hitTest(NSPoint(x: closed.frame.midX, y: closed.frame.midY)) != nil,
+                "the pane that came back does not show, or takes no clicks")
+    }
+
+    /// A close that changes no pane's size (a strip column between two columns that keep their widths) waits for no
+    /// frame tick: it shows in its own turn, and the closed pane is torn down in that turn.
+    @Test func aCloseThatResizesNoPaneShowsInItsOwnTurn() throws {
+        func strip(_ panes: [Int]) -> [LayoutScreen] {
+            [LayoutScreen(id: "s", name: "s", layout: .columns(panes.map { PaneMotionBench.column($0, rows: 1, width: 0.25) }))]
+        }
+        let harness = Harness(strip([0, 1, 2]), focused: PaneID("p0-0"), holds: false)
+        defer { harness.window.closeAfterTest() }
+        // The columns that stay keep their widths (no setting of the Mac the test runs on resizes them).
+        harness.model.newColumnWidthModeOverride = .matchCurrent
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let closed = try #require(harness.root.context.hosts[PaneID("p1-0")])
+
+        harness.model.apply(screens: strip([0, 2]))
+        let new = Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.root.syncWithModel()
+        #expect(new.isShown(by: Self.shown(screen)), "a close that resizes nothing did not show in its own turn: \(Self.shown(screen).panes)")
+        #expect(harness.provider.released == [PaneID("p1-0")] && closed.superview == nil, "the closed pane was not torn down in that turn")
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a close that showed asks for frames")
     }
 }

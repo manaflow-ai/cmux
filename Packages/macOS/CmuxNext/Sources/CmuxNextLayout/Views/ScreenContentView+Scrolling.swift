@@ -10,7 +10,7 @@ extension ScreenContentView {
         ColumnStrip(layout: layout, geometry: geometry, gap: context.style.stripGap)
     }
 
-    /// Feeds the layout, geometry and focus to the reducer and presents once (or a close's `leadIfPending` does).
+    /// Feeds the layout, geometry and focus to the reducer and presents once.
     /// Returns true if the spring needs frames. A reveal that snaps (animation off,
     /// Reduce Motion) shows the `auto` scrollbar like the spring frames it
     /// replaces, only when `showsScrollbarOnSnap`: the caller passes false
@@ -19,11 +19,6 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
-        // The camera this change sets decides which of its closing panes show (FRAME OWNER S3d), before its first frame.
-        defer {
-            settleClosing()
-            leadIfPending()
-        }
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
@@ -31,7 +26,7 @@ extension ScreenContentView {
         guard let strip else {
             scrollState = ColumnScrollState()
             settleCarried()
-            if !leadsFrame { applyPresentation() }
+            applyPresentation()
             // Resetting the camera can start a carried pane off screen. Keep its spring
             // ticking while this workspace stays visible (Lucas 2026-10-19).
             return hasMotion || rowsNeedFrames
@@ -41,7 +36,7 @@ extension ScreenContentView {
                                                anchor: ScreenDividers(screen: self).dragAnchorColumn))
         settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
-        let needsFrames = apply(effects, presents: !leadsFrame)
+        let needsFrames = apply(effects, presents: true)
         return needsFrames || hasMotion || rowsNeedFrames
     }
 
@@ -49,7 +44,6 @@ extension ScreenContentView {
     @discardableResult
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
-        scrollRidesFrames = false
         return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
@@ -78,7 +72,6 @@ extension ScreenContentView {
             landed = true
         }
         guard landed else { return }
-        scrollRidesFrames = false
         if !rowScrolls.isEmpty || !areaScrolls.isEmpty { refreshRowShift() }
         applyPresentation()
         // A scroll that came to rest tells the model its leading column, as from the frame it lands in (`step`).
@@ -99,13 +92,10 @@ extension ScreenContentView {
     /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
     func page(to offset: CGFloat) {
         scrollbarFlash = true
-        scrollRidesFrames = false
         apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion)))
     }
 
     func beginUserScroll() {
-        // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
-        scrollRidesFrames = false
         scrollState.reduce(.gestureBegan)
     }
 
@@ -126,7 +116,6 @@ extension ScreenContentView {
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
-        scrollRidesFrames = false
         apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion)))
     }
 

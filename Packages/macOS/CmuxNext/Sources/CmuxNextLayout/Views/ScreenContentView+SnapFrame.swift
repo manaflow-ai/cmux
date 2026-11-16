@@ -152,10 +152,12 @@ extension ScreenContentView {
         }
     }
 
-    /// In the presentation that shows a change, before it places the panes: the panes and dividers the change took out
-    /// go. A pane a later change took back stays (it is in the layout again). The hosts hide here and are torn down after
-    /// this frame's commit: the frame that shows the change carries no teardown.
-    func hideSnapDeparted() {
+    /// In the turn that shows a change, before it places the panes: the panes and dividers the change took out go. A
+    /// pane a later change took back stays (it is in the layout again). The hosts hide here. `inFrameTick`: the change
+    /// waited for a frame tick, and this is that tick's presentation: a close's hosts are torn down after this frame's
+    /// commit, so the frame that shows the change carries no teardown (RESIZE VIDEOS F1: a teardown in a close's first
+    /// frames missed refreshes). Else the change shows in its own turn, and they are torn down in it.
+    func hideSnapDeparted(inFrameTick: Bool = true) {
         if !frameInput.snapDepartedDividers.isEmpty {
             for view in frameInput.snapDepartedDividers { view.removeFromSuperview() }
             frameInput.snapDepartedDividers = []
@@ -163,7 +165,13 @@ extension ScreenContentView {
         guard !frameInput.snapDeparted.isEmpty else { return }
         frameInput.snapDeparted = []
         guard context.hideRetiredShown(of: screenID) else { return }
-        context.afterCommit { [weak self] in self?.releaseClosing() }
+        if inFrameTick { context.afterCommit { [weak self] in self?.releaseDeparted() } } else { releaseDeparted() }
+    }
+
+    /// Tears down the hosts of the panes a close took out of this screen, once the close showed (`until` nil: every
+    /// host the screen kept, a zoom's too: the screen goes).
+    func releaseDeparted(until: LayoutViewContext.Retirement? = .landing) {
+        context.releaseRetired(of: screenID, until: until)
     }
 
     /// In the presentation that shows a change, once it placed the panes: the panes the change brought back hidden (a
