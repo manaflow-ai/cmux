@@ -84,6 +84,10 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
         return reduceMotion ? min(scaled, MotionFade.crossfade.baseDuration) : scaled
     }
 
+    /// `seconds` at this speed: how long a timed motion that is no token takes (the agent cursor's
+    /// glide, the attention ring's arrival swell). 0 at speed "off".
+    public func scaled(_ seconds: TimeInterval) -> TimeInterval { seconds * speed.timeScale }
+
     /// Seconds that stand in for `token` when only a timed API exists (NSWindow
     /// frames): the spring's visible end (within 0.5%, `perceivedDuration`).
     /// 0 when movement does not animate.
