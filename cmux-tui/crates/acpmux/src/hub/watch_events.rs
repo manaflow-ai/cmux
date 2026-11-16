@@ -67,6 +67,8 @@ pub const WATCH_KINDS: &[&str] = &[
     "permission_reissued",
     "permission_decision",
     "turn_result",
+    "harness_sandbox_failed",
+    "remote_sandbox",
     "status",
 ];
 
@@ -181,9 +183,30 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                 ("mux", "permission_decision") => {
                     c.permission_wakes.remove(&format!("permission:{}", e.msg["permissionId"]));
                 }
+                ("mux", "harness_sandbox_failed" | "remote_sandbox")
+                    if w.until.iter().any(|u| u == "blocked") =>
+                {
+                    if let Some(error) =
+                        e.msg.get("error").or_else(|| e.msg.get("refused")).and_then(Value::as_str)
+                    {
+                        c.reply = format!(
+                            "{error}\nCheck the chat's permission level on its machine; restart it with Full access only when authorized, or choose a folder and tools its sandbox permits."
+                        );
+                        candidates.push(("blocked", format!("sandbox:{}", e.seq)));
+                    }
+                }
                 ("mux", "turn_result") => {
                     c.turn_mark = format!("turn:{}", e.msg["turnId"]);
                     c.unread = e.msg.get("unread").unwrap_or(&s["unread"]) == &Value::Bool(true);
+                    let blocked = w.until.iter().any(|u| u == "blocked")
+                        && (e.msg["status"] == "failed"
+                            || crate::session_liveness::blocked_reply(&c.reply).is_some());
+                    if blocked {
+                        if let Some(error) = e.msg["errorText"].as_str() {
+                            c.reply = error.to_owned();
+                        }
+                        candidates.push(("blocked", c.turn_mark.clone()));
+                    }
                     let status = if e.msg["pendingPermissions"].as_u64().unwrap_or(0) > 0 {
                         "waiting"
                     } else {
@@ -193,7 +216,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                         selected(&w.until, &json!({"status": status, "unread": c.unread}))
                     {
                         // Permission wakes have their own journal identity.
-                        if state != "permission" {
+                        if state != "permission" && !blocked {
                             candidates.push((state, c.turn_mark.clone()));
                         }
                     }

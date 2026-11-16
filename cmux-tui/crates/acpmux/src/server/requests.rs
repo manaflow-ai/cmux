@@ -1642,6 +1642,7 @@ async fn dispatch_request_with_identity(
                     hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
                 }
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+                    super::lane_parent::report_remote_created(hub, conn, &params, &peer.name, id)?;
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
                 }

@@ -28,6 +28,10 @@ const CALLS: usize = 8;
 /// The refusal line of `update` when it is a failed tool result carrying one, masked and
 /// bounded; None for every other update.
 pub(super) fn refusal(update: &Value) -> Option<String> {
+    failed_text(update, |head| REFUSALS.iter().filter_map(|r| head.find(r)).min())
+}
+
+fn failed_text(update: &Value, at: impl Fn(&str) -> Option<usize>) -> Option<String> {
     if update.get("sessionUpdate").and_then(Value::as_str) != Some("tool_call_update")
         || update.get("status").and_then(Value::as_str) != Some("failed")
     {
@@ -38,9 +42,29 @@ pub(super) fn refusal(update: &Value) -> Option<String> {
         let text = block.pointer("/content/text").and_then(Value::as_str)?;
         let head =
             text.char_indices().nth(SCAN).map_or(text, |(i, _)| text.get(..i).unwrap_or(text));
-        let at = REFUSALS.iter().filter_map(|r| head.find(r)).min()?;
-        let line = head.get(at..)?.lines().next().unwrap_or_default();
+        let line = head.get(at(head)?..)?.lines().next().unwrap_or_default();
         Some(super::session::masked_preview(line, MAX_ERROR))
+    })
+}
+
+/// Known denials of repository/state work in a remote platform sandbox. A
+/// generic failed command is not evidence of sandbox refusal. Only read failed
+/// tool results, never successful grep output or the agent's prose.
+fn remote_refusal(update: &Value) -> Option<String> {
+    failed_text(update, |head| {
+        let mut offset = 0;
+        for line in head.split_inclusive('\n') {
+            let denied = line.contains("Permission denied")
+                || line.contains("Operation not permitted")
+                || line.contains("Read-only file system");
+            if line.contains("state path ancestor owned by another user")
+                || (denied && (line.contains(".git") || line.contains(".sock")))
+            {
+                return Some(offset);
+            }
+            offset += line.len();
+        }
+        None
     })
 }
 
@@ -52,14 +76,32 @@ impl Hub {
         let failing =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_sandbox.clone();
         if !failing.failing {
-            let Some(error) = refusal(update) else { return };
+            let meta = session.meta();
+            let remote = meta.remote_origin && !meta.vm_boundary;
+            let Some(error) =
+                refusal(update).or_else(|| remote.then(|| remote_refusal(update)).flatten())
+            else {
+                return;
+            };
+            let error = if remote {
+                format!(
+                    "{error}. Choose Full access on the starting machine if authorized, or use a folder and tools allowed by this chat's sandbox."
+                )
+            } else {
+                error
+            };
             let first = failing.first_at.unwrap_or_else(crate::store::now_ms);
             self.append(
                 session,
                 "mux",
                 RECORD_KIND,
-                json!({"error": error, "toolCallId": update.get("toolCallId"), "firstAt": first}),
+                json!({"error": error, "toolCallId": update.get("toolCallId"), "firstAt": first, "remote": remote}),
             );
+            return;
+        }
+        // A successful `true` proves nothing about a denied repository path or
+        // socket. Only a new harness clears a platform sandbox refusal.
+        if failing.remote {
             return;
         }
         let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
@@ -163,6 +205,60 @@ mod tests {
     }
 
     const REFUSED: &str = "Sandbox is required but failed to initialize: EPERM: operation not permitted, listen '/tmp/srt-mux-2-2.sock'";
+
+    #[tokio::test]
+    async fn remote_repository_refusal_is_visible_and_reaches_the_starters_watch() {
+        let mut m = meta("remote-refusal");
+        m.remote_origin = true;
+        let (hub, session) = restored(m, &[]);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let denied = "fatal: Unable to create '/tmp/work/.git/index.lock': Permission denied";
+        hub.note_harness_sandbox(&session, &result("failed", denied));
+        let summary = hub.session_summary(&session);
+        assert_eq!(summary["indicator"], "failed");
+        assert_eq!(summary["lane"]["state"], "failed");
+        assert!(summary["lane"]["error"].as_str().unwrap().contains("index.lock"));
+        assert!(summary["lane"]["error"].as_str().unwrap().contains("Full access"));
+
+        let mut watch = super::super::watches::Watch {
+            id: "starter-report".into(),
+            to: "starter".into(),
+            sessions: vec![session.id.clone()],
+            until: vec!["blocked".into()],
+            match_text: None,
+            once: true,
+            caller: None,
+            active: true,
+            cursors: [(session.id.clone(), Default::default())].into_iter().collect(),
+            offline: Default::default(),
+        };
+        let (rows, _) =
+            super::super::watch_events::collect(&hub, &mut watch, &session.id).await.unwrap();
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(rows[0].contains("blocked") && rows[0].contains("index.lock"), "{rows:?}");
+        assert!(rows[0].contains("Full access"), "{rows:?}");
+        assert!(
+            super::super::watch_events::collect(&hub, &mut watch, &session.id)
+                .await
+                .unwrap()
+                .0
+                .is_empty()
+        );
+
+        hub.note_harness_sandbox(&session, &execute("unrelated-command"));
+        hub.note_harness_sandbox(&session, &done("unrelated-command", "completed"));
+        assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], true);
+        hub.harness_sandbox_recovered(&session, "respawn");
+        assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], false);
+    }
+
+    #[test]
+    fn remote_refusal_does_not_infer_a_sandbox_from_an_arbitrary_command_error() {
+        assert!(remote_refusal(&result("failed", "test failed: assertion mismatch")).is_none());
+        let denied = "mkdir .git: Permission denied";
+        assert!(remote_refusal(&result("completed", denied)).is_none());
+        assert!(remote_refusal(&result("failed", denied)).is_some());
+    }
 
     fn meta(id: &str) -> crate::store::SessionMeta {
         serde_json::from_value(json!({

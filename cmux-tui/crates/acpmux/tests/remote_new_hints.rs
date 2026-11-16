@@ -429,3 +429,35 @@ async fn approve_all_at_a_remote_start_passes_exactly_when_host_ls_shows_served_
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+/// Reporting is registered on the caller before its CLI exits, independent of
+/// whether the child can open a socket or execute `acpmux send`.
+#[tokio::test]
+async fn a_remote_start_keeps_its_report_to_watch_on_the_starters_daemon() {
+    let root = scratch("report-to");
+    let (a, _b) = pair("report-to", true, &root).await;
+    let mut ca = C::open(&a, Origin::Local);
+    let parent = ca
+        .call(method::SESSION_NEW, new(json!({"harness": "fake", "name": "starter"}), Some(&root)))
+        .await;
+    let parent = parent["result"]["sessionId"].as_str().unwrap().to_owned();
+    let child = ca
+        .call(
+            method::SESSION_NEW,
+            new(
+                json!({
+                    "peer": "b", "harness": "fake", "name": "child", "reportTo": "starter"
+                }),
+                Some(&root),
+            ),
+        )
+        .await;
+    let child =
+        child["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{child}")).to_owned();
+    let watches = ca.call(method::MUX_WATCH_LS, json!({})).await;
+    let watches = watches["result"]["watches"].as_array().unwrap();
+    assert_eq!(watches.len(), 1);
+    assert_eq!(watches[0]["to"], parent);
+    assert_eq!(watches[0]["sessions"], json!([format!("b/{child}")]));
+    assert_eq!(watches[0]["active"], true, "a newborn idle chat has not reported a turn");
+}

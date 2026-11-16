@@ -33,6 +33,46 @@ pub(super) fn asked_to_report(params: &Value) -> bool {
         .is_some_and(|to| !to.is_empty())
 }
 
+/// Keep the report on the starter's daemon: a refused tool in the child must not
+/// also prevent it from reporting the refusal. The existing durable watch/outbox
+/// owns delivery, including reconnects and daemon restarts.
+pub(super) fn report_remote_created(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    params: &Value,
+    peer: &str,
+    id: &str,
+) -> Result<(), RpcError> {
+    use crate::hub::watches::{Watch, resolve};
+    // A forwarded caller cannot borrow this daemon's sender authority.
+    if conn.origin != super::Origin::Local {
+        return Ok(());
+    }
+    let explicit = super::mux_meta(params)
+        .and_then(|m| m.get(crate::hub::lineage::successor::REPORT_TO_FIELD))
+        .and_then(Value::as_str)
+        .filter(|to| !to.is_empty());
+    let parent = lane_parent(hub, conn, params);
+    let Some(to) = explicit.or(parent.as_deref()) else { return Ok(()) };
+    let to = resolve(hub, to)?;
+    let key = format!("{peer}/{id}");
+    hub.watches.add(Watch {
+        id: format!("remote-start-{id}"),
+        to,
+        sessions: vec![key.clone()],
+        until: vec!["ready".into(), "permission".into(), "closed".into(), "blocked".into()],
+        match_text: None,
+        once: true,
+        caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+        active: true,
+        // No initial ready verdict: the new chat has not received its prompt.
+        // Read its journal from the start so a fast spawn refusal is not lost.
+        cursors: [(key, Default::default())].into_iter().collect(),
+        offline: Default::default(),
+    })?;
+    Ok(())
+}
+
 /// The person wrote to `s`: a lane is theirs now, and its turns stop showing in its parent's chat
 /// (`hub/lane_detach.rs`).
 pub(super) fn person_wrote(hub: &Hub, s: &Session) {

@@ -168,12 +168,20 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "closed" => None,
         "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
+        _ if summary["harnessSandboxFailing"] == true => Some("failed"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
         // A sub-session below it waits on the person: its run stalls there until someone answers,
         // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        _ if summary["preview"]
+            .as_str()
+            .and_then(crate::session_liveness::blocked_reply)
+            .is_some() =>
+        {
+            Some("failed")
+        }
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         // A peer gone unreachable takes its work with it; a local chat whose harness stopped
@@ -271,7 +279,15 @@ pub fn lane(summary: &Value) -> Value {
         _ => ("idle", ended),
     };
     let error = match state {
-        "failed" => summary["lastTurn"]["errorText"].clone(),
+        "failed" if summary["harnessSandboxFailing"] == true => {
+            summary["harnessSandboxError"].clone()
+        }
+        "failed" => summary["lastTurn"]["errorText"]
+            .as_str()
+            .or_else(|| {
+                summary["preview"].as_str().and_then(crate::session_liveness::blocked_reply)
+            })
+            .map_or(Value::Null, |error| Value::String(error.to_owned())),
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
@@ -737,6 +753,7 @@ impl Hub {
             }),
             harness_sandbox_failed: m.harness_sandbox.first_at,
             harness_sandbox_failing: m.harness_sandbox.failing,
+            harness_sandbox_error: m.harness_sandbox.error.clone(),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
