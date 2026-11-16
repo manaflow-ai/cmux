@@ -3328,14 +3328,29 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
     for workflow_path in sorted(workflows.glob("*.yml")):
         rel = workflow_path.relative_to(ROOT)
         text = workflow_path.read_text(encoding="utf-8")
+        jobs = yaml.safe_load(text).get("jobs") or {}
         for number, line in enumerate(text.splitlines(), 1):
             literal = re.match(r"^\s+node-version:\s*(.*)$", line)
-            assert not literal, (
-                f"{rel}:{number}: setup-node pins Node {literal.group(1).strip()} by hand; use "
+            if not literal:
+                continue
+            value = literal.group(1).strip()
+            # A job that checks out another commit (the nightly build commit) or nothing (a token
+            # job) takes the pin from a job that read it at this workflow's commit.
+            relayed = re.fullmatch(r"\$\{\{ needs\.([A-Za-z0-9_-]+)\.outputs\.(node_version(?:_22)?) \}\}", value)
+            if relayed:
+                source_job, output = relayed.groups()
+                source = yaml.safe_dump(jobs.get(source_job) or {}, width=10_000)
+                pin = ".node-version-22" if output.endswith("_22") else ".node-version"
+                assert f"{output}=$(tr -d '[:space:]' < {pin})" in source, (
+                    f"{rel}:{number}: job {source_job} must read output {output} from {pin}"
+                )
+                continue
+            raise AssertionError(
+                f"{rel}:{number}: setup-node pins Node {value} by hand; use "
                 "node-version-file: .node-version (the one Node pin; .node-version-22 or "
                 ".node-version-sdk-floor for those lines) and bump the version there"
             )
-        for job_name, job in (yaml.safe_load(text).get("jobs") or {}).items():
+        for job_name, job in jobs.items():
             pinned = False
             for step in job.get("steps") or []:
                 uses = str(step.get("uses", ""))
@@ -3345,6 +3360,8 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path) -> None:
                 if not uses.startswith("actions/setup-node@"):
                     continue
                 found += 1
+                if "node-version" in with_:
+                    continue  # a relayed pin, checked above
                 source = with_.get("node-version-file")
                 assert source in allowed, (
                     f"{rel} job {job_name}: setup-node must read node-version-file: .node-version "

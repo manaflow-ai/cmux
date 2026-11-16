@@ -109,6 +109,7 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      - .node-version
       # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
       - release-notes/next/highlights/**
       # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
@@ -452,6 +453,7 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      - .node-version
       # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
       - release-notes/next/highlights/**
       # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
