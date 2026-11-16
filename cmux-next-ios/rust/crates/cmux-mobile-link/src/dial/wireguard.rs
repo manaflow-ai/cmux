@@ -1691,7 +1691,7 @@ impl Drop for Guard {
 /// link's guard owns the session, and the hook must not keep it open.
 fn hold_hook(session: &Arc<Session>) -> crate::link::HoldHook {
     let session = Arc::downgrade(session);
-    Arc::new(move |hold| {
+    Arc::new(move |hold| -> futures_util::future::BoxFuture<'static, ()> {
         let session = session.clone();
         Box::pin(async move {
             let Some(net) = session.upgrade().and_then(|session| session.net().ok()) else {

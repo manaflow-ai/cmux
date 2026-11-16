@@ -2159,17 +2159,16 @@ mod tests {
 
         // The phone is back: its ping ends the park.
         to_mac.send(Frame::new(0, FrameType::Ping, 7u64.to_be_bytes().to_vec())).await.unwrap();
+        // The pong and the held data; the Mac's own keepalive pings, back on,
+        // may come between them.
+        let pong = (0, FrameType::Pong, Bytes::from(7u64.to_be_bytes().to_vec()));
+        let held = (1, FrameType::Data, Bytes::from_static(b"held"));
         let mut got = Vec::new();
-        while got.len() < 2 {
-            let frame = tokio::time::timeout(Duration::from_secs(1), from_mac.next())
-                .await
-                .expect("the Mac answers the returning phone")
-                .expect("open")
-                .unwrap();
+        while !(got.contains(&pong) && got.contains(&held)) {
+            let frame = next_from_mac(&mut from_mac).await.expect("the Mac answers the returning phone");
             got.push((frame.channel, frame.kind, frame.payload));
+            assert!(got.len() <= 4, "unexpected frames from the Mac: {got:?}");
         }
-        assert!(got.contains(&(0, FrameType::Pong, Bytes::from(7u64.to_be_bytes().to_vec()))), "{got:?}");
-        assert!(got.contains(&(1, FrameType::Data, Bytes::from_static(b"held"))), "{got:?}");
         assert!(!mac.is_closed());
     }
 
