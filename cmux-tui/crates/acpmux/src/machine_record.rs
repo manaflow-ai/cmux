@@ -369,7 +369,8 @@ pub(crate) fn consent_status() -> Value {
 
 pub fn require_consent(surface: &str) -> Result<()> {
     // A surface granted from elsewhere for another account than this machine's reads as none.
-    let status = crate::machine_consent::for_account(consent_status(), machine_user_id().as_deref());
+    let status =
+        crate::machine_consent::for_account(consent_status(), machine_user_id().as_deref());
     if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
         Ok(())
     } else {

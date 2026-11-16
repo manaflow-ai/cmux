@@ -26,6 +26,7 @@ pub(crate) use self_capabilities::{
 
 // The join record and the consent gate live in `crate::machine_record`, which lower modules
 // read; these keep their `cli::cloud_join` paths.
+pub(crate) use crate::machine_record::authority;
 #[cfg(test)]
 use crate::machine_record::home_copy_state;
 pub(super) use crate::machine_record::load_at;
@@ -33,7 +34,6 @@ pub use crate::machine_record::{
     CONSENT_REQUIRED, Consent, ConsentState, GrantedBy, MachineCredential, SIGNED_IN_MACHINES,
     require_consent, require_joined_consent,
 };
-pub(crate) use crate::machine_record::authority;
 use crate::machine_record::{
     CREDENTIAL_FILE, CopyState, consent_home, copied_here, copy_state, load, other_box,
     settle_evidence, state_dir,
