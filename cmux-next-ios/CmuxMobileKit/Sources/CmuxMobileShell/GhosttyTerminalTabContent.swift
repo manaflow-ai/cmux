@@ -452,6 +452,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.focusComposer()
     }
 
+    func sendPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
+        host(for: tab, in: workspace).model.sendPrompt(text)
+    }
+
     /// Each tab's card view, made once per slot: a card body is a lookup.
     private var cardViews: [String: (slot: ObjectIdentifier, view: AnyView)] = [:]
 

@@ -500,6 +500,14 @@ public final class TerminalModel {
         controller?.surface.sendText(text, pressReturn: false, fullScreenApp: isTUI)
     }
 
+    /// A prompt from the tab's Chat face: typed into the terminal with Return, as the composer's
+    /// Send types it. False when the terminal cannot take it now (not attached, no page yet).
+    public func sendPrompt(_ text: String) -> Bool {
+        guard !text.isEmpty, connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
+    }
+
     #if DEBUG
     /// DEBUG: the controller's layout and viewport state, for demo timelines.
     public var debugState: String { controller?.debugState ?? "-" }

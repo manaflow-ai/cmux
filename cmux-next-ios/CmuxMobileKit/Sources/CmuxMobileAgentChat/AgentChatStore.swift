@@ -276,6 +276,14 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
+    /// Where this chat's prompts go instead of its acpmux session, when set: a terminal's Chat
+    /// face (Toggle Terminal and Chat) is a View Only chat (acpmux `watch.read_only`) of the
+    /// session its terminal runs, so a prompt is typed into that terminal. True when it took it.
+    @ObservationIgnored public var promptRoute: (@MainActor (String) -> Bool)?
+    /// A prompt `promptRoute` could not hand to its terminal (not attached now).
+    public static let terminalNotTakingPromptNotice = "Not sent: the terminal isn't connected. Try again in a moment."
+    /// Attachments on a terminal's Chat face: the terminal's own composer uploads them.
+    public static let terminalAttachmentsNotice = "Not sent: attach files from the Terminal face."
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
     /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
     /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
@@ -532,6 +540,14 @@ public final class AgentChatStore {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
+        if let promptRoute {
+            // A terminal's Chat face: the terminal runs the session, so the prompt is typed there.
+            if !attachments.isEmpty || !promptRoute(text) {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: nil)
+                clientError = attachments.isEmpty ? Self.terminalNotTakingPromptNotice : Self.terminalAttachmentsNotice
+            }
+            return
+        }
         if denyingPermission, let permission = pendingPermission {
             let options = permission.request.phoneOptions
             let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
