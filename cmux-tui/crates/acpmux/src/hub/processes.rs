@@ -365,9 +365,9 @@ impl ProcessTable {
         let start = slots.last().copied().unwrap_or(self.processes.len());
         // The running ones older than that window, oldest first, then the window itself.
         let mut kept: Vec<Process> =
-            self.running.range(..start).map(|&at| self.processes[at].clone()).collect();
-        let older = start - kept.len();
-        kept.extend(slots.into_iter().rev().map(|at| self.processes[at].clone()));
+            self.running.range(..start).filter_map(|&at| self.processes.get(at).cloned()).collect();
+        let older = start.saturating_sub(kept.len());
+        kept.extend(slots.into_iter().rev().filter_map(|at| self.processes.get(at).cloned()));
         (kept, older)
     }
 
@@ -780,9 +780,12 @@ impl Hub {
     pub(crate) fn list_recent_processes(&self, session: &Session, recent: usize) -> Value {
         let (processes, older) = self.process_table(session).recent_snapshot(recent);
         let mut reply = process_window_values(processes, PROCESS_PAGE_BUDGET, output_len);
-        let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0) + older as u64;
-        if omitted > 0 {
-            reply["omitted"] = json!(omitted);
+        let omitted =
+            reply.get("omitted").and_then(Value::as_u64).unwrap_or(0).saturating_add(older as u64);
+        if omitted > 0
+            && let Some(object) = reply.as_object_mut()
+        {
+            object.insert("omitted".to_owned(), json!(omitted));
         }
         reply
     }
