@@ -1,8 +1,14 @@
-import { SessionListStore, LIST_MAX_QUESTIONS, LIST_MAX_WANTS, type SessionListBatch } from "./store";
+import { SessionListStore, LIST_MAX_WANTS, type SessionListBatch, type SessionListKey } from "./store";
 import { receiveSessionList, addSessionListHost, removeSessionListHost } from "./receiver";
 
 export type SessionListPost = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 export type SessionListOpen = { sid: string } | { fallen: string };
+export type SessionListPageRequest = {
+  kind: "older" | "family" | "forks" | "folder";
+  key?: SessionListKey;
+  folder?: string;
+  cold?: boolean;
+};
 
 export const SESSION_LIST_OFF = "list.off";
 export const SESSION_LIST_LOST = "list.lost";
@@ -19,9 +25,22 @@ export function sessionListNamer(): () => string {
 
 function refusalCode(error: unknown): string {
   const known = error as { code?: unknown; details?: { protocol?: unknown } } | null;
-  if (known?.details?.protocol === "cmux.protocol.unknown_op" || known?.code === "unsupported") return SESSION_LIST_OFF;
+  if (
+    known?.details?.protocol === "cmux.protocol.unknown_op" ||
+    known?.code === "unsupported" ||
+    known?.code === "list.unsupported"
+  )
+    return SESSION_LIST_OFF;
   if (typeof known?.code === "string" && known.code) return known.code;
   return SESSION_LIST_LOST;
+}
+
+function pageFields(request: Record<string, unknown>, kind: SessionListPageRequest["kind"]): Record<string, unknown> {
+  const fields: Record<string, unknown> = { kind };
+  if (request.key && typeof request.key === "object") fields.key = request.key;
+  if (typeof request.folder === "string") fields.folder = request.folder;
+  if (typeof request.cold === "boolean") fields.cold = request.cold;
+  return fields;
 }
 
 export class SessionListHost {
@@ -68,34 +87,51 @@ export class SessionListHost {
     void this.post("list.close", { sid }).catch(() => {});
   }
 
-  want(sid: string, keys: readonly { origin: string; chatId: string }[]): Promise<boolean> {
-    if (keys.length > LIST_MAX_WANTS) return Promise.resolve(false);
+  want(sid: string, keys: readonly SessionListKey[]): Promise<boolean> {
+    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return Promise.resolve(false);
     return this.post("list.want", { sid, keys }).then(
       () => true,
       () => false,
     );
   }
 
-  unwant(sid: string, keys: readonly { origin: string; chatId: string }[]): void {
-    if (keys.length > LIST_MAX_WANTS) return;
+  unwant(sid: string, keys: readonly SessionListKey[]): void {
+    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return;
     void this.post("list.unwant", { sid, keys }).catch(() => {});
   }
 
+  visible(shown: boolean): Promise<boolean> {
+    return this.post("list.visible", { shown }).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  /** Starts a page operation; wire continuation and question ids never enter this request. */
   page(sid: string, request: Record<string, unknown>, kind = "all"): Promise<string | null> {
+    const requestedKind = typeof request.kind === "string" ? request.kind : kind;
+    const allowedKind = ["older", "family", "forks", "folder"].includes(requestedKind)
+      ? (requestedKind as SessionListPageRequest["kind"])
+      : "older";
     const id = this.name();
     try {
-      this.store.questionAsked(sid, id, kind);
+      this.store.questionAsked(sid, id, allowedKind);
     } catch {
       return Promise.resolve(null);
     }
-    return this.post("list.page", { sid, id, kind, ...request }).then(
+    const fields = pageFields(request, allowedKind);
+    return this.post("list.page", { sid, ...fields }).then(
       (reply) => {
         const remote = typeof (reply as { id?: unknown })?.id === "string" ? (reply as { id: string }).id : id;
         this.store.renameQuestion(sid, id, remote);
         this.store.commit(sid);
         return remote;
       },
-      () => null,
+      (error) => {
+        this.store.apply({ kind: "error", sid, id, code: refusalCode(error) });
+        this.store.commit(sid);
+        return null;
+      },
     );
   }
 

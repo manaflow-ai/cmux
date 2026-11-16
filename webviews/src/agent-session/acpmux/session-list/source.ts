@@ -12,6 +12,7 @@ export class SessionListSource {
   readonly host: SessionListHost;
   private sid: string | undefined;
   private stop: (() => void) | undefined;
+  private stopVisibility: (() => void) | undefined;
 
   constructor(
     private readonly hooks: SessionListSourceHooks,
@@ -29,6 +30,12 @@ export class SessionListSource {
     }
     this.sid = opened.sid;
     this.stop = this.host.store.subscribe(opened.sid, (snapshot) => this.hooks.changed(snapshot));
+    if (typeof document !== "undefined") {
+      const onVisibility = () => void this.host.visible(!document.hidden);
+      document.addEventListener("visibilitychange", onVisibility);
+      this.stopVisibility = () => document.removeEventListener("visibilitychange", onVisibility);
+      void this.host.visible(!document.hidden);
+    }
     const first = this.host.store.snapshot(opened.sid);
     if (first?.ready) this.hooks.changed(first);
     return true;
@@ -41,6 +48,8 @@ export class SessionListSource {
   close(): void {
     this.stop?.();
     this.stop = undefined;
+    this.stopVisibility?.();
+    this.stopVisibility = undefined;
     if (this.sid) this.host.close(this.sid);
     this.sid = undefined;
   }
