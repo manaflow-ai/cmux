@@ -155,7 +155,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         startShortcutHints()
         observeWorkspace()
         observeRoom()
-        observeSidebarHidden()
+        observeSidebarHidden(); observeWindowTitle()
         followContentChanges()
     }
 
@@ -222,6 +222,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             }
         }
     }
+
+    private func observeWindowTitle() { let state = state, machines = services.machines, names = WorkspaceAutoNameWiring(services: services), selection = state.selection, store = machines.local.store, windows = services.windows, id = state.id; titleObservation = WindowListTitleObservation.start(values: { let workspace = state.workspaceID.flatMap { machines.workspace(id: $0)?.0 }; return (workspace.map { names.reader.titlebarName($0) { selection.selection(in: $0.id) } }, store.profile(state.profileID)?.name, windows.isIncognito(window: id), state.page == nil) }, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName) { [weak self] title, workspaceName, showsWorkspaceChrome in self?.window?.title = title; if showsWorkspaceChrome, let workspaceName { self?.root.titlebar.title = workspaceName } } }
 
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
@@ -318,12 +320,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
-        titleObservation?.cancel()
-        // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
-        // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
-        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
-            for await value in ObservationStream({ (names.reader.titlebarName(workspace) { selection.selection(in: $0.id) }, services.machines.local.store.profile(state.profileID)?.name, services.windows.isIncognito(window: state.id)) }) { self?.root.titlebar.title = value.0; self?.window?.title = WindowListTitle(spaceName: value.1, workspaceName: value.0, incognito: value.2, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName).value }
-        }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
         DebugWorkspaceSwitch.mark(self, "did_show")
