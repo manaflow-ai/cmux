@@ -5149,6 +5149,7 @@ class IOSDispatch(unittest.TestCase):
         # persistent placement's re-run takes ios_runner_pool's SMALL_RUNNER, never the 12 vCPU label: test-ios.yml
         # reads retry_runs_on from its picker job, so retry_labels() judged every Blacksmith label instead.
         import ios_runner_pool
+        self.assertEqual(rescue.PICKED_PERSISTENT_RETRY[rescue.IOS_TEST_WORKFLOW_PATH], ios_runner_pool.SMALL_RUNNER)
         workflow = (ROOT / rescue.IOS_TEST_WORKFLOW_PATH).read_text()
 
         def jobs(seconds):
