@@ -307,6 +307,12 @@ fn grid(frame: &ghostty_vt::RenderFrame) -> Grid {
     grid
 }
 
+/// Test only: whether the stream `id` is kept for a resume (its viewer's worker dropped it).
+#[cfg(test)]
+pub(super) fn is_parked(id: &str) -> bool {
+    parked().lock().recover_poison().contains_key(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -340,10 +346,4 @@ mod tests {
             HybridViewer::start(7, 30, 4, b"hello", Some((id, applied))).unwrap();
         assert_eq!(other["base"], Value::Null);
     }
-}
-
-/// Test only: whether the stream `id` is kept for a resume (its viewer's worker dropped it).
-#[cfg(test)]
-pub(super) fn is_parked(id: &str) -> bool {
-    parked().lock().recover_poison().contains_key(id)
 }
