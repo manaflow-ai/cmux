@@ -350,7 +350,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
-
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
         reservedContent.fill { [weak self] in self?.services.windows.controllers.map(\.reservedContent) ?? [] } // follows the key main window
@@ -393,7 +392,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) } }
 
     var sidebarObservation: Task<Void, Never>?
-
 
     /// Set once closing this incognito window was confirmed (or needed no
     /// confirmation).
