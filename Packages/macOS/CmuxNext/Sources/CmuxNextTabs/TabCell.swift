@@ -593,7 +593,14 @@ final class TabCell {
                 fadeWidth: m.titleFadeWidth,
                 restWidth: restWidth
             )
-            let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
+            // A density's `tabTitleDrop` (Chrome's 1 pt: it centers the title over the shape and the toolbar's 1 pt
+            // overlap, so its baseline sits 19 pt under a 28 pt shape's top, Helium's 18).
+            let drop = Metrics.densityToken("tabTitleDrop") ?? 0
+            // The capitals center on the pill's middle, the icon's center, at every density (Lucas 2026-11-15: "vertically
+            // aligned with the icon always"): the baseline half a cap height under it, on the pixel grid, and the layer
+            // draws it one pixel-rounded ascender under its top.
+            let baseline = pixel(midY + titleFont.capHeight / 2 + drop)
+            let frame = CGRect(x: pixel(titleX), y: baseline - pixel(titleFont.ascender), width: span, height: lineHeight)
             if onPath {
                 pathTitle = TitleFade.Sample(geometry: geometry, frame: frame)
             } else {
