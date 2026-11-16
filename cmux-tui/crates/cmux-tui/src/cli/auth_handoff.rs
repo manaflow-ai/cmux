@@ -277,11 +277,13 @@ fn run_invocation(global: &GlobalArgs, invocation: Invocation, stdin: std::io::S
                 }
                 OutputMode::Human => {
                     let line = if mint {
-                        format!("{}\n", shaped["code"].as_str().unwrap_or_default())
+                        let code = shaped.get("code").and_then(Value::as_str);
+                        format!("{}\n", code.unwrap_or_default())
                     } else {
-                        let who = shaped["user"]["email"]
-                            .as_str()
-                            .or(shaped["user"]["id"].as_str())
+                        let who = shaped
+                            .pointer("/user/email")
+                            .and_then(Value::as_str)
+                            .or_else(|| shaped.pointer("/user/id").and_then(Value::as_str))
                             .unwrap_or("?");
                         format!("{}\n", messages.signed_in.replace("{user}", who))
                     };
