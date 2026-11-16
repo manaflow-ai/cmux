@@ -628,10 +628,9 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
-    /// A line with a control at its right end keeps its grip in its right inset: the grip's box stays
-    /// inside the line and clear of the control, and still holds every dot (CMUX-298: an icon box centred
-    /// on the dots ran from width - 12 to width + 4).
-    @Test func aGripPastATrailingControlStaysInsideTheLine() throws {
+    /// A line with a control at its right end keeps the grip at its left, in the gutter before its icon:
+    /// the grip's box stays inside the line, clear of the icon, and far from the control.
+    @Test func aGripBesideATrailingControlStaysInTheLeftGutter() throws {
         let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
         let line = SessionInfoLineView(line: SessionInfoLine(
             id: "remote", kind: .row, symbol: "cursorarrow.rays", title: "Remote Control", toggle: true,
@@ -644,19 +643,22 @@ struct AgentPaneNativeSessionInfoTests {
             line.layoutSubtreeIfNeeded()
             let toggle = try #require(line.subviews.first { $0 is NSSwitch })
             let grip = try #require(line.subviews.compactMap { $0 as? SessionInfoGripView }.first)
+            let icon = try #require(line.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden })
             let hit = try #require(line.gripHitRect)
-            #expect(hit.maxX <= line.bounds.maxX + 0.5, "the grip's box runs past the line: \(hit) in \(line.bounds)")
-            #expect(hit.minX >= toggle.frame.maxX - 0.5, "the grip's box covers the switch: \(hit), switch \(toggle.frame)")
+            #expect(hit.minX >= line.bounds.minX - 0.5, "the grip's box runs past the line: \(hit) in \(line.bounds)")
+            #expect(hit.maxX <= icon.frame.minX + 0.5, "the grip's box covers the icon: \(hit), icon \(icon.frame)")
+            #expect(hit.maxX < toggle.frame.minX)
             #expect(hit.minX <= grip.frame.minX + 0.5 && grip.frame.maxX <= hit.maxX + 0.5)
         }
     }
 
     /// Section headers follow the web panel's SessionInfoSection: a medium-weight title (never the bold
     /// chrome header) on the rows' title column, a chevron after the title that shows on hover, and the
-    /// six-dot grip at the header's right edge that shows only on hover. At rest neither glyph draws, no
+    /// six-dot grip in the gutter left of the header's icon or title that shows only on hover (Lawrence,
+    /// 2026-11-15: "move the grabber dots to left, we have space on the left of the text"). At rest neither glyph draws, no
     /// `line.3.horizontal` grip sits over the icons, and hovering moves no title (Leo, 2026-11-02: "WE
     /// FUCKING HAD THESE" and, on the always-on grips, "THESE ARE JUST SO INSANELY STUPID LOOKING").
-    @Test func sectionHeadersShowTheirChevronAndRightEdgeGripOnlyOnHover() throws {
+    @Test func sectionHeadersShowTheirChevronAndLeftGutterGripOnlyOnHover() throws {
         let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
         func view(_ line: SessionInfoLine) -> SessionInfoLineView {
             let view = SessionInfoLineView(line: line, ink: ink)
@@ -715,44 +717,27 @@ struct AgentPaneNativeSessionInfoTests {
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        // At rest the meters draw in the trailing column, left of the grip's own slot, at any width.
+        // The meters and counts keep the trailing column to themselves: the grip takes no slot there.
         #expect(context.trailingMeta.count == 2 && progress.trailingMeta.count == 2)
-        #expect(context.gripHasOwnSlot && progress.gripHasOwnSlot && !changes.gripHasOwnSlot)
-        for width in [200, 260, 320, 560] as [CGFloat] {
-            for line in [context, progress] {
-                line.frame.size.width = width
-                line.layoutSubtreeIfNeeded()
-                let hit = try #require(line.gripHitRect)
-                for meta in line.trailingMeta { #expect(meta.frame.maxX <= hit.minX + 0.5) }
-            }
-        }
-        for line in [context, progress] {
-            line.frame.size.width = 320
-            line.layoutSubtreeIfNeeded()
-        }
         for line in [context, changes, plain, machine, progress] {
             let before = try title(line)
             line.mouseEntered(with: enter)
             line.layoutSubtreeIfNeeded()
             #expect(line.showsGrip)
             #expect(try title(line) == before)
-            // The grip takes the trailing value's place: its dots end on the trailing column's right edge,
-            // the rows' (Leo, 2026-11-07: "the grip and the lef tside aren't flush"), the count hides under
-            // it, and nothing else reaches its box.
+            // The grip sits in the gutter left of the line's first mark (its icon, else its title), and
+            // the count stays on its edge: nothing in the trailing column moves or hides.
             let handle = try #require(grip(line))
             let hit = try #require(line.gripHitRect)
             #expect(!handle.isHidden)
             #expect(handle.frame.size == SessionInfoGripView.size)
-            #expect(abs(handle.frame.maxX - (line.bounds.maxX - SessionInfoMetrics.trail)) < 0.5)
-            #expect(hit.width == LayoutGrid.iconBox && abs(hit.midX - handle.frame.midX) < 0.5)
-            if line.gripHasOwnSlot {
-                // A head with a meter keeps its grip in a slot of its own: its count and meter stay.
-                #expect(countShown(line))
-            } else {
-                #expect(countHidden(line))
-            }
+            let firstMark = images(line).filter { !$0.isHidden && $0.frame.maxX <= before.minX }.map(\.frame.minX).min() ?? before.minX
+            #expect(handle.frame.maxX <= firstMark - 1.5)
+            #expect(hit.minX >= -0.5 && hit.maxX <= firstMark + 0.5)
+            #expect(handle.frame.minX >= hit.minX - 0.5 && handle.frame.maxX <= hit.maxX + 0.5)
+            #expect(countShown(line))
             for other in line.subviews where other !== handle && !other.isHidden {
-                #expect(other.frame.maxX <= hit.minX)
+                #expect(other.frame.minX >= hit.maxX - 0.5)
             }
             // Hovering the head lights neither the head nor the grip; only the grip's own box lights.
             #expect(line.layer?.backgroundColor == nil || line.line.kind == .row)
