@@ -18,6 +18,7 @@ import {
   writePersistedDraft,
 } from "../src/agent-session/acpmux/composerDraft";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { teardownDom } from "./support/domTeardown";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f5";
 
@@ -182,10 +183,8 @@ describe("sends", () => {
   beforeAll(() => {
     pageScope.window = dom.window;
   });
-  afterAll(() => {
-    if (hadPage) pageScope.window = savedPage;
-    else delete pageScope.window;
-    dom.window.close();
+  afterAll(async () => {
+    await teardownDom([["window", hadPage, savedPage]], { window: dom.window, scope: pageScope });
   });
 
   test("a failed send keeps its words and attachments in exactly one place, under load", async () => {
@@ -329,10 +328,13 @@ describe("drafts", () => {
       cmuxAcpmuxActions: { "chat.writeDraft": async () => undefined },
     };
     await settlePendingDraftWrites();
-    if (hadWindow) scope.window = savedWindow;
-    else delete scope.window;
-    if (hadStorage) scope.localStorage = savedStorage;
-    else delete scope.localStorage;
+    await teardownDom(
+      [
+        ["window", hadWindow, savedWindow],
+        ["localStorage", hadStorage, savedStorage],
+      ],
+      { scope },
+    );
   });
 
   test("drafts typed while acpmux refuses every write are kept per chat and land newest once it answers", async () => {

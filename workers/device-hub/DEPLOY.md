@@ -20,6 +20,30 @@ Development › Device Hub Address overrides it; empty means the built-in hub.
 Both are on workers.dev: a custom domain (as `workers/presence` uses) would
 add a DNS record, which this hub does not need.
 
+## Normal path: the `device-hub` workflow
+
+`.github/workflows/device-hub.yml` deploys the hub. Nobody runs `wrangler
+deploy` by hand for a code change.
+
+- A pull request touching `workers/device-hub/**` runs the checks: `npm ci`,
+  typecheck, the vitest suite on workerd, and a `wrangler deploy --dry-run` of
+  both environments.
+- A push to `feat-cmux-next` touching `workers/device-hub/**` runs the checks,
+  deploys dev, then production, each followed by a `/v1/health` check. The run
+  summary names the deployed version ids.
+- A manual run (Actions > device-hub > Run workflow, branch `feat-cmux-next`,
+  target `prod` or `dev`) redeploys one environment.
+
+The deploy uploads code and applies the Durable Object migrations in
+`wrangler.toml`; it never reads or writes Worker secrets. It uses the
+repository's `CLOUDFLARE_API_TOKEN` in the GitHub environments
+`cmux-next-development` and `cmux-next-production`, the ones `backend.yml`
+deploys the NEXT API with on the same account.
+
+The manual commands below are for setting up an environment's keys (a new
+environment, or a key rotation), and for a deploy while the workflow cannot
+run.
+
 ## Dev deploy
 
 Run from `workers/device-hub` with wrangler signed in to the account.

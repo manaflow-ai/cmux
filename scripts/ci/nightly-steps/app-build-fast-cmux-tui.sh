@@ -10,7 +10,8 @@ export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
 cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
 # The terminal holder, installed beside cmux-tui (its own invocation: std and libc only).
 cargo build -p cmux-holder --bin cmux-holder --release --locked --target aarch64-apple-darwin
-cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
+cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin \
+  $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml aarch64-apple-darwin)
 # The agent screen-detection plugin (its own Cargo workspace), which
 # install-cmux-tui-client.sh installs beside cmux-tui as
 # bin/cmux-agent-screen-detection, the name the daemon runs by default.

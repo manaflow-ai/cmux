@@ -310,6 +310,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
   CMUX_BIND(omnibox_keywords, "cmux_omnibox_keywords");
   CMUX_BIND(omnibox_input, "cmux_omnibox_input");
+  CMUX_BIND(omnibox_preload_text_changed, "cmux_omnibox_preload_text_changed");
+  CMUX_BIND(omnibox_preload_opened, "cmux_omnibox_preload_opened");
+  CMUX_BIND(set_omnibox_prerender, "cmux_set_omnibox_prerender");
   CMUX_BIND(set_omnibox_suggestions_handler, "cmux_set_omnibox_suggestions_handler");
   CMUX_BIND(add_native_messaging_dir, "cmux_add_native_messaging_dir");
   CMUX_BIND(set_popup_windows_enabled, "cmux_set_popup_windows_enabled");
@@ -558,6 +561,7 @@ void cmux_shim_shutdown(void) {
   // Download callbacks hold Chromium objects: release them first.
   ForgetDownloads();
   ForgetPermissionPrompts();
+  StopDeferredPageRequests();
   CefShutdown();
 }
 

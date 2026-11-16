@@ -548,6 +548,7 @@
       "shell-stop",
       "split",
       "swap-pane",
+      "terminal-command-context",
       "terminal-events",
       "terminal-history",
       "terminal-last-command",
@@ -684,7 +685,8 @@
       "remote-host-status",
       "remote-host-call",
       "remote-host-config",
-      "remote-host-app"
+      "remote-host-app",
+      "device-setup"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -697,6 +699,18 @@
       "name": "agent-changed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "agent-cli-frame",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
+      "name": "agent-cli-lean",
+      "streams": [
+        "attach-byte"
       ]
     },
     {
@@ -1002,6 +1016,12 @@
       ]
     },
     {
+      "name": "screen-device-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "selection-changed",
       "streams": [
         "subscribe-deltas"
@@ -1122,6 +1142,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "device-setup-step",
       "streams": [
         "control"
       ]

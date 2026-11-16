@@ -316,6 +316,7 @@ impl Hub {
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
                     asked: opts.provenance.clone(),
                 },
+                device: opts.full_access_device.clone().filter(|_| control == Control::Web),
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now

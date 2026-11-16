@@ -31,7 +31,10 @@ RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV"
             # Read by python3 (the applier itself, and any setup step), so a config never steers it.
             "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE", "PYTHONSAFEPATH",
             # The model plane's (~/.config/cmux/model-plane.env): a file from a repo must not route agents elsewhere.
-            "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"}
+            "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+            # The gateway's endpoints for Gemini and Grok (acpmux provider_cloud_auth.rs).
+            "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL",
+            "GROK_XAI_API_BASE_URL"}
 MAX_BYTES, MAX_NAMES, MAX_COMMANDS = 64 * 1024, 100, 50
 BOOTSTRAP_WAIT_S = 3 * 3600
 LOCK_WAIT_S = 5  # see take_lock

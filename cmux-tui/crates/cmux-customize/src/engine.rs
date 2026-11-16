@@ -87,7 +87,9 @@ impl Customize {
             .as_ref()
             .and_then(|draft| draft.asks.last())
             .and_then(|ask| first_change_after(ask.at_ms, &changes, &scan));
+        let try_on = self.store.try_on()?.filter(|try_on| index.current == Some(try_on.generation));
         Ok(Status {
+            try_on,
             current: index.current().cloned(),
             draft: draft.as_ref().map(DraftInfo::from),
             changes,
@@ -178,12 +180,14 @@ impl Customize {
         let mut draft = existing.unwrap_or(Draft {
             base: index.current,
             started_ms: now_ms,
+            absent_dirs: tree::absent_dirs(&self.roots),
             ..Draft::default()
         });
         draft.asks.push(Ask {
             text: ask.trim().to_owned(),
             at_ms: now_ms,
             origin: origin.to_owned(),
+            description: None,
         });
         self.store.put_draft(Some(&draft))?;
         Ok(Begun { draft: DraftInfo::from(&draft), baseline, by_hand, refined })
@@ -214,6 +218,17 @@ impl Customize {
     /// [`Error::Invalid`] records nothing and leaves the preview live.
     pub fn apply(&self, label: Option<&str>, origin: &str, now_ms: u64) -> Result<Applied, Error> {
         let _lock = self.store.lock()?;
+        self.apply_locked(label, origin, now_ms)
+    }
+
+    /// [`Customize::apply`] for a caller that holds the store's lock (a
+    /// try-on).
+    pub(crate) fn apply_locked(
+        &self,
+        label: Option<&str>,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Applied, Error> {
         let mut index = self.store.index()?;
         let draft = self.store.draft()?;
         let scan = tree::scan(&self.roots)?;
@@ -247,6 +262,25 @@ impl Customize {
         // written never fails the apply it follows.
         let library = self.remember_locked(&generation, draft.as_ref(), now_ms).ok().flatten();
         Ok(Applied { generation, recorded: true, changes: changed, library })
+    }
+
+    pub(crate) fn current_generation(&self) -> Result<Option<u32>, Error> {
+        Ok(self.store.index()?.current)
+    }
+
+    /// Makes generation `n` current and live for a caller that holds the
+    /// lock; what was live is kept as `keep` when it differs.
+    pub(crate) fn restore_locked(
+        &self,
+        n: u32,
+        keep: Kind,
+        origin: &str,
+        label: &str,
+        now_ms: u64,
+    ) -> Result<Restored, Error> {
+        let mut index = self.store.index()?;
+        let target = index.get(n).cloned().ok_or(Error::NoSuchGeneration(n))?;
+        self.restore_to(&mut index, target, keep, origin, label, now_ms)
     }
 
     /// Puts the current generation back. What was live is kept as a

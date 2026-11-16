@@ -87,3 +87,17 @@ fn a_newer_stream_kind_parses_as_unknown() {
     assert_eq!(kind, StreamKind::Unknown);
     assert!(!kind.is_upstream());
 }
+
+#[test]
+fn a_cursor_shape_carries_its_pixels_and_its_id() {
+    let v = vectors().into_iter().find(|v| v["name"] == "cursor_shape").expect("vector");
+    let control: Control = serde_json::from_value(v["json"].clone()).expect("cursor_shape");
+    assert_eq!(serde_json::to_value(&control).expect("encode"), v["json"]);
+    let Control::CursorShape { shape, width, height, hot_x, hot_y, rgba } = control else {
+        panic!("not a cursor_shape");
+    };
+    assert_eq!((shape, width, height, hot_x, hot_y), (0xdead_beef, 2, 1, 1, 0));
+    let pixels = cmux_rd_proto::base64_decode(&rgba).expect("base64");
+    assert_eq!(pixels, [0, 0, 0, 255, 255, 255, 255, 255]);
+    assert_eq!(pixels.len(), (width * height * 4) as usize);
+}

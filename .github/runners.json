@@ -289,7 +289,7 @@
     "ci-macos.yml#swift-package-tests": "apple-swift-tests",
     "ci.yml#dogfood-build": {
       "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
     "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
@@ -311,7 +311,7 @@
     },
     "cmux-next-car-guards.yml#mac": {
       "class": "apple-swift-tests",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "cmux-next-cua-helper-identity.yml#helper-identity": {
       "class": "macos-runtime-tests",
@@ -333,6 +333,10 @@
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"
     },
     "cmux-next-media.yml#tour": "apple-gui",
+    "cmux-next-hot-verify.yml#look": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the hot-verify step to the controller with cmux-ci run"
+    },
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -388,12 +392,16 @@
     "cmux-next.yml#swift-test": "apple-swift-tests",
     "cmux-tui-artifacts.yml#macos-cross-runtime-x86_64": {
       "class": "macos-runtime-tests",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "cmux-tui-build-package.yml#build": "rust-darwin-release-build",
+    "cmux-tui-team-signed.yml#sign": {
+      "class": "apple-signing-release",
+      "picker_followup": "runs-on names a literal Blacksmith macOS label, as the keychain guard's rule 7 asks of a signer holding release-next's identity; take it from a picker job's output once signers may take one"
+    },
     "cmux-rd-windows.yml#live-macos-viewer": {
       "class": "macos-runtime-tests",
-      "picker_followup": "landed in #42833/#42911 with runs-on on vars.MACOS_RUNNER_IOS (a Mac on the CI tailnet); take it from a picker job's output (cmuxterm-hq#10846)"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "cmux-tui.yml#macos": {
       "class": "macos-runtime-tests",
@@ -456,7 +464,7 @@
     "machine-vault-e2e.yml#e2e": {"class": "macos-runtime-tests", "picker_followup": "adds an OS user and opens ssh to it while holding the dev stack secrets: an ephemeral Blacksmith Mac only, never a persistent owned Mac; an owned route needs a disposable VM on the fleet"},
     "macos-cross-parity.yml#runtime-x86_64": {
       "class": "macos-runtime-tests",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "main-compile-probe.yml#compile": "apple-app-build",
     "nightly-next-canary.yml#canary": {
@@ -560,11 +568,11 @@
     },
     "signing-keychain-macos.yml#real-import": {
       "class": "macos-runtime-tests",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "stable-next.yml#perf-budgets": {
       "class": "apple-gui",
-      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "stable-next.yml#sign": {
       "class": "apple-signing-release",
@@ -572,11 +580,11 @@
     },
     "stable-next.yml#smoke-26": {
       "class": "apple-gui",
-      "picker_followup": "runs-on names a fixed macOS 26 label (vars.MACOS_RUNNER_26, then Blacksmith macOS 26); take it from a picker job's output that keeps to macOS 26"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "stable-next.yml#smoke-27": {
       "class": "apple-gui",
-      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "terminal-hang-diagnostics.yml#phase-attribution": {
       "class": "apple-swift-tests",
@@ -588,7 +596,7 @@
     },
     "test-feed-reply-providers.yml#verify": {
       "class": "apple-gui",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "test-ios.yml#ios-simulator-build": "apple-ios",
     "test-ios.yml#mobile-core-package": "apple-ios"
@@ -700,6 +708,7 @@
       "cmux-tui-artifacts.yml#mark-tree-commits": {"size": 4, "failover": 8, "measured": {"32": [357.5, 0.85, 1.03], "4": [111.5, 0.79, 0.92]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#notify-unpublished-tree": {"size": 4, "failover": 8, "measured": {"32": [159.5, 0.16, 0.13], "2": [234.5, 0.17, 0.15]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#point-feat-channel": {"size": 4, "failover": 8, "measured": {"32": [344.5, 0.22, 0.22], "4": [116.5, 0.24, 0.43]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
+      "cmux-tui-artifacts.yml#point-windows-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads one completion record and uploads one channel file; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#point-machine-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: downloads four published binaries, signs and uploads one file; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#point-machine-channel-early": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#publish": {"size": 8, "failover": 16, "measured": {"32": [584.5, 2.33, 7.55], "4": [129.5, 4.72, 8.13]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
@@ -707,6 +716,7 @@
       "cmux-tui-artifacts.yml#publish-tree": {"size": 4, "failover": 8, "measured": {"32": [548.0, 1.18, 1.48], "4": [108.0, 2.13, 2.67]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#publish-tree-tested": {"size": 4, "failover": 8, "measured": {"32": [86.0, 0.25, 0.32], "4": [27.0, 0.24, 0.4]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#publish-tree-windows": {"size": 8, "failover": 16, "measured": {"32": [472.0, 1.85, 3.63], "4": [102.5, 3.12, 4.08]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
+      "cmux-tui-artifacts.yml#request-team-signed-tree": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: one public read and at most one workflow dispatch; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#publish-windows": {"size": 8, "failover": 16, "measured": {"32": [503.0, 1.86, 2.45], "4": [109.5, 8.17, 11.33]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-artifacts.yml#reject-untrusted-pin-ref": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "cmux-tui-artifacts.yml#request-image-roll": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: dispatches one workflow run; the same shape as request-nightly-next (not measured yet)"},

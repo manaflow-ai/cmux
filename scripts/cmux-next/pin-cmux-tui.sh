@@ -1240,10 +1240,14 @@ probe_checkout_tree() {
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
   elif [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] && head_sha="$(git -C "$repo_root" rev-parse --verify -q HEAD^2)" \
-      && [[ "$(tree_key "$head_sha" 2>/dev/null)" == "$key" ]]; then
+      && [[ "$(tree_key "$head_sha" 2>/dev/null)" == "$key" ]] \
+      && [[ "$(artifacts_runs_state_or_limited "$head_sha")" != none ]]; then
     # A same-repository pull request whose merge keeps its head's tree: the
     # head's push publishes it. Read from git, so no API listing (which can
     # fail under the fetch budget or the rate limit) decides the publisher.
+    # Only when that push has an artifacts run: a definite `none` (a publish
+    # that main starts instead) falls through to the same-key search below,
+    # as before #43406 (pin-cmux-tui-probe.test.sh case (d)).
     source="commit:$head_sha"
   elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch \
       || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \

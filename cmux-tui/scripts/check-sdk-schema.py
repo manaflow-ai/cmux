@@ -42,6 +42,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "LayoutSizeWire": "LayoutSizeValue",
     "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
     "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
+    "crate::command_context::Intent": "TerminalCommandContextIntent",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by

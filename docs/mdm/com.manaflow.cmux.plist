@@ -277,7 +277,7 @@
 			<key>pfm_default</key>
 			<string>hover</string>
 			<key>pfm_description</key>
-			<string>On Hover shows each tab bar's + only while the pointer is over that tab bar.</string>
+			<string>In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows.</string>
 			<key>pfm_name</key>
 			<string>tabs.plusButton</string>
 			<key>pfm_range_list</key>
@@ -2594,13 +2594,15 @@
 			<key>pfm_default</key>
 			<string>none</string>
 			<key>pfm_description</key>
-			<string>Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.</string>
+			<string>Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun.</string>
 			<key>pfm_name</key>
 			<string>appearance.background</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
 				<string>daily</string>
+				<string>appearance</string>
+				<string>schedule</string>
 				<string>david-death-of-marat</string>
 				<string>velde-small-ship-storm</string>
 				<string>bosch-ascent-blessed</string>
@@ -2758,7 +2760,7 @@
 			<key>pfm_default</key>
 			<string>daily</string>
 			<key>pfm_description</key>
-			<string>How often a shuffled background turns to its next picture.</string>
+			<string>How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes. Also accepts a number from 1 to 1440 in a raw profile.</string>
 			<key>pfm_name</key>
 			<string>appearance.backgroundRotation</string>
 			<key>pfm_range_list</key>
@@ -2769,6 +2771,363 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Change Picture</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundLight</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>david-death-of-marat</string>
+				<string>velde-small-ship-storm</string>
+				<string>bosch-ascent-blessed</string>
+				<string>goya-witches-flight</string>
+				<string>martin-pandemonium</string>
+				<string>moran-burning-philadelphia</string>
+				<string>goya-burial-sardine</string>
+				<string>arbo-wild-hunt</string>
+				<string>altdorfer-battle-of-issus</string>
+				<string>munch-madonna</string>
+				<string>klee-fish-magic</string>
+				<string>friedrich-forest-moonlight</string>
+				<string>bosch-garden-left</string>
+				<string>rembrandt-storm-galilee</string>
+				<string>cole-voyage-manhood</string>
+				<string>munch-scream</string>
+				<string>bruegel-fall-rebel-angels</string>
+				<string>wright-vesuvius</string>
+				<string>gerome-botsaris</string>
+				<string>martin-joshua</string>
+				<string>velde-gale</string>
+				<string>hogai-nio</string>
+				<string>bosch-garden-central</string>
+				<string>martin-great-day-wrath</string>
+				<string>bonheur-wounded-eagle</string>
+				<string>cole-voyage-old-age</string>
+				<string>friedrich-abbey-oakwood</string>
+				<string>goya-sleep-of-reason</string>
+				<string>bosch-garden-fragment</string>
+				<string>spilliaert-vertigo</string>
+				<string>rothaug-melpomene</string>
+				<string>aivazovsky-ship-stormy-seas</string>
+				<string>cabanel-fallen-angel</string>
+				<string>spilliaert-woman-shoreline</string>
+				<string>el-greco-view-of-toledo</string>
+				<string>rembrandt-prodigal-son</string>
+				<string>velazquez-las-meninas</string>
+				<string>matejko-stanczyk</string>
+				<string>sargent-madame-x</string>
+				<string>millais-joan-of-arc</string>
+				<string>cot-storm</string>
+				<string>rembrandt-night-watch</string>
+				<string>vigee-lebrun-madame-grand</string>
+				<string>waterhouse-lady-shalott</string>
+				<string>fragonard-swing</string>
+				<string>rubens-st-francis-xavier</string>
+				<string>vermeer-pearl-earring</string>
+				<string>danielson-gambogi-self</string>
+				<string>beard-his-majesty</string>
+				<string>marc-foxes</string>
+				<string>degas-green-dancers</string>
+				<string>modigliani-nude-divan</string>
+				<string>raphael-sistine-madonna</string>
+				<string>bouguereau-virgin-lilies</string>
+				<string>wood-american-gothic</string>
+				<string>steinlen-chat-noir</string>
+				<string>degas-blue-dancers</string>
+				<string>botticelli-primavera</string>
+				<string>van-gogh-cafe-terrace</string>
+				<string>matisse-red-room</string>
+				<string>kandinsky-deepened-impulse</string>
+				<string>friedrich-wanderer</string>
+				<string>klimt-adele</string>
+				<string>mucha-job</string>
+				<string>van-gogh-starry-night</string>
+				<string>klimt-tree-of-life</string>
+				<string>klimt-the-kiss</string>
+				<string>van-gogh-starry-night-rhone</string>
+				<string>delacroix-liberty</string>
+				<string>van-gogh-sunflowers</string>
+				<string>klimt-mada-primavesi</string>
+				<string>schiele-kneeling-orange</string>
+				<string>van-gogh-sunflowers-munich</string>
+				<string>michelangelo-sistine-ceiling</string>
+				<string>mondrian-composition-red-plane</string>
+				<string>lemoyne-apotheosis-hercules</string>
+				<string>schiele-moa</string>
+				<string>aivazovsky-ninth-wave</string>
+				<string>popova-painterly-architectonic</string>
+				<string>bruegel-tower-babel</string>
+				<string>botticelli-birth-of-venus</string>
+				<string>kandinsky-yellow-red-blue</string>
+				<string>kandinsky-composition-viii</string>
+				<string>kramskoi-unknown-woman</string>
+				<string>michelangelo-creation-of-adam</string>
+				<string>hokusai-great-wave</string>
+				<string>holbein-ambassadors</string>
+				<string>brueghel-wooden-vessel</string>
+				<string>dahl-dresden-moonlight</string>
+				<string>bosschaert-wan-li-vase</string>
+				<string>cot-springtime</string>
+				<string>ruysch-flowers</string>
+				<string>van-gogh-flowering-plum</string>
+				<string>toulmouche-reluctant-bride</string>
+				<string>rosso-musical-angel</string>
+				<string>grimshaw-blackman-street</string>
+				<string>waterhouse-ophelia</string>
+				<string>biard-magdalena-bay</string>
+				<string>renoir-vase-roses</string>
+				<string>roerich-himalayas</string>
+				<string>velde-close-hauled</string>
+				<string>sohlberg-flower-meadow</string>
+				<string>dahl-cloud-study</string>
+				<string>friedrich-two-men-moon</string>
+				<string>monet-waterlily-pond</string>
+				<string>hesselbom-dusk</string>
+				<string>toulmouche-vanity</string>
+				<string>hiroshige-zoshigaya</string>
+				<string>monet-water-lilies</string>
+				<string>monet-water-lilies-1907</string>
+				<string>bierstadt-storm-rockies</string>
+				<string>korovin-place-opera</string>
+				<string>klimt-garden-sunflowers</string>
+				<string>redon-butterflies</string>
+				<string>aivazovsky-winter-landscape</string>
+				<string>aivazovsky-along-coast</string>
+				<string>grimshaw-silver-moonlight</string>
+				<string>monet-water-lilies-setting-sun</string>
+				<string>hiroshige-hota-coast</string>
+				<string>durer-praying-hands</string>
+				<string>cole-voyage-childhood</string>
+				<string>monet-impression-sunrise</string>
+				<string>monet-woman-parasol</string>
+				<string>velde-cannon-shot</string>
+				<string>cross-pink-cloud</string>
+				<string>laurence-mckinley</string>
+				<string>van-gogh-irises</string>
+				<string>kramskoi-christ-in-the-desert</string>
+				<string>turner-temeraire</string>
+				<string>leonardo-vitruvian-man</string>
+				<string>bruegel-hunters-snow</string>
+				<string>cole-voyage-youth</string>
+				<string>friedrich-monk-by-the-sea</string>
+				<string>van-gogh-wheat-field-cypresses</string>
+				<string>monet-cliff-pourville</string>
+				<string>van-gogh-almond-blossom</string>
+				<string>van-gogh-fishing-boats</string>
+				<string>hokusai-umezawa</string>
+				<string>whistler-falling-rocket</string>
+				<string>dore-fall-of-satan</string>
+				<string>dore-wolves-sheep</string>
+				<string>dore-leviathan</string>
+				<string>dore-paradise-lost-book-vi</string>
+				<string>dore-moses-tables</string>
+				<string>dore-empyrean</string>
+				<string>dore-raven</string>
+				<string>desktop</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Light Picture</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundDark</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>david-death-of-marat</string>
+				<string>velde-small-ship-storm</string>
+				<string>bosch-ascent-blessed</string>
+				<string>goya-witches-flight</string>
+				<string>martin-pandemonium</string>
+				<string>moran-burning-philadelphia</string>
+				<string>goya-burial-sardine</string>
+				<string>arbo-wild-hunt</string>
+				<string>altdorfer-battle-of-issus</string>
+				<string>munch-madonna</string>
+				<string>klee-fish-magic</string>
+				<string>friedrich-forest-moonlight</string>
+				<string>bosch-garden-left</string>
+				<string>rembrandt-storm-galilee</string>
+				<string>cole-voyage-manhood</string>
+				<string>munch-scream</string>
+				<string>bruegel-fall-rebel-angels</string>
+				<string>wright-vesuvius</string>
+				<string>gerome-botsaris</string>
+				<string>martin-joshua</string>
+				<string>velde-gale</string>
+				<string>hogai-nio</string>
+				<string>bosch-garden-central</string>
+				<string>martin-great-day-wrath</string>
+				<string>bonheur-wounded-eagle</string>
+				<string>cole-voyage-old-age</string>
+				<string>friedrich-abbey-oakwood</string>
+				<string>goya-sleep-of-reason</string>
+				<string>bosch-garden-fragment</string>
+				<string>spilliaert-vertigo</string>
+				<string>rothaug-melpomene</string>
+				<string>aivazovsky-ship-stormy-seas</string>
+				<string>cabanel-fallen-angel</string>
+				<string>spilliaert-woman-shoreline</string>
+				<string>el-greco-view-of-toledo</string>
+				<string>rembrandt-prodigal-son</string>
+				<string>velazquez-las-meninas</string>
+				<string>matejko-stanczyk</string>
+				<string>sargent-madame-x</string>
+				<string>millais-joan-of-arc</string>
+				<string>cot-storm</string>
+				<string>rembrandt-night-watch</string>
+				<string>vigee-lebrun-madame-grand</string>
+				<string>waterhouse-lady-shalott</string>
+				<string>fragonard-swing</string>
+				<string>rubens-st-francis-xavier</string>
+				<string>vermeer-pearl-earring</string>
+				<string>danielson-gambogi-self</string>
+				<string>beard-his-majesty</string>
+				<string>marc-foxes</string>
+				<string>degas-green-dancers</string>
+				<string>modigliani-nude-divan</string>
+				<string>raphael-sistine-madonna</string>
+				<string>bouguereau-virgin-lilies</string>
+				<string>wood-american-gothic</string>
+				<string>steinlen-chat-noir</string>
+				<string>degas-blue-dancers</string>
+				<string>botticelli-primavera</string>
+				<string>van-gogh-cafe-terrace</string>
+				<string>matisse-red-room</string>
+				<string>kandinsky-deepened-impulse</string>
+				<string>friedrich-wanderer</string>
+				<string>klimt-adele</string>
+				<string>mucha-job</string>
+				<string>van-gogh-starry-night</string>
+				<string>klimt-tree-of-life</string>
+				<string>klimt-the-kiss</string>
+				<string>van-gogh-starry-night-rhone</string>
+				<string>delacroix-liberty</string>
+				<string>van-gogh-sunflowers</string>
+				<string>klimt-mada-primavesi</string>
+				<string>schiele-kneeling-orange</string>
+				<string>van-gogh-sunflowers-munich</string>
+				<string>michelangelo-sistine-ceiling</string>
+				<string>mondrian-composition-red-plane</string>
+				<string>lemoyne-apotheosis-hercules</string>
+				<string>schiele-moa</string>
+				<string>aivazovsky-ninth-wave</string>
+				<string>popova-painterly-architectonic</string>
+				<string>bruegel-tower-babel</string>
+				<string>botticelli-birth-of-venus</string>
+				<string>kandinsky-yellow-red-blue</string>
+				<string>kandinsky-composition-viii</string>
+				<string>kramskoi-unknown-woman</string>
+				<string>michelangelo-creation-of-adam</string>
+				<string>hokusai-great-wave</string>
+				<string>holbein-ambassadors</string>
+				<string>brueghel-wooden-vessel</string>
+				<string>dahl-dresden-moonlight</string>
+				<string>bosschaert-wan-li-vase</string>
+				<string>cot-springtime</string>
+				<string>ruysch-flowers</string>
+				<string>van-gogh-flowering-plum</string>
+				<string>toulmouche-reluctant-bride</string>
+				<string>rosso-musical-angel</string>
+				<string>grimshaw-blackman-street</string>
+				<string>waterhouse-ophelia</string>
+				<string>biard-magdalena-bay</string>
+				<string>renoir-vase-roses</string>
+				<string>roerich-himalayas</string>
+				<string>velde-close-hauled</string>
+				<string>sohlberg-flower-meadow</string>
+				<string>dahl-cloud-study</string>
+				<string>friedrich-two-men-moon</string>
+				<string>monet-waterlily-pond</string>
+				<string>hesselbom-dusk</string>
+				<string>toulmouche-vanity</string>
+				<string>hiroshige-zoshigaya</string>
+				<string>monet-water-lilies</string>
+				<string>monet-water-lilies-1907</string>
+				<string>bierstadt-storm-rockies</string>
+				<string>korovin-place-opera</string>
+				<string>klimt-garden-sunflowers</string>
+				<string>redon-butterflies</string>
+				<string>aivazovsky-winter-landscape</string>
+				<string>aivazovsky-along-coast</string>
+				<string>grimshaw-silver-moonlight</string>
+				<string>monet-water-lilies-setting-sun</string>
+				<string>hiroshige-hota-coast</string>
+				<string>durer-praying-hands</string>
+				<string>cole-voyage-childhood</string>
+				<string>monet-impression-sunrise</string>
+				<string>monet-woman-parasol</string>
+				<string>velde-cannon-shot</string>
+				<string>cross-pink-cloud</string>
+				<string>laurence-mckinley</string>
+				<string>van-gogh-irises</string>
+				<string>kramskoi-christ-in-the-desert</string>
+				<string>turner-temeraire</string>
+				<string>leonardo-vitruvian-man</string>
+				<string>bruegel-hunters-snow</string>
+				<string>cole-voyage-youth</string>
+				<string>friedrich-monk-by-the-sea</string>
+				<string>van-gogh-wheat-field-cypresses</string>
+				<string>monet-cliff-pourville</string>
+				<string>van-gogh-almond-blossom</string>
+				<string>van-gogh-fishing-boats</string>
+				<string>hokusai-umezawa</string>
+				<string>whistler-falling-rocket</string>
+				<string>dore-fall-of-satan</string>
+				<string>dore-wolves-sheep</string>
+				<string>dore-leviathan</string>
+				<string>dore-paradise-lost-book-vi</string>
+				<string>dore-moses-tables</string>
+				<string>dore-empyrean</string>
+				<string>dore-raven</string>
+				<string>desktop</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Dark Picture</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundSchedule</string>
+			<key>pfm_title</key>
+			<string>Time of Day Pictures</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>appearance</string>
+			<key>pfm_description</key>
+			<string>A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundDynamic</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>appearance</string>
+				<string>time</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Dynamic Wallpaper</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundLocation</string>
+			<key>pfm_title</key>
+			<string>Sun Location</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -3007,6 +3366,24 @@
 			<string>Text Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.</string>
+			<key>pfm_name</key>
+			<string>appearance.fontSmoothing</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>antialiased</string>
+				<string>subpixel</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Text Smoothing</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -5648,7 +6025,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.</string>
+			<string>The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on.</string>
 			<key>pfm_name</key>
 			<string>sidebar.controlsOnHover</string>
 			<key>pfm_title</key>
@@ -5672,7 +6049,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
+			<string>The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.</string>
 			<key>pfm_name</key>
 			<string>sidebar.minimal</string>
 			<key>pfm_title</key>
@@ -6083,7 +6460,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>400</integer>
+			<integer>1300</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
 			<key>pfm_name</key>
@@ -6219,7 +6596,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1500</integer>
+			<integer>1300</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a group before its summary card opens.</string>
 			<key>pfm_name</key>

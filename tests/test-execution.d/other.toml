@@ -270,6 +270,11 @@ path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hook_python.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/git-hooks/hook_python.sh, the hooks' per-host Python pick, and scans scripts/ and .github/ for per-host interpreter paths; run python3 tests/test_hook_python.py yourself after changing the hooks' interpreter handling (about a second, no build)."
+
+[[test]]
 path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
 
@@ -284,6 +289,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_indexnow_notification.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_axe_ci.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/install-axe-ci.sh (the sha256 refusal) and ios-e2e.yml's use of it instead of the Homebrew tap; run python3 tests/test_install_axe_ci.py yourself after changing either (under a second, no build)."
 
 [[test]]
 path = "tests/test_install_git_hooks.py"
@@ -501,6 +511,10 @@ path = "tests/test_pairing_scheme_lint.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_payload_advisories.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_playwright_system_chrome.py"
 lane = "manual"
 reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."
@@ -698,6 +712,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_send_path_caps.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_settings_export_key_drift.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/settings-export-key-drift.py and the pre-push gate's settings export keys check; run python3 tests/test_settings_export_key_drift.py yourself after changing either (a few seconds, no build)."
 
 [[test]]
 path = "tests/test_settings_stamp_not_committed.py"

@@ -30,6 +30,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-command-class",
  "cmux-config",
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -43,6 +44,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -51,6 +53,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-source-scan",
+ "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
@@ -137,7 +140,6 @@ version = "1.0.0"
 name = "acpmux-client"
 version = "1.0.0"
 dependencies = [
- "acpmux-book",
  "acpmux-list-types",
  "serde",
  "serde_json",
@@ -1119,6 +1121,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-cli-render"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "base64",
+ "ghostty-vt",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -1198,6 +1210,7 @@ dependencies = [
  "base64",
  "chacha20poly1305",
  "cmux-json",
+ "cmux-process",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -1458,6 +1471,7 @@ dependencies = [
  "jsonschema",
  "notify",
  "plist",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1492,6 +1506,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-app-manifest",
  "cmux-config",
+ "cmux-file-lock",
  "cmux-theme-tokens",
  "fs4",
  "serde",
@@ -1529,6 +1544,15 @@ name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
  "cmux-local-auth",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-device-kind"
+version = "0.1.0"
+dependencies = [
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -1651,6 +1675,7 @@ dependencies = [
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
+ "cmux-supervise-core",
  "cmux-unix-socket",
  "flate2",
  "libc",
@@ -1891,15 +1916,19 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.3"
+version = "0.2.5"
 dependencies = [
  "cc",
  "cmux-encode",
+ "cmux-process",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
  "libc",
+ "ring",
+ "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
@@ -2108,6 +2137,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-supervise-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "cmux-tui-platform",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tab-discard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
@@ -2206,10 +2254,13 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-app-host",
  "cmux-app-manifest",
  "cmux-automations",
+ "cmux-browser-host",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-cloud-api",
@@ -2223,12 +2274,14 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-customize",
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
  "cmux-host",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
@@ -2259,6 +2312,7 @@ dependencies = [
  "core-foundation 0.10.1",
  "crossbeam-channel",
  "crossterm",
+ "dhat",
  "diffy",
  "flate2",
  "fs4",
@@ -2284,12 +2338,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
+ "tar",
  "tempfile",
  "terminput",
  "terminput-crossterm",
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "toml_edit 0.22.27",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
@@ -2336,6 +2392,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "base64",
+ "cmux-agent-cli-render",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -2348,6 +2405,7 @@ dependencies = [
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
+ "cmux-device-kind",
  "cmux-feed-core",
  "cmux-file-lock",
  "cmux-flow-trace",
@@ -2407,6 +2465,7 @@ dependencies = [
  "tungstenite",
  "uds_windows",
  "url",
+ "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
@@ -3909,6 +3968,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "ghostty-vt-sys",
+ "memchr",
  "png",
 ]
 

@@ -40,6 +40,8 @@ export default defineConfig({
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
+      // scripts/icons/build_pack.py --check owns the native/web catalog bytes.
+      "src/agent-session/acpmux/icons/iconCatalog.json",
       // Gallery-only output of scripts/icons/build_pack.py.
       "src/agent-session/acpmux/icons/nekoCandidate.json",
       "src/agent-session/acpmux/icons/nekoRounds.json",
@@ -61,7 +63,7 @@ export default defineConfig({
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
     bundleMetafile(process.env.CMUX_WEBVIEWS_METAFILE),
-    artifactRuntimeVite(),
+    artifactRuntimeVite({ metafile: process.env.CMUX_ARTIFACT_RUNTIME_METAFILE }),
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).

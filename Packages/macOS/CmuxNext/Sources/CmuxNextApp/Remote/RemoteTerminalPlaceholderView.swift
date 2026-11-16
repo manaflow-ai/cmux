@@ -21,12 +21,12 @@ final class RemoteTerminalPlaceholderView: NSView {
     private let status = ChromeLabel(labelWithString: "")
     private let connect = ThemedBezelButton()
     private let snapshotView = NSTextView()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private(set) var state: State = .reconnecting
     private(set) var machine = ""
     var onConnect: (() -> Void)?
-    /// "Reconnecting to {machine}…" waits 10 s, as the agent pane and sidebar do: the daemon redials on its own (Leo, 2026-11-14).
-    var reconnectHold = QuietHold(owner: "remote-terminal-reconnect", delay: .seconds(10))
+    /// "Reconnecting to {machine}…" waits the shared connection quiet time, as the sidebar and terminal do (Leo, 2026-11-14).
+    var reconnectHold = QuietHold(owner: "remote-terminal-reconnect", delay: QuietHold.connectionDelay)
 
     /// The glyph drawn (tests).
     var glyph: NSImage? { icon.image }

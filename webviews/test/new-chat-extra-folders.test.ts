@@ -31,6 +31,8 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     queueWithdrawn: [],
     waitingSteers: [],
     listener: () => undefined,
+    // Where the chat's rows come from, which every publish reads: v1, no chat on the store.
+    chatRows: { view: () => undefined, holds: () => false, asks: () => false },
     subagents: {
       progressSource: { structureVersion: 0, takeChangedProgress: () => ({}) },
       views: () => [],

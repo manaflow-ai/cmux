@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294.
+// cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -35,6 +35,28 @@ pub struct AgentChangedEvent {
     pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliFrameEvent {
+    pub base: Nullable<u64>,
+    pub cols: u16,
+    pub cursor_visible: bool,
+    pub cursor_x: u16,
+    pub cursor_y: u16,
+    pub data: T::Base64,
+    pub frame: u64,
+    pub rows: u16,
+    pub stream: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliLeanEvent {
+    pub f: T::Base64,
+    pub surface: T::Id,
 }
 
 #[rustfmt::skip]
@@ -394,6 +416,16 @@ pub struct DetachedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSetupStepEvent {
+    pub detail: String,
+    pub device: String,
+    pub fix: String,
+    pub state: String,
+    pub step: String,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyEvent {
 }
@@ -691,6 +723,13 @@ pub struct ScreenClosedEvent {
     pub index: u64,
     pub screen: T::Id,
     pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScreenDeviceChangedEvent {
+    /// The authenticated worker screen UUID, or null when the worker is unavailable.
+    pub screen_device_id: Nullable<String>,
 }
 
 #[rustfmt::skip]
@@ -1030,6 +1069,8 @@ pub struct UnknownEvent {
 pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
+    AgentCliFrame(AgentCliFrameEvent),
+    AgentCliLean(AgentCliLeanEvent),
     AgentInventoryChanged(AgentInventoryChangedEvent),
     AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
@@ -1064,6 +1105,7 @@ pub enum Event {
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
+    DeviceSetupStep(DeviceSetupStepEvent),
     Empty(EmptyEvent),
     FeedReportsChanged(FeedReportsChangedEvent),
     FeedViewChanged(FeedViewChangedEvent),
@@ -1090,6 +1132,7 @@ pub enum Event {
     ScreenAdded(ScreenAddedEvent),
     ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
+    ScreenDeviceChanged(ScreenDeviceChangedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
     SelectionChanged(SelectionChangedEvent),
@@ -1130,6 +1173,8 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
+            Self::AgentCliFrame(_) => Some("agent-cli-frame"),
+            Self::AgentCliLean(_) => Some("agent-cli-lean"),
             Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
             Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
@@ -1164,6 +1209,7 @@ impl Event {
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
+            Self::DeviceSetupStep(_) => Some("device-setup-step"),
             Self::Empty(_) => Some("empty"),
             Self::FeedReportsChanged(_) => Some("feed-reports-changed"),
             Self::FeedViewChanged(_) => Some("feed-view-changed"),
@@ -1190,6 +1236,7 @@ impl Event {
             Self::ScreenAdded(_) => Some("screen-added"),
             Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
+            Self::ScreenDeviceChanged(_) => Some("screen-device-changed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
             Self::SelectionChanged(_) => Some("selection-changed"),
@@ -1229,6 +1276,8 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
+            Self::AgentCliFrame(_) => Some(&AGENT_CLI_FRAME_EVENT_METADATA),
+            Self::AgentCliLean(_) => Some(&AGENT_CLI_LEAN_EVENT_METADATA),
             Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
             Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
@@ -1263,6 +1312,7 @@ impl Event {
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
+            Self::DeviceSetupStep(_) => Some(&DEVICE_SETUP_STEP_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::FeedReportsChanged(_) => Some(&FEED_REPORTS_CHANGED_EVENT_METADATA),
             Self::FeedViewChanged(_) => Some(&FEED_VIEW_CHANGED_EVENT_METADATA),
@@ -1289,6 +1339,7 @@ impl Event {
             Self::ScreenAdded(_) => Some(&SCREEN_ADDED_EVENT_METADATA),
             Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
+            Self::ScreenDeviceChanged(_) => Some(&SCREEN_DEVICE_CHANGED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
             Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
@@ -1339,6 +1390,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-cli-frame") => match serde_json::from_value::<AgentCliFrameEvent>(raw.clone()) {
+            Ok(event) => Event::AgentCliFrame(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-cli-lean") => match serde_json::from_value::<AgentCliLeanEvent>(raw.clone()) {
+            Ok(event) => Event::AgentCliLean(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1617,6 +1684,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("device-setup-step") => match serde_json::from_value::<DeviceSetupStepEvent>(raw.clone()) {
+            Ok(event) => Event::DeviceSetupStep(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("empty") => match serde_json::from_value::<EmptyEvent>(raw.clone()) {
             Ok(event) => Event::Empty(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1819,6 +1894,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("screen-closed") => match serde_json::from_value::<ScreenClosedEvent>(raw.clone()) {
             Ok(event) => Event::ScreenClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("screen-device-changed") => match serde_json::from_value::<ScreenDeviceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ScreenDeviceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

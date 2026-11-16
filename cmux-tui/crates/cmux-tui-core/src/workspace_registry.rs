@@ -6,7 +6,29 @@
 
 mod open;
 mod schema;
+mod session_guard;
 mod session_reset;
+
+#[cfg(any(windows, test))]
+pub(crate) use session_guard::session_guard_component;
+#[cfg(unix)]
+pub(crate) use session_guard::session_guard_components;
+#[cfg(all(windows, test))]
+use session_guard::session_guard_coordinator_waiter_dir;
+#[cfg(test)]
+pub(crate) use session_guard::start_session_guard_for_test;
+use session_guard::{
+    SESSION_GUARD_DIR, acquire_existing_session_guard, acquire_existing_session_reset_guard,
+    acquire_session_guard, open_session_lock_file, session_guard_lock_path,
+    validate_session_lock_file,
+};
+#[cfg(test)]
+use session_guard::{
+    SessionCoordinatorWaiter, prepare_session_guard_dir, session_guard_coordinator_path,
+};
+pub(crate) use session_guard::{
+    SessionLease, SessionOwnerProbe, probe_session_owner, session_owner_mark,
+};
 
 pub(crate) use schema::{AutoVacuumMigration, first_state_foreign_key_violation};
 use schema::{
@@ -37,7 +59,6 @@ use std::path::{Path, PathBuf};
 pub(crate) use terminal_snapshot_read::{SessionRows, read_session_rows};
 
 use anyhow::Context;
-use fs4::FileExt;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -753,7 +774,7 @@ impl PersistentSessionStateResetter {
             ensure_reset_dir_fingerprint(&reset_dir.path, "pending", expected_fingerprint)?;
         }
         if let Some(lease) = &lease {
-            validate_session_lock_file(&lease.path, &lease.file)?;
+            validate_session_lock_file(&lease.path, lease.file())?;
         }
         let session_reset_dir = if session_dir_exists {
             Some(rename_session_dir_for_reset(
@@ -2113,14 +2134,6 @@ fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Resul
 const MACHINE_ID_FILE: &str = "machine-id";
 const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
 const SESSION_WRITER_LOCK_FILE: &str = "writer.lock";
-const SESSION_GUARD_DIR: &str = "session-locks";
-const SESSION_GUARD_COORDINATOR_FILE: &str = ".coordinator.lock";
-const SESSION_GUARD_COORDINATOR_WAITER_DIR: &str = ".coordinator.waiters";
-const SESSION_GUARD_COORDINATOR_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_millis(250);
-const SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT: usize = 64;
-static SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 #[cfg(test)]
 static RESET_RENAME_SYNC_FAILURE_ROOT: std::sync::Mutex<Option<PathBuf>> =
@@ -2142,157 +2155,6 @@ static RESET_UNSUPPORTED_CHECKED_DELETION_ROOT: std::sync::Mutex<Option<PathBuf>
 #[cfg(test)]
 static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
-
-fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    acquire_existing_session_guard(root, session_name)
-}
-
-fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
-    platform::restrict_directory(root)?;
-    acquire_session_guard_from_private_dir(root, session_name, false)
-}
-
-fn acquire_existing_session_reset_guard(
-    root: &Path,
-    session_name: &str,
-) -> anyhow::Result<SessionLease> {
-    acquire_session_guard_from_private_dir(root, session_name, true)
-}
-
-fn acquire_session_guard_from_private_dir(
-    root: &Path,
-    session_name: &str,
-    bounded: bool,
-) -> anyhow::Result<SessionLease> {
-    let lock_dir = prepare_session_guard_dir(root)?;
-    let coordinator_path = session_guard_coordinator_path(&lock_dir);
-    let _coordinator = if bounded {
-        SessionLease::acquire_coordinator(&coordinator_path)
-    } else {
-        SessionLease::acquire_coordinator_blocking(&coordinator_path)
-    }
-    .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
-    let lock_path = session_guard_lock_path(&lock_dir, session_name);
-    SessionLease::acquire(&lock_path)
-}
-
-/// Whether a daemon owns another session of `root` now, asked by the session
-/// guard every owner holds from its registry open to its exit
-/// (`mux/unowned_hosts.rs`). `component` is the guard's file stem
-/// ([`session_storage_component`]).
-pub(crate) enum SessionOwnerProbe {
-    /// No daemon holds the guard: the lease is held here until dropped, so
-    /// none can start the session meanwhile.
-    Unowned(SessionLease),
-    /// A daemon holds the guard, or the probe could not tell.
-    Owned,
-    /// The session has no guard file in `root`.
-    NoGuard,
-}
-
-/// Takes the guard of the session whose file stem is `component` when no
-/// daemon holds it, without waiting on a daemon (the coordinator's short
-/// bound). A daemon that starts the session while the lease is held here
-/// fails its start, as it does during a session reset.
-///
-/// The guard file itself is opened, never made: a missing one is
-/// [`SessionOwnerProbe::NoGuard`], and any other doubt (it cannot be opened,
-/// it changed while opening, its lock is taken) is
-/// [`SessionOwnerProbe::Owned`]. Whoever holds the lease checks
-/// [`SessionLease::still_guards`] before each step that ends a host.
-pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
-    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
-    let lock_path = session_guard_lock_component_path(&lock_dir, component);
-    let mut options = OpenOptions::new();
-    options.read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-    }
-    let file = match options.open(&lock_path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return SessionOwnerProbe::NoGuard;
-        }
-        Err(_) => return SessionOwnerProbe::Owned,
-    };
-    let Ok(_coordinator) =
-        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
-    else {
-        return SessionOwnerProbe::Owned;
-    };
-    // Locked first, then checked: the path must still name the locked file.
-    if FileExt::try_lock(&file).is_err() || validate_session_lock_file(&lock_path, &file).is_err() {
-        return SessionOwnerProbe::Owned;
-    }
-    SessionOwnerProbe::Unowned(SessionLease { file, path: lock_path, coordinator_waiter_dir: None })
-}
-
-/// What the last owner run of the session `component` of `root` left in its
-/// session directory: the newest modification time and the total size of
-/// its top-level files (registry, its WAL, `startup-timings.jsonl`). Every
-/// owner start and every adoption commits there, so a change means an owner
-/// ran in between; nothing else writes there while its guard is free.
-pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
-    let dir = platform::normalize_filesystem_path(root.join(component));
-    let (mut newest, mut size, mut files) = (0_u128, 0_u64, 0_usize);
-    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-        let Ok(metadata) = entry.metadata() else { continue };
-        if !metadata.is_file() {
-            continue;
-        }
-        files += 1;
-        size = size.saturating_add(metadata.len());
-        let modified = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |since| since.as_nanos());
-        newest = newest.max(modified);
-    }
-    format!("{newest}:{size}:{files}")
-}
-
-/// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.
-#[cfg(unix)]
-pub(crate) fn session_guard_components(root: &Path) -> Vec<String> {
-    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
-    let mut components = fs::read_dir(lock_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().into_string().ok()?;
-            let stem = name.strip_suffix(".lock")?;
-            (!stem.starts_with('.')).then(|| stem.to_owned())
-        })
-        .collect::<Vec<_>>();
-    components.sort();
-    components
-}
-
-/// The guard file stem of `session` ([`session_storage_component`]).
-#[cfg(any(windows, test))]
-pub(crate) fn session_guard_component(session: &str) -> String {
-    session_storage_component(session)
-}
-
-fn session_guard_lock_component_path(lock_dir: &Path, component: &str) -> PathBuf {
-    platform::normalize_filesystem_path(lock_dir.join(format!("{component}.lock")))
-}
-
-/// A daemon's start of `session` in `root` as a session reset takes it: the
-/// coordinator with its short bound, then the guard.
-#[cfg(test)]
-pub(crate) fn start_session_guard_for_test(
-    root: &Path,
-    session_name: &str,
-) -> anyhow::Result<SessionLease> {
-    fs::create_dir_all(root)?;
-    acquire_session_guard_from_private_dir(root, session_name, true)
-}
 
 #[cfg(test)]
 mod session_owner_probe_tests {
@@ -2341,42 +2203,6 @@ mod session_owner_probe_tests {
         drop(lease);
         let _ = fs::remove_dir_all(&root);
     }
-}
-
-fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
-    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
-    match fs::symlink_metadata(&lock_dir) {
-        Ok(metadata) if metadata.file_type().is_dir() => {}
-        Ok(_) => anyhow::bail!("session lock directory is not a directory: {}", lock_dir.display()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match fs::create_dir(&lock_dir) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let metadata = fs::symlink_metadata(&lock_dir)?;
-                    if !metadata.file_type().is_dir() {
-                        anyhow::bail!(
-                            "session lock directory is not a directory: {}",
-                            lock_dir.display()
-                        );
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(error) => return Err(error.into()),
-    }
-    platform::restrict_directory(&lock_dir)?;
-    Ok(lock_dir)
-}
-
-fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
-    platform::normalize_filesystem_path(
-        lock_dir.join(format!("{}.lock", session_storage_component(session_name))),
-    )
-}
-
-fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
-    platform::normalize_filesystem_path(lock_dir.join(SESSION_GUARD_COORDINATOR_FILE))
 }
 
 #[cfg(unix)]
@@ -2437,14 +2263,18 @@ fn prepare_terminal_host_root_for_reset(
 
 #[cfg(all(unix, test))]
 fn inject_legacy_terminal_host_record_removal_before_liveness(root: &Path) -> anyhow::Result<()> {
-    let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap();
+    let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(path) = record.as_ref() else {
         return Ok(());
     };
     if path.parent() != Some(root) {
         return Ok(());
     }
-    let path = record.take().expect("record path was checked");
+    let Some(path) = record.take() else {
+        return Ok(());
+    };
     fs::remove_file(&path)
         .with_context(|| format!("remove injected terminal-host record {}", path.display()))?;
     Ok(())
@@ -2625,581 +2455,6 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
         })
 }
 
-pub(crate) struct SessionLease {
-    file: File,
-    path: PathBuf,
-    coordinator_waiter_dir: Option<PathBuf>,
-}
-
-impl SessionLease {
-    /// Whether the guard path still names the file this lease locked: a
-    /// guard deleted (and maybe made again) since is no longer held here,
-    /// and a daemon may own the session through the new file.
-    pub(crate) fn still_guards(&self) -> bool {
-        validate_session_lock_file(&self.path, &self.file).is_ok()
-    }
-
-    /// Runs `act` only while this lease still guards its session, with the
-    /// session-locks coordinator held from that check until `act` returns.
-    /// A daemon makes or replaces a guard file only under that coordinator
-    /// (`acquire_session_guard_from_private_dir` takes it before
-    /// [`SessionLease::acquire`] opens the guard), so none can own the
-    /// session in between. `None`: the coordinator is busy past its short
-    /// bound, or the guard no longer names this lease's file. Keep `act`
-    /// short: a daemon start waits on the coordinator meanwhile.
-    pub(crate) fn while_guarding<T>(&self, act: impl FnOnce() -> T) -> Option<T> {
-        let lock_dir = self.path.parent()?;
-        let _coordinator =
-            SessionLease::acquire_coordinator(&session_guard_coordinator_path(lock_dir)).ok()?;
-        self.still_guards().then(act)
-    }
-
-    fn acquire(path: &Path) -> anyhow::Result<Self> {
-        let file = open_session_lock_file(path)?;
-        restrict_session_lock_file(path, &file)?;
-        validate_session_lock_file(path, &file)?;
-        FileExt::try_lock(&file).with_context(|| {
-            format!("workspace session is already owned by another daemon: {}", path.display())
-        })?;
-        Ok(Self { file, path: path.to_path_buf(), coordinator_waiter_dir: None })
-    }
-
-    fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
-        Self::acquire_coordinator_until(
-            path,
-            std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT,
-        )
-    }
-
-    fn acquire_coordinator_until(
-        path: &Path,
-        deadline: std::time::Instant,
-    ) -> anyhow::Result<Self> {
-        let file = open_session_lock_file(path)?;
-        restrict_session_lock_file(path, &file)?;
-        validate_session_lock_file(path, &file)?;
-        loop {
-            match FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self::coordinator(file, path)),
-                Err(fs4::TryLockError::WouldBlock) => {
-                    if std::time::Instant::now() >= deadline {
-                        return session_coordinator_busy(path);
-                    }
-                }
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("lock workspace session coordinator: {}", path.display())
-                    });
-                }
-            }
-
-            let waiter = SessionCoordinatorWaiter::register(path).with_context(|| {
-                format!("register workspace session coordinator waiter: {}", path.display())
-            })?;
-
-            // Registration precedes this second lock attempt. If the owner
-            // released before it saw the registration, this attempt observes
-            // the free lock and prevents a lost wakeup.
-            match FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self::coordinator(file, path)),
-                Err(fs4::TryLockError::WouldBlock) => {}
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("lock workspace session coordinator: {}", path.display())
-                    });
-                }
-            }
-
-            if waiter.wait_until(deadline).with_context(|| {
-                format!("wait for workspace session coordinator: {}", path.display())
-            })? {
-                continue;
-            }
-
-            // The file lock remains authoritative when the owner crashes
-            // before it publishes a registered waiter signal.
-            match FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self::coordinator(file, path)),
-                Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("lock workspace session coordinator: {}", path.display())
-                    });
-                }
-            }
-        }
-    }
-
-    fn acquire_coordinator_blocking(path: &Path) -> anyhow::Result<Self> {
-        let file = open_session_lock_file(path)?;
-        restrict_session_lock_file(path, &file)?;
-        validate_session_lock_file(path, &file)?;
-        FileExt::lock(&file)
-            .with_context(|| format!("lock workspace session coordinator: {}", path.display()))?;
-        validate_session_lock_file(path, &file)?;
-        Ok(Self::coordinator(file, path))
-    }
-
-    fn coordinator(file: File, path: &Path) -> Self {
-        Self {
-            file,
-            path: path.to_path_buf(),
-            coordinator_waiter_dir: Some(session_guard_coordinator_waiter_dir(path)),
-        }
-    }
-}
-
-fn session_coordinator_busy(path: &Path) -> anyhow::Result<SessionLease> {
-    Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
-        .with_context(|| format!("workspace session coordinator is busy: {}", path.display()))
-}
-
-struct SessionCoordinatorWaiter {
-    #[cfg(unix)]
-    signal_reader: File,
-    #[cfg(unix)]
-    _signal_anchor: File,
-    #[cfg(not(unix))]
-    socket: std::net::UdpSocket,
-    registration_path: PathBuf,
-    #[cfg(not(unix))]
-    token: String,
-}
-
-impl SessionCoordinatorWaiter {
-    fn register(coordinator_path: &Path) -> anyhow::Result<Self> {
-        use std::sync::atomic::Ordering;
-
-        let waiter_dir = session_guard_coordinator_waiter_dir(coordinator_path);
-        prepare_session_coordinator_waiter_dir(&waiter_dir)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            use std::os::unix::fs::OpenOptionsExt;
-
-            loop {
-                let sequence =
-                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let token = format!("{:x}-{sequence:x}", std::process::id());
-                let registration_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
-                let temporary_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
-                let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
-                // SAFETY: fifo_path is a valid NUL-terminated path and mode
-                // only grants access to the current user.
-                let created = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) };
-                if created != 0 {
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() == std::io::ErrorKind::AlreadyExists {
-                        continue;
-                    }
-                    return Err(error.into());
-                }
-
-                let mut reader_options = OpenOptions::new();
-                reader_options
-                    .read(true)
-                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-                let signal_reader = match reader_options.open(&temporary_path) {
-                    Ok(reader) => reader,
-                    Err(error) => {
-                        let _ = fs::remove_file(&temporary_path);
-                        return Err(error.into());
-                    }
-                };
-                let mut anchor_options = OpenOptions::new();
-                anchor_options
-                    .write(true)
-                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-                let signal_anchor = match anchor_options.open(&temporary_path) {
-                    Ok(anchor) => anchor,
-                    Err(error) => {
-                        let _ = fs::remove_file(&temporary_path);
-                        return Err(error.into());
-                    }
-                };
-                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
-                    let _ = fs::remove_file(&temporary_path);
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        continue;
-                    }
-                    return Err(error.into());
-                }
-                return Ok(Self {
-                    signal_reader,
-                    _signal_anchor: signal_anchor,
-                    registration_path,
-                });
-            }
-        }
-
-        #[cfg(not(unix))]
-        {
-            let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
-            let address = socket.local_addr()?;
-
-            loop {
-                let sequence =
-                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
-                let registration_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
-                let temporary_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
-                let mut options = OpenOptions::new();
-                options.create_new(true).write(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-                }
-                let mut registration = match options.open(&temporary_path) {
-                    Ok(registration) => registration,
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                    Err(error) => return Err(error.into()),
-                };
-                if let Err(error) = writeln!(registration, "{address} {token}") {
-                    let _ = fs::remove_file(&temporary_path);
-                    return Err(error.into());
-                }
-                if let Err(error) = registration.flush() {
-                    let _ = fs::remove_file(&temporary_path);
-                    return Err(error.into());
-                }
-                drop(registration);
-                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
-                    let _ = fs::remove_file(&temporary_path);
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        continue;
-                    }
-                    return Err(error.into());
-                }
-                return Ok(Self { socket, registration_path, token });
-            }
-        }
-    }
-
-    fn wait_until(&self, deadline: std::time::Instant) -> std::io::Result<bool> {
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-
-            loop {
-                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                if remaining.is_zero() {
-                    return Ok(false);
-                }
-                let timeout_ms =
-                    remaining.as_millis().saturating_add(1).min(i32::MAX as u128) as i32;
-                let mut descriptor = libc::pollfd {
-                    fd: self.signal_reader.as_raw_fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
-                // SAFETY: descriptor points to one valid pollfd for the call.
-                let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
-                if ready == 0 {
-                    return Ok(false);
-                }
-                if ready < 0 {
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() == std::io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    return Err(error);
-                }
-                if descriptor.revents & libc::POLLIN != 0 {
-                    let mut signal = [0_u8; 1];
-                    let mut signal_reader = &self.signal_reader;
-                    match signal_reader.read(&mut signal) {
-                        Ok(1) => return Ok(true),
-                        Ok(_) => {}
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
-                        Err(error) => return Err(error),
-                    }
-                }
-                if descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
-                    return Err(std::io::Error::other("session coordinator signal pipe failed"));
-                }
-            }
-        }
-
-        #[cfg(not(unix))]
-        {
-            let mut message = [0_u8; 128];
-            loop {
-                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                if remaining.is_zero() {
-                    return Ok(false);
-                }
-                self.socket.set_read_timeout(Some(remaining))?;
-                match self.socket.recv_from(&mut message) {
-                    Ok((length, sender))
-                        if sender.ip().is_loopback()
-                            && message.get(..length) == Some(self.token.as_bytes()) =>
-                    {
-                        return Ok(true);
-                    }
-                    Ok(_) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) =>
-                    {
-                        return Ok(false);
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-    }
-}
-
-impl Drop for SessionCoordinatorWaiter {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.registration_path);
-    }
-}
-
-fn session_guard_coordinator_waiter_dir(coordinator_path: &Path) -> PathBuf {
-    platform::normalize_filesystem_path(
-        coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR),
-    )
-}
-
-fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<()> {
-    match fs::symlink_metadata(waiter_dir) {
-        Ok(metadata) if metadata.file_type().is_dir() => {}
-        Ok(_) => anyhow::bail!(
-            "session coordinator waiter path is not a directory: {}",
-            waiter_dir.display()
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match fs::create_dir(waiter_dir) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let metadata = fs::symlink_metadata(waiter_dir)?;
-                    if !metadata.file_type().is_dir() {
-                        anyhow::bail!(
-                            "session coordinator waiter path is not a directory: {}",
-                            waiter_dir.display()
-                        );
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(error) => return Err(error.into()),
-    }
-    platform::restrict_directory(waiter_dir)?;
-    Ok(())
-}
-
-fn publish_session_coordinator_available(waiter_dir: &Path) {
-    let Ok(entries) = fs::read_dir(waiter_dir) else {
-        return;
-    };
-    #[cfg(not(unix))]
-    let Ok(socket) = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)) else {
-        return;
-    };
-    for entry in entries.flatten().take(SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT) {
-        let path = entry.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
-            continue;
-        };
-        match path.extension().and_then(|value| value.to_str()) {
-            Some("tmp") => {
-                #[cfg(unix)]
-                let is_temporary_waiter = {
-                    use std::os::unix::fs::FileTypeExt;
-
-                    metadata.file_type().is_file() || metadata.file_type().is_fifo()
-                };
-                #[cfg(not(unix))]
-                let is_temporary_waiter = metadata.file_type().is_file();
-                let is_stale = is_temporary_waiter
-                    && metadata
-                        .modified()
-                        .ok()
-                        .and_then(|modified| modified.elapsed().ok())
-                        .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
-                if is_stale {
-                    let _ = fs::remove_file(path);
-                }
-                continue;
-            }
-            Some("waiter") => {}
-            _ => continue,
-        }
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
-
-            if !metadata.file_type().is_fifo() {
-                let _ = fs::remove_file(path);
-                continue;
-            }
-            let mut options = OpenOptions::new();
-            options.write(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-            let published =
-                options.open(&path).and_then(|mut signal| signal.write_all(&[1])).is_ok();
-            let _ = fs::remove_file(path);
-            if published {
-                break;
-            }
-            continue;
-        }
-
-        #[cfg(not(unix))]
-        if !metadata.file_type().is_file() {
-            continue;
-        }
-        #[cfg(not(unix))]
-        if let Ok(registration) = fs::read_to_string(&path) {
-            let mut fields = registration.split_whitespace();
-            let address =
-                fields.next().and_then(|value| value.parse::<std::net::SocketAddr>().ok());
-            let token = fields.next();
-            if fields.next().is_none()
-                && let (Some(address), Some(token)) = (address, token)
-                && address.ip().is_loopback()
-                && token.len() <= 128
-                && token.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
-            {
-                if socket.send_to(token.as_bytes(), address).is_ok() {
-                    let _ = fs::remove_file(path);
-                    break;
-                }
-            }
-        }
-        #[cfg(not(unix))]
-        let _ = fs::remove_file(path);
-    }
-}
-
-fn open_session_lock_file(path: &Path) -> anyhow::Result<File> {
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-    }
-    let file = options.open(path)?;
-    validate_session_lock_file(path, &file)?;
-    Ok(file)
-}
-
-fn validate_session_lock_file(path: &Path, file: &File) -> anyhow::Result<()> {
-    let path_metadata = fs::symlink_metadata(path)?;
-    if !path_metadata.file_type().is_file() {
-        anyhow::bail!("session lock path is not a file: {}", path.display());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-
-        let file_metadata = file.metadata()?;
-        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
-        {
-            anyhow::bail!("session lock path changed while opening: {}", path.display());
-        }
-    }
-    // Windows: the held handle and a fresh open of the path must be one file
-    // (volume serial number and file id). The guard is opened with
-    // FILE_SHARE_DELETE (std's default share mode), so it can be deleted or
-    // renamed away while held and another file made at its path.
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Storage::FileSystem::{
-            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            FILE_SHARE_WRITE,
-        };
-
-        let fresh = OpenOptions::new()
-            .access_mode(FILE_READ_ATTRIBUTES)
-            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-            .open(path)?;
-        if windows_file_identity(&fresh)? != windows_file_identity(file)? {
-            anyhow::bail!("session lock path changed while opening: {}", path.display());
-        }
-    }
-    Ok(())
-}
-
-/// A Windows file's identity: its volume serial number and file id, the
-/// 128-bit `FILE_ID_INFO` where the file system has it (ReFS ids do not fit
-/// in 64 bits), else the 64-bit index of `BY_HANDLE_FILE_INFORMATION`.
-#[cfg(windows)]
-fn windows_file_identity(file: &File) -> std::io::Result<(u64, [u8; 16])> {
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO, FileIdInfo, GetFileInformationByHandle,
-        GetFileInformationByHandleEx,
-    };
-
-    let handle = file.as_raw_handle();
-    // SAFETY: a zeroed plain-old-data struct the call fills.
-    let mut id: FILE_ID_INFO = unsafe { std::mem::zeroed() };
-    // SAFETY: `handle` is open for the call; `id` is the size passed.
-    let filled = unsafe {
-        GetFileInformationByHandleEx(
-            handle,
-            FileIdInfo,
-            std::ptr::from_mut(&mut id).cast(),
-            u32::try_from(std::mem::size_of::<FILE_ID_INFO>()).unwrap_or(u32::MAX),
-        )
-    };
-    if filled != 0 {
-        return Ok((id.VolumeSerialNumber, id.FileId.Identifier));
-    }
-    // SAFETY: as above.
-    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
-    // SAFETY: `handle` is open for the call.
-    if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    let mut index = [0_u8; 16];
-    let low = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
-    for (slot, byte) in index.iter_mut().zip(low.to_le_bytes()) {
-        *slot = byte;
-    }
-    Ok((u64::from(info.dwVolumeSerialNumber), index))
-}
-
-#[cfg(unix)]
-fn restrict_session_lock_file(_path: &Path, file: &File) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_session_lock_file(path: &Path, _file: &File) -> anyhow::Result<()> {
-    platform::restrict_file(path)?;
-    Ok(())
-}
-
-impl Drop for SessionLease {
-    fn drop(&mut self) {
-        if FileExt::unlock(&self.file).is_ok()
-            && let Some(waiter_dir) = &self.coordinator_waiter_dir
-        {
-            publish_session_coordinator_available(waiter_dir);
-        }
-        let _ = &self.path;
-    }
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -3208,6 +2463,9 @@ mod receipt_env_tests;
 
 #[cfg(test)]
 mod open_cost_tests;
+
+#[cfg(test)]
+mod open_invariants_tests;
 
 #[cfg(test)]
 mod temp_store_tests;

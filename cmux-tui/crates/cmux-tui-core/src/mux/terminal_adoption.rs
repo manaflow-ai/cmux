@@ -380,6 +380,9 @@ impl Mux {
         // without a host-owned record therefore represents a closed crash
         // window, not permission to spawn a replacement shell.
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        // The terminal holder is asked one time, and it gets one deadline
+        // for all its terminals together (mux/holder_adoption.rs).
+        let mut holder_pass = self.holder_pass(&options);
         for terminal in snapshot.terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned
                 || handled_terminals.contains(&terminal.terminal_id)
@@ -391,9 +394,9 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.adopt_from_holder_or_end(&terminal, &options)?;
+            self.adopt_from_holder_or_end(&terminal, &options, &mut holder_pass)?;
         }
-        self.release_unclaimed_holder_terminals(&options);
+        self.finish_holder_pass(holder_pass, &options);
         Ok(())
     }
 
@@ -846,20 +849,12 @@ impl Mux {
         insert_surface_checked(state, surface)?;
         {
             let workspace = &mut state.workspaces[workspace_index];
-            workspace.screens.push(Screen {
-                id: screen_id,
-                public_id: screen_public_id,
-                name: None,
-                root: Node::Leaf(pane_id),
-                active_pane: pane_id,
-                zoomed_pane: None,
-                creation_order_auto_layout: Some(vec![pane_id]),
-                viewport_splits: Default::default(),
-                viewport_base_width: None,
-                layout_columns: Vec::new(),
-                layout_revision: 0,
-                layout_undo: Default::default(),
-            });
+            workspace.screens.push(Screen::with_one_pane(
+                screen_id,
+                screen_public_id,
+                None,
+                pane_id,
+            ));
             workspace.active_screen = workspace.screens.len() - 1;
         }
         // Adoption materializes a live pane without stealing focus, but it

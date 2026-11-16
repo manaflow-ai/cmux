@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294. */
+/* cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea. */
 
 
 import type * as T from "./types.js";
@@ -64,7 +64,10 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "expected_generation"?: (string) | null;
   "expected_terminal_id"?: (string) | null;
+  "hybrid_frame"?: (bigint) | null;
+  "hybrid_stream"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
+  "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
   "rows"?: (number) | null;
@@ -1219,6 +1222,19 @@ export interface DetachClientRequest extends CmuxRequestBase {
   "surface"?: (T.Id) | null;
 }
 export type DetachClientResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface DeviceSetupRequest extends CmuxRequestBase {
+  cmd: "device-setup";
+  /** Turn on the agents permission (the person's click in the app). */
+  "allow_agents"?: boolean;
+  /** A device id, name or address, as `cmux device list` shows it. */
+  "device": string;
+  "dry_run"?: boolean;
+  /** setup (every step) or start (reach, login item and start). */
+  "verb": string;
+}
+export type DeviceSetupResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ExportLayoutRequest extends CmuxRequestBase {
@@ -2755,6 +2771,13 @@ export interface TerminalClipboardSubscribeRequest extends CmuxRequestBase {
   "terminal_ids": Array<string>;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalCommandContextRequest extends CmuxRequestBase {
+  cmd: "terminal-command-context";
+  "intent"?: T.TerminalCommandContextIntent;
+  "surface": T.Id;
+}
+
 /** Protocol v9; authority: control. */
 export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
@@ -3145,6 +3168,7 @@ export type CmuxRequest =
   | DeleteWorkspaceGroupRequest
   | DetachAttachedViewRequest
   | DetachClientRequest
+  | DeviceSetupRequest
   | ExportLayoutRequest
   | FeedLocalHandoffAbortRequest
   | FeedLocalHandoffBeginRequest
@@ -3306,6 +3330,7 @@ export type CmuxRequest =
   | SwapPaneRequest
   | TerminalClipboardReplyRequest
   | TerminalClipboardSubscribeRequest
+  | TerminalCommandContextRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
@@ -4210,6 +4235,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "device-setup": {
+    request: DeviceSetupRequest;
+    result: DeviceSetupResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "device-setup-v1";
     stream: null;
   };
   "export-layout": {
@@ -5499,6 +5532,14 @@ export interface CmuxCommandDefinitionMap {
     since: 12;
     capability: "terminal-clipboard-read-v1";
     stream: "subscribe";
+  };
+  "terminal-command-context": {
+    request: TerminalCommandContextRequest;
+    result: T.TerminalCommandContextResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-command-context-v1";
+    stream: null;
   };
   "terminal-events": {
     request: TerminalEventsRequest;

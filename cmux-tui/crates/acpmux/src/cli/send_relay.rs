@@ -32,22 +32,13 @@ use crate::cli::output::print_json;
 use crate::cli::sender::{FROM_ENV, Subagent};
 use crate::prompt_class::PromptClass;
 use anyhow::{Context, Result, anyhow};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tokio::time::Instant;
 
-/// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
-/// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SendRelay {
-    pub argv: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ls_argv: Option<Vec<String>>,
-}
+pub use crate::config::SendRelay;
 
 /// How long a relay listing may take before `ls` goes on without it.
 pub(crate) const LS_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);

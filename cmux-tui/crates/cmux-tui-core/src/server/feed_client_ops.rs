@@ -307,6 +307,9 @@ impl Mux {
                             FeedEvent::Reports { revision } => {
                                 crate::mux::MuxEvent::FeedReportsChanged { revision }
                             }
+                            FeedEvent::GitHubChanged { live } => {
+                                crate::mux::MuxEvent::GitHubChanged { live }
+                            }
                         });
                     }
                 }),

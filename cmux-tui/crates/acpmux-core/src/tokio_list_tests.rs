@@ -270,6 +270,7 @@ async fn rows_by_key_go_a_hundred_a_request_and_say_what_is_missing() {
         last_activity: 0,
         chat_id: id.to_owned(),
         origin: origin.to_owned(),
+        past: false,
     };
     let mut keys: Vec<ListKey> =
         (0..250).map(|index| key("local", &format!("chat-{index}"))).collect();
@@ -368,7 +369,8 @@ async fn a_closed_row_of_a_down_peer_has_no_row_by_key() {
     assert_eq!(hub.snapshot().iter().count(), 1, "the index keeps no closed row of a peer");
 
     let mut connection = open(&hub).await;
-    let key = ListKey { last_activity: 0, chat_id: "old".into(), origin: "peer-b".into() };
+    let key =
+        ListKey { last_activity: 0, chat_id: "old".into(), origin: "peer-b".into(), past: false };
     let mut reading = connection.read(Read::Keys(vec![key])).await.unwrap();
     let mut rows = Vec::new();
     while let Some(page) = tokio::time::timeout(WAIT, reading.next()).await.unwrap().unwrap() {

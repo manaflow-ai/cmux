@@ -11,6 +11,7 @@ import {
   unmeasuredReason,
   visibilitySummary,
 } from "./chatPerfCapture";
+import { startFrameOwners } from "./frameOwners";
 
 describe("chat perf capture: pure parts", () => {
   test("record kinds group into tool_call, tool_call_update, agent_message_chunk and other", () => {
@@ -179,6 +180,47 @@ function fakeEnv() {
   };
 }
 
+describe("chat perf capture: a record's own paint", () => {
+  // Leo, 2026-11-16: "it shuold be instant even under load". The capture counted the first frame after a
+  // record arrived, drawn or not; the pane drew it a frame later, and the report read on time.
+  test("a record drawn in a task after its frame counts the next frame's paint; one drawn in its frame, that frame's", async () => {
+    const page = fakeEnv();
+    let onDraw: () => void = () => {};
+    page.env.watchDraws = (draw) => {
+      onDraw = draw;
+      return { disconnect: () => {} };
+    };
+    const recorder = new ChatPerfCapture();
+    const running = recorder.capture({ seconds: 1 }, page.env);
+    page.advance(16);
+    page.frame();
+    page.paint();
+    // Drawn a frame late: arrives at 16, the frame at 266 paints without it, React draws it in a task after.
+    recorder.arrived("tool_call", 16, 17);
+    page.advance(250);
+    page.frame();
+    page.advance(10);
+    page.paint();
+    onDraw();
+    page.advance(250);
+    page.frame();
+    page.advance(10);
+    page.paint();
+    // Drawn in its frame: arrives, then the frame's callbacks change the transcript before it paints.
+    recorder.arrived("agent_message_chunk", page.env.now(), page.env.now());
+    page.advance(250);
+    page.frame();
+    onDraw();
+    page.advance(10);
+    page.paint();
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(report.records.tool_call.to_paint.max_ms).toBe(520);
+    expect(report.records.agent_message_chunk.to_paint.max_ms).toBe(260);
+    expect(report.records.unpainted).toBe(0);
+  });
+});
+
 describe("chat perf capture: the window", () => {
   test("times each arriving record to the first painted frame and removes everything after", async () => {
     const page = fakeEnv();
@@ -229,5 +271,59 @@ describe("chat perf capture: the window", () => {
     expect(report.measured).toBe(false);
     expect(report.unmeasured_reason).toBe("no_frames");
     expect(page.live().observers).toBe(0);
+  });
+});
+
+describe("chat perf capture: frame owners", () => {
+  test("the report names the page code that asked for frames, apart from the capture's own loop", async () => {
+    const page = fakeEnv();
+    let pageRequests = 0;
+    const host = {
+      requestAnimationFrame: () => ++pageRequests,
+      setTimeout: () => 0,
+      setInterval: () => 0,
+    };
+    const original = host.requestAnimationFrame;
+    page.env.startOwners = () => startFrameOwners({ host, animations: () => [], loadSites: async () => null });
+    const recorder = new ChatPerfCapture();
+    const running = recorder.capture({ seconds: 1 }, page.env);
+    // Six capture frames; page code asks for one more frame in four of them, as a loop with no idle check does.
+    for (let index = 0; index < 6; index += 1) {
+      page.advance(16);
+      page.frame();
+      if (index < 4) host.requestAnimationFrame();
+    }
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(report.frames.count).toBe(6);
+    expect(report.owners.page_frames).toBe(4);
+    expect(report.owners.frames).toHaveLength(1);
+    expect(report.owners.frames[0].count).toBe(4);
+    expect(report.owners.frames[0].file).toContain("chatPerfCapture.test.ts");
+    expect(pageRequests).toBe(4);
+    // The page's own function is back once the window ends.
+    expect(host.requestAnimationFrame).toBe(original);
+  });
+
+  test("a page at rest reports no owners while the capture still counts its own frames", async () => {
+    const page = fakeEnv();
+    const host = { requestAnimationFrame: () => 0, setTimeout: () => 0, setInterval: () => 0 };
+    page.env.startOwners = () => startFrameOwners({ host, animations: () => [], loadSites: async () => null });
+    const running = new ChatPerfCapture().capture({ seconds: 1 }, page.env);
+    for (let index = 0; index < 3; index += 1) {
+      page.advance(16);
+      page.frame();
+    }
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(report.frames.count).toBe(3);
+    expect(report.owners).toEqual({
+      page_frames: 0,
+      frames: [],
+      timers: [],
+      animate: [],
+      animations: [],
+      sites_resolved: false,
+    });
   });
 });

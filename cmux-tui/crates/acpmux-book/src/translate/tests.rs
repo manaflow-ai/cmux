@@ -12,6 +12,7 @@ fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error
     translate(state, harness, 0, 1, bytes)
 }
 const SEED: &str = include_str!("fixtures/seed-turn.ndjson");
+const CLAUDE_FOLLOW: &str = include_str!("fixtures/claude-follow.ndjson");
 const ANSWER: &str = "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Mirror {
@@ -108,6 +109,8 @@ impl Mirror {
                         .get(&(*place, u32::try_from(*span).unwrap_or(u32::MAX)))
                         .cloned()
                         .unwrap_or_default(),
+                    // A card's raw sources are the actor's to read; this model keeps no log.
+                    BodySource::Records(_) | BodySource::RawField { .. } => String::new(),
                 };
                 if matches!(field, BodyField::Text | BodyField::Content) {
                     let text = self.text.entry(*id).or_default();
@@ -1181,6 +1184,62 @@ fn claude_null_stop_reason_keeps_the_reply_open() {
     m.line(&mut s, Harness::Claude, r#"{"type":"assistant","message":{"id":"a","content":[{"type":"text","text":" world"}],"stop_reason":"end_turn"}}"#);
     assert!(!m.reply("hello world").open);
     assert!(m.visible(m.reply("hello world")));
+}
+
+#[test]
+fn claude_follow_fixture_replays_identically_from_every_checkpoint() {
+    let lines: Vec<_> = CLAUDE_FOLLOW.lines().collect();
+    let mut whole_state = State::default();
+    let mut whole_view = Mirror::default();
+    let mut place = 0u64;
+    for line in &lines {
+        whole_view.line_at(&mut whole_state, Harness::Claude, place, line.len() as u64, line);
+        place = place.saturating_add(line.len() as u64 + 1);
+    }
+
+    for cut in 0..=lines.len() {
+        let mut state = State::default();
+        let mut view = Mirror::default();
+        let mut place = 0u64;
+        for line in &lines[..cut] {
+            view.line_at(&mut state, Harness::Claude, place, line.len() as u64, line);
+            place = place.saturating_add(line.len() as u64 + 1);
+        }
+        state = state.checkpoint().unwrap().restore().unwrap();
+        for line in &lines[cut..] {
+            view.line_at(&mut state, Harness::Claude, place, line.len() as u64, line);
+            place = place.saturating_add(line.len() as u64 + 1);
+        }
+        assert_eq!(state, whole_state, "checkpoint split {cut}");
+        assert_eq!(view, whole_view, "view split {cut}");
+    }
+}
+
+#[test]
+fn claude_follow_uses_record_uuid_when_message_id_is_missing() {
+    let mut state = State::default();
+    let mut view = Mirror::default();
+    for line in CLAUDE_FOLLOW.lines() {
+        view.line(&mut state, Harness::Claude, line);
+    }
+    assert_eq!(view.text.values().filter(|text| (**text).as_str() == "Second answer").count(), 1);
+    assert_eq!(view.text.values().filter(|text| (**text).as_str() == "Third answer").count(), 1);
+    assert_ne!(view.reply("Second answer").id, view.reply("Third answer").id);
+}
+
+#[test]
+fn claude_follow_prompt_identity_filters_effects_and_preserves_uuid() {
+    let mut lines = CLAUDE_FOLLOW.lines();
+    let prompt = lines.next().unwrap();
+    assert_eq!(
+        prompt_identity(Harness::Claude, prompt.as_bytes()).unwrap(),
+        Some(PromptIdentity { id: "prompt-1".into(), text: "Inspect the deploy".into() })
+    );
+    let _ = lines.next();
+    let tool_result = lines.next().unwrap();
+    assert_eq!(prompt_identity(Harness::Claude, tool_result.as_bytes()).unwrap(), None);
+    let _ = lines.next();
+    assert_eq!(prompt_identity(Harness::V1, prompt.as_bytes()).unwrap(), None);
 }
 
 fn split_text_rows(parts: &[&str]) -> Vec<(String, Option<String>, Option<String>)> {

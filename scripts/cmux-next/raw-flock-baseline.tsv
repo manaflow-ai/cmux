@@ -32,12 +32,12 @@ cmux-tui/crates/cmux-remote/src/secrets/replay.rs	2	c-agenthost lock audit: unlo
 cmux-tui/crates/cmux-tasks/src/store/mod.rs	1	c-agenthost lock audit: audit OK lifetime (owner) / no spawn (CLI fallback)
 cmux-tui/crates/cmux-tui-core/src/browser_host_activation.rs	1	c-agenthost lock audit: audit OK lifetime: socket locks held for the daemon's life by design
 cmux-tui/crates/cmux-tui-core/src/diagnostics/hook_queue.rs	1	c-agenthost lock audit: explicit unlock: shared_count unlocks at line 341 before close.
-cmux-tui/crates/cmux-tui-core/src/git_ops/worktree_setup.rs	2	c-agenthost lock audit: ports::Lock unlocking Drop (batch 10); hold() run lock passed to the setup shell as fd 7: by design (lead)
+cmux-tui/crates/cmux-tui-core/src/git_ops/worktree_setup.rs	1	c-agenthost lock audit: hold() run lock passed to the setup shell as fd 7: by design (recorded 2026-11-13)
 cmux-tui/crates/cmux-tui-core/src/server/listen.rs	1	c-agenthost lock audit: unlocking Drop: SocketStartLock, Drop at line 238 unlocks; replaced-file path unlocks at 285; line 360 is helper fn lock.
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix.rs	2	c-agenthost lock audit: explicit unlock: probe_lease unlocks at line 235 at once.
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix/lease.rs	7	c-agenthost lock audit: unlocking Drop: Drops at 47, 196, 203 unlock; gap: a ? after lock (try_clone, second validate) closes a locked File. 156 is a helper.
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/pty_lock.rs	2	c-agenthost lock audit: held for the process life: PtyOwnershipLock held for host process life by design; no Drop unlock; retry path closes a locked unlinked file; 49 helper.
-cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	7	c-agenthost lock audit: SessionLease Drop unlocks; probe/coordinator error paths close a file no longer at the guard path; live-marker lease: reset CLI, no spawn
+cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	1	c-agenthost lock audit: live-marker lease: reset CLI, no spawn
 cmux-tui/crates/cmux-tui-core/src/workspace_registry/premigrate.rs	1	c-agenthost lock audit: audit OK no spawn: premigrate runs before any child starts
 cmux-tui/crates/cmux-tui-core/src/workspace_registry/terminal_state_end.rs	1	c-agenthost lock audit: explicit unlock: Waits with lock then unlocks at once (line 140).
 cmux-tui/crates/cmux-tui-image-paste/src/image_paste_file.rs	1	c-agenthost lock audit: unlocking Drop: ImagePasteFile Drop at 494 unlocks; gap: errors after try_lock before Self exists close it. 458 is helper try_lock.

@@ -1047,6 +1047,28 @@ class AgentReviewerPassTests(unittest.TestCase):
                              "Packages/Shared/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
                     self.assertTrue(github_paths_match(patterns, path), path)
 
+    def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
+        # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
+        # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        for event in ("push", "pull_request"):
+            patterns = on[event]["paths"]
+            with self.subTest(event=event):
+                for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/alignment/alignscan.swift",
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                    self.assertFalse(github_paths_match(patterns, path), path)
+                for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
+                             "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
+                             "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md",
+                             "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
+                             "Packages/iOS/CmuxConversation/Sources/X.swift",
+                             ".github/workflows/cmux-next-ios-kit.yml"):
+                    self.assertTrue(github_paths_match(patterns, path), path)
+
 
 def github_paths_match(patterns: list[str], path: str) -> bool:
     """GitHub's `paths` filter: the last pattern that matches PATH decides; a `!` one excludes it."""

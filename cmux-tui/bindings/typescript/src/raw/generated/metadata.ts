@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294. */
+/* cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294" as const;
+export const SDK_IR_SHA256 = "cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -93,9 +93,21 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "attach-identity-v1"
       },
+      "hybrid_frame": {
+        "since": null,
+        "capability": "agent-cli-hybrid-v1"
+      },
+      "hybrid_stream": {
+        "since": null,
+        "capability": "agent-cli-hybrid-v1"
+      },
       "mode": {
         "since": 7,
         "capability": null
+      },
+      "output_coalesce_ms": {
+        "since": null,
+        "capability": "attach-output-coalesce-v1"
       },
       "replay_history_rows": {
         "since": null,
@@ -132,6 +144,8 @@ export const COMMAND_METADATA = {
     },
     "stream": {
       "event_names": [
+        "agent-cli-frame",
+        "agent-cli-lean",
         "browser-state",
         "colors-changed",
         "detached",
@@ -158,6 +172,8 @@ export const COMMAND_METADATA = {
         ],
         "bytes": [
           "vt-state",
+          "agent-cli-frame",
+          "agent-cli-lean",
           "output",
           "resized",
           "colors-changed",
@@ -180,7 +196,9 @@ export const COMMAND_METADATA = {
     "constraints": [
       "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted.",
       "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
-      "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted."
+      "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
+      "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once.",
+      "A connection that declared agent-cli-hybrid-v1 in set-client-info gets a bytes attach (no snapshot) of a terminal whose agent report names claude, codex or opencode as colors-changed, then agent-cli-frame events instead of vt-state and output: a keyframe (base null), or with hybrid_stream and hybrid_frame naming a stream the daemon still keeps at the same size, one delta from that frame; then at most one frame per 100 ms while the screen changes. resized becomes a keyframe at the new size. hybrid_stream and hybrid_frame go together; without the capability they are ignored. With agent-cli-hybrid-v2 declared too, each frame goes as an agent-cli-lean event instead (the same frames in the lean form)."
     ]
   },
   "bind-conversation-tab-session": {
@@ -1343,6 +1361,18 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+    ]
+  },
+  "device-setup": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "device-setup-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+      "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
+      "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
     ]
   },
   "export-layout": {
@@ -3516,6 +3546,17 @@ export const COMMAND_METADATA = {
       "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
     ]
   },
+  "terminal-command-context": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-command-context-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Read from the surface's screen when asked; nothing is read per output line and no command history is needed.",
+      "Null without shell integration, on the alternate screen and while a command runs."
+    ]
+  },
   "terminal-events": {
     "authority": "control",
     "since": 9,
@@ -3873,6 +3914,22 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-cli-frame": {
+    "since": 12,
+    "capability": "agent-cli-hybrid-v1",
+    "streams": [
+      "attach-byte"
+    ],
+    "emission": "emitted"
+  },
+  "agent-cli-lean": {
+    "since": 12,
+    "capability": "agent-cli-hybrid-v2",
+    "streams": [
+      "attach-byte"
+    ],
+    "emission": "emitted"
+  },
   "agent-inventory-changed": {
     "since": 12,
     "capability": "agent-inventory-watch-v1",
@@ -4147,6 +4204,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "device-setup-step": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "empty": {
     "since": 5,
     "capability": null,
@@ -4357,6 +4422,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "screen-device-changed": {
+    "since": 12,
+    "capability": "screen-device-identity-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -7993,6 +8066,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "array"
         }
       },
+      "machine_device": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "machine_id": {
         "nullable": false,
         "presence": "optional",
@@ -8018,6 +8100,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "MachinePlatform"
+        }
+      },
+      "machine_symbol": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "min_api_revision": {
@@ -8051,6 +8142,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_device_id": {
+        "capability": "machine-identity-v1",
+        "constraints": [
+          "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -14134,6 +14238,81 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalCommandContext": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "cwd": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "exit_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "output": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandContextIntent": {
+    "kind": "enum",
+    "values": [
+      "context",
+      "fix"
+    ]
+  },
+  "TerminalCommandContextResult": {
+    "additional_properties": false,
+    "fields": {
+      "context": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalCommandContext"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalCommandDeleteResult": {
     "additional_properties": false,
     "fields": {
@@ -16229,6 +16408,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "hybrid_frame": {
+          "capability": "agent-cli-hybrid-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "hybrid_stream": {
+          "capability": "agent-cli-hybrid-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "mode": {
           "default": "bytes",
           "nullable": true,
@@ -16240,6 +16439,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "bytes",
               "render"
             ]
+          }
+        },
+        "output_coalesce_ms": {
+          "capability": "attach-output-coalesce-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
           }
         },
         "replay_history_rows": {
@@ -21852,6 +22061,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "device-setup": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "allow_agents": {
+          "description": "Turn on the agents permission (the person's click in the app).",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "device": {
+          "description": "A device id, name or address, as `cmux device list` shows it.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "dry_run": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "verb": {
+          "description": "setup (every step) or start (reach, login item and start).",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "export-layout": {
@@ -29501,6 +29757,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TerminalClipboardSubscribeResult"
     }
   },
+  "terminal-command-context": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "intent": {
+          "default": "context",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "TerminalCommandContextIntent"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandContextResult"
+    }
+  },
   "terminal-events": {
     "request": {
       "additional_properties": false,
@@ -30872,6 +31157,130 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-cli-frame": {
+    "additional_properties": false,
+    "fields": {
+      "base": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "cols": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "cursor_visible": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "cursor_x": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "cursor_y": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "data": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Base64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-cli-frame"
+        }
+      },
+      "frame": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-cli-lean": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-cli-lean"
+        }
+      },
+      "f": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Base64"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },
@@ -32357,6 +32766,60 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "device-setup-step": {
+    "additional_properties": false,
+    "fields": {
+      "detail": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "device": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "device-setup-step"
+        }
+      },
+      "fix": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "step": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "empty": {
     "additional_properties": false,
     "fields": {
@@ -33639,6 +34102,33 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "screen-device-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "Delivered only to authenticated owner app subscribers (local Unix or owner WebSocket); page relays, paired clients, and other remote clients do not receive it.",
+      "The subscription sends one current-value replay before live events. A null replay or event means the worker has no available screen identity."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "screen-device-changed"
+        }
+      },
+      "screen_device_id": {
+        "description": "The authenticated worker screen UUID, or null when the worker is unavailable.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
