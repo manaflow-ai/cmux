@@ -46,14 +46,16 @@ export function NewTabAppSlot(props: Props) {
   const [gone, setGone] = useState(false);
   // Exact once: a deadline and a failed status in the same tick both read the last render's `gone`.
   const gaveUp = useRef(false);
-  const giveUp = useEffectEvent((reason: string) => {
+  // A plain callback, not an effect event: the boundary and the scene call it from outside this
+  // component's effects (SlotScene wraps it in its own effect event).
+  const giveUp = (reason: string) => {
     if (gaveUp.current) return;
     gaveUp.current = true;
     setGone(true);
     // The error journal (`cmux errors`) keeps the reason; the page shows none of it.
     console.warn(`New Tab: ${props.app} left its slot empty: ${reason}`);
     props.onUnavailable(reason);
-  });
+  };
   return (
     <div className="nt-app-slot" data-app={props.app} data-gone={gone || undefined}>
       {!gone && (
