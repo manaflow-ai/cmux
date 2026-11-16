@@ -108,26 +108,25 @@ nonisolated enum RemoteViewStrings {
     static var unavailableRemoteRecord: String {
         t("rd.tab.unavailable.remoteRecord", "This tab came from another machine. Remote desktop tabs open only on the Mac that made them.")
     }
-    static func confirmTitle(_ host: String) -> String { String(format: t("rd.tab.confirm.title", "Open %@"), host) }
-    static var confirmDetail: String {
-        t("rd.tab.confirm.detail", "Connect opens this desktop in the tab so you can see what is running. Nothing connects until you choose Connect.")
-    }
+    /// The card's title: the machine's name, or "Cloud machine" when it has none a person reads
+    /// (the app passes an empty name for a generated one, never an id).
     static func confirmTitle(_ target: RemoteConnectionTarget) -> String {
-        String(format: t("rd.gate.title", "Open %@"), target.name.isEmpty ? cloudMachine : target.name)
+        let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? cloudMachine : name
     }
+    /// The card's one line.
     static func confirmDetail(_ target: RemoteConnectionTarget) -> String {
-        let detail = String(format: t("rd.gate.detail", "Connect opens %@ in this tab so you can see what is running."), target.kind.noun)
-        return target.requiresConfirmation ? detail + "\n\n" + confirmSafety : detail
+        target.requiresConfirmation
+            ? t("rd.gate.approval", "Another action opened this tab. Nothing connects until you choose Connect.")
+            : t("rd.gate.open", "Connect to see what is running here.")
     }
-    static func confirmMetadata(_ target: RemoteConnectionTarget) -> String? {
+    /// The status chip's text: status and region, or nil when there is neither.
+    static func confirmStatus(_ target: RemoteConnectionTarget) -> String? {
         let values: [String] = [target.status, target.region].compactMap { value -> String? in
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return value
         }
-        return values.isEmpty ? nil : values.joined(separator: "  •  ")
-    }
-    static var confirmSafety: String {
-        t("rd.gate.safety", "This tab was opened by another action. cmux waits for your approval before connecting.")
+        return values.isEmpty ? nil : values.joined(separator: " · ")
     }
     static var cloudMachine: String { t("rd.machine.cloud", "Cloud machine") }
     static var connect: String { t("rd.action.connect", "Connect") }
