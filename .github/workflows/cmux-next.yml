@@ -1858,6 +1858,8 @@ jobs:
             bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
             # The Chromium staleness guard (cmux-next-chromium-staleness.yml) fails a pin 2+ stable majors behind.
             python3 -I tests/test_chromium_staleness.py
+            # The payload advisory guard (cmux-next-payload-advisories.yml) fails a pin inside a published upstream advisory, and every fetched third-party release is watched.
+            python3 -I tests/test_payload_advisories.py
             # The herdr-derived agent plugin's vendored manifests match their pin.
             python3 -I scripts/cmux-next/herdr-sync.py check
             python3 -I scripts/cmux-next/tests/test_herdr_sync.py
@@ -1914,6 +1916,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_chat_open_frames.py
             python3 scripts/cmux-next/tests/test_chat_open_seed_cache.py
             python3 scripts/cmux-next/tests/test_check_pr_split.py
+            python3 scripts/cmux-next/tests/test_check_v2_app_callers.py
             python3 scripts/cmux-next/tests/test_ci_apply.py
             python3 scripts/cmux-next/tests/test_diff_tab_cells.py
             python3 scripts/cmux-next/tests/test_every_action_sweep.py
@@ -2941,7 +2944,7 @@ jobs:
           # CmuxNextApp). The app check cannot vouch for them.
           for target in $SWIFT_CANARY_TARGETS; do
             case "$target" in
-              CmuxNextAgentList|CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
+              CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
                 echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
                 echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
                 exit 0 ;;
