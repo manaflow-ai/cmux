@@ -105,6 +105,9 @@ if (TRANSPORT !== "bridge" && TRANSPORT !== "websocket") throw new Error("TRANSP
 const BRIDGE = TRANSPORT === "bridge";
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
+/// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
+/// printed as the functions with the most self time over all rounds (an unminified build).
+const PROFILE = process.env.PROFILE === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
 const THEME = "bench-theme";
@@ -386,6 +389,47 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   });
 }
 
+type CpuProfile = {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+/// PROFILE=1: self ms per function over every round's adopt, and how many adopts were profiled.
+const selfMs = new Map<string, number>();
+let profiled = 0;
+const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
+/// Adds the samples of one adopt: from its first busy sample (the event's own turn, right after the
+/// profiler started) for the time it took to the newest answer drawn (`untilMs - atMs`), plus a frame.
+function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  let t = 0;
+  let from: number | undefined;
+  const span = untilMs - atMs + 17;
+  profile.samples.forEach((id, index) => {
+    t += profile.timeDeltas[index] / 1000;
+    const frame = byId.get(id)?.callFrame;
+    if (!frame) return;
+    if (from === undefined) {
+      if (OUTSIDE.has(frame.functionName)) return;
+      from = t;
+    }
+    if (t - from > span || frame.functionName === "(idle)") return;
+    const file = frame.url.split("/").pop() ?? "";
+    const key = `${frame.functionName || "(anonymous)"} ${file}:${frame.lineNumber + 1}`;
+    selfMs.set(key, (selfMs.get(key) ?? 0) + profile.timeDeltas[index] / 1000);
+  });
+  profiled += 1;
+}
+function printProfile(): void {
+  if (!profiled) return;
+  const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
+  console.log(
+    `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
+  );
+  for (const [key, ms] of [...selfMs].sort((a, b) => b[1] - a[1]).slice(0, 30))
+    console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
+}
+
 type Round = {
   mode: Mode;
   metrics: FrameMetrics;
@@ -507,7 +551,8 @@ try {
   await build({
     plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
@@ -775,6 +820,12 @@ try {
             })),
           )}`,
         );
+      const cdp = PROFILE ? await page.context().newCDPSession(page) : null;
+      if (cdp) {
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+        await cdp.send("Profiler.start");
+      }
       const start = await page.evaluate(
         ({ session, tail, recordMs }) => {
           const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
@@ -800,6 +851,11 @@ try {
           live: w.__firstLoad.liveLatestAt,
         };
       });
+      if (cdp) {
+        const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+        await cdp.detach();
+        addProfile(profile, start.at, got.live > start.at ? got.live : start.at + RECORD_MS);
+      }
       if (TRACE)
         console.log(
           `reopen-spare rows in view at the end:\n  ${(
@@ -1116,6 +1172,7 @@ try {
       });
   }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
+  printProfile();
   if (GATE && failed) {
     console.error(
       "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, or never drew live content (GATE=1)",
