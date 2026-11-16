@@ -139,11 +139,14 @@ pub(super) fn pull_kept(
         bail!("{} is not a folder", local.display());
     }
     let git = GitDirs::of(&local)?;
-    let manifest_name = if git.is_some() { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     let mut remote = Remote::connect(socket)?;
-    let manifest_path = format!("{remote_root}/{manifest_name}");
-    let record = remote.read(&manifest_path)?;
+    let (manifest_path, record, plain_in_git) = record_of(&mut remote, remote_root, git.is_some())?;
     let manifest = base::trusted(&local, remote_root, record.as_deref())?;
+    // A first pass of a git folder (`size_cap`) went as a plain copy: no history, no git state
+    // recorded. Its files come back as any copy's do; there is no branch or index to bring back.
+    if plain_in_git && manifest.git.is_some() {
+        return Err(base::Mismatch.into());
+    }
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let root = Dir::open(&local)?;
 
@@ -341,7 +344,7 @@ pub(super) fn pull_kept(
 
     let mut git_plan: Option<GitPlan> = None;
     let mut reasons = Vec::new();
-    if let Some(dirs) = &git {
+    if let Some(dirs) = git.as_ref().filter(|_| !plain_in_git) {
         let at = git_back::Where { folder: &local, common_dir: &dirs.common, staging: &staging.0 };
         match git_back::plan(&mut remote, remote_root, &at, &manifest, &hooks)? {
             Ok(plan) => git_plan = plan,
@@ -488,6 +491,33 @@ pub(super) fn pull_kept(
         "head": head,
         "manifest_saved": saved,
     })))
+}
+
+/// The machine's record of the push a pull merges against: its path and bytes, and whether it is
+/// the plain record (`.cmux-sync.json`) of a git folder here. A git folder's push records in
+/// `.git/cmux-sync.json`, except a first pass of one past the copy's limits (`size_cap`), which
+/// sends no history and records as a plain copy: with no `.git` record on the machine, the plain
+/// one is read (cmuxterm-hq#11697: Bring Back Local after a first pass stopped on a record
+/// mismatch, and the chat's edits never came back). Either is trusted only as this Mac kept it
+/// ([`base::trusted`]).
+fn record_of(
+    remote: &mut Remote,
+    remote_root: &str,
+    in_git: bool,
+) -> anyhow::Result<(String, Option<Vec<u8>>, bool)> {
+    let plain = format!("{remote_root}/.cmux-sync.json");
+    if !in_git {
+        let record = remote.read(&plain)?;
+        return Ok((plain, record, false));
+    }
+    let git = format!("{remote_root}/.git/cmux-sync.json");
+    if let Some(record) = remote.read(&git)? {
+        return Ok((git, Some(record), false));
+    }
+    match remote.read(&plain)? {
+        Some(record) => Ok((plain, Some(record), true)),
+        None => Ok((git, None, false)),
+    }
 }
 
 /// Puts back what `transaction` changed after `error`. A file that changed
