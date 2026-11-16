@@ -71,6 +71,8 @@ import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
+import { autoChoice, busyChoice, lastRemoteMachine, type Placement } from "./placement";
+import { BusyMacChip, type BusyMacChipLook } from "./BusyMacChip";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
 import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
@@ -143,6 +145,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  placement,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -189,6 +192,7 @@ export function ComposerContext({
   cloudEnvironmentDropUp,
   unavailableGroup,
   unavailableExpanded,
+  busyChipLook,
 }: {
   summary?: Summary;
   sessions?: readonly Session[];
@@ -202,6 +206,9 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
+  /// Where a new chat should go, as acpmux placement last said (`AcpmuxSnapshot.placement`,
+  /// placement.ts): the Where menu's Auto row and the "This Mac is busy" chip.
+  placement?: Placement;
   /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
   /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
   peerLinks?: Record<string, PeerLinkDetail>;
@@ -320,6 +327,8 @@ export function ComposerContext({
   /// and whether that group starts open.
   unavailableGroup?: UnavailableGroup;
   unavailableExpanded?: boolean;
+  /// Gallery seam: how the "This Mac is busy" chip draws (`chip` ships).
+  busyChipLook?: BusyMacChipLook;
 }) {
   acpmuxPerf.render("composer:context");
   // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
@@ -937,9 +946,35 @@ export function ComposerContext({
       onConnect?.("addMachine");
       return;
     }
+    // The machine this project's newest chat ran on is the pick, and nothing opens (Remote
+    // remembers; design/remote-spin-up.md 2.3). Without one, the first ready machine, and the
+    // machine chip opens to change it.
+    const remembered = offMac ? undefined : lastRemoteMachine(listedSessions, currentFolder, pickerComputers);
+    if (remembered) {
+      setMachineAsk(undefined);
+      pickEnvironment(remembered);
+      return;
+    }
     const first = others.find(environmentReady);
     if (first && !offMac) pickEnvironment(first.id);
     setMachineAsk({ key: askKey, request: (machineAsk?.request ?? 0) + 1 });
+  };
+  // Where's Auto row and the busy chip (placement.ts), a new chat's only: placement's pick, read as
+  // the composer mounts and as the picker opens (direct.ts refreshPlacement).
+  const auto = newChat && !readOnly ? autoChoice(placement, pickerComputers) : undefined;
+  const autoText = auto
+    ? t(auto.room !== undefined ? "composer.autoRow" : "composer.autoRowNoRoom", {
+        machine: auto.local ? t("composer.thisMac") : auto.label,
+        ...(auto.room !== undefined ? { room: auto.room } : {}),
+      })
+    : undefined;
+  const busy =
+    newChat && !readOnly && !sandboxPicked && !cloudPicked && !savedPick
+      ? busyChoice(placement, pickerComputers, selectedComputer)
+      : undefined;
+  const placeOn = (id: string) => {
+    setMachineAsk(undefined);
+    pickEnvironment(id);
   };
   return (
     <div className="acpmux-composer-strip">
@@ -1100,6 +1135,7 @@ export function ComposerContext({
                   }
                   rows="where"
                   onAnother={anotherMachine}
+                  {...(auto && autoText ? { auto: { text: autoText, onPick: () => placeOn(auto.id) } } : {})}
                   onPick={(id) => {
                     setMachineAsk(undefined);
                     pickEnvironment(id);
@@ -1231,6 +1267,14 @@ export function ComposerContext({
             {...(runDetails ? { runDetails } : {})}
             digits={false}
             setupMenu={false}
+          />
+        )}
+        {busy && (
+          <BusyMacChip
+            machine={busy.label}
+            why={busy.why}
+            onRun={() => placeOn(busy.id)}
+            {...(busyChipLook ? { look: busyChipLook } : {})}
           />
         )}
         {branch && <BranchPicker branch={branch} />}

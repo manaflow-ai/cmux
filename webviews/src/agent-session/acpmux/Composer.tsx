@@ -2511,6 +2511,7 @@ function ComposerFrame({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.placement ? { placement: snapshot.placement } : {})}
       {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}

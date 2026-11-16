@@ -1,0 +1,57 @@
+/* BusyMacChip.tsx: "This Mac is busy · Run on NAME" at the end of a new chat's strip. Borderless,
+   flat tonal fills (Leo 2026-11-07); it keeps the strip's control height, so its arrival moves
+   nothing. A press changes only the fill (design/pressed-state.md). */
+.acpmux-busy-mac {
+  --acpmux-busy-mac-fill: color-mix(in srgb, var(--agent-warning, #c98a1b) 14%, transparent);
+  --acpmux-busy-mac-fill-hover: color-mix(in srgb, var(--agent-warning, #c98a1b) 22%, transparent);
+  --acpmux-busy-mac-fill-press: color-mix(in srgb, var(--agent-warning, #c98a1b) 30%, transparent);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  margin-inline-start: auto;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--acpmux-busy-mac-fill);
+  color: var(--agent-text);
+  font: inherit;
+  font-weight: normal;
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-busy-mac:hover {
+  background: var(--acpmux-busy-mac-fill-hover);
+}
+.acpmux-busy-mac:active {
+  background: var(--acpmux-busy-mac-fill-press);
+}
+.acpmux-busy-mac:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+.acpmux-busy-mac-icon {
+  flex: none;
+  color: var(--agent-warning, #c98a1b);
+}
+.acpmux-busy-mac-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Link: the sentence as quiet text, a fill only under the pointer. */
+.acpmux-busy-mac[data-look="link"] {
+  background: transparent;
+  color: var(--agent-muted);
+}
+.acpmux-busy-mac[data-look="link"]:hover {
+  background: var(--acpmux-busy-mac-fill);
+  color: var(--agent-text);
+}
+.acpmux-busy-mac[data-look="link"]:active {
+  background: var(--acpmux-busy-mac-fill-hover);
+}

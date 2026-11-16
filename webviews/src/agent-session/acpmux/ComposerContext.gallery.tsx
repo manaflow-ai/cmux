@@ -553,6 +553,91 @@ function stripVariants(arm: StripArm) {
   };
 }
 
+// Placement in the composer (placement.ts; design/remote-spin-up.md 2.3), Leo 2026-11-16: "if my
+// computer is too under load, go distribute the sessions into other vms and whatnot". acpmux's
+// `_acpmux/place` picks gpu-box with room for 5; in the busy states it also says this Mac is over
+// its budget. A chat of this project (cmux) ran on gpu-box before, so Remote remembers it.
+const placedOn = { pick: "gpu-box", local: false, overloaded: false, room: 5 };
+const busyVerdict = "over its budget (load1 29.8 >= 15)";
+const placementProps = {
+  ...stripMachines,
+  stripLayout: "where-machine" as const,
+  summary: {
+    sessionId: "",
+    harness: "claude",
+    cwd: "/Users/you/src/cmux",
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
+  sessions: [
+    ...stripMachines.sessions,
+    {
+      sessionId: "gallery-gpu-cmux",
+      displayTitle: "Profile the renderer",
+      cwd: "/home/you/src/cmux",
+      host: "gpu-box",
+      peer: "gpu-box",
+      activityAt: 10,
+    },
+  ],
+  placement: placedOn,
+};
+const busyProps = { ...placementProps, placement: { ...placedOn, localOver: busyVerdict } };
+const { placement: _placement, ...rememberProps } = placementProps;
+const placementVariants = {
+  "placement-auto-where": {
+    height: 260,
+    note: 'Where open: Auto under Cloud names placement\'s pick and why before anything is sent, "Auto · gpu-box · room for 5". One click starts the chat there.',
+    props: placementProps,
+    play: openWhere,
+  },
+  "placement-auto-local": {
+    height: 260,
+    note: "Variant: placement's pick is this Mac (it has the most room), so Auto reads This Mac. Never a second This Mac row: Auto says why, This Mac stays the default.",
+    props: { ...placementProps, placement: { pick: "studio-mac", local: true, overloaded: false, room: 3 } },
+    play: openWhere,
+  },
+  "placement-auto-picked": {
+    note: "Auto clicked: Where reads Remote, the machine chip names gpu-box, and nothing else opens.",
+    props: placementProps,
+    play: async (ctx) => {
+      await openWhere(ctx);
+      await ctx.click({ selector: '.acpmux-env-popover [data-action="auto"]' });
+    },
+  },
+  "placement-remote-remembers": {
+    note: "Remote clicked: gpu-box, where this project's last chat ran, is the pick at once and the machine chip stays closed. With no such chat the chip opens, as before.",
+    props: rememberProps,
+    play: async (ctx) => {
+      await openWhere(ctx);
+      await ctx.click({ selector: '.acpmux-env-popover [data-action="another"]' });
+    },
+  },
+  "placement-busy-chip": {
+    note: "Ships: this Mac over its budget, gpu-box with room. One chip at the strip's end, \"This Mac is busy · Run on gpu-box\"; its tooltip is placement's verdict. This Mac stays the pick until it is clicked.",
+    props: busyProps,
+  },
+  "placement-busy-chip-compact": {
+    note: "Variant: the gauge and the machine's name only; the sentence is the tooltip. Fits the narrow dock, says less.",
+    props: { ...busyProps, busyChipLook: "compact" as const },
+  },
+  "placement-busy-chip-link": {
+    note: "Variant: the sentence as quiet text with no fill until hover. Calmer, easier to miss.",
+    props: { ...busyProps, busyChipLook: "link" as const },
+  },
+  "placement-busy-chip-placed": {
+    note: "The chip clicked: the chat goes to gpu-box (Where reads Remote, the machine chip names it) and the chip is gone.",
+    props: busyProps,
+    play: async (ctx) => {
+      await ctx.click({ selector: '[data-testid="busy-mac-chip"]' });
+    },
+  },
+  "placement-busy-no-room": {
+    note: "Every machine full (placement overloaded): no chip and no Auto row, since there is nowhere better to go.",
+    props: { ...busyProps, placement: { ...placedOn, room: 0, overloaded: true, localOver: busyVerdict } },
+  },
+};
+
 // A Cloud machine that sleeps (cloudMachines.ts withCloudSleep). Cloud machines pause on their own
 // when idle and between tool calls (cmux-platform docs/agent-turn-sleep.md), so acpmux's lost link
 // to one the account says is paused reads Paused (the quiet ring), a resume a spinner, and only a
@@ -661,6 +746,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     "agent-session/acpmux/FolderPopover.tsx#FolderPopover",
     "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentPicker",
     "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentIcon",
+    "agent-session/acpmux/BusyMacChip.tsx#BusyMacChip",
   ],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
@@ -1079,6 +1165,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     ...stripVariants("where-machine"),
+    ...placementVariants,
     "machines-unavailable-collapsed": {
       height: 460,
       note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Remote picked: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',

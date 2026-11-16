@@ -92,6 +92,7 @@ const READS = new Set([
   "_acpmux/schema",
   "_acpmux/protocol",
   "_acpmux/peers",
+  "_acpmux/place",
   "_acpmux/peer_status",
   "_acpmux/host_health",
   "_acpmux/pair_list",
