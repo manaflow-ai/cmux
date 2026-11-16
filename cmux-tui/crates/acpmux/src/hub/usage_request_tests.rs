@@ -136,12 +136,14 @@ async fn usage_peer_table_writes_are_atomic_and_rank_cursor_survives_table_chang
     assert_eq!(ids(&first)[0], "far/remote");
     assert_eq!(first["totals"]["costUsd24h"]["value"], 75.0);
     hub.remote_sessions.write().insert(key.clone(), row("waiting"));
-    assert!(hub.usage_reply(&json!({"cursor": first["nextCursor"]})).is_ok());
+    let second = hub.usage_reply(&json!({"cursor": first["nextCursor"]})).unwrap();
+    assert!(!ids(&second).is_empty(), "the old cursor still answers rows after a peer update");
     let held = hub.remote_sessions.snapshot();
     hub.remote_sessions.write().remove(&key);
     assert_eq!(held.usage.len(), 1, "published snapshots retain their own usage index");
     assert_eq!(hub.usage_reply(&json!({})).unwrap()["count"], 25);
-    assert!(hub.usage_reply(&json!({"cursor": first["nextCursor"]})).is_ok());
+    let second = hub.usage_reply(&json!({"cursor": first["nextCursor"]})).unwrap();
+    assert!(!ids(&second).is_empty(), "the old cursor still answers rows after removal");
 }
 
 #[tokio::test]
@@ -240,6 +242,7 @@ async fn usage_wire_advertises_the_request_and_keeps_legacy_sessions() {
             } else if id == 2 {
                 assert!(line.len() <= MAX_BYTES);
                 assert_eq!(reply["result"]["count"], 0);
+                // The rank request starts its pass in the background, so readiness is timing-dependent.
                 assert!(reply["result"]["ready"].is_boolean());
                 assert!(reply["result"]["lastPassAt"].is_u64());
             } else {

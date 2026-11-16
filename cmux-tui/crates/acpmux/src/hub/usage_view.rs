@@ -21,7 +21,7 @@ use crate::store::{SessionMeta, SessionStatus};
 use crate::usage_stats::{DAY_MS, Models, Source, Tracker};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -32,6 +32,10 @@ const REFRESH_EVERY_MS: u64 = 5_000;
 /// How long a session list or info read waits for its pass; past that it
 /// answers with the last pass's stats and the pass ends on its own.
 pub(crate) const READ_WAIT: Duration = Duration::from_millis(750);
+
+const PASS_IDLE: u8 = 0;
+const PASS_RUNNING: u8 = 1;
+const PASS_WANTED: u8 = 2;
 
 #[derive(Default)]
 pub(crate) struct UsageCache {
@@ -45,6 +49,9 @@ pub(crate) struct UsageCache {
     /// Held for a pass, with when the last one started: a read that comes
     /// meanwhile waits for it instead of reading the stats it is about to replace.
     pass: tokio::sync::Mutex<u64>,
+    /// One background whole pass is running or wanted. Requests arriving during a pass are
+    /// coalesced into one follow-up instead of queueing one task per request.
+    pass_state: AtomicU8,
     /// A turn ended since the last pass began: the next read reads, however soon.
     dirty: AtomicBool,
     /// How many whole passes ran, and how many chats the last one read: a gate's timed pass is
@@ -78,6 +85,58 @@ pub(super) fn prune_unlisted<T, S>(
 }
 
 impl Hub {
+    /// Ask for the v1-throttled whole pass without putting it on a request's response path.
+    /// The state machine keeps one worker and at most one follow-up pass alive.
+    pub(crate) fn request_usage_refresh(self: &Arc<Self>) {
+        let mut state = self.usage_stats.pass_state.load(Ordering::Acquire);
+        loop {
+            let next = match state {
+                PASS_IDLE => PASS_RUNNING,
+                PASS_RUNNING => PASS_WANTED,
+                PASS_WANTED => return,
+                _ => PASS_IDLE,
+            };
+            match self.usage_stats.pass_state.compare_exchange(
+                state,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) if state == PASS_IDLE => {
+                    let hub = self.clone();
+                    self.scope.spawn_named("usage-refresh", async move {
+                        loop {
+                            hub.refresh_usage_stats().await;
+                            if hub
+                                .usage_stats
+                                .pass_state
+                                .compare_exchange(
+                                    PASS_WANTED,
+                                    PASS_RUNNING,
+                                    Ordering::AcqRel,
+                                    Ordering::Acquire,
+                                )
+                                .is_ok()
+                            {
+                                continue;
+                            }
+                            let _ = hub.usage_stats.pass_state.compare_exchange(
+                                PASS_RUNNING,
+                                PASS_IDLE,
+                                Ordering::AcqRel,
+                                Ordering::Acquire,
+                            );
+                            break;
+                        }
+                    });
+                    return;
+                }
+                Ok(_) => return,
+                Err(actual) => state = actual,
+            }
+        }
+    }
+
     /// Reads every chat's usage, after the pass that runs if one does, unless one started in
     /// the last few seconds and no turn ended since.
     pub(crate) async fn refresh_usage_stats(&self) {
@@ -353,6 +412,10 @@ impl Hub {
     /// The next read runs a pass however soon, as after a turn's end.
     pub(crate) fn usage_pass_due_for_test(&self) {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn usage_refresh_state_for_test(&self) -> u8 {
+        self.usage_stats.pass_state.load(Ordering::Acquire)
     }
 
     /// The candidates both ways, each timed in µs: as #43807 deduped them (a set of every

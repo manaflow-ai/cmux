@@ -2508,12 +2508,10 @@ async fn dispatch_request_with_identity(
                     "usage is read on this machine's socket or app only",
                 ));
             }
-            if !params.contains_key("sessionIds") {
+            if params.get("sessionIds").is_none() {
                 // Rank requests keep v1's usage figures fresh without putting the whole pass on
-                // the request path. `refresh_usage_stats` serializes passes and applies its
-                // existing five-second/dirty throttle; this request reads the current table.
-                let later = hub.clone();
-                tokio::spawn(async move { later.refresh_usage_stats().await });
+                // the request path; the hub coalesces requests while one pass is running.
+                hub.request_usage_refresh();
             }
             hub.usage_reply(&params)
         }
