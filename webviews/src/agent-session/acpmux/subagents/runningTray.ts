@@ -21,7 +21,7 @@ import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 import { resumedRun } from "./resumeState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-import { PrefixFlatCache } from "../conversation/prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFlatCache } from "../conversation/prefixFlatMap";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -465,24 +465,97 @@ export function withSubagentLines(
     }
   });
   const marks = [...new Set([...changed.keys(), ...before.keys()])].sort((a, b) => a - b);
-  const out: AcpmuxRow[] = [];
-  const flush = (at: number) => {
-    const lines = before.get(at);
-    if (lines) out.push(...lines.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)));
-  };
-  let next = 0;
-  for (const mark of marks) {
-    for (; next < mark && next < rows.length; next += 1) out.push(rows[next]!);
-    flush(mark);
-    if (mark >= rows.length) continue;
+  // What each mark draws: the done lines that go before it, then its row as drawn (or as it is).
+  const drawn = marks.map((mark): readonly AcpmuxRow[] => {
+    const lines = before.get(mark)?.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)) ?? NO_ROWS;
+    if (mark >= rows.length) return lines;
     const draw = changed.get(mark);
-    if (draw) out.push(...draw(rows[mark]!));
-    else out.push(rows[mark]!);
-    next = mark + 1;
-  }
-  for (; next < rows.length; next += 1) out.push(rows[next]!);
+    return [...lines, ...(draw ? draw(rows[mark]!) : [rows[mark]!])];
+  });
   // Only this pass's lines stay cached, so another chat's do not pile up.
   for (const id of cache.keys()) if (!made.has(id)) cache.delete(id);
+  return placeMarks(rows, { marks, drawn, workflowCards }, cache);
+}
+
+/// What a pass drew where: the rows it changed or put lines before (sorted), what each drew, and
+/// whether workflows were cards.
+type MarkedRows = {
+  readonly marks: readonly number[];
+  readonly drawn: readonly (readonly AcpmuxRow[])[];
+  readonly workflowCards: boolean;
+};
+
+/// The last pass that used a cache (one per view: App.tsx keeps one for the chat, one for a
+/// subagent's), its rows and output held weakly so a closed chat leaves no rows here.
+const lastPasses = new WeakMap<
+  DoneLineCache,
+  MarkedRows & { rows: WeakRef<readonly AcpmuxRow[]>; out: WeakRef<readonly AcpmuxRow[]> }
+>();
+
+const sameRows = (a: readonly AcpmuxRow[], b: readonly AcpmuxRow[]) =>
+  a.length === b.length && a.every((row, index) => row === b[index]);
+
+/// `rows` with each mark's rows in its place. Rows change at their tail, so the output starts with
+/// the last pass's up to the first row that changed (`keptPrefix`) or the first mark that drew
+/// otherwise (a report that moved a done line under it), copied, not read, and says so
+/// (`noteKeptPrefix`). A streamed token in a chat with a subagent group then costs the passes after
+/// this one (turns.ts `turnViewFrom`, the layout) the rows it changed, not a walk of the chat
+/// (Leo, 2026-11-12: "even if a chat is long, there should be no percievable difference").
+// perf-hot: 1ms agent-chat-token-rows
+function placeMarks(rows: readonly AcpmuxRow[], pass: MarkedRows, cache: DoneLineCache): readonly AcpmuxRow[] {
+  const { marks, drawn } = pass;
+  const last = lastPasses.get(cache);
+  const lastRows = last?.rows.deref();
+  const lastOut = last?.out.deref();
+  const reuse = last && lastRows && lastOut && last.workflowCards === pass.workflowCards ? last : undefined;
+  if (
+    reuse &&
+    rows === lastRows &&
+    marks.length === reuse.marks.length &&
+    marks.every((mark, index) => mark === reuse.marks[index] && sameRows(drawn[index]!, reuse.drawn[index]!))
+  )
+    return lastOut!;
+  // `from`: the first row whose output may differ from the last pass's; `marked` marks come before it.
+  let from = 0;
+  let marked = 0;
+  let out: AcpmuxRow[] = [];
+  if (reuse) {
+    from = keptPrefix(lastRows!, rows);
+    let index = 0;
+    while (index < marks.length && index < reuse.marks.length) {
+      const mark = marks[index]!;
+      if (mark >= from) break;
+      if (mark !== reuse.marks[index] || !sameRows(drawn[index]!, reuse.drawn[index]!)) {
+        from = Math.min(mark, reuse.marks[index]!);
+        break;
+      }
+      index += 1;
+    }
+    // A mark only one pass has, before `from`, changed what that pass drew there.
+    if (index < reuse.marks.length) from = Math.min(from, reuse.marks[index]!);
+    if (index < marks.length) from = Math.min(from, marks[index]!);
+    // Rows before `from` and the marks among them drew what they drew last time: the last output
+    // up to row `from` is this one's.
+    let at = 0;
+    let previous = -1;
+    for (; marked < marks.length && marks[marked]! < from; marked += 1) {
+      at += marks[marked]! - previous - 1 + drawn[marked]!.length;
+      previous = marks[marked]!;
+    }
+    at += from - previous - 1;
+    out = lastOut!.slice(0, at);
+  }
+  const kept = out.length;
+  let next = from;
+  for (let index = marked; index < marks.length; index += 1) {
+    const mark = marks[index]!;
+    for (; next < mark && next < rows.length; next += 1) out.push(rows[next]!);
+    out.push(...drawn[index]!);
+    next = Math.max(next, mark + 1);
+  }
+  for (; next < rows.length; next += 1) out.push(rows[next]!);
+  if (reuse) noteKeptPrefix(out, lastOut!, kept);
+  lastPasses.set(cache, { ...pass, rows: new WeakRef(rows), out: new WeakRef(out) });
   return out;
 }
 

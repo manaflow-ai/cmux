@@ -1545,6 +1545,7 @@
     "tunable.layout.prototype.orientation": "columnMajor",
     "tunable.links.agentLinks": true,
     "tunable.links.githubNativeViewer": true,
+    "tunable.macScreen.devicesLook": "quiet",
     "tunable.macScreen.sharingLook": "list",
     "tunable.machines.section.fixture": false,
     "tunable.machines.section.style": "compact",
