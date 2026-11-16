@@ -132,7 +132,14 @@ impl GdiCapture {
             )
         };
         if copied == 0 {
-            return Err("Windows screen capture: BitBlt failed".into());
+            // The usual cause: no desktop to copy, as in an SSH session or a service (session
+            // 0) or a runner with no signed-in console.
+            return Err(format!(
+                "Windows screen capture: BitBlt failed ({}); run cmux-rd in the signed-in \
+                 desktop session, not over SSH or as a service",
+                std::io::Error::last_os_error()
+            )
+            .into());
         }
         self.draw_cursor();
         let mut info: BITMAPINFO = unsafe { zeroed() };

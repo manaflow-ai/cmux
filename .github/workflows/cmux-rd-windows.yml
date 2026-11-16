@@ -50,6 +50,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build the Windows host
+        id: build
         shell: pwsh
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
@@ -82,14 +83,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "windows-host status exited $LASTEXITCODE" }
           $status | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
           if (-not ($status -match '^Captured ')) { throw 'windows-host did not capture this desktop' }
-          # One hub session served by `cmux-rd serve` (as `windows-host run` drives it) to a
-          # viewer on this runner over the secure link: media arrives and the stop ends it.
-          foreach ($scope in @('view', 'control')) {
-            $serve = & .\target\release\cmux-rd.exe windows-serve-selftest --scope $scope --duration-s 3
-            if ($LASTEXITCODE -ne 0) { throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve" }
-            $serve | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
-            if (-not ($serve | ConvertFrom-Json).ok) { throw "windows-serve-selftest ($scope) saw no media" }
-          }
           $readyName = "cmux-rd-motion-$([guid]::NewGuid())"
           $ready = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, $readyName)
           $motion = $null
@@ -127,9 +120,27 @@ jobs:
             $ready.Dispose()
           }
 
-      # The host as a person installs it: the secure link and Cisco's downloaded OpenH264,
-      # no OpenH264 built from source (that is the bench build above).
+      # One hub session served by `cmux-rd serve` (as `windows-host run` drives it) to a viewer
+      # on this runner over the secure link: media arrives and the stop ends it. Its own step,
+      # so it runs whatever the capture benchmark above says.
+      - name: Serve a session over the secure link
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($scope in @('view', 'control')) {
+            $serve = & .\target\release\cmux-rd.exe windows-serve-selftest --scope $scope --duration-s 3
+            if ($LASTEXITCODE -ne 0) { throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve" }
+            $serve | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
+            if (-not ($serve | ConvertFrom-Json).ok) { throw "windows-serve-selftest ($scope) saw no media" }
+          }
+
+      # The host as a person installs it: the secure link and the downloaded OpenH264 library,
+      # no OpenH264 built from source (that is the bench build above). Built and uploaded
+      # whenever the build passed, so a runner with no desktop still yields the exe.
       - name: Build the installable cmux-rd.exe
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
@@ -139,6 +150,7 @@ jobs:
           Copy-Item .\target\release\cmux-rd.exe "$env:RUNNER_TEMP\cmux-rd-windows\cmux-rd.exe"
 
       - name: Upload cmux-rd.exe
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-rd-windows-x86_64-${{ github.sha }}
