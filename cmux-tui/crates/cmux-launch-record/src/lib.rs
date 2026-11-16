@@ -91,7 +91,7 @@ impl std::fmt::Debug for LaunchRecord {
 }
 impl LaunchRecord {
     pub fn read(path: impl AsRef<Path>) -> Option<Self> {
-        let mut file = File::open(path).ok()?;
+        let file = File::open(path).ok()?;
         let mut bytes = Vec::with_capacity(MAX_BYTES);
         file.take((MAX_BYTES + 1) as u64).read_to_end(&mut bytes).ok()?;
         if bytes.len() > MAX_BYTES {
@@ -321,7 +321,7 @@ fn parse_window(p: &mut Parser<'_>) -> Option<()> {
     p.string_span()?;
     let n = p.u16()? as usize;
     for _ in 0..n {
-        p.string_span()?
+        p.string_span()?;
     }
     Some(())
 }
@@ -431,7 +431,8 @@ pub unsafe extern "C" fn cmux_launch_record_front_window(
     }
     let p = unsafe { CStr::from_ptr(path) };
     let Ok(p) = p.to_str() else { return false };
-    let Some(w) = LaunchRecord::read(p).and_then(|r| r.front_window()) else { return false };
+    let Some(record) = LaunchRecord::read(p) else { return false };
+    let Some(w) = record.front_window() else { return false };
     let o = unsafe { &mut *out };
     *o = CmuxLaunchWindow::default();
     o.frame_x = w.frame.x;
