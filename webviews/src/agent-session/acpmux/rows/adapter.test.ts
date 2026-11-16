@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
 import { ChatAdapter } from "./adapter";
 import { ChatRowsHost, type ChatRowsPost } from "./host";
-import { ChatRowStore } from "./store";
+import { type ChatHeads, ChatRowStore } from "./store";
 import type { ChatRow } from "./wire";
 
 const row = (id: number, extra: Partial<ChatRow> = {}): ChatRow => ({
@@ -116,7 +116,7 @@ test("the page of turns' heads older than the first row held are the earlier pro
 test("every prompt is held once the window holds the chat, or the page of turns' run has none before or after", async () => {
   const { snapshot } = await chat([row(50, { turn: 50, kind: "user", body: { text: "now" } }), row(51)]);
   const adapter = new ChatAdapter({ sessionId: "s1" });
-  const run = (extra: { hasBefore?: boolean; hasAfter?: boolean; unsupported?: boolean } = {}) => ({
+  const run = (extra: Partial<ChatHeads> = {}): ChatHeads => ({
     rows: [],
     hasBefore: false,
     hasAfter: false,
