@@ -37,6 +37,8 @@ import { godLog } from "./godFixture";
 import { papercutPane, type PapercutStep } from "../test/support/papercutChat";
 import { traceUpwardAnchors } from "../test/support/upwardAnchorTrace";
 import { perfRow } from "./perfRow";
+import { reportForcedLayouts } from "./forcedLayoutTrace";
+import { reportTrace, TRACE_CATEGORIES } from "./styleInvalidationTrace";
 
 const TURNS = Number(process.env.TURNS ?? 600);
 const STEP = Number(process.env.STEP ?? 1);
@@ -61,6 +63,11 @@ const PAGES = Number(process.env.PAGES ?? 0);
 /// SMALL_PAGES=1: the stand-in serves pages of the attach's size (160 records) whatever the pane asks, as the
 /// bench did before it served the asked `limit` and `maxBytes`.
 const ASKED_PAGE_SIZE = process.env.SMALL_PAGES !== "1";
+/// TRACE=1 (Chromium): a trace of the run, and the layouts and style recalcs each older page paid, the forced
+/// ones by the stack that forced them (forcedLayoutTrace.ts `LAYOUT-TRACE` lines).
+const TRACE = process.env.TRACE === "1" || process.env.TRACE === "2";
+/// TRACE=2: with invalidation tracking too, and what restyled (styleInvalidationTrace.ts `STYLE-TRACE` lines).
+const INVALIDATIONS = process.env.TRACE === "2";
 
 // The chat: the generated ordinary log at TURNS turns, its records as the stand-in daemon's lead steps; the
 // papercut chat adds one finished turn after it ("Answer 1:"), which the page waits for. FIXTURE=flat: the
@@ -102,7 +109,9 @@ async function run(name: string, engine: BrowserType) {
     daemonIndexes: true,
     askedPageSize: ASKED_PAGE_SIZE,
     // DEV=1 measures the dev server (React's development build); timing is of the production build.
-    ...(process.env.DEV === "1" ? {} : { production: { minify: process.env.PROFILE === "1" ? false : undefined } }),
+    ...(process.env.DEV === "1"
+      ? {}
+      : { production: { minify: process.env.PROFILE === "1" || TRACE ? false : undefined } }),
   });
   try {
     // Each older page on the wire (its `_acpmux/events` ask with `beforeSeq`, the reply's arrival and size)
@@ -118,6 +127,8 @@ async function run(name: string, engine: BrowserType) {
         (
           window as unknown as { __cmuxOlderTrace: (phase: "ask" | "settled", at: number, ask: number) => void }
         ).__cmuxOlderTrace = (phase, at, ask) => {
+          // The page's clock in the trace (TRACE=1): forcedLayoutTrace.ts reads it off these stamps.
+          console.timeStamp(`cmux-older ${phase} ${ask} ${at}`);
           if (phase === "ask") wire.asks.set(ask, { askAt: at });
           else {
             const entry = wire.asks.get(ask);
@@ -237,6 +248,11 @@ async function run(name: string, engine: BrowserType) {
       await cdp.send("Profiler.start");
       profiledAt = (await page.evaluate(() => performance.now())) as number;
     }
+    const tracing = TRACE && name === "chromium";
+    if (tracing)
+      await browser!.startTracing(page, {
+        categories: TRACE_CATEGORIES.filter((each) => INVALIDATIONS || !each.includes("invalidationTracking")),
+      });
     const traces: Awaited<ReturnType<typeof traceUpwardAnchors>>[] = [];
     const driftLog: string[] = [];
     const blankLog: string[] = [];
@@ -324,6 +340,7 @@ async function run(name: string, engine: BrowserType) {
       return { pages: held.pages, asks: [...held.asks.values()] };
     });
     const askToDrawn: number[] = [];
+    const drawnWindows: { from: number; to: number }[] = [];
     let undrawnAsks = 0;
     for (const ask of wire.asks) {
       if (ask.settledAt === undefined) continue;
@@ -331,8 +348,30 @@ async function run(name: string, engine: BrowserType) {
       const drawn = watched.frames.find(
         (frame) => frame.paint > ask.settledAt! && (!before || frame.scrollHeight !== before.scrollHeight),
       );
-      if (drawn && drawn.paint - ask.settledAt < 1000) askToDrawn.push(drawn.paint - ask.askAt);
-      else undrawnAsks += 1;
+      if (drawn && drawn.paint - ask.settledAt < 1000) {
+        askToDrawn.push(drawn.paint - ask.askAt);
+        drawnWindows.push({ from: ask.askAt, to: drawn.paint });
+      } else undrawnAsks += 1;
+    }
+    if (tracing) {
+      const events = JSON.parse((await browser!.stopTracing()).toString()).traceEvents;
+      const files = new Map<string, string[]>();
+      await reportForcedLayouts(events, drawnWindows, async (url, line) => {
+        if (!files.has(url))
+          files.set(
+            url,
+            ((await page.evaluate((each) => fetch(each).then((r) => r.text()), url)) as string).split("\n"),
+          );
+        return files.get(url)![line] ?? "";
+      });
+      if (INVALIDATIONS)
+        await reportTrace(
+          `${MODE} older pages`,
+          events,
+          {},
+          (file, line) => `${file}:${line + 1}`,
+          await page.context().newCDPSession(page),
+        );
     }
     const wireMs = wire.pages.map((each) => each.recvAt - each.sentAt);
     // A frame the reader asked to go up and the view moved less (held at the loaded rows' top, or a wheel
