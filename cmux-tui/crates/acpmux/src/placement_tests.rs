@@ -631,3 +631,25 @@ fn every_peer_row_carries_its_load_row() {
     assert_eq!(rows[0]["load"]["verdict"], "room");
     assert_eq!(rows[1]["load"]["verdict"], "offline");
 }
+
+#[test]
+fn a_loaded_local_machine_says_why_and_the_pick_names_its_room() {
+    // This machine is over its budget; a peer has room. The reply says both, so the composer can
+    // say "This Mac is busy · Run on far" and "room for N" without reading the hosts list.
+    let mut busy = health(20.0, 16, 29.8, 200.0, 2);
+    busy["pressure"] = json!({"ok": false, "over": ["load1 29.8 >= 15"], "cores": 16});
+    let mut here = c("mac", busy);
+    here.local = true;
+    let v = place(&[here, c("far", health(16.0, 8, 0.5, 200.0, 0))], None, Work::Agent);
+    assert_eq!(v["pick"], "far", "{v:#}");
+    assert_eq!(v["local"], false, "{v:#}");
+    assert_eq!(v["localOver"], "over its budget (load1 29.8 >= 15)", "{v:#}");
+    // far: RAM (16 - 4) / 2 = 6, CPU 7.5 → 6.
+    assert_eq!(v["room"], 6.0, "{v:#}");
+    // A quiet local machine has no verdict to show.
+    let mut here = c("mac", health(20.0, 16, 1.0, 200.0, 0));
+    here.local = true;
+    let v = place(&[here], None, Work::Agent);
+    assert!(v["localOver"].is_null(), "{v:#}");
+    assert_eq!(v["local"], true, "{v:#}");
+}
