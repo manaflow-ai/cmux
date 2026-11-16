@@ -1102,6 +1102,8 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
 /// The chats [`a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log`] keeps open: more
 /// than the 875 of cmux#42185.
 const OPEN_CHATS: usize = 900;
+/// The attaches of the replay in flight at once: 64 pages of at most [`PAGE_BYTES`], 8 MiB.
+const IN_FLIGHT: usize = 64;
 
 /// F6 of cmuxterm-hq `docs/design/remote-cloud-durability.md` (cmux#42185: "Agent chats show empty
 /// history after the daemon restarts", fixed in the pane host by #42197, #42206 and #42326): a
@@ -1151,13 +1153,20 @@ async fn a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log() {
             .collect();
         assert!(before.iter().all(|(n, last)| *n > 0 && last.is_some()), "every chat has history");
 
-        // Every open pane attaches again at once; the daemon dies with half of them answered.
+        // Every open pane attaches again, [`IN_FLIGHT`] at a time (all 900 pages at once are past
+        // a connection's outbound bound, which ends a reader that falls behind); the daemon dies
+        // with half of them answered and the next ones in flight.
         let mut replay = Rpc::connect(&daemon.socket);
         replay.call("initialize", hello.clone()).unwrap();
-        let ids: Vec<u64> =
-            chats.iter().map(|id| replay.request("_acpmux/attach", attach(id))).collect();
-        for id in &ids[..OPEN_CHATS / 2] {
-            let _ = replay.response(*id);
+        let mut asked = std::collections::VecDeque::new();
+        let (mut sent, mut answered) = (0, 0);
+        while answered < OPEN_CHATS / 2 {
+            while sent < OPEN_CHATS && asked.len() < IN_FLIGHT {
+                asked.push_back(replay.request("_acpmux/attach", attach(&chats[sent])));
+                sent += 1;
+            }
+            let _ = replay.response(asked.pop_front().expect("an attach in flight"));
+            answered += 1;
         }
         // SAFETY: the pid is this test's own child, not yet reaped.
         unsafe { libc::kill(daemon.child.id() as i32, libc::SIGKILL) };
