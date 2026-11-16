@@ -693,6 +693,20 @@ impl MediaSession {
                 .map(|s| s.dropped_rejected_protected_frames),
             queue_dropped_rejected_protected_datagrams: queue
                 .map(|s| s.dropped_rejected_protected_datagrams),
+            queue_frames: queue.map(|stats| stats.queue_frames),
+            queue_datagrams: queue.map(|stats| stats.queue_datagrams),
+            queue_dropped_frames: queue.map(|stats| stats.dropped_frames),
+            queue_dropped_datagrams: queue.map(|stats| stats.dropped_datagrams),
+            queue_dropped_replaced_frames: queue.map(|stats| stats.dropped_replaced_frames),
+            queue_dropped_replaced_datagrams: queue.map(|stats| stats.dropped_replaced_datagrams),
+            queue_dropped_evicted_for_protected_frames: queue
+                .map(|stats| stats.dropped_evicted_for_protected_frames),
+            queue_dropped_evicted_for_protected_datagrams: queue
+                .map(|stats| stats.dropped_evicted_for_protected_datagrams),
+            queue_dropped_rejected_protected_frames: queue
+                .map(|stats| stats.dropped_rejected_protected_frames),
+            queue_dropped_rejected_protected_datagrams: queue
+                .map(|stats| stats.dropped_rejected_protected_datagrams),
         };
         let _ = carrier.send_control(&stats);
     }
