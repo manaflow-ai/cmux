@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesignTokens
 
 /// A dialog button in its ``CmuxDialogButtonLook``: the default button a solid accent fill, a
 /// destructive one in the danger color, the others a theme gray (never the system accent), every
@@ -255,6 +256,10 @@ enum CmuxDialogMetrics {
     static var width: CGFloat { 380 * Typography.userScale }
     static var widthWithIcon: CGFloat { 432 * Typography.userScale }
     static var cardPadding: CGFloat { 16 * Typography.userScale }
+    /// The card's concentric geometry (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+    /// inside"): the buttons on its bottom row sit ``cardPadding`` from the bottom and the sides, so the card
+    /// rounds by the button corner plus that padding.
+    static var card: ConcentricContainer { Metrics.buttonContainer(padding: cardPadding) }
     static var spacing: CGFloat { 8 * Typography.userScale }
     static var subtitleGap: CGFloat { 4 * Typography.userScale }
     static var buttonsGap: CGFloat { 12 * Typography.userScale }

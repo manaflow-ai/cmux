@@ -178,20 +178,23 @@ public final class MacScreenPane {
         model.hasFrame = false
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
+        session?.frameCounter = counter
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick() else { return }
-            Task { @MainActor [weak self] in self?.framesShown(counter.take()) }
+            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)
         // task-owner: this transport's decoder; ends with its stream or the next session's
         decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
     }
 
-    private func framesShown(_ count: Int) {
+    private func framesShown(_ counter: MacScreenFrameCounter) {
         guard let session else { return }
+        let count = counter.take()
         for _ in 0 ..< count { session.framePresented(size: view.video.framePixels) }
+        session.framesCounted(counter)
         if !model.hasFrame {
             model.hasFrame = true
             view.needsLayout = true

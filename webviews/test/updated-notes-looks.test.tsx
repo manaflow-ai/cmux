@@ -2,7 +2,7 @@
 // Lawrence 2026-11-09, on the Updated card's changes popover ("Updated to Nightly", the Agent Chat
 // list, "+162 more"): "make and show me more versions of this ui". Debug Settings
 // `sidebar.updatedCard.notesLook` picks the look live through the theme's `updated-notes-look` slot;
-// `sections` ships. Each look shows every change it promises and opens What's New from it.
+// `release` ships (Leo 2026-11-14). Each look shows every change it promises and opens What's New from it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -112,8 +112,18 @@ describe("the Updated card's changes popover looks", () => {
   const shownTitles = (host: HTMLElement) =>
     [...host.querySelectorAll(".wn-notes-row-title")].map((t) => t.textContent);
 
-  test("without a look the shipped sections show every change under area headers", async () => {
+  test("without a look the shipped release look shows every change under its kind", async () => {
     const { host } = await notes(null);
+    expect(host.querySelector('.wn-notes-list[data-look="release"]')).not.toBeNull();
+    expect([...host.querySelectorAll(".wn-notes-kind-label")].map((label) => label.textContent)).toEqual([
+      "New",
+      "Improved",
+    ]);
+    expect(shownTitles(host).sort()).toEqual([...titles].sort());
+  });
+
+  test("sections show every change under area headers", async () => {
+    const { host } = await notes("sections");
     expect(host.querySelector('.wn-notes-list[data-look="sections"]')).not.toBeNull();
     expect(shownTitles(host).sort()).toEqual([...titles].sort());
   });

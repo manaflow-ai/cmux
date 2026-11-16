@@ -805,6 +805,8 @@ impl Hub {
         }
         self.restart_unproven(session, proven);
         self.save_meta(session);
+        // Adopted and recovered: a prompt to this chat waits for no other host (`wait_adopted`).
+        self.chat_adopted(&session.id);
         Ok(())
     }
 
@@ -904,6 +906,7 @@ impl Hub {
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                         accepted: true,
+                        device: None,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);

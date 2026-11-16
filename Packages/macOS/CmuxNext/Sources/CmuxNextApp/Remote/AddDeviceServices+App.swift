@@ -85,10 +85,9 @@ extension MachineJoinService {
     static func app(_ services: AppServices) -> MachineJoinService {
         let cli = SSHService.bundledCLI
         let auth = services.cloud.auth
-        let token: @Sendable () async -> String? = { @MainActor in
-            guard auth.isSignedIn else { return nil }
-            return try? await auth.tokens().access
-        }
+        let identity = services.cloud.installIdentity
+        // A cmux access token for the active team: the platform's machine routes refuse the session's.
+        let token: @Sendable () async -> String? = { @MainActor in await auth.machineRoutesToken(identity: identity) }
         // A signed-in hub command whose exit status is the whole answer (revoke, rotate, remove).
         let succeeds: @Sendable ([String]) async -> Bool = { args in
             guard let cli, let access = await token(),

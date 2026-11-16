@@ -105,13 +105,13 @@ import Testing
             MacScreenDeviceStep(device: "build-box", step: "daemon", state: .skip, detail: "needs app"),
         ], phase: .failed(""))
         return [
-            .init(id: "d1", name: "Office Mac", isPhone: false, online: false, access: MacScreenAccess(.full),
+            .init(id: "d1", name: "Office Mac", isPhone: false, online: false, macScreenShared: true, access: MacScreenAccess(.full),
                   setup: .make(isMac: true, online: false, verbs: verbs, run: nil)),
-            .init(id: "d2", name: "studio-mac", isPhone: false, online: false, access: MacScreenAccess(.full),
+            .init(id: "d2", name: "studio-mac", isPhone: false, online: false, macScreenShared: true, access: MacScreenAccess(.full),
                   setup: .make(isMac: true, online: false, verbs: verbs, run: starting)),
-            .init(id: "d3", name: "build-box", isPhone: false, online: true, access: MacScreenAccess(.view),
+            .init(id: "d3", name: "build-box", isPhone: false, online: true, macScreenShared: true, access: MacScreenAccess(.view),
                   setup: .make(isMac: true, online: true, verbs: verbs, run: failed)),
-            .init(id: "d4", name: "iPhone", isPhone: true, online: true, access: MacScreenAccess(.full),
+            .init(id: "d4", name: "iPhone", isPhone: true, online: true, macScreenShared: true, access: MacScreenAccess(.full),
                   setup: .make(isMac: false, online: true, verbs: verbs, run: nil)),
         ]
     }

@@ -239,7 +239,7 @@ public final class WebPopupPanel: ContentChildPanel {
         identifier = NSUserInterfaceItemIdentifier("cmux.page-popup")
         setAccessibilityElement(false)
         // Rows the screen cannot fit scroll, as a Mac menu's do.
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)

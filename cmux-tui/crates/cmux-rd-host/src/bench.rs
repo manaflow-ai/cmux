@@ -201,6 +201,10 @@ struct Viewer {
     /// default there); OpenH264 decodes constrained baseline only.
     #[cfg(target_os = "macos")]
     vt: Option<crate::vtdecode::VtDecoder>,
+    /// Linux `--present :N`: every decoded frame drawn in a window on that X display.
+    #[cfg(target_os = "linux")]
+    presenter: Option<crate::present::Presenter>,
+    present_errors: u64,
     /// `--decoder vp9|av1` (features `vp9`, `av1`): a royalty-free codec's decoder, for a
     /// host started with the same `--codec`, and the picture it decodes into.
     #[cfg(any(feature = "vp9", feature = "av1"))]
@@ -324,6 +328,12 @@ impl Viewer {
                     self.decode_ms.push((t1 - t0) as f64 / 1e6);
                     match decoded {
                         Ok(Some(yuv)) => {
+                            #[cfg(target_os = "linux")]
+                            if let Some(p) = self.presenter.as_mut() {
+                                if p.show(&yuv).is_err() {
+                                    self.present_errors += 1;
+                                }
+                            }
                             self.decoded_frames += 1;
                             if let Some(log) = self.eval_decode.as_mut() {
                                 log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
@@ -623,6 +633,14 @@ fn cpu_s() -> f64 {
 }
 
 pub fn run(opts: &Opts) -> Res<()> {
+    // The first decoder session in a process is the slow one: create a throwaway one now,
+    // in parallel with connecting, so the first IDR does not pay for it.
+    #[cfg(target_os = "macos")]
+    if opts.str_or("decoder", "videotoolbox") == "videotoolbox"
+        && opts.num_or("vt-prewarm", 1u8)? == 1
+    {
+        crate::vtdecode::prewarm_in_background();
+    }
     let addr: SocketAddr = opts.str_or("addr", "127.0.0.1:4103").parse()?;
     let samples: usize = opts.num_or("samples", 300)?;
     let carrier = opts.str_or("carrier", "udp");
@@ -723,7 +741,14 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
             None => (0, 0),
         },
+        #[cfg(target_os = "linux")]
+        presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
+        present_errors: 0,
     };
+    #[cfg(not(target_os = "linux"))]
+    if opts.get("present").is_some() {
+        return Err("--present needs Linux (X11)".into());
+    }
     // `--at X,Y`: where click and scroll input lands, in stream pixels.
     let (at_x, at_y) = match opts.get("at") {
         Some(at) => {
@@ -872,6 +897,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         "mbit_per_s": (v.bytes - b0) as f64 * 8.0 / secs / 1e6,
         "decode_ms": pct(&mut v.decode_ms.clone()),
         "decode_errors": v.decode_errors,
+        "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "host_stats_last": v.stats.last(),
         "upstream": upstream_report,
@@ -959,6 +985,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "fps": fps,
         "series": series,
         "decode_errors": v.decode_errors,
+        "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "ended": v.ended,
     });

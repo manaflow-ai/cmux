@@ -29,6 +29,11 @@ every tier on a branch, not just the routed ones, dispatch the workflow on it:
 gh workflow run cmux-next.yml --ref <branch>
 ```
 
+On a working branch (not feat-cmux-next or `next-batch/*`) that dispatch skips the two heavy
+Mac compiles, `cmux app scheme compile (Debug)` and the Release compile; add `-f full=true` to
+run them too (2026-11-15: lane dispatches starved glaeda-side-std-xcode-26.6;
+`docs/ci/cmux-next-workflow-notes.md#note-365`).
+
 Dispatch runs every tier on any ref of this repository (feat-cmux-next, a
 `next-batch/*` branch or a working branch). A newer plain dispatch on the same
 working branch cancels the older one, as a push to a pull request does, so a
