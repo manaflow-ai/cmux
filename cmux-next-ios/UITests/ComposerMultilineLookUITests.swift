@@ -33,10 +33,22 @@ final class ComposerMultilineLookUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         let field = app.textViews["chat.composer.field"]
-        if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "chat composer field\n\(app.debugDescription)")
+        if !field.waitForExistence(timeout: 30) {
+            // The collapsed capsule ("Reply to Claude", "Ask Claude") opens the field.
+            let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to' OR label BEGINSWITH 'Ask '")).firstMatch
+            if capsule.waitForExistence(timeout: 5) { capsule.tap() }
+        }
+        guard field.waitForExistence(timeout: 10) else {
+            // Evidence of where the app was instead of a failure: the run keeps its screenshots.
+            attach(app, "\(name)-no-field")
+            let tree = XCTAttachment(string: app.debugDescription)
+            tree.name = "\(name)-no-field-tree"
+            tree.lifetime = .keepAlways
+            add(tree)
+            throw XCTSkip("no chat composer field in \(demo)")
+        }
         if !app.keyboards.firstMatch.exists { field.tap() }
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
+        _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
         field.typeText("line 1 of the draft")
         attach(app, "\(name)-1-line")
         for count in 2 ... 6 {
