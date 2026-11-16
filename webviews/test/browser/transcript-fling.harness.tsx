@@ -119,7 +119,23 @@ createRoot(root).render(<Transcript />);
 
 // Synthetic reproduction of a received card collapsing while the last reply keeps streaming.
 let foldStreamVersion = 0;
+// The last reply streams: each step appends a chunk to it, as a delta does (any seeded length).
+let streamStep = 0;
 Object.assign(window, {
+  __streamStep() {
+    const at = current.length - 1;
+    if (at < 0) return;
+    streamStep += 1;
+    current = [...current];
+    const last = current[at]!;
+    current[at] = {
+      ...last,
+      version: (last.version ?? 0) + 1,
+      streaming: true,
+      text: `${last.text ?? ""} chunk ${streamStep} of the streaming reply.`,
+    };
+    show(current);
+  },
   __seedFoldStream() {
     if (current.length !== 9000) throw new Error("seed the unchanged 3000-turn fixture first");
     const at = current.length - 9;

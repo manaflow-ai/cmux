@@ -15,6 +15,8 @@
 // #41170 F2), and scrolled up to the chat's middle ("scrolled", where the row at the view's top
 // must hold still). A chat short enough that the view holds it whole runs "follow" too ("short",
 // #41170 F1: no row may go up past the top while it narrows).
+// CMUX_RESIZE_STREAM=1: the latest reply streams through the drag, one chunk a frame before the width
+// step, as an agent printing under a divider drag.
 //   bun bench/transcript-resize-frame.bench.ts [turns=100,1500] [rounds=3]
 /// <reference types="bun" />
 import path from "node:path";
@@ -27,6 +29,8 @@ const TURNS = (process.argv[2] ?? "100,1500").split(",").map(Number);
 const ROUNDS = Number(process.argv[3] ?? 3);
 if (TURNS.some((turns) => !Number.isInteger(turns) || turns < 3) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
   throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1]");
+const STREAM = process.env.CMUX_RESIZE_STREAM === "1";
+const MODE = STREAM ? " stream" : "";
 const webviews = path.resolve(import.meta.dir, "..");
 /// The drag: from WIDE to NARROW and back, STEPS frames each way.
 const WIDE = 900;
@@ -73,6 +77,11 @@ type Drag = {
   clip: number;
   /// The view held the whole chat before the drag.
   fits: boolean;
+  /// The longest main-thread task from the first width step until the width held and the rows were placed at it
+  /// (the settle that places every row at the held width included), in ms.
+  longestTask: number;
+  /// The settle: the longest frame interval once the width held, while the rows are placed at it.
+  settleTask: number;
 };
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
 const pct = (values: number[], p: number) => {
@@ -99,7 +108,7 @@ try {
     for (const shape of cases) {
       const drag = async (): Promise<Drag> =>
         page.evaluate(
-          async ({ wide, narrow, steps, view }) => {
+          async ({ wide, narrow, steps, view, stream }) => {
             const perfUrl = "/src/agent-session/acpmux/perf.ts";
             type PerfModule = typeof import("../src/agent-session/acpmux/perf");
             const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
@@ -111,6 +120,11 @@ try {
               view === "latest" ? scroller.scrollHeight : (scroller.scrollHeight - scroller.clientHeight) / 2;
             for (let frame = 0; frame < 30; frame += 1) await new Promise(requestAnimationFrame);
             const fits = scroller.scrollHeight <= scroller.clientHeight + 1;
+            const tasks: { start: number; duration: number }[] = [];
+            const taskObserver = new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) tasks.push({ start: entry.startTime, duration: entry.duration });
+            });
+            taskObserver.observe({ type: "longtask", buffered: false });
             acpmuxPerf.enable();
             acpmuxPerf.resetFrames();
             const widths = [
@@ -163,6 +177,7 @@ try {
                 acpmuxPerf.markFrame(now, false);
                 if (index >= widths.length) return done();
                 const start = performance.now();
+                if (stream) (window as unknown as { __streamStep: () => void }).__streamStep();
                 root.style.width = `${widths[index]}px`;
                 index += 1;
                 const channel = new MessageChannel();
@@ -184,10 +199,20 @@ try {
               requestAnimationFrame(tick);
             });
             // Let the last frame's task land, then the width hold and the rows be placed at it.
+            const dragEnd = performance.now();
             await new Promise((resolve) => setTimeout(resolve, 50));
             const stats0 = acpmuxPerf.stats();
-            await new Promise((resolve) => setTimeout(resolve, 400));
+            // The frames while the width holds and the rows are placed at it: the longest gap between two
+            // is the settle's frame (a task under the long-task floor of 50 ms shows here too).
+            let settleFrame = 0;
+            for (let last = performance.now(); performance.now() - dragEnd < 450;) {
+              const now = await new Promise<number>(requestAnimationFrame);
+              settleFrame = Math.max(settleFrame, now - last);
+              last = now;
+            }
             for (let frame = 0; frame < 3; frame += 1) await new Promise(requestAnimationFrame);
+            taskObserver.disconnect();
+            const longestTask = Math.max(0, ...tasks.map((task) => task.duration));
             const settleJump = Math.abs(latestFoot() - lastFoot);
             const heldEnd = heldTop();
             const heldSettleJump = heldEnd !== undefined && lastHeld !== undefined ? Math.abs(heldEnd - lastHeld) : 0;
@@ -211,9 +236,11 @@ try {
               heldSettleJump: Math.round(heldSettleJump * 10) / 10,
               clip: Math.round(clip * 10) / 10,
               fits,
+              longestTask: Math.round(longestTask * 10) / 10,
+              settleTask: Math.round(settleFrame * 10) / 10,
             };
           },
-          { wide: shape.wide, narrow: NARROW, steps: STEPS, view: shape.view },
+          { wide: shape.wide, narrow: NARROW, steps: STEPS, view: shape.view, stream: STREAM },
         );
       await drag(); // warm-up
       const drags: Drag[] = [];
@@ -248,7 +275,7 @@ try {
         });
         for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 30))
           console.log(
-            `transcript-resize-frame turns=${turns} case=${shape.name} profile self_ms=${ms.toFixed(1)} ${key}`,
+            `transcript-resize-frame${MODE} turns=${turns} case=${shape.name} profile self_ms=${ms.toFixed(1)} ${key}`,
           );
       }
       drags.forEach((run, round) => {
@@ -256,16 +283,16 @@ try {
         const over = run.work.filter((ms) => ms > budget).length;
         const dropped = run.intervals.filter((ms) => ms > budget * 1.5).length;
         console.log(
-          `transcript-resize-frame turns=${turns} case=${shape.name} drag#${round}: fits=${run.fits} frames=${run.work.length} ` +
+          `transcript-resize-frame${MODE} turns=${turns} case=${shape.name} drag#${round}: fits=${run.fits} frames=${run.work.length} ` +
             `work_ms p50/p95/max=${pct(run.work, 0.5)}/${pct(run.work, 0.95)}/${pct(run.work, 1)} ` +
-            `over_budget=${over} dropped=${dropped} interval_p95=${pct(run.intervals, 0.95)} react_p95=${run.reactMs} layout_p95=${run.layoutMs} ` +
+            `over_budget=${over} dropped=${dropped} longest_task_ms=${run.longestTask} settle_frame_ms=${run.settleTask} interval_p95=${pct(run.intervals, 0.95)} react_p95=${run.reactMs} layout_p95=${run.layoutMs} ` +
             `overlap_frames=${run.overlaps} latest_drift_px=${run.drift} settle_jump_px=${run.settleJump} ` +
             `held_drift_px=${run.heldDrift} held_settle_jump_px=${run.heldSettleJump} top_clip_px=${run.clip} ` +
             `spans_p95=${JSON.stringify(run.spans)}`,
         );
       });
       perfRow({
-        name: `transcript_resize.t${turns}.${shape.name}.work_ms`,
+        name: `transcript_resize.t${turns}.${shape.name}${STREAM ? ".stream" : ""}.work_ms`,
         p50: median(drags.map((run) => pct(run.work, 0.5))),
         p95: median(drags.map((run) => pct(run.work, 0.95))),
         target: TARGET_MS.frameWork,
