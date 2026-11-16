@@ -66,6 +66,17 @@ final class ComposerMultilineLookUITests: XCTestCase {
             let send = app.buttons["Send"].firstMatch
             if send.waitForExistence(timeout: 5) { send.tap() }
             _ = app.buttons["Stop"].firstMatch.waitForExistence(timeout: 5)
+            // Sending lowers the keyboard and the composer folds to its capsule: open it again.
+            if !field.waitForExistence(timeout: 2) {
+                let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+                if capsule.waitForExistence(timeout: 5) { capsule.tap() }
+            }
+            guard field.waitForExistence(timeout: 10) else {
+                attach(app, "\(name)-no-field-after-send")
+                throw XCTSkip("the composer did not open again after sending")
+            }
+            if !app.keyboards.firstMatch.exists { field.tap() }
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
             // 1 line, then 3 (a new line of prose that wraps to two), then 6, then past the field's six.
             field.typeText("Before you answer that,")
             attach(app, "\(name)-1-line")

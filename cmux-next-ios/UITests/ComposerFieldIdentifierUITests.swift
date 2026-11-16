@@ -20,6 +20,11 @@ final class ComposerFieldIdentifierUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["workspace.ws-cmux"].waitForExistence(timeout: 30),
                       "the workspace page keeps its identifier")
         let byPlaceholder = app.textViews.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+        if !byPlaceholder.waitForExistence(timeout: 15) {
+            // The collapsed capsule opens the field.
+            let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+            if capsule.waitForExistence(timeout: 5) { capsule.tap() }
+        }
         XCTAssertTrue(byPlaceholder.waitForExistence(timeout: 30), "the tab's composer field is shown\n\(app.debugDescription)")
         XCTAssertEqual(byPlaceholder.identifier, "chat.composer.field", "the tab's composer field has its own identifier")
         XCTAssertTrue(app.textViews["chat.composer.field"].exists, "chat.composer.field is found in the tab")
