@@ -5,7 +5,7 @@ import { revealClock, revealFrames } from "./revealedMarkdownModel";
 
 const saved = { ...revealFrames };
 afterEach(() => {
-  for (const tick of [...revealClock.rows]) revealClock.remove(tick);
+  for (const tick of revealClock.rows) revealClock.remove(tick);
   Object.assign(revealFrames, saved);
 });
 
