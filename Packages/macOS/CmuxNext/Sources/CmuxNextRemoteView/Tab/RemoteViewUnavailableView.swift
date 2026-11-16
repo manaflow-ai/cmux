@@ -123,19 +123,37 @@ public final class RemoteViewUnavailableView: NSView {
     @objc private func connectPressed() { onConnect?() }
     @objc private func cancelPressed() { onCancel?() }
 
-    /// The themed spinner at the icon's size, so swapping one for the other moves nothing.
+    /// The themed spinner in a slot of the icon's size, so swapping one for the other moves nothing,
+    /// also when the loading style hides the spinner itself.
     private static func spinner(side: CGFloat) -> NSView {
+        let slot = NSView()
+        slot.translatesAutoresizingMaskIntoConstraints = false
         let indicator = StatusIndicatorView.spinner()
         indicator.translatesAutoresizingMaskIntoConstraints = false
+        slot.addSubview(indicator)
         NSLayoutConstraint.activate([
-            indicator.widthAnchor.constraint(equalToConstant: side),
-            indicator.heightAnchor.constraint(equalToConstant: side),
+            slot.widthAnchor.constraint(equalToConstant: side),
+            slot.heightAnchor.constraint(equalToConstant: side),
+            indicator.leadingAnchor.constraint(equalTo: slot.leadingAnchor),
+            indicator.trailingAnchor.constraint(equalTo: slot.trailingAnchor),
+            indicator.topAnchor.constraint(equalTo: slot.topAnchor),
+            indicator.bottomAnchor.constraint(equalTo: slot.bottomAnchor),
         ])
         indicator.spin(true)
-        return indicator
+        return slot
     }
 
-    public override var acceptsFirstResponder: Bool { true }
+    /// Connecting sits over the pane: it keeps no keyboard focus, and a click off the card reaches
+    /// the desktop's capture view below, as it did before the card.
+    public override var acceptsFirstResponder: Bool {
+        if case .connecting = content { false } else { true }
+    }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        guard case .connecting = content else { return super.hitTest(point) }
+        let local = convert(point, from: superview)
+        return surface.frame.contains(local) ? super.hitTest(point) : nil
+    }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

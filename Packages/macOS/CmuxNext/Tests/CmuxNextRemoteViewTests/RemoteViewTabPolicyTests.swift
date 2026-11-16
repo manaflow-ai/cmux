@@ -58,15 +58,16 @@ import Testing
         #expect(policy.decide(record: record, source: .remoteTree, paneAvailable: true) == .unavailable(.remoteRecord))
     }
 
-    /// A Cloud desktop's connecting card names the machine and says nothing more; the phase-1
-    /// development note (loopback or a single-tenant overlay) is for the other paths only.
-    @Test @MainActor func aCloudDesktopsConnectingCardHasNoDevelopmentNote() {
+    /// A connecting card names the machine and says nothing more, on every path: the phase-1
+    /// development note (loopback or a single-tenant overlay) stays on the consent card.
+    @Test @MainActor func aConnectingCardSaysNothingButItsTitle() {
         let cloud = RemoteStateCard.spec(for: .connecting, host: "graceful-amber-owl", viaCloudTunnel: true)
         #expect(cloud.note == nil)
         #expect(cloud.title.contains("graceful-amber-owl"))
         #expect(cloud.detail == nil)
         let other = RemoteStateCard.spec(for: .connecting, host: "local")
-        #expect(other.note == RemoteViewStrings.developmentOnly)
+        #expect(other.note == nil && other.detail == nil)
+        #expect(RemoteStateCard.spec(for: .waitingForConsent, host: "local").note == RemoteViewStrings.developmentOnly)
     }
 
     /// A Cloud desktop that streamed and lost its path says "Reconnecting" while it connects

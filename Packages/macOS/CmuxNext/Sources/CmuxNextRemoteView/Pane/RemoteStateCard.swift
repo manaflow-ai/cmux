@@ -113,7 +113,7 @@ final class RemoteStateCard: NSView {
     }
 
     /// `viaCloudTunnel`: a Cloud desktop over the app's own tunnel, which the phase-1 trust gap
-    /// (the development note) does not describe.
+    /// (the development note, on the consent card) does not describe.
     /// `reconnecting`: an earlier session showed frames, so this connect is a reconnect (the last
     /// frame stays behind the card).
     /// The pane draws a connect in the Connect card's own frame (``RemoteViewUnavailableView``,
@@ -124,7 +124,7 @@ final class RemoteStateCard: NSView {
         switch overlay {
         case .connecting:
             return Spec(spinner: true, title: reconnecting ? RemoteViewStrings.reconnectingTitle(host) : RemoteViewStrings.connectingTitle(host),
-                        detail: nil, buttons: [.cancel], note: viaCloudTunnel ? nil : RemoteViewStrings.developmentOnly)
+                        detail: nil, buttons: [.cancel])
         case .waitingForConsent:
             return Spec(symbol: "hand.raised", title: RemoteViewStrings.consentTitle(host),
                         detail: RemoteViewStrings.consentDetail(host), buttons: [.cancel],
