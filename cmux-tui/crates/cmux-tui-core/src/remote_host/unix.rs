@@ -231,14 +231,18 @@ impl RemoteHostSupervisor {
 
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        let _starting = lock(&self.inner.starting);
-        capture::require_open(&self.inner)?;
-        // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
-        // no host starts for a request, so an off switch never runs cmux Remote.
-        if !lock(&self.inner.config).wanted() {
-            return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
-        }
-        let connection = Inner::ensure_locked(&self.inner, None)?;
+        // Held only for admission and start: the request itself never serializes other calls.
+        // A capture that begins later is fenced by the host's own child admission.
+        let connection = {
+            let _starting = lock(&self.inner.starting);
+            capture::require_open(&self.inner)?;
+            // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
+            // no host starts for a request, so an off switch never runs cmux Remote.
+            if !lock(&self.inner.config).wanted() {
+                return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+            }
+            Inner::ensure_locked(&self.inner, None)?
+        };
         connection.call(method, params)
     }
 
@@ -252,6 +256,9 @@ impl RemoteHostSupervisor {
                 "headless": config.headless,
             },
             "upgrade": if *lock(&self.inner.upgrade_pending) { "pending" } else { "none" },
+            // false in a cmux build without cmux Remote (Release and NIGHTLY embed none): the
+            // cmux app shares the screen itself there, and `cmux remote-host` says so.
+            "bundled": bundled(),
         });
         let Some(fields) = status.as_object_mut() else { return status };
         match &*lock(&self.inner.state) {
@@ -355,7 +362,7 @@ impl Inner {
                 && let Some(record) = read_record(&paths.record())
                 && capture_platform::record_exited(&record)
             {
-                capture_platform::group_absent(record.pid)?;
+                capture_platform::exited_group_absent(&record)?;
             }
             if let Some(record) = read_record(&paths.record()) {
                 match Self::adopt(this, &record) {
@@ -386,7 +393,7 @@ impl Inner {
                     Err(_)
                         if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
                             && (!capture_platform::record_exited(&record)
-                                || capture_platform::group_absent(record.pid).is_err()) =>
+                                || capture_platform::exited_group_absent(&record).is_err()) =>
                     {
                         return Err("remote_host_identity_unverified".into());
                     }
@@ -800,6 +807,19 @@ fn write_private(path: &Path, bytes: &[u8]) {
         .and_then(|mut file| file.write_all(bytes));
     if written.is_ok() {
         let _ = std::fs::rename(&temporary, path);
+    }
+}
+
+/// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
+/// bundle that holds this daemon). Never starts or stages it.
+fn bundled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        platform::embedded().is_ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
     }
 }
 

@@ -52,6 +52,8 @@ with live_apply.py's rules:
          NIGHTLY), takes the ad hoc library as is; another Developer ID app loads only libraries of
          its team: --sign-identity signs with that team's identity, --reseal signs the app ad hoc
          too (hot_apply_ffi.py has the rules). The rust part rides with it; without it, both are left.
+         A commit that only moves the pin (app-ffi-repin) takes this part too: the app links the
+         release its commit pins, which lags its FFI sources, so SHA's pinned release replaces it.
   left   what needs a new app: Swift, resources and manifests, Rust the app links (statically), a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
          keep the app's build while the daemon part still applies), and a Rust build not signed as
@@ -61,7 +63,11 @@ with live_apply.py's rules:
          register no Cloud credential provider, and the Cloud machine list and every user-origin
          call would fail until rollback (2026-11-15). `plan` reads the published binary's
          signature with two range requests; `apply` checks the file it swaps in. --unsigned-daemon
-         takes it anyway and says so
+         takes it anyway and says so. CI also signs each feat-cmux-next tree's darwin build with the
+         NEXT nightly's identity (cmux-tui-team-signed.yml, at files.cmux.com/cmux-tui/tree/KEY/
+         team-signed/, its completion.json naming the team and each file's sha256): an app signed
+         by that team takes that set (plan's `build`, the receipt's steps.build), so the rust part
+         reaches a NIGHTLY once it is published, a few minutes after the tree
 
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
@@ -184,6 +190,9 @@ WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cm
 # Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
 HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
 HOT_KEYS_SCHEMA = 1
+# Beside each tree, its darwin build signed by the NEXT nightly's team (cmux-tui-team-signed.yml,
+# scripts/ci/cmux_tui_team_sign.py): what a Team-signed app takes.
+TEAM_SIGNED = "team-signed"
 MISSING_KEYS_SECONDS = 3600
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
@@ -192,10 +201,6 @@ SHA = re.compile(r"[0-9a-f]{40}")
 # What a temporary checkout of SHA needs to compute its web source key (web-bundle-key.py reads
 # the files): everything but the large folders no web bundle imports.
 WEB_KEY_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghostty/"]
-# Native sources under cmux-tui/ (a companion's shim, the Zig binding): live_apply.py files them as "resource or
-# manifest", but the cmux-tui tree build compiles them, so they go with the Rust part, and linked_rust keeps an app
-# FFI crate's out of it (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
-NATIVE_IN_TUI = re.compile(r"^cmux-tui/.+\.(c|h|m|mm|zig)$")
 
 
 class Phases:
@@ -531,9 +536,9 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         meta, path = entry.split("\t", 1)
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
-    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    shell = [p for p in files.get("rebuild", []) if p not in native] + files.get("swift-live", [])
-    daemon = files.get("daemon", []) + native
+    # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
+    shell = files.get("rebuild", []) + files.get("swift-live", [])
+    daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
@@ -589,8 +594,11 @@ def daemon_part(out: dict, app: Path, given_base: bool, unsigned: bool) -> None:
     team = None if given_base else app_team(app)
     why = None
     if team and out.get("published"):
-        name = f"cmux-tui-{triple()}"
-        why = unverifiable(url_team(f"{TUI_BASE}/{out['tree_key']}/{name}"), team, f"the published {name}")
+        if team_signed(out["tree_key"], team):
+            out["build"] = f"team-signed ({team})"
+        else:
+            name = f"cmux-tui-{triple()}"
+            why = unverifiable(url_team(f"{TUI_BASE}/{out['tree_key']}/{name}"), team, f"the published {name}")
     if why and not unsigned:
         out["left"]["Rust (the published build is not signed as this app is)"] = [why]
     else:
@@ -637,8 +645,11 @@ def keys_plan(app: Path, sha: str, base: str, given_base: bool, unsigned: bool =
 def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None, unsigned: bool = False) -> dict:
     with PHASES("plan"):
         if not branch:
-            planned = keys_plan(app, sha, base or app_commit(app, repo), bool(base), unsigned)
-            if planned:
+            app_base = base or app_commit(app, repo)
+            planned = keys_plan(app, sha, app_base, bool(base), unsigned)
+            # The keys compare FFI sources, but an app links the release its commit pins, which lags them: a
+            # commit that moves the pin is planned from the diff, where the ffi part reads both pins.
+            if planned and not ffi_part.pin_moved(repo, app_base, sha):
                 return planned
         return _plan(repo, app, sha, branch, base, unsigned)
 
@@ -654,9 +665,8 @@ def pins_daemon(repo: Path, commit: str) -> list[str]:
     if not SHA.fullmatch(parent or ""):
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
-    # The same files `plan` checks: its daemon part, with cmux-tui's own native sources moved onto it.
-    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    return linked_rust(repo, sorted(set(rust)))
+    # The same files `plan` checks: its daemon part, cmux-tui's own native sources included.
+    return linked_rust(repo, sorted(set(files.get("daemon", []))))
 
 
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
@@ -713,10 +723,6 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    if native:
-        files["rebuild"] = [p for p in files["rebuild"] if p not in native]
-        files["daemon"] = sorted(set(files.get("daemon", [])) | set(native))
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
@@ -759,6 +765,26 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
                 out["left"]["bundled helpers (cmux-mobile-host, ...)"] = helpers
+    if not branch and "ffi" not in out["parts"] and "Rust the app links (FFI)" not in out["left"]:
+        # No FFI source changed after the app's commit, but SHA may pin a newer release than the app runs (the
+        # pin lags the sources until app-ffi-repin lands): that release is what SHA's app would carry.
+        try:
+            moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
+            if moved:
+                out["ffi"] = {**moved, "files": [ffi_part.PIN_FILE]}
+                out["parts"].append("ffi")
+        except ffi_part.Left as why:
+            out["notes"].append(f"ffi: {why}")
+    if "ffi" in out["parts"]:
+        # Moving the pin is the ffi part's own change, not a Swift one.
+        packaging = ffi_part.pin_packaging(repo, since, sha)
+        for kind in ("swift-live", "rebuild"):
+            if kind in out["left"]:
+                rest = [p for p in out["left"][kind] if p not in packaging]
+                if rest:
+                    out["left"][kind] = rest
+                else:
+                    del out["left"][kind]
     return out
 
 
@@ -795,18 +821,22 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     published = fetch_kept(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
-    copy = state / "builds" / want / "cmux"
+    return fetch_build_file(f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"), want
+
+
+def fetch_build_file(url: str, want: str, copy: Path) -> Path:
+    """URL into COPY (state/builds/SHA256/FILE), checked against WANT; a COPY that still hashes to it is kept."""
     if not cached(copy, want):
-        body = fetch(f"{TUI_BASE}/{key}/{name}")
+        body = fetch(url)
         with PHASES("verify"):
             if hashlib.sha256(body).hexdigest() != want:
-                raise RuntimeError(f"{TUI_BASE}/{key}/{name} does not hash to {want}")
+                raise RuntimeError(f"{url} does not hash to {want}")
         copy.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
             part.write(body)
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
-    return copy, want
+    return copy
 
 
 def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -823,19 +853,43 @@ def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None
         if not want:
             out[file] = None
             continue
-        copy = state / "builds" / want / file
-        if not cached(copy, want):
-            body = fetch(f"{COMMIT_BASE}/{owner}/{asset}")
-            with PHASES("verify"):
-                if hashlib.sha256(body).hexdigest() != want:
-                    raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
-                part.write(body)
-            os.chmod(part.name, 0o755)
-            os.replace(part.name, copy)
-        out[file] = (copy, want)
+        out[file] = (fetch_build_file(f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file), want)
     return out
+
+
+def team_signed(key: str, team: str | None) -> dict | None:
+    """Tree KEY's Team-signed set (cmux-tui-team-signed.yml: the same build, signed by the identity the
+    NEXT nightly signs with, at TUI_BASE/KEY/team-signed/) when TEAM signed it for this host, else None."""
+    if not team:
+        return None
+    try:
+        signed = json.loads(fetch_kept(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/completion.json"))
+    except (OSError, ValueError):  # a 404: not signed (yet)
+        return None
+    files = signed.get("files") if isinstance(signed, dict) else None
+    if (not isinstance(files, dict) or signed.get("key") != key or signed.get("team") != team
+            or signed.get("target") != triple() or set(files) != {"cmux", *(file for _, file in COMPANIONS)}):
+        return None
+    for entry in files.values():
+        if entry is not None and not (isinstance(entry, dict) and re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256")))):
+            return None
+    return signed if files["cmux"] else None
+
+
+def fetch_build(key: str, state: Path, team: str | None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
+    """Tree KEY's cmux and companions for this host: (cmux, its sha256, companions, which build). An app
+    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree."""
+    signed = team_signed(key, team)
+    if not signed:
+        new, want = fetch_cmux(key, state)
+        return new, want, fetch_companions(key, state), "ad-hoc"
+    out: dict[str, tuple[Path, str] | None] = {}
+    for file, entry in signed["files"].items():
+        want = entry["sha256"] if entry else None
+        out[file] = want and (fetch_build_file(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{want}/{file}", want,
+                                               state / "builds" / want / file), want)
+    new, want = out.pop("cmux")
+    return new, want, out, f"team-signed ({team})"
 
 
 def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -1118,8 +1172,26 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
         if not socket:
             raise
         running = [socket]  # --socket names the daemon; the others are not known
+    retired: list[dict] = []
+    if not socket and running:
+        # A daemon an earlier copy of the app started can outlive an update: its argv still names this
+        # bin folder, but it runs the copy the updater moved aside (Leo's NIGHTLY, 2026-11-15: cmux-app.sock
+        # ran .../nightly-update/backup/retired/cmux NIGHTLY.app.../bin/cmux and the apply refused). The
+        # swap never reaches it, so it is left, named, and the app's own daemon is the first that runs TARGET.
+        live = []
+        for name in running:
+            probe = swapper_cls(None, name)  # no state: a probe never reads or writes a hand-off marker
+            with PHASES("find"):
+                owner = probe.owner(target, timeout=10)
+            if owner is not None and probe.app_file(owner[1]) != target:
+                retired.append({"socket": name, "pid": owner[0], "runs": str(owner[1])})
+            else:
+                live.append(name)
+        running = live
     socket = socket or (running[0] if running else None)
     step: dict = {"file": str(target), "to": want, "socket": socket}
+    if retired:
+        step["left_on_retired_copy"] = retired
     # The app's own daemon is handed off here. Another session's (the chief's) keeps the build it mapped
     # unless `sessions` restarts it below; the receipt names each one left, and why.
     others = [name for name in running if name != socket]
@@ -1631,8 +1703,8 @@ def command_apply(args) -> int:
                 new, want = keep(state, Path(args.binary))
                 companions = local_companions(Path(args.binary), state)
             else:
-                new, want = fetch_cmux(planned["tree_key"], state)
-                companions = fetch_companions(planned["tree_key"], state)
+                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app))
+                receipt["steps"]["build"] = build
             # The file itself, whatever plan read: a --binary, or a build plan could not read.
             why = unverifiable(file_team(new), app_team(app), "SHA's cmux" if not args.binary else args.binary)
             if why and not args.unsigned_daemon:
@@ -1725,9 +1797,8 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
     """What `apply` would fetch and verify, fetched and verified; nothing in the app changes."""
     try:
         if "rust" in parts and not args.binary:
-            new, want = fetch_cmux(planned["tree_key"], state)
-            companions = fetch_companions(planned["tree_key"], state)
-            receipt["steps"]["rust"] = {"to": want, "copy": str(new)}
+            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"))
+            receipt["steps"]["rust"] = {"to": want, "copy": str(new), "build": build}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
             key = planned.get("web_key") or web_key(repo, args.sha)

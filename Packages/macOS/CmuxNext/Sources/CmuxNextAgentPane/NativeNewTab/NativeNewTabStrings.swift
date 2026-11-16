@@ -19,6 +19,12 @@ nonisolated struct NativeNewTabStrings {
     }
     var switchToTab: String { String(localized: "agentPane.nativeNewTab.switchToTab", defaultValue: "Switch to tab", bundle: .module) }
     var workspace: String { String(localized: "agentPane.nativeNewTab.workspace", defaultValue: "Workspace", bundle: .module) }
+    /// "Codex in ~/fun/cmux": an agent's start row.
+    func start(_ agent: String, _ folder: String) -> String {
+        String(format: String(localized: "agentPane.nativeNewTab.start", defaultValue: "%1$@ in %2$@", bundle: .module), agent, folder)
+    }
+    var startHint: String { String(localized: "agentPane.nativeNewTab.startHint", defaultValue: "Start", bundle: .module) }
+    var openChat: String { String(localized: "agentPane.nativeNewTab.openChat", defaultValue: "Open chat", bundle: .module) }
     var command: String { String(localized: "agentPane.nativeNewTab.command", defaultValue: "Command", bundle: .module) }
 
     func title(_ kind: AgentPaneTabKind) -> String {

@@ -13,9 +13,13 @@ import io
 import os
 import json
 import sys
+import subprocess
 import tarfile
 import tempfile
+import textwrap
 import unittest
+from contextlib import redirect_stderr
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -202,6 +206,19 @@ class Result(unittest.TestCase):
         with self.assertRaises(hv.Refused):
             hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
 
+    def test_a_look_the_worker_stopped_says_why_not_just_no_marker(self) -> None:
+        # Runs 43779426587 (#44015: plan ran past 300 s on cmux17) and 43758485104 (#43472: a fetch timed out) ended
+        # as "the receipt has no hot-verify marker"; the reason was only in the out.tar's step.json.
+        why = "plan: Command '[...hot-verify.py, plan, ...]' timed out after 300 seconds"
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "cmux17", "error": why,
+                                                          "phases": {"plan": 300.26}}).encode(),
+                             "out/log.txt": b"plan: ...\n"})
+        with self.assertRaises(hv.Refused) as refused:
+            hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
+        self.assertIn("cmux17", str(refused.exception))
+        self.assertIn("timed out after 300 seconds", str(refused.exception))
+        self.assertIn("plan 300", str(refused.exception))
+
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
         self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
@@ -283,6 +300,42 @@ class Comment(unittest.TestCase):
             hv.gh = original
 
 
+    def test_a_call_out_of_quota_waits_for_the_reset_then_retries(self) -> None:
+        # Run 43790108433 (cmux#44086, 2026-11-16): the look passed, then "post the look" died on
+        # "API rate limit exceeded for installation" and the finished look was never posted.
+        limited = subprocess.CompletedProcess([], 1, "", "gh: API rate limit exceeded for installation. If you ...")
+        answers, calls, slept = [], [], []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            if argv[1:3] == ["api", "rate_limit"]:
+                return subprocess.CompletedProcess(argv, 0, "0 1000300\n", "")
+            return answers.pop(0)
+
+        with mock.patch.object(hv.subprocess, "run", side_effect=run), \
+                mock.patch.object(hv.time, "time", return_value=1000000.0), \
+                mock.patch.object(hv.time, "sleep", side_effect=slept.append), redirect_stderr(io.StringIO()):
+            answers[:] = [limited, subprocess.CompletedProcess([], 0, "ok\n", "")]
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+            self.assertEqual(slept, [305.0])  # the core reset, 300 s on, plus 5
+            self.assertEqual([c[1:3] for c in calls], [["api", "repos/manaflow-ai/cmux/pulls/7"],
+                                                       ["api", "rate_limit"],
+                                                       ["api", "repos/manaflow-ai/cmux/pulls/7"]])
+            # Past QUOTA_WAIT_SECONDS in all, it stops waiting and says why.
+            slept.clear()
+            answers[:] = [limited] * 20
+            with self.assertRaises(hv.Refused) as refused:
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertLessEqual(sum(slept), hv.QUOTA_WAIT_SECONDS)
+            self.assertIn("rate limit", str(refused.exception))
+            # Any other failure is not retried.
+            slept.clear()
+            answers[:] = [subprocess.CompletedProcess([], 1, "", "HTTP 404: Not Found")]
+            with self.assertRaises(hv.Refused):
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertEqual(slept, [])
+
+
 class Workflow(unittest.TestCase):
     """The workflow's wiring that the script relies on (text checks; the house guards check the rest)."""
 
@@ -297,6 +350,67 @@ class Workflow(unittest.TestCase):
         self.assertIn("gh workflow run cmux-next-web-bundle-publish.yml", text)
         self.assertNotIn("secrets: inherit", text)
         self.assertIn("--script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar", text)
+
+    def test_the_look_step_packs_its_inputs_without_bash_4_builtins(self) -> None:
+        # #43916's look on glaeda-5 died with "mapfile: command not found": a fleet Mac's /bin/bash is 3.2. Run the
+        # step's packing lines with bash 4's array builtins switched off, as 3.2 has none of them.
+        lines = WORKFLOW.read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith('nonce="hv-'))
+        end = next(i for i in range(start, len(lines)) if lines[i].strip().startswith('log="$RUNNER_TEMP/look.log"'))
+        packing = textwrap.dedent("\n".join(lines[start:end]))
+        script = "enable -n mapfile readarray\nset -uo pipefail\n" + packing + '\nprintf "%s\\n" "${args[@]}"\n'
+        done = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True,
+                              env={**os.environ, "PR": "7", "HEAD_SHA": "a" * 40, "GITHUB_RUN_ID": "1",
+                                   "GITHUB_RUN_ATTEMPT": "1"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        args = done.stdout.splitlines()
+        self.assertTrue(args and all(a.startswith("--arg=") and len(a) > len("--arg=") for a in args), done.stdout)
+        expected = hv.pack(hv.step_inputs(7, "a" * 40, "hv-7-aaaaaaaaaaaa-1-1", True))
+        self.assertEqual([a[len("--arg="):] for a in args], expected)
+
+    def test_the_plan_fetch_finds_the_merge_base_after_a_depth_one_checkout(self) -> None:
+        # The fleet's looks on #43862, #43807, #43816 and #43779 failed at `git merge-base` (2026-11-15): the
+        # checkout's depth-1 fetch left the base tip shallow and the step's --shallow-since fetch did not deepen it.
+        lines = WORKFLOW.read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith('since="$(date'))
+        end = next(i for i in range(start, len(lines)) if 'git rev-parse refs/remotes/pr/head' in lines[i])
+        fetch = textwrap.dedent("\n".join(lines[start:end]))
+        with tempfile.TemporaryDirectory(prefix="hot-verify-fetch-") as scratch:
+            root = Path(scratch)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+
+            def git(cwd: Path, *args: str) -> str:
+                return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
+                                      env=env).stdout.strip()
+
+            src = root / "src"
+            src.mkdir()
+            git(src, "init", "-q", "-b", "feat-cmux-next")
+            git(src, "config", "uploadpack.allowFilter", "true")
+            for n in range(5):
+                (src / "f").write_text(f"{n}\n")
+                git(src, "add", "f")
+                git(src, "commit", "-q", "-m", f"base {n}")
+            fork = git(src, "rev-parse", "HEAD~2")
+            git(src, "checkout", "-q", "-b", "pr", fork)
+            (src / "g").write_text("change\n")
+            git(src, "add", "g")
+            git(src, "commit", "-q", "-m", "change")
+            head = git(src, "rev-parse", "HEAD")
+            git(src, "update-ref", "refs/pull/7/head", head)
+            git(src, "checkout", "-q", "feat-cmux-next")
+            clone = root / "clone"
+            clone.mkdir()
+            git(clone, "init", "-q")
+            git(clone, "remote", "add", "origin", src.as_uri())
+            # As actions/checkout: the base branch alone, at depth 1.
+            git(clone, "fetch", "-q", "--no-tags", "--depth=1", "origin",
+                "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next")
+            subprocess.run(["bash", "-euo", "pipefail", "-c", fetch], cwd=clone, check=True, capture_output=True,
+                           env={**env, "BASE_REF": "feat-cmux-next", "PR": "7"})
+            self.assertEqual(git(clone, "merge-base", "refs/remotes/pr/head", "refs/remotes/origin/feat-cmux-next"),
+                             fork)
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()

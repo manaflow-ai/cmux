@@ -11,6 +11,7 @@ import { webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -142,15 +143,18 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
     }
     for (let frame = 0; frame < 30; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
     // The reader's row: the first one whose top is in view.
-    const anchor = await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const top = scroller.getBoundingClientRect().top;
-      for (const row of document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
-        const at = row.getBoundingClientRect().top - top;
-        if (at >= 0) return { id: row.dataset.rowId!, at };
-      }
-      return undefined;
-    });
+    const anchor = await page.evaluate(
+      ({ TRANSCRIPT_ROW }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const top = scroller.getBoundingClientRect().top;
+        for (const row of document.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
+          const at = row.getBoundingClientRect().top - top;
+          if (at >= 0) return { id: row.dataset.rowId!, at };
+        }
+        return undefined;
+      },
+      { TRANSCRIPT_ROW },
+    );
     expect(anchor).toBeDefined();
     // Every painted frame from here: how far the view is from its end, and where the reader's row is.
     await page.evaluate((id) => {
@@ -239,13 +243,23 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
     for (let frame = 0; frame < 6; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
     const offsets = await page.evaluate(() => (window as unknown as { __offsets: number[] }).__offsets);
     const end = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-    const min = Math.min(...offsets);
-    const minAt = offsets.indexOf(min);
-    const rebound = offsets.slice(minAt + 1).some((offset) => offset > min + 100);
-    console.log(`transcript-older-scroll fast scrub: ${JSON.stringify({ start, min, end, offsets })}`);
+    // What the reader sees once the scrub settles: the loaded rows' top, where the room above them holds
+    // the reader until the page lands (VirtualTranscript `handleScroll`), never the tail. A step that went
+    // into the room is given back to that top, so the raw offset rises once by what went past it; on base
+    // the room went and the offset fell to the rows instead (Leo, 2026-11-15: "this is super wack the way
+    // we're scrolling up infinitely :(", test/transcript-older-pages-anchor.test.ts).
+    const view = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+      const rows = document.querySelectorAll<HTMLElement>(".acpmux-row");
+      const first = rows[0]!.getBoundingClientRect();
+      const last = rows[rows.length - 1]!.getBoundingClientRect();
+      return { firstTop: first.top - scroller.top, lastTop: last.top - scroller.top, height: scroller.height };
+    });
+    console.log(`transcript-older-scroll fast scrub: ${JSON.stringify({ start, end, offsets, view })}`);
     expect(offsets.length).toBeGreaterThan(0);
-    expect(rebound).toBe(false);
-    expect(end).toBeLessThanOrEqual(min + 1);
+    expect(view.firstTop).toBeGreaterThanOrEqual(-1);
+    expect(view.firstTop).toBeLessThan(view.height);
+    expect(view.lastTop).toBeGreaterThan(view.height);
     expect(start - end).toBeGreaterThan(500);
     await page.close();
   });

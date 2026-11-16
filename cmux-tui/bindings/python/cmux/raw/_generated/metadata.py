@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5'
+IR_SHA256 = 'd013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1'
 
 
 @dataclass(frozen=True)
@@ -101,6 +101,8 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, 'attach-initial-size'),
             'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
+            'hybrid_frame': CommandFieldMetadata(None, 'agent-cli-hybrid-v1'),
+            'hybrid_stream': CommandFieldMetadata(None, 'agent-cli-hybrid-v1'),
             'mode': CommandFieldMetadata(7, None),
             'output_coalesce_ms': CommandFieldMetadata(None, 'attach-output-coalesce-v1'),
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
@@ -3668,6 +3670,18 @@ COMMANDS = {
             'terminal_ids': CommandFieldMetadata(None, None),
         },
     ),
+    'terminal-command-context': CommandMetadata(
+        'terminal-command-context',
+        'control',
+        12,
+        'terminal-command-context-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'intent': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'terminal-events': CommandMetadata(
         'terminal-events',
         'control',
@@ -4074,6 +4088,7 @@ COMMANDS = {
 EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
+    'agent-cli-frame': EventMetadata('agent-cli-frame', 12, 'agent-cli-hybrid-v1', ('attach-byte',), 'emitted'),
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),

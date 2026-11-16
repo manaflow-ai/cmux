@@ -341,21 +341,23 @@ function navigationRows(
   // keep Return and the starts list under them.
   const agentFound = agentRows(query, context);
   const agent = top && agentFound.named ? { ...agentFound, named: false } : agentFound;
-  const fit = (lead: ScreenRow[]) => {
-    const kept = ranked(rest, context.omnibar.uses).slice(
-      0,
-      Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length),
-    );
-    const places = kept.filter((row) => rowSection(row) === "open");
-    const pages = kept.filter((row) => rowSection(row) !== "open");
-    return [
-      ...places,
-      ...agent.chats,
-      ...(agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS)),
-      ...pages,
-    ];
-  };
   const named = agent.named ? agent.launch : [];
+  // The rows under the lead share what is left of MAX_SUGGESTIONS (the named starts, the lead and
+  // the web search count): one row per section in turn, so each section the text finds keeps a row
+  // and no section's many push the others out; each keeps its own order.
+  const fit = (lead: ScreenRow[]) => {
+    // The tabs, workspaces and pages keep their cap together, as before the agent rows.
+    const kept = ranked(rest, context.omnibar.uses).slice(0, cap);
+    return share(
+      [
+        kept.filter((row) => rowSection(row) === "open"),
+        agent.chats,
+        agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS),
+        kept.filter((row) => rowSection(row) !== "open"),
+      ],
+      MAX_SUGGESTIONS - named.length - lead.length - search.length,
+    );
+  };
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
     if (!top) return [...named, ...search, ...fit(search), ...actionRows(query, context.omnibar)];
@@ -363,6 +365,21 @@ function navigationRows(
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
   return [...named, ...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+}
+
+/// Up to `room` rows from `sections`, taken one per section in turn, listed section by section.
+function share(sections: readonly (readonly ScreenRow[])[], room: number): ScreenRow[] {
+  const counts = sections.map(() => 0);
+  for (let taken = 0, more = true; more && taken < room;) {
+    more = false;
+    for (let index = 0; index < sections.length && taken < room; index += 1) {
+      if (counts[index]! >= sections[index]!.length) continue;
+      counts[index]! += 1;
+      taken += 1;
+      more = true;
+    }
+  }
+  return sections.flatMap((rows, index) => rows.slice(0, counts[index]));
 }
 
 /// The chats the text finds and the agent starts it names (launchRows.ts); `named` when the text
