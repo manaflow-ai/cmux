@@ -1957,6 +1957,11 @@ function TranscriptView({
   /// `canLoadNewer` for the input listeners: at the loaded rows' foot with newer history let go, the view is not at
   /// the latest row, so it does not follow.
   const canLoadNewerRef = useRef(canLoadNewer);
+  /// The room below the loaded rows for newer history let go (`newerRoom`), and what it was measured against.
+  const newerRoomRef = useRef<
+    { key: string; rows: readonly AcpmuxRow[]; layout: PlacedLayout; room: number } | undefined
+  >(undefined);
+  const newerRoomHeld = useRef(0);
   const followDeferred = useRef(false);
   /// A send or a move toward the latest row asks to follow now, through the input hold that defers
   /// follow-bottom. It lasts until the reader's next input (userScroll.ts `request`).
@@ -4151,7 +4156,35 @@ function TranscriptView({
         )
       : grown;
   const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
+  // Room below the loaded rows for newer history the client let go while the reader scrolled up (canLoadNewer):
+  // rows that leave the foot leave their height here, and newer pages that land take it back, so the content's
+  // height, and with it the scrollbar thumb, stays where it was as the held window moves.
+  const newer = newerRoomRef.current;
+  let newerRoom = 0;
+  if (canLoadNewer && newer && newer.key === sessionKey) {
+    newerRoom = newer.room;
+    if (newer.rows !== rows && rows.length > 0) {
+      const lastId = rows.at(-1)!.id;
+      let was = -1;
+      for (let at = newer.rows.length - 1; at >= 0; at -= 1)
+        if (newer.rows[at]!.id === lastId) {
+          was = at;
+          break;
+        }
+      const before = layoutGeometry(newer.layout);
+      if (was >= 0 && was < newer.rows.length - 1) newerRoom += before.totalHeight - before.topAt(was + 1);
+      else if (was < 0) {
+        const newerLast = newer.rows.at(-1)?.id;
+        const now = newerLast === undefined ? -1 : rows.findLastIndex((row) => row.id === newerLast);
+        const geometry = layoutGeometry(measured.layout);
+        if (now >= 0 && now < rows.length - 1)
+          newerRoom = Math.max(0, newerRoom - (geometry.totalHeight - geometry.topAt(now + 1)));
+      }
+    }
+  }
+  newerRoomRef.current = { key: sessionKey, rows, layout: measured.layout, room: newerRoom };
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room + newerRoom;
+  newerRoomHeld.current = newerRoom;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
   rowsEndRef.current = rowsEnd;
@@ -5853,6 +5886,16 @@ function TranscriptView({
     if (!gone && paidFrom !== undefined && paidFrom > paidAt && !followingRef.current && olderRoom.current?.owed) {
       const rise = paidFrom - paidAt;
       setRoomRose((total) => total + rise);
+    }
+    // The room below the loaded rows holds newer history still to page back in (`newerRoom`): the reader stops at
+    // the loaded rows' foot until a newer page lands into it, as at the top for older history.
+    const below = newerRoomHeld.current;
+    if (below > 0 && !userScrollIntent(node).isScrollbarDragging()) {
+      const foot = Math.max(0, rowsEndRef.current - below - node.clientHeight);
+      if (layoutScrollTop(node) > foot + 0.5) {
+        wheelGlide.current?.stop();
+        node.scrollTop = physicalScrollTop(node, foot);
+      }
     }
     giveRoomNearTop();
     olderAhead.scrolled(paidAt, performance.now());

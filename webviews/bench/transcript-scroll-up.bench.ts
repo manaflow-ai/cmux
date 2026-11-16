@@ -15,7 +15,7 @@
 //   frame        intervals between painted frames while the wheel moves (ms, p50/p95/max)
 //   long tasks   main-thread tasks over 50 ms (Chromium only: WebKit has no longtask entries)
 //   held rows    the rows the pane holds (its snapshot's), after each round: early vs late in the scroll
-//   ask-to-drawn each older page's ask to the first frame painted after its answer was handled (ms), early vs late
+//   ask-to-drawn the askToDrawn below in the run's first quarter of asks and its last (p50/p95): flat when held is bounded
 //   thumb        the scrollbar thumb's size (viewport / content height) over the run: the largest change from
 //                the first frame's, in percent, and frames whose thumb moved down while the reader went up
 //                (the thumb must only go up while the wheel goes up)
@@ -210,38 +210,6 @@ async function run(name: string, engine: BrowserType) {
       } catch {
         observer = undefined;
       }
-      // Each older page the pane asks for (`_acpmux/events` with `beforeSeq`): when it was asked and when its answer was
-      // handled (a listener added after the pane's own runs after it), so ask-to-drawn is the first paint after that.
-      const asks: { at: number; answered?: number }[] = [];
-      const pending = new Map<number, (typeof asks)[number]>();
-      const watched = new WeakSet<WebSocket>();
-      const send = WebSocket.prototype.send;
-      WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket["send"]>[0]) {
-        if (!watched.has(this)) {
-          watched.add(this);
-          this.addEventListener("message", (event) => {
-            if (typeof event.data !== "string" || pending.size === 0) return;
-            const id = /^\{"jsonrpc":"2\.0","id":(\d+)/.exec(event.data)?.[1] ?? /"id":(\d+)/.exec(event.data)?.[1];
-            const ask = id === undefined ? undefined : pending.get(Number(id));
-            if (!ask) return;
-            pending.delete(Number(id));
-            ask.answered = performance.now();
-          });
-        }
-        if (typeof data === "string" && data.includes('"_acpmux/events"') && data.includes('"beforeSeq"'))
-          try {
-            const message = JSON.parse(data) as { id?: number; params?: { promptIndex?: boolean } };
-            if (message.id !== undefined && message.params?.promptIndex !== true) {
-              const ask = { at: performance.now() };
-              asks.push(ask);
-              pending.set(message.id, ask);
-            }
-          } catch {
-            // Not JSON: not a page ask.
-          }
-        return send.call(this, data);
-      };
-      (holder as unknown as { __upAsks: typeof asks }).__upAsks = asks;
       const stop = window.cmuxAfterPaint((paint) => {
         frames.push({
           paint,
@@ -347,19 +315,11 @@ async function run(name: string, engine: BrowserType) {
         __longtasks: boolean;
       };
       holder.__upWatch.stop();
-      // Each answered ask to the first frame painted after its answer was handled.
-      const paints = holder.__upWatch.frames.map((frame) => frame.paint);
-      const asks = (holder as unknown as { __upAsks: { at: number; answered?: number }[] }).__upAsks;
-      const askToDrawn = asks.flatMap((ask) => {
-        const drawn = ask.answered === undefined ? undefined : paints.find((paint) => paint >= ask.answered!);
-        return drawn === undefined ? [] : [drawn - ask.at];
-      });
       return {
         frames: holder.__upWatch.frames,
         long: holder.__upWatch.long,
         spans: holder.__upWatch.spans,
         longtasks: holder.__longtasks,
-        askToDrawn,
       };
     });
     // Older pages: each ask the transcript made, to the first painted frame after it settled whose content
@@ -581,11 +541,11 @@ async function run(name: string, engine: BrowserType) {
       heldRowsLast: heldRows.at(-1) ?? null,
       heldRowsEarly: Math.round(mean(heldRows.slice(0, Math.ceil(heldRows.length / 4)))),
       heldRowsLate: Math.round(mean(heldRows.slice(-Math.ceil(heldRows.length / 4)))),
-      pageAsks: watched.askToDrawn.length,
-      askToDrawnEarlyP50: round2(percentile(watched.askToDrawn.slice(0, Math.ceil(watched.askToDrawn.length / 4)), 50)),
-      askToDrawnLateP50: round2(percentile(watched.askToDrawn.slice(-Math.ceil(watched.askToDrawn.length / 4)), 50)),
-      askToDrawnEarlyP95: round2(percentile(watched.askToDrawn.slice(0, Math.ceil(watched.askToDrawn.length / 4)), 95)),
-      askToDrawnLateP95: round2(percentile(watched.askToDrawn.slice(-Math.ceil(watched.askToDrawn.length / 4)), 95)),
+      drawnAsks: askToDrawn.length,
+      askToDrawnEarlyP50: round2(percentile(askToDrawn.slice(0, Math.ceil(askToDrawn.length / 4)), 50)),
+      askToDrawnLateP50: round2(percentile(askToDrawn.slice(-Math.ceil(askToDrawn.length / 4)), 50)),
+      askToDrawnEarlyP95: round2(percentile(askToDrawn.slice(0, Math.ceil(askToDrawn.length / 4)), 95)),
+      askToDrawnLateP95: round2(percentile(askToDrawn.slice(-Math.ceil(askToDrawn.length / 4)), 95)),
     };
     for (const [key, value] of Object.entries(summary))
       if (key !== "engine") console.log(`transcript-scroll-up ${name} ${key}: ${JSON.stringify(value)}`);
