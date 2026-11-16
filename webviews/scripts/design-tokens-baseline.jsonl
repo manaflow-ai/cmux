@@ -819,8 +819,6 @@
 {"file":"pages/settings/layout.css","kind":"spacing","property":"padding-top","values":{"10px":1}}
 {"file":"pages/settings/layout.css","kind":"spacing","property":"right","values":{"-3px":1,"10px":1}}
 {"file":"pages/settings/layout.css","kind":"spacing","property":"top","values":{"-3px":1,"-18px":1}}
-{"file":"pages/settings/layout.css","kind":"token-copy","property":"margin","values":{"2px":1}}
-{"file":"pages/settings/layout.css","kind":"token-copy","property":"padding","values":{"2px":1}}
 {"file":"pages/settings/refined.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"pages/settings/styles.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"pages/settings/styles.css","kind":"height","property":"height","values":{"1px":1,"16px":1,"14px":1,"68px":1,"26px":1,"6px":1,"12px":1}}
@@ -837,11 +835,6 @@
 {"file":"pages/settings/styles.css","kind":"spacing","property":"padding-top","values":{"14px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"right","values":{"6px":2}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"top","values":{"calc(100% + 1px)":1,"6px":1}}
-{"file":"pages/settings/styles.css","kind":"token-copy","property":"border-radius","values":{"10px":1}}
-{"file":"pages/settings/styles.css","kind":"token-copy","property":"gap","values":{"2px":2}}
-{"file":"pages/settings/styles.css","kind":"token-copy","property":"margin","values":{"10px":2}}
-{"file":"pages/settings/styles.css","kind":"token-copy","property":"margin-top","values":{"2px":1}}
-{"file":"pages/settings/styles.css","kind":"token-copy","property":"padding","values":{"2px":3}}
 {"file":"pages/shared/desktop.css","kind":"opaque-glass","property":"background","values":{"var(--surface-popup)":1}}
 {"file":"pages/shared/pageBase.css","kind":"height","property":"height","values":{"1px":1}}
 {"file":"pages/stats/styles.css","kind":"height","property":"height","values":{"64px":1,"26px":1,"6px":1}}
