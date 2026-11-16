@@ -135,8 +135,12 @@ impl MacDesktop {
     /// would reach it, see key_route); one that opens a submenu is refused
     /// (it would open a menu), and one the deny list blocks is refused.
     fn check_menu_item(&self, t: &Target, el: &Ax, delivery: Delivery) -> DResult<()> {
-        if !super::ax::in_menu_bar(el) {
-            return Ok(());
+        // Read strictly: an element whose place cannot be read is not
+        // let past the menu checks as if it were not a menu item.
+        match super::ax::try_in_menu_bar(el) {
+            Some(false) => return Ok(()),
+            Some(true) => {}
+            None => return Err(DesktopError::Unsupported(roles::MENU_PLACE_UNREAD.into())),
         }
         let role = el.string("AXRole").unwrap_or_default();
         let has_submenu = el

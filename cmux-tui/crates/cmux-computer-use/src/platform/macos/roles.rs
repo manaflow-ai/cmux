@@ -491,6 +491,21 @@ pub enum Caret {
     Unread,
 }
 
+/// One step of the walk up to the menu bar: `Some(true)` at the menu bar,
+/// `Some(false)` at the window or the application (the element is not in
+/// the menu bar), `None` to keep walking.
+pub fn menu_bar_walk_step(role: &str) -> Option<bool> {
+    match role {
+        "AXMenuBar" => Some(true),
+        "AXWindow" | "AXApplication" => Some(false),
+        _ => None,
+    }
+}
+
+/// The refusal when an element's place (in the menu bar or not) cannot be
+/// read, before a press that the menu bar's checks would gate.
+pub const MENU_PLACE_UNREAD: &str = "Computer Use could not read whether this element is in the menu bar, so it does not act on it (the menu checks could not be applied); try again";
+
 /// Whether a focused element that contains the field may hold the
 /// person's caret on it: a web area, a group or a scroll area may (the caret
 /// sits in a field inside it); a window or the application itself is focused

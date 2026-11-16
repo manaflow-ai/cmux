@@ -1109,6 +1109,45 @@ fn anthropic_waits_two_seconds_then_always_returns_the_image() {
     assert_eq!(*slept.0.lock().unwrap(), vec![ANTHROPIC_SCREENSHOT_DELAY]);
 }
 
+/// Paced typing (settle=anthropic) sends every character to the element
+/// asked for, never only the first (the rest would go to whatever field has
+/// focus); a refusal partway says how many characters went first.
+#[test]
+fn paced_typing_sends_every_character_to_the_element() {
+    let (d, e, _) = settled("anthropic");
+    let out = e.call(
+        &ctx(None),
+        "type_text",
+        &json!({"window_id": "1", "element_id": "e1", "text": "hello"}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    let typed: Vec<_> = d
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Type { element, text, .. } => Some((element, text)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(typed.len(), 5);
+    assert!(typed.iter().all(|(el, _)| el.is_some()), "{typed:?}");
+    assert_eq!(typed.iter().map(|(_, t)| t.as_str()).collect::<String>(), "hello");
+    // The gate refuses the third character: two went in, and the error says so.
+    let (d, e, _) = settled("anthropic");
+    *d.type_fails_at.lock().unwrap() = Some(2);
+    let out = e.call(
+        &ctx(None),
+        "type_text",
+        &json!({"window_id": "1", "element_id": "e1", "text": "hello"}),
+    );
+    assert!(out.is_error);
+    assert_eq!(out.body["typed_before_refusal"], 2, "{:?}", out.body);
+    let msg = out.body["error"].as_str().unwrap_or_default();
+    assert!(msg.contains("2 of 5 characters were typed into the element"), "{msg}");
+    let typed = d.events().into_iter().filter(|e| matches!(e, Event::Type { .. })).count();
+    assert_eq!(typed, 2);
+}
+
 #[test]
 fn anthropic_types_12_ms_per_key_and_screenshots_at_once() {
     let (d, e, slept) = settled("anthropic");

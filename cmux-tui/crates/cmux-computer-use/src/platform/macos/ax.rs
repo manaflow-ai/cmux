@@ -1067,6 +1067,21 @@ pub fn in_menu_bar(el: &Ax) -> bool {
     false
 }
 
+/// [`in_menu_bar`], read strictly: `Some(true)` under the menu bar,
+/// `Some(false)` when the walk reached the window or the application, `None`
+/// when a role or parent could not be read or the walk did not end.
+pub fn try_in_menu_bar(el: &Ax) -> Option<bool> {
+    let mut current = el.clone();
+    for _ in 0..16 {
+        let role = current.try_string("AXRole").ok()??;
+        match roles::menu_bar_walk_step(&role) {
+            Some(answer) => return Some(answer),
+            None => current = current.try_element("AXParent").ok()??,
+        }
+    }
+    None
+}
+
 /// CFRunLoopRunInMode's kCFRunLoopRunFinished.
 const RUN_LOOP_FINISHED: i32 = 1;
 

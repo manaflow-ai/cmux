@@ -29,7 +29,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     Click { window: String, point: Option<Point>, element: Option<String>, count: u8 },
-    Type { window: String, text: String },
+    Type { window: String, element: Option<String>, text: String },
     Keys { window: String, combo: KeyCombo },
     Scroll { window: String, dx: f64, dy: f64 },
     Drag { window: String, from: Point, to: Point },
@@ -123,6 +123,11 @@ pub struct FakeDesktop {
     /// What a batch step's read-back answers right after its step (`None`:
     /// as after the batch).
     pub holds_after_step: Mutex<Option<bool>>,
+    /// Set: the type_text call with this index (from 0) fails (a gate
+    /// refusing partway through paced typing).
+    pub type_fails_at: Mutex<Option<usize>>,
+    /// type_text calls so far.
+    pub type_calls: Mutex<usize>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
 }
@@ -219,6 +224,8 @@ impl FakeDesktop {
             unchanged: Mutex::new(false),
             reads_back_expect: Mutex::new(false),
             holds_after_step: Mutex::new(None),
+            type_fails_at: Mutex::new(None),
+            type_calls: Mutex::new(0),
         }
     }
 
@@ -682,12 +689,21 @@ impl Desktop for FakeDesktop {
     fn type_text(
         &self,
         window_id: &str,
-        _e: Option<&str>,
+        element: Option<&str>,
         text: &str,
         _d: Delivery,
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
-        self.push(Event::Type { window: window_id.into(), text: text.into() });
+        let call = std::mem::replace(&mut *lock(&self.type_calls), 0);
+        *lock(&self.type_calls) = call + 1;
+        if *lock(&self.type_fails_at) == Some(call) {
+            return Err(DesktopError::Unsupported("the caret gate refused".into()));
+        }
+        self.push(Event::Type {
+            window: window_id.into(),
+            element: element.map(str::to_string),
+            text: text.into(),
+        });
         Ok(self.delivered())
     }
     fn press_keys(

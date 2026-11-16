@@ -3098,3 +3098,14 @@ fn the_web_value_note_names_the_position_and_the_replaced_characters() {
     assert!(n.contains("scrolled to bring the field into view"), "{n}");
     assert!(roles::web_value_note(0, 1, false, false).contains("the 1 selected character,"));
 }
+
+/// The menu-bar check walks strictly: only the menu bar, the window or the
+/// application end it; anything unread refuses (check_menu_item).
+#[test]
+fn the_menu_bar_walk_ends_only_at_known_roots() {
+    assert_eq!(roles::menu_bar_walk_step("AXMenuBar"), Some(true));
+    assert_eq!(roles::menu_bar_walk_step("AXWindow"), Some(false));
+    assert_eq!(roles::menu_bar_walk_step("AXApplication"), Some(false));
+    assert_eq!(roles::menu_bar_walk_step("AXMenuItem"), None);
+    assert_eq!(roles::menu_bar_walk_step("AXMenu"), None);
+}

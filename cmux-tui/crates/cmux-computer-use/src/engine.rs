@@ -1398,8 +1398,11 @@ impl Engine {
 
     /// Types `text` the way Anthropic's reference tool does: in groups of
     /// [`ANTHROPIC_TYPING_GROUP`] characters, [`ANTHROPIC_TYPING_DELAY`]
-    /// between keys. The first character goes to `element` (it focuses it);
-    /// the rest follow at the caret.
+    /// between keys. Every character goes to `element` (when one was given),
+    /// so each passes the same route, focus guard and caret gate: none lands
+    /// in another field that happens to have focus. A refusal partway says
+    /// how many characters went into the element first. The result is
+    /// confirmed only when every character was.
     fn type_paced(
         &self,
         session: &str,
@@ -1410,23 +1413,43 @@ impl Engine {
     ) -> Result<crate::desktop::ActionOutcome, ToolOutput> {
         let chars: Vec<char> = text.chars().collect();
         let mut last = crate::desktop::ActionOutcome::default();
-        for (group_index, group) in chars.chunks(ANTHROPIC_TYPING_GROUP).enumerate() {
+        let mut sent = 0usize;
+        let mut all_confirmed = true;
+        for group in chars.chunks(ANTHROPIC_TYPING_GROUP) {
             for (i, c) in group.iter().enumerate() {
                 if i > 0 {
                     (self.sleep)(ANTHROPIC_TYPING_DELAY);
                 }
                 // Checkpoint: the person's Stop ends the typing between two keys.
                 self.stops.check(session)?;
-                let first = group_index == 0 && i == 0;
-                last = self
-                    .desktop
-                    .type_text(
-                        window_id,
-                        if first { element } else { None },
-                        &c.to_string(),
-                        delivery,
-                    )
-                    .map_err(|e| ToolOutput::desktop(&e))?;
+                last = match self.desktop.type_text(window_id, element, &c.to_string(), delivery) {
+                    Ok(out) => out,
+                    Err(e) if sent > 0 => {
+                        let mut out = ToolOutput::desktop(&e);
+                        out.body["typed_before_refusal"] = Value::from(sent as u64);
+                        out.body["error"] = Value::from(format!(
+                            "{}; {sent} of {} characters were typed {} before this, and none after",
+                            out.body["error"].as_str().unwrap_or("refused"),
+                            chars.len(),
+                            if element.is_some() { "into the element" } else { "at the caret" }
+                        ));
+                        return Err(out);
+                    }
+                    Err(e) => return Err(ToolOutput::desktop(&e)),
+                };
+                sent += 1;
+                all_confirmed &= last.evidence == "confirmed";
+            }
+        }
+        // One character's read-back cannot confirm the whole text.
+        if !all_confirmed && chars.len() > 1 {
+            last.evidence = "delivered".into();
+            last.expect = None;
+            if last.note.is_empty() {
+                last.note = format!(
+                    "typed {} characters one by one; not every one was confirmed",
+                    chars.len()
+                );
             }
         }
         Ok(last)
