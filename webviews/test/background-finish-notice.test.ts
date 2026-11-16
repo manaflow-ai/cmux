@@ -16,7 +16,7 @@ afterAll(() => teardownDom(saved, { window: dom.window }));
 const T0 = 1_794_000_000_000;
 type Row = { id: string; kind: string; text?: string; background?: { cause?: { weight?: string } } };
 
-async function replay(exit: number | "killed") {
+async function replay(exit: number | "killed", resultNamesPrompt = true) {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   let seq = 0;
@@ -69,10 +69,16 @@ async function replay(exit: number | "killed") {
     event("turn_end", { stopReason: "end_turn", turnId: "t1" }),
     event("turn_result", { promptId: "p1", status: "completed", stopReason: "end_turn", turnId: "t1" }),
     event("user_message", notice),
-    event("turn_started", { client: "acpmux", prompt: notice.text, promptId }),
+    event("turn_started", { client: "acpmux", prompt: notice.text, promptId, turnId: "t2" }),
     say(exit ? "The build failed: the fleet is offline." : "The notice confirms the build."),
     event("turn_end", { stopReason: "end_turn", turnId: "t2" }),
-    event("turn_result", { promptId, status: "completed", stopReason: "end_turn", turnId: "t2" }),
+    // acpmux names the prompt in the result; a record that names only the turn closes it too.
+    event("turn_result", {
+      ...(resultNamesPrompt && { promptId }),
+      status: "completed",
+      stopReason: "end_turn",
+      turnId: "t2",
+    }),
   ];
   const read = (events: typeof ended) => {
     let snapshot: { rows: Row[]; queue?: unknown[] } = { rows: [] };
@@ -133,4 +139,11 @@ test("a queue listing (attach, reload, session change) never brings a waiting fi
     ],
   );
   expect(merged.map((entry) => entry.id)).toEqual(["p2"]);
+});
+
+test("a failure whose result names only its turn still ends it, and its reply draws", async () => {
+  const { drawn } = await replay(69, false);
+  const at = drawn.findIndex((row) => row.kind === "backgroundTurn");
+  expect(drawn[at]?.background?.cause?.weight).toBe("failure");
+  expect(drawn.findIndex((row) => row.text === "The build failed: the fleet is offline.")).toBeGreaterThan(at);
 });

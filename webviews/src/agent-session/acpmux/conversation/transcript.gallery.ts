@@ -3771,7 +3771,7 @@ export default agentPaneEntry({
       note: "A command's output with Wrap lines off: each line stays whole, the right edge fades while more lies past it, and a thin sideways scrollbar shows under the lines at rest.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3785,7 +3785,7 @@ export default agentPaneEntry({
       note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-wrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-wrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3805,7 +3805,7 @@ export default agentPaneEntry({
       note: "A long command output with Wrap lines off: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG_CUT,
           exitCode: 0,
         }),

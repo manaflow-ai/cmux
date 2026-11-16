@@ -3,6 +3,7 @@
 // table names a read of one file (`sed -n 94,104p a.swift`, `cat a.swift`, commandActions.ts).
 import type { AcpmuxActivity } from "../model";
 import { canonicalCall } from "../toolNames";
+import { toolImages } from "../toolImages";
 import { editedPaths } from "../toolPaths";
 import { commandAction } from "./commandActions";
 import { commandFolder } from "./commandFolder";
@@ -33,6 +34,8 @@ export function readPath(tool: Tool): string | undefined {
   // A failed read keeps its opening (a hook's reason shows only inside it), and a call that read
   // several files (Gemini's read_many_files) keeps its own row.
   if (failed(tool)) return undefined;
+  // A read that returned an image (a screenshot, a PNG) opens to it, as its row did before.
+  if (toolImages(tool).length > 0) return undefined;
   const call = canonicalCall(tool);
   if (call?.tool !== "read") return undefined;
   const paths = editedPaths(tool);

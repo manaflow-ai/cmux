@@ -3607,7 +3607,10 @@ export class AcpmuxDirectClient {
   private planCalls = new Set<string>();
   /// The background finishes that run as background turns (`bgDoneNotice`), by prompt id, until their
   /// turn ends: whether the task failed.
-  private bgDoneTurns = new Map<string, boolean>();
+  /// A background finish's turn while it runs (conversation/bgDoneNotice.ts): its prompt id, whether
+  /// it failed, and its turn id once a record names it (the prompt, or its `turn_started`), since a
+  /// `turn_result` may name only the turn.
+  private bgDoneTurns = new Map<string, { failed: boolean; turnId?: string }>();
   /// Why subagents stopped, as far as this pane knows, kept across the fold's rebuilds (a new
   /// session forgets them).
   private subagentStops = subagentStops();
@@ -9981,7 +9984,8 @@ export class AcpmuxDirectClient {
         if (bgDone) {
           // No prompt row: the background line opens the turn, as a `background_turn` record's does.
           this.rows.delete(durableRowId);
-          this.bgDoneTurns.set(bgDone.promptId, bgDone.failed);
+          const named = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+          this.bgDoneTurns.set(bgDone.promptId, { failed: bgDone.failed, ...(named && { turnId: named }) });
           this.reduceBackgroundTurn(event, bgDoneStarted(bgDone));
         }
       } else if (event.kind === "stopping") {
@@ -10000,6 +10004,8 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_started") {
         this.suggestionFenced(event.seq ?? 0);
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        const bgDoneStarting = typeof msg.promptId === "string" ? this.bgDoneTurns.get(msg.promptId) : undefined;
+        if (bgDoneStarting && startedTurnId) bgDoneStarting.turnId = startedTurnId;
         // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
         // a turn the agent started on its own, never the turn before's.
         const agentStarted = !this.turnOpen && startedTurnId === undefined;
@@ -10154,14 +10160,21 @@ export class AcpmuxDirectClient {
         // A background finish's turn ends, its summary included: a success is quiet, its line alone
         // (the agent's acknowledgement draws nothing); a failure keeps its line over the agent's
         // reply, which says why (conversation/bgDoneNotice.ts).
-        const bgDoneId = typeof msg.promptId === "string" ? msg.promptId : undefined;
-        const bgFailed = bgDoneId === undefined ? undefined : this.bgDoneTurns.get(bgDoneId);
-        if (event.kind === "turn_result" && bgDoneId && bgFailed !== undefined) {
+        // The result names its prompt, or only its turn.
+        const resultTurn = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        const bgDoneId =
+          typeof msg.promptId === "string" && this.bgDoneTurns.has(msg.promptId)
+            ? msg.promptId
+            : resultTurn === undefined
+              ? undefined
+              : [...this.bgDoneTurns].find(([, turn]) => turn.turnId === resultTurn)?.[0];
+        const bgDoneTurn = bgDoneId === undefined ? undefined : this.bgDoneTurns.get(bgDoneId);
+        if (event.kind === "turn_result" && bgDoneId && bgDoneTurn) {
           this.bgDoneTurns.delete(bgDoneId);
           this.reduceBackgroundTurn(event, {
             id: bgDoneId,
             state: "ended",
-            quiet: !bgFailed,
+            quiet: !bgDoneTurn.failed,
             trigger: "task_notification",
           });
         }
