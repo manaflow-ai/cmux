@@ -687,17 +687,20 @@ impl MediaEngine {
                 }
             }
         }
-        let mut action = state.gate.ack(fb.acked_frame, now_us);
         let idr_allowed = state
             .last_forced_idr_us
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
         if fb.need_recovery && idr_allowed {
+            // Set the keyframe up before the gate polls, so the one poll below hands it out.
+            // Polling twice (ack, then damage) let the ack hand pending damage a frame number
+            // and the second poll answer Wait over it: that frame was never encoded.
             state.last_forced_idr_us = Some(now_us);
             state.force_idr = true;
             state.gate.clear_in_flight();
             let full = state.full();
-            action = state.gate.damage(full, now_us);
+            state.gate.requeue(full);
         }
+        let action = state.gate.ack(fb.acked_frame, now_us);
         out.encode = self.request(stream, action);
     }
 
