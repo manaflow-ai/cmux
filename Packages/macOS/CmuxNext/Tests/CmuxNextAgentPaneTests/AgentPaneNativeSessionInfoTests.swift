@@ -155,19 +155,22 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(String(describing: request) == "copyText")
     }
 
-    /// The page's copy needs the person's recent gesture, and it lands on the pasteboard the model was given: a test
-    /// never writes the person's own clipboard (`NSPasteboard.general`), which a fleet worker's session may also
-    /// refuse, so the copy answered "unavailable" there.
+    /// The page's copy needs the person's recent gesture, and it goes through the write the model was given: a test
+    /// never writes the person's own clipboard (`NSPasteboard.general`), and a fleet session has no pasteboard
+    /// server, where every write failed and the copy answered "unavailable".
     @Test func copyRequestsRequireARecentPersonGesture() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let general = NSPasteboard.general.changeCount
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        var copied: [String] = []
+        let model = AgentPaneModel(host: NoHost(), sessionId: "session-a", writeClipboard: { copied.append($0); return true })
+        let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
         defer { view.close() }
         let refused = await view.model.respond(to: .copyText("private reference"))
         #expect((refused["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
         view.model.transport.gestures.record()
         let accepted = await view.model.respond(to: .copyText("private reference"))
         #expect(accepted["ok"] as? Bool == true, "the copy answered \(accepted)")
+        #expect(copied == ["private reference"], "the refused copy wrote, or the accepted one did not")
         #expect(NSPasteboard.general.changeCount == general, "the test's copy wrote the person's clipboard")
     }
 
