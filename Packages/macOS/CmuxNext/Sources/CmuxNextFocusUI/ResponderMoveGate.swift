@@ -42,7 +42,7 @@ public struct ResponderMoveGate {
     /// else `other` (the window's own rule). A refusal is recorded.
     public func refuses(_ responder: NSResponder?, or other: () -> Bool) -> Bool {
         let refused = UnseenKeyboardGuard().refuses(responder, from: window.firstResponder, inInputEvent: inInputEvent,
-                                                    focusModelApplies: focusModelApplies) || other()
+                                                    focusModelApplies: focusModelApplies) || takesFromTyping(responder) || other()
         if refused { log?.responderChanged(in: window, from: before, to: responder, refused: true, byFocusModel: false, route: route) }
         return refused
     }

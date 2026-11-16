@@ -135,7 +135,7 @@ What it does:
   a new `.focus()` / `.blur()` / `autoFocus` in page code. The 515 calls from before the route are
   in `scripts/cmux-next/focus-routes-baseline.tsv`, which only goes down.
 
-### Call sites moved onto the route (71)
+### Call sites moved onto the route (72)
 
 All have no user gesture behind them (daemon delta, mount, layout, timer, page request):
 
@@ -146,9 +146,10 @@ All have no user gesture behind them (daemon delta, mount, layout, timer, page r
   NativePopupContent, OverlaySurface, ThemedField+SwiftUI (3), WebKitRenderRate+Reshow,
   FilesPaneView, HomeFirstRunView, HomeStarterChips, MacScreenTab, RemoteDesktopPaneView,
   SidebarNeedsYouTrayView, TerminalSession.
-- Web (25): App.tsx (4: focusComposer, panel and dialog openers), Composer (2), ComposerQueue (3),
+- Web (26): App.tsx (4: focusComposer, panel and dialog openers), Composer (2), ComposerQueue (3),
   MarkdownField, PermissionCard (2), VirtualTranscript (3), dictation (3), useNeedsYou,
-  HatQuestions, QuestionCard (2), SubagentTray, ThreadMinimap (2).
+  HatQuestions, QuestionCard (2), SubagentTray, ThreadMinimap (2),
+  CustomizeLibraryCard (the Remove confirmation's Cancel, `person`).
 
 ### Left direct, and why
 

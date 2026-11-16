@@ -10,7 +10,7 @@
 // new one at push.
 
 /** Who started a move: a key, click or command of the person, or the page by itself. */
-export type FocusOrigin = "person" | "system" | "never";
+export type FocusOrigin = "person" | "system";
 
 /** A move made through the route: who, why, and when (ms, `performance.now()`). */
 export interface FocusRouteRecord {
@@ -107,7 +107,7 @@ export function focusRoute(
   const doc = isElement(element) ? element.ownerDocument : typeof document === "undefined" ? undefined : document;
   watch(doc?.defaultView ?? undefined);
   const at = now();
-  const refused = origin === "never" && refusesSystemMove(element, doc?.activeElement ?? null, typedInto, typedAt, at);
+  const refused = origin === "system" && refusesSystemMove(element, doc?.activeElement ?? null, typedInto, typedAt, at);
   remember({ op: "focus", origin, reason, at, refused });
   if (refused) return false;
   // focus-route: the route itself

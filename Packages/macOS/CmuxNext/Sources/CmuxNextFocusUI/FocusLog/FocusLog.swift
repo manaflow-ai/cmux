@@ -202,11 +202,11 @@ public final class FocusLog {
             time: Date().formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)), uptime: now, kind: kind,
             window: window.map(windowID), from: from, to: to, input: input, sinceInputMs: since,
             by: byFocusModel ? "focus-model" : "direct", run: ActionRunScope.current.map { String(describing: $0.origin) },
-            route: nil,
+            route: route?.description ?? "unrouted",
             suspect: unprompted && takesFromTyping, detail: detail, stack: [])
-        guard isEnabled else { return }
         ring.append(entry)
         if ring.count > Self.recentLimit { ring.removeFirst(ring.count - Self.recentLimit) }
+        guard isEnabled else { return }
         // The stack of this change, innermost first, without this log's own two frames.
         let addresses = stack ? Array(Thread.callStackReturnAddresses.dropFirst(2).prefix(40).map(\.uintValue)) : []
         pending.yield(.line(entry, addresses))
