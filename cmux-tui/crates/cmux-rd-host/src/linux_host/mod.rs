@@ -285,10 +285,7 @@ fn stack_token(args: &Args) -> Res<String> {
 
 fn stack_token_or(args: &Args, sign_in: impl FnOnce() -> Res<String>) -> Res<String> {
     let Some(path) = args.get("stack-token-file") else {
-        let _ = sign_in;
-        return Err(
-            "needs --stack-token-file PATH (or - for stdin): a cmux sign-in access token".into()
-        );
+        return sign_in();
     };
     let text = if path == "-" {
         let mut text = String::new();
