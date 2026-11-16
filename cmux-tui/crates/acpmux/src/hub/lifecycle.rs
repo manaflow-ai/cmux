@@ -125,6 +125,8 @@ impl Hub {
             .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
+        // A harness installed since the catalog loaded serves this start (`rediscover.rs`).
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
