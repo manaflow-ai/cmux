@@ -481,7 +481,7 @@ struct TransportPage: View {
                         .padding(.vertical, 4)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(settings.transport == kind ? .isSelected : [])
                     .accessibilityIdentifier("settings.transport.\(kind.rawValue)")
                 }
@@ -502,6 +502,14 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.ultra")
             } footer: {
                 Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.alignKeepalives) {
+                    Text("Align keepalives")
+                }
+                .accessibilityIdentifier("settings.transport.alignKeepalives")
+            } footer: {
+                Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
             #if !DEBUG
             Section {

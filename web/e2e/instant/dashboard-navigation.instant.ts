@@ -6,7 +6,6 @@ import { expect, test } from "@playwright/test";
 for (const destination of [
   "/dashboard/coderouter",
   "/dashboard/testflight",
-  "/dashboard/cloud",
 ] as const) {
   test(`${destination} redirects a signed-out visitor before the shell`, async ({
     page,

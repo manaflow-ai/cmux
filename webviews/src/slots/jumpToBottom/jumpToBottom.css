@@ -38,13 +38,6 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Every variant: the mark dips toward the latest message while the button is pressed. */
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest:active .slot-jump {
-    transform: translateY(2px);
-  }
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-jump {
-    transition: transform var(--cmux-motion-quick) var(--cmux-ease-spring);
-  }
   /* nudge: hidden, the arrow waits above the center; shown, it drops in on the spring. */
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest:not([data-shown]) .slot-jump__nudge {
     transform: translateY(-6px);

@@ -199,12 +199,17 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(toolbar.view.intrinsicContentSize.width == width, "the strip's width does not follow the selection")
     }
 
-    /// Pinned zoom keeps its one button, lit while zoomed.
-    @Test func aPinnedZoomButtonIsLitWhileZoomed() {
+    /// A pinned zoom gives way to the bar's one Exit Zoom button while the pane is zoomed, so the pane shows one zoom
+    /// mark, never two (1d6a69b797566d, user 2026-11-09); it comes back, unlit, once the zoom ends.
+    @Test func aPinnedZoomGivesWayToExitZoomWhileZoomed() {
         let harness = Toolbar()
         let toolbar = harness.toolbar
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, pinned: ["splitRight", "toggleSplitZoom"])
+        #expect(toolbar.view.items.map(\.id) == ["splitRight"])
+        #expect(!toolbar.view.zoomButton.isHidden, "the one zoom mark")
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: false, pinned: ["splitRight", "toggleSplitZoom"])
         #expect(toolbar.view.items.map(\.id) == ["splitRight", "toggleSplitZoom"])
-        #expect(toolbar.view.items.map(\.lit) == [false, true])
+        #expect(toolbar.view.items.map(\.lit) == [false, false])
+        #expect(toolbar.view.zoomButton.isHidden)
     }
 }

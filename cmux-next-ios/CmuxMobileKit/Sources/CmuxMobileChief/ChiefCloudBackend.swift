@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CmuxMobileTransport
 import CryptoKit
 import Foundation
 
@@ -108,6 +109,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private var wire: ChiefWire
         let preferences: ChiefPreferences
         let clock: any Clock<Duration>
+        /// Settings → Transport → Align Keepalives: the socket ping's beat.
+        let beat: KeepaliveBeat
         nonisolated let liveFeed: ChiefLiveFeed
         let refused: @Sendable (String) -> Void
         private var live: ChiefLiveState
@@ -203,13 +206,15 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         init(http: ChiefCloudHTTP, conversationID: String, identity: ChiefIdentity, preferences: ChiefPreferences,
-             clock: any Clock<Duration>, liveFeed: ChiefLiveFeed, refused: @escaping @Sendable (String) -> Void) {
+             clock: any Clock<Duration>, beat: KeepaliveBeat = .live, liveFeed: ChiefLiveFeed,
+             refused: @escaping @Sendable (String) -> Void) {
             self.refused = refused
             self.http = http
             self.conversationID = conversationID
             self.identity = identity
             self.preferences = preferences
             self.clock = clock
+            self.beat = beat
             self.liveFeed = liveFeed
             wire = ChiefWire(identity: identity)
             live = ChiefLiveState(conversation: conversationID)
@@ -507,10 +512,12 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             }
         }
 
-        /// Pings every 25 s; a socket that stops answering is closed, so the loop dials again.
+        /// Pings every 25 s (with Align Keepalives on, on every 20 s keepalive
+        /// beat); a socket that stops answering is closed, so the loop dials again.
         private func keepAlive(_ task: URLSessionWebSocketTask) async {
             while !Task.isCancelled {
-                do { try await clock.sleep(for: .seconds(25)) } catch { return }
+                let wait = beat.delay(toNextBeatOf: KeepaliveBeat.chiefPeriod) ?? .seconds(25)
+                do { try await clock.sleep(for: wait) } catch { return }
                 guard await Self.ping(task) else {
                     task.cancel(with: .goingAway, reason: nil)
                     return

@@ -30,6 +30,21 @@
 #               against a Debug app; with ui= and no only=, the kit run is skipped
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change
+#             profile record a CPU stack-sampling profile of the UI test run:
+#               `xctrace record --instrument 'Time Profiler' --all-processes`
+#               on the host (a simulator app is a host process, so every launch
+#               the tests make is in it); needs ui=. Not the 'Time Profiler'
+#               template: its os_log data source scans the host's whole log
+#               store when the recording stops and never finishes on the
+#               fleet's long-running hosts, and `--device <simulator>` never
+#               starts (Xcode 26.6, 2026-11-14). The artifact gets
+#               ui-profile.trace.zip (open it in Instruments; dropped above
+#               2 GiB), ui-profile-toc.xml, ui-profile.log and
+#               ui-profile-summary.md/.json (scripts/ci/ios_sim_time_profile.py):
+#               per process, CPU and main-thread ms, and the symbols with the
+#               most main-thread time, self and total. A profile that has no
+#               time-profile samples fails the step. Profiled runs are slower;
+#               do not read timings from them next to unprofiled ones.
 #           The artifact keeps each run's log, its console output (a test's
 #           print lines, e.g. benchmark numbers) and its per-test results.
 #   bench   build, plus the in-app flood benchmark (TerminalFloodBench,
@@ -99,17 +114,28 @@
 #   energy
 #           build, plus the battery and memory bench (cmux-next-ios/verify/energy.md):
 #           each case launches the Demo app in mock mode on a list rig screen
-#           (CMUX_MOBILE_LIST_*), lets it settle, then samples the app process
-#           once a second with macOS `top` (CPU %, idle wakeups, POWER, the
-#           energy impact Activity Monitor shows, and MEM, its footprint).
+#           (CMUX_MOBILE_LIST_*), waits for the rig's ready line in its log,
+#           then reads the app process's kernel counters once a second
+#           (proc_pid_rusage, energy_rusage.py: CPU %, wakeups/s, energy in
+#           mW, memory footprint). The first rep of a busy case (stream,
+#           scroll) then records 15 s of `xctrace --instrument 'Time Profiler'`
+#           on each side: the main-thread top symbols go to the step log and
+#           energy/profile-RUN/ (summary.md, summary.json, time.trace.zip).
 #           Optional arguments (each one `--arg`):
 #             base=SHA     also build SHA and run every case on both apps, base
 #                          then head, on the one simulator (as listperf's base=)
 #             reps=N       repetitions of every case (1-5, default 1)
 #             seconds=S    seconds sampled per case (10-1800, default 30)
-#             cases=A,B    cases by label (default: every case but drift-30m):
+#             cases=A,B    cases by label (default: every case but drift-30m,
+#                          hidden-terminals-4 and the running-chat ones):
 #                          idle-home idle-home-5000 idle-chat-400 tabs-10
 #                          scroll-chat-200 stream-chat background-home drift-30m
+#                          hidden-terminals-4 (4 warm terminal tabs streaming,
+#                          hidden behind the workspaces list)
+#                          idle-chat-40 working-chat working-chat-away working-chat-bg
+#                          (a chat with one running turn, its elapsed time live: on screen,
+#                          scrolled away, the app in the background; each counts the
+#                          time's redraws, `label ticks` in SUMMARY.md)
 #           SUMMARY.md gets one row per run; the artifact keeps energy/.
 #
 # Isolation: the step makes its own simulator device set under its checkout
@@ -140,6 +166,7 @@ kit_only=()
 kit_env=()
 ui_suites=()
 ui_video=0
+ui_profile=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -159,9 +186,13 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
         done ;;
       video) ui_video=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST and video, got '$sel'" >&2; exit 2 ;;
+      profile) ui_profile=1 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
+  if [[ $ui_profile -eq 1 && ${#ui_suites[@]} -eq 0 ]]; then
+    echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
+  fi
 fi
 run_kit=1
 
@@ -211,10 +242,17 @@ energy_table=(
   "idle-home-5000   home    idle        -     LIST_COUNT=5000 LIST_PASSES=0"
   "idle-chat-400    chat    idle        -     LIST_COUNT=400 LIST_PASSES=0"
   "tabs-10          tabs    idle        -     LIST_COUNT=10 LIST_PASSES=0"
+  "hidden-terminals-4 terminals stream -    LIST_COUNT=4 LIST_STREAM=1 LIST_PASSES=0"
+  "idle-terminal     terminals idle   -     LIST_COUNT=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
+  "visible-busy-terminal terminals stream - LIST_COUNT=1 LIST_STREAM=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
   "scroll-chat-200  chat    scroll      -     LIST_COUNT=200 LIST_PASSES=50 LIST_SETTLE=1"
   "stream-chat      chat    stream      -     LIST_COUNT=40 LIST_STREAM=1 LIST_PASSES=0"
   "background-home  home    background  -     LIST_COUNT=20 LIST_PASSES=0"
   "drift-30m        home    idle        1800  LIST_COUNT=20 LIST_PASSES=0"
+  "idle-chat-40      chat    idle        -     LIST_COUNT=40 LIST_PASSES=0"
+  "working-chat      chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
+  "working-chat-away chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1"
+  "working-chat-bg   chat    background  -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
 )
 energy_reps=1 energy_seconds=30
 energy_cases=(idle-home idle-home-5000 idle-chat-400 tabs-10 scroll-chat-200 stream-chat background-home)
@@ -296,6 +334,9 @@ sims=""
 perf_udid=""
 cleanup() {
   local result=$?
+  # A cancelled UI test profile: stop xctrace before its simulator goes.
+  if [[ -n "${profile_waiter:-}" ]]; then kill "$profile_waiter" 2>/dev/null || true; fi
+  if [[ -n "${profiler:-}" ]]; then stop_profiler "$profiler" 60; fi
   # The test iPhones in the default device set, when a step is cut short.
   local d
   for d in "${test_udid:-}" "${ui_udid:-}" "${perf_udid:-}"; do
@@ -645,6 +686,137 @@ for root in json.load(sys.stdin).get("testNodes", []):
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
 
+# --- UI test profile (test ui=... profile) ----------------------------------
+# Time Profiler on the host, every process, for the UI test run. The
+# recording counts as started when xctrace says so (its started notice, or the
+# "Ctrl-C to stop the recording" line it prints at the same moment), within
+# 120 s; otherwise it is stopped and the profile fails.
+profiler="" profile_waiter="" profile_trace="" profile_status=0 profile_t0=0
+
+# stop_profiler PID SECONDS: SIGINT makes xctrace save the trace (it
+# symbolicates; a 10 s recording of every process took 45 s to save on a busy
+# aws-m4pro-6); after SECONDS, TERM, then KILL. A step is never held by a stuck
+# xctrace, also not in cleanup.
+stop_profiler() {
+  local pid=$1 limit=${2:-900} i
+  kill -INT "$pid" 2>/dev/null || return 0
+  for ((i = 0; i < limit; i++)); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "cmux-next-ios-sim.sh: xctrace did not save within $limit s of SIGINT; stopping it" >&2
+    kill -TERM "$pid" 2>/dev/null || true
+    for ((i = 0; i < 30; i++)); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 1
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
+# profile_fail MESSAGE: one loud line in SUMMARY.md, and the step fails.
+profile_fail() {
+  note "- UI test profile: FAILED, $1"
+  profile_status=1
+}
+
+ui_profile_start() {
+  profile_trace="$work/ui-profile.trace"
+  rm -rf "$profile_trace"
+  local notice="dev.cmux.ci.ios-sim.profile.$$" log="$work/ui-profile.log" i started=0 why t0=$SECONDS
+  notifyutil -1 "$notice" >/dev/null 2>&1 &
+  profile_waiter=$!
+  xcrun xctrace record --instrument 'Time Profiler' --all-processes --no-prompt \
+    --notify-tracing-started "$notice" --output "$profile_trace" >"$log" 2>&1 &
+  profiler=$!
+  # A bounded wait on xctrace's own started signal (notifyutil exits 0 on the
+  # notice; any other exit is no notice), its started line, or its exit.
+  why="did not start recording within 120 s"
+  for ((i = 0; i < 120; i++)); do
+    if grep -q 'Ctrl-C to stop the recording' "$log" 2>/dev/null; then
+      started=1
+      break
+    fi
+    if [[ -n "$profile_waiter" ]] && ! kill -0 "$profile_waiter" 2>/dev/null; then
+      if wait "$profile_waiter" 2>/dev/null; then started=1; profile_waiter=""; break; fi
+      profile_waiter=""
+    fi
+    if ! kill -0 "$profiler" 2>/dev/null; then
+      why="exited before it started recording"
+      break
+    fi
+    sleep 1
+  done
+  if [[ -n "$profile_waiter" ]]; then
+    kill "$profile_waiter" 2>/dev/null || true
+    wait "$profile_waiter" 2>/dev/null || true
+    profile_waiter=""
+  fi
+  if [[ $started -eq 1 ]] && kill -0 "$profiler" 2>/dev/null; then
+    profile_t0=$SECONDS
+    note "- UI test profile: recording (Time Profiler, all host processes), started in $((SECONDS - t0)) s"
+    return 0
+  fi
+  if kill -0 "$profiler" 2>/dev/null; then
+    stop_profiler "$profiler" 30
+  else
+    wait "$profiler" 2>/dev/null || true
+  fi
+  profiler=""
+  cp "$log" "$out/ui-profile.log" 2>/dev/null || true
+  profile_fail "xctrace $why (ui-profile.log)"
+}
+
+# ui_profile_finish: stop the recording (SIGINT saves the trace), check it has
+# time-profile samples, summarize them into the artifact and keep the trace.
+ui_profile_finish() {
+  [[ -n "$profiler" ]] || return 0
+  local t0=$SECONDS table="$work/ui-time-profile.xml" bytes=0 rows limit
+  # Saving scales with what was recorded: 8 s per recorded second, 5 to 60 minutes.
+  limit=$(( (SECONDS - profile_t0) * 8 ))
+  (( limit >= 300 )) || limit=300
+  (( limit <= 3600 )) || limit=3600
+  stop_profiler "$profiler" "$limit"
+  profiler=""
+  # Without the dylib-overlap warnings xctrace prints for every simulator runtime library.
+  grep -v -e 'dylibs overlap' -e '^ *0x[0-9a-f]*-0x' "$work/ui-profile.log" > "$out/ui-profile.log" 2>/dev/null || true
+  note "- UI test profile: saved in $((SECONDS - t0)) s"
+  if [[ ! -d "$profile_trace" ]]; then
+    profile_fail "xctrace saved no trace (ui-profile.log)"
+    return 0
+  fi
+  xcrun xctrace export --input "$profile_trace" --toc --output "$out/ui-profile-toc.xml" >"$work/ui-profile-export.log" 2>&1 ||
+    echo "toc export exit $?" >>"$work/ui-profile-export.log"
+  if ! grep -q 'schema="time-profile"' "$out/ui-profile-toc.xml" 2>/dev/null; then
+    cat "$work/ui-profile-export.log" >>"$out/ui-profile.log" 2>/dev/null || true
+    profile_fail "the trace has no time-profile table (ui-profile-toc.xml, ui-profile.log)"
+  elif ! xcrun xctrace export --input "$profile_trace" \
+      --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' --output "$table" >>"$work/ui-profile-export.log" 2>&1; then
+    cat "$work/ui-profile-export.log" >>"$out/ui-profile.log" 2>/dev/null || true
+    profile_fail "exporting the time-profile table failed (ui-profile.log)"
+  elif ! python3 -I scripts/ci/ios_sim_time_profile.py "$table" \
+      --markdown "$out/ui-profile-summary.md" --json "$out/ui-profile-summary.json" > "$work/ui-profile-brief.txt"; then
+    profile_fail "the time-profile table has no samples (ui-profile-summary.json)"
+  else
+    rows=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["rows"])' "$out/ui-profile-summary.json" 2>/dev/null || echo "?")
+    note "- UI test profile: $rows samples, ui-profile-summary.md"
+    # The processes with the most main-thread time, one line each.
+    while IFS= read -r line; do note "  - $line"; done < "$work/ui-profile-brief.txt"
+  fi
+  rm -f "$table"
+  ditto -c -k --keepParent "$profile_trace" "$out/ui-profile.trace.zip" || true
+  if [[ -f "$out/ui-profile.trace.zip" ]]; then bytes=$(wc -c < "$out/ui-profile.trace.zip"); fi
+  if (( bytes > 2147483648 )); then
+    rm -f "$out/ui-profile.trace.zip"
+    note "- UI test profile: the zipped trace was $((bytes >> 20)) MiB, over 2 GiB; dropped (the summary stays)"
+  elif (( bytes > 0 )); then
+    note "- UI test profile trace: ui-profile.trace.zip ($((bytes >> 20)) MiB)"
+  fi
+  rm -rf "$profile_trace"
+}
+
 # --- UI tests (test ui=...) -------------------------------------------------
 if [[ ${#ui_suites[@]} -gt 0 ]]; then
   t0=$SECONDS
@@ -652,24 +824,53 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
-  if [[ $ui_video -eq 1 ]]; then
+  if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
     # Booted first so the recording covers the whole run; the test run uses the booted device.
     xcrun simctl boot "$ui_udid"
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+  fi
+  ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
+    -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui"
+    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
+  ui_action=test
+  ui_status=0
+  if [[ $ui_profile -eq 1 ]]; then
+    # Built first, so the recording (every host process) holds the tests and not the compiler.
+    ui_t0=$SECONDS
+    set +e
+    xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
+    ui_status=$?
+    set -e
+    note "- UI test build (build-for-testing, before the profile): exit $ui_status, $((SECONDS - ui_t0)) s"
+    if [[ $ui_status -ne 0 ]]; then
+      tail -40 "$work/ui-build.log"
+      cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
+      profile_fail "the UI tests did not build, nothing was recorded (ui-build.log)"
+    else
+      ui_action=test-without-building
+      ui_profile_start
+    fi
+  fi
+  if [[ $ui_video -eq 1 ]]; then
     xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
   fi
   set +e
-  xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
-    -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
-    -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-    -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
-  ui_status=$?
+  ui_t0=$SECONDS
+  if [[ $ui_status -eq 0 ]]; then
+    xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
+      "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
+    ui_status=$?
+  fi
+  ui_seconds=$((SECONDS - ui_t0))
   if [[ -n "$recorder" ]]; then
     # recordVideo finishes the file on SIGINT.
     kill -INT "$recorder" 2>/dev/null
     wait "$recorder"
     note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+  fi
+  if [[ $ui_profile -eq 1 ]]; then
+    ui_profile_finish
   fi
   set -e
   xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
@@ -677,7 +878,7 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
-  note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), $((SECONDS - t0)) s"
+  note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
 fi
 
 # --- Chief layout benchmark -------------------------------------------------
@@ -926,17 +1127,68 @@ if [[ "$mode" == energy ]]; then
   en="$out/energy"
   mkdir -p "$en"
   sides=(head)
+  label_ticks=()
   [[ -z "$base_app" ]] || sides=(base head)
+  rusage=cmux-next-ios/verify/energy_rusage.py
+  # Where a busy case's CPU goes: a 15 s CPU stack-sampling recording of the app right after its
+  # sampled window (first rep, each side), summarized per main-thread symbol by
+  # ios_sim_time_profile.py. The instrument, not the 'Time Profiler' template (its os_log source
+  # never finishes saving on the fleet's hosts, as for `test profile`); attached to the app, else
+  # every process (the summary groups by process). energy/profile-RUN/ keeps the summary and the trace.
+  energy_time_profile() {
+    local run=$1 pid=$2 d="$en/profile-$1" table bytes=0
+    mkdir -p "$d"
+    perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace record --instrument 'Time Profiler' --attach "$pid" \
+      --time-limit 15s --output "$d/time.trace" --no-prompt >"$d/record.txt" 2>&1 ||
+      echo "$run: xctrace Time Profiler --attach exited $?" >>"$d/record.txt"
+    if [[ ! -d "$d/time.trace" ]]; then
+      perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace record --instrument 'Time Profiler' --all-processes \
+        --time-limit 15s --output "$d/time.trace" --no-prompt >>"$d/record.txt" 2>&1 ||
+        echo "$run: xctrace Time Profiler --all-processes exited $?" >>"$d/record.txt"
+    fi
+    if [[ ! -d "$d/time.trace" ]]; then
+      echo "$run: no Time Profiler trace (energy/profile-$run/record.txt): $(tail -n 1 "$d/record.txt" | cut -c1-200)"
+      return 0
+    fi
+    table="$d/time-profile.xml"
+    if perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace export --input "$d/time.trace" \
+         --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' --output "$table" >>"$d/record.txt" 2>&1 &&
+       python3 -I scripts/ci/ios_sim_time_profile.py "$table" --markdown "$d/summary.md" --json "$d/summary.json" >"$d/brief.txt" 2>&1; then
+      echo "== $run: Time Profiler, 15 s, main thread (energy/profile-$run/summary.md)"
+      cat "$d/brief.txt"
+      head -n 80 "$d/summary.md"
+    else
+      echo "$run: the Time Profiler trace exported no samples (energy/profile-$run/record.txt)"
+    fi
+    rm -f "$table"
+    ditto -c -k --keepParent "$d/time.trace" "$d/time.trace.zip" 2>/dev/null || true
+    rm -rf "$d/time.trace"
+    if [[ -f "$d/time.trace.zip" ]]; then bytes=$(wc -c < "$d/time.trace.zip"); fi
+    if (( bytes > 536870912 )); then rm -f "$d/time.trace.zip"; echo "$run: trace over 512 MiB zipped, dropped (the summary stays)"; fi
+  }
+  # The last `received-bytes total=N` the app logged (0 before the first).
+  energy_received_total() {
+    local n
+    n="$(grep -oE 'FRAMELOG list-stress received-bytes total=[0-9]+' "$1" | tail -n 1 | sed 's/.*total=//')"
+    echo "${n:-0}"
+  }
   note ""
   note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
   note ""
-  note "| Run | Phase | s | CPU % | Idle wakeups/s | POWER | MEM start MB | MEM end MB | MEM max MB |"
-  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+  note "Kernel counters for the app's process (proc_pid_rusage, no root): CPU time, interrupt wakeups, ri_energy_nj as mW, phys_footprint."
+  note ""
+  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | Received B/s | MEM start MB | MEM end MB | MEM max MB |"
+  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   for rep in $(seq 1 "$energy_reps"); do
     for case_name in "${energy_cases[@]}"; do
       line="$(printf '%s\n' "${energy_table[@]}" | awk -v c="$case_name" '$1 == c')"
       read -r _label screen phase case_seconds settings <<< "$line"
       [[ "$case_seconds" != "-" ]] || case_seconds="$energy_seconds"
+      # The rig's frames log says when its screen is ready: `holding SCREEN` once a still
+      # (LIST_PASSES=0: idle, stream, background) has opened and settled, `list-stress SCREEN scroll=`
+      # as the scroll case's passes begin. A loaded host takes longer, so the bench waits for the line.
+      ready="FRAMELOG list-stress holding $screen"
+      [[ "$phase" != scroll ]] || ready="FRAMELOG list-stress $screen scroll="
       for side in "${sides[@]}"; do
         run="$side-$case_name-r$rep"
         side_app="$app"
@@ -947,29 +1199,67 @@ if [[ "$mode" == energy ]]; then
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl install "$udid" "$side_app"
-        # `simctl launch` prints "BUNDLE: PID"; the simulator's app is a process of this Mac, so top sees it.
+        logf="$en/$run.frames.txt"
+        simctl spawn "$udid" log stream --style compact --level default \
+          --predicate 'subsystem == "dev.cmux.mobile" AND category == "frames"' >"$logf" 2>&1 &
+        log_pid=$!
+        sleep 2  # log stream attaches before the app starts
+        # `simctl launch` prints "BUNDLE: PID"; the simulator's app is a process of this Mac.
+        launched=$SECONDS
         pid="$(env "${envs[@]}" xcrun simctl --set "$sims" launch --terminate-running-process "$udid" "$bundle_id" \
           -cmuxMobile.setupComplete YES -cmux-mobile-no-restore | awk -F': ' '{ print $NF }' | tr -dc '0-9')"
-        if [[ -z "$pid" ]]; then echo "$run: no PID from simctl launch"; energy_status=1; continue; fi
-        # The rig opens its screen (up to ~8 s for tabs and chat), then settles; the scroll case's passes start after.
-        sleep 12
+        if [[ -z "$pid" ]]; then
+          echo "$run: no PID from simctl launch"; energy_status=1
+          kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
+          continue
+        fi
+        until grep -qF -- "$ready" "$logf"; do
+          (( SECONDS - launched < 180 )) || break
+          sleep 1
+        done
+        if ! grep -qF -- "$ready" "$logf"; then
+          echo "$run: no '$ready' within 180 s of launch; not sampled"; energy_status=1
+          kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
+          simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+          continue
+        fi
+        echo "$run: ready $(( SECONDS - launched )) s after launch"
         if [[ "$phase" == background ]]; then
           simctl launch "$udid" com.apple.Preferences >/dev/null 2>&1 || { echo "$run: could not put Settings in front"; energy_status=1; }
           sleep 3
         fi
-        # One sample a second for case_seconds, plus top's first sample (dropped: its rates are since launch).
-        top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 || true
+        # One kernel reading a second for case_seconds (energy_rusage.py); top beside it as a cross-check.
+        top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 &
+        top_pid=$!
+        # A running chat (LIST_HOLD_TURN=1) logs each redraw of its elapsed time: count those in the sample.
+        ticks_before="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
+        # The bytes the app received (ReceivedByteCount.swift: the link's daemon channels, or the mock
+        # shells' output in mock mode): its last logged total before and after the window.
+        received_before="$(energy_received_total "$logf")"
+        python3 -I "$rusage" sample "$pid" "$case_seconds" "$en/$run.rusage.jsonl" || echo "$run: rusage sampler exited $?"
+        wait "$top_pid" 2>/dev/null || true
+        sleep 1  # the counter logs its total a second after bytes arrive
+        received_per_s=$(( ( $(energy_received_total "$logf") - received_before ) / case_seconds ))
+        # An app without the counter (an older base) logs no total: `-`, not 0.
+        grep -qF -- "FRAMELOG list-stress received-bytes" "$logf" || received_per_s=-
+        if [[ " $settings " == *" LIST_HOLD_TURN=1 "* ]]; then
+          ticks_after="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
+          label_ticks+=("- $run: label ticks $(( ticks_after - ticks_before )) in $case_seconds s (elapsed-time redraws while sampled)")
+        fi
+        if [[ "$rep" == 1 && ( "$phase" == stream || "$phase" == scroll ) ]]; then energy_time_profile "$run" "$pid"; fi
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
-        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
+        kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
+        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" "$received_per_s" >"$en/$run.json" ||
           { echo "$run: no samples"; energy_status=1; continue; }
         python3 -I cmux-next-ios/verify/energy_summary.py --row "$en/$run.json" | tee -a "$summary"
       done
     done
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  for line in ${label_ticks[@]+"${label_ticks[@]}"}; do note "$line"; done
   note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples: energy/"
-  [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID or no samples; see energy/)"
+  [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID, no ready line or no samples; see energy/)"
 fi
 
 # --- Pairing by QR code ----------------------------------------------------
@@ -1039,6 +1329,7 @@ if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" && "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}"
 fi
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
+if [[ "${profile_status:-0}" -ne 0 ]]; then exit "$profile_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
 if [[ "${listperf_status:-0}" -ne 0 ]]; then exit "$listperf_status"; fi
 if [[ "${energy_status:-0}" -ne 0 ]]; then exit "$energy_status"; fi

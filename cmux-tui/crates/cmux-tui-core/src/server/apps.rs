@@ -121,10 +121,22 @@ enum Command {
         #[serde(default)]
         gesture: Option<String>,
     },
+    /// A clicked link (`cmux.opener/1`, apps/openers.rs): the matching
+    /// app's opener runs with `{url}`; `{handled: false}` sends the caller
+    /// to its usual open.
+    #[serde(rename = "apps-open-link")]
+    OpenLink { url: String },
     /// Open terminal connector links and their local sockets (for this
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
     TerminalLinks,
+    /// Read the local app folders again now and apply what changed, as the
+    /// file watch does on a save (`Supervisor::reload_local_apps_now`): the
+    /// caller that just wrote an app's files (`cmux ext dev`) asks, so its
+    /// reload never waits on file events. The `apps-changed` and
+    /// `apps-reload-failed` events of the pass go out before the reply.
+    #[serde(rename = "apps-reload-local")]
+    ReloadLocal,
     #[serde(rename = "apps-logs")]
     Logs {
         app: String,
@@ -435,6 +447,7 @@ pub(super) fn try_handle(
     let user = origin == crate::apps::Origin::User;
     let result = match command {
         Command::List => Ok(supervisor.list()),
+        Command::ReloadLocal => Ok(supervisor.reload_local_apps_now()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
@@ -487,6 +500,17 @@ pub(super) fn try_handle(
                         request: id.clone().unwrap_or(Value::Null),
                     }),
                 },
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::OpenLink { url } => {
+            let writer = writer.clone();
+            supervisor.open_link(
+                url,
+                origin,
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),

@@ -376,7 +376,7 @@ is idempotent and reports `not_running` as success for an absent socket. JSON
 errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
 
-Authenticated network operations use `remote connect|ssh|forward|rpc`,
+Authenticated network operations use `remote connect|ssh|exec|cp|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
 targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
 authentication and no enrollment; only a daemon started with
@@ -808,6 +808,8 @@ notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
 notification clear [--terminal <term_id> | --workspace <ws_id> | --notification <notification_id>]
 notification ack --client <id> <notification-id>...
+notification banners
+notification open <banner-id>
 attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>
 attention next [--after <tab_…>] [--focus]
@@ -816,6 +818,7 @@ git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch | --scope commits --base <commit> --head <commit>] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
   [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
+git fingerprint [TARGET] [--scope uncommitted|unstaged|staged|branch]
 git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
@@ -892,6 +895,20 @@ keeps its own unread state. The shared `unread` marker on the console tree is
 unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
 returned under `unknown`, not rejected, so a late acknowledgement after
 eviction is complete.
+
+`notification banners` and `notification open <banner-id>` ask the cmux app
+(its `notifications.banners` and `notifications.open` methods), not the
+daemon. `banners` lists the macOS banners the app asked for, newest last and
+bounded: `{banners: [{id, title, subtitle, body, reply, approval, category,
+…}], authorization}`, each with the app's number for the tab it opens (none
+for an incognito window's banner, listed as it showed). It moves no focus.
+`open` shows that banner's own tab (never a caller-chosen one), as a click on
+it does, so it moves the app's focus there, and answers `{opened, …}`; an id
+the app does not list is `not_found` and opens nothing. Only a tab's banner
+opens, and a web page's banner runs none of the page's click handler: a
+passkey, pairing, attention or Run banner acts on the person's own click, so
+opening one is `person_required`. Release
+builds serve both, so a probe can check a Nightly's banners from outside the app.
 
 `terminal <selector> output read` returns a bounded plain-text window of the
 terminal's journaled output stream: `{text, start_offset, next_offset,
@@ -1054,6 +1071,19 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+`git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
+64 hex digits that stay equal while the scope's `git diff` stays equal, for a
+view that asks often if its diff is still current. It runs no patch: the
+digits come from the work tree's top folder, HEAD, the merge base (the
+`branch` scope), the `core`, `diff` and `filter` settings (as one constant
+above 1 MiB) and, for each file `git status` lists, its modes, blob ids and a
+hash of its work tree content. A file's hash is kept by its stat
+entry, so a work tree at rest costs no file read (`files_read` and
+`bytes_read` say what one read cost), and a file whose time stamp alone moved
+gives the same digits. One read hashes at most 8192 files and 256 MiB and no
+file above 64 MiB; a file past a bound counts by its stat entry. Compare two
+replies of one running session host: the digits hold random bytes of its
+process, and are not equal across a restart or a version.
 `git branches` (`git.branches`, capability `git-branches-v1`) lists at most
 `--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
 each by newest tip commit. Each carries its full ref, commit and whether HEAD

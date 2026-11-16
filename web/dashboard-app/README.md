@@ -97,8 +97,7 @@ An action the viewer cannot take stays in the menu, disabled, with its reason
 
 ## Navigation
 
-The sidebar has four groups, all title case: **Cloud** (Mac access),
-**Coderouter** (Overview), **Remote control** (Mobile devices, iOS
+The sidebar has three groups, all title case: **Coderouter** (Overview), **Remote control** (Mobile devices, iOS
 TestFlight), and **Account** (Settings). Page titles are title case too
 ("Dashboard", "Billing", "Coderouter"). Other locales capitalize the first
 letter where their script has case.

@@ -40,6 +40,18 @@ enum ThemePhone {
             backgroundOpacity: input.backgroundOpacity, wallpaperTintOpacity: tint, terminal: terminal)
     }
 
+    /// The look beyond the colors as the windows show it: the scope's tuning (hue, saturation,
+    /// glass), the window style and sidebar surface, the terminals' font, the Home chat bubble
+    /// colors and the sidebar's group colors. hostd checks every field (`appearance.rs`).
+    static func look(tuning: AppearanceTuning, design: DesignSettings) -> MobileHostAppearance.Look {
+        MobileHostAppearance.Look(
+            chromeStyle: design.chromeStyle.rawValue, hue: tuning.hue, saturation: tuning.saturation,
+            glassTransparency: tuning.glassTransparency, sidebarSurface: design.sidebarSurface.rawValue,
+            terminalFontFamily: design.effectiveTerminalFontFamily, terminalFontSize: design.terminalFontSize,
+            chatColors: design.homeBubbleColors, groupPalette: design.sidebarSections.groupPalette.rawValue,
+            groupGradient: design.sidebarSections.groupGradient.rawValue)
+    }
+
     /// What the app's scope shows now (observed: the store's colors and its picture's revision).
     static func shown(_ scope: ThemeScope) -> Shown {
         let store = scope.store
@@ -47,8 +59,9 @@ enum ThemePhone {
         let tokens = store.tokens
         let selection = scope.backdropSelection
         let tint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
-        let appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint,
+        var appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint,
                                     terminal: store.terminalConfigLines)
+        appearance.look = look(tuning: scope.appearanceTuning, design: DesignSettings.shared)
         let picture = selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) }
         return Shown(appearance: appearance, picture: picture, dark: tokens.isDark)
     }

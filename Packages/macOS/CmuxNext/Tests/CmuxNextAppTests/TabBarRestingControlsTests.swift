@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Testing
@@ -13,8 +14,83 @@ import Testing
 /// nothing moves when they appear. Leo (2026-10-26): a control fades in place; its normal hover fade must
 /// never slide the glyph sideways. Leo (2026-10-20, "the rightmost area has a reservation of hidden icons" /
 /// "if you push or hover then you cant access the rightmost tabs"): once the tabs fill the bar, the controls
-/// show muted at rest in the room they keep.
+/// show muted at rest in the room they keep. Since the user's 2026-11-15 ask ("by default, all buttons should be
+/// visible, not fade into view on hover"), every rule above is Minimal Mode's (`sidebar.minimal`); by default the
+/// plus and the pins always show.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabBarRestingControlsTests {
+    /// Turns Minimal Mode on or off for one test; the returned closure puts the shared setting back.
+    private static func minimalMode(_ on: Bool) -> () -> Void {
+        let saved = DesignSettings.shared.sidebarSections
+        DesignSettings.shared.sidebarSections.minimal = on
+        return { DesignSettings.shared.sidebarSections = saved }
+    }
+
+    // MARK: By default
+
+    @Test func byDefaultThePlusAndItsChooserShowAtRest() throws {
+        let restore = Self.minimalMode(false)
+        defer { restore() }
+        let previousPlusButton = DesignSettings.shared.plusButton
+        DesignSettings.shared.plusButton = .hover // the setting's default
+        defer { DesignSettings.shared.plusButton = previousPlusButton }
+        for tabs in [2, 12] {
+            let (strip, window) = Self.strip(tabs: tabs)
+            defer { window.closeAfterTest() }
+            let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
+            #expect(!reveal.isRevealed)
+            #expect(reveal.restAlpha == 1, "\(tabs) tabs: rest alpha \(reveal.restAlpha)")
+            #expect(strip.newTabButton.alphaValue == 1, "\(tabs) tabs: plus at rest \(strip.newTabButton.alphaValue)")
+            reveal.setPointerInside(true)
+            reveal.setPointerInside(false)
+            #expect(strip.newTabButton.alphaValue == 1, "leaving the strip keeps the plus")
+        }
+    }
+
+    @Test func byDefaultAPinShowsAtRestBesideAnyStrip() throws {
+        let restore = Self.minimalMode(false)
+        defer { restore() }
+        let toolbar = Self.pinned()
+        let pin = try #require(toolbar.view.buttons.first)
+        #expect(pin.alphaValue == 1, "a pin at rest: \(pin.alphaValue)")
+        for tabs in [2, 12] {
+            let (strip, window) = Self.strip(tabs: tabs)
+            defer { window.closeAfterTest() }
+            toolbar.view.strip = strip
+            #expect(pin.alphaValue == 1, "a pin beside \(tabs) tabs: \(pin.alphaValue)")
+        }
+    }
+
+    /// Minimal Mode follows live: turning it on hides the plus and the pins at rest, off shows them again.
+    @Test func turningMinimalModeOnAndOffFollowsLive() async throws {
+        let restore = Self.minimalMode(false)
+        defer { restore() }
+        let previousPlusButton = DesignSettings.shared.plusButton
+        let previousAnimationSpeed = DesignSettings.shared.animationSpeed
+        DesignSettings.shared.plusButton = .hover
+        DesignSettings.shared.animationSpeed = .off
+        defer {
+            DesignSettings.shared.plusButton = previousPlusButton
+            DesignSettings.shared.animationSpeed = previousAnimationSpeed
+        }
+        let (strip, window) = Self.strip(tabs: 2)
+        defer { window.closeAfterTest() }
+        let toolbar = Self.pinned()
+        toolbar.view.strip = strip
+        let pin = try #require(toolbar.view.buttons.first)
+        #expect(strip.newTabButton.alphaValue == 1 && pin.alphaValue == 1)
+        DesignSettings.shared.sidebarSections.minimal = true
+        var waits = 0
+        while strip.newTabButton.alphaValue != 0 || pin.alphaValue != 0, waits < 400 { waits += 1; try await Task.sleep(for: .milliseconds(5)) }
+        #expect(strip.newTabButton.alphaValue == 0, "Minimal Mode on: plus \(strip.newTabButton.alphaValue)")
+        #expect(pin.alphaValue == 0, "Minimal Mode on: pin \(pin.alphaValue)")
+        DesignSettings.shared.sidebarSections.minimal = false
+        waits = 0
+        while strip.newTabButton.alphaValue != 1 || pin.alphaValue != 1, waits < 400 { waits += 1; try await Task.sleep(for: .milliseconds(5)) }
+        #expect(strip.newTabButton.alphaValue == 1 && pin.alphaValue == 1, "Minimal Mode off: they show again")
+    }
+
+    // MARK: In Minimal Mode
+
     /// `tabs` 2 leaves room beside them (not crowded); 12 fill the 900-point bar (crowded).
     private static func strip(tabs: Int = 2) -> (TabStripView, NSWindow) {
         let model = TabStripModel(tabs: (0..<tabs).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
@@ -29,6 +105,8 @@ import Testing
     }
 
     @Test func theStripsPlusHidesAtRestAndShowsOnHover() throws {
+        let restore = Self.minimalMode(true)
+        defer { restore() }
         DesignSettings.shared.plusButton = .hover
         let (strip, window) = Self.strip()
         defer { window.closeAfterTest() }
@@ -43,21 +121,29 @@ import Testing
         #expect(reveal.restAlpha == 0)
     }
 
-    /// The pane-type chooser (#27004) sits beside the plus, so it hides, shows and stays for its menu with
-    /// it: a hover-only plus never leaves the chevron alone next to an empty slot.
-    @Test func thePaneTypeChooserFadesWithThePlus() throws {
+    /// The pane-type chooser (#27004) sits beside the plus. With `tabs.chevronOnHover` off it hides, shows and stays
+    /// for its menu with the plus: a hover-only plus never leaves the chevron alone next to an empty slot.
+    @Test func thePaneTypeChooserFadesWithThePlusWhenNotHoverOnly() throws {
+        let restore = Self.minimalMode(true)
+        defer { restore() }
         let previousPlusButton = DesignSettings.shared.plusButton
         let previousAnimationSpeed = DesignSettings.shared.animationSpeed
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TabTunables.all)
+        let previousChevron = TunableStore.shared.override(TabTunables.chevronOnHover.key)
+        try #require(TunableStore.shared.set(TabTunables.chevronOnHover.key, .bool(false)) == .bool(false))
         // This checks the reveal's end states, not the fade's progress on the display clock.
         DesignSettings.shared.animationSpeed = .off
         DesignSettings.shared.plusButton = .hover
         defer {
             DesignSettings.shared.plusButton = previousPlusButton
             DesignSettings.shared.animationSpeed = previousAnimationSpeed
+            _ = TunableStore.shared.set(TabTunables.chevronOnHover.key, previousChevron)
         }
         let (strip, window) = Self.strip()
         defer { window.closeAfterTest() }
         strip.showsNewTabMenuButton = true
+        strip.reveal.applyPlusButtonMode()
         let chooser = strip.newTabMenuButton
         #expect(!chooser.isHidden)
         let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
@@ -74,6 +160,46 @@ import Testing
         strip.reveal.applyPlusButtonMode()
         #expect(HoverReveal.owner(of: chooser) == nil)
         #expect(chooser.alphaValue == 1, "always keeps the chooser fully shown, like the plus")
+    }
+
+    /// The default (`tabs.chevronOnHover`, Lucas 2026-11-12, #41212: "the chevron should only show up when the + button
+    /// is hovered directly"): a hover anywhere on the strip shows the + but not the ⌄; the ⌄ shows for its own menu
+    /// and keeps its slot (alpha only), so nothing moves as it shows.
+    @Test func thePaneTypeChooserShowsOnlyForThePlusOrItsMenuByDefault() throws {
+        let previousPlusButton = DesignSettings.shared.plusButton
+        let previousAnimationSpeed = DesignSettings.shared.animationSpeed
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TabTunables.all)
+        let previousChevron = TunableStore.shared.override(TabTunables.chevronOnHover.key)
+        _ = TunableStore.shared.set(TabTunables.chevronOnHover.key, nil)
+        DesignSettings.shared.animationSpeed = .off
+        DesignSettings.shared.plusButton = .hover
+        defer {
+            DesignSettings.shared.plusButton = previousPlusButton
+            DesignSettings.shared.animationSpeed = previousAnimationSpeed
+            _ = TunableStore.shared.set(TabTunables.chevronOnHover.key, previousChevron)
+        }
+        #expect(TabTunables.chevronOnHover.value)
+        let (strip, window) = Self.strip()
+        defer { window.closeAfterTest() }
+        strip.showsNewTabMenuButton = true
+        strip.reveal.applyPlusButtonMode()
+        let chooser = strip.newTabMenuButton
+        #expect(!chooser.isHidden, "it keeps its slot")
+        let slot = chooser.frame
+        let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
+        #expect(HoverReveal.owner(of: chooser) == nil, "the ⌄ stays out of the strip's reveal")
+        #expect(chooser.alphaValue == 0)
+        reveal.setPointerInside(true)
+        #expect(strip.newTabButton.alphaValue == 1, "a hover on the strip shows the +")
+        #expect(chooser.alphaValue == 0, "but not the ⌄")
+        chooser.isHighlighted = true // its menu is open
+        strip.updateChooserReveal()
+        #expect(chooser.alphaValue == 1, "the ⌄ shows while its menu is open")
+        chooser.isHighlighted = false
+        strip.updateChooserReveal()
+        #expect(chooser.alphaValue == 0)
+        #expect(chooser.frame == slot, "showing and hiding moves nothing")
     }
 
     @Test func aRevealsRestAlphaIsWhatItsViewsShowAtRest() {
@@ -102,6 +228,8 @@ import Testing
     }
 
     @Test func aPinHidesAtRestAndStaysForAMenuHold() throws {
+        let restore = Self.minimalMode(true)
+        defer { restore() }
         let toolbar = Self.pinned()
         let pin = try #require(toolbar.view.buttons.first)
         #expect(!pin.isHidden)
@@ -171,6 +299,8 @@ import Testing
     /// 12 tabs fill the bar: the plus rests muted in its kept room instead of leaving an empty strip,
     /// and revealing it moves no tab, so the rightmost tab stays where the pointer finds it.
     @Test func aCrowdedStripsPlusShowsAtRestAndItsRevealMovesNoTab() throws {
+        let restore = Self.minimalMode(true)
+        defer { restore() }
         let previousPlusButton = DesignSettings.shared.plusButton
         let previousAnimationSpeed = DesignSettings.shared.animationSpeed
         // This checks the reveal's end states, not the fade's progress on the display clock: on a
@@ -200,9 +330,11 @@ import Testing
         #expect(abs(strip.newTabButton.alphaValue - muted) < 0.01)
     }
 
-    /// A strip with room beside its tabs keeps Lawrence's hidden-at-rest controls; closing down to it
+    /// In Minimal Mode a strip with room beside its tabs keeps Lawrence's hidden-at-rest controls; closing down to it
     /// hides them again.
     @Test func aStripWithRoomKeepsItsControlsHiddenAtRest() throws {
+        let restore = Self.minimalMode(true)
+        defer { restore() }
         DesignSettings.shared.plusButton = .hover
         let (strip, window) = Self.strip(tabs: 2)
         defer { window.closeAfterTest() }
@@ -212,6 +344,8 @@ import Testing
 
     /// The pane's pins follow its strip: hidden beside a strip with room, muted beside a crowded one.
     @Test func thePanesPinsFollowTheirStripsCrowding() throws {
+        let restore = Self.minimalMode(true)
+        defer { restore() }
         let toolbar = Self.pinned()
         let pin = try #require(toolbar.view.buttons.first)
         let (roomy, roomyWindow) = Self.strip(tabs: 2)
@@ -231,11 +365,17 @@ import Testing
         store.activate(file: nil)
         let muted = TabTunables.crowdedControlOpacity.value(in: store)
         #expect(TabTunables.crowdedControls.value(in: store) == .shownWhenCrowded)
-        #expect(TabTunables.restingControlAlpha(crowded: false, in: store) == 0)
-        #expect(TabTunables.restingControlAlpha(crowded: true, in: store) == muted)
+        #expect(TabTunables.restingControlAlpha(crowded: false, minimal: true, in: store) == 0)
+        #expect(TabTunables.restingControlAlpha(crowded: true, minimal: true, in: store) == muted)
         store.set(TabTunables.crowdedControls.key, .choice(TabCrowdedControls.alwaysShown.rawValue))
-        #expect(TabTunables.restingControlAlpha(crowded: false, in: store) == muted)
+        #expect(TabTunables.restingControlAlpha(crowded: false, minimal: true, in: store) == muted)
         store.set(TabTunables.crowdedControls.key, .choice(TabCrowdedControls.hiddenAtRest.rawValue))
-        #expect(TabTunables.restingControlAlpha(crowded: true, in: store) == 0)
+        #expect(TabTunables.restingControlAlpha(crowded: true, minimal: true, in: store) == 0)
+        // Outside Minimal Mode every version shows the controls fully.
+        for version in TabCrowdedControls.allCases {
+            store.set(TabTunables.crowdedControls.key, .choice(version.rawValue))
+            #expect(TabTunables.restingControlAlpha(crowded: false, minimal: false, in: store) == 1)
+            #expect(TabTunables.restingControlAlpha(crowded: true, minimal: false, in: store) == 1)
+        }
     }
 }

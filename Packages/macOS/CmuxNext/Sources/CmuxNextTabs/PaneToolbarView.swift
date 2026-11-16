@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextIcons
 
 /// A pinned action's button (`tabs.toolbarButtons`): its symbol, its title and key in the tooltip.
@@ -29,7 +30,8 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// a zoomed pane's Exit Zoom button, and a page's own tools in the row. The bar draws no "…" and no
 /// Toggle Terminal and Chat pair of its own (user 2026-11-13: "get rid of these buttons"): with nothing
 /// pinned it takes no width and the tabs keep the whole row. What "…" offered is the tab bar's
-/// right-click (``PaneToolbar/tabBarMenuRows()``) and the Command Palette. Pins hide at rest
+/// right-click (``PaneToolbar/tabBarMenuRows()``) and the Command Palette. Pins always show by default
+/// (user 2026-11-15). In Minimal Mode they hide at rest
 /// (`tabs.restingControlOpacity`, 0 by default; Lawrence 2026-10-20) while the tabs leave room, show
 /// muted at rest once the tabs fill the bar (`tabs.crowdedControls`; Leo 2026-10-20), and fade in while
 /// the pointer is over the tab bar or these controls (`HoverReveal`, like the strip's plus) and while
@@ -97,7 +99,8 @@ public final class PaneToolbarView: NSView {
         applyRest()
         restObservation = Task { [weak self] in
             for await _ in ObservationStream({
-                (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value)
+                (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value,
+                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
             }) { self?.applyRest() }
         }
     }
@@ -105,7 +108,7 @@ public final class PaneToolbarView: NSView {
     /// Hidden at rest while the tabs leave room; muted once they fill the bar (Leo 2026-10-20: no
     /// reservation of hidden icons, and no push or overlay that takes the rightmost tabs away).
     private func applyRest() {
-        reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false)
+        reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
     }
 
     @available(*, unavailable)

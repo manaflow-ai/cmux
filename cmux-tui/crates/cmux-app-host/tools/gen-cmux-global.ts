@@ -238,8 +238,8 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
 }
 
 /**
- * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers
- * `<family>.changed` only to an app that may call `<family>.list` or `<family>.get`, so that op's
+ * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers a
+ * stream only to an app that may call its `reads` op (apps/subscriptions.rs declared_reads), so that op's
  * scope is the stream's scope.
  */
 export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
@@ -250,7 +250,6 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
     const { docs, reads } = file.events[name]!
     const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
-    if (reads !== `${family}.list` && reads !== `${family}.get`) throw new Error(`events.json: ${name} reads ${reads}; the daemon checks ${family}.list or ${family}.get`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
     if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
@@ -369,6 +368,8 @@ ${render(root, "  ")}
   net: { fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<CmuxFetchResponse> }
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
+  /** Time zones. The sandbox has no Intl and \`toLocaleString\` ignores \`timeZone\`: \`zone(name, at?)\` gives an IANA zone's offset (minutes east of UTC) and short name at \`at\` (epoch ms, default now). An unknown name throws CmuxError \`zone.unknown\`. Local time is \`new Date(utcMs + offsetMinutes * 60000)\` read with the getUTC* methods. */
+  time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null

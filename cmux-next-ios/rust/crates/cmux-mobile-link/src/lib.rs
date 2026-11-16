@@ -7,12 +7,14 @@
 //! - [`dial`]: the WebRTC and WireGuard dialers behind one [`dial::Dialer`]
 //!   trait, selected by [`TransportKind`].
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
+//! - [`keepalive`]: the phone's one keepalive clock (Align Keepalives).
 
 pub mod api;
 pub mod class_queue;
 pub mod dial;
 pub mod frame;
 pub mod hybrid;
+pub mod keepalive;
 pub mod link;
 pub mod media;
 mod send_queue;

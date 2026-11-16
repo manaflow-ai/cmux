@@ -231,6 +231,23 @@ impl Backoff {
         self.failures = 0;
     }
 
+    /// The first wait after the remote refused this computer's ssh login.
+    pub const LOGIN_REFUSED_BASE: Duration = Duration::from_secs(5 * 60);
+    /// The longest wait between refused logins.
+    pub const LOGIN_REFUSED_CAP: Duration = Duration::from_secs(60 * 60);
+
+    /// The least wait after the `refusals`-th refused ssh login in a row (1 for the first):
+    /// doubling from `LOGIN_REFUSED_BASE` to `LOGIN_REFUSED_CAP`, plus up to a fifth more with
+    /// `jitter`. A refused key does not fix itself in seconds, and each attempt counts against the
+    /// remote's limit on failed logins (a ban tool blocks an address after a few in minutes), so a
+    /// computer never redials it in a loop; an explicit reconnect still tries at once.
+    pub fn login_refused(refusals: u32, jitter: f64) -> Duration {
+        let doublings = refusals.saturating_sub(1).min(8);
+        let step =
+            Self::LOGIN_REFUSED_BASE.saturating_mul(1u32 << doublings).min(Self::LOGIN_REFUSED_CAP);
+        step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
+    }
+
     /// Steps drawn since the last `reset`.
     pub fn failures(&self) -> u32 {
         self.failures
@@ -478,6 +495,9 @@ impl PeerState {
     }
 }
 
+/// How long a link stays down before its automatic retries park on an hourly schedule.
+pub const PARK_AFTER_MS: u64 = 24 * 60 * 60 * 1_000;
+
 /// The link's history, in wall-clock milliseconds (`store::now_ms`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Link {
@@ -551,8 +571,7 @@ impl Link {
     /// still runs immediately; an explicit reconnect replaces the instance and also runs
     /// immediately. Existing rows and dead-link request refusal are independent of this delay.
     pub fn retry_delay(&self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
-        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
-        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= DAY_MS) {
+        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS) {
             // Small positive jitter keeps many retired hosts from retrying in lockstep.
             Duration::from_secs(3_600) + Duration::from_secs(60).mul_f64(jitter.clamp(0.0, 1.0))
         } else {
@@ -566,6 +585,21 @@ impl Link {
         self.next_retry_at = (delay >= Duration::from_secs(3_600))
             .then(|| now.saturating_add(delay.as_millis() as u64));
         delay
+    }
+
+    /// Down a day or more without a successful handshake: automatic retries are hourly
+    /// (`parked` on the wire), and a list shows it as gone quiet rather than failing.
+    pub fn parked(&self, now: u64) -> bool {
+        !self.is_ready()
+            && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
+    }
+
+    /// A parked peer's saved wait when this daemon starts, reported as `retry_at`
+    /// (`nextRetryAt`) like every later wait, so a list can say when it is tried next.
+    pub fn park_at_start(&mut self, now: u64) -> Option<Duration> {
+        let wait = self.parked_retry_wait(now)?;
+        self.retry_at = Some(now.saturating_add(wait.as_millis() as u64));
+        Some(wait)
     }
 
     pub fn parked_retry_wait(&self, now: u64) -> Option<Duration> {
@@ -840,6 +874,28 @@ mod tests {
         link.ready(now + 2_001);
         assert_eq!(link.next_retry_at, None);
         assert_eq!(link.parked_retry_wait(now + 2_001), None);
+    }
+
+    #[test]
+    fn a_peer_parked_when_the_daemon_starts_reports_its_next_retry_and_is_parked() {
+        // 2026-11-14: four lane VMs, stopped for a week; after a daemon restart
+        // `machine ls` showed nextRetryAt null with a countdown frozen in the error text.
+        let day = PARK_AFTER_MS;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        link.schedule_retry(&mut Backoff::default(), day + 1, 0.0);
+        let mut restarted = Link::default();
+        restarted.seed_outage(link.down_since);
+        restarted.next_retry_at = link.next_retry_at;
+        let now = day + 1 + 600_000;
+        assert_eq!(restarted.park_at_start(now), Some(Duration::from_secs(3_000)));
+        assert_eq!(restarted.retry_at, Some(now + 3_000_000), "nextRetryAt is reported");
+        assert!(restarted.parked(now));
+        assert!(!restarted.parked(day - 1), "under a day down is not parked");
+        restarted.opened(now + 1);
+        restarted.ready(now + 2);
+        assert!(!restarted.parked(now + 3), "a handshake ends the parking");
+        assert_eq!(Link::default().park_at_start(now), None, "never down: nothing parked");
     }
 
     #[test]

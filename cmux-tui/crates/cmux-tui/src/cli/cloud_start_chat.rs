@@ -8,7 +8,8 @@
 //! that verb's checks, keys and deadlines:
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux. A list the app has not
-//!    loaded yet (just launched) is read again until it is, for at most [`LIST_LOAD_WAIT`] and `--timeout`.
+//!    loaded yet (just launched) is read again until it is, for at most `LIST_LOAD_WAIT` and `--timeout`
+//!    (`cmux_cloud_start_core::list_wait`, which the app's own start asks too).
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
@@ -35,6 +36,7 @@
 use std::io::Read as _;
 use std::time::{Duration, Instant};
 
+use cmux_cloud_start_core::list_wait::{ListWait, list_wait};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -203,22 +205,8 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
         let message = format!("cmux: {error:#}");
         return super::app::failure(folder::REFUSED_CODE, &message, global.output, 2);
     }
-    // A folder too big to copy is refused before any machine is made for it.
-    if let Some(dir) = &request.from_folder
-        && !request.allow_large
-        && let Err(large) = crate::link::sync_cli::size_cap::check_plain(std::path::Path::new(dir))
-    {
-        let hint = crate::link::sync_cli::size_cap::OVERRIDE_HINT;
-        // A parent of repositories (~/Projects): each one inside is a folder the chat can start in.
-        let repos = crate::link::sync_cli::size_cap::repos_hint(std::path::Path::new(dir));
-        let message = format!("cmux: {large}{repos}{hint}");
-        return super::app::failure(
-            crate::link::sync_cli::size_cap::CODE,
-            &message,
-            global.output,
-            2,
-        );
-    }
+    // A folder's size never stops a start: one past what a copy sends whole goes as a first pass
+    // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
     let mut runner = SelfRunner::new(global);
     let outcome = run(&mut runner, request);
     report(&outcome, global.output)
@@ -607,7 +595,7 @@ impl SelfRunner {
     }
 
     /// Runs `exe` instead of this binary (a test's stand-in `cmux`).
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn running(mut self, exe: std::path::PathBuf) -> Self {
         self.exe = Some(exe);
         self
@@ -2026,37 +2014,30 @@ fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Valu
     )
 }
 
-/// How long a start waits for the app's first machine list (an app just launched loads it after
-/// sign-in: the production chat probe, cmuxterm-hq run 43553290380) before it answers `cloud.list_unread`.
-const LIST_LOAD_WAIT: Duration = Duration::from_secs(60);
-
-/// The pause between reads of a machine list the app has not loaded yet.
-const LIST_LOAD_POLL: Duration = Duration::from_secs(2);
-
-/// `listed`, or while it says `loaded: false` for a signed-in app, the app's list read again
-/// [`LIST_LOAD_POLL`] apart until it is loaded, for at most [`LIST_LOAD_WAIT`] and what is left of
-/// `deadline`. A read that fails keeps the last answer; the caller's checks then refuse on what it says.
+/// `listed`, or while it says `loaded: false` for a signed-in app, the app's list read again as the
+/// Cloud start core's [`list_wait`] paces it (the app's `CloudStartChat` waits the same way): its
+/// `LIST_LOAD_POLL` apart, for at most `LIST_LOAD_WAIT` and what is left of `deadline`. A read that
+/// fails keeps the last answer; the caller's checks then refuse on what it says.
 fn loaded_list(runner: &mut dyn Runner, mut listed: Value, deadline: Deadline) -> Value {
-    let unloaded = |list: &Value| {
-        at(list, "loaded").as_bool() == Some(false)
-            && list.pointer("/account/signed_in") != Some(&Value::Bool(false))
-    };
-    let until = runner.now() + LIST_LOAD_WAIT;
-    while unloaded(&listed) {
-        let left = until.saturating_duration_since(runner.now());
-        if left.is_zero() || deadline.passed(runner) {
-            break;
-        }
-        let pause = deadline.bound(runner, LIST_LOAD_POLL.min(left));
-        runner.pause(pause);
-        if runner.now() >= until || deadline.passed(runner) {
-            break;
-        }
-        if let Ok(now) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
-            listed = now;
+    let began = runner.now();
+    loop {
+        let loaded = at(&listed, "loaded").as_bool() != Some(false);
+        let signed_in = listed.pointer("/account/signed_in") != Some(&Value::Bool(false));
+        let elapsed = runner.now().saturating_duration_since(began);
+        match list_wait(elapsed, deadline.left(runner), loaded, signed_in) {
+            ListWait::Proceed | ListWait::Unread => return listed,
+            ListWait::Pause { pause_ms, read_after } => {
+                runner.pause(Duration::from_millis(pause_ms));
+                if !read_after {
+                    continue;
+                }
+                let read = runner.cmux(&words(&["cloud", "list-machines", "--json"]));
+                if let Ok(now) = step_result(&read) {
+                    listed = now;
+                }
+            }
         }
     }
-    listed
 }
 
 /// The pause between reads of the app's machine list while a new machine is being made.
@@ -2552,7 +2533,12 @@ fn app_failure(error: Value) -> Outcome {
     // An agent chat's start asks nobody (`cloud.agentsStartWithoutAsking`, on by default), so a
     // refusal here is the app's own; when the person turned asking back on, the app's refusal (Not
     // now, or no answer) already names the command to run again.
-    let details = json!({"app": error});
+    // A refusal that names when it passes (`agent.limit_reached`'s `until_at`, cmux-cloud-start-core
+    // `agent_check`) says it at the top of `details`, beside its code, so a caller reads no words.
+    let mut details = json!({"app": error});
+    if let Some(until) = error.pointer("/data/until_at").filter(|until| until.is_string()) {
+        details.set("until_at", until.clone());
+    }
     let code = at(&error, "code").as_str().unwrap_or("cloud.start_failed").to_owned();
     failed(&code, message, details, 1)
 }

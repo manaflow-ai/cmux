@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemonService
+import CmuxNextPalette
 @testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
@@ -401,6 +402,42 @@ import CmuxNextWakeups
         #expect(ran.map { $0.0 } == [.rotate])
         #expect(ran.map { $0.1 } == ["m_1"])
         #expect(ran.map { $0.2 } == ["ssh-1"], "the row it opened on goes with it (where Check records)")
+    }
+
+    /// The catalog's rows of `ids` as the Rust catalog has them: picking a joined machine (`joined`).
+    static func joinedDescriptors(_ ids: [ActionID]) -> [ActionDescriptor] {
+        ids.compactMap { ActionRegistry.standard().descriptor(for: $0) }.map { var row = $0; row.paletteTargetSource = "joined"; return row }
+    }
+
+    /// No target kind of its own: what the joined machines' sources pass the other actions to.
+    final class NoTargets: PaletteTargetSource {
+        func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] { [] }
+    }
+
+    /// Check, Rotate Credential and Revoke… from the palette (`paletteTargetSource` `joined`): the
+    /// argument page lists the joined machines each can run on, a revoked one only for Check, and a
+    /// run on the picked machine does what the row's menu item does, on that machine's own row.
+    @Test func checkRotateAndRevokeRunFromThePaletteOnAPickedJoinedMachine() async {
+        let fake = Fake()
+        fake.rows = [Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "old-box", state: .revoked)]
+        let store = fake.store()
+        await store.refresh()
+        let ids = JoinedMachineAction.allCases.map(MachineSectionHostView.actionID)
+        let source = store.paletteTargets(Self.joinedDescriptors(ids), next: NoTargets())
+        #expect(source.targets(of: .machine, for: "machine.joined.check").map(\.id) == ["m_1", "m_2"])
+        #expect(source.targets(of: .machine, for: "machine.joined.rotate").map(\.id) == ["m_1"], "a revoked machine is not offered")
+        #expect(source.targets(of: .machine, for: "machine.joined.revoke").map(\.title) == ["lane-vm-3"])
+        #expect(source.targets(of: .machine, for: "workspace.newOnMachine").isEmpty, "a connected machine's action is not theirs")
+        let unclaimed = store.paletteTargets(ActionRegistry.standard().descriptors.filter { ids.contains($0.id) && $0.paletteTargetSource != "joined" }, next: NoTargets())
+        #expect(unclaimed.targets(of: .machine, for: "machine.joined.rotate").isEmpty, "only the catalog's joined rows")
+        var ran: [(JoinedMachineAction, String, String)] = []
+        let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
+        for id in ids {
+            #expect(registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: "m_1"))))
+        }
+        #expect(ran.map { $0.0 } == [.check, .rotate, .revoke])
+        #expect(ran.map { $0.1 } == ["m_1", "m_1", "m_1"])
+        #expect(ran.map { $0.2 } == Array(repeating: JoinedMachine.healthID("m_1"), count: 3), "Check records on the machine's own row")
     }
 
     @Test func revokeAsksWithTheHeartbeatBound() {

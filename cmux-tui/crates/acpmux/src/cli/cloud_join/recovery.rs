@@ -326,8 +326,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
 /// the account that minted it; the hub's `userId`, when it names one, only has to agree. A
 /// sign-in's join with no account is recorded under none (never under the hub's alone).
 fn completed_record(p: &Pending, probed: &MachineCredential) -> Result<MachineCredential> {
-    let sign_in = p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN);
-    let user_id = if sign_in {
+    let user_id = if by_sign_in(p) {
         if let (Some(owner), Some(redeemed)) = (p.owner.as_deref(), probed.user_id.as_deref())
             && owner != redeemed
         {
@@ -345,6 +344,11 @@ fn completed_record(p: &Pending, probed: &MachineCredential) -> Result<MachineCr
     })
 }
 
+/// Whether `p` is a sign-in's join (`enroll.rs`), for the consent marker.
+fn by_sign_in(p: &Pending) -> bool {
+    p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN)
+}
+
 fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<()> {
     let record = &completed_record(p, record)?;
     // The record replaced here may be the only evidence that this home is a copy whose node
@@ -352,11 +356,10 @@ fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<(
     if let Some(old) = load().map_err(|_| store_error())? {
         let _ = copied_here(&state_dir(), &old, host_fingerprint::current().as_deref());
     }
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    authority().and_then(|a| a.enroll_as(by_sign_in(p))).map_err(|_| store_error())?;
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
-    let sign_in = p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN);
-    relay_for_join_at(&crate::config::Config::path(), &p.hub, sign_in)
+    relay_for_join_at(&crate::config::Config::path(), &p.hub, by_sign_in(p))
         .map_err(|_| store_error())?;
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
@@ -540,7 +543,7 @@ pub(super) async fn join(
     pending.capabilities.get_or_insert_with(machine_capabilities);
     let token =
         token.ok_or_else(|| error(2, "join incomplete; original join token required on stdin"))?;
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    authority().and_then(|a| a.enroll_as(by_sign_in(&pending))).map_err(|_| store_error())?;
     let mut body = json!({"token":token,"proposedCredential":pending.credential,
         "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key,
         "capabilities":pending.capabilities});

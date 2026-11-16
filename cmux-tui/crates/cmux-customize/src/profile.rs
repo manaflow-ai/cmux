@@ -18,6 +18,7 @@ use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::library::keys::{self, KEYBINDINGS};
 use crate::redact::{self, find_secret};
 use crate::tree::{self, Part, SETTINGS};
 use crate::{Begun, Customize, Error, validate};
@@ -119,29 +120,9 @@ impl Customize {
         for (path, bytes) in &live {
             match Part::of(path) {
                 Part::Settings => {
-                    let text = String::from_utf8_lossy(bytes);
-                    let file = jsonc::parse(&text).unwrap_or(Value::Null);
-                    let mut private = 0;
-                    let mut credentials = Vec::new();
-                    for row in &Schema::embedded().rows {
-                        let url = matches!(row.kind, cmux_config::schema::Kind::Url);
-                        match cmux_config::value::value_at(&file, &row.path) {
-                            // A setting an agent may set can still hold a
-                            // credential (a page URL with a password in it).
-                            Some(value)
-                                if row.agent_settable
-                                    && (redact::sensitive_value(value, url)
-                                        || find_secret(&value.to_string()).is_some()) =>
-                            {
-                                credentials.push(row.key.clone());
-                            }
-                            Some(value) if row.agent_settable => {
-                                profile.settings.insert(row.key.clone(), value.clone());
-                            }
-                            Some(_) => private += 1,
-                            None => {}
-                        }
-                    }
+                    let (settings, credentials, private) =
+                        shareable_settings(&String::from_utf8_lossy(bytes));
+                    profile.settings = settings;
                     for key in credentials {
                         left_out.push(format!(
                             "the setting {key}: its value carries a credential (a user, password or token)"
@@ -234,16 +215,12 @@ impl Customize {
         read_profile(&path)
     }
 
-    /// Makes a profile live as a draft: nothing is recorded until the person
-    /// applies it. The whole profile is checked first (every path is one a
-    /// part owns, every setting is one an agent may set and a value its row
-    /// accepts, every file validates); one failure writes nothing.
-    pub fn preview_profile(
-        &self,
-        profile: &Profile,
-        origin: &str,
-        now_ms: u64,
-    ) -> Result<Begun, Error> {
+    /// Checks a profile whole, writing nothing: its format, that every
+    /// setting is one an agent may set with a value its row accepts, that
+    /// every file is at a path a part owns and the scan reads, and that no
+    /// name or description hides a character. What `use` and a library
+    /// import check before a byte is written.
+    pub(crate) fn check_profile(&self, profile: &Profile) -> Result<(), Error> {
         if profile.version != 1 {
             return Err(Error::Profile(format!(
                 "this profile is format {}; this cmux reads format 1",
@@ -268,11 +245,6 @@ impl Customize {
                 )));
             }
         }
-        // One import at a time, from the first read to the last write: two
-        // that merged into the same settings text would each write theirs
-        // and the later one would drop the other's keys, in no generation.
-        let _lock = self.store().lock()?;
-        let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         for (path, text) in &profile.files {
             // Only a path the scan reads: anything else (a dot file like
             // `customize/.env`) would be overwritten with no generation
@@ -281,6 +253,11 @@ impl Customize {
                 && !matches!(Part::of(path), Part::Settings | Part::Automations);
             if !owned {
                 return Err(Error::Profile(format!("{path}: a profile may not write there")));
+            }
+            if path == KEYBINDINGS && !keys::readable(text) {
+                return Err(Error::Profile(format!(
+                    "{path} in the profile is not a list of bindings ([{{ \"key\": ..., \"command\": ... }}])"
+                )));
             }
             // A name that reads as something else is refused by position,
             // never shown: the path would carry the hidden character.
@@ -292,7 +269,6 @@ impl Customize {
                     mark.column
                 )));
             }
-            files.insert(path.clone(), text.as_bytes().to_vec());
         }
         if let Some(mark) =
             hidden::first_hidden(&profile.description, hidden::Context::ManifestString)
@@ -302,6 +278,60 @@ impl Customize {
                 mark.describe(),
                 mark.code_point
             )));
+        }
+        Ok(())
+    }
+
+    /// Makes a profile live as a draft: nothing is recorded until the person
+    /// applies it. The whole profile is checked first (every path is one a
+    /// part owns, every setting is one an agent may set and a value its row
+    /// accepts, every file validates); one failure writes nothing.
+    pub fn preview_profile(
+        &self,
+        profile: &Profile,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Begun, Error> {
+        self.check_profile(profile)?;
+        // One import at a time, from the first read to the last write: two
+        // that merged into the same settings text would each write theirs
+        // and the later one would drop the other's keys, in no generation.
+        let _lock = self.store().lock()?;
+        self.preview_profile_locked(profile, origin, now_ms)
+    }
+
+    /// [`Customize::preview_profile`] for a caller that holds the store's
+    /// lock and goes on under it (a try-on applies what this wrote).
+    pub(crate) fn preview_profile_locked(
+        &self,
+        profile: &Profile,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Begun, Error> {
+        self.check_profile(profile)?;
+        let schema = Schema::embedded();
+        let mut files: BTreeMap<String, Vec<u8>> = profile
+            .files
+            .iter()
+            .map(|(path, text)| (path.clone(), text.as_bytes().to_vec()))
+            .collect();
+        // A profile's shortcuts are bindings to add, as its settings are keys
+        // to set: they go into the file you have, which keeps your own.
+        if let Some(text) = profile.files.get(KEYBINDINGS) {
+            let live = tree::read(self.roots(), KEYBINDINGS)?
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            let merged =
+                keys::compose(live.as_deref(), &keys::winners(std::iter::once(text.as_str())))
+                    .map_err(|_| {
+                        Error::Profile(
+                            "your keybindings.json is not a list of bindings; fix its syntax first"
+                                .to_owned(),
+                        )
+                    })?;
+            match merged {
+                Some(merged) => files.insert(KEYBINDINGS.to_owned(), merged.into_bytes()),
+                None => files.remove(KEYBINDINGS),
+            };
         }
         let settings_text = if profile.settings.is_empty() {
             None
@@ -357,6 +387,15 @@ impl Customize {
         let label = format!("the preview before the profile {}", profile.name);
         self.keep_draft_locked(&label, origin, now_ms)?;
         let begun = self.begin_locked(&format!("profile {}", profile.name), origin, now_ms)?;
+        // The library entry this becomes says what the profile says it is.
+        let description = profile.description.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !description.is_empty()
+            && let Some(mut draft) = self.store().draft()?
+            && let Some(ask) = draft.asks.last_mut()
+        {
+            ask.description = Some(description);
+            self.store().put_draft(Some(&draft))?;
+        }
         let manifest_last = |path: &String| path.starts_with("customize/cmux-app");
         for (path, bytes) in
             files.iter().filter(|(path, _)| !manifest_last(path) && *path != SETTINGS)
@@ -373,6 +412,36 @@ impl Customize {
         }
         Ok(begun)
     }
+}
+
+/// The settings of a settings file that may travel in a profile: every key
+/// an agent may set whose value carries no credential. Also the keys left
+/// out for a credential, and how many set keys only the person may change.
+pub(crate) fn shareable_settings(text: &str) -> (BTreeMap<String, Value>, Vec<String>, usize) {
+    let file = jsonc::parse(text).unwrap_or(Value::Null);
+    let mut settings = BTreeMap::new();
+    let mut private = 0;
+    let mut credentials = Vec::new();
+    for row in &Schema::embedded().rows {
+        let url = matches!(row.kind, cmux_config::schema::Kind::Url);
+        match cmux_config::value::value_at(&file, &row.path) {
+            // A setting an agent may set can still hold a credential (a page
+            // URL with a password in it).
+            Some(value)
+                if row.agent_settable
+                    && (redact::sensitive_value(value, url)
+                        || find_secret(&value.to_string()).is_some()) =>
+            {
+                credentials.push(row.key.clone());
+            }
+            Some(value) if row.agent_settable => {
+                settings.insert(row.key.clone(), value.clone());
+            }
+            Some(_) => private += 1,
+            None => {}
+        }
+    }
+    (settings, credentials, private)
 }
 
 fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {

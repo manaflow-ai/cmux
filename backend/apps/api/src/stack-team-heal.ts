@@ -73,20 +73,30 @@ export const stackTeamsOf = async (env: Env, user: string, stackUser: string | u
   const now = deps.now()
   const last = healedAt.get(user)
   if (last !== undefined && now - last.at < HEAL_WINDOW_MS && (last.settled || now - last.at < IN_FLIGHT_STALE_MS)) return new Map(await last.teams)
-  if (!(await deps.pace().catch(() => false))) return new Map()
   if (healedAt.size >= HEALED_MAX) healedAt.clear()
+  // Published before the pace token is asked for, so a concurrent check waits on this read instead of asking for a
+  // token of its own and, without one, refusing a real member while the read runs (review F1 on cmux#42958).
+  let entry: { readonly at: number; readonly teams: Promise<ReadonlyMap<string, string>>; settled: boolean } | undefined
   const teams = Promise.resolve()
-    .then(() => stack.listUserTeams(stackUser))
-    .then(
-      (ids): ReadonlyMap<string, string> => new Map(ids.map((id) => [stackTeamIdFor(env.STACK_PROJECT_ID, id), id] as const)),
-      (e): ReadonlyMap<string, string> => {
+    .then(() => deps.pace().catch(() => false))
+    .then(async (paced): Promise<ReadonlyMap<string, string>> => {
+      if (!paced) {
+        // No token: Stack was not asked. Nothing is kept for the window, so the next check asks for a token again.
+        if (entry !== undefined && healedAt.get(user) === entry) healedAt.delete(user)
+        return new Map()
+      }
+      try {
+        const ids = await stack.listUserTeams(stackUser)
+        return new Map(ids.map((id) => [stackTeamIdFor(env.STACK_PROJECT_ID, id), id] as const))
+      } catch (e) {
         logged("stack teams unreadable", e)
         return new Map()
       }
-    )
-  const entry = { at: now, teams, settled: false }
-  healedAt.set(user, entry)
-  void teams.then(() => void (entry.settled = true))
+    })
+  entry = { at: now, teams, settled: false }
+  const published = entry
+  healedAt.set(user, published)
+  void teams.then(() => void (published.settled = true))
   return new Map(await teams)
 }
 

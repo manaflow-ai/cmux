@@ -249,7 +249,8 @@ impl UpstreamSender {
             return Err(UpstreamError::NotMine);
         }
         let fb = Feedback::decode(payload).map_err(UpstreamError::Invalid)?;
-        let settled = self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
+        let settled =
+            self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq), now_us);
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }

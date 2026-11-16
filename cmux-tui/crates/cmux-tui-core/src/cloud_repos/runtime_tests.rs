@@ -391,7 +391,11 @@ fn cloud_repo_runtime_connected_installation_missing_repository_requests_org_acc
     assert_eq!(failure["code"], "repo.no_access");
     assert_eq!(failure["install_url"], install_url);
     assert_eq!(failure["org"], "organization");
-    assert!(failure.get("retry").is_none());
+    // Access comes from GitHub, not a connect to wait on: the same add again, with no wait.
+    assert_eq!(
+        failure["retry"],
+        json!({"action":"cloud.repo.add","args":{"session":fixture.session,"repo":"organization/tool"}})
+    );
     assert_eq!(seed.join().unwrap().len(), 1);
     assert_eq!(agent.join().unwrap().len(), 1);
 }
@@ -733,9 +737,11 @@ fn cloud_repo_runtime_seed_links_are_checked_without_losing_connect_recovery() {
                         failure["code"],
                         if needs_github { "repo.needs_github" } else { "repo.no_access" }
                     );
+                    assert_eq!(failure["retry"]["args"], args);
                     if needs_github {
-                        assert_eq!(failure["retry"]["args"], args);
                         assert_eq!(failure["retry"]["wait_action"], "cloud.repo.wait_github");
+                    } else {
+                        assert!(failure["retry"].get("wait_action").is_none(), "{failure}");
                     }
                     assert_eq!(seed.join().unwrap().len(), if details { 1 } else { 2 });
                     if let Some(agent) = agent {

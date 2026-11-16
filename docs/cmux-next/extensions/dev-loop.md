@@ -9,7 +9,8 @@ save, so cmux changes as you work. `cmux apps ...` keeps working; `ext` is the a
 ## For a person
 
 ```sh
-cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, README.md, cmux-app.d.ts
+cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, sdk/, README.md, cmux-app.d.ts
+                             # --kind sidebar (default), session-info, pane, newtab or command
 cd my-prs
 cmux ext dev                 # validate, build, load; then one line per save
 ```
@@ -102,7 +103,9 @@ and repeat until both look right.
 2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`).
 3. Build: `--build CMD` when given; else, with `src/main.ts` and `bun` on PATH, the packer every
    sample uses (`cmux-app-host/tools/pack.ts`, built into the CLI) writes `dist/main.js`; a plain
-   `dist/main.js` needs no build. A build may run 120 s (`--build-timeout SECS` changes it);
+   `dist/main.js` needs no build. `cmux-extension-sdk` resolves to the folder's own copy
+   (`node_modules`, or `tsconfig.json` `paths`) when it has one, else to the SDK built into the
+   CLI, so a folder needs no install. A build may run 120 s (`--build-timeout SECS` changes it);
    past that it and what it started are stopped, and the reload ends at phase build.
 4. The files cmux loads (the manifest and its `files`) are copied into the local apps folder
    cmux watches (`<state>/apps/local/<name>`, which `apps-list` names as `local_dir`). cmux
@@ -115,3 +118,34 @@ leads out of the folder, is refused by name.
 
 `ext dev` refuses a folder in the local apps folder that it did not make, and an id that is not
 `local/NAME` (`local/customize` is `~/.config/cmux/customize`, which reloads on save already).
+
+An app under its own id (a fork of a first-party app renamed so it does not collide with the
+shipped one, or an extension with a publisher) can run
+from your checkout without `ext dev`: start cmux with `CMUX_APPS_DIRS` naming the folder that holds
+the app's folder. Every `CMUX_APPS_DIRS` folder is watched like the local apps folder, so a save of
+an app there (its built `dist/main.js` or its manifest) reloads it and remounts its open views.
+These apps keep no rollback copy: they are your files.
+
+## Kinds
+
+| `--kind` | What it adds | Interface |
+|---|---|---|
+| `sidebar` (default; `section` too) | a sidebar section | `cmux.section/1` |
+| `session-info` | a section in an agent chat's Session Info panel; its context is that chat's session | `cmux.session.info.section/1` |
+| `pane` | a view in a tab, opened from the command palette by its title | `cmux.pane/1` |
+| `newtab` | a whole New Tab page, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
+| `command` | a command in the palette, `cmux NAME hello` in a terminal, and a tool for agents | `catalog.json` |
+| `menu` | refused until cmux has context-menu contributions (`cmux.context_menu/1`); the error says what to make meanwhile | |
+
+Each kind loads as written, and a save to its `src/main.ts` is on screen within a second
+(`cmux-tui` test `every_kind_is_new_loads_then_shows_an_edit_within_a_second`, which runs
+the watch, the debounce, the bun build and the reload against a daemon that renders with the
+real app host).
+
+## The SDK in a new extension
+
+`cmux ext new` writes `sdk/`: `cmux-extension-sdk` as the `cmux` that ran it was built with it
+(its TypeScript source and the runtime's event and scope tables, embedded in the binary).
+`tsconfig.json` points `import … from "cmux-extension-sdk"` there and `package.json` names it as
+`file:./sdk`, so a new extension builds with no npm account, no registry and no network, and its
+`API_VERSION` is that cmux's. `cmux ext new` in a newer cmux gives a newer copy.

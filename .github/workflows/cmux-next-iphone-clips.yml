@@ -68,7 +68,7 @@ jobs:
   record:
     name: Record on a fleet simulator
     needs: plan
-    if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' }}
+    if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 240
     permissions:
@@ -94,14 +94,14 @@ jobs:
           set +e
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          out="${RUNNER_TEMP:?}/media/whats-new-clips"
-          mkdir -p "$out"
-          count=0
           if ! [[ -x "$client" ]]; then
             echo "::warning title=What's New clip::$client is not installed on runner $RUNNER_NAME; no iPhone clips"
             echo "count=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          out="${RUNNER_TEMP:?}/media/whats-new-clips"
+          mkdir -p "$out"
+          count=0
           printf '%s\n' "$CLIPS_PLAN" > "$RUNNER_TEMP/clips-plan.json"
           while read -r id roles before; do
             [[ "$id" =~ ^[a-z0-9][a-z0-9-]{0,79}$ ]] || continue

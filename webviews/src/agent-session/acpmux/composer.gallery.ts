@@ -20,6 +20,8 @@ import type { MarkdownFieldElement } from "./MarkdownField";
 import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
+import { extensionCommandsFrom } from "./composer/extensionCommands";
+import { MOCK_COMPOSER_COMMANDS } from "../../apps/scene/panelsMock";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
 import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
@@ -2759,6 +2761,48 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
       },
     },
+    // Extension slash commands (cmux.composer.command/1): the daemon lists them (apps.composer.list),
+    // composer/extensionCommands.ts reads its answer, and they sit in the same menu as the agent's,
+    // labelled with the extension's name. Picking one writes its text over the typed /word.
+    "slash-menu-extension-command": {
+      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup, and picking it writes the extension's text in the prompt.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+          ...extensionCommandsFrom({ commands: MOCK_COMPOSER_COMMANDS }),
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.click(prompt);
+        await ctx.type("/st");
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu .acpmux-slash-source")].some(
+            (label) => label.textContent?.trim() === "Standup",
+          ),
+        );
+      },
+    },
+    "slash-menu-extension-command-picked": {
+      note: "Play: pick the extension's /standup with Enter; the prompt holds the extension's text, not /standup.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          ...extensionCommandsFrom({ commands: MOCK_COMPOSER_COMMANDS }),
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.click(prompt);
+        await ctx.type("/standup");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).textContent?.includes("Write my standup") === true);
+        if (ctx.find(prompt).textContent?.includes("/standup"))
+          throw new Error("the extension command's pick left /standup in the prompt");
+      },
+    },
     "slash-menu-keyboard": {
       note: "Play: Ctrl-J/Ctrl-K and arrows move the slash-command highlight, Enter picks it, and focus stays in the prompt.",
       snapshot: chat(finished, {
@@ -3035,7 +3079,7 @@ export default agentPaneEntry({
       },
     },
     "slash-menu-cmux-descriptions": {
-      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, fork opens a new chat, and side reads as fork does (a side chat, no argument hint).",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
@@ -3044,14 +3088,23 @@ export default agentPaneEntry({
           [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
             (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
           );
-        await ctx.waitFor(() => !!row("import") && !!row("fork"));
+        await ctx.waitFor(() => !!row("import") && !!row("fork") && !!row("side"));
         if (
           row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
           "Start a new chat with this transcript as its first prompt"
         )
           throw new Error("/import description does not explain the transcript's first prompt");
-        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+        if (
+          row("fork")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a new chat tab"
+        )
           throw new Error("/fork description does not describe its new chat");
+        // /side reads as /fork does (#43977): the same wording, and no dim argument hint between
+        // its name and its description.
+        if (row("side")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a side chat")
+          throw new Error("/side description does not match /fork's wording");
+        for (const name of ["fork", "side"])
+          if (row(name)?.querySelector(".acpmux-slash-hint"))
+            throw new Error(`/${name} shows an argument hint the other row does not`);
       },
     },
     "reasoning-claude": {

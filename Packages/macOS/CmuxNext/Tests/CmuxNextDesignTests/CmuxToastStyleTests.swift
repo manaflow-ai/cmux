@@ -132,14 +132,18 @@ struct CmuxToastStyleTests {
         }
     }
 
-    /// A capsule's corners are half its height; the others keep the toast role's radius.
+    /// A capsule's corners are half its height; the others round from their buttons: the button corner plus the
+    /// padding (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside").
     @Test func theCapsuleHasRoundEnds() {
         let capsule = CmuxToastView(toast: Self.everyKind[0], reduceTransparency: .alwaysOpaque, style: .capsule)
         capsule.setFrameSize(capsule.fittingSize)
         capsule.layoutSubtreeIfNeeded()
         #expect(abs(capsule.cornerRadius - capsule.bounds.height / 2) < 0.5)
         let standard = CmuxToastView(toast: Self.everyKind[0], reduceTransparency: .alwaysOpaque, style: .standard)
-        #expect(standard.cornerRadius == SurfaceRole.toast.cornerRadius)
+        standard.setFrameSize(standard.fittingSize)
+        standard.layoutSubtreeIfNeeded()
+        #expect(standard.cornerRadius == standard.geometry.outerRadius)
+        #expect(standard.cornerRadius < standard.bounds.height / 2, "a card, not a capsule")
     }
 
     /// The error tone shows as an error wherever a style marks the tone (the icon), and a refusal is an
@@ -149,6 +153,20 @@ struct CmuxToastStyleTests {
         #expect(CmuxToast(id: "saved", message: "Saved").tone == .neutral)
         let view = CmuxToastView(toast: CmuxToast(id: CmuxToast.refusalID, message: "No room"), reduceTransparency: .alwaysOpaque, style: .iconCard)
         #expect(view.iconSymbol == CmuxToastTone.error.symbolName)
+    }
+
+    /// The icon draws in its tone's color, not the default label gray (the cmux-lawrence-2 gallery shot of
+    /// 2026-11-14 showed every tone's icon gray: the view never set a tint).
+    @Test(arguments: [CmuxToastTone.neutral, .success, .warning, .error])
+    func theIconTakesItsTonesColor(tone: CmuxToastTone) throws {
+        let window = Self.window()
+        defer { Self.close(window) }
+        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Saved", tone: tone), reduceTransparency: .alwaysOpaque, style: .iconCard)
+        window.contentView?.addSubview(view)
+        let icon = try #require(view.iconView)
+        let tint = try #require(icon.contentTintColor, "the icon has no tint: it draws the default gray")
+        let expected = icon.performWithTheme { tone.color }
+        #expect(tint.usingColorSpace(.sRGB) == expected.usingColorSpace(.sRGB))
     }
 
     // MARK: Two actions

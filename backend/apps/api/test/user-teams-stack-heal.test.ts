@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
 import { TOKEN_MINT_DEADLINE_MS, tokenMintDeadline } from "../src/http.ts"
+import { stackTeamsOf } from "../src/stack-team-heal.ts"
 import { selectTeam } from "../src/team-select.ts"
 import { listUserTeams } from "../src/user-teams.ts"
 import { call, PROJECT, stackWorld, teamIdOf, teamStub, useStack } from "./team-stack-support.ts"
@@ -87,7 +88,7 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     const ensured = (await call(token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body
     expect(ensured.ok).toBe(true)
     const user = ensured.value.id as string
-    return { w, me, token, user, team: teamIdOf(stackTeam) }
+    return { w, me, token, user, stackTeam, team: teamIdOf(stackTeam) }
   }
   const post = async (path: string, token: string, body: unknown) => {
     const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
@@ -135,6 +136,28 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     expect(await selectTeam(workerEnv, p, s.team, none)).toMatchObject({ ok: false, code: "team.not_member" })
     const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
     expect(await selectTeam(workerEnv, p, s.team, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+  })
+
+  // Leo's NIGHTLY on production, 2026-11-15: the app's Codex holder named the active team by its Stack id, and every
+  // Codex login delivery was refused "x-cmux-team must name a team id". A session's Stack team id now selects that
+  // team, still only for a member.
+  it("a session's x-cmux-team may name the team by its Stack id, and only a member gets it", async () => {
+    const s = await setup("By Stack id")
+    const p = { identity: `test:${s.me}`, kind: "session" as const, user: s.user, team: personalTeamIdFor(s.user), stack_user_id: s.me }
+    const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
+    expect(await selectTeam(workerEnv, p, s.stackTeam, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+    expect(await selectTeam(workerEnv, p, s.stackTeam.toUpperCase(), fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+    // A Stack team the caller is not in: refused as its team_ id would be.
+    const other = crypto.randomUUID()
+    await useStack(other, s.w)
+    s.w.teams.set(other, "Not mine")
+    expect(await selectTeam(workerEnv, p, other, fake)).toMatchObject({ ok: false, code: "team.not_member" })
+    // Anything else that is not a team id stays refused.
+    expect(await selectTeam(workerEnv, p, "not-a-team", fake)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // An install token never selects another team, by either id.
+    const install = { ...p, kind: "install" } as unknown as Parameters<typeof selectTeam>[1]
+    expect(await selectTeam(workerEnv, install, s.stackTeam, fake)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await selectTeam(workerEnv, install, s.team, fake)).toMatchObject({ ok: false, message: "an install token acts only in the team it was minted for" })
   })
 
   // Review F1: healing one team took the person's Stack read for the window, and the next user.teams.list got an
@@ -242,6 +265,21 @@ describe("a team-scoped mint answers within its budget whatever Stack does", { t
       expect(r.status, JSON.stringify(r.json)).toBe(503)
       expect(errorOf(r)).toMatchObject({ code: "owner.unreachable", retryable: true })
     }
+  })
+
+  // Review F1 on cmux#42958: two checks at once both missed the window and asked for a pace token; with only one
+  // granted, the other got no teams and refused a real member while the first one's Stack read ran.
+  it("two checks at once share one pace token and one Stack read", async () => {
+    const s = await setup("Concurrent")
+    const user = s.user
+    let tokens = 1
+    let asked = 0
+    const pace = async () => (asked++, await Promise.resolve(), tokens-- > 0)
+    const deps = { stack: s.w.fake, pace, now: () => Date.now() }
+    const [a, b] = await Promise.all([stackTeamsOf(workerEnv, user, s.me, deps), stackTeamsOf(workerEnv, user, s.me, deps)])
+    expect([...a.keys()]).toContain(s.team)
+    expect([...b.keys()]).toContain(s.team)
+    expect(asked).toBe(1)
   })
 
   it("a member TeamDO already knows mints without asking Stack", async () => {

@@ -962,7 +962,7 @@ jobs:
           name: cmux-beta-testflight-${{ github.sha }}
           path: ${{ runner.temp }}/cmux-ios-upload/export/cmux-resigned.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Package prepared candidate
         id: package_candidate
@@ -997,7 +997,7 @@ jobs:
         with:
           name: ios-testflight-candidate-${{ github.run_id }}
           path: ${{ runner.temp }}/ios-candidate/
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: error
 
       - name: Bound iOS compilation cache size
@@ -1078,7 +1078,7 @@ jobs:
           # A step that failed before the build started leaves no log, and
           # failing the upload of a failure report helps nobody.
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
 
       - name: Summary
         if: always()
@@ -1141,7 +1141,7 @@ jobs:
           # therefore skip logic + notes ranges) independent per app.
           name: ${{ steps.distribution.outputs.metadata_artifact }}
           path: ${{ runner.temp }}/ios-testflight-build.json
-          retention-days: 30
+          retention-days: 7
 
       - name: Persist dSYM bundle as run artifact
         # The runner is ephemeral, so the archive's dSYMs are the only durable
@@ -1162,7 +1162,7 @@ jobs:
           name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
           path: ${{ runner.temp }}/cmux-ios-upload/cmux.xcarchive/dSYMs
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
       - name: Upload dSYMs to Sentry
         # Sentry symbolicates crashes server-side from its own dSYM store; the

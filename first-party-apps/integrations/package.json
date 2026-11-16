@@ -1,0 +1,9 @@
+{
+  "name": "@cmux-first-party/integrations",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "description": "Dependencies of the cmux/integrations app; pack.ts bundles @cmux/integrations-core into dist/main.js.",
+  "dependencies": {
+    "@cmux/integrations-core": "file:../../libs/integrations-core"
+  }
+}

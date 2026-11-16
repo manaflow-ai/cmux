@@ -68,6 +68,10 @@ extension SettingsSchema {
         "phone.allowConnections": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
         // The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections).
         "phone.startSessions": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+        // Leo (2026-11-14): "obviously if something isn't drawn/is completely proven idle then dont bother taking memory"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page.
+        "agents.hiddenChats.discard": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
+        // Leo (2026-11-14): "obviously if something isn't drawn/is completely proven idle then dont bother taking memory"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page.
+        "agents.hiddenChats.discardAfterMinutes": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
     ]
 
     /// Retired keys a row took the place of, by the row's path: the old key's path and what its

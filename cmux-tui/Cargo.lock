@@ -30,6 +30,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-command-class",
  "cmux-config",
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -40,6 +41,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-local-url",
  "cmux-mcp-connect",
+ "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-relay",
@@ -136,7 +138,6 @@ version = "1.0.0"
 name = "acpmux-client"
 version = "1.0.0"
 dependencies = [
- "acpmux-book",
  "acpmux-list-types",
  "serde",
  "serde_json",
@@ -151,8 +152,10 @@ dependencies = [
  "acpmux-client",
  "arc-swap",
  "cmux-scope",
+ "libc",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -1116,6 +1119,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-cli-render"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "base64",
+ "ghostty-vt",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -1139,6 +1152,8 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "cmux-json",
  "libc",
  "rquickjs",
@@ -1193,6 +1208,7 @@ dependencies = [
  "base64",
  "chacha20poly1305",
  "cmux-json",
+ "cmux-process",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -1447,11 +1463,13 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
  "notify",
  "plist",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1486,6 +1504,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-app-manifest",
  "cmux-config",
+ "cmux-file-lock",
+ "cmux-theme-tokens",
  "fs4",
  "serde",
  "serde_json",
@@ -1527,6 +1547,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-device-kind"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-encode"
 version = "0.1.0"
 dependencies = [
@@ -1535,6 +1564,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "sha2 0.10.9",
+ "windows",
 ]
 
 [[package]]
@@ -1542,6 +1572,7 @@ name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
  "cmux-app-manifest",
+ "cmux-customize",
  "serde_json",
 ]
 
@@ -1787,6 +1818,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-netwatch"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
@@ -1878,11 +1917,15 @@ version = "0.2.3"
 dependencies = [
  "cc",
  "cmux-encode",
+ "cmux-process",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
  "libc",
+ "ring",
+ "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
@@ -1941,6 +1984,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-json",
  "cmux-link",
+ "cmux-netwatch",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -2188,10 +2232,13 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-app-host",
  "cmux-app-manifest",
  "cmux-automations",
+ "cmux-browser-host",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-cloud-api",
@@ -2205,6 +2252,8 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-customize",
+ "cmux-device-kind",
+ "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
@@ -2240,6 +2289,7 @@ dependencies = [
  "core-foundation 0.10.1",
  "crossbeam-channel",
  "crossterm",
+ "dhat",
  "diffy",
  "flate2",
  "fs4",
@@ -2265,12 +2315,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
+ "tar",
  "tempfile",
  "terminput",
  "terminput-crossterm",
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "toml_edit 0.22.27",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
@@ -2311,6 +2363,9 @@ dependencies = [
 name = "cmux-tui-core"
 version = "1.0.0"
 dependencies = [
+ "acpmux",
+ "acpmux-client",
+ "acpmux-list-types",
  "anyhow",
  "arc-swap",
  "base64",
@@ -2326,6 +2381,7 @@ dependencies = [
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
+ "cmux-device-kind",
  "cmux-feed-core",
  "cmux-file-lock",
  "cmux-flow-trace",
@@ -2385,6 +2441,7 @@ dependencies = [
  "tungstenite",
  "uds_windows",
  "url",
+ "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
@@ -3887,6 +3944,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "ghostty-vt-sys",
+ "memchr",
  "png",
 ]
 
