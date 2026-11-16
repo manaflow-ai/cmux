@@ -23,6 +23,8 @@ SPEC = importlib.util.spec_from_file_location("held_new_tab_under_test", os.path
 M = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(M)
 ACTION = {"t": "newTab.default", "w": "closeTab"}
+IN_TURN = "each_call_ended_with_its_reply_before_the_next_began"  # the field of `key_calls`
+HIDDEN = "not_for_a_person"  # the key of a row that holds each number of a row with no proof of the order of its keys
 WIDE = ["action", "stall", "stalls", "tab-switch"]
 BUNDLE = "/fake/cmux DEV fake.app"
 BINARY = BUNDLE + "/Contents/MacOS/cmux DEV fake"
@@ -146,7 +148,7 @@ class World:
 
     # The take of a row, as the child process of the signpost recorder makes it: the keys, then the 2 files.
 
-    def take(self, name, out, categories, keep, film):
+    def take(self, name, out, categories, keep, film, form="one-key"):
         self.takes.append({"row": name, "categories": categories, "film": film, "tabs_at_start": len(self.tabs)})
         letters = {"mixed": ["t", "t", "w", "t", "t", "w"], "hold": ["t"] * 4}.get(name) or ["w"] * (len(self.tabs) - keep)
         self.base += 10.0
@@ -159,6 +161,18 @@ class World:
         swap = (self.faults.get("keys_change_places") or {}).get(len(self.takes))
         if swap:
             acts[swap[0]], acts[swap[1]] = acts[swap[1]], acts[swap[0]]
+        # The calls of the keys, as the tool's one thread makes them ([the planned time, the start, the end], ms after the
+        # base): a call starts at its key's time and ends 3 ms later, after its action started (2 ms after the key). The
+        # faults of the case, each for one key of that take (a count from 1): the call of the key had not ended when the
+        # next call started (`calls_overlap`); the call ended with an error and no reply (`call_with_no_reply`).
+        calls, replies = [[100.0 * index, 100.0 * index, 100.0 * index + 3.0] for index in range(len(letters))], [{} for _ in letters]
+        long = (self.faults.get("calls_overlap") or {}).get(len(self.takes))
+        if long is not None:
+            calls[long][2] = calls[long + 1][1] + 50.0
+        lost = (self.faults.get("call_with_no_reply") or {}).get(len(self.takes))
+        if lost is not None:
+            replies[lost] = "OSError('no socket')"
+        said = M.key_calls({"sends": calls, "replies": replies}, form)
         for index in acts:
             letter, at = letters[index], times[index]
             self.key(letter, at)
@@ -184,7 +198,8 @@ class World:
                   "before": count, "after": {"tabs": len(self.tabs), "panes": 1}, "press_letters": letters,
                   "press_times_s": times, "trace": {"events": list(self.marks), "dropped": 0}, "frames": {}, "settled_ms": 1,
                   "tabs_after": [tab["id"] for tab in self.tabs], "order": {"before": before, "after": self.order()},
-                  "shows": [], "take": {"key_form": "one-key"}}
+                  "shows": [], "key_calls": said,
+                  "take": {"key_form": form, "key_calls": {key: value for key, value in said.items() if key != "calls"}}}
         with open(os.path.join(out, "scenario.json"), "w") as f:
             json.dump(record, f)
         with open(os.path.join(out, "run.ndjson"), "w") as f:
@@ -290,7 +305,7 @@ class Recorder:
     def take(self, command):
         value = lambda flag: command[command.index(flag) + 1]
         categories = [command[i + 1] for i, part in enumerate(command) if part == "--category"]
-        self.world.take(value("--row"), value("--out"), categories, int(value("--keep")), "--film" in command)
+        self.world.take(value("--row"), value("--out"), categories, int(value("--keep")), "--film" in command, value("--launch-form"))
 
     def Popen(self, command, **options):
         self.world.records += 1
@@ -628,34 +643,165 @@ class Rows(Case):
             proof = row.get("input_order") or {}
             self.assertEqual((proof.get("in_key_order"), proof.get("acts"), proof.get("acts_after_a_later_key"), row.get("invalid")),
                              (True, row["keys_posted"], 0, []), row["scenario"])
+            self.assertEqual((row.get("state"), (row.get("key_calls") or {}).get(IN_TURN), "finding" in row, HIDDEN in row),
+                             ("valid", True, False, False), row["scenario"])
+        self.assertEqual(M.exit_code(report, 1), 0)
 
     def test_two_keys_that_the_app_got_in_the_other_order_make_the_row_invalid_and_not_equal(self):
-        """`mixed` is T T W T T W. The app gets key 3 (a T) before key 2 (the W): the W closes the tab of key 3, and the
-        end list has the same count and the same kinds as a run in key order. A model that walks the keys by their
-        number says `equal` for it."""
-        report = self.rows(World(keys_change_places={1: (2, 3)}))
+        """`mixed` is T T W T T W. The call of key 2 (the W) had not ended when the call of key 3 (a T) started, so the app
+        can get key 3 first: the W then closes the tab of key 3, and the end list has the same count and the same kinds
+        as a run in key order. A model that walks the keys by their number says `equal` for it."""
+        report = self.rows(World(keys_change_places={1: (2, 3)}, calls_overlap={1: 2}))
         mixed = report["rows"][0]
         proof, order = mixed.get("input_order") or {}, mixed["order"]
         self.assertEqual((proof.get("in_key_order"), proof.get("acts"), proof.get("acts_after_a_later_key"), proof.get("first")),
                          (False, 6, 1, {"key": 2, "ran_after_key": 3}))
-        self.assertTrue([why for why in mixed.get("invalid") or [] if "another order" in why], mixed.get("invalid"))
+        self.assertEqual((mixed.get("state"), (mixed.get("key_calls") or {}).get(IN_TURN), "finding" in mixed), ("INVALID", False, False))
+        self.assertTrue([why for why in mixed.get("invalid") or [] if "another order" in why and "the tool has no proof" in why],
+                        mixed.get("invalid"))
         self.assertEqual((order["equal"], order.get("verdict")), (None, "INVALID"))
         self.assertIn("another order", order.get("why", ""))
         self.assertTrue([why for why in report["failures"] if why.startswith("0 mixed: ") and "another order" in why], report["failures"])
-        # The model follows the acts, so it can still say if the app kept the rule for the order that it got.
-        self.assertEqual(order.get("by_the_acts"), {"equal": True, "first_difference": None})
-        self.assertEqual([row.get("invalid") for row in report["rows"][1:]], [[], [], []])
+        # The model follows the acts, so it can still say if the app kept the rule for the order that it ran. That word
+        # is no verdict of the row: it has a name of its own, below the key that says the state of the row.
+        self.assertNotIn("by_the_acts", order)
+        model = (mixed.get(HIDDEN) or {}).get("order_by_the_acts") or {}
+        self.assertEqual((model.get("model_by_the_acts_matches"), model.get("first_difference"), "equal" in model, "verdict" in model),
+                         (True, None, False, False))
+        self.assertEqual([(row.get("invalid"), row.get("state")) for row in report["rows"][1:]], [([], "valid")] * 3)
+        self.assertEqual(M.exit_code(report, 1), 2)
 
     def test_two_closes_that_the_app_got_in_the_other_order_do_not_blame_the_app(self):
-        """`close` is W W W W on the 4 tabs of `hold`. The app gets key 1 before key 0 and closes the right tab at each:
-        a model that walks the keys by their number says that key 0 closed another tab than the selected one."""
-        report = self.rows(World(keys_change_places={3: (0, 1)}))
+        """`close` is W W W W on the 4 tabs of `hold`. The call of key 0 had not ended when the call of key 1 started. The
+        app gets key 1 before key 0 and closes the right tab at each: a model that walks the keys by their number says
+        that key 0 closed another tab than the selected one."""
+        report = self.rows(World(keys_change_places={3: (0, 1)}, calls_overlap={3: 0}))
         close = report["rows"][2]
         order = close["order"]
-        self.assertEqual(((close.get("input_order") or {}).get("first"), order["equal"], order.get("verdict")),
-                         ({"key": 0, "ran_after_key": 1}, None, "INVALID"))
-        self.assertEqual(order.get("by_the_acts"), {"equal": True, "first_difference": None})
-        self.assertEqual(order.get("closes_checked_by_id"), 4)
+        self.assertEqual(((close.get("input_order") or {}).get("first"), order["equal"], order.get("verdict"), close.get("state")),
+                         ({"key": 0, "ran_after_key": 1}, None, "INVALID", "INVALID"))
+        model = (close.get(HIDDEN) or {}).get("order_by_the_acts") or {}
+        self.assertEqual((model.get("model_by_the_acts_matches"), model.get("first_difference"), model.get("closes_checked_by_id")),
+                         (True, None, 4))
+
+    def test_acts_in_another_order_are_invalid_when_one_call_of_the_row_has_no_reply_or_the_app_plays_the_keys(self):
+        """The proof that the tool sent the keys in order must be true for the whole row. A call of another key than the 2
+        (key 5) that ended with no reply, and the `activate` form (the app plays the sequence: the tool makes no call
+        for each key), leave it open: the row is INVALID, not a finding."""
+        for said, world, form in ((False, World(keys_change_places={1: (2, 3)}, call_with_no_reply={1: 5}), "one-key"),
+                                  (None, World(keys_change_places={1: (2, 3)}), "activate")):
+            with self.subTest(form=form):
+                mixed = self.rows(world, form=form)["rows"][0]
+                self.assertEqual((mixed.get("state"), (mixed.get("key_calls") or {}).get(IN_TURN, "no such field"), "finding" in mixed,
+                                  mixed["order"].get("verdict")), ("INVALID", said, False, "INVALID"))
+                self.assertTrue([why for why in mixed.get("invalid") or [] if "the tool has no proof" in why], mixed.get("invalid"))
+
+    def test_acts_in_another_order_with_each_call_ended_before_the_next_are_a_finding_row(self):
+        """`mixed` is T T W T T W. Each call ended with its reply before the next call started, so the app got the keys in
+        the tool's order, and it ran the action of key 3 (a T) before the action of key 2 (the W). That is not a fault of
+        the tool: the row is a finding. It names the 2 keys and the 2 acts, the run has a failure for it, and the tool's
+        exit is not 0."""
+        report = self.rows(World(keys_change_places={1: (2, 3)}))
+        mixed = report["rows"][0]
+        proof, found = mixed.get("input_order") or {}, mixed.get("finding") or {}
+        self.assertEqual((proof.get("in_key_order"), proof.get("first"), (mixed.get("key_calls") or {}).get(IN_TURN)),
+                         (False, {"key": 2, "ran_after_key": 3}, True))
+        self.assertEqual((mixed.get("state"), found.get("word")), ("finding", "THE APP RAN THE ACTIONS IN ANOTHER ORDER THAN THE KEYS"))
+        self.assertEqual([(key.get("key"), key.get("letter"), key.get("action"), key.get("act")) for key in found.get("keys") or []],
+                         [(2, "w", ACTION["w"], 4), (3, "t", ACTION["t"], 3)])
+        self.assertEqual((found.get("acts"), found.get("acts_after_a_later_key")), (6, 1))
+        self.assertEqual((mixed["order"]["equal"], mixed["order"].get("verdict")), (None, "finding"))
+        # A reader that knows only `invalid` (the bench) takes no number of the row and prints the finding's word.
+        self.assertEqual(len(mixed.get("invalid") or []), 1, mixed.get("invalid"))
+        self.assertTrue(mixed["invalid"][0].startswith(found["word"] + ": key 2 (Cmd-W, closeTab) ran after key 3 (Cmd-T, newTab.default)"),
+                        mixed["invalid"])
+        self.assertNotIn("the tool has no proof", mixed["invalid"][0])
+        self.assertTrue([why for why in report["failures"] if why.startswith("0 mixed: " + found["word"])], report["failures"])
+        self.assertEqual([(row.get("invalid"), row.get("state")) for row in report["rows"][1:]], [([], "valid")] * 3)
+        self.assertEqual(M.exit_code(report, 1), 2)
+
+    def test_a_finding_row_says_of_each_of_its_2_keys_if_its_reply_came_before_its_action_started(self):
+        """The fake app's reply to a key comes 3 ms after the key. It ran the action of key 3 after 2 ms (before the reply),
+        and the action of key 2 after 104 ms: the reply to key 2 came before its action started, so the app kept that
+        key and ran its action later. That is the path that the finding names."""
+        found = self.rows(World(keys_change_places={1: (2, 3)}))["rows"][0].get("finding") or {}
+        self.assertEqual([(key.get("key"), key.get("reply_ms_after_the_key"), key.get("action_started_ms_after_the_key"),
+                           key.get("reply_before_the_action_start")) for key in found.get("keys") or []],
+                         [(2, 3.0, 104.0, True), (3, 3.0, 2.0, False)])
+        self.assertIn("planned time", found.get("times_from", ""))
+        self.assertIn("the reply to key 2 came before its action started", found.get("path", ""))
+        self.assertNotIn("key 3", found.get("path", ""))
+
+    def test_a_finding_row_with_no_time_of_a_call_does_not_name_a_path(self):
+        record = {"press_times_s": [100.0, 100.1], "press_letters": ["t", "t"], "key_calls": {}}
+        runs = {0: {"perform": {"at_s": 100.3}}, 1: {"perform": {"at_s": 100.2}}}
+        found = M.finding({"acts": 2, "acts_after_a_later_key": 1, "first": {"key": 0, "ran_after_key": 1}}, [1, 0], runs, record, "one-key")
+        self.assertEqual([key.get("reply_before_the_action_start", "no such field") for key in found["keys"]], [None, None])
+        self.assertIn("not known", found["path"])
+
+    def test_a_key_with_no_record_of_its_action_makes_the_row_invalid_with_no_verdict(self):
+        """Key 1 of each row did something and has no record of when its action ran: the order of the keys has no proof."""
+        real = M.key_runs
+
+        def less_one(intervals, record):
+            runs = real(intervals, record)
+            runs.pop(1, None)
+            return runs
+
+        with mock.patch.object(M, "key_runs", less_one):
+            report = self.rows(World())
+        for row in report["rows"]:
+            proof = row.get("input_order") or {}
+            self.assertEqual((proof.get("in_key_order", "no such field"), proof.get("keys_with_no_act_record"), row.get("state"),
+                              row["order"]["equal"], row["order"].get("verdict")), (None, 1, "INVALID", None, "no verdict"), row["scenario"])
+            self.assertTrue([why for why in row.get("invalid") or [] if why.startswith("no proof of the order of the keys: 1 keys")],
+                            row.get("invalid"))
+            self.assertNotIn("finding", row)
+        self.assertTrue([why for why in report["failures"] if why.startswith("0 mixed: no proof of the order")], report["failures"])
+        self.assertEqual(M.exit_code(report, 1), 1)  # the round has no valid row
+
+    def test_a_row_with_no_proof_of_the_keys_order_has_no_number_outside_the_key_that_says_so(self):
+        """The full set of keys of a `mixed` row in each state that is not `valid` for the order of its keys: INVALID
+        (acts in another order, the calls overlapped), no proof (a key with no record of its action, a fault of the proof)
+        and a finding. Each number of the row and the model's word are below ONE key whose name says that they are not
+        for a person; no field of the row has the name `equal` but the row's own verdict, which is null."""
+        real = M.key_runs
+
+        def less_one(intervals, record):
+            runs = real(intervals, record)
+            runs.pop(1, None)
+            return runs
+
+        kept = {"scenario", "round", "state", "key_source", "key_form", "key_calls", "keys_posted", "errors", "invalid", "input_order",
+                "order", "not_restored", "tabs_given_back", HIDDEN}
+        numbers = {"frames", "input_to_next_commit_ms", "fates", "first_frame", "slow_keys", "tabs_made", "tabs_closed",
+                   "keys_without_effect", "daemon_requests", "daemon_slow", "opens", "settled_ms", "order_by_the_acts", "why"}
+        cases = (("INVALID", World(keys_change_places={1: (2, 3)}, calls_overlap={1: 2}), None, set()),
+                 ("no proof", World(), mock.patch.object(M, "key_runs", less_one), set()),
+                 ("a fault of the proof", World(), mock.patch.object(M, "input_order", side_effect=ValueError("a fake fault")), set()),
+                 ("finding", World(keys_change_places={1: (2, 3)}), None, {"finding"}))
+        for name, world, fault, more in cases:
+            with self.subTest(state=name), fault or contextlib.nullcontext():
+                mixed = self.rows(world)["rows"][0]
+                self.assertEqual(set(mixed) - {"press_fates"}, kept | more)
+                self.assertEqual(set(mixed["order"]), {"equal", "verdict", "why", "openers_at_start"})
+                self.assertIsNone(mixed["order"]["equal"])
+                hidden = mixed[HIDDEN]
+                self.assertEqual(numbers - set(hidden), set())
+                self.assertIn("not for a person", hidden["why"])
+                self.assertEqual({key for key in hidden["order_by_the_acts"] if key in ("equal", "verdict", "by_the_acts")}, set())
+                self.assertNotEqual(mixed.get("state"), "valid")
+        # A row that is valid keeps each field where it was.
+        valid = self.rows(World())["rows"][0]
+        self.assertEqual((HIDDEN in valid, numbers - {"order_by_the_acts", "why"} - set(valid), valid["order"]["equal"]), (False, set(), True))
+
+    def test_the_printed_row_of_a_finding_has_no_fate_list(self):
+        out = io.StringIO()
+        with mock.patch.object(M, "print", lambda *args, **kwargs: out.write(" ".join(map(str, args)) + "\n"), create=True):
+            self.rows(World(keys_change_places={1: (2, 3)}))
+        line = next(line for line in out.getvalue().splitlines() if line.startswith("HELD-NEW-TAB-ROW 0 mixed: "))
+        printed = json.loads(line.split(": ", 1)[1])
+        self.assertEqual((printed.get("state"), "press_fates" in printed, "press_fates" in printed.get(HIDDEN, {})), ("finding", False, False))
 
     def test_a_fault_of_the_order_is_no_verdict_with_its_words_and_the_first_frame_stays(self):
         with mock.patch.object(M, "order_row", side_effect=ValueError("a fake fault")):
@@ -746,6 +892,7 @@ class FirstFrame(Case):
         found = M.first_frame(Signposts, ndjson, record, ["created", "created"])
         self.assertEqual(found["by_key"]["t"], {"keys": 2, "shown": 2, "superseded": 0, "not_shown": 0})
         self.assertIn("by the act", found.get("paired", ""))
+        self.assertIn("the tab that a show names is not compared", found.get("paired", ""))  # the limit of the pairing
 
 
 class KeyCalls(Case):
@@ -782,6 +929,35 @@ class KeyCalls(Case):
         self.assertIn("one thread", said.get("sent_by", ""))
         self.assertIn("planned time", said.get("key_time", ""))
         self.assertNotIn("calls", said)  # the list is in the record, not in the printed row
+        # Each call was late and each ended with its reply before the next one started: the app got the keys in order.
+        self.assertEqual((calls.get(IN_TURN), said.get(IN_TURN)), (True, True))
+
+    def test_the_record_says_if_each_call_ended_with_its_reply_before_the_next_one_began(self):
+        """True only with the proof for each call of the take: a reply of the app to each key, and no call that started
+        before the call before it ended."""
+        turn = lambda sends, replies: M.key_calls({"sends": sends, "replies": replies}, "one-key").get(IN_TURN, "no such field")
+        self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 10.0, 12.0], [20.0, 12.0, 30.0]], [{}, {"error": "the app's own words"}, {}]), True)
+        self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 4.99, 12.0]], [{}, {}]), False)  # the second call started before the first ended
+        self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 10.0, 12.0]], [{}, "OSError('no socket')"]), False)  # a call that raised: no reply
+        self.assertIs(turn([[0.0, 0.0, 5.0]], [{}, None]), False)  # the sender did not end: a key has no call and no reply
+        self.assertIs(turn([], []), False)  # no call: nothing that the field can say
+        # The app plays a sequence by itself: the tool makes no call for each key and has no such proof.
+        self.assertIsNone(M.key_calls({"base_s": 1.0, "duration_ms": 5.0}, "activate").get(IN_TURN, "no such field"))
+
+    def test_a_call_that_raises_leaves_the_record_with_no_proof_that_the_calls_were_in_turn(self):
+        world, broke = World(), []
+        Builder(world).new_workspace()
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.key" and len(world.sent) == 1 and not broke:
+                broke.append(True)
+                raise OSError("no socket")
+            return world.rpc(method, params, timeout)
+
+        steps, _ = M.BENCH.sequence(["t"] * 4, 0, (20.0, 20.0))
+        with self.fakes(world), one_thread_and_a_clock_that_moves(world):
+            sent = M.post_keys("app-queue", rpc, steps, "pane1", "one-key")
+        self.assertIs(M.key_calls(sent, "one-key").get(IN_TURN, "no such field"), False)
 
     def test_a_call_that_raises_is_the_reply_of_its_key_and_the_next_key_still_goes(self):
         world, broke = World(), []
@@ -824,6 +1000,10 @@ class InputOrder(unittest.TestCase):
         proof, acts = M.input_order({0: self.RUN(100.0), 2: self.RUN(100.2)}, ["created", "missing", "created"])
         self.assertEqual((proof["in_key_order"], proof["acts"], proof["keys_with_no_act_record"], proof["first"], acts),
                          (True, 2, 0, None, [0, 2]))
+
+    def test_a_row_where_the_app_ran_no_action_has_no_proof(self):
+        proof, acts = M.input_order({}, ["missing"] * 3)
+        self.assertEqual((proof["in_key_order"], proof["acts"], proof["keys_with_no_act_record"], acts), (None, 0, 0, []))
 
     def test_each_action_that_ran_after_the_action_of_a_later_key_is_counted(self):
         """The acts ran in the order of the keys 1, 0, 3, 2, 4."""
