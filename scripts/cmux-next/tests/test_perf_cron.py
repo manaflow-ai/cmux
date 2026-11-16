@@ -3080,9 +3080,9 @@ class SpeedTests(OneRunRule):
         self.measured(state, "a" * 40, {"t.e2e": timed(5.0, 20.0)}, 0)
         for n in range(1, cron.REF_RUNS - 1):
             self.measured(state, format(n, "x") * 40, {"t.e2e": timed(8.0, 45.0)}, n)
-        self.measured(state, "b" * 40, {"t.e2e": {**timed(50.0, 20.0), "version": 2}}, 5)
+        self.measured(state, "b" * 40, {"t.e2e": {**timed(50.0, 20.0), "measure_version": 7}}, 5)
         self.assertNotIn("t.e2e", state.get("off_speed") or {}, "values of the old version are no baseline")
-        self.measured(state, "c" * 40, {"t.e2e": {**timed(80.0, 45.0), "version": 2}}, 6)
+        self.measured(state, "c" * 40, {"t.e2e": {**timed(80.0, 45.0), "measure_version": 7}}, 6)
         self.assertEqual([e["p95"] for e in state["off_speed"]["t.e2e"]], [80.0])
         self.assertEqual([e["p95"] for e in state["row_history"]["t.e2e"]], [50.0])
 
