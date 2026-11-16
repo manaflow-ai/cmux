@@ -493,6 +493,82 @@ class ClickRowTests(unittest.TestCase):
         with mock.patch.object(bench.time, "sleep"), mock.patch.object(bench.time, "monotonic", lambda: next(ticks)):
             self.assertIsNone(bench.wait_released(Run(), {"t1"}))
 
+    def test_an_answer_with_no_list_of_chat_pages_is_not_an_empty_list(self):
+        """An error of the call, or an answer with no `hibernation.chat_pages`, says nothing of the pages: `chat_pages`
+        gives None for it, and the empty set only for a list that is empty."""
+        bench = load_bench()
+        answers = [{"error": "debug.surfaces: timed out"}, None, {}, {"hibernation": {}}, {"hibernation": {"chat_pages": None}}]
+
+        class Run:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def rpc(self, method, params=None, timeout=40):
+                return self.answer
+
+        for answer in answers:
+            with self.subTest(answer=answer):
+                self.assertIsNone(bench.chat_pages(Run(answer)))
+        self.assertEqual(bench.chat_pages(Run({"hibernation": {"chat_pages": []}})), set())
+
+    def test_the_release_wait_does_not_end_at_an_error_answer(self):
+        """A call that fails in the wait is no proof that the page let go: the wait goes on to the next answer."""
+        bench = load_bench()
+        replies = [{"error": "debug.surfaces: timed out"}, {"hibernation": {"chat_pages": ["t1"]}}, {"hibernation": {"chat_pages": []}}]
+        asked = []
+
+        class Run:
+            def rpc(self, method, params=None, timeout=40):
+                asked.append(method)
+                return replies.pop(0) if len(replies) > 1 else replies[0]
+
+        with mock.patch.object(bench.time, "sleep"):
+            self.assertIsNotNone(bench.wait_released(Run(), {"t1"}))
+        self.assertEqual(asked, ["debug.surfaces"] * 3)
+
+    def test_the_release_wait_gives_none_when_each_answer_is_an_error(self):
+        bench = load_bench("--release-wait", "3")
+        ticks = iter(range(1000))
+
+        class Run:
+            def rpc(self, method, params=None, timeout=40):
+                return {"error": "debug.surfaces: [Errno 61] Connection refused"}
+
+        with mock.patch.object(bench.time, "sleep"), mock.patch.object(bench.time, "monotonic", lambda: next(ticks)):
+            self.assertIsNone(bench.wait_released(Run(), {"t1"}))
+
+    def test_a_click_released_round_with_no_list_of_chat_pages_is_an_error_and_no_number(self):
+        """The round reads the chat pages before the chat shows and while it shows. With no list at one of the 2
+        reads the round can not say which page is the chat's: it is an error of the round, and it waits for no
+        release and clicks nothing."""
+        listed = {"hibernation": {"chat_pages": ["t0", "t1"]}}
+        failed = {"error": "debug.surfaces: timed out"}
+        for name, surfaces in (("the read before the chat shows", [failed, listed]), ("the read while it shows", [listed, failed])):
+            with self.subTest(name):
+                bench = load_bench()
+                answers = list(surfaces)
+
+                class Run:
+                    app = types.SimpleNamespace(action=lambda name, **kw: {})
+
+                    def rpc(self, method, params=None, timeout=40):
+                        if method == "debug.surfaces":
+                            return answers.pop(0) if len(answers) > 1 else answers[0]
+                        return {"body_text_length": 5} if method == "debug.agent_pane" else {}
+
+                waits, clicks = [], []
+                with mock.patch.object(bench.time, "sleep"), \
+                        mock.patch.object(bench, "background_row", lambda run, session: ("ws_1", {"key": "workspace(ws_1)"}, None)), \
+                        mock.patch.object(bench, "wait_released", lambda run, pages: waits.append(pages) or 12.0), \
+                        mock.patch.object(bench, "sidebar_rows", lambda run: []), \
+                        mock.patch.object(bench, "frame_click", lambda run, key, label, keep=False: clicks.append(key) or {"content_ms": 1.0}), \
+                        mock.patch.object(bench, "click_engine", lambda run, record: record), \
+                        mock.patch.object(bench, "judged", lambda record: record):
+                    record = bench.measure_click(Run(), "click_released", "session-1", "ws_base", "label")
+                self.assertIn("gave no list of chat pages", record.get("error") or "")
+                self.assertNotIn("released_after_s", record)
+                self.assertEqual((waits, clicks), ([], []))
+
 
 class SeedCacheTests(unittest.TestCase):
     """seed() writes each template once on the seeding daemon and caches it; a second run (another

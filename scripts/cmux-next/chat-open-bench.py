@@ -868,18 +868,27 @@ def frame_click(run, key, label, keep=False):
     return record
 
 
+# A `click_released` round with no list of chat pages (`chat_pages` gave None) is an error of the round.
+NO_CHAT_PAGE_LIST = "`debug.surfaces` gave no list of chat pages (an error of the call, or no `hibernation.chat_pages`): " \
+                    "the page's release can't be seen"
+
+
 def chat_pages(run):
     """The tabs whose chat has a page now (`debug.surfaces`: the agent tab store's views). A prewarmed page that
-    no tab took is not one of them."""
-    return set(((run.rpc("debug.surfaces") or {}).get("hibernation") or {}).get("chat_pages") or [])
+    no tab took is not one of them. None when the answer has no such list (an error of the call, an app with no
+    `hibernation.chat_pages`): no list is not an empty list, and it says nothing of a page that let go."""
+    answer = run.rpc("debug.surfaces")
+    pages = ((answer if isinstance(answer, dict) else {}).get("hibernation") or {}).get("chat_pages")
+    return set(pages) if isinstance(pages, list) else None
 
 
 def wait_released(run, pages):
     """Waits until none of `pages` has a page (the hidden chat's page let go). The seconds it took, or None when
-    --release-wait ran out."""
+    --release-wait ran out. An answer with no list of chat pages ends no wait: the next answer is asked for."""
     started = time.monotonic()
     while time.monotonic() - started < opts.release_wait:
-        if not pages & chat_pages(run):
+        listed = chat_pages(run)
+        if listed is not None and not pages & listed:
             return round(time.monotonic() - started, 1)
         time.sleep(1)  # test script: the hidden page lets go about a minute after it was left
     return None
@@ -937,6 +946,8 @@ def measure_click(run, case, session, base, label, index=0):
     released_s = None
     if case in ("click_again", "click_released"):
         pages_before = chat_pages(run) if case == "click_released" else set()
+        if pages_before is None:
+            return {"error": NO_CHAT_PAGE_LIST, "row": row}
         run.app.action("goToWorkspace", focus=True, workspace=key)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -945,12 +956,15 @@ def measure_click(run, case, session, base, label, index=0):
                 break
             time.sleep(0.3)  # test script: waiting for the chat to show
         time.sleep(1.5)  # test script: let the page's own reads finish before it is left
-        own_pages = chat_pages(run) - pages_before if case == "click_released" else set()
+        pages_shown = chat_pages(run) if case == "click_released" else set()
         run.app.action("goToWorkspace", focus=True, workspace=base)
         time.sleep(1)  # test script: the page hands its tail over as it leaves
         if case == "click_released":
+            if pages_shown is None:
+                return {"error": NO_CHAT_PAGE_LIST, "row": row}
             # The click measures a return only when the chat's page is gone: a page that is still there is
             # `click_again`.
+            own_pages = pages_shown - pages_before
             if not own_pages:
                 return {"error": "the shown chat's page is not in `debug.surfaces` chat_pages: its release can't be seen", "row": row}
             released_s = wait_released(run, own_pages)
