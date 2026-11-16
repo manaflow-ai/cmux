@@ -10,6 +10,8 @@ use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 pub(crate) mod exe_path;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod exe_swap;
 mod lock;
 #[cfg(unix)]
 mod log_cap;
@@ -74,6 +76,7 @@ pub(crate) mod provision;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
+pub(crate) mod supervision;
 #[cfg(unix)]
 pub(crate) use crate::term_sender;
 #[cfg(unix)]
@@ -346,6 +349,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if cfg!(unix) && owned_home.is_none() && home().is_absolute() {
         anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
     }
+    // The owner record right after the lock, before the socket: a client that dials while this
+    // start has not bound yet reads a live owner and waits for it (`connect_when_ready`), and the
+    // previous owner's end is settled (a death counted) once.
+    supervision::start(&home());
+    // The update watch's baseline (F9, `daemon/exe_swap.rs`), taken now: an update that lands
+    // between ready and the later startup is then a change it sees, never its baseline.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let exe_watch = exe_swap::watch(std::env::args().skip(1).collect());
     // Deterministic startup replacement seam for the daemon lifecycle test. The held-home
     // identity fence rejects writes even before the asynchronous watcher receives its event.
     #[cfg(debug_assertions)]
@@ -1054,6 +1065,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_activity::activity_loop(hub.clone()));
+    // An update that moves this executable away swaps to the installed build, make-before-break
+    // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch);
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
@@ -1071,16 +1086,21 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
-                    match term_sender::settled().await {
-                        Some(pid) => tracing::warn!(
-                            "stopping: SIGTERM from {} (a restart handoff)",
-                            term_sender::describe(pid)
-                        ),
+                    let from = term_sender::settled().await.map(term_sender::describe);
+                    match &from {
+                        Some(from) => tracing::warn!("stopping: SIGTERM from {from} (a restart handoff)"),
                         None => tracing::warn!("stopping: SIGTERM (a restart handoff)"),
                     }
+                    supervision::stopping(cmux_supervise_core::StopCause::Intentional(format!(
+                        "SIGTERM from {}",
+                        from.as_deref().unwrap_or("an unknown sender")
+                    )));
                     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                 },
-                _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
+                _ = next_signal(int.as_mut()) => {
+                    tracing::warn!("stopping: SIGINT");
+                    supervision::stopping(cmux_supervise_core::StopCause::Intentional("SIGINT".into()));
+                },
                 _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
                 // A restart handoff: the next start repairs what the store could not.
                 () = &mut store_stop => {},
@@ -1125,10 +1145,17 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                     home_watch::Lost::Socket(why) => {
                         crate::config::mark_socket_lost();
                         tracing::warn!("stopping: {why}, after {rebinds} re-binds");
+                        supervision::stopping(cmux_supervise_core::StopCause::SelfStop(why.to_string()));
                     }
-                    home_watch::Lost::Stop(why) => tracing::warn!("stopping: {why}"),
+                    home_watch::Lost::Stop(why) => {
+                        tracing::warn!("stopping: {why}");
+                        supervision::stopping(cmux_supervise_core::StopCause::SelfStop(why.to_string()));
+                    }
                 },
-                why = &mut unused => tracing::info!("stopping: {why}"),
+                why = &mut unused => {
+                    tracing::info!("stopping: {why}");
+                    supervision::stopping(cmux_supervise_core::StopCause::Intentional(why.to_string()));
+                },
                 // Nothing can use its agents now: they end with it, hosts and harnesses too.
                 pid = &mut test_owner => {
                     tracing::warn!("stopping: its test process {pid} exited");
@@ -1318,6 +1345,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     recheck_home();
     if !crate::config::home_lost() {
+        supervision::finish(&home(), exit_status());
         let _ = crate::home_fs::remove_file(home().join("daemon.pid"));
         for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
             let _ = crate::home_fs::remove_file(file);
@@ -1615,6 +1643,39 @@ pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
     .await
 }
 
+/// While the owner record of `home` names a live daemon other than this process (it wrote the
+/// record right after taking the lock, before it binds: `supervision::start`), dial it again
+/// until it answers, at most [`START_BUDGET`]. `None` at once when no live owner is recorded (a
+/// crash left only its record: the caller starts the next one), when the owner dies meanwhile,
+/// or at the budget.
+async fn connect_when_ready<T, F, Fut>(home: &std::path::Path, connect: &F) -> Option<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let starting = || {
+        supervision::owner(home).is_some_and(|owner| {
+            !owner.is_current() && owner.liveness() == cmux_supervise_core::Liveness::Alive
+        })
+    };
+    if !starting() {
+        return None;
+    }
+    // timeout: a daemon that holds the home and never binds is a hung start; the caller's own
+    // start path follows, as before this wait.
+    let deadline = tokio::time::Instant::now() + START_BUDGET;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if let Ok(value) = connect().await {
+            return Some(value);
+        }
+        if !starting() {
+            return None;
+        }
+    }
+    None
+}
+
 async fn connect_with_systemctl<S, T, F, Fut>(
     systemctl: S,
     current_home: &std::path::Path,
@@ -1628,6 +1689,11 @@ where
     Fut: std::future::Future<Output = Result<T>>,
 {
     if let Ok(value) = connect().await {
+        return Ok(value);
+    }
+    // A daemon that holds the home and is not serving yet (a restart or an update mid-dial):
+    // wait for it to answer instead of failing or starting a second one (F10).
+    if let Some(value) = connect_when_ready(current_home, &connect).await {
         return Ok(value);
     }
     if !autostart {
