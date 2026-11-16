@@ -35,7 +35,7 @@ package final class RemoteVideoView: NSView {
         // The shadow the window server draws under every macOS cursor (HIServices cursors/*/info.plist:
         // black at 0.45, blur 2, 1 pt down), in this view's points, as on a worn remote shape.
         // Cursor images carry none. Flipped: positive y falls below.
-        cursorLayer.shadowColor = CGColor(gray: 0, alpha: 1)
+        cursorLayer.shadowColor = CGColor(gray: 0, alpha: 1) // colour-allow: the macOS cursor shadow (black, as the window server draws it), the same in every theme
         cursorLayer.shadowOpacity = 0.45
         cursorLayer.shadowRadius = 1
         cursorLayer.shadowOffset = CGSize(width: 0, height: 1)
