@@ -43,7 +43,8 @@ typedef enum {
   CMUX_SHIM_ADDRESS = 4,          // s1 = url (main frame)
   CMUX_SHIM_TITLE = 5,            // s1 = title
   CMUX_SHIM_FAVICON = 6,          // s1 = first favicon url or ""
-  CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
+  CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2; with loading, s1 = the visible
+                                  // entry's url (the pending load's when Chrome's omnibox shows it) or ""
   CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url, a = 1 when the entry came from a POST
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
   CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
@@ -596,6 +597,23 @@ CMUX_SHIM_EXPORT char* cmux_shim_omnibox_keywords(int browser_id);
 // extension listens (OMNIBOX_SUGGESTIONS follows).
 CMUX_SHIM_EXPORT int cmux_shim_omnibox_input(int browser_id, const char* extension_id, int event,
                                              const char* text, int value);
+
+// Omnibox preloading (fork API 33; every call is -1 or nothing on older
+// forks). Chrome's ladder for the omnibar, with the profile's predictor
+// database and Chromium's limits: text_changed registers the matches (the
+// default match, what Enter loads, first; types as cmux_omnibox_match_type_t:
+// 0 URL typed, 1 history, 2 bookmark, 3 open tab, 4 search typed, 5 search
+// suggestion, 6 search history) and prerenders (0) or preconnects (1) the
+// default match by its confidence, else 2; confidence gets 0..1. opened ends
+// the edit: the URL loaded (NULL for a revert), learn = 0 forgets the matches
+// unlearned (popup closed, paste and go); 0 while the database loads.
+// UI thread only.
+CMUX_SHIM_EXPORT int cmux_shim_omnibox_preload_text_changed(int browser_id, const char* text,
+                                                            const char* const* urls, const int* types,
+                                                            int count, double* confidence);
+CMUX_SHIM_EXPORT int cmux_shim_omnibox_preload_opened(int browser_id, const char* opened_url, int learn);
+// Omnibox prerender on (1) or off (0, Chromium-in-CEF's default) for every tab.
+CMUX_SHIM_EXPORT void cmux_shim_set_omnibox_prerender(int enabled);
 
 // Chromium never shows a window of its own (fork API 8). The handler
 // chooses where each window request goes; without one the fork uses the

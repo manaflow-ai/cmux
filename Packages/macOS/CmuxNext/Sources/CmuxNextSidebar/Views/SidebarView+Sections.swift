@@ -97,7 +97,7 @@ extension SidebarViewComponents {
     /// `reloadsList` false: the caller reloads the list right after (one reload for the rows and the blocks).
     func updateBands(reloadsList: Bool = true) {
         let width = bounds.width
-        var hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
+        var hidden = SidebarItemInfo.hiddenItems(in: model.layout.sections, infos: model.resolvedItemInfo)
         // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
         if !design.sidebarSections.showProfileControl {
             for section in model.layout.sections { hidden.formUnion(section.items.filter { $0.ref == .builtIn(.account) }.map(\.id)) }
@@ -110,10 +110,10 @@ extension SidebarViewComponents {
         // App sections in the scrolling area after the list (`defaultRegion: "middle"`): they draw after it.
         let appsAfterList = shownBelow.filter { $0.content == .app && $0.region == .middle }
         let look = SidebarSectionTunables.currentLook
-        // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
+        // The footer keeps the full row (its avatar and search); the bands' rows are the band's.
         let footerBase = SidebarRegionMetrics.standard
         // The bands' rows end where the list's do, `rowEdgeGap` from the sidebar's edge (Leo 2026-10-27); the footer keeps its own.
-        var metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
+        var metrics = SidebarRegionMetrics.bands
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo

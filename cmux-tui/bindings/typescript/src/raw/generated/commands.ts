@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24. */
+/* cmux-tui mux protocol 12, IR f0fed33bb44cc546614c821fb864db7d8c89916c527cdeca9f692ea15fc6db13. */
 
 
 import type * as T from "./types.js";
@@ -64,8 +64,12 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "expected_generation"?: (string) | null;
   "expected_terminal_id"?: (string) | null;
+  "hybrid_frame"?: (bigint) | null;
+  "hybrid_stream"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
+  "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
+  "replay_history_start"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -2767,6 +2771,13 @@ export interface TerminalClipboardSubscribeRequest extends CmuxRequestBase {
   "terminal_ids": Array<string>;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalCommandContextRequest extends CmuxRequestBase {
+  cmd: "terminal-command-context";
+  "intent"?: T.TerminalCommandContextIntent;
+  "surface": T.Id;
+}
+
 /** Protocol v9; authority: control. */
 export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
@@ -3319,6 +3330,7 @@ export type CmuxRequest =
   | SwapPaneRequest
   | TerminalClipboardReplyRequest
   | TerminalClipboardSubscribeRequest
+  | TerminalCommandContextRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
@@ -5520,6 +5532,14 @@ export interface CmuxCommandDefinitionMap {
     since: 12;
     capability: "terminal-clipboard-read-v1";
     stream: "subscribe";
+  };
+  "terminal-command-context": {
+    request: TerminalCommandContextRequest;
+    result: T.TerminalCommandContextResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-command-context-v1";
+    stream: null;
   };
   "terminal-events": {
     request: TerminalEventsRequest;

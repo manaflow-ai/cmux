@@ -98,6 +98,7 @@ impl Command {
             Self::SetTerminalTailPin { .. } => "set-terminal-tail-pin",
             Self::TerminalResumeCommand { .. } => "terminal-resume-command",
             Self::TerminalLastCommand { .. } => "terminal-last-command",
+            Self::TerminalCommandContext { .. } => "terminal-command-context",
             Self::NewTab { .. } => "new-tab",
             Self::NewConversationTab(..) => "new-conversation-tab",
             Self::BindConversationTabSession(..) => "bind-conversation-tab-session",

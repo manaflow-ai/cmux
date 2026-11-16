@@ -105,6 +105,11 @@ impl Daemon {
     }
 
     fn restart(&mut self) {
+        self.restart_with_stderr(Stdio::inherit());
+    }
+
+    /// [`Self::restart`], with the daemon's log going to `stderr`.
+    fn restart_with_stderr(&mut self, stderr: Stdio) {
         standalone_holder_is_current();
         let _ = fs::remove_file(&self.socket);
         let child = Command::new(&self.binary)
@@ -121,7 +126,7 @@ impl Daemon {
             .env_remove("SSH_CLIENT")
             .env_remove("SSH_TTY")
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
+            .stderr(stderr)
             .spawn()
             .unwrap();
         self.child = Some(child);
@@ -1394,5 +1399,7 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
+#[path = "holder_terminals/holder_late_start.rs"]
+mod holder_late_start;
 #[path = "holder_terminals/scale.rs"]
 mod scale;

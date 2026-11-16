@@ -977,5 +977,5 @@ pub(super) fn send_resource_response(
             ResourceResponseEnvelope::failure(id, error)
         }
     };
-    envelope.into_value().is_ok_and(|value| writer.send_control(&value).is_ok())
+    envelope.into_value().is_ok_and(|value| writer.send_control_value(value).is_ok())
 }

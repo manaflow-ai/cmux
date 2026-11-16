@@ -132,14 +132,18 @@ struct CmuxToastStyleTests {
         }
     }
 
-    /// A capsule's corners are half its height; the others keep the toast role's radius.
+    /// A capsule's corners are half its height; the others round from their buttons: the button corner plus the
+    /// padding (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside").
     @Test func theCapsuleHasRoundEnds() {
         let capsule = CmuxToastView(toast: Self.everyKind[0], reduceTransparency: .alwaysOpaque, style: .capsule)
         capsule.setFrameSize(capsule.fittingSize)
         capsule.layoutSubtreeIfNeeded()
         #expect(abs(capsule.cornerRadius - capsule.bounds.height / 2) < 0.5)
         let standard = CmuxToastView(toast: Self.everyKind[0], reduceTransparency: .alwaysOpaque, style: .standard)
-        #expect(standard.cornerRadius == SurfaceRole.toast.cornerRadius)
+        standard.setFrameSize(standard.fittingSize)
+        standard.layoutSubtreeIfNeeded()
+        #expect(standard.cornerRadius == standard.geometry.outerRadius)
+        #expect(standard.cornerRadius < standard.bounds.height / 2, "a card, not a capsule")
     }
 
     /// The error tone shows as an error wherever a style marks the tone (the icon), and a refusal is an

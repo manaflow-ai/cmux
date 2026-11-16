@@ -1,0 +1,14 @@
+{
+  "name": "cmux.newtab/1",
+  "version": 1,
+  "docs": "A whole New Tab page: the app's scene is the page's body, in place of cmux's own page. It shows only when the person names the app in the setting tabs.newTabApp (Settings > Tabs > New Tab App); unset, cmux draws its own page, unchanged. When the named app is missing, disabled, hidden or its render fails, cmux draws its own page. The render export gets the mount context ({surface: \"newTab\", cwd?}: the folder the new tab starts in). It mounts once per New Tab page and stays mounted while the page lives, also behind another tab; it unmounts when the tab becomes something else. Clicks run the node's onTap with the app's own scopes: open the tab the person wants with cmux.actions.run from a click (actions:run). The web New Tab page draws it; the native New Tab page (tabs.nativeNewTabPage) does not.",
+  "props": {
+    "title": "string",
+    "symbol": "string?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

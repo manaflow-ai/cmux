@@ -94,6 +94,11 @@
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
 //!
+//! `cmux carrier supervise --machine <vm_id> --socket <path>` runs one app
+//! session's `carrier serve` child for its whole life (launch, token
+//! refresh, park, stop, the account fence) as one state machine
+//! ([`serve_machine`]), talking to the app in JSON lines ([`supervise`]).
+//!
 //! `cmux carrier capabilities [--json] [--wg-hub PATH]` prints one JSON
 //! object on stdout and exits 0: the routes this device can carry a Cloud
 //! session over (`routes`), the faults a probe can inject (`faults`), and
@@ -134,8 +139,13 @@ mod rd_link;
 mod route_log;
 mod secrets;
 mod serve;
+mod serve_machine;
+mod serve_policy;
 mod source;
 mod ssh;
+mod state_root;
+mod supervise;
+mod supervise_wire;
 pub(crate) mod tunnel;
 mod tunnel_cli;
 pub(crate) mod tunnel_keeper;
@@ -504,6 +514,9 @@ fn capabilities(args: &[String]) -> i32 {
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
         return serve::run(args);
+    }
+    if args.first().is_some_and(|verb| verb == "supervise") {
+        return supervise::run(args);
     }
     if args.first().is_some_and(|verb| verb == "secrets") {
         return secrets::run(args);

@@ -207,6 +207,9 @@ pub(super) struct Host {
     /// mount without an error keeps those files as the last good version
     /// (`rollback.rs`). `None` for other apps.
     pub print: Option<u64>,
+    /// Kept up by the manifest's `activation` (`activation.rs`): stopped
+    /// when the app may no longer run in the background.
+    pub background: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -308,6 +311,9 @@ pub struct Supervisor {
     /// Keeping a last good copy and rolling back, serialized per app
     /// (`rollback.rs`).
     pub(super) rollback_locks: super::rollback::AppLocks,
+    /// One local reload pass at a time (`local_reload.rs`): a pass the CLI
+    /// asks for and the file watch's never both apply the same save.
+    pub(super) local_reload_pass: Mutex<()>,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
@@ -425,7 +431,7 @@ impl Supervisor {
                 safe_mode,
                 launches,
                 failed: HashMap::new(),
-                local_prints: local_prints.clone(),
+                local_prints,
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
@@ -440,6 +446,7 @@ impl Supervisor {
             transactions: AtomicU64::new(1),
             host_spawns: AtomicU64::new(0),
             rollback_locks: Default::default(),
+            local_reload_pass: Mutex::new(()),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
             server_observers: OnceLock::new(),
@@ -451,7 +458,8 @@ impl Supervisor {
         }
         supervisor.reconcile_sidebar();
         supervisor.start_always_servers();
-        supervisor.start_local_watch(local_prints);
+        supervisor.activate_background(&BTreeSet::new());
+        supervisor.start_local_watch();
         supervisor
     }
 
@@ -591,6 +599,8 @@ impl Supervisor {
             Effect::StopHost(app) => {
                 // Off is the ladder's last step: on again starts Normal.
                 inner.ladders.remove(app);
+                // Turned on again, a background app gets a new try.
+                inner.failed.remove(app);
                 let mut outs = self.terminal_access_changed_locked(inner, app);
                 outs.extend(self.stop_app_locked(inner, app, "disabled"));
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
@@ -713,6 +723,7 @@ impl Supervisor {
         {
             self.reconcile_sidebar();
         }
+        let activate = background_triggers(&outs);
         for out in outs {
             match out {
                 Out::Client(client, value) => {
@@ -748,6 +759,11 @@ impl Supervisor {
                     }));
                 }
             }
+        }
+        // After the outs above: a client hears `apps-changed` before the
+        // `apps-host` of a background host it started.
+        if let Some(retry) = activate {
+            self.activate_background(&retry);
         }
     }
 
@@ -813,6 +829,31 @@ impl Drop for Supervisor {
             server.process.kill();
         }
     }
+}
+
+/// Whether `outs` may change which apps run in the background
+/// (`activation.rs`): an `apps-changed` (install, enable, grant, safe mode,
+/// local reload) or an `apps-budget` (pause, resume). `Some` holds the apps
+/// a local reload saved, which get a new try after a failure.
+fn background_triggers(outs: &[Out]) -> Option<BTreeSet<String>> {
+    let mut triggered = false;
+    let mut saved = BTreeSet::new();
+    for out in outs {
+        let Out::Broadcast(value) = out else { continue };
+        match value["event"].as_str() {
+            Some("apps-changed") => {
+                triggered = true;
+                if value["transaction"] == "local-reload"
+                    && let Some(app) = value["app"].as_str()
+                {
+                    saved.insert(app.to_string());
+                }
+            }
+            Some("apps-budget") => triggered = true,
+            _ => {}
+        }
+    }
+    triggered.then_some(saved)
 }
 
 fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {

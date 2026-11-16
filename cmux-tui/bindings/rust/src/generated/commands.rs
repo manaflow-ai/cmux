@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24.
+// cmux-tui mux protocol 12, IR f0fed33bb44cc546614c821fb864db7d8c89916c527cdeca9f692ea15fc6db13.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -75,9 +75,17 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hybrid_frame: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hybrid_stream: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub output_coalesce_ms: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_rows: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replay_history_start: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3950,6 +3958,14 @@ pub struct TerminalClipboardSubscribeRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContextRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub intent: Option<T::TerminalCommandContextIntent>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -4373,11 +4389,23 @@ impl CmuxClient {
         if !request.expected_terminal_id.is_missing() {
             self.require_capability_field("attach-surface", "attach-identity-v1")?;
         }
+        if !request.hybrid_frame.is_missing() {
+            self.require_capability_field("attach-surface", "agent-cli-hybrid-v1")?;
+        }
+        if !request.hybrid_stream.is_missing() {
+            self.require_capability_field("attach-surface", "agent-cli-hybrid-v1")?;
+        }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
         }
+        if !request.output_coalesce_ms.is_missing() {
+            self.require_capability_field("attach-surface", "attach-output-coalesce-v1")?;
+        }
         if !request.replay_history_rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;
+        }
+        if !request.replay_history_start.is_missing() {
+            self.require_capability_field("attach-surface", "attach-replay-history-window-v1")?;
         }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
@@ -5964,6 +5992,10 @@ impl CmuxClient {
 
     pub fn terminal_clipboard_subscribe(&mut self, request: TerminalClipboardSubscribeRequest) -> Result<CmuxStream> {
         self.execute_stream(&TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn terminal_command_context(&mut self, request: TerminalCommandContextRequest) -> Result<T::TerminalCommandContextResult> {
+        self.execute(&TERMINAL_COMMAND_CONTEXT_METADATA, &request)
     }
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {

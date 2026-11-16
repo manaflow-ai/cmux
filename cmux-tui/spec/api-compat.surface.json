@@ -90,6 +90,56 @@
         "required": true
       }
     },
+    "event:agent-cli-frame": {
+      "/base": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/cols": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/cursor_visible": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/cursor_x": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/cursor_y": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-cli-frame\""
+        ]
+      },
+      "/frame": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/rows": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/stream": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:agent-inventory-changed": {
       "/event": {
         "ty": "literal",
@@ -2574,6 +2624,9 @@
           "\"resized\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -3510,6 +3563,20 @@
       "/workspace": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "event:screen-device-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"screen-device-changed\""
+        ]
+      },
+      "/screen_device_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
       }
     },
     "event:screen-renamed": {
@@ -5150,6 +5217,9 @@
         ]
       },
       "/history_rows_omitted": {
+        "ty": "uint64"
+      },
+      "/history_rows_skipped": {
         "ty": "uint64"
       },
       "/kitty_graphics_state": {
@@ -7371,6 +7441,14 @@
         "ty": "string",
         "nullable": true
       },
+      "/hybrid_frame": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/hybrid_stream": {
+        "ty": "string",
+        "nullable": true
+      },
       "/mode": {
         "ty": "enum",
         "nullable": true,
@@ -7379,8 +7457,16 @@
           "render"
         ]
       },
+      "/output_coalesce_ms": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/replay_history_rows": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/replay_history_start": {
+        "ty": "uint64",
         "nullable": true
       },
       "/rows": {
@@ -12593,6 +12679,19 @@
         "ty": "string"
       }
     },
+    "request:terminal-command-context": {
+      "/intent": {
+        "ty": "enum",
+        "values": [
+          "context",
+          "fix"
+        ]
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:terminal-events": {
       "/after_revision": {
         "ty": "uint64"
@@ -17591,6 +17690,9 @@
       "/data/machine_capabilities/*": {
         "ty": "string"
       },
+      "/data/machine_device": {
+        "ty": "string"
+      },
       "/data/machine_id": {
         "ty": "string"
       },
@@ -17608,6 +17710,9 @@
         "ty": "string",
         "required": true
       },
+      "/data/machine_symbol": {
+        "ty": "string"
+      },
       "/data/min_api_revision": {
         "ty": "uint32",
         "nullable": true
@@ -17623,6 +17728,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_device_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",
@@ -22145,6 +22254,40 @@
     },
     "response:terminal-clipboard-subscribe": {
       "/data/clipboard_read_ready": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:terminal-command-context": {
+      "/data/context": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/cwd": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/exit_code": {
+        "ty": "int32",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/output": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/context/text": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/context/truncated": {
         "ty": "boolean",
         "required": true
       }

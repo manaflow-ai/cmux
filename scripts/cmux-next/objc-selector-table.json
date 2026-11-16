@@ -217,6 +217,9 @@
    "27.0.1": true,
    "26.5.1": true
   },
+  "NSButton call:viewDidChangeBackingProperties/0": {
+   "27.0": true
+  },
   "NSButton call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
    "26.7": true,
@@ -614,7 +617,8 @@
    "26.5.1": true
   },
   "NSScroller call:accessibilityChildren/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "27.0": true
   },
   "NSScroller call:mouseDown/1": {
    "27.0": true,
