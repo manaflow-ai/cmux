@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43878988798",
+  "recorded_at": "2026-11-16T14:02:34Z",
+  "reason": "cmux-tui 1b350e70511e changes the image's cmux-tui (pinned 4b0fa010b5b5)",
+  "dry_run": false,
+  "cmux_tui": "1b350e70511e4b3932a4d00373b09b7337344398",
+  "fixes": [
+    {
+      "sha": "1b350e70511e4b3932a4d00373b09b7337344398",
+      "mergedAt": "2026-11-16T13:25:39Z",
+      "subject": "cmux-tui-core: gate line_value_tests' cloud_repos check to unix (Windows test build did not compile) (#44544)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T14:02:34Z",
+    "snapshot_id": "sh-968cff0bda09488a86d1fc56e9a354b2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43878988798): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3d5c5e5f7ba7e9b58ba043f5526792be6c616975",
+    "image": "cloud-native-auto-1b350e70-43878988798-1",
+    "revision": "ci-43878988798-1",
+    "at": "2026-11-16T14:02:34Z"
+  },
+  "rolled_back": false
+}
