@@ -1,8 +1,9 @@
-//! Reducer unit tests and property tests. `PROPTEST_CASES` sets the number
-//! of random op sequences (default 256).
+//! Reducer unit tests and property tests. [`property_config`] is the one
+//! configuration of each property test of this crate.
 
 use super::*;
 use proptest::prelude::*;
+use proptest::test_runner::{RngAlgorithm, RngSeed};
 
 /// Workspaces of screens of columns of panes, each a tab count. Ids are
 /// assigned from one counter in that order, starting at 1.
@@ -543,16 +544,21 @@ fn concrete(
     Some(LayoutOp { key, kind })
 }
 
-fn proptest_cases() -> u32 {
-    std::env::var("PROPTEST_CASES").ok().and_then(|cases| cases.parse().ok()).unwrap_or(256)
+/// The configuration of each property test of this crate. Each run has the same cases: the seed, the
+/// generator and the case count are fixed here and are not read from the environment, and a failed case writes
+/// no file. For more cases or other cases, change the count or the seed here.
+pub(crate) fn property_config() -> ProptestConfig {
+    ProptestConfig {
+        cases: 256,
+        rng_seed: RngSeed::Fixed(0x5EED_2026),
+        rng_algorithm: RngAlgorithm::ChaCha,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    }
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: proptest_cases(),
-        failure_persistence: None,
-        ..ProptestConfig::default()
-    })]
+    #![proptest_config(property_config())]
 
     #[test]
     fn random_op_sequences_keep_invariants(
