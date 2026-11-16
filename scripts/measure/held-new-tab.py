@@ -34,6 +34,14 @@ forms (--launch-form; `launch_form` and `key_source` in the report say which one
             a call that waits for the app's main thread does not hold back the next key.
   auto      (default) `activate`; when its preflight fails, ONE new launch in the `one-key` form.
 
+ACTIVATE. The launcher starts the app's binary directly, and on a display Mac such a process did not become the
+active app. So in the `activate` form, when the app is not active after its launch, the script makes ONE
+LaunchServices open of the bundle and waits 10 s for the app's `app_active`. Each launch prints `PREFLIGHT
+activate: by=launch|open|none|not asked app_active=... key_window=... front=... instances=N (pids [...])`, and the
+report has that line as `launch.activate`. An app that is still not active (`by=none`) ends that launch as a failed
+preflight. A second instance of the app after the open ends the run with exit 1: no other launch form and no row
+(the function `activate` says which process gets a signal, and when).
+
 NOT in the measure in each form: the HID tap and the window server's delivery.
 
 PREFLIGHT. Directly after each launch and before the session is made, one of each act kind of a take runs in a
@@ -786,6 +794,13 @@ class PreflightFailed(RuntimeError):
     pass
 
 
+# `SecondInstance`, `front_app`, `instances` and `activate` are a copy of pane-motion-films.py's (the same launch on
+# the same hosts); but for 2 places where the words name a film, the text is the same. A change of one is a change
+# of both.
+class SecondInstance(PreflightFailed):
+    """A second instance of the app runs after the LaunchServices open: no other launch form, no row."""
+
+
 def place(app):
     """The `activate` form: the app reads no window placement at its launch, so the window gets the launcher's frame
     (its x, y from the top left of the main screen's visible frame) here. Returns the frame, or why not."""
@@ -797,6 +812,102 @@ def place(app):
     x, y = min(app.window[0], visible[2] - width), min(app.window[1], visible[3] - height)
     reply = app.rpc("debug.window_frame", {"frame": [visible[0] + x, visible[1] + visible[3] - y - height, width, height]})
     return reply.get("frame") if isinstance(reply, dict) and reply.get("frame") else f"not placed: {str(reply)[:160]}"
+
+
+def front_app():
+    """The frontmost app of this session by LaunchServices (`lsappinfo front`, then its name and its pid), or the
+    tool's own words when it gives none."""
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, errors="replace", timeout=5).stdout.strip()
+        name, pid = (subprocess.run(["/usr/bin/lsappinfo", "info", "-only", only, asn], capture_output=True, text=True, errors="replace",
+                                    timeout=5).stdout.strip() for only in ("name", "pid"))
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        return f"not read ({str(error)[:80]})"
+    named, numbered = re.search(r'=\s*"([^"]*)"', name), re.search(r'"?pid"?\s*=\s*(\d+)', pid)
+    return f"{named.group(1) if named else (name or asn)[:60] or 'none'} (pid {numbered.group(1) if numbered else 'not read'})"
+
+
+def instances(binary):
+    """The running instances of the app `binary`, as {pid: (its parent's pid, the first 120 characters of its
+    command)}: each process of that exact path that is not a child of another process of it (LaunchServices starts an
+    instance under launchd, pid 1; this run's instance is a child of this script). None when `ps` gave no list (no
+    answer in 10 s, an exit that is not 0, words that do not parse): that fault is printed, and the caller then
+    counts nothing and sends no signal."""
+    try:
+        done = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, errors="replace", timeout=10)
+        if done.returncode:
+            raise OSError(f"exit {done.returncode}: {done.stderr.strip()[:120]}")
+        paths = {binary, os.path.realpath(binary)}
+        rows = (line.split(None, 2) for line in done.stdout.splitlines())
+        own = {int(row[0]): (int(row[1]), row[2][:120]) for row in rows
+               if len(row) == 3 and any(row[2] == path or row[2].startswith(path + " ") for path in paths)}
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        print(f"PREFLIGHT activate: ps gave no list of the app's instances: {str(error)[:200]}", flush=True)
+        return None
+    return {pid: row for pid, row in sorted(own.items()) if row[0] not in own}
+
+
+def activate(app, form):
+    """Prints `PREFLIGHT activate: by=... app_active=... key_window=... front=... instances=N (pids [...])` and
+    returns it; then one line for each instance (its parent and its command). The launcher starts the app's binary
+    directly, and on a display Mac such a process did not become the active app. So in the `activate` form, if the
+    app is not active after its launch: ONE LaunchServices open of the bundle (`open BUNDLE`; for an app that runs,
+    the open makes that instance the active app, as a click on its Dock icon does; close-flash-bench.py activates its
+    app the same way), then 10 s for `app_active`. `by` = `launch` (active with no open), `open`, `none` (not
+    active: the whole `debug.focus` reply is printed, and PreflightFailed with the line), `not asked` (the `one-key`
+    form: its launch never takes the keyboard). A `ps` that gives no list is `instances=not read`: it ends nothing.
+
+    A second instance: a pid in the list after the open that was not in the list before it and is not the process
+    of this launch. It raises SecondInstance with the line: the run ends there, and no row is measured with an app on
+    the display that is not this run's. Such a pid gets ONE SIGTERM from this function (no other signal, no second
+    try) only when the list before the open was read, the process of this launch was in it (so the list is proven),
+    and the pid's parent is pid 1 (what LaunchServices starts): it would stay in the session after the run. In each
+    other case the line says `SIGTERM not sent` with the cause. Not of this function: at the end of each launch the
+    launcher's stop ends each process of this bundle path that still runs (SIGTERM, then SIGKILL), as it always did."""
+    focus = lambda: (lambda reply: reply if isinstance(reply, dict) else {})(app.rpc("debug.focus"))
+    own = getattr(getattr(app, "process", None), "pid", None)
+    by, asked, before = "not asked", False, None
+    if form == "activate":
+        by = "launch"
+        if not focus().get("app_active"):
+            asked, before = True, instances(app.binary)
+            try:
+                opened = subprocess.run(["/usr/bin/open", app.app], capture_output=True, text=True, errors="replace", timeout=30)
+                if opened.returncode:
+                    print(f"PREFLIGHT activate: open exit {opened.returncode}: {opened.stderr.strip()[:200]}", flush=True)
+            except (OSError, subprocess.SubprocessError, ValueError) as error:
+                print(f"PREFLIGHT activate: open did not run: {str(error)[:200]}", flush=True)
+            by = "open" if STRESS.wait(lambda: focus().get("app_active"), 10, step=0.25) else "none"
+    seen, front = focus(), front_app()  # the front app first: the list of instances is then new when a signal goes
+    running = instances(app.binary)
+    listed = lambda table: "not read" if table is None else sorted(table)
+    inner = ([f"pids {listed(running)}"] if running is not None else []) + ([f"before the open: {listed(before)}"] if asked else [])
+    line = (f"PREFLIGHT activate: by={by} app_active={str(bool(seen.get('app_active'))).lower()} key_window={seen.get('key_window') or 'none'} "
+            f"front={front} instances={'not read' if running is None else len(running)}" + (f" ({'; '.join(inner)})" if inner else ""))
+    print(line, flush=True)
+    for pid, (parent, command) in (running or {}).items():
+        print(f"PREFLIGHT activate: instance pid {pid}: parent {parent}, command {command}", flush=True)
+    new = [pid for pid in (running or {}) if pid not in (before or {}) and pid != own] if asked else []
+    if new:
+        unproven = ("the list before the open was not read" if before is None
+                    else f"the launched pid {own} was not in the list before the open" if own not in before else "")
+        ended = []
+        for pid in new:
+            parent, command = running[pid]
+            why = unproven or (f"its parent is pid {parent}, not pid 1" if parent != 1 else "")
+            if not why:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError as error:
+                    why = str(error)[:80]
+            ended.append(f"pid {pid} (parent {parent}, command {command}): SIGTERM {f'not sent ({why})' if why else 'sent'}")
+        stop = f"a second instance of the app runs after the open; one SIGTERM to each one that launchd started: {'; '.join(ended)}; the run ends here"
+        print("PREFLIGHT activate: " + stop, flush=True)
+        raise SecondInstance(f"{line}: {stop}")
+    if by == "none":
+        print("PREFLIGHT activate: debug.focus = " + json.dumps(seen, default=str)[:2000], flush=True)
+        raise PreflightFailed(line)
+    return line
 
 
 def preflight(app, st, out, film, form, display):
@@ -877,12 +988,14 @@ def preflight(app, st, out, film, form, display):
 
 
 def launch(opts, form):
-    """One launch of the app in the key form `form` and its preflight: (the app, what the report says of it).
-    Raises PreflightFailed (the app is stopped then) or the launcher's LaunchError."""
+    """One launch of the app in the key form `form`, the act that makes it the active app (`activate`) and its
+    preflight: (the app, what the report says of it). Raises PreflightFailed (the app is stopped then; a
+    SecondInstance is one) or the launcher's LaunchError."""
     app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out,
                                 env={**LAUNCH_ENV, **({"CMUX_NEXT_NO_ACTIVATE": None} if form == "activate" else {})})
     app.launch()
     try:
+        active = activate(app, form)
         window = place(app) if form == "activate" else "the launcher's"
         link = preflight(app, STRESS.Stress(app.rpc, log=lambda line: None), opts.out, opts.film, form, opts.display)
     except PreflightFailed:
@@ -892,7 +1005,8 @@ def launch(opts, form):
         print(f"PREFLIGHT tool FAILED: {error!r}", flush=True)
         app.stop()
         raise PreflightFailed(f"tool: {error!r}") from error
-    return app, {"form": form, "window": window, "display": opts.display, "no_activate": app.launched_env.get("CMUX_NEXT_NO_ACTIVATE") == "1",
+    return app, {"form": form, "activate": active, "window": window, "display": opts.display,
+                 "no_activate": app.launched_env.get("CMUX_NEXT_NO_ACTIVATE") == "1",
                  "display_link": {k: link.get(k) for k in ("frames", "p50_ms", "refresh_ms")}}
 
 
@@ -1099,7 +1213,7 @@ def main():
             app, facts = launch(opts, forms[0])
         except (PreflightFailed, bench_launch.LaunchError) as error:  # each printed its own lines
             why = getattr(error, "reason", None) or str(error)
-            if len(forms) > 1:
+            if len(forms) > 1 and not isinstance(error, SecondInstance):
                 # This launch again in the next form.
                 print(f"PREFLIGHT next form: {forms[1]} (the {forms[0]} form failed: {why})", flush=True)
                 forms.pop(0)
