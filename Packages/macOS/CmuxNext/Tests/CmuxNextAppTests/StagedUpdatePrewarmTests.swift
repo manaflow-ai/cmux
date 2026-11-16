@@ -157,7 +157,9 @@ import Testing
         try Self.stage(installation, "u1", "x1", id: id, build: "200")
         let updater = Self.updater(stagedBuild: "200", bundleIdentifier: id)
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
-        let keep = Task {
+        // As the real keep (UpdaterService+Rollback): a best-effort task, so `run` does not boost the item to
+        // this main-actor test's priority and the stand-in holds only the best-effort slot.
+        let keep = Task(priority: WorkPriority.bestEffort.taskPriority) {
             try? await updater.work.run(.bestEffort, mayBlock: .files) {
                 started.signal()
                 _ = release.wait(timeout: .now() + 30)
@@ -171,8 +173,8 @@ import Testing
         let firstRunLogged = await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } }
         // The update log's pre-warm lines show in the failure itself (a fleet summary keeps one line per issue).
         let lines = updater.log.recent.filter { $0.contains("pre-warm") }
-        #expect(firstRunLogged && lines.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") },
-                "no line as the first run ended")
+        #expect(firstRunLogged, "no line as the first run ended while the keep still held the files lane: \(lines)")
+        #expect(lines.count >= 2, "\(lines)")
         #expect(FileManager.default.fileExists(atPath: ran.path),
                 "the pre-warm waited behind the rollback keep on the files lane")
         release.signal()
