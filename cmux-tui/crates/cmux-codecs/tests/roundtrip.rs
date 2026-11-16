@@ -111,11 +111,13 @@ fn bench_row_runs() {
 }
 
 /// A clean link loses nothing, so a session sends one keyframe, its first. On Linux every
-/// frame of `cmux-rd testapp --workload motion` came out an IDR (cmux#44425's harness);
-/// this fails when the engine or the shipped OpenH264 settings send a second one.
+/// frame of `cmux-rd testapp --workload motion` came out an IDR (cmux#44425's harness):
+/// OpenH264's screen usage makes one of every frame that moves most of the picture. Full-
+/// screen motion may cost two more, the scene change that shows it and the encoder's move
+/// to camera usage (cmux-encode `openh264::MOTION_CHANGE`); none after that.
 #[test]
 fn a_clean_link_sends_one_keyframe() {
-    for scene in [SceneKind::Video, SceneKind::Drag, SceneKind::Scroll] {
+    for (scene, most) in [(SceneKind::Drag, 1), (SceneKind::Scroll, 1), (SceneKind::Video, 3)] {
         let row = cmux_codecs::bench::run_row(&cmux_codecs::bench::RowCfg {
             codec: Codec::H264,
             scene,
@@ -135,7 +137,8 @@ fn a_clean_link_sends_one_keyframe() {
             h264: Default::default(),
         })
         .expect("row");
-        assert_eq!(row["keyframes"], 1, "{scene:?}: {row}");
-        assert_eq!(row["engine_keyframes"], 1, "{scene:?}: {row}");
+        let keyframes = row["keyframes"].as_u64().expect("keyframes");
+        assert!((1..=most).contains(&keyframes), "{scene:?}: {row}");
+        assert_eq!(row["engine_keyframes"], keyframes, "{scene:?}: {row}");
     }
 }
