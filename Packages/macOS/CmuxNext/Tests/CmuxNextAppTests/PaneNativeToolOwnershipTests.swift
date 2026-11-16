@@ -170,11 +170,9 @@ import Testing
         let toolbar = PaneToolbar(registry: { ActionRegistry.standard() })
         pane.toolbar = toolbar
         pane.show(first)
-        toolbar.view.show(nativeItems: [tool])
-        toolbar.view.frame = NSRect(x: 0, y: 0, width: 200, height: 32)
+        toolbar.view.show(more: false, lit: false, nativeItems: [tool])
         var presentations = 0
-        // The chat's menu is its own button in the row (the pane's "…" that hosted it is gone).
-        try #require(toolbar.view.nativeButtons.first).presentMenu = { _, _ in presentations += 1 }
+        toolbar.view.moreButton.presentMenu = { _, _ in presentations += 1 }
         let oldRequest = try #require(first.onNativeToolMenuRequested)
 
         pane.show(second)
