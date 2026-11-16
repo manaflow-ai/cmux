@@ -311,7 +311,7 @@ public final class CmuxToastView: NSView {
                 line.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             ])
         }
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true

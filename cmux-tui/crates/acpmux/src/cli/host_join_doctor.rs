@@ -373,7 +373,9 @@ fn consent_step(facts: &Facts, status: Option<&Value>) -> JoinStep {
         detail.push_str(&format!("; a {surface} request was last refused here"));
     }
     if !on("screen") || !on("control") {
-        detail.push_str("; to allow, run here: acpmux host consent grant --screen (or --control)");
+        detail.push_str(
+            "; to allow, turn it on in the cmux app here, or as this Mac's admin: sudo acpmux machine consent grant --control (or --screen)",
+        );
     }
     JoinStep::new("consent", StepState::Ok, detail)
 }
