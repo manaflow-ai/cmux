@@ -261,6 +261,8 @@ export type HostLists = {
     collection_title?: string;
     video?: boolean;
     downloaded?: boolean;
+    /** A macOS dynamic wallpaper (frames by sun position or clock): Switch Automatically's Sun. */
+    dynamic?: boolean;
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
@@ -842,6 +844,48 @@ export type TailnetState = {
   error?: string;
 };
 
+/** One entry of the customize library (`cmux --json customize library`; cmux-customize
+ * `library.rs` `Listed`): something the person applied, kept as a layer they turn on and off. */
+export type LibraryEntry = {
+  /** 1 is the top: it wins over every entry below it. */
+  position: number;
+  name: string;
+  on: boolean;
+  /** How it came in: `ask`, `profile`, `try-on`, `by hand`, `import`. */
+  source: string;
+  /** The words that asked for it, oldest first. */
+  words: string[];
+  description: string;
+  /** What it looks like at a glance: the colors it sets and the keys it sets (no capture). */
+  thumbnail: { swatches: string[]; keys: string[] };
+  settings: string[];
+  files: string[];
+  added_ms: number | null;
+  /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
+  overridden: string[];
+};
+
+/** Two or more entries that are on set the same key or file; the highest one's value is in use. */
+export type LibraryConflict = { kind: string; key: string; winner: string; losers: string[] };
+
+/** The library, top first. */
+export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConflict[] };
+
+/** A library verb the page runs. `order` takes `position` (`top`, `bottom` or a number from 1). */
+export type LibraryRun =
+  | { verb: "list" }
+  | { verb: "on" | "off" | "remove"; name: string }
+  | { verb: "order"; name: string; position: string };
+
+/** `cmux --json customize library …` as the host answers it: a listing (`library`), and for a
+ * change what it did; a refusal is the CLI's error envelope (`code`, `message`). */
+export type LibraryAnswer = {
+  library?: LibraryListing;
+  generation?: unknown;
+  code?: string;
+  message?: string;
+};
+
 /** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
  * back to generation `revert_to` by itself at `expires_ms` unless the person keeps it. */
 export type CustomizeTryOn = {
@@ -983,6 +1027,8 @@ export type DevicesDevice = {
   sharesText: string | null;
   /** This device's Mac Screen access to THIS Mac (null for this device). */
   access: DevicesScope | null;
+  /** A compact first-class Mac Screen action; absent for phones and older hosts. */
+  screenAction?: { kind: "view" | "share"; title: string; disabled?: boolean } | null;
   /** Removal confirmation texts for this row. */
   removeConfirm: { title: string; body: string; confirm: string };
 };
@@ -1093,6 +1139,8 @@ export type DevicesRelayDraft = {
 };
 export type DevicesRun =
   | { action: "refresh" }
+  | { action: "openScreen"; id: string }
+  | { action: "shareThisMac"; id: string }
   | { action: "signIn" }
   | { action: "rename"; id: string; name: string }
   | { action: "remove"; id: string }
@@ -1298,6 +1346,9 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: one `cmux customize library` verb through the bundled CLI (Personalization >
+   * Customization Library). A change runs only on the person's click or key in the page. */
+  "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
   "cmux.settings.keys.list": [Record<string, never>, KeysState];
   /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's

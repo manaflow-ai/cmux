@@ -158,6 +158,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
+    "cmux-tui/crates/cmux-tab-discard/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
@@ -1136,6 +1137,10 @@ HOT_WEB_NEEDS_APP = ("webviews/src/web-abi.json",)
 # The Route fields hot_only turns off: every app compile and package test tier. `daemon` stays.
 HOT_ONLY_OFF = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift",
                 "package_build", "fast_reads", "fast_package", "fast_registry", "all_tests", "ffi_repin")
+# What `--hot-only` writes. On a hot-only pull request cmux-next-guards.yml keeps tooling-tests off the minis (it
+# still runs, on Linux) and fleet-test-compile.yml compiles no Swift test target: both read this router's verdict on
+# the same merge-commit diff, never a copy of its rule.
+HOT_ONLY_OUTPUTS = ("hot_only", "hot_layers")
 # A part of the rest that keeps hot_only off: any of these tiers.
 APP_TIERS = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift")
 
@@ -1483,6 +1488,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base-rev", help="the pull request's base commit, to compare a change to the workflow")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--hot-only", action="store_true",
+                        help="write only hot_only and hot_layers (HOT_ONLY_OUTPUTS), for a workflow outside "
+                             "cmux-next.yml that skips its Mac part on a hot-only pull request")
     args = parser.parse_args(argv)
 
     changed = None
@@ -1497,12 +1505,21 @@ def main(argv: list[str]) -> int:
         repin = pure_ffi_repin(args.root, changed, args.base_rev)
     result = route(args.root, args.event, changed, labels, base_workflow, repin)
     values = outputs(result)
+    if args.hot_only:
+        values = {key: values[key] for key in HOT_ONLY_OUTPUTS}
     lines = [f"{key}={value}" for key, value in values.items()]
     print("\n".join(lines))
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")
-    if args.summary:
+    if args.summary and args.hot_only:
+        with args.summary.open("a", encoding="utf-8") as stream:
+            stream.write(f"### hot-only route\n\nhot_only: {values['hot_only']} "
+                         f"(layers: {values['hot_layers'] or 'none'})\n\n")
+            for reason in dict.fromkeys(result.reasons):
+                if HOT_ONLY_REASON in reason:
+                    stream.write(f"- {reason}\n")
+    elif args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
             for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "fast_tier", "full", "hot_only"):

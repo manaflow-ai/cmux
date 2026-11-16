@@ -9,6 +9,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -49,7 +50,7 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html`);
     await page.addStyleTag({ content: utilities });
-    const chip = page.locator(".acpmux-model .acpmux-picker-button").first();
+    const chip = page.locator(MODEL_PICKER).first();
     await chip.waitFor();
     await chip.click();
     const menu = page.locator(".acpmux-cols");

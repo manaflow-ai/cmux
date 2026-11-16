@@ -1,0 +1,771 @@
+{
+ "date": "2026-11-15",
+ "machine": {
+  "host": "cmux22",
+  "model": "Mac18,5",
+  "chip": "Apple M6",
+  "cores": 12,
+  "ram_gb": 16,
+  "macos": "27.0",
+  "build": "26A425",
+  "load_start": 16.42,
+  "displays": {
+   "count": 1,
+   "displays": [
+    {
+     "w": 1920,
+     "h": 1080,
+     "hz": 60.0,
+     "builtin": false
+    }
+   ]
+  },
+  "session": "Aqua"
+ },
+ "cmux_ref": "2667136414e398ac2be40cad35459fdcd0c994bb",
+ "browsers": {
+  "cmux-budget": {
+   "name": "cmux NEXT (resource budget)",
+   "bundle": "/Users/cmux/cmux-ci-bench/step/src/.build/DerivedData/cmux-measure/Build/Products/Release/cmux DEV perfbench.app",
+   "version": "1.0.0",
+   "team": "not set"
+  }
+ },
+ "rows": {
+  "budget-idle-disk-writes-home": {
+   "cmux-budget": {
+    "median": 2224.251,
+    "min": 2224.251,
+    "max": 2224.251,
+    "n": 1
+   }
+  },
+  "budget-idle-cpu-home": {
+   "cmux-budget": {
+    "median": 9.18,
+    "min": 9.18,
+    "max": 9.18,
+    "n": 1
+   }
+  },
+  "budget-idle-wakeups-home": {
+   "cmux-budget": {
+    "median": 16.136,
+    "min": 16.136,
+    "max": 16.136,
+    "n": 1
+   }
+  },
+  "budget-memory-home": {
+   "cmux-budget": {
+    "median": 809.8,
+    "min": 809.8,
+    "max": 809.8,
+    "n": 1
+   }
+  },
+  "budget-memory-per-terminal": {
+   "cmux-budget": {
+    "median": 7.8,
+    "min": 7.8,
+    "max": 7.8,
+    "n": 1
+   }
+  },
+  "budget-memory-first-chromium-tab": {
+   "cmux-budget": {
+    "median": 127.6,
+    "min": 127.6,
+    "max": 127.6,
+    "n": 1
+   }
+  },
+  "budget-memory-per-chromium-tab": {
+   "cmux-budget": {
+    "median": 49.86,
+    "min": 49.86,
+    "max": 49.86,
+    "n": 1
+   }
+  },
+  "budget-memory-first-webkit-tab": {
+   "cmux-budget": {
+    "median": 46.1,
+    "min": 46.1,
+    "max": 46.1,
+    "n": 1
+   }
+  },
+  "budget-memory-per-webkit-tab": {
+   "cmux-budget": {
+    "median": 21.44,
+    "min": 21.44,
+    "max": 21.44,
+    "n": 1
+   }
+  },
+  "budget-idle-cpu": {
+   "cmux-budget": {
+    "median": 1.184,
+    "min": 1.184,
+    "max": 1.184,
+    "n": 1
+   }
+  },
+  "budget-idle-wakeups": {
+   "cmux-budget": {
+    "median": 43.973,
+    "min": 43.973,
+    "max": 43.973,
+    "n": 1
+   }
+  },
+  "budget-memory-total": {
+   "cmux-budget": {
+    "median": 1525.2,
+    "min": 1525.2,
+    "max": 1525.2,
+    "n": 1
+   }
+  },
+  "budget-idle-disk-writes": {
+   "cmux-budget": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "n": 1
+   }
+  },
+  "budget-idle-mach-msgs": {
+   "cmux-budget": {
+    "median": 109.21,
+    "min": 109.21,
+    "max": 109.21,
+    "n": 1
+   }
+  },
+  "budget-idle-syscalls": {
+   "cmux-budget": {
+    "median": 505.386,
+    "min": 505.386,
+    "max": 505.386,
+    "n": 1
+   }
+  },
+  "budget-processes": {
+   "cmux-budget": {
+    "median": 53.0,
+    "min": 53.0,
+    "max": 53.0,
+    "n": 1
+   }
+  },
+  "budget-threads": {
+   "cmux-budget": {
+    "median": 712.0,
+    "min": 712.0,
+    "max": 712.0,
+    "n": 1
+   }
+  },
+  "budget-spinners-0-cpu": {
+   "cmux-budget": {
+    "median": 0.958,
+    "min": 0.958,
+    "max": 0.958,
+    "n": 1
+   }
+  },
+  "budget-spinners-0-main-cpu": {
+   "cmux-budget": {
+    "median": 0.133,
+    "min": 0.133,
+    "max": 0.133,
+    "n": 1
+   }
+  },
+  "budget-spinners-0-wakeups": {
+   "cmux-budget": {
+    "median": 27.415,
+    "min": 27.415,
+    "max": 27.415,
+    "n": 1
+   }
+  },
+  "budget-spinners-1-cpu": {
+   "cmux-budget": {
+    "median": 1.338,
+    "min": 1.338,
+    "max": 1.338,
+    "n": 1
+   }
+  },
+  "budget-spinners-1-main-cpu": {
+   "cmux-budget": {
+    "median": 0.116,
+    "min": 0.116,
+    "max": 0.116,
+    "n": 1
+   }
+  },
+  "budget-spinners-1-wakeups": {
+   "cmux-budget": {
+    "median": 23.358,
+    "min": 23.358,
+    "max": 23.358,
+    "n": 1
+   }
+  },
+  "budget-spinners-20-cpu": {
+   "cmux-budget": {
+    "median": 0.549,
+    "min": 0.549,
+    "max": 0.549,
+    "n": 1
+   }
+  },
+  "budget-spinners-20-main-cpu": {
+   "cmux-budget": {
+    "median": 0.1,
+    "min": 0.1,
+    "max": 0.1,
+    "n": 1
+   }
+  },
+  "budget-spinners-20-wakeups": {
+   "cmux-budget": {
+    "median": 33.566,
+    "min": 33.566,
+    "max": 33.566,
+    "n": 1
+   }
+  }
+ },
+ "errors": [
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-samples",
+   "note": "call trees"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-cpu-app-hidden",
+   "note": "the app did not hide"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-wakeups-app-hidden",
+   "note": "the app did not hide"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-disk-writes-app-hidden",
+   "note": "the app did not hide"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-csw-app-hidden",
+   "note": "the app did not hide"
+  }
+ ],
+ "budgets": {
+  "measured": true,
+  "failed": 0,
+  "budgets": [
+   {
+    "row": "budget-idle-cpu",
+    "value": 1.184,
+    "limit": 1.0,
+    "unit": "%",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-cpu-app-hidden",
+    "value": null,
+    "limit": 1.0,
+    "unit": "%",
+    "verdict": "missing",
+    "mode": "advisory",
+    "n": null
+   },
+   {
+    "row": "budget-idle-cpu-home",
+    "value": 9.18,
+    "limit": 1.0,
+    "unit": "%",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-wakeups",
+    "value": 43.973,
+    "limit": 30,
+    "unit": "/s",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-wakeups-app-hidden",
+    "value": null,
+    "limit": 30,
+    "unit": "/s",
+    "verdict": "missing",
+    "mode": "advisory",
+    "n": null
+   },
+   {
+    "row": "budget-memory-home",
+    "value": 809.8,
+    "limit": 400,
+    "unit": "MB",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-memory-total",
+    "value": 1525.2,
+    "limit": 800,
+    "unit": "MB",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-memory-per-terminal",
+    "value": 7.8,
+    "limit": 10,
+    "unit": "MB",
+    "verdict": "ok",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-memory-first-chromium-tab",
+    "value": 127.6,
+    "limit": 250,
+    "unit": "MB",
+    "verdict": "ok",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-memory-per-chromium-tab",
+    "value": 49.86,
+    "limit": 30,
+    "unit": "MB",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-memory-first-webkit-tab",
+    "value": 46.1,
+    "limit": 120,
+    "unit": "MB",
+    "verdict": "ok",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-memory-per-webkit-tab",
+    "value": 21.44,
+    "limit": 20,
+    "unit": "MB",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-disk-writes-home",
+    "value": 2224.251,
+    "limit": 1.0,
+    "unit": "KB/s",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-disk-writes",
+    "value": 0.0,
+    "limit": 1.0,
+    "unit": "KB/s",
+    "verdict": "ok",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-disk-writes-app-hidden",
+    "value": null,
+    "limit": 1.0,
+    "unit": "KB/s",
+    "verdict": "missing",
+    "mode": "advisory",
+    "n": null
+   },
+   {
+    "row": "budget-idle-mach-msgs",
+    "value": 109.21,
+    "limit": 50,
+    "unit": "/s",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-syscalls",
+    "value": 505.386,
+    "limit": 200,
+    "unit": "/s",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-idle-csw-app-hidden",
+    "value": null,
+    "limit": 50,
+    "unit": "/s",
+    "verdict": "missing",
+    "mode": "advisory",
+    "n": null
+   },
+   {
+    "row": "budget-processes",
+    "value": 53.0,
+    "limit": 15,
+    "unit": "n",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-threads",
+    "value": 712.0,
+    "limit": 150,
+    "unit": "n",
+    "verdict": "OVER",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-spinners-1-main-cpu",
+    "value": 0.116,
+    "limit": 0.5,
+    "unit": "%",
+    "verdict": "ok",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-spinners-20-main-cpu",
+    "value": 0.1,
+    "limit": 1.0,
+    "unit": "%",
+    "verdict": "ok",
+    "mode": "advisory",
+    "n": 1
+   },
+   {
+    "row": "budget-spinners-20-wakeups",
+    "value": 33.566,
+    "limit": 60,
+    "unit": "/s",
+    "verdict": "ok",
+    "mode": "advisory",
+    "n": 1
+   }
+  ]
+ },
+ "method": "scripts/perf-bench/README.md",
+ "samples": [
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-disk-writes-home",
+   "value": 2224.251,
+   "time": 1794757889
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-cpu-home",
+   "value": 9.18,
+   "time": 1794757889
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-wakeups-home",
+   "value": 16.136,
+   "time": 1794757889
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-memory-home",
+   "value": 809.8,
+   "time": 1794757889,
+   "kinds": {
+    "renderer": 250.5,
+    "main": 218.0,
+    "cmux-tui": 109.5,
+    "gpu": 51.3,
+    "webkit-webcontent": 47.5,
+    "acpmux": 29.7,
+    "utility:NetworkService": 28.0,
+    "utility:StorageService": 20.2,
+    "webkit-gpu": 12.6,
+    "cmux-agent-screen-detection": 12.4,
+    "cmux-browser-host serve": 7.5,
+    "cmux cloud hands": 5.5,
+    "com.apple.audio.SandboxHelper": 5.3,
+    "webkit-networking": 4.3,
+    "VTDecoderXPCService": 3.5,
+    "SetStoreUpdateService": 2.3,
+    "zsh": 1.6
+   },
+   "processes": 23
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-memory-per-terminal",
+   "value": 7.8,
+   "time": 1794757972,
+   "before_mb": 949.9,
+   "after_mb": 988.9,
+   "count": 5
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-memory-first-chromium-tab",
+   "value": 127.6,
+   "time": 1794758012,
+   "before_mb": 988.9,
+   "after_mb": 1116.5,
+   "count": 1
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-memory-per-chromium-tab",
+   "value": 49.86,
+   "time": 1794758053,
+   "before_mb": 1116.5,
+   "after_mb": 1365.8,
+   "count": 5
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-memory-first-webkit-tab",
+   "value": 46.1,
+   "time": 1794758093,
+   "before_mb": 1365.8,
+   "after_mb": 1411.9,
+   "count": 1
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-memory-per-webkit-tab",
+   "value": 21.44,
+   "time": 1794758134,
+   "before_mb": 1411.9,
+   "after_mb": 1519.1,
+   "count": 5
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-cpu",
+   "value": 1.184,
+   "time": 1794758234
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-wakeups",
+   "value": 43.973,
+   "time": 1794758234
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-memory-total",
+   "value": 1525.2,
+   "time": 1794758234,
+   "kinds": {
+    "renderer": 563.3,
+    "main": 322.0,
+    "webkit-webcontent": 153.4,
+    "gpu": 115.4,
+    "cmux-tui": 112.6,
+    "MTLCompilerService": 78.5,
+    "webkit-gpu": 31.0,
+    "acpmux": 29.5,
+    "utility:NetworkService": 27.7,
+    "utility:StorageService": 21.6,
+    "zsh": 15.7,
+    "cmux-agent-screen-detection": 12.9,
+    "terminal-host": 11.9,
+    "cmux-browser-host serve": 7.7,
+    "cmux cloud hands": 5.5,
+    "webkit-networking": 5.4,
+    "com.apple.audio.SandboxHelper": 5.3,
+    "VTDecoderXPCService": 3.5,
+    "SetStoreUpdateService": 2.3
+   },
+   "processes": 53
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-disk-writes",
+   "value": 0.0,
+   "time": 1794758234
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-mach-msgs",
+   "value": 109.21,
+   "time": 1794758234
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-syscalls",
+   "value": 505.386,
+   "time": 1794758234
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-processes",
+   "value": 53.0,
+   "time": 1794758234
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-threads",
+   "value": 712.0,
+   "time": 1794758234
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-samples",
+   "value": null,
+   "time": 1794758271,
+   "note": "call trees"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-cpu-app-hidden",
+   "value": null,
+   "time": 1794758271,
+   "note": "the app did not hide"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-wakeups-app-hidden",
+   "value": null,
+   "time": 1794758271,
+   "note": "the app did not hide"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-disk-writes-app-hidden",
+   "value": null,
+   "time": 1794758271,
+   "note": "the app did not hide"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-idle-csw-app-hidden",
+   "value": null,
+   "time": 1794758271,
+   "note": "the app did not hide"
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-0-cpu",
+   "value": 0.958,
+   "time": 1794758371
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-0-main-cpu",
+   "value": 0.133,
+   "time": 1794758371
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-0-wakeups",
+   "value": 27.415,
+   "time": 1794758371
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-1-cpu",
+   "value": 1.338,
+   "time": 1794758442
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-1-main-cpu",
+   "value": 0.116,
+   "time": 1794758442
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-1-wakeups",
+   "value": 23.358,
+   "time": 1794758442
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-20-cpu",
+   "value": 0.549,
+   "time": 1794758513
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-20-main-cpu",
+   "value": 0.1,
+   "time": 1794758513
+  },
+  {
+   "browser": "cmux-budget",
+   "round": 1,
+   "row": "budget-spinners-20-wakeups",
+   "value": 33.566,
+   "time": 1794758513
+  }
+ ]
+}

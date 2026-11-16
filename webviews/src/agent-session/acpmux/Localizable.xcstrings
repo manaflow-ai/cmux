@@ -158751,6 +158751,138 @@
         }
       }
     },
+    "turn.failedAfter": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل بعد {time}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuspjelo nakon {time}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mislykkedes efter {time}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach {time} fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed after {time}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falló tras {time}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échec après {time}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non riuscito dopo {time}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} 後に失敗しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បរាជ័យបន្ទាប់ពី {time}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} 후 실패함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mislyktes etter {time}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie powiodło się po {time}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falhou após {time}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сбой через {time}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล้มเหลวหลัง {time}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} sonra başarısız oldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збій через {time}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thất bại sau {time}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} 后失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} 後失敗"
+          }
+        }
+      }
+    },
     "turn.fork": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -390860,127 +390992,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بدء محادثة جانبية من هذه الجولة"
+            "value": "تفريع هذه الجولة إلى محادثة جانبية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Započni sporedni razgovor od ovog poteza"
+            "value": "Forkuj ovaj potez u sporedni razgovor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start en sidechat fra denne tur"
+            "value": "Opret en sidechat fra denne tur"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nebenchat ab diesem Zug starten"
+            "value": "Diesen Zug in einen Nebenchat forken"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a side chat from this turn"
+            "value": "Fork this turn into a side chat"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Iniciar un chat paralelo desde este turno"
+            "value": "Convertir este turno en un chat paralelo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Démarrer une discussion parallèle à partir de ce tour"
+            "value": "Forker ce tour dans une discussion parallèle"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avvia una chat laterale da questo turno"
+            "value": "Crea una chat laterale a partire da questo turno"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このターンからサイドチャットを開始"
+            "value": "このターンをサイドチャットに Fork"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចាប់ផ្ដើមការជជែកចំហៀងពីវេននេះ"
+            "value": "បំបែកវេននេះទៅជាការជជែកចំហៀង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 턴에서 사이드 채팅 시작"
+            "value": "이 턴을 사이드 채팅으로 Fork"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start en sidechat fra denne turen"
+            "value": "Opprett en sidechat fra denne turen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rozpocznij boczny czat od tej tury"
+            "value": "Rozgałęź tę turę do bocznego czatu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Iniciar um chat paralelo a partir deste turno"
+            "value": "Criar um chat paralelo a partir deste turno"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Начать побочный чат с этого хода"
+            "value": "Перенести этот ход в побочный чат"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เริ่มแชตข้างเคียงจากรอบนี้"
+            "value": "แยกรอบนี้ไปยังแชตข้างเคียง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu turdan bir yan sohbet başlat"
+            "value": "Bu turu bir yan sohbete çatalla"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Почати побічний чат із цього ходу"
+            "value": "Розгалузити цей хід у побічний чат"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bắt đầu cuộc trò chuyện phụ từ lượt này"
+            "value": "Tách lượt này sang một cuộc trò chuyện phụ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从此轮开始旁支对话"
+            "value": "将此轮分叉到旁支对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "從此輪開始旁支對話"
+            "value": "將此輪分支到旁支對話"
           }
         }
       }

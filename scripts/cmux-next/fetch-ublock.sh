@@ -17,16 +17,16 @@
 # tool runs here; it only downloads, checks and unpacks.
 set -euo pipefail
 
-UBLOCK_VERSION="1.75.0"
+UBLOCK_VERSION="1.76.4"
 UBLOCK_ID="cjpalhdlnbpafiamejdnhcphjbkeiagm"
 UBLOCK_ZIP_URL="https://github.com/gorhill/uBlock/releases/download/${UBLOCK_VERSION}/uBlock0_${UBLOCK_VERSION}.chromium.zip"
-UBLOCK_ZIP_SHA256="393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582"
+UBLOCK_ZIP_SHA256="4b1b27ed82e734d508ae6d255933c334f62f256e8a8aece92724b826828e3d5f"
 UBLOCK_SOURCE_URL="https://github.com/gorhill/uBlock/archive/refs/tags/${UBLOCK_VERSION}.tar.gz"
 # SHA-256 of the staged manifest.json (with the key). CEFBuiltInExtensions
 # .adBlockerManifestSHA256 pins the same value: the agent extension guard
 # trusts only a built-in copy whose manifest matches it.
-UBLOCK_MANIFEST_SHA256="8736fdbd889f05a37c62b98da88ad3e9e2ae72a067f0909e18bc051792ab161d"
-UBLOCK_SOURCE_SHA256="a518c7d6e6b3f81d1a738befeb617abba59f93bd6b1e626da079a1003e9db52b"
+UBLOCK_MANIFEST_SHA256="e2736a359393899dc32875b9864e3ca4e2bd47d9011593c137bdb1314fce1d71"
+UBLOCK_SOURCE_SHA256="554815c21f0d0733de98c3a314f8cf827365184d004ae49b85697bdd25963344"
 # The Web Store listing's public key (same value cmux-browser pins).
 UBLOCK_PUBLIC_KEY_BASE64="MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmJNzUNVjS6Q1qe0NRqpmfX/oSJdgauSZNdfeb5RV1Hji21vX0TivpP5gq0fadwmvmVCtUpOaNUopgejiUFm/iKHPs0o3x7hyKk/eX0t2QT3OZGdXkPiYpTEC0f0p86SQaLoA2eHaOG4uCGi7sxLJmAXc6IsxGKVklh7cCoLUgWEMnj8ZNG2Y8UKG3gBdrpES5hk7QyFDMraO79NmSlWRNgoJHX6XRoY66oYThFQad8KL8q3pf3Oe8uBLKywohU0ZrDPViWHIszXoE9HEvPTFAbHZ1umINni4W/YVs+fhqHtzRJcaKJtsTaYy+cholu5mAYeTZqtHf6bcwJ8t9i2afwIDAQAB"
 
@@ -90,6 +90,12 @@ try:
     manifest = json.loads((root / "manifest.json").read_text())
     if manifest.get("name") != "uBlock Origin" or manifest.get("version") != version or manifest.get("manifest_version") != 2:
         sys.exit(f"unexpected manifest: {manifest.get('name')} {manifest.get('version')} mv{manifest.get('manifest_version')}")
+    # GHSA-cmqw-9r2w-6wv2: a picker that starts on any page's epickerStart
+    # message lets a website drive it and add trusted filters (universal XSS).
+    # The fixed picker first asks the background for the launch secret.
+    picker = root / "js" / "epicker-ui.js"
+    if not picker.is_file() or "elementPickerPassword" not in picker.read_text(errors="replace"):
+        sys.exit("uBlock Origin element picker does not check its launch secret (GHSA-cmqw-9r2w-6wv2)")
     manifest["key"] = key_b64
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     (root / ".cmux-extension-source.json").write_text(json.dumps({
