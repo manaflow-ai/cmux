@@ -1,0 +1,16 @@
+{
+  "name": "cmux-fleet",
+  "description": "cmux fleet iOS simulators (scripts/ci/simslim/README.md). SimSlim's default slim set, keeping push (apsd), StoreKit and in-app purchase (storekitd, itunesstored, the AMS daemons, passd, financed) and universal links (swcd). Per run: CMUX_SIM_FULL=1 boots stock, CMUX_SIM_KEEP=CATEGORY,LABEL keeps more.",
+  "except": [],
+  "keep": [
+    "com.apple.apsd",
+    "com.apple.storekitd",
+    "com.apple.itunesstored",
+    "com.apple.amsaccountsd",
+    "com.apple.amsengagementd",
+    "com.apple.amsondevicestoraged",
+    "com.apple.passd",
+    "com.apple.financed",
+    "com.apple.swcd"
+  ]
+}

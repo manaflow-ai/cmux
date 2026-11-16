@@ -937,6 +937,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_sim_runtime.py
 
+      - name: The iOS simulator step slims its simulators, gates them and honors CMUX_SIM_FULL (scripts/ci/simslim)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_sim_simslim.py
+
       - name: The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_ffi_cache.py

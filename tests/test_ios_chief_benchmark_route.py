@@ -96,6 +96,8 @@ class ChiefBenchmarkRouteTests(unittest.TestCase):
             'mode="$1"; work="$2"; out="$3"; summary="$out/SUMMARY.md"\n'
             'device_type="test-device"; runtime="test-runtime"\n'
             'note() { printf "%s\\n" "$*" | tee -a "$summary"; }\n'
+            # The step's SimSlim helper, never initialized: stock, so its hooks change nothing.
+            f'source "{SCRIPT.parent / "simslim" / "simslim.sh"}"\n'
             + script[start:end] + "\n" + script[status:],
             encoding="utf-8",
         )
