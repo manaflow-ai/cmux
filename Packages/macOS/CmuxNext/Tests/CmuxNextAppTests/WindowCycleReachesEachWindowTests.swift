@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextTestSupport
+import CmuxNextDesign
 import Testing
 
 /// Select Next Window and Select Previous Window reach each cmux window: with three windows, three presses make

@@ -249,7 +249,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             continue
         row = {"pid": pid, "kind": kind, "rss_mb": round(got[0] / MB, 1),
                "footprint_mb": round(got[1] / MB, 1), "max_footprint_mb": round(got[2] / MB, 1),
-               "command": cmd[:160]}
+               "command": (in_bundle(cmd, bundle) or cmd)[:200]}
         if pid in start:
             row["cpu_pct"] = round(100 * (got[3] - start[pid][3]) / 1e9 / measure, 3)
             row["wakeups_per_s"] = round((got[4] - start[pid][4]) / measure, 2)
@@ -438,6 +438,30 @@ def print_attribution(label: str, found: dict):
     sys.stdout.flush()
 
 
+# CMUX_BENCH_VMMAP_KINDS=tui-daemon,app (cmux-ci run --env): after each sample, `vmmap --summary` of every process of
+# those kinds, as VMMAP lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap
+# suspends the process while it reads it, so it runs after the sample's window and only when asked.
+VMMAP_KINDS_ENV = "CMUX_BENCH_VMMAP_KINDS"
+
+
+def print_vmmap(result) -> None:
+    kinds = {k for k in os.environ.get(VMMAP_KINDS_ENV, "").split(",") if k}
+    if not kinds or not shutil.which("vmmap"):
+        return
+    for row in result["processes"]:
+        if row["kind"] not in kinds:
+            continue
+        got = subprocess.run(["vmmap", "--summary", str(row["pid"])], capture_output=True, text=True, timeout=120)
+        lines = got.stdout.splitlines()
+        keep = [ln for ln in lines if ln.startswith(("Physical footprint", "ReadOnly portion", "Writable regions"))]
+        start = next((i for i, ln in enumerate(lines) if ln.startswith("REGION TYPE")), None)
+        if start is not None:
+            keep += [ln for ln in lines[start:] if ln.strip() and not ln.startswith("=")][:60]
+        for ln in keep:
+            print(f"VMMAP {result['label']} {row['kind']} pid {row['pid']} | {ln.rstrip()}")
+    sys.stdout.flush()
+
+
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
           f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
@@ -451,7 +475,7 @@ def print_sample(result, top: int):
     print(f"   top {top} processes by footprint:")
     for row in result["processes"][:top]:
         print(f"   {row['footprint_mb']:>8.1f} MB  RSS {row['rss_mb']:>7.1f}  max {row['max_footprint_mb']:>7.1f}  "
-              f"{row['kind']:<20} pid {row['pid']}")
+              f"{row['kind']:<20} pid {row['pid']}  {row.get('command', '')}")
     sys.stdout.flush()
 
 
@@ -1319,6 +1343,7 @@ def main():
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
+        print_vmmap(result)
         return result
 
     try:

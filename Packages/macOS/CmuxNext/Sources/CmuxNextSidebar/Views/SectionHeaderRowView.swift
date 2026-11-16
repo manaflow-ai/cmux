@@ -166,6 +166,8 @@ final class SectionHeaderRowView: SidebarRowView {
         statusTip = nil
         cost = nil
         screenAction = nil
+        screenButton.isHidden = true
+        screenButton.isEnabled = true
         collapsed = row.isCollapsed
         isEmpty = content.isEmpty
         let symbol: IconName
@@ -205,9 +207,20 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityLabel(machine.name + ", " + words)
             setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
             screenAction = Self.screenAction(machine)
-            let share = machine.kind == .local
-            screenButton.icon = share ? .actionShare : .remoteDisplay
-            screenButton.label = share ? Strings.shareScreen : Strings.viewScreen
+            switch machine.kind {
+            case .local:
+                screenButton.icon = .actionShare
+                screenButton.label = Strings.shareScreen
+            case .cloud:
+                screenButton.icon = .remoteDisplay
+                screenButton.label = Strings.viewScreen
+            case .ssh, .server:
+                screenButton.icon = .remoteDisplay
+                screenButton.label = Strings.viewScreen
+                screenButton.isEnabled = machine.screenAvailable
+                if !machine.screenAvailable { screenButton.label += " — " + Strings.statusOffline }
+            }
+            screenButton.isHidden = screenAction == nil
         }
         // The only machine needs no name or status: the header heads the
         // workspace list, apart from the destinations above it.
@@ -248,13 +261,13 @@ final class SectionHeaderRowView: SidebarRowView {
 
     var allowsAdd = true
 
-    /// The header's screen button: Share on This Mac, View screen on a Cloud machine, none on an
-    /// SSH or server machine (their screen path needs the daemon's screen identity, not here yet).
+    /// Share on This Mac; View screen on Cloud machines and authenticated Mac devices.
+    /// SSH and server rows need the daemon's screen identity before offering View screen.
     static func screenAction(_ machine: SidebarMachine) -> SidebarIntent? {
         switch machine.kind {
         case .local: .shareScreen(machine.id)
         case .cloud: .viewScreen(machine.id)
-        case .ssh, .server: nil
+        case .ssh, .server: machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
         }
     }
 
@@ -311,7 +324,7 @@ final class SectionHeaderRowView: SidebarRowView {
         addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
         if allowsAdd {
-            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control)
+            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: 0)
         }
         // From the trailing edge: +, the screen button, the chevron, each on its own pitch, at rest too.
         let hasScreen = screenAction != nil
@@ -365,10 +378,13 @@ final class SectionHeaderRowView: SidebarRowView {
     /// Whether the machine's own icon shows before the name (tests).
     var showsMachineIcon: Bool { !machineIcon.isHidden }
 
-    /// Whether the header shows its screen button (tests).
+    /// Whether the header has a first-class screen action (tests and native gallery capture).
     var showsScreenButton: Bool { !screenButton.isHidden }
 
-    /// The fold chevron's frame (tests).
+    /// The screen action's frame (tests and native gallery geometry capture).
+    var screenButtonFrame: NSRect { screenButton.frame }
+
+    /// The disclosure's frame (tests and native gallery geometry capture).
     var chevronFrame: NSRect { chevron.frame }
 }
 
