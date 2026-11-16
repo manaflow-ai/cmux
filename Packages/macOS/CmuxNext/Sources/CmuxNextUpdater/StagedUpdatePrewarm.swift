@@ -104,8 +104,13 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// running app, then a signature read of every kept build) and whatever else waits there. A scan queued
     /// behind them ran after the person's click or never (Leo's NIGHTLY: staged 22:38:18Z, kept 22:38:45Z,
     /// clicked 22:39:16Z, no pre-warm line). The scan reads three folder levels and some Info.plists.
+    ///
+    /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
+    /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
+    /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), progress: (@Sendable (String) -> Void)? = nil) async -> String {
+                        timeout: Duration = .seconds(20), marker: URL? = nil,
+                        progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
             stagedBundle().map { ($0, runs(bundle: $0)) }
@@ -130,6 +135,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             progress?("launch pre-warm of \(build): \(part)")
             parts.append(part)
         }
+        if let marker {
+            let build = build
+            try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
+        }
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
             + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
     }
@@ -138,6 +147,35 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     static func milliseconds(_ duration: Duration) -> Int {
         let parts = duration.components
         return Int(parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000)
+    }
+
+    /// `~/Library/Application Support/<bundle id>/launch-prewarm`: the build the last pre-warm ran, until
+    /// that build's first launch consumes it. One line, rewritten by each pre-warm.
+    public static func launchMarkerURL(bundleIdentifier: String) -> URL {
+        let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager().homeDirectoryForCurrentUser.appending(path: "Library/Application Support", directoryHint: .isDirectory)
+        return support.appending(path: bundleIdentifier, directoryHint: .isDirectory).appending(path: "launch-prewarm")
+    }
+
+    /// Leaves `build` at `marker`. Blocking. A failure leaves no marker: that launch records itself as not pre-warmed.
+    static func writeLaunchMarker(build: String, at marker: URL) {
+        try? FileManager.checked.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data("\(build)\n".utf8).blockingWrite(to: marker, options: .atomic)
+    }
+
+    /// Whether the marker names `build` (a pre-warm ran this build before this, its first launch); it is
+    /// then removed, so a relaunch of the same build is not pre-warmed. A marker of another build (a staged
+    /// update not installed yet) stays. Blocking.
+    public static func consumeLaunchMarker(build: String, at marker: URL) -> Bool {
+        guard !build.isEmpty, let data = try? Data(blockingContentsOf: marker),
+              String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == build else { return false }
+        try? FileManager.checked.removeItem(at: marker)
+        return true
+    }
+
+    /// ``consumeLaunchMarker(build:at:)`` at the app's own marker (``launchMarkerURL(bundleIdentifier:)``).
+    public static func consumeLaunchMarker(build: String, bundleIdentifier: String) -> Bool {
+        consumeLaunchMarker(build: build, at: launchMarkerURL(bundleIdentifier: bundleIdentifier))
     }
 
     /// A bundle's Info.plist, or nil.

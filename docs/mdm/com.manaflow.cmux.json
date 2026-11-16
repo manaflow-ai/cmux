@@ -1263,6 +1263,16 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.fontSmoothing" : {
+      "default" : "antialiased",
+      "description" : "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+      "enum" : [
+        "antialiased",
+        "system"
+      ],
+      "title" : "Text Smoothing",
+      "type" : "string"
+    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
@@ -4491,7 +4501,7 @@
     },
     "sidebar.minimal" : {
       "default" : false,
-      "description" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+      "description" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.",
       "title" : "Minimal Mode",
       "type" : "boolean"
     },

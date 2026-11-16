@@ -22,14 +22,18 @@ extension UpdaterService {
         let prewarm = StagedUpdatePrewarm(installation: UpdateInstallPreflight.stagedInstallation(bundleIdentifier: bundleIdentifier),
                                           bundleIdentifier: bundleIdentifier, build: build)
         let runner = prewarmRunner, log = log, work = work
+        // The build's first launch records itself as pre-warmed (`cmux app launch-times`); no test writes the person's marker.
+        let process = ProcessInfo.processInfo
+        let marker = UpdateLogFile.isTestProcess(name: process.processName, environment: process.environment)
+            ? nil : StagedUpdatePrewarm.launchMarkerURL(bundleIdentifier: bundleIdentifier)
         // task-owner: one pre-warm per staged build; ends after its last process (each stopped at its timeout).
         // Best effort: nobody waits for it; its folder scan runs on a files lane slot of its own
-        // (``StagedUpdatePrewarm/perform(work:processes:timeout:progress:)``), its processes through AsyncProcess.
+        // (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:progress:)``), its processes through AsyncProcess.
         Task.detached(priority: WorkPriority.bestEffort.taskPriority) {
             if let runner {
                 log.append(await runner(prewarm))
             } else {
-                log.append(await prewarm.perform(work: work, progress: { log.append($0) }))
+                log.append(await prewarm.perform(work: work, marker: marker, progress: { log.append($0) }))
             }
         }
     }
