@@ -505,7 +505,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
-        Some(Command::ToolsMcp) => crate::tools_mcp::run().await,
+        Some(Command::ToolsMcp) => crate::cli::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());

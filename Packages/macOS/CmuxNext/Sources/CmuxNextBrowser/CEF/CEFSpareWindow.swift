@@ -34,8 +34,36 @@ import Foundation
 /// own store takes it instead of `cmux_shim_tab_add` (`CEFPaneHost+SparePage`), which held the main
 /// thread about 12 ms per new tab, as Chrome on Android's WarmupManager keeps a spare WebContents
 /// outside the tab model. Each take reports `onNeeded`, so the next idle moment makes the next one.
+///
+/// The cmux pages' off-the-record store has a spare window of its own (`CEFRuntime.pageSpareWindow`,
+/// no spare page): each cmux page (an agent chat, Settings, a Markdown viewer) after the first joins a
+/// window made at an idle moment instead of building its own on the open's turn (`create_window` to
+/// `first_window`, about 80-160 ms per page on a fast Mac). Chrome keeps one window for many pages
+/// (tabs) and builds no window ahead; cmux differs because a Chromium window draws only its active
+/// tab and cmux pages show at once, each in its own pane, so each page needs a window of its own;
+/// the next one is made ahead, as Android's WarmupManager makes a spare WebContents. That window is
+/// of the pages' store only: a page never takes a web tab's spare, nor a web tab the pages' one, so
+/// cmux pages and outside web content never share a window or a store.
 final class CEFSpareWindow {
     static let panePrefix = "spare-"
+
+    /// The store its window is of: the default profile's own (web tabs), or the cmux pages'
+    /// off-the-record profile (`CEFRuntime.pageSpareWindow`).
+    let profile: BrowserProfileID
+    let offTheRecord: Bool
+
+    init(profile: BrowserProfileID = .default, offTheRecord: Bool = false) {
+        self.profile = profile
+        self.offTheRecord = offTheRecord
+    }
+
+    /// True when `key` is a pane of this spare's store (that profile's own, no remote machine's).
+    func serves(_ key: CEFPaneKey) -> Bool {
+        key.profile == profile && key.offTheRecord == offTheRecord && key.machineKey == nil
+    }
+
+    /// Only the default profile's spare window makes a spare page (a new web tab takes it).
+    private var makesSparePages: Bool { !offTheRecord && Self.makesPages }
 
     enum State: String {
         case none, creating, live, taken, closed
@@ -109,9 +137,9 @@ final class CEFSpareWindow {
               !runtime.hosts.values.contains(where: \.isCreatingWindow) else { return false }
         if let host { return preparePage(in: host, runtime: runtime) }
         made = true
-        let key = Self.spareKey()
+        let key = spareKey()
         let spare = runtime.host(for: key)
-        let blank = CEFTab(id: .random(), profile: .default, host: spare, runtime: runtime)
+        let blank = CEFTab(id: .random(), profile: profile, host: spare, runtime: runtime)
         spare.placeholder = blank
         spare.freezesPlaceholder = true
         spare.add(blank)
@@ -124,10 +152,10 @@ final class CEFSpareWindow {
         return true
     }
 
-    /// The spare, re-keyed to `key`, when `key` is a pane of the default
-    /// profile's own store; nil otherwise.
+    /// The spare, re-keyed to `key`, when `key` is a pane of this spare's
+    /// store (`serves`); nil otherwise.
     func take(for key: CEFPaneKey, runtime: CEFRuntime) -> CEFPaneHost? {
-        guard let spare = host, key.profile == spare.key.profile, key.machineKey == nil, !key.offTheRecord,
+        guard let spare = host, serves(key), serves(spare.key),
               !key.pane.rawValue.hasPrefix(Self.panePrefix), !key.pane.rawValue.hasPrefix(CEFPaneHost.popupPrefix),
               !key.pane.rawValue.hasPrefix(CEFPaneHost.agentPrefix),
               spare.placeholder != nil, spare.isLive || spare.isCreatingWindow else { return nil }
@@ -146,7 +174,7 @@ final class CEFSpareWindow {
     /// active tab), with an empty URL. Needs `cmux_shim_tab_move_to_window` (fork API 3), which takes it
     /// into a pane's window. True when it was made.
     private func preparePage(in spare: CEFPaneHost, runtime: CEFRuntime) -> Bool {
-        guard Self.makesPages, !pagesHeld, page == nil, spare.isLive, runtime.forkAPIVersion >= 3, let anchor = spare.placeholder?.browserID,
+        guard makesSparePages, !pagesHeld, page == nil, spare.isLive, runtime.forkAPIVersion >= 3, let anchor = spare.placeholder?.browserID,
               let shim = runtime.shim else { return false }
         if let restsUntil {
             guard now() >= restsUntil else { return false }
@@ -284,7 +312,7 @@ final class CEFSpareWindow {
             return
         }
         runtime.hosts[taken.key] = nil
-        taken.rekey(Self.spareKey())
+        taken.rekey(spareKey())
         runtime.hosts[taken.key] = taken
         host = taken
         // The pane that showed it is gone: tabs Chromium places must not follow it here.
@@ -299,7 +327,7 @@ final class CEFSpareWindow {
         if held, let page {
             self.page = nil
             page.host.runtime.shim?.close(page.browser)
-        } else if !held, host != nil, Self.makesPages {
+        } else if !held, host != nil, makesSparePages {
             onNeeded?()
         }
     }
@@ -321,10 +349,16 @@ final class CEFSpareWindow {
 
     /// A Chromium window came up (`CEFPaneHost.windowCreated`): with no spare ready, ask for one,
     /// so a Chromium a tab started, not the warm start, gets a spare too. The spare window itself
-    /// coming up asks for its spare page.
+    /// coming up asks for its spare page. The cmux pages' spare hears only of its own store's
+    /// windows, and its own window coming up asks again too: it took an idle moment that may have
+    /// been the other spare's (`ChromiumWarmup` makes one window per idle moment).
     func windowCameUp(_ live: CEFPaneHost) {
         guard !live.holdsOwnTab else { return }
-        if host == nil || (live === host && page == nil && Self.makesPages) { onNeeded?() }
+        guard !offTheRecord else {
+            if serves(live.key), host == nil || live === host { onNeeded?() }
+            return
+        }
+        if host == nil || (live === host && page == nil && makesSparePages) { onNeeded?() }
     }
 
     /// Chromium put `browser` into the spare's window before a tab took it.
@@ -338,14 +372,15 @@ final class CEFSpareWindow {
         return parked
     }
 
-    private static func spareKey() -> CEFPaneKey {
-        CEFPaneKey(pane: BrowserPaneID(rawValue: panePrefix + BrowserTabID.random().rawValue), profile: .default)
+    private func spareKey() -> CEFPaneKey {
+        CEFPaneKey(pane: BrowserPaneID(rawValue: Self.panePrefix + BrowserTabID.random().rawValue), profile: profile,
+                   offTheRecord: offTheRecord)
     }
 }
 
 extension CEFPaneHost {
-    /// True while this host is the untaken spare window.
-    var isSpare: Bool { runtime.spareWindow.isSpare(self) }
+    /// True while this host is an untaken spare window (the web tabs' or the cmux pages').
+    var isSpare: Bool { runtime.spareWindowHolding(self) != nil }
 
     /// A spare window's host becomes another host key. The caller keeps the
     /// store (`take` and `giveBack` change only the pane): a key of another
@@ -372,7 +407,7 @@ extension CEFPaneHost {
             if let browser = tab.browserID { self.lastActivated = browser }
             self.removed(blank)
             blank.close()
-            for parked in self.runtime.spareWindow.takeParked()
+            for parked in self.runtime.spareWindowServing(self.key)?.takeParked() ?? []
             where self.runtime.tabsByBrowser[parked.browser] == nil && !self.runtime.orphans.ledger.isClosed(parked.browser) {
                 self.adoptChromiumTab(browser: parked.browser, disposition: parked.disposition, bounds: parked.bounds)
             }
