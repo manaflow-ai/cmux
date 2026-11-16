@@ -4,13 +4,16 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
+import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
+import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -667,6 +670,79 @@ describe("opRetryable", () => {
     expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
     expect(opRetryable({ ok: true, value: {} })).toBe(false);
     expect(opRetryable("vm_unavailable")).toBe(false);
+  });
+});
+
+describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
+  const unreachable = { status: 503, body: { _tag: "OwnerUnreachable", code: "owner.unreachable", message: "Error: Network connection lost.", retryable: true } };
+  const timedOut = { status: 503, body: { ok: false, error: { code: "owner.unreachable", message: "CallTimedOut: team machines: get did not answer", retryable: true } } };
+  const ok = { status: 200, body: { ok: true, value: { id: "vm_1" } } };
+  /** Answers each request with the next of `answers` (the last repeats) and keeps the bodies sent. */
+  async function withAnswers<T>(answers: { status: number; body: unknown }[], run: (sent: any[]) => Promise<T>): Promise<T> {
+    const sent: any[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      const a = answers[Math.min(sent.length - 1, answers.length - 1)]!;
+      return new Response(JSON.stringify(a.body), { status: a.status });
+    }) as typeof fetch;
+    try {
+      return await run(sent);
+    } finally {
+      globalThis.fetch = real;
+    }
+  }
+  const journey = () => new Journey(resolveBackend("staging"), null, {});
+  const api = () => Object.assign(new Api("https://api.invalid"), { bearer: "t" });
+
+  test("op() sends the same request once more under the same key, and the step says so", async () => {
+    await withAnswers([unreachable, ok], async (sent) => {
+      const J = journey();
+      const v = await J.step("create", async () => ({ value: await api().op("cloud.machine.create", { name: "n" }, "tag-create"), detail: "vm_1" }));
+      expect(v).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+      expect(sent[1]).toEqual(sent[0]);
+      expect(sent[1].idempotency_key).toBe("tag-create");
+      expect(J.steps[0]!.detail).toBe("vm_1; retried once after owner.unreachable");
+    });
+  });
+
+  test("read() reads once more, and a second owner.unreachable fails the step naming the retry", async () => {
+    await withAnswers([timedOut, ok], async (sent) => {
+      expect(await api().read("cloud.machine.get", { machine: "vm_1" })).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+    });
+    await withAnswers([unreachable], async (sent) => {
+      const J = journey();
+      await expect(J.step("get", async () => ({ value: await api().read("cloud.machine.get", { machine: "vm_1" }), detail: "" }))).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(2);
+      expect(J.steps[0]!.status).toBe("fail");
+      expect(J.steps[0]!.detail).toContain("retried once after owner.unreachable");
+    });
+    await withAnswers([unreachable], async (sent) => {
+      await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "tag-start")).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(2);
+    });
+  });
+
+  test("no retry on other codes, on owner.unreachable not marked retryable, or on an op without a key", async () => {
+    const answers = [
+      { status: 503, body: { ok: false, error: { code: "cloud.provider.unavailable", retryable: true } } },
+      { status: 503, body: { code: "owner.unreachable", retryable: false } },
+      { status: 409, body: { ok: false, error: { code: "cloud.machine.busy", retryable: false } } },
+    ];
+    for (const a of answers) {
+      // Every request gets the error: op and read each send exactly one.
+      await withAnswers([a], async (sent) => {
+        await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "k")).rejects.toThrow();
+        await expect(api().read("cloud.machine.get", { machine: "vm_1" })).rejects.toThrow();
+        expect(sent.length).toBe(2);
+      });
+    }
+    await withAnswers([unreachable, ok], async (sent) => {
+      await expect(api().op("cloud.machine.start", { machine: "vm_1" })).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(1);
+    });
   });
 });
 
@@ -2401,10 +2477,16 @@ describe("claudeTranscriptModelsProgram", () => {
       const journey = new Journey(resolveBackend("staging"), null, {}, true);
       const code = runPreclaimBurst({
         backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
-        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
         fetchJson: async () => ({ status: 200, body: { ok: true, commit: "0123456789abcdef" } }),
       });
-      await expect(code).rejects.toThrow("warm-spare refused (exit 1): stub: stub refused");
+      // A failed claim is recorded with its step and the burst goes on to the next (run 43918388959 stopped at claim 2
+      // of 20 on one reset); the burst still ends red.
+      expect(await code).toBe(1);
+      expect(journey.preclaimFailures.map((f) => [f.claim, f.error])).toEqual([
+        [0, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+        [1, "warm spare: warm-spare refused (exit 1): stub: stub refused"],
+      ]);
       const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
       const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
       expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
@@ -2414,6 +2496,19 @@ describe("claudeTranscriptModelsProgram", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("a read that drops while the reply is awaited is not judged, and does not fail the claim", async () => {
+    // run 43918388959 claim 2: the session started and the prompt was taken, then a /exec read reset (ECONNRESET).
+    const replies: Array<string | Error> = ["@@exit 0", "@@exit 0", new Error("ECONNRESET: The socket connection was closed unexpectedly")];
+    const result = await runPreclaimChat(async () => {
+      const next = replies.shift();
+      if (next === undefined) throw new Error("unexpected extra command");
+      if (next instanceof Error) throw next;
+      return { code: 0, stdout: next, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait read failed: ECONNRESET: The socket connection was closed unexpectedly");
   });
 
   test("a preclaim reply the model refuses is not judged, names the turn's error, and does not fail the claim", async () => {
@@ -2601,6 +2696,40 @@ describe("preclaim MET table fields", () => {
   });
 });
 
+describe("--ensure-bench times acp ensure on a fresh machine", () => {
+  // Claim 4 of run 43873927808: "agent start refused" after ~2 min on a 2-core machine at load 3.9. The bench measures
+  // ensure right after boot, once boot settles, and with both cores loaded, so a slow start is timed instead of cut off.
+  test("the guest program times one ensure in its own session and stops it", () => {
+    const quiet = ensureBenchCommand("bench-1", false);
+    expect(quiet).toContain("acp ensure 'bench-1' -m claude --json");
+    expect(quiet).toContain("acp stop 'bench-1'");
+    expect(quiet).toContain("/proc/loadavg");
+    expect(quiet).not.toContain("yes >/dev/null");
+    const loaded = ensureBenchCommand("bench-2", true);
+    expect(loaded).toContain("yes >/dev/null & y1=$!");
+    expect(loaded).toContain("kill $y1 $y2");
+  });
+
+  test("a run's answer parses into its timing, exit, load and boot state", () => {
+    const stdout = "@@ms 131250\n@@exit 1\n@@load1 3.92\n@@state starting\n@@top 98.0 yes;97.5 yes;12.0 claude\n@@out acp: harness claude did not start\n@@slow\nline a\nline b\n";
+    expect(parseEnsureBench(stdout, "loaded", 2)).toEqual({ condition: "loaded", run: 2, ms: 131250, exit: "1", load1: "3.92", state: "starting", top: "98.0 yes;97.5 yes;12.0 claude", output: "acp: harness claude did not start", slow: "line a\nline b" });
+    expect(parseEnsureBench("", "boot", 0)).toMatchObject({ ms: null, exit: "none", slow: "" });
+  });
+
+  test("the table names each condition's p50 and max and whether any crossed the 120 s exec", () => {
+    const runs = [
+      parseEnsureBench("@@ms 4000\n@@exit 0\n@@load1 0.5\n@@state running\n@@top 1 x\n@@out ok\n", "settled", 0),
+      parseEnsureBench("@@ms 6000\n@@exit 0\n@@load1 0.6\n@@state running\n@@top 1 x\n@@out ok\n", "settled", 1),
+      parseEnsureBench("@@ms 125000\n@@exit 0\n@@load1 3.9\n@@state running\n@@top 1 x\n@@out ok\n", "loaded", 0),
+    ];
+    const md = ensureBenchMarkdown(runs);
+    expect(md).toContain("| settled | 2 | 4000 | 6000 | 0 |");
+    expect(md).toContain("| loaded | 1 | 125000 | 125000 | 1 |");
+    expect(md).toContain("crossed 120 s: 1 of 3");
+    expect(md).not.toContain("@@");
+  });
+});
+
 describe("a preclaim agent start that fails says why", () => {
   // Run 43873927808's claim 4 recorded only "agent start refused": acp ensure's exit, output and time were dropped, and
   // the guest facts kept the journal's tail, which pushed out the own-login and acp tail sections.
@@ -2620,5 +2749,105 @@ describe("a preclaim agent start that fails says why", () => {
     expect(record.guest).toContain("== own login\nyes");
     expect(record.guest).toContain("== acp tail s");
     expect(record.guest!.length).toBeLessThanOrEqual(12_000);
+  });
+});
+
+describe("exec probe bench", () => {
+  const run = (over: Partial<ExecProbeRun>): ExecProbeRun => ({ condition: "settled", kind: "short", run: 0, nonce: "n0", ms: 300, status: 200, code: "", cause: "", ranOnGuest: null, ...over });
+
+  test("a probe leaves its nonce on the guest before it waits", () => {
+    expect(execProbeCommand("p-1", 0)).toBe(`echo p-1 >> ${EXEC_PROBE_NONCES}; echo ok`);
+    expect(execProbeCommand("p-2", 20)).toBe(`echo p-2 >> ${EXEC_PROBE_NONCES}; sleep 20; echo ok`);
+  });
+
+  test("a request that throws with no answer is kept as a probe with its code, not thrown", async () => {
+    const reset = Object.assign(new Error("The socket connection was closed unexpectedly."), { code: "ECONNRESET" });
+    const r = await execProbe(async () => { throw reset; }, "p-1", 0);
+    expect(r).toMatchObject({ status: null, code: "ECONNRESET", cause: "The socket connection was closed unexpectedly." });
+  });
+
+  test("each answer names its hop", async () => {
+    const answer = (status: number, body: unknown) => execProbe(async () => ({ status, body }), "p", 0);
+    expect(await answer(200, { ok: true, value: { exitCode: 0, stdout: "ok\n", stderr: "" } })).toMatchObject({ status: 200, code: "" });
+    const doReset = await answer(503, { ok: false, error: { code: "vm_unavailable", message: "the Cloud service restarted during the call; retry", reason: "restarted" } });
+    expect(execProbeHop(run(doReset))).toBe("Worker → CloudDO (restarted)");
+    expect(execProbeHop(run(await answer(502, { ok: false, error: { code: "vm_unavailable", message: "the machine did not answer; retry" } })))).toBe("CloudDO → provider exec");
+    expect(execProbeHop(run(await answer(524, { raw: "<html>" })))).toBe("edge → Worker (HTTP 524)");
+    expect(execProbeHop(run(await answer(200, { ok: true, value: { exitCode: 1, stdout: "", stderr: "x" } })))).toBe("guest command (exit 1)");
+    expect(execProbeHop(run({}))).toBeNull();
+  });
+
+  test("a probe with no answer is placed by whether the guest holds its nonce", () => {
+    const lost = [run({ nonce: "a", status: null, code: "ECONNRESET" }), run({ nonce: "b", status: null, code: "ECONNRESET" }), run({ nonce: "c" })];
+    const marked = markRanOnGuest(lost, "a\nc\n");
+    expect(marked.map((r) => execProbeHop(r))).toEqual(["answer lost after the guest ran it", "request lost before the guest", null]);
+    expect(markRanOnGuest(lost, null).map((r) => execProbeHop(r))).toEqual(["no answer; guest nonces unread", "no answer; guest nonces unread", null]);
+  });
+
+  test("the table counts failures per condition and kind and lists each one", () => {
+    const md = execProbeMarkdown([
+      run({ condition: "boot", nonce: "a", ms: 100 }),
+      run({ condition: "boot", nonce: "b", ms: 900, status: null, code: "ECONNRESET", cause: "socket | closed", ranOnGuest: true }),
+      run({ condition: "settled", kind: "wait", nonce: "c", ms: 20_400 }),
+    ]);
+    expect(md).toContain("- probes: 3; failed: 1 (no answer: 1, refused: 0)");
+    expect(md).toContain("| boot | short | 2 | 1 | 100 | 900 |");
+    expect(md).toContain("| settled | wait | 1 | 0 | 20400 | 20400 |");
+    expect(md).toContain("| boot | short | 0 | 900 | - | ECONNRESET | yes | answer lost after the guest ran it | socket \\| closed |");
+  });
+});
+
+describe("a request whose socket drops (run 43927514723: connect_info ECONNRESET 40 ms in)", () => {
+  /** A local HTTP server that resets the socket of the first `resets` requests and answers the rest with `{ok:true}`. */
+  async function resetting<T>(resets: number, run: (url: string, seen: () => number) => Promise<T>): Promise<T> {
+    const { createServer } = await import("node:net");
+    let seen = 0;
+    const server = createServer((c) => {
+      c.on("data", () => {
+        seen++;
+        if (seen <= resets) return c.resetAndDestroy();
+        const body = JSON.stringify({ ok: true, value: { host: "h" } });
+        c.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`);
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      return await run(`http://127.0.0.1:${(server.address() as { port: number }).port}`, () => seen);
+    } finally {
+      server.close();
+    }
+  }
+
+  test("a read is sent once more on a fresh connection and answers", async () => {
+    await resetting(1, async (url, seen) => {
+      const r = await journeyHttp("POST", `${url}/v1/read`, { op: "cloud.machine.connect_info", params: {} }, {}, 5_000, true);
+      expect(r.status).toBe(200);
+      expect(r.body.value).toEqual({ host: "h" });
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a GET retries by default; a second drop fails naming both", async () => {
+    await resetting(1, async (url, seen) => {
+      expect((await journeyHttp("GET", `${url}/v1/health`, undefined, {})).status).toBe(200);
+      expect(seen()).toBe(2);
+    });
+    await resetting(2, async (url, seen) => {
+      await expect(journeyHttp("GET", `${url}/v1/health`, undefined, {})).rejects.toThrow("sent once more on a fresh connection");
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a POST that is not repeatable (an op with no key, an exec) is sent once", async () => {
+    await resetting(1, async (url, seen) => {
+      await expect(journeyHttp("POST", `${url}/v1/cloud/machines/m/exec`, { command: "true" }, {})).rejects.toThrow();
+      expect(seen()).toBe(1);
+    });
+  });
+
+  test("socketDropped knows a dropped socket from a timeout", () => {
+    expect(socketDropped(Object.assign(new TypeError("ECONNRESET: The socket connection was closed unexpectedly."), { code: "ECONNRESET" }))).toBe(true);
+    expect(socketDropped(new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }))).toBe(true);
+    expect(socketDropped(new DOMException("The operation timed out.", "TimeoutError"))).toBe(false);
   });
 });
