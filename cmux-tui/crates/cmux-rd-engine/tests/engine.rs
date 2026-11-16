@@ -467,3 +467,27 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
+
+#[test]
+fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 6_000, 0);
+    let start = e.stats().target_bps;
+    // The radio was away for 400 ms; everything arrives at once when it is back.
+    let arrivals = sent
+        .iter()
+        .map(|d| Arrival {
+            transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+            arrival_us: 400_000,
+        })
+        .collect();
+    let out =
+        e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), false, 404_000);
+    let end = out.outage_ended.expect("the host learns the outage ended");
+    assert!(end.silent_us > 100_000, "{end:?}");
+    assert_eq!(e.stats().target_bps, start, "an outage is not congestion");
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    assert!(e.damage(0, small, 405_000).is_some(), "the gate no longer waits for the stale frame");
+}
