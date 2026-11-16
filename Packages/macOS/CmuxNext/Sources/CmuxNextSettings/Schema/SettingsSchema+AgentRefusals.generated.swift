@@ -194,6 +194,6 @@ extension SettingsSchema {
         "browser.passwords.offerToSave": .privacy, "browser.passwords.generate": .privacy,
         "browser.passwords.allowExport": .privacy,
         // The person decides whether cmux reads verification emails.
-        "browser.verificationAutofill.enabled": .privacy,
+        "browser.verificationAutofill.enabled": .privacy, "browser.verificationAutofill.accounts": .privacy,
     ]
 }

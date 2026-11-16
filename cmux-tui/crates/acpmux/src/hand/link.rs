@@ -215,7 +215,7 @@ async fn serve(
     let (mut sink, mut source) = ws.split();
     let hello = json!({
         "t": "hello",
-        "version": crate::hub::VERSION,
+        "version": crate::build_info::VERSION,
         "profile": cfg.profile,
         "roots": cfg.roots,
         "agent_policy": cfg.agent_policy,
