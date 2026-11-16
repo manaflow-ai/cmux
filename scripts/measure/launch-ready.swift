@@ -132,9 +132,12 @@ var row: [String: Any] = [
     "finished_launching": rel(finished), "window_on_screen": rel(window), "active": rel(active),
     // The prime launch (a fresh home: no Home cache, no Chief yet) keeps every mark, so the steps of its
     // wait for Home (home.chief_owner_ready, home.chief_create_replied, ...) can be named; every launch keeps
-    // the launch steps (dfl.*) and Home's (home.*), so a relaunch's cache read shows too.
-    "marks": marks.filter { label == "prime" || keep.contains($0.key) || $0.key.hasPrefix("dfl.") || $0.key.hasPrefix("home.") },
+    // the launch steps (dfl.*), Home's (home.*) and every region the first window reveals (reveal.*): a launch that
+    // opens on a pane, not Home, is timed by reveal.pane, so a relaunch's cache read and its first region show too.
+    "marks": marks.filter { label == "prime" || keep.contains($0.key) || $0.key.hasPrefix("dfl.") || $0.key.hasPrefix("home.") || $0.key.hasPrefix("reveal.") },
     "all_marks": marks.count,
+    // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
+    "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
