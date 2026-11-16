@@ -395,7 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
-        services.cloud.machineWire.onSpareReady = { [weak services] machine in if let services { CloudStartChat.warmSpare(services, ready: machine) } } // login onto a spare the moment it is ready, before any claim
+        services.cloud.machineWire.follow(spareReady: { [weak services] (machine: String) in if let services { CloudStartChat.warmSpare(services, ready: machine) } }, teams: { [weak services] (active: String?) async -> [String]? in guard let cloud = services?.cloud, let binary = cloud.move.cli else { return nil }; return await CloudMoveCLI(binary: binary).startChatWireTeams(active: active, install: try? await cloud.installIdentity.installToken()) }) // login onto a ready spare before any claim, in every team Rust's wireTeams names
         services.configActions.start(settings: settings)
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
