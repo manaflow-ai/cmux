@@ -33,6 +33,8 @@ Checks per scenario (CHECKS.json and stdout PASS/FAIL):
 import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, threading, time, atexit
 
 from sidebar_v2_motion_checks import analyse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
@@ -353,7 +355,7 @@ def trace_stop(handle):
             entry["ratio_ms_per_s"] = round(total_ns / 1e6 / summary["trace_seconds"], 2)
         summary[schema] = entry
     TRACE.update(summary)
-    print(f"TRACE {json.dumps(summary)}", flush=True)
+    safe_print(f"TRACE {json.dumps(summary)}", flush=True)
 
 
 def start_ticks(seconds=180, tick_ms=250):

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -15,6 +16,7 @@ let root: Root | undefined;
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

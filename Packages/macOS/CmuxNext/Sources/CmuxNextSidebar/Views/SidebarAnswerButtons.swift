@@ -128,7 +128,7 @@ final class SidebarAnswerButton: NSView {
             title.setColor(prominent ? Palette.textPrimary : Palette.textSecondary)
             keyLabel.setColor(Palette.textTertiary)
             guard let layer else { return }
-            layer.cornerRadius = Metrics.insetCornerRadius
+            layer.cornerRadius = Metrics.buttonCornerRadius
             layer.cornerCurve = .continuous
             let rest = prominent ? Palette.badgeFill : nil
             let fill = pressing ? Palette.pressedFill

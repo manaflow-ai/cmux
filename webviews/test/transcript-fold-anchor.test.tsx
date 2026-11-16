@@ -13,6 +13,7 @@ import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -116,13 +117,9 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { endTurnFold, startTurnFold } = await import("../src/agent-session/acpmux/conversation/turnFold");
 
-afterAll(() => {
+afterAll(async () => {
   performance.now = clock;
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 let at = 0;

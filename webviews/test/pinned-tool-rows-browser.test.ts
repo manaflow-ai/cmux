@@ -1,7 +1,7 @@
 // l10n-allow-file: browser fixtures and measurement diagnostics.
 // A running turn scrolled away from its end, when the agent's next call arrives (Leo, 2026-11-08:
 // "if i have a tool call expanded, the auto folding situation shouldn't collapse it when a new tool
-// call comes in and the folds reformat"). Under the shipped live-turn-work `line` a running turn
+// call comes in and the folds reformat"). Under live-turn-work `line` (the scenes pin it) a running turn
 // draws no finished run, only its reply and one live line (turns.ts `codexRuns`), so the next call
 // regroups nothing in view: the reply the reader reads stays on the same pixel. At the turn's end in
 // the group scene the view's offset holds; the reply moves down by the work the end draws above it. Real Chromium plays the tool-group entry's scenes
@@ -34,7 +34,7 @@ await requireBrowserLane("pinned-tool-rows-browser.test.ts", async () => {
     await gallery?.close();
   });
 
-  // Under the shipped live-turn-work `line` a running turn draws no finished run (turns.ts
+  // Under live-turn-work `line` (the scenes pin it) a running turn draws no finished run (turns.ts
   // `codexRuns`): the next call moves nothing the reader reads, and neither does the turn's end.
   const titles: Record<string, string> = {
     "pinned-lone": "the next call draws no run and moves nothing in view",

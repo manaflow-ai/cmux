@@ -34,13 +34,13 @@ final class DeclarativePopupHost {
         self.isAppActive = isAppActive
         panel.isAppActive = isAppActive
         popup = NativePopupHost(panel: panel)
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)
         content.autoresizingMask = [.width]
         scroll.documentView = content
-        surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
+        surface = Glass.makeMenuPanel(content: scroll)
         surface.samplesBehindWindow = true
         panel.adoptPopupStyle(card: surface)
         popup.onDismiss = { [weak self] in

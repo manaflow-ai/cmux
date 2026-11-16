@@ -6,6 +6,7 @@
 // pane shows the chat.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -27,11 +28,8 @@ const { createRoot } = await import("react-dom/client");
 const { useOpenNewSubagents } = await import("../src/agent-session/acpmux/subagents/subagentPanes");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const CHAT = "0190a000-0000-7000-8000-0000000000d1";

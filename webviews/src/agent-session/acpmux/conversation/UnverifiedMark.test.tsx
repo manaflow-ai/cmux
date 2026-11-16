@@ -4,6 +4,7 @@
 // acpmux saw send it (incomingMessage.ts `senderProgram`), what acpmux checked: the program, the
 // machine its send named, that no agent was proven, and the program's path.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,6 +22,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

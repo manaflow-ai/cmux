@@ -44,16 +44,21 @@ TOOL_RESOLVER='
 import os
 import sys
 import tempfile
+import unicodedata
 
 # The names children of the hook may look up on PATH. Each gets a link in the
-# private PATH directory of the children when the resolver finds a checked one; a
-# name not listed here is simply not found by a child.
+# private PATH directory of the children when the resolver finds a checked one.
+# Every other name on PATH gets a stub there, after them, that says it is not
+# listed here and exits 127, so a child (by name, exec or shebang) that needs
+# one more tool fails loudly with the fix. Add a tool with the child that needs it.
 CHILD_TOOLS = (
     "git", "sed", "grep", "head", "cut", "sort", "awk", "cat", "mkdir", "mv", "rm", "find", "env",
     "mktemp", "tail", "sleep", "sh", "bash", "node", "npm", "npx", "bun", "bunx", "rustup", "rustfmt",
     "cargo", "python3", "dirname", "basename", "readlink", "realpath", "uname", "chmod", "ln", "cp",
     "tr", "xargs", "touch", "wc", "date", "id", "which", "tar", "gzip",
 )
+# The stubs for every other name, the second entry of the PATH children get.
+NOT_LISTED = ".not-listed"
 
 
 def real(path):
@@ -188,7 +193,7 @@ def check(candidate, root, mode, dirs):
 def find(name, search_path, dirs):
     for entry in search_path.split(":"):
         if not entry.startswith("/"):
-            if os.path.isfile(os.path.join(entry, name)):
+            if os.path.isfile(os.path.join(entry, name)) and os.access(os.path.join(entry, name), os.X_OK):
                 label = entry or "(empty: the current directory)"
                 say(f"PATH entry {label} is relative; not running {name} from it.")
             continue
@@ -210,11 +215,84 @@ def child_path(search_path, dirs, found):
         sys.exit(1)
     plain(real(base))  # the directory name must reach bash whole, or nothing is made
     shims = real(tempfile.mkdtemp(prefix="cmux-pre-commit-path.", dir=base))
+    linked = set()
     for name in CHILD_TOOLS:
         tool = found[name] if name in found else find(name, search_path, dirs)
         if tool:
-            os.symlink(tool, os.path.join(shims, name))
+            link(tool, shims, name)
+            linked.add(name)
+    # Two stubs, after the links: one for a name CHILD_TOOLS does not list, one
+    # for a listed name with no copy the resolver accepts (none on PATH, or each
+    # one inside this checkout). Each runs nothing from PATH: /bin/sh, its own
+    # name, a message, 127. It covers a child running the name by name, by exec
+    # and by a #!/usr/bin/env shebang alike.
+    stubs = {}
+    try:
+        os.mkdir(os.path.join(shims, ".stub"))
+        for kind, message in (
+            ("not-listed", "${0##*/} isn\x27t in CHILD_TOOLS (scripts/git-hooks/pre-commit); a child of the hook"
+                           " ran it by name. Add it there, with the reason."),
+            ("unresolved", "${0##*/} is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
+                           " outside this checkout; a child of the hook ran it by name."),
+        ):
+            stubs[kind] = os.path.join(shims, ".stub", kind)
+            with open(stubs[kind], "w") as handle:
+                handle.write("#!/bin/sh\necho \"pre-commit: " + message + "\" >&2\nexit 127\n")
+            os.chmod(stubs[kind], 0o755)
+        os.mkdir(os.path.join(shims, NOT_LISTED))
+    except OSError as error:
+        say(f"could not make the stubs in {shims}: {error}; not committing.")
+        sys.exit(1)
+    # Every executable file on PATH, whatever its name (.hidden-tool too):
+    # whether a name runs is up to the file, so that alone decides.
+    names = set()
+    for entry in search_path.split(":"):
+        if entry.startswith("/"):
+            try:
+                listed = os.listdir(entry)
+            except OSError:
+                continue
+            for name in listed:
+                path = os.path.join(entry, name)
+                if name not in (".", "..") and os.path.isfile(path) and os.access(path, os.X_OK):
+                    names.add(name)
+    # One stub per name as a case- and normalization-insensitive volume (the
+    # macOS default for the temporary directory) sees it: Probe and probe, or
+    # the same name in two PATH directories, are one file there. A listed name
+    # comes first, so NODE on PATH never takes the stub of a listed node.
+    taken = set()
+    for name in sorted(set(CHILD_TOOLS).difference(linked)) + sorted(names.difference(CHILD_TOOLS)):
+        if "/" in name or folded(name) in taken:
+            continue
+        taken.add(folded(name))
+        link(stubs["unresolved" if name in CHILD_TOOLS else "not-listed"], shims, os.path.join(NOT_LISTED, name))
     return shims
+
+
+def folded(name):
+    """A file name as a case- and normalization-insensitive volume compares it."""
+    return unicodedata.normalize("NFD", name).casefold()
+
+
+def link(target, shims, name):
+    """shims/name -> target. One already there that points at target is fine (the same
+    name made twice); any other failure names the link and stops the hook."""
+    path = os.path.join(shims, name)
+    try:
+        os.symlink(target, path)
+        return
+    except FileExistsError as error:
+        try:
+            if os.readlink(path) == target:
+                return
+        except OSError:
+            pass
+        failure = error
+    except OSError as error:
+        failure = error
+    say(f"could not make {name} in the PATH of the hook\x27s children ({shims}):"
+        f" {failure.strerror or failure}; not committing.")
+    sys.exit(1)
 
 
 def plain(*fields):
@@ -224,41 +302,43 @@ def plain(*fields):
     return "\t".join(fields)
 
 
-mode, arguments = sys.argv[1], sys.argv[2:]
-if mode == "boot":
-    start, search_path, names = arguments[0], arguments[1], arguments[2:]
-    dirs = checkout_dirs(start)
-    if not dirs:
-        say("found no git directory for this checkout; not running its tools.")
-        sys.exit(1)
-    if not check(sys.executable, "", "", dirs):
-        sys.exit(1)
-    lines = [plain("dir", directory) for directory in dirs]
-    missing = []
-    found = {}
-    for name in names:
-        found[name] = find(name, search_path, dirs)
-        if found[name]:
-            lines.append(plain("tool", "TOOL_" + name.upper().replace("-", "_"), found[name]))
+# Run by python3 -c; tests load the functions above without running this.
+if __name__ == "__main__":
+    mode, arguments = sys.argv[1], sys.argv[2:]
+    if mode == "boot":
+        start, search_path, names = arguments[0], arguments[1], arguments[2:]
+        dirs = checkout_dirs(start)
+        if not dirs:
+            say("found no git directory for this checkout; not running its tools.")
+            sys.exit(1)
+        if not check(sys.executable, "", "", dirs):
+            sys.exit(1)
+        lines = [plain("dir", directory) for directory in dirs]
+        missing = []
+        found = {}
+        for name in names:
+            found[name] = find(name, search_path, dirs)
+            if found[name]:
+                lines.append(plain("tool", "TOOL_" + name.upper().replace("-", "_"), found[name]))
+            else:
+                missing.append(name)
+        if missing:
+            say("no usable " + ", ".join(missing) + " on PATH outside this checkout; not committing.")
+            sys.exit(1)
+        shims = child_path(search_path, dirs, found)
+        lines.append(plain("path", shims))
+        print("\n".join(lines + ["ok"]))
+    elif mode == "resolve":
+        wanted, root, kind, search_path, dirs = arguments[0], arguments[1], arguments[2], arguments[3], arguments[4:]
+        if "/" in wanted:
+            found = wanted if check(wanted, root, kind, dirs) else ""
         else:
-            missing.append(name)
-    if missing:
-        say("no usable " + ", ".join(missing) + " on PATH outside this checkout; not committing.")
-        sys.exit(1)
-    shims = child_path(search_path, dirs, found)
-    lines.append(plain("path", shims))
-    print("\n".join(lines + ["ok"]))
-elif mode == "resolve":
-    wanted, root, kind, search_path, dirs = arguments[0], arguments[1], arguments[2], arguments[3], arguments[4:]
-    if "/" in wanted:
-        found = wanted if check(wanted, root, kind, dirs) else ""
+            found = find(wanted, search_path, dirs)
+        if not found:
+            sys.exit(1)
+        print(plain(found))
     else:
-        found = find(wanted, search_path, dirs)
-    if not found:
-        sys.exit(1)
-    print(plain(found))
-else:
-    sys.exit(2)
+        sys.exit(2)
 '
 ORIGINAL_PATH="${PATH:-}"
 CHECKOUT_REAL_DIRS=()
@@ -286,8 +366,10 @@ fi
 # Children (vp's and npm's `#!/usr/bin/env node`, a rustup proxy, the registry
 # helper's git) look tools up by name: their only PATH is the private directory
 # of links to checked tools the boot made. A PATH directory itself is never
-# handed on: an outside one may hold node -> <checkout>/payload.
-export PATH="$CHILD_PATH_DIR"
+# handed on: an outside one may hold node -> <checkout>/payload. After the
+# links come the stubs for every other name on PATH, which say the name is
+# not in CHILD_TOOLS instead of a bare "not found".
+export PATH="$CHILD_PATH_DIR:$CHILD_PATH_DIR/.not-listed"
 # Removed however the hook ends (cleanup, below, takes this trap over).
 trap '"$TOOL_RM" -rf "$CHILD_PATH_DIR"' EXIT
 # The one checked resolver: a name (looked up on the caller's PATH) or an

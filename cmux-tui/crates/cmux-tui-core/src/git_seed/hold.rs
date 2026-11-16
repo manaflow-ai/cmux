@@ -98,6 +98,21 @@ pub(super) enum Op {
     Renew,
     Head(mpsc::Sender<bool>),
     End(bool, mpsc::Sender<Result<(), Failed>>),
+    /// One lease of a hold that waits for ticks instead of the clock ([`Lease::Ticks`], tests):
+    /// a tick with no other op since the one before ends the hold as the clock's lease would.
+    #[cfg(test)]
+    LeaseTick,
+}
+
+/// How a hold's lease runs out.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Lease {
+    /// No op for this long ends the hold.
+    Wall(Duration),
+    /// Two [`Op::LeaseTick`]s with no other op between end it (tests: a lease with no clock, so
+    /// a loaded machine never ends a hold the test keeps).
+    #[cfg(test)]
+    Ticks,
 }
 
 /// Whether `folder` may take a hold: absent, an empty folder (the copy goes to a new folder of
@@ -123,7 +138,7 @@ pub(super) fn spawn(
     job: std::sync::Arc<Job>,
     folder: PathBuf,
     head: HeadFirst,
-    lease: Duration,
+    lease: Lease,
     barrier: Barrier,
     alive: Alive,
     done: impl FnOnce() + Send + 'static,
@@ -145,15 +160,35 @@ fn own(
     job: &Job,
     folder: &Path,
     head: &HeadFirst,
-    lease: Duration,
+    lease: Lease,
     mut barrier: Barrier,
     alive: &Alive,
     ops: &mpsc::Receiver<Op>,
 ) {
     // Waits out a write in flight; none lands after.
     let stop_writes = || *alive.write().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+    // Ticks only: whether an op came since the last tick.
+    #[cfg(test)]
+    let mut renewed = true;
     loop {
-        match ops.recv_timeout(lease) {
+        let next = match lease {
+            Lease::Wall(lease) => ops.recv_timeout(lease),
+            #[cfg(test)]
+            Lease::Ticks => match ops.recv() {
+                Ok(Op::LeaseTick) if !std::mem::take(&mut renewed) => {
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                }
+                Ok(Op::LeaseTick) => continue,
+                Ok(op) => {
+                    renewed = true;
+                    Ok(op)
+                }
+                Err(mpsc::RecvError) => Err(mpsc::RecvTimeoutError::Disconnected),
+            },
+        };
+        match next {
+            #[cfg(test)]
+            Ok(Op::LeaseTick) => {}
             Ok(Op::Renew) => {}
             Ok(Op::Head(reply)) => {
                 let folders = head.folders();
@@ -195,12 +230,23 @@ fn own(
                     code: "seed.hold_expired",
                     error: format!(
                         "the copy sent nothing for {} s; its folder is left incomplete",
-                        lease.as_secs()
+                        lease.secs()
                     ),
                     install_url: None,
                 }));
                 return;
             }
+        }
+    }
+}
+
+impl Lease {
+    /// Whole seconds of a clock lease, for the expiry message.
+    fn secs(self) -> u64 {
+        match self {
+            Self::Wall(lease) => lease.as_secs(),
+            #[cfg(test)]
+            Self::Ticks => 0,
         }
     }
 }

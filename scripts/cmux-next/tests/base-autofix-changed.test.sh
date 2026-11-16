@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's ba
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-changed.sh"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fail() { echo "FAIL: $*" >&2; exit 1; }
 

@@ -123,6 +123,9 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[path = "server/list_workspaces_page.rs"]
+mod list_workspaces_page;
+use list_workspaces_page::*;
 #[cfg(unix)]
 mod agent_cli_intents;
 #[cfg(unix)]
@@ -133,6 +136,8 @@ mod agent_inventory;
 mod agent_session_attach;
 #[cfg(unix)]
 mod mobile_chat;
+#[cfg(unix)]
+pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkError;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
@@ -162,6 +167,7 @@ pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 mod line_value;
 pub(crate) mod tree_reply_flight;
+pub(crate) mod tree_reply_text;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -264,6 +270,7 @@ mod tab_column;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 pub(crate) use cmd_subscribe::TREE_SELECTION_DELTAS_CAPABILITY;
 #[cfg(test)]
@@ -294,11 +301,15 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod agent_cli_hybrid;
+mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
+pub use agent_cli_hybrid::AGENT_CLI_HYBRID_CAPABILITY;
+pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
@@ -420,6 +431,13 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// `replay_history_start` with `replay_history_rows` on a bytes
+/// `attach-surface`: the `vt-state` replay holds that many history rows from
+/// that row (0: the oldest kept), then the screen, and says how many rows it
+/// left out above (`history_rows_omitted`) and between them
+/// (`history_rows_skipped`). The viewer keeps a bounded window anywhere in a
+/// long history. Its `resized` replays carry `history_rows_omitted` too.
+pub const ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY: &str = "attach-replay-history-window-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 /// A client that declares this in `set-client-info` gets the public ids
 /// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
@@ -473,6 +491,10 @@ pub const TERMINAL_TAIL_PIN_CAPABILITY: &str = "terminal-tail-pin-v1";
 /// Advertises `terminal-last-command`: the newest command a live shell
 /// finished, for Run Last Command Again.
 pub const TERMINAL_LAST_COMMAND_CAPABILITY: &str = "terminal-last-command-v1";
+/// Advertises `terminal-command-context`: the newest command a live shell
+/// finished, with its output, status and directory, as chat text (Fix, Send
+/// Last Output to Chat).
+pub const TERMINAL_COMMAND_CONTEXT_CAPABILITY: &str = "terminal-command-context-v1";
 /// Advertises `terminal-resume-command`: a person's resume command for one
 /// terminal, typed on the new prompt when the terminal is respawned.
 pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
@@ -1081,7 +1103,11 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    ListWorkspaces,
+    /// `known` and `limit`: server/list_workspaces_page.rs.
+    ListWorkspaces {
+        known: Option<cmd_workspaces::KnownTree>,
+        limit: Option<usize>,
+    },
     GetFrontendProjection {
         frontend: String,
         scope: String,
@@ -1118,6 +1144,11 @@ enum Command {
     },
     /// `send`: write input to a terminal.
     Send(cmd_terminal_io::SendParams),
+    /// `cancel-creating-input` (`creating-input-cancel-v1`): the creator of a terminal that is
+    /// still being created drops the input queued for it; the creation goes on.
+    CancelCreatingInput {
+        terminal_id: String,
+    },
     ReadScreen {
         surface: SurfaceId,
     },
@@ -1299,6 +1330,16 @@ enum Command {
         surface: Option<SurfaceId>,
         #[serde(default)]
         terminal_id: Option<String>,
+    },
+    /// The newest command the shell of one PTY `surface` finished, read from
+    /// its screen when asked: command line, output (the newest rows), exit
+    /// status, directory, and `text`, the Markdown a chat takes for `intent`
+    /// (`context`, the default, or `fix`). Null without shell integration,
+    /// on the alternate screen and while a command runs.
+    TerminalCommandContext {
+        surface: SurfaceId,
+        #[serde(default)]
+        intent: crate::command_context::Intent,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {
@@ -1505,6 +1546,13 @@ enum Command {
         /// `detached-terminals-v1`: a kept terminal with no tab.
         #[serde(default)]
         detached: bool,
+        /// `create-terminal-workspace-v1`: with `key` and a mutation id,
+        /// make the workspace first when no workspace has that key.
+        #[serde(default)]
+        create_workspace: bool,
+        /// The name of the workspace `create_workspace` makes.
+        #[serde(default)]
+        workspace_name: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2432,6 +2480,24 @@ enum Command {
         /// the whole history.
         #[serde(default)]
         replay_history_rows: Option<u32>,
+        /// Bytes mode: `output` events at most once per this many ms
+        /// (`attach-output-coalesce-v1`, declared in `set-client-info`);
+        /// omitted, one display frame; 0, one event per read. Ignored for a
+        /// connection that did not declare the capability.
+        #[serde(default)]
+        output_coalesce_ms: Option<u32>,
+        /// Bytes mode, with `replay_history_rows`: the replay holds that many
+        /// history rows from this row (0: the oldest kept), then the screen
+        /// (`attach-replay-history-window-v1`); omitted, the newest rows.
+        #[serde(default)]
+        replay_history_start: Option<u64>,
+        /// Bytes mode, `agent-cli-hybrid-v1`: the hybrid stream (`agent-cli-frame`
+        /// `stream`) and its last frame this viewer applied, to resume from it
+        /// instead of a keyframe. Both or neither; ignored without the capability.
+        #[serde(default)]
+        hybrid_stream: Option<String>,
+        #[serde(default)]
+        hybrid_frame: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -2874,7 +2940,7 @@ pub use listen::{
     serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
-mod terminal_sessions;
+mod terminal_admission;
 #[cfg(all(test, unix))]
 use listen::still_at_path;
 #[cfg(test)]
@@ -2910,6 +2976,7 @@ use journal_stream::run_session_journal_stream;
 #[cfg(test)]
 use session_event_stream::run_session_event_stream;
 
+mod git_lane;
 mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
@@ -3067,7 +3134,8 @@ use attach_lifecycle::{
     AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
     detach_committed_attach, mark_client_attached, mark_resource_client_attached,
     rollback_failed_attach, spawn_attach_notification_stream,
-    spawn_attach_notification_stream_gated, wait_for_initial_browser_resize,
+    spawn_attach_notification_stream_coalesced, spawn_attach_notification_stream_gated,
+    wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
@@ -3084,23 +3152,6 @@ fn handle_command(
 
 mod command_dispatch;
 use command_dispatch::handle_command_with_cancellation;
-
-/// The `list-workspaces` reply: the tree plus the registry identity it
-/// belongs to. The launch snapshot stores the same value.
-fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
-    // Concurrent readers share one build that starts after each arrived.
-    mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
-}
-
-fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
-    let notifications = mux.tree_decorations();
-    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
-    let (registry_id, generation) = mux.registry_identity();
-    workspaces.set("registry_id", json!(registry_id));
-    workspaces.set("generation", json!(generation));
-    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
-    Ok(workspaces)
-}
 
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
@@ -3144,6 +3195,14 @@ mod starter_exit_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/attach_output_coalesce_tests.rs"]
+mod attach_output_coalesce_tests;
+
+#[cfg(test)]
+#[path = "server/agent_cli_hybrid_tests.rs"]
+mod agent_cli_hybrid_tests;
 
 #[cfg(test)]
 #[path = "server/group_icon_raw_tests.rs"]
@@ -3203,3 +3262,5 @@ mod tests;
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;

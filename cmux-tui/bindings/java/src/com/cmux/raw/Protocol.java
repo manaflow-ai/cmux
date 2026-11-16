@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb";
+    public static final String IR_SHA256 = "d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -18,6 +18,7 @@ public final class Protocol {
         return switch (event) {
             case "activity-changed" -> ActivityChangedEvent.fromWire(value);
             case "agent-changed" -> AgentChangedEvent.fromWire(value);
+            case "agent-cli-frame" -> AgentCliFrameEvent.fromWire(value);
             case "agent-inventory-changed" -> AgentInventoryChangedEvent.fromWire(value);
             case "agent-inventory-watch-ended" -> AgentInventoryWatchEndedEvent.fromWire(value);
             case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
@@ -78,6 +79,7 @@ public final class Protocol {
             case "screen-added" -> ScreenAddedEvent.fromWire(value);
             case "screen-changed" -> ScreenChangedEvent.fromWire(value);
             case "screen-closed" -> ScreenClosedEvent.fromWire(value);
+            case "screen-device-changed" -> ScreenDeviceChangedEvent.fromWire(value);
             case "screen-renamed" -> ScreenRenamedEvent.fromWire(value);
             case "scroll-changed" -> ScrollChangedEvent.fromWire(value);
             case "selection-changed" -> SelectionChangedEvent.fromWire(value);

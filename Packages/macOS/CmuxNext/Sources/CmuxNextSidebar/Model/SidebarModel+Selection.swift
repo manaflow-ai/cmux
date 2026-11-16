@@ -26,6 +26,10 @@ extension SidebarModel {
         send(.select(id))
     }
 
+    /// Whether a click on `id` shows a workspace the window does not show now. The one test of a press that
+    /// switches, for the list's rows and the rail's marks: such a press moves no key (`KeyNeutralPressTarget`).
+    public func clickShowsAnotherWorkspace(_ id: WorkspaceID) -> Bool { !isPlaceholder(id) && shownWorkspaceID != id }
+
     /// The workspace the window shows: the active workspace, or the one a
     /// selected pinned tile names (its `SidebarItem.topItem`). Selection
     /// ranges start from it, as from a list row.

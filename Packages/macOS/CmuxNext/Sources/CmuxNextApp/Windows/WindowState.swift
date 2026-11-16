@@ -161,13 +161,13 @@ extension WindowState {
 }
 
 extension WindowState {
-    /// Shows `id` (nil: the empty state): the window leaves its top page.
+    /// Shows `id` (nil: the empty state): the window leaves its top page unless `keepsPage` (one in place of a workspace that left).
     /// Unless `keepsCreation` (a repair, or the creation's own workspace,
     /// kept until it is mirrored), another workspace also ends the window's
     /// Cloud creation view; the creation goes on in its sidebar row.
-    func showWorkspace(_ id: String?, keepsCreation: Bool = true) {
+    func showWorkspace(_ id: String?, keepsCreation: Bool = true, keepsPage: Bool = false) {
         workspaceID = id
-        if id != nil { page = nil }
+        if id != nil, !keepsPage { page = nil }
         if !keepsCreation, id != nil { cloudCreation = nil }
     }
 

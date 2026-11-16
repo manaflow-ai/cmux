@@ -6,6 +6,7 @@ import table from "./generated/strings.json";
 import { MockCloudProgressProvider, SAMPLE_ASKS, sampleState } from "./mockProvider";
 import { CloudProgressStore, elapsedClock, stageKey, stepMarks } from "./store";
 import { CloudProgressOps } from "./types";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -32,12 +33,8 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 test("each step is done before the current one, the failed one is marked, and paused spins none", () => {

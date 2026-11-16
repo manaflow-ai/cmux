@@ -230,7 +230,7 @@ const BASIC_VALIDATE_ONLY: u32 = (1 << 1) | (1 << 2);
 /// It comes from the bundle's code directory after the bundle's signature is
 /// checked against this build's team, never from an unsigned Info.plist.
 fn containing_app_identifier(team: &str) -> Result<String, String> {
-    let executable = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+    let executable = crate::app_caller::own_executable()?;
     let bundle = crate::app_caller::containing_bundle(&executable)
         .ok_or("this binary is not inside an app bundle")?;
     let code =

@@ -232,7 +232,8 @@ checked in for 2 periods gets one "your Mac has not run X since …" notice.
 | Webhook | `--webhook` | Cloud ingress, relayed to the runner | prints a signed URL; body is the run input |
 | Integration event | `--on github:pull_request.review_submitted --repo manaflow-ai/cmux` | Cloud ConnectionDO | |
 | File / git | `--on file:~/Downloads/*.pdf`, `--on git:push --repo .` | local runner (FSEvents, git hooks) | debounced 5 s |
-| cmux event | `--on agent.needs_input`, `--on workspace.created` | local runner (the classic event bus) | replaces classic `automations.json` rules |
+| Named event (landed) | `--when agent-idle`, `--when agent-needs-input`, `--when pr-opened` (`cmux automation events` lists them) | local runner: a watch on `cmux automation events NAME` | one row each in `cmux-automations/src/events.rs`; agent events within seconds, `pr-opened` read through `gh` every 5 min. `--when`, not `--on`: `--on` is cmux's placement word (`cmux chat --on vm:new`) |
+| cmux event | `--when workspace-created` and the rest of the classic event bus | local runner | replaces classic `automations.json` rules; each is a row in the same table |
 | Presence | `--when-back-after 2h` | Cloud (UserDO presence) | later |
 
 ## 7. Surface parity: one op set, five entrypoints
@@ -356,4 +357,4 @@ noisy automation never floods Home. A "Digest" option collects reports into one 
 
 - Slice 1 (local): `cmux-automations` crate and `cmux automation create/list/show/run/pause/resume/edit/history/logs/delete/runner` on this Mac.
 - Cloud slice: `automation.create` with a `chief` body from the person's clients shares the free plan's one Cloud job (`chief-job-gate.ts`); the app's `cloud.automation` method (`cmux cloud automation-relay`, rules in `cmux_cloud_wire::automation`) forwards Cloud automation ops as the signed-in user; `cmux automation … --target cloud`; the Mac Chief makes jobs with `cmux automation` (prompt Jobs rule); the Automations page view and model (`CmuxNextCloudUI/Automations`).
-- Not yet: the Automations sidebar row, its page provider and the Cmd+Shift+P entries (app wiring; the provider protocol lives in the app target), failover between targets, event triggers on the local runner.
+- Not yet: the Automations sidebar row, its page provider and the Cmd+Shift+P entries (app wiring; the provider protocol lives in the app target), failover between targets, the classic event bus's events (agent and pull request events landed as `--when`).

@@ -17,6 +17,7 @@ import { sendEntries, toolGroups } from "./toolGroups";
 import { ToolRows } from "./TurnRows";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { turnView } from "./turns";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -53,6 +54,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -12,22 +12,72 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const scenes = [
-    ["ui.secondary-list-overflow", "checks", ".acpmux-pr-status", 420, 1000],
+    [
+      "ui.secondary-list-overflow",
+      "checks",
+      ".acpmux-pr-status > .ui-popup-scroll, .acpmux-pr-status.ui-scroll-edge-fade",
+      420,
+      1000,
+    ],
     ["ui.secondary-list-overflow", "rules", ".acpmux-rules-list", 420, 1000],
     ["ui.secondary-list-overflow", "people", ".lg-picker-rows", 420, 1000],
-    ["ui.menu", "overflowing", ".menu-gallery-popup", 320, 640],
-    ["ui.select", "overflowing", ".ui-select-popup", 320, 640],
-    ["pages.icon-picker", "categories", ".icon-category-menu", 320, 640],
+    [
+      "ui.menu",
+      "overflowing",
+      ".menu-gallery-popup > .ui-popup-scroll, .menu-gallery-popup.ui-scroll-edge-fade",
+      320,
+      640,
+    ],
+    [
+      "ui.context-menu",
+      "overflowing",
+      ".ui-context-menu > .ui-popup-scroll, .ui-context-menu.ui-scroll-edge-fade",
+      320,
+      640,
+    ],
+    ["ui.select", "overflowing", ".ui-select-popup > .ui-popup-scroll, .ui-select-popup.ui-scroll-edge-fade", 320, 640],
+    [
+      "pages.icon-picker",
+      "categories",
+      ".icon-category-menu > .ui-popup-scroll, .icon-category-menu.ui-scroll-edge-fade",
+      320,
+      640,
+    ],
     ["agent-pane.project-chooser", "long-no-actions", ".ui-combobox-list", 320, 640],
     ["agent-pane.composer-context", "folder-long-list", ".ui-combobox-viewport", 320, 640],
     ["agent-pane.composer-context", "folder-long-list", ".ui-combobox-pinned", 240, 640],
     ["agent-pane.composer-context", "environment-picker-fleet", ".acpmux-env-popover .ui-combobox-list", 320, 640],
     ["agent-pane.add-project-panel", "long-directory", ".acpmux-add-project-list", 320, 640],
     ["new-tab.quick-model-menu", "short-more-models", ".acpmux-quick-body", 320, 640],
-    ["agent-pane.slash-menu", "overflowing", ".acpmux-slash-menu", 320, 640],
-    ["agent-pane.composer", "slash-menu-full", ".acpmux-slash-menu", 320, 640],
-    ["agent-pane.new-tab-page", "omnibar-overflow", ".acpmux-omni", 320, 640],
-    ["agent-pane.file-picker-loading", "mentions-overflow", ".acpmux-mention-menu", 420, 1000],
+    ["new-tab.quick-model-menu", "plain-overflow", ".ui-popup-scroll", 320, 640],
+    [
+      "agent-pane.slash-menu",
+      "overflowing",
+      ".acpmux-slash-menu > .ui-popup-scroll, .acpmux-slash-menu.ui-scroll-edge-fade",
+      320,
+      640,
+    ],
+    [
+      "agent-pane.composer",
+      "slash-menu-full",
+      ".acpmux-slash-menu > .ui-popup-scroll, .acpmux-slash-menu.ui-scroll-edge-fade",
+      320,
+      640,
+    ],
+    [
+      "agent-pane.new-tab-page",
+      "omnibar-overflow",
+      ".acpmux-omni > .ui-popup-scroll, .acpmux-omni.ui-scroll-edge-fade",
+      320,
+      640,
+    ],
+    [
+      "agent-pane.file-picker-loading",
+      "mentions-overflow",
+      ".acpmux-mention-menu > .ui-popup-scroll, .acpmux-mention-menu.ui-scroll-edge-fade",
+      420,
+      1000,
+    ],
     ["agent-pane.new-tab", "suggestions-overflow", ".nt-rows", 320, 1000],
     ["agent-pane.cloud-repository-picker", "overflowing", ".acpmux-cloud-repository-list", 420, 1000],
     // Background tasks and their servers no longer scroll inside their section: the panel's body scrolls
@@ -49,6 +99,10 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     for (const [entry, variant] of scenes) await warmGalleryFrame(vite, entry, { browser, params: { variant } });
+    await warmGalleryFrame(vite, "agent-pane.model-picker", {
+      browser,
+      params: { variant: "quick-search-field-opencode" },
+    });
   }, 240_000);
   afterAll(async () => {
     await browser?.close();
@@ -88,6 +142,23 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
         );
         expect(await list.getAttribute("data-fade-top")).toBeNull();
         expect(await list.evaluate((node) => getComputedStyle(node).maskImage)).not.toBe("none");
+        expect(
+          await list.evaluate((node) => {
+            const maskedGlass: string[] = [];
+            for (let parent: Element | null = node; parent; parent = parent.parentElement) {
+              if (parent.classList.contains("ui-glass") && getComputedStyle(parent).maskImage !== "none") {
+                maskedGlass.push(parent.className);
+              }
+            }
+            return maskedGlass;
+          }),
+        ).toEqual([]);
+        const glass = list.locator(
+          "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' ui-glass ')][1]",
+        );
+        if (await glass.count()) {
+          expect(await glass.evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
+        }
         await list.evaluate((node) => {
           node.scrollTop = (node.scrollHeight - node.clientHeight) / 2;
         });
@@ -131,4 +202,91 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
       }
     });
   }
+  test("filtering a plain model menu keeps the original scrollport's layout-shift budget", async () => {
+    const page = await browser.newPage({ viewport: { width: 560, height: 560 }, colorScheme: "light" });
+    try {
+      // Drive the same click and character-by-character typing as the gallery health matrix.
+      await page.exposeFunction(
+        "cmuxGalleryInput",
+        async ({ kind, x = 0, y = 0, text = "" }: { kind: string; x?: number; y?: number; text?: string }) => {
+          if (kind === "click") await page.mouse.click(x, y);
+          else if (kind === "type") await page.keyboard.type(text);
+          else throw new Error(`unexpected gallery input: ${kind}`);
+        },
+      );
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.model-picker", {
+          variant: "quick-search-field-opencode",
+          theme: "Apple System Colors Light",
+          width: 560,
+          height: 560,
+        })}`,
+      );
+      await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+      const result = await page.evaluate(() => {
+        const report = window.cmuxGalleryPlayReport;
+        return {
+          error: report?.error,
+          step: report?.steps.find((step) => step.step === 'type "deepseek v4"'),
+        };
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.step).toBeDefined();
+      // Base's maximum is 0.0094643 (health baseline 0.00971). Losing the plain menu's
+      // scroll container doubled the same row movements to 0.0189286.
+      expect(result.step!.layoutShift).toBeLessThanOrEqual(0.00971);
+      expect(await page.locator(".acpmux-quick-found").count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
+  test("a one-pixel scroll rounding difference leaves the final row and popup fully opaque", async () => {
+    const page = await open("ui.menu", "open", 420, 640);
+    try {
+      const shell = page.locator(".menu-gallery-popup");
+      const list = page.locator(".menu-gallery-popup > .ui-popup-scroll, .menu-gallery-popup.ui-scroll-edge-fade");
+      await list.waitFor();
+      await list.evaluate((node) => {
+        const el = node as HTMLElement;
+        el.style.flex = "none";
+        el.style.boxSizing = "content-box";
+        el.style.paddingBlock = "0";
+        el.style.height = "auto";
+        const height = el.scrollHeight;
+        el.style.height = `${height - 1}px`;
+        el.scrollTop = 0;
+      });
+      await page.waitForFunction(() => {
+        const node = document.querySelector(
+          ".menu-gallery-popup > .ui-popup-scroll, .menu-gallery-popup.ui-scroll-edge-fade",
+        );
+        return node && node.scrollHeight - node.clientHeight === 1;
+      });
+      // A resize is observed asynchronously; the next animation frame follows observer delivery.
+      await list.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+      expect(await list.getAttribute("data-fade-bottom")).toBeNull();
+      expect(await list.evaluate((node) => getComputedStyle(node).maskImage)).toBe("none");
+      expect(await shell.evaluate((node) => getComputedStyle(node).maskImage)).toBe("none");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a submenu remains reachable across the inner scrolling viewport", async () => {
+    const page = await open("ui.menu", "open", 420, 640);
+    try {
+      await page.getByRole("menuitem", { name: "More actions", exact: true }).focus();
+      await page.keyboard.press("ArrowRight");
+      const row = page.getByRole("menuitem", { name: "Rename", exact: true });
+      await row.waitFor();
+      await row.hover();
+      await row.click();
+      expect(await page.getByTestId("menu-gallery-receipt").textContent()).toContain("Rename");
+    } finally {
+      await page.close();
+    }
+  });
 });

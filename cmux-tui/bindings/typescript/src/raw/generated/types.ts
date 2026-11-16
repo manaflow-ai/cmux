@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb. */
+/* cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -614,13 +614,16 @@ export type IdentifyResult = {
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
   "machine_capabilities"?: Array<string>;
+  "machine_device"?: string;
   "machine_id"?: string;
   "machine_name"?: string;
   "machine_platform"?: MachinePlatform;
+  "machine_symbol"?: string;
   "min_api_revision"?: (number) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "screen_device_id"?: (string) | null;
   "session": string;
   "session_id"?: string;
   "terminal_revision": bigint;
@@ -707,6 +710,15 @@ export type ListTerminalsResult = {
   "registry_id": string;
   "terminal_revision": bigint;
   "terminals": Array<TerminalRecord>;
+};
+
+export type ListWorkspacesKnown = {
+  "generation"?: (string) | null;
+  "pane_revision"?: (bigint) | null;
+  "registry_id"?: (string) | null;
+  "terminal_revision"?: (bigint) | null;
+  "tree_revision"?: (string) | null;
+  "workspace_revision"?: (bigint) | null;
 };
 
 export type LivePane = {
@@ -1592,6 +1604,21 @@ export type TerminalColors = {
   "selection_fg": (ColorHex) | null;
 };
 
+export type TerminalCommandContext = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "exit_code": (number) | null;
+  "output": string;
+  "text": string;
+  "truncated": boolean;
+};
+
+export type TerminalCommandContextIntent = "context" | "fix";
+
+export type TerminalCommandContextResult = {
+  "context": (TerminalCommandContext) | null;
+};
+
 export type TerminalCommandDeleteResult = {
   "deleted": bigint;
 };
@@ -1801,6 +1828,9 @@ export type Tree = {
   "pane_revision"?: bigint;
   "registry_id"?: string;
   "terminal_revision"?: bigint;
+  "total"?: bigint;
+  "tree_revision"?: string;
+  "unchanged"?: boolean;
   "workspace_revision"?: bigint;
   "workspaces": Array<Workspace>;
 };

@@ -19,6 +19,7 @@ import {
 } from "../src/agent-session/acpmux/session-info/changesSectionModel";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -52,6 +53,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

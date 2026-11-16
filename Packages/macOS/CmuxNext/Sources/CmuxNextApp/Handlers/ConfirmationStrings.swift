@@ -22,10 +22,6 @@ enum ConfirmationStrings {
         String(localized: "confirm.closeIncognitoWindow.title", defaultValue: "Close this incognito window?", table: "Handlers", bundle: .module)
     }
 
-    static var quitIncognitoTitle: String {
-        String(localized: "confirm.quitIncognito.title", defaultValue: "Quit and close incognito windows?", table: "Handlers", bundle: .module)
-    }
-
     static func closeWorkspaceTitle(_ name: String) -> String {
         String(localized: "confirm.closeWorkspace.title", defaultValue: "Close “\(name)”?", table: "Handlers", bundle: .module)
     }

@@ -36,6 +36,11 @@
       "size": 8714
     },
     {
+      "path": "AgentCliFrameEvent.java",
+      "sha256": "059263bbd48d8e77e911108d87f5da5b8edb12ea9b9906bb8c2d08653004d7e5",
+      "size": 8219
+    },
+    {
       "path": "AgentInventoryChangedEvent.java",
       "sha256": "c027a12981fef0eb104e1abc7e952edea9a0d648119eb5886311e6bd9a403a9a",
       "size": 3827
@@ -97,8 +102,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "5aceedecee4bb66a0903bd5130eda45643b74c7ae6e896b9a9266f1732455a75",
-      "size": 10456
+      "sha256": "6cf71de707488adc3923eaadef7c54fff9faea9f1ba123ab2ec0172ba3c4ee27",
+      "size": 13654
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -294,6 +299,16 @@
       "path": "ByteAttachEvent.java",
       "sha256": "484c82a9037d343d88978a3b735d3bf2e9d2f30b73b1a86f1b0318be8d406a43",
       "size": 143
+    },
+    {
+      "path": "CancelCreatingInputRequest.java",
+      "sha256": "76e699d5855058999c8a42922e14792029f84aa60c969dd1513eb0da6aee83fd",
+      "size": 2192
+    },
+    {
+      "path": "CancelCreatingInputResult.java",
+      "sha256": "f5056a0d9226febb10161bbccdac85ddfdd941b01855d4cc5f648716e347ab31",
+      "size": 2048
     },
     {
       "path": "CellPixelFailure.java",
@@ -762,8 +777,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6aaac27576bc3c74a59a67606693e08e5d7513ee21a0cd54ab6d07838c4e0f4e",
-      "size": 82665
+      "sha256": "551b01b5b079d711de4a1b7e65ac7d2a0ec9b8ad1d695c17ee61c8c72c73af1e",
+      "size": 83795
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1167,8 +1182,8 @@
     },
     {
       "path": "CreateTerminalRequest.java",
-      "sha256": "e67371d6ed4f1e381469097c72a7f4b8f3f245379dae43974681652c3b4d45b8",
-      "size": 12937
+      "sha256": "5a9eab2c993465529a108aeacc18a69584ef35bb97798949845773a06baa6632",
+      "size": 14713
     },
     {
       "path": "CreateWorkspaceGroupRequest.java",
@@ -1307,8 +1322,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "4b84a7d9daf435ad06dbe65ccf0ad9a03485d1e190768a48f9170c0e912c1e01",
-      "size": 19650
+      "sha256": "741ee9712d05dc25f1863eba9c17f1c1f6d2b254c88bc32b9c0a8b0451caff2e",
+      "size": 20092
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1422,8 +1437,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "c6637f880cc6ef9dbf852e2030e423810129cf0c569d51eaadf92891ee96c027",
-      "size": 71250
+      "sha256": "a5835d326bc65840ef769339ee1ab6484ea1daf498dd66ac617827abe1f0a7fb",
+      "size": 71985
     },
     {
       "path": "GetBlobRequest.java",
@@ -1587,8 +1602,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "4e4619c0c7b75ea349168f1fbdb85c1e6d81e62268b703642e797c79b2e1dac3",
-      "size": 21052
+      "sha256": "baa2f783ae4f8cd0c3d8f672cb80a7f1f8e28f2a7b8384fc9c187e4a69bf59f4",
+      "size": 23298
     },
     {
       "path": "IdsRequest.java",
@@ -1786,9 +1801,14 @@
       "size": 1423
     },
     {
+      "path": "ListWorkspacesKnown.java",
+      "sha256": "f199828fb9b6de19a473bc305a29ac9f18e46f153814ee3e1b6af079d2e84953",
+      "size": 5896
+    },
+    {
       "path": "ListWorkspacesRequest.java",
-      "sha256": "11f2b1758a894dd565bd685d6b40936c05257771f39e5235dcdd01f47cd01875",
-      "size": 1376
+      "sha256": "d818bfe1ed1f1a5da2ef1cbfedca95c549f7b84c5bc215e296dafcd44390fc9d",
+      "size": 2630
     },
     {
       "path": "LivePane.java",
@@ -2192,8 +2212,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "32ebf234fa724ad49dcb249b8bc94a9e7cbebacd1722822e5761c887e3edc6b6",
-      "size": 8000
+      "sha256": "6dd83ce89c73747fbb1a03aa977743588293b20cefe5ddb9c1a9925b71f25766",
+      "size": 8160
     },
     {
       "path": "ProtocolEvent.java",
@@ -2452,8 +2472,8 @@
     },
     {
       "path": "ResizedEvent.java",
-      "sha256": "c47b105665396450dcc1372287890933d9d8d087cbca29028a79214b5b8c34ba",
-      "size": 6958
+      "sha256": "1f72410852fb8a18fe50708c21418c14ac543b24aceca67d1cfc09bc856b49a7",
+      "size": 7781
     },
     {
       "path": "ResolveTerminalRequest.java",
@@ -2539,6 +2559,11 @@
       "path": "ScreenClosedEvent.java",
       "sha256": "1b817abbc1db7122564c561def82987ef5b1f202b3bb330a8c9f1309d60f0bec",
       "size": 4319
+    },
+    {
+      "path": "ScreenDeviceChangedEvent.java",
+      "sha256": "29100e7ce8b6bf51427ce41b8539ba216a33bd81cd9b041909f05a105b77ddbe",
+      "size": 2658
     },
     {
       "path": "ScreenRenamedEvent.java",
@@ -3246,6 +3271,26 @@
       "size": 7557
     },
     {
+      "path": "TerminalCommandContext.java",
+      "sha256": "5fa53a3ea91de58c0f4190ccff804576e62eda4e343c14f58e49bf77277605b8",
+      "size": 5381
+    },
+    {
+      "path": "TerminalCommandContextIntent.java",
+      "sha256": "0c2da53c31bf3fc130da766a6906655c3c4b9b0bc73a7373aa139d981bb951c0",
+      "size": 960
+    },
+    {
+      "path": "TerminalCommandContextRequest.java",
+      "sha256": "5b61d5536c9b5c0ad299a2e1bb47b63181a6d77d84a78c8fd7f7cb1f64f5d296",
+      "size": 2828
+    },
+    {
+      "path": "TerminalCommandContextResult.java",
+      "sha256": "ea03eb354901347aa299b9c8fbfcf31a91d42291781775ec4d8a2af5466fe301",
+      "size": 2101
+    },
+    {
       "path": "TerminalCommandDeleteResult.java",
       "sha256": "5eea09d83f980002e711e329c18b66bdaec80b2fb5bc5fe7e376446ec2e2c420",
       "size": 2045
@@ -3452,8 +3497,8 @@
     },
     {
       "path": "Tree.java",
-      "sha256": "0df79544b10131b2d317ecd9d565271c00cc357346de24d21844c387cba7774d",
-      "size": 5571
+      "sha256": "fac8af4cb087981501b55fe3df5e3e151f24227ff7a4d14d87d217d55db8f3fd",
+      "size": 7471
     },
     {
       "path": "TreeChangedEvent.java",
@@ -3592,8 +3637,8 @@
     },
     {
       "path": "VtStateEvent.java",
-      "sha256": "bc3c1962174498f87bb357b4148c17fe7a07891546010596e408c337811948f8",
-      "size": 7229
+      "sha256": "47f0a081c46626d6f5f4c58a1caeb7b6c2766175a89ad7366ab97be9eceb16ac",
+      "size": 8052
     },
     {
       "path": "VtStateRequest.java",
@@ -3692,7 +3737,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb",
+  "ir_sha256": "d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -16,6 +16,25 @@ function badge(state: SettingsState, category: string): "warning" | "lock" | "up
   return null;
 }
 
+/** In the app the host draws SF Symbols (`symbol-bold/<name>`, MenuSymbolImages); the gallery and tests
+ * have no such route and keep the page's own drawings. */
+const HOST_SYMBOLS = globalThis.location?.protocol === "cmux-page:";
+
+/** The host's bold drawing of a symbol (`symbol-bold/<name>`, MenuSymbolImages; Lucas 2026-11-11). */
+const symbolHref = (name: string) => `symbol-bold/${encodeURIComponent(encodeURIComponent(name))}`;
+
+/** Symbols whose page drawing reads better than the SF Symbol (Lucas 2026-11-11: he picked these
+ * four from feat-cmux-next's sidebar); every other category keeps the host's bold symbol. */
+const PAGE_DRAWN: ReadonlySet<string> = new Set(["terminal", "bell", "keyboard", "contextualmenu.and.cursorarrow"]);
+
+/** A category's icon: the real SF Symbol it names, the one the window sidebar and menus draw, bold,
+ * as a template PNG masking a `currentColor` box, so it inks like the row's text (Lucas 2026-11-11:
+ * the page's hand-drawn icons looked cheap beside Aside's and Codex's). */
+function CategoryIcon({ symbol }: { symbol: string }) {
+  if (!HOST_SYMBOLS || PAGE_DRAWN.has(symbol)) return <Icon name={symbol} />;
+  return <span className="section-symbol" data-symbol={symbol} style={{ maskImage: `url("${symbolHref(symbol)}")` }} />;
+}
+
 const BADGE_TEXT = {
   lock: "settingsPage.managed",
   update: "settingsWindow.harnesses.attention",
@@ -45,7 +64,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
         onClick={() => onSelect(category.id)}
       >
         <span className="section-icon" data-category={category.id}>
-          <Icon name={category.symbol} />
+          <CategoryIcon symbol={category.symbol} />
         </span>
         <span className="section-name">{text(category.title)}</span>
         {mark && (

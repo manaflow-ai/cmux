@@ -306,8 +306,8 @@ struct AgentPaneHandOff {
             authorized = true
         } else if let gestureTicket, let connection = transport.connection, let gestureParams {
             authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams)
-        } else {
-            authorized = transport.gestures.consume()
+        } else { // or the credit of the folder pick that spent the click (a too-big card's repository, #40957)
+            authorized = transport.gestures.consume() || transport.pickCredit.take(connection: transport.current, now: transport.gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == true
         }
         guard authorized else {
             replacements.endSandbox()

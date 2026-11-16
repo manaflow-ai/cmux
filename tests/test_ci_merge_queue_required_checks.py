@@ -29,15 +29,10 @@ from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metada
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-_SPEC = importlib.util.spec_from_file_location(
-    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
-)
-_required_status_checks = importlib.util.module_from_spec(_SPEC)
-assert _SPEC.loader is not None
-# Registered before execution: the module defines a dataclass, and dataclasses
-# resolve field types through sys.modules[cls.__module__].
-sys.modules["required_status_checks"] = _required_status_checks
-_SPEC.loader.exec_module(_required_status_checks)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import required_status_checks as _required_status_checks  # noqa: E402
 
 # The required status checks on main. Each must report for merge queue runs.
 REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS

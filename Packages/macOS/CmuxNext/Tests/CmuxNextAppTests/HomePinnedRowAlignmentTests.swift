@@ -108,9 +108,9 @@ import Testing
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
-    /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and each glyph's ink
+    /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and Home's ink
     /// starts on its leading edge, where a text-only row's title starts (Lawrence 2026-11-09, "home/pin icons not left
-    /// aligned with 'Fix…'"), at every density, minimal mode, width and text size.
+    /// aligned with 'Fix…'"); the narrow pin centers under it (#42431), at every density, minimal mode, width and text size.
     @Test(arguments: cases)
     func homesGlyphAndThePinStartOnOneEdge(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -126,12 +126,17 @@ import Testing
             let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
             let loose = try Self.row(list, Self.loose)
             let titleX = Self.x(list, loose.title.frame.minX, in: loose)
-            for (name, ink) in [("Home's glyph", homeInk), ("the pin", pinInk)] {
-                #expect(abs(ink.minX - homeColumn.minX) <= Self.tolerance,
-                        "\(c.testDescription): \(name) starts at \(ink.minX), its icon column at \(homeColumn.minX)")
-                #expect(abs(ink.minX - titleX) <= Self.tolerance,
-                        "\(c.testDescription): \(name) starts at \(ink.minX), a text-only title at \(titleX)")
-            }
+            // Each glyph snaps to the window's pixel grid on its own, so on a 1x screen an edge or a center can land one
+            // device pixel off a column that starts on a half point (as PinnedRowsShareHomeColumnTests allows).
+            let pixel = max(Self.tolerance, 1 / max(1, window.backingScaleFactor))
+            // Home's house fills the column's width, so its ink starts on the column's edge, where a text-only title starts.
+            #expect(abs(homeInk.minX - homeColumn.minX) <= pixel,
+                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), its icon column at \(homeColumn.minX)")
+            #expect(abs(homeInk.minX - titleX) <= pixel,
+                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
+            // The pin is a narrow mark: it centers under the house (https://github.com/manaflow-ai/cmux/issues/42431).
+            #expect(abs(pinInk.midX - homeInk.midX) <= pixel,
+                    "\(c.testDescription): the pin centers at \(pinInk.midX), Home's glyph at \(homeInk.midX)")
         }
     }
 

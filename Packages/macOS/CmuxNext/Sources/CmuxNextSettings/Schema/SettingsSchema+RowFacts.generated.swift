@@ -18,15 +18,23 @@ extension SettingsSchema {
     /// by the row's exported kind, else `defaultValidation`.
     static let validationByKey: [String: String] = [
         "agents.chats.roots": "domain:chat_roots", "appearance.background": "domain:backdrop_selection",
+        "appearance.backgroundLight": "domain:backdrop_picture", "appearance.backgroundDark": "domain:backdrop_picture",
+        "appearance.backgroundSchedule": "domain:backdrop_schedule",
+        "appearance.backgroundLocation": "domain:backdrop_location",
         "appearance.customDensities": "domain:custom_densities",
         "agentPane.display.commandLabels": "domain:command_labels",
         "browser.customSearchEngine.search": "domain:search_template",
-        "browser.customSearchEngine.suggest": "domain:search_template",
+        "browser.customSearchEngine.suggest": "domain:search_template", "tabs.newTabApp": "domain:app_id",
     ]
     static let validationByKind: [String: String] = [
         "theme": "domain:theme", "font_family": "domain:font_family", "sound": "domain:sound",
     ]
     static let defaultValidation = "portable"
+
+    /// The id an app manifest may have: `properties.id.pattern` of the app manifest schema
+    /// (cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json), copied here by the generator
+    /// (domain:app_id rows, `NewTabAppSetting.isValidID`; the daemon reads the same schema).
+    static let appIDPattern = "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$"
 
     /// Each key's earlier defaults that held for a day or more: the one-time launch migration
     /// (`forgetStoredDefaults`) drops a stored value equal to one, so the key follows its default again.
@@ -45,9 +53,8 @@ extension SettingsSchema {
         "sidebar.workspaceRow.agentStatus": [.bool(true)], "sidebar.workspaceRow.log": [.bool(true)],
         "sidebar.workspaceRow.notification": [.bool(true)], "tabs.newTabNowPlaying": [.bool(true)],
         "tabs.newTabPosition": [.string("end")], "tabs.newTabTemplate": [.string("default"), .string("cards")],
-        "tabs.newTabWidgets.greeting": [.bool(true)], "ui.animations.newWorkspace": [.bool(false)],
-        "ui.paneAnimations": [.bool(false)], "updates.idleInstallMaxWaitSeconds": [.number(900)],
-        "updates.installOnQuit": [.bool(true)], "workspaces.autoArchive.style": [.string("suggest")],
-        "workspaces.newPlacement": [.string("top")],
+        "ui.animations.newWorkspace": [.bool(false)], "ui.paneAnimations": [.bool(false)],
+        "updates.idleInstallMaxWaitSeconds": [.number(900)], "updates.installOnQuit": [.bool(true)],
+        "workspaces.autoArchive.style": [.string("suggest")], "workspaces.newPlacement": [.string("top")],
     ]
 }

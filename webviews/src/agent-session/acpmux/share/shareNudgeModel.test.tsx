@@ -18,6 +18,7 @@ import {
   type ShareNudgeContext,
   type ShareNudgeState,
 } from "./shareNudgeModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -99,6 +100,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

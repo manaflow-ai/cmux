@@ -8,6 +8,8 @@ import type { ChatAccounts, NewChatAccount } from "./chatAccounts";
 import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
+import { modelMenuHeight, modelMenuWidth, setModelMenuHeight, setModelMenuWidth } from "./modelMenuWidth";
 
 let QuickModelColumns: typeof import("./QuickModelColumns").QuickModelColumns;
 
@@ -15,12 +17,17 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
+/// A test's own layout for the next installDom: jsdom lays nothing out, so a test of the menu's measured
+/// size fakes the boxes and the text widths it reads.
+let fakeLayout: ((window: JSDOM["window"]) => void) | undefined;
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   const requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   const cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  dom.window.requestAnimationFrame = requestAnimationFrame;
+  dom.window.cancelAnimationFrame = cancelAnimationFrame;
   for (const key of [
     "window",
     "document",
@@ -29,6 +36,7 @@ function installDom(): HTMLElement {
     "HTMLElement",
     "Element",
     "KeyboardEvent",
+    "MutationObserver",
     "getComputedStyle",
     "requestAnimationFrame",
     "cancelAnimationFrame",
@@ -43,11 +51,13 @@ function installDom(): HTMLElement {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     KeyboardEvent: dom.window.KeyboardEvent,
+    MutationObserver: dom.window.MutationObserver,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame,
     cancelAnimationFrame,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  fakeLayout?.(dom.window);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -59,6 +69,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -66,6 +77,9 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  fakeLayout = undefined;
+  setModelMenuWidth(undefined);
+  setModelMenuHeight(undefined);
 });
 
 async function settle() {
@@ -279,22 +293,302 @@ test("the Starred tab is always first; an empty one shows a blank avatar with no
   expect(corner.querySelector("button")).toBeNull();
 });
 
-test("the running model shows its session levels, highest first, with the current one checked", async () => {
+test("the running model shows its session levels, lowest first, with the current one checked", async () => {
   await openMenu();
   expect(row("Opus").hasAttribute("data-hl")).toBe(true);
   expect(levels()).toEqual([
-    { name: "High", checked: false },
-    { name: "Medium", checked: true },
     { name: "Low", checked: false },
+    { name: "Medium", checked: true },
+    { name: "High", checked: false },
   ]);
 });
 
-test("a model with no levels says None under Effort", async () => {
+test("a model with no levels says None under Reasoning", async () => {
   await openMenu();
   await press("ArrowDown");
   expect(row("Haiku").hasAttribute("data-hl")).toBe(true);
-  expect(tune().querySelector(".acpmux-cols-caption")?.textContent).toBe("Effort");
+  expect(popup().querySelector(".acpmux-cols-tune-head")?.textContent).toBe("Reasoning");
   expect(tune().querySelector(".acpmux-cols-note")?.textContent).toBe("None");
+});
+
+test("the models column is one plain list, Legacy models last, and Reasoning heads a column beside the search row", async () => {
+  await openMenu();
+  const list = popup().querySelector<HTMLElement>("[role=listbox]")!;
+  // No caption names the tab ("Claude Code") or its Legacy models (standup 2026-11-12).
+  expect(list.querySelector(".acpmux-cols-caption")).toBeNull();
+  expect(rows().at(-1)?.querySelector(".acpmux-cols-name")?.textContent).toBe("Old");
+  // The effort column runs up to the search row: both are the body's own, the models are not.
+  const body = popup().querySelector<HTMLElement>(".acpmux-cols-body")!;
+  expect(body.querySelector(":scope > .acpmux-cols-search")).not.toBeNull();
+  expect(body.querySelector(":scope > .acpmux-cols-tune")).toBe(tune());
+  expect(list.parentElement?.classList.contains("acpmux-cols-lists")).toBe(true);
+  // Reasoning heads the column from the search row, so the line under that row runs on under it.
+  const head = body.querySelector<HTMLElement>(":scope > .acpmux-cols-tune-head")!;
+  expect(head.textContent).toBe("Reasoning");
+  expect(head.nextElementSibling).toBe(tune());
+  // The levels scroll on their own; Fast stays fixed under them, at the column's bottom.
+  expect(tune().querySelector("[role=radio]")?.closest(".acpmux-cols-tune-scroll")).not.toBeNull();
+  expect(fastSwitch().closest(".acpmux-cols-tune-foot")).not.toBeNull();
+  expect(fastSwitch().closest(".acpmux-cols-tune-scroll")).toBeNull();
+});
+
+for (const [fontSize, room] of [
+  [13, 900],
+  [20, 900],
+  [20, 300],
+  [13, 300],
+] as const) {
+  test(`a width drag stops at 270px within ${room}px of room at ${fontSize}px type`, async () => {
+    fakeLayout = (window) => {
+      const column = window.document.getElementById("root")!;
+      column.classList.add("acpmux-main");
+      column.getBoundingClientRect = () => ({ left: 0, right: room + 10, width: room + 10 }) as DOMRect;
+      Object.defineProperty(window, "innerWidth", { value: 1200 });
+    };
+    await openMenu();
+    const menu = popup();
+    menu.style.fontSize = `${fontSize}px`;
+    menu.style.setProperty("--acpmux-cols-min-width", "28.5em");
+    menu.getBoundingClientRect = () => ({ left: 5, right: 705, width: 700 }) as DOMRect;
+    menu.parentElement!.getBoundingClientRect = () => ({ left: 5 }) as DOMRect;
+    const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize")!;
+    const direction = grip.dataset.edge === "start" ? -1 : 1;
+    // The chip-aligned edge stays pinned; only the opposite edge moves.
+    if (direction === -1)
+      menu.getBoundingClientRect = () => ({ left: room - 695, right: room + 5, width: 700 }) as DOMRect;
+    await act(async () => {
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
+    });
+    const minimum = Math.min(room, 270);
+    expect(menu.style.width).toContain(`${minimum}px`);
+    expect(modelMenuWidth()).toBe(minimum);
+    expect(modelMenuHeight()).toBeUndefined();
+    expect(menu.style.minWidth).toContain(`${room}px`);
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    expect(popup().style.minWidth).toContain(`${room}px`);
+    await click(tab("Codex"));
+    expect(popup().style.minWidth).toContain(`${room}px`);
+  });
+}
+
+for (const fromEnd of [false, true]) {
+  for (const fromTop of [false, true]) {
+    test(`the corner resizes both axes and resets them (end ${fromEnd}, top ${fromTop})`, async () => {
+      fakeLayout = (window) => {
+        const root = window.document.getElementById("root")!;
+        if (fromEnd) {
+          root.style.display = "flex";
+          root.style.justifyContent = "flex-end";
+          root.getBoundingClientRect = () => ({ left: 0, right: 900, width: 900 }) as DOMRect;
+        }
+        const box = window.HTMLElement.prototype.getBoundingClientRect;
+        window.HTMLElement.prototype.getBoundingClientRect = function () {
+          if (this.matches("button[data-menu='model']")) {
+            const top = fromTop ? 500 : 20;
+            return { left: 200, right: 600, top, bottom: top + 20, width: 400, height: 20 } as DOMRect;
+          }
+          return box.call(this);
+        };
+      };
+      await openMenu();
+      const menu = popup();
+      const frame = menu.querySelector<HTMLElement>(".acpmux-cols-frame")!;
+      menu.getBoundingClientRect = () =>
+        ({
+          left: 200,
+          right: 600,
+          top: 100,
+          bottom: 400,
+          width: 400,
+          height: Number.parseFloat(frame.style.height) || 300,
+        }) as DOMRect;
+      frame.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+      menu.parentElement!.getBoundingClientRect = () => ({ left: 200, top: 100 }) as DOMRect;
+      const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize-corner")!;
+      expect(grip).not.toBeNull();
+      expect(grip.dataset.edge).toBe(fromEnd ? "start" : "end");
+      expect(grip.dataset.side).toBe(fromTop ? "top" : "bottom");
+      const drag = async (delta: number, end: "pointerup" | "pointercancel") => {
+        await act(async () => {
+          grip.dispatchEvent(
+            new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500, clientY: 500 }),
+          );
+          grip.dispatchEvent(
+            new dom!.window.MouseEvent("pointermove", {
+              clientX: 500 + delta * (fromEnd ? -1 : 1),
+              clientY: 500 + delta * (fromTop ? -1 : 1),
+            }),
+          );
+          grip.dispatchEvent(new dom!.window.MouseEvent(end));
+        });
+      };
+      await drag(60, "pointerup");
+      expect(modelMenuWidth()).toBe(460);
+      expect(modelMenuHeight()).toBe(360);
+      expect(grip.hasAttribute("data-dragging")).toBe(false);
+      await drag(-1000, "pointercancel");
+      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuHeight()).toBe(160);
+      await act(async () =>
+        grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 2000, clientY: 2000 })),
+      );
+      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuHeight()).toBe(160);
+      await act(async () => grip.dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true })));
+      expect(modelMenuWidth()).toBeUndefined();
+      expect(modelMenuHeight()).toBeUndefined();
+    });
+  }
+}
+
+test("the height edge changes only height", async () => {
+  await openMenu();
+  const menu = popup();
+  const frame = menu.querySelector<HTMLElement>(".acpmux-cols-frame")!;
+  menu.getBoundingClientRect = () => ({ left: 5, right: 405, top: 5, bottom: 305, width: 400, height: 300 }) as DOMRect;
+  frame.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+  menu.parentElement!.getBoundingClientRect = () => ({ left: 5, top: 5 }) as DOMRect;
+  const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize-y")!;
+  const direction = grip.dataset.edge === "top" ? -1 : 1;
+  await act(async () => {
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 500 }));
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientY: 500 + direction * 60 }));
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointerup"));
+  });
+  expect(modelMenuHeight()).toBe(360);
+  expect(modelMenuWidth()).toBeUndefined();
+});
+
+test("a kept height sizes the menu, and a double-click on the edge away from the chip goes back", async () => {
+  setModelMenuHeight(300);
+  try {
+    await openMenu();
+    const frame = popup().querySelector<HTMLElement>(".acpmux-cols-frame")!;
+    expect(frame.style.height).toContain("300px");
+    // The height grip sits on the edge away from the chip: the top or the bottom one.
+    const grip = popup().querySelector<HTMLElement>(".acpmux-cols-resize-y")!;
+    expect(["top", "bottom"]).toContain(grip.dataset.edge!);
+    await act(async () => {
+      grip.dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true }));
+    });
+    await settle();
+    expect(modelMenuHeight()).toBeUndefined();
+    expect(frame.style.height).toBe("");
+  } finally {
+    setModelMenuHeight(undefined);
+  }
+});
+
+// The fake layout: each level row 28 px tall, the search row (and the Reasoning heading in it) 41 px,
+// a provider caption 22 px, the Fast footer 37 px, the scrolling part 4 px padding above and below, a
+// 1 px line on the column's top; each character 7 px wide. Nothing else is drawn outside the columns.
+const ROW = 28;
+const HEAD = 41;
+const FOOT = 37;
+const PAD = 4;
+const LINE = 1;
+const CHAR = 7;
+function installFakeLayout(window: JSDOM["window"]) {
+  const style = window.document.createElement("style");
+  style.textContent = `
+    .acpmux-cols-tune-scroll { padding: ${PAD}px; }
+    .acpmux-cols-tune { border-top: ${LINE}px solid black; }
+    .acpmux-cols-row { padding: 0 8px; }
+    .acpmux-cols-tune-head { padding: 0 12px; }
+    .acpmux-cols { font-size: 13px; }
+    .acpmux-cols-lists { grid-template-columns: 48px 200px; }
+    .acpmux-cols-body { grid-template-columns: 250px 120px; }
+  `;
+  window.document.head.append(style);
+  const box = (height: number, width: number) => ({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    bottom: height,
+    right: width,
+    width,
+    height,
+    toJSON() {},
+  });
+  const proto = window.HTMLElement.prototype;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const has = (name: string) => this.classList.contains(name);
+    if (has("acpmux-cols-tune-head")) return box(HEAD, 120) as DOMRect;
+    if (has("acpmux-cols-tune-foot")) return box(FOOT, 120) as DOMRect;
+    if (has("acpmux-cols-caption")) return box(22, 120) as DOMRect;
+    if (has("acpmux-cols-row")) return box(ROW, 100) as DOMRect;
+    if (has("acpmux-cols-check")) return box(14, 14) as DOMRect;
+    if (has("acpmux-cols-switch")) return box(16, 28) as DOMRect;
+    if (has("acpmux-cols-tune")) return box(300, 120) as DOMRect;
+    if (has("acpmux-cols-list")) return box(300, 200) as DOMRect;
+    if (has("acpmux-cols-frame") || has("acpmux-cols-body")) return box(400, 400) as DOMRect;
+    return box(0, 0) as DOMRect;
+  };
+  Object.defineProperty(proto, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("acpmux-cols-row") ? 100 : 0;
+    },
+  });
+  window.HTMLCanvasElement.prototype.getContext = (() => ({
+    font: "",
+    measureText: (text: string) => ({ width: text.length * CHAR }),
+  })) as unknown as HTMLCanvasElement["getContext"];
+}
+
+test("the default height is one fixed height: six levels and Fast, whatever model or tab shows", async () => {
+  // Lucas 2026-11-12: "a default fixed height", never one that follows the model. The chat runs Opus
+  // (three levels); a seven-level model elsewhere and a model routed through eight providers change
+  // nothing.
+  const wide = model("codex", "Wide", { efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"] });
+  const routes = ["Anthropic", "Bedrock", "Vertex", "OpenRouter", "Azure", "Groq", "Together", "Fireworks"];
+  const routed = model("claude", "Routed", {
+    efforts: ["low", "high"],
+    offers: routes.map((provider) => ({ ...model("claude", `Routed-${provider}`), provider })),
+  });
+  fakeLayout = installFakeLayout;
+  await openMenu([
+    { ...claude, models: [...claude.models, routed] },
+    { ...codex, models: [...codex.models, wide] },
+    gemini,
+  ]);
+  const frame = popup().querySelector<HTMLElement>(".acpmux-cols-frame")!;
+  const fixed = HEAD + LINE + 2 * PAD + 6 * ROW + FOOT;
+  expect(Number(frame.dataset.fitHeight)).toBe(fixed);
+  await click(tab("Codex"));
+  await click(row("Wide"));
+  expect(Number(frame.dataset.fitHeight)).toBe(fixed);
+});
+
+test("the same default height in a chat on a model with no levels and no Fast", async () => {
+  const bare = { ...claude, models: [model("claude", "Haiku", { efforts: [] })], more: [] };
+  fakeLayout = installFakeLayout;
+  await openMenu([bare, gemini]);
+  const frame = popup().querySelector<HTMLElement>(".acpmux-cols-frame")!;
+  expect(Number(frame.dataset.fitHeight)).toBe(HEAD + LINE + 2 * PAD + 6 * ROW + FOOT);
+});
+
+test("by default the Reasoning column is as wide as its widest row, Extra High whole with its check", async () => {
+  const opus = model("claude", "Opus", { efforts: ["low", "medium", "high", "xhigh", "max"], canFast: true });
+  fakeLayout = installFakeLayout;
+  await openMenu([{ ...claude, ultracode: true, models: [opus, ...claude.models.slice(1)] }, codex, gemini]);
+  const body = popup().querySelector<HTMLElement>(".acpmux-cols-body")!;
+  const fit = Number(body.dataset.tuneFit);
+  // The room around a row's text: the column's 120 px less the row's 100 px content box, plus its padding.
+  const row = popup().querySelector<HTMLElement>(".acpmux-cols-tune .acpmux-cols-row")!;
+  const rowStyle = getComputedStyle(row);
+  const padding = 120 - (100 - Number.parseFloat(rowStyle.paddingLeft) - Number.parseFloat(rowStyle.paddingRight));
+  const gap = Number.parseFloat(rowStyle.columnGap) || 0;
+  const extraHigh = "Extra High".length * CHAR + gap + 14 + padding;
+  expect(fit).toBe(Math.ceil(extraHigh + 2));
+  // Wider than the Reasoning heading, Ultracode and Fast with its switch.
+  expect(fit).toBeGreaterThan("Reasoning".length * CHAR + 24);
+  expect(fit).toBeGreaterThan("Ultracode".length * CHAR + gap + 14 + padding);
+  expect(fit).toBeGreaterThan("Fast".length * CHAR + gap + 28 + padding);
 });
 
 test("arrows move the highlight without landing; Return lands it and closes", async () => {
@@ -327,8 +621,8 @@ test("a picked model keeps the chat's level when it has it, else takes its recom
   // The chat is on Medium: Sol has no Medium, so it takes its recommended Low.
   await click(row("Sol"));
   expect(levels()).toEqual([
-    { name: "High", checked: false },
     { name: "Low", checked: true },
+    { name: "High", checked: false },
   ]);
   expect(calls.picks[0]).toMatchObject({ id: "codex-Sol", effort: "low" });
   // Astra has Medium: it keeps it.
@@ -375,7 +669,7 @@ test("a Claude Code model shown but not picked lists Ultracode, and its pick lan
   await press("ArrowDown");
   expect(row("Sonnet").hasAttribute("data-hl")).toBe(true);
   expect(calls.picks).toEqual([]);
-  expect(levels().map((level) => level.name)).toEqual(["Ultracode", "Extra High", "High", "Low"]);
+  expect(levels().map((level) => level.name)).toEqual(["Low", "High", "Extra High", "Ultracode"]);
   const ultracode = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find(
     (node) => node.textContent === "Ultracode",
   )!;
@@ -397,8 +691,8 @@ test("another model, then a level, then Fast each land at once, the level kept w
   await click(high);
   await click(fastSwitch());
   expect(levels()).toEqual([
-    { name: "High", checked: true },
     { name: "Low", checked: false },
+    { name: "High", checked: true },
   ]);
   expect(calls.picks.map((pick) => [pick.id, pick.effort, !!pick.fast])).toEqual([
     ["codex-Sol", "low", false],
@@ -414,12 +708,12 @@ test("a tab without the running model shows its first model's catalog levels", a
   await openMenu();
   await click(tab("Codex"));
   expect(row("Sol").hasAttribute("data-hl")).toBe(true);
-  expect(levels().map((level) => level.name)).toEqual(["High", "Low"]);
+  expect(levels().map((level) => level.name)).toEqual(["Low", "High"]);
 });
 
 test("a level on the running model goes through the session's effort", async () => {
   const calls = await openMenu();
-  await click(tune().querySelector<HTMLElement>("[role=radio]")!);
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
   expect(calls.efforts).toEqual(["high"]);
   expect(calls.picks).toHaveLength(0);
 });
@@ -447,9 +741,9 @@ test("Fast on another model holds it with Fast and no level the person did not p
 test("the chat's tab with no row for the running model still shows the session's levels", async () => {
   await openMenu([{ ...claude, models: [], more: [] }, codex]);
   expect(levels()).toEqual([
-    { name: "High", checked: false },
-    { name: "Medium", checked: true },
     { name: "Low", checked: false },
+    { name: "Medium", checked: true },
+    { name: "High", checked: false },
   ]);
   expect(fastSwitch()).not.toBeNull();
 });

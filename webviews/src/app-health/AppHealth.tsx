@@ -6,7 +6,7 @@
 import type { Strings } from "../pages/shared/i18n";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
-import { headline, otherParts, pendingLine, toneOf, type HealthTone } from "./model";
+import { headline, indicatorHeadline, otherParts, pendingLine, toneOf, type HealthTone } from "./model";
 import type { HealthPart, HealthSnapshot } from "./types";
 import "./appHealth.css";
 
@@ -37,7 +37,8 @@ export function AppHealthIndicator({
   actions: AppHealthActions;
   treatment?: AppHealthTreatment;
 }) {
-  const head = headline(snapshot, strings);
+  // A part that is only slow shows nothing here (model.ts indicatorHeadline); the popover still lists it.
+  const head = indicatorHeadline(snapshot, strings);
   if (!head) return null;
   if (treatment === "titlebar")
     return (

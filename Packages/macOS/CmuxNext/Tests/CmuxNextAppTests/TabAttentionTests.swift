@@ -167,6 +167,58 @@ import Testing
         #expect(service.attentionMarks(for: workspace).isEmpty, "opening the marked tab left its ring")
     }
 
+    /// Going in hides the agent's request, not one tab model (live: attention-ring-clear-live.py
+    /// `attention-click-then-pane-move` came back STUCK). A pane moved to another workspace gets a new
+    /// tab model there, and a resync lays the same record again: neither is a new request, so the ring
+    /// stays hidden. A new request rings again.
+    @Test func aHiddenRingStaysHiddenWhenItsTabIsRebuilt() throws {
+        _ = NSApplication.shared
+        let store = DaemonStore()
+        let request = Self.attention("Approve the deploy", at: 1_000)
+        let marked = TabSnapshot(surface: 1, tabResourceID: "tab_marked", title: "deploy")
+        let other = TabSnapshot(surface: 2, tabResourceID: "tab_other", title: "~")
+        let kept = TabSnapshot(surface: 3, tabResourceID: "tab_kept", title: "~")
+        func tree(moved: Bool) -> DaemonTree {
+            let first = PaneSnapshot(id: 1, tabs: [moved ? kept : marked])
+            let second = PaneSnapshot(id: 2, tabs: [other])
+            let arrived = PaneSnapshot(id: 3, tabs: [marked])
+            let firstScreen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [first])
+            let secondScreen = moved
+                ? ScreenSnapshot(id: 2, layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(2), b: .leaf(3)),
+                                 panes: [second, arrived])
+                : ScreenSnapshot(id: 2, layout: .leaf(2), panes: [second])
+            return DaemonTree(workspaces: [
+                WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "first"), name: "first", screens: [firstScreen]),
+                WorkspaceSnapshot(id: 2, key: WorkspaceKey(rawValue: "second"), name: "second", screens: [secondScreen]),
+            ])
+        }
+        store.apply(snapshot: tree(moved: false))
+        let service = NotificationCenterService()
+        let firstWorkspace = try #require(store.workspaces.first { $0.name == "first" })
+        let tab = try #require(firstWorkspace.screens.first?.panes.first?.tabs.first)
+        tab.applyState(SessionStateMirror.TabRecord(attention: request), progress: nil)
+        #expect(service.attentionMarks(for: firstWorkspace).count == 1)
+        service.interacted(.click, tab: tab)
+        #expect(service.attentionMarks(for: firstWorkspace).isEmpty, "going in left the ring")
+
+        // A resync lays the same record again, with a gap where the tab had none.
+        tab.applyState(SessionStateMirror.TabRecord(), progress: nil)
+        tab.applyState(SessionStateMirror.TabRecord(attention: request), progress: nil)
+        #expect(service.attentionMarks(for: firstWorkspace).isEmpty, "a resync of the same request brought its hidden ring back")
+
+        // The pane moves to the second workspace: its tab model is made anew there.
+        store.apply(snapshot: tree(moved: true))
+        let secondWorkspace = try #require(store.workspaces.first { $0.name == "second" })
+        let moved = try #require(secondWorkspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.id == tab.id })
+        moved.applyState(SessionStateMirror.TabRecord(attention: request), progress: nil)
+        #expect(moved.attention == request)
+        #expect(service.attentionMarks(for: secondWorkspace).isEmpty, "moving the pane brought the hidden ring back")
+
+        let next = Self.attention("Approve the rollback", at: 2_000)
+        moved.applyState(SessionStateMirror.TabRecord(attention: next), progress: nil)
+        #expect(service.attentionMarks(for: secondWorkspace).count == 1, "a new request did not ring again")
+    }
+
     /// An older daemon's mark has no request id. Its owner clear stays refused, but going in and
     /// Dismiss Highlight still hide its ring, and a press on a mark since replaced hides nothing.
     @Test func aLegacyMarksRingHidesOnEntryAndDismissHighlight() throws {

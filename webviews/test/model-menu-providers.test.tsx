@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -79,14 +80,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  // A popover update left outside act() queues React scheduler work on setImmediate; let it run
-  // while the JSDOM globals still exist, or it throws "window is not defined" between tests.
-  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const variants = () => import("../src/agent-session/acpmux/modelVariants");
@@ -405,11 +399,11 @@ test("Legacy models name each model's provider and tag", async () => {
     },
   ];
   await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
-  // The tab's older models follow its "Legacy models" caption in the same column.
+  // The tab's older models follow its own in the same column, with no caption between them (#41212).
   const list = [...cols()!.querySelector('[role="listbox"]')!.children] as HTMLElement[];
-  const caption = list.findIndex((item) => item.textContent === "Legacy models");
-  expect(caption).toBeGreaterThan(0);
-  const rows = list.slice(caption + 1).filter((item) => item.getAttribute("role") === "option");
+  expect(list.some((item) => item.textContent === "Legacy models")).toBe(false);
+  const options = list.filter((item) => item.getAttribute("role") === "option");
+  const rows = options.slice(-2);
   expect(rows.length).toBeGreaterThan(0);
   for (const row of rows) expect(colProvider(row), colName(row)).not.toBe("");
   expect(rows.map(colName).sort()).toEqual(["Kimi K2", "Qwen Coder 2.5"]);

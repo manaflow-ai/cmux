@@ -152,8 +152,8 @@ nonisolated enum CEFClipShape {
                     clipVisible(to: rect)
                 }
             }
-            if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName {
-                result.append(RoundedRect(rect: view.convert(mask.frame, from: current), radius: 0))
+            if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName || mask.name == CALayer.cmuxCardClipName {
+                result.append(RoundedRect(rect: view.convert(mask.frame, from: current), radius: mask.cornerRadius))
             }
             ancestor = current.superview
         }

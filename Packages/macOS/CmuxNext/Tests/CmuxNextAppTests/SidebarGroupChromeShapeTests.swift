@@ -51,7 +51,8 @@ import Testing
             rail.layoutSubtreeIfNeeded()
             let layer = try #require(rail.layer)
             #expect(layer.cornerRadius == 2)
-            #expect(layer.maskedCorners == SidebarGroupLineShape.corners, "both caps round, top and bottom")
+            #expect(layer.maskedCorners == SidebarGroupLineShape.capCorners(flipped: layer.contentsAreFlipped()),
+                    "the bottom cap rounds; the top is the katana's tip, drawn in the body")
             #expect(layer.masksToBounds)
             #expect(layer.bounds.height == 80)
             #expect(rail.railShape.frame.height >= 5000, "the body still covers the spring's previous presentation height")

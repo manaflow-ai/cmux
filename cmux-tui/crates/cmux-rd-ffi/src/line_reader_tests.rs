@@ -47,6 +47,9 @@ fn text(ptr: *const u8, len: usize) -> serde_json::Value {
 fn json_of(line: &CmuxRdLine) -> serde_json::Value {
     let has = |bit: u32| line.fields & bit != 0;
     let mut out = serde_json::Map::new();
+    if has(CMUX_RD_LINE_FALLBACK_WEBRTC) {
+        out.insert("fallback_webrtc".into(), true.into());
+    }
     if has(CMUX_RD_LINE_KEY) {
         out.insert("key".into(), text(line.key, line.key_len));
     }
@@ -139,6 +142,25 @@ fn a_line_without_its_newline_waits() {
     assert_eq!(reader.next(), None);
     assert_eq!(reader.push(b"ue}\n"), 1);
     assert_eq!(reader.next(), Some(serde_json::json!({"connected": true})));
+}
+
+#[test]
+fn fallback_bit_is_typed_and_does_not_leak_across_lines() {
+    let reader = Reader::new();
+    assert_eq!(reader.push(b"{\"fallback\":{\"carrier\":\"rd_wg\",\"reason\":\"timeout\",\"retry\":\"web_rtc\"}}\n{\"ended\":\"revoked\"}\n"), 2);
+    assert_eq!(reader.next(), Some(serde_json::json!({"fallback_webrtc": true})));
+    assert_eq!(reader.next(), Some(serde_json::json!({"ended": "revoked"})));
+    assert_eq!(reader.next(), None);
+    assert_eq!(reader.push(b"{\"fallback\":{\"carrier\":\"rd_wg\",\"reason\":\"revoked\",\"retry\":\"web_rtc\"}}\n"), 0);
+    assert_eq!(reader.push(b"{\"fallback\":true}\n"), 0);
+    for state in [r#""ended":"revoked""#, r#""error":"denied""#, r#""connected":true"#] {
+        let line = format!(
+            "{{{state},\"fallback\":{{\"carrier\":\"rd_wg\",\"reason\":\"timeout\",\"retry\":\"web_rtc\"}}}}\n"
+        );
+        assert_eq!(reader.push(line.as_bytes()), 1);
+        let value = reader.next().expect("valid non-fallback fields remain visible");
+        assert!(value.get("fallback_webrtc").is_none());
+    }
 }
 
 #[test]

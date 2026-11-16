@@ -11,6 +11,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { StyleSwitch } from "../src/agent-session/acpmux/newtab/StyleSwitch";
 import { pickNewTabStyle } from "../src/agent-session/acpmux/newtab/templates";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -41,11 +42,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 test("the New Tab page offers its six styles as named dots, the current one checked", async () => {

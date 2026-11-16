@@ -43,7 +43,7 @@ describe("fontRows", () => {
 
 describe("FontPicker", () => {
   const open = async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    page = await renderPage({ path: "/settings/terminal" });
     await click(rowElement(page.container, "terminal.fontFamily").querySelector("[data-font-picker]")!);
     return document.querySelector<HTMLElement>(".font-search")!;
   };

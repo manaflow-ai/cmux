@@ -15,6 +15,7 @@ enum HistoryAppStrings {
     static var machineOffline: String { t("history.refusal.machineOffline", "That machine is not connected") }
     static var noPane: String { t("history.refusal.noPane", "Open a window on that machine first") }
     static var entryGone: String { t("history.refusal.entryGone", "That history entry is gone") }
+    static var stillLoading: String { t("history.refusal.stillLoading", "History is still loading. Try again in a moment.") }
     static var nothingFromPreviousLaunch: String {
         t("history.refusal.nothingFromPreviousLaunch", "Nothing from the previous app launch to restore")
     }

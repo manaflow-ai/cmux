@@ -52,6 +52,23 @@ import Testing
         #expect(card.paddingY == 4)
     }
 
+    /// A page's rows that match the sidebar's (Settings) read the list row: at Default (Codex's density)
+    /// a 30 px row with Chrome's 8 px tab corner (Lawrence 2026-11-11, "same roundness as chrome") and an 8 px
+    /// content inset (#39984), else the row, its Chrome corner and the row inset; in page pixels at any zoom.
+    @Test func rowCSSVariablesAreTheListRowsInPagePixels() {
+        let codexBase = SidebarRowTokens.Base(rowHeight: 28, space1: 2, space2: 4, space3: 6, space4: 8,
+                                              cornerRadius: 6, body: 13, caption: 11, isCodexDensity: true)
+        let codex = SidebarRowTokens(density: .compact, textSize: .standard, base: codexBase).rowCSSVariables(pageZoom: 1)
+        // With the row's title size and the 2 pt gap between list rows (Lucas 2026-11-13: Settings matches the sidebar).
+        #expect(codex == ["--cmux-sidebar-row-height": "30px", "--cmux-sidebar-row-radius": "8px",
+                          "--cmux-sidebar-row-inset": "8px", "--cmux-sidebar-row-font-size": "13px",
+                          "--cmux-sidebar-row-gap": "2px"])
+        let compact = SidebarRowTokens(density: .compact, textSize: .standard, base: Self.base).rowCSSVariables(pageZoom: 2)
+        #expect(compact == ["--cmux-sidebar-row-height": "12px", "--cmux-sidebar-row-radius": "3px",
+                            "--cmux-sidebar-row-inset": "3px", "--cmux-sidebar-row-font-size": "6px",
+                            "--cmux-sidebar-row-gap": "1px"])
+    }
+
     /// The page is zoomed by the interface scale, so a CSS px is `pageZoom` points: the variables
     /// are the points divided by it, and the card draws the rows' sizes at any zoom.
     @Test func cssVariablesAreInPagePixels() {

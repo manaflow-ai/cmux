@@ -1355,6 +1355,8 @@ def pre_push(repo: Path, remote: str, lines: list[str], upstream_ref: str = UPST
         return 0
     for error in errors:
         print(f"arch-ratchet: WARNING: not judged: {error}", file=sys.stderr)
+    for own in ranges:  # the note names a base the refresh could not fetch (push_range.refresh_upstream)
+        print(f"arch-ratchet: judging {own.describe()}", file=sys.stderr)
     if not ranges:
         return 0
     return 1 if run_push(repo, ranges, upstream_ref) else 0
@@ -1406,7 +1408,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         push_range = load_push_range()
         own = (push_range.given_range(repo, args.base, head) if args.base
-               else push_range.own_range(repo, head, [], args.upstream))
+               else push_range.manual_range(repo, head, args.upstream))
     except ValueError as error:
         print(f"arch-ratchet: {error}", file=sys.stderr)
         return 2

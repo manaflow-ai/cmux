@@ -26,9 +26,9 @@ async function elapse(ms: number, run: () => void) {
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
   page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
 
-test("Change Background… shows the picker on Appearance: resting previews, leaving restores, a click keeps", async () => {
+test("Change Background… shows the picker on Personalization: resting previews, leaving restores, a click keeps", async () => {
   const page = await renderPage({
-    path: "/settings/appearance?focus=appearance.background",
+    path: "/settings/personalization?focus=personalization.background",
     mock: { values: { "appearance.background": "starryNight" } },
   });
   const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
@@ -60,7 +60,7 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
 });
 
 test("Apple Wallpapers: tiles show only their names; one not downloaded opens the Wallpaper pane", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const apple = { collection: "apple", collection_title: "Apple Wallpapers" };
   await act(async () =>
     page.provider.setHost({
@@ -113,7 +113,7 @@ test("Apple Wallpapers: tiles show only their names; one not downloaded opens th
 });
 
 test("a wallpaper whose id is a file path gets its thumbnail: the id reaches the app as one segment", async () => {
-  const page = await renderPage({ path: "/settings/appearance?focus=appearance.background" });
+  const page = await renderPage({ path: "/settings/personalization?focus=personalization.background" });
   const id = "system:/System/Library/Desktop Pictures/.wallpapers/Sonoma/Sonoma Graphic Light Landscape.mov";
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="Sonoma Graphic"]')!;
   const src = tile.querySelector("img")!.getAttribute("src")!;
@@ -126,7 +126,7 @@ test("a wallpaper whose id is a file path gets its thumbnail: the id reaches the
 });
 
 test("Shuffle Paintings is a tile that keeps appearance.background daily", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const tile = page.container.querySelector<HTMLButtonElement>(
     '[data-card="backdrop"] [aria-label="Shuffle Paintings"]',
   )!;
@@ -139,7 +139,7 @@ test("Shuffle Paintings is a tile that keeps appearance.background daily", async
 
 test("Change Background… on a workspace chooses that workspace's own background", async () => {
   const page = await renderPage({
-    path: "/settings/appearance?focus=appearance.background&workspace=ws-1",
+    path: "/settings/personalization?focus=personalization.background&workspace=ws-1",
     mock: {
       values: { "appearance.background": "starryNight" },
       workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
@@ -196,7 +196,7 @@ test("Change Background… on a workspace chooses that workspace's own backgroun
 
 test("This Workspace's Opacity previews while the slider moves, saves on release, and clears", async () => {
   const page = await renderPage({
-    path: "/settings/appearance?workspace=ws-1",
+    path: "/settings/personalization?workspace=ws-1",
     mock: { workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: "starryNight", opacity: null }] },
   });
   await settle();
@@ -241,7 +241,7 @@ test("This Workspace's Opacity previews while the slider moves, saves on release
 // experimental Glass Transparency slider (a second opacity) are gone from the page; their keys
 // still load.
 test("the wallpaper card holds Opacity and Material once each, and nothing repeats them", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const card = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
   expect(card.querySelector("[data-window-glass]")).toBeNull();
   const material = card.querySelector<HTMLElement>('[data-row-key="appearance.backgroundBlur"]');
@@ -252,8 +252,9 @@ test("the wallpaper card holds Opacity and Material once each, and nothing repea
   }
   expect(page.container.querySelector('[data-row-key="appearance.backdropArt"]')).toBeNull();
   page.unmount();
+  // Hue is a hidden row (rowLevelsData.ts): a link to it shows it on Labs, behind More Options.
   const labs = await renderPage({
-    path: "/settings/experimental",
+    path: "/settings/experimental?focus=appearance.hue",
     mock: { values: { "appearance.experimentalControls": true } },
   });
   expect(labs.container.querySelector('[data-row-key="appearance.glassTransparency"]')).toBeNull();
@@ -262,7 +263,7 @@ test("the wallpaper card holds Opacity and Material once each, and nothing repea
 });
 
 test("sweeping the pointer across the picker previews nothing", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
   await elapse(200, () => {
     tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
@@ -313,7 +314,7 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
 });
 
 test("an aerial macOS has not downloaded shows as a cloud tile that opens the Wallpaper pane", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const moving = { collection: "video", collection_title: "Moving wallpapers", video: true };
   await act(async () =>
     page.provider.setHost({
@@ -351,7 +352,7 @@ test("an aerial macOS has not downloaded shows as a cloud tile that opens the Wa
 });
 
 test("Add from a Link downloads an image and sets it; a refused link says why; your images can be removed", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
   const linkTile = [...picker().querySelectorAll<HTMLButtonElement>("button.backdrop-tile")].find((button) =>
     button.textContent?.includes("Add from a Link"),
@@ -415,7 +416,7 @@ test("Add from a Link downloads an image and sets it; a refused link says why; y
 
 test("A wallpaper tile whose thumbnail fails shows an empty frame, not a broken image", async () => {
   const page = await renderPage({
-    path: "/settings/appearance?focus=appearance.background",
+    path: "/settings/personalization?focus=personalization.background",
     mock: { values: { "appearance.background": "starryNight" } },
   });
   const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
@@ -432,7 +433,7 @@ test("A wallpaper tile whose thumbnail fails shows an empty frame, not a broken 
 });
 
 test("an art tile shows one title line; its full credit is the tooltip (macOS 15 tester: tile text overlapped)", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const long = "The Starry Night · Vincent van Gogh · 1889 · Museum of Modern Art, New York · Public domain";
   await act(async () =>
     page.provider.setHost({
@@ -456,7 +457,7 @@ test("an art tile shows one title line; its full credit is the tooltip (macOS 15
 
 test("my desktop wallpaper and my screen saver lead the picker; a click on either makes it the background", async () => {
   const aerial = "system:/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/B2.mov";
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   page.provider.screenSaver = aerial;
   await act(async () =>
     page.provider.setHost({
@@ -500,7 +501,7 @@ test("my desktop wallpaper and my screen saver lead the picker; a click on eithe
 });
 
 test("a screen saver that is not an aerial adds no tile", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   await settle();
   const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
   expect(picker.querySelector('[aria-label="Screen Saver"]')).toBeNull();

@@ -11,7 +11,7 @@
 #             checkout's scripts/cmux-next/cef-manifest.json pins (this Mac's arch)
 #   SOURCES   sha256:<hex> of the test-source archive (below)
 #   FORK_REF  the 40-hex fork commit the archive was made from (its REF file)
-#   CASE      default: all 12
+#   CASE      default: all 12; preload157-omnibox and preload157-net (fork API 33) run only when named
 #
 # Both archives come from the controller store by sha256 and are checked
 # before use; the host holds no credential. The fork is private, so the
@@ -47,10 +47,12 @@ usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 (( $# >= 3 )) || usage
 PACKAGE="$1" SOURCES="$2" FORK_REF="$3"; shift 3
 ALL=(signals slow-teardown duplicate zoom-bubble bookmark-bubble window-close move-parent transparent pref-control opaque-webauthn passkeys password-core)
+# Named only (fork API 33, omnibox preloading; preload157-net loads real sites): not in the default run.
+NAMED_ONLY=(preload157-omnibox preload157-net)
 cases=("$@")
 die() { echo "cmux-embedder: error: $*" >&2; exit 2; }
 (( ${#cases[@]} )) || cases=("${ALL[@]}")
-for c in "${cases[@]}"; do [[ " ${ALL[*]} " == *" $c "* ]] || die "unknown case $c"; done
+for c in "${cases[@]}"; do [[ " ${ALL[*]} ${NAMED_ONLY[*]} " == *" $c "* ]] || die "unknown case $c"; done
 [[ "$SOURCES" =~ ^sha256:[0-9a-f]{64}$ ]] || die "SOURCES must be sha256:<64 hex>"
 [[ "$FORK_REF" =~ ^[0-9a-f]{40}$ ]] || die "FORK_REF must be a 40-hex commit"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -87,7 +89,7 @@ fetch() { # fetch <sha256:hex> <dest>: from the controller store (or a local tes
 }
 fetch "$PACKAGE" "$WORK/in/package.tar.xz"
 fetch "$SOURCES" "$WORK/in/sources.tar.gz"
-tar -C "$WORK/cef" -xJf "$WORK/in/package.tar.xz"
+tar -C "$WORK/cef" -xf "$WORK/in/package.tar.xz"  # a release .tar.xz or a fleet build's plain cef.tar
 tar -C "$WORK" -xzf "$WORK/in/sources.tar.gz"
 [[ "$(tr -d '[:space:]' <"$WORK/src/REF" 2>/dev/null)" == "$FORK_REF" ]] ||
   die "the test-source archive's REF is $(tr -d '[:space:]' <"$WORK/src/REF" 2>/dev/null || echo missing), not $FORK_REF"
@@ -127,9 +129,13 @@ sleep 1
 survivors="$(pgrep -f "$WORK/" | grep -vx "$$" || true)"
 windows >"$WORK/windows.after"
 if [[ -n "$survivors" ]]; then
-  echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails):"
-  for pid in $survivors; do ps -o pid=,command= -p "$pid" 2>/dev/null | cut -c1-200 | sed 's/^/    /'; done
-  awk -F'\t' -v s=" $(echo $survivors) " 'index(s, " " $1 " ") {print "    window " $3 " of " $2 " (pid " $1 ") still open"}' "$WORK/windows.after"
+  # The report runs in a subshell that ignores SIGPIPE: output nobody reads would otherwise end this script
+  # (SIGPIPE, or set -e on a failed write) before the kill (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE
+    echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails):"
+    for pid in $survivors; do ps -o pid=,command= -p "$pid" 2>/dev/null | cut -c1-200 | sed 's/^/    /'; done
+    awk -F'\t' -v s=" $(echo $survivors) " 'index(s, " " $1 " ") {print "    window " $3 " of " $2 " (pid " $1 ") still open"}' "$WORK/windows.after"
+  ) || true
   kill $survivors 2>/dev/null || true
   sleep 3
   left="$(for p in $survivors; do kill -0 "$p" 2>/dev/null && echo "$p"; done)"

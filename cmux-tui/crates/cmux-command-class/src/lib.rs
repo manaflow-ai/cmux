@@ -26,8 +26,11 @@
 //! a `git status` run a program; whatever runs these commands outside the
 //! machine has to run git with those settings off.
 //!
-//! Nothing calls this yet; it is the first step of the agent home.
+//! Nothing calls the classifier yet; it is the first step of the agent home.
+//! [`package_installs`] names the packages a command installs (acpmux counts
+//! them for the Cloud image's package list).
 
+mod installs;
 mod lex;
 mod net;
 mod programs;
@@ -154,6 +157,8 @@ impl Classifier {
         self.home_tools.iter().any(|tool| tool == name)
     }
 }
+
+pub use installs::{PackageInstall, package_installs};
 
 /// Classifies one shell command string with no home tools configured.
 pub fn classify(command: &str) -> Classification {

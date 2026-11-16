@@ -76,29 +76,29 @@ pub fn atomic_write(path: &Path, text: &str) -> Result<(), HandError> {
         ));
     }
     let dir = path.parent().ok_or_else(|| HandError::new("fs.bad_path", "no parent folder"))?;
-    std::fs::create_dir_all(dir).map_err(|e| HandError::io(dir, e))?;
+    crate::home_fs::create_dirs(dir).map_err(|e| HandError::io(dir, e))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = dir.join(format!(".{name}.hand-{}.tmp", uuid::Uuid::now_v7().simple()));
     let perms = std::fs::metadata(path).ok().map(|m| m.permissions());
     let result = (|| -> std::io::Result<()> {
-        let mut o = std::fs::OpenOptions::new();
+        let mut o = crate::home_fs::OpenOptions::new();
         o.write(true).create_new(true);
         // Never wider than the file it replaces, not even for a moment.
         #[cfg(unix)]
         {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            use std::os::unix::fs::PermissionsExt;
             o.mode(perms.as_ref().map_or(0o644, |p| p.mode() & 0o7777));
         }
         let mut f = o.open(&tmp)?;
         f.write_all(text.as_bytes())?;
         f.sync_all()?;
         if let Some(p) = perms {
-            std::fs::set_permissions(&tmp, p)?;
+            crate::home_fs::set_permissions(&tmp, p)?;
         }
-        std::fs::rename(&tmp, path)
+        crate::home_fs::rename(&tmp, path)
     })();
     if let Err(e) = result {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
         return Err(HandError::io(path, e));
     }
     Ok(())

@@ -14,7 +14,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page, type Route } from "playwright";
+import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
@@ -61,8 +62,26 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
   /// The person's theme.css, which the page adds once the host sends it (paneTheme.ts).
   const USER_CSS = "#root .header { height: 52px; }";
   const HTML_ATTRIBUTES = `data-look="roomy" style="--cmux-surface: rgb(10, 20, 30);"`;
+  // As the app serves the page (build-agent-pane-web.sh): its rules linked as pane.css, and the copy's
+  // (the same rules for its shadow tree) as pane-copy.css beside it.
   const htmlDocument = (body: string) =>
-    `<!doctype html><html ${HTML_ATTRIBUTES}><head><style id="cmux-pane-styles">${CSS}</style></head><body>${body}</body></html>`;
+    `<!doctype html><html ${HTML_ATTRIBUTES}><head><link rel="stylesheet" id="cmux-pane-styles" href="/pane.css" data-copy="pane-copy.css"></head><body>${body}</body></html>`;
+  const COPY_CSS = snapshotCss(CSS);
+  /// Serves the page's two sheets; false for any other request.
+  const servesSheet = (route: Route): boolean => {
+    const { pathname } = new URL(route.request().url());
+    if (pathname !== "/pane.css" && pathname !== "/pane-copy.css") return false;
+    void route.fulfill({ contentType: "text/css", body: pathname === "/pane.css" ? CSS : COPY_CSS });
+    return true;
+  };
+  /// A context whose pages get the page's sheets.
+  async function newContext(width: number, height: number): Promise<BrowserContext> {
+    const context = await browser.newContext({ viewport: { width, height } });
+    await context.route("http://chat.test/*.css", (route) =>
+      servesSheet(route) ? undefined : route.fulfill({ status: 404, body: "" }),
+    );
+    return context;
+  }
 
   let browser: Browser;
   let boot = "";
@@ -188,6 +207,7 @@ requestAnimationFrame(() => {
   ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
+      if (servesSheet(route)) return;
       if (url.pathname === "/b.html")
         return route.fulfill({
           contentType: "text/html",
@@ -233,7 +253,7 @@ requestAnimationFrame(() => {
   }
 
   test("the copy shows before the bundle runs, where the chat was, and the live page takes over in one frame", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const writer = await context.newPage();
     const before = await written(writer);
     const snapshot = before.snapshot as { html: string; height: number };
@@ -268,7 +288,7 @@ requestAnimationFrame(() => {
   });
 
   test("a press on the copy ends it and reaches nothing under it", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
@@ -296,7 +316,7 @@ requestAnimationFrame(() => {
   });
 
   test("a press on the copy held past a second still reaches nothing under it", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
@@ -321,7 +341,7 @@ requestAnimationFrame(() => {
   });
 
   test("a key held on the copy reaches nothing under it, its repeats and release too", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
@@ -343,7 +363,7 @@ requestAnimationFrame(() => {
   });
 
   test("once the live page took over, the first press reaches it", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot);
@@ -365,7 +385,7 @@ requestAnimationFrame(() => {
   });
 
   test("a key on the copy ends it and reaches nothing under it", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
@@ -381,7 +401,7 @@ requestAnimationFrame(() => {
   });
 
   test("a write while the copy still covers the live root keeps a visible root", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const page = await context.newPage();
     await page.route("http://chat.test/a.html", (route) =>
       route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
@@ -398,7 +418,7 @@ requestAnimationFrame(() => {
   });
 
   test("a block scrolled inside a shadow root draws at its offset", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const writer = await context.newPage();
     await writer.route("http://chat.test/a.html", (route) =>
       route.fulfill({
@@ -428,7 +448,7 @@ requestAnimationFrame(() => {
   });
 
   test("a box's checked state is written as it shows, both ways", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const page = await context.newPage();
     const boxes = `<input type="checkbox" id="was-on" checked><input type="checkbox" id="was-off">`;
     await page.route("http://chat.test/a.html", (route) =>
@@ -447,7 +467,7 @@ requestAnimationFrame(() => {
   });
 
   test("a copy drawn under another theme draws nothing", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-2");
@@ -456,9 +476,9 @@ requestAnimationFrame(() => {
   });
 
   test("a copy written at another size draws nothing", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
-    const other = await browser.newContext({ viewport: { width: 700, height: 600 } });
+    const other = await newContext(700, 600);
     const page = await other.newPage();
     await relaunched(page, before.snapshot);
     expect(await page.evaluate(() => (window as any).atBundle.shown)).toBe(false);
@@ -468,7 +488,7 @@ requestAnimationFrame(() => {
   });
 
   test("a copy the host answers after the bundle started still draws before the page, and shows the page", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-1", { holdUntil: "bundle" });
@@ -482,7 +502,7 @@ requestAnimationFrame(() => {
   });
 
   test("a copy the host answers after the page drew the chat draws nothing", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-1", { holdUntil: "drawn", drawFirst: true });
@@ -496,7 +516,7 @@ requestAnimationFrame(() => {
   });
 
   test("the page's other sheets are carried only as far as the copy uses them", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const page = await context.newPage();
     await page.route("http://chat.test/a.html", (route) =>
       route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
@@ -535,9 +555,9 @@ requestAnimationFrame(() => {
   });
 
   test("a copy drawn a tab row taller still draws, laid out at the new height", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const before = await written(await context.newPage());
-    const shorter = await browser.newContext({ viewport: { width: 800, height: 572 } });
+    const shorter = await newContext(800, 572);
     const page = await shorter.newPage();
     await relaunched(page, before.snapshot);
     const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<string, number[] | boolean>;
@@ -553,7 +573,7 @@ requestAnimationFrame(() => {
   });
 
   test("no field's text is written: a sign-in key in a controlled input, a password, a textarea, in shadow roots too", async () => {
-    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const context = await newContext(800, 600);
     const page = await context.newPage();
     await page.route("http://chat.test/a.html", (route) =>
       route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),

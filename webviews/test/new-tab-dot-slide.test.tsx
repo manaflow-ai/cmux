@@ -8,6 +8,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MOTION_EASE_OUT, MOTION_MS } from "../src/motion/scale.generated";
 import { DotSwitch } from "../src/agent-session/acpmux/newtab/StyleSwitch";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
@@ -51,6 +52,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   played = [];
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

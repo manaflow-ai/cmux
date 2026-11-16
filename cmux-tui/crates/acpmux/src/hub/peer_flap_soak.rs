@@ -92,7 +92,7 @@ mod tests {
             let generation = peer.generation;
             hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
             let rows = (0..ROWS_PER_PEER).map(|s| row(peer_no, s)).collect();
-            hub.apply_peer_notice(&name, generation, PeerNotice::Sessions(rows));
+            hub.apply_peer_notice(&name, generation, PeerNotice::sessions_from_values(rows));
             peers.push((name, generation, peer));
         }
         // Drop setup announcements before measuring flaps.
@@ -125,7 +125,7 @@ mod tests {
             for (peer_no, (name, generation, _)) in peers.iter().enumerate() {
                 let rows = (0..ROWS_PER_PEER).map(|s| row(peer_no, s)).collect();
                 hub.peer_notices
-                    .send((name.clone(), *generation, PeerNotice::Sessions(rows)))
+                    .send((name.clone(), *generation, PeerNotice::sessions_from_values(rows)))
                     .await
                     .unwrap();
                 hub.peer_notices

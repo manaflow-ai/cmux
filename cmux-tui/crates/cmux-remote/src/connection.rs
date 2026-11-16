@@ -634,9 +634,16 @@ impl ClientConnection {
                             actual,
                         });
                     }
-                    // Replayable traffic was retained and recovery sent it
-                    // with the original sequence on the new generation.
-                    return Ok(sequence);
+                    // Replayable traffic the old session took (its sequence was used) was
+                    // retained, and recovery sent it with the original sequence on the new
+                    // generation. A send that found the old session already closed took
+                    // nothing: send it now, or it is lost and the next frame takes its
+                    // sequence (a 16 MiB transfer lost a frame at each reconnect).
+                    let session = self.by_deadline(deadline, self.session.read()).await?.clone();
+                    if session.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
+                    continue;
                 }
                 Err(error) => {
                     session.rollback_unscheduled(lane, sequence);
@@ -1711,15 +1718,31 @@ impl ConnectionError {
     pub fn is_retryable_carrier_failure(&self) -> bool {
         match self {
             Self::Provider(error) => error.is_retryable_carrier_failure(),
-            Self::Crypto(CryptoError::LinkError(LinkError::Closed | LinkError::Transport(_)))
+            Self::Crypto(CryptoError::LinkError(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Crypto(CryptoError::UnexpectedEof)
             | Self::Crypto(CryptoError::HandshakeTimeout { .. })
-            | Self::Link(LinkError::Closed | LinkError::Transport(_))
-            | Self::Session(SessionError::Link(LinkError::Closed | LinkError::Transport(_)))
+            | Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+            | Self::Session(SessionError::Link(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Session(SessionError::LinkMessage(_))
             | Self::Session(SessionError::SchedulerClosed)
             | Self::ReconnectAttemptTimedOut { .. } => true,
             _ => false,
+        }
+    }
+
+    /// The far side's refusal, when a dial ended on one no redial cures
+    /// ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Provider(error) => error.refusal(),
+            Self::Link(error)
+            | Self::Crypto(CryptoError::LinkError(error))
+            | Self::Session(SessionError::Link(error)) => error.refusal(),
+            _ => None,
         }
     }
 }

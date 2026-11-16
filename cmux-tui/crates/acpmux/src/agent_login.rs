@@ -132,6 +132,11 @@ pub const MODEL_PLANE_ENV: &[&str] = &[
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
+    // The gateway's endpoints for Gemini and Grok (`provider_cloud_auth.rs`, hq#11225).
+    "GOOGLE_GEMINI_BASE_URL",
+    "GROK_MODELS_BASE_URL",
+    "GROK_MODELS_LIST_URL",
+    "GROK_XAI_API_BASE_URL",
 ];
 
 /// The account-home variables pinned on the CLI's command (`Cli::command`), so it
@@ -493,13 +498,13 @@ impl Machine {
 fn private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        use std::os::unix::fs::PermissionsExt;
+        crate::home_fs::create_dir_all(dir, 0o700)?;
+        crate::home_fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
     }
     #[cfg(not(unix))]
     {
-        std::fs::create_dir_all(dir)
+        crate::home_fs::create_dirs(dir)
     }
 }
 
@@ -510,22 +515,17 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
     let tmp = dir.join(format!(".{name}.{}.{}.tmp", std::process::id(), now_nanos()));
-    let mut open = std::fs::OpenOptions::new();
-    open.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        open.mode(0o600);
-    }
+    let mut open = crate::home_fs::OpenOptions::new();
+    open.write(true).create_new(true).mode(0o600);
     let written = (|| {
         let mut file = open.open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
-        std::fs::rename(&tmp, path)
+        crate::home_fs::rename(&tmp, path)
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }
@@ -737,12 +737,11 @@ impl Folder {
         ));
         #[cfg(unix)]
         {
-            use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new().mode(0o700).create(&path)?;
+            crate::home_fs::create_dir(&path, 0o700)?;
         }
         #[cfg(not(unix))]
         {
-            std::fs::DirBuilder::new().create(&path)?;
+            crate::home_fs::create_dir(&path, 0o777)?;
             crate::owner_only::restrict(&path)?;
         }
         Ok(Folder(path))

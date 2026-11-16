@@ -73,6 +73,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 import chrome_parity as cp  # noqa: E402
 import parity_chrome_cdp as chrome_arm  # noqa: E402
 from bench_launch import BenchApp, LaunchError, account_home  # noqa: E402
+from made_workspace import made_workspace  # noqa: E402
 
 METHOD = ("app-clock: socket input (no OS event), frames from the app's own ScreenCaptureKit recorder (display "
           "time); the OS input hop is not measured")
@@ -221,9 +222,14 @@ def latencies(stamps, changed, horizon_ms, refresh_ms, callbacks=()):
 class Cmux:
     """One launched cmux bench app (clean state, clean config) and its debug socket."""
 
+    # `run --keep-movies`: stop_recording keeps each recording's movie; `prune_movies` then leaves the first and the
+    # worst of an entry, so a person can open what the numbers measured.
+    keep_movies = False
+
     def __init__(self, bundle, out, server, screen):
         self.server = server
         self.out = out
+        self.movies = []  # the movies this app's recordings kept, in order
         config = {"appearance": {"backgroundOpacity": 1},
                   "updates": {"checkAutomatically": False, "downloadAutomatically": False}}
         self.app = BenchApp(bundle, out=out, config=config, window=cp.WINDOW, screen=screen)
@@ -253,11 +259,11 @@ class Cmux:
 
     def workspace(self):
         reply = self.act("workspace.newAtBottom") or {}
-        made = [i for i in reply.get("created", []) if str(i).startswith("ws_")]
+        made = made_workspace(reply, lambda: (self.rpc("snapshot.get") or {}).get("topology"))
         if not made:
             raise NotRun(f"cmux: workspace.newAtBottom made no workspace ({str(reply)[:200]})")
-        self.act("goToWorkspace", workspace=made[0])
-        return made[0]
+        self.act("goToWorkspace", workspace=made)
+        return made
 
     def terminal(self, text=None):
         self.act("newSurface")
@@ -436,11 +442,24 @@ class Cmux:
                              "input: a frame there cannot be told from a response")
             return changed, facts
         finally:
+            if self.keep_movies:
+                facts["movie"] = self.keep_movie(path)
             for name in (path, path + ".scan", path + ".frames.json"):
                 try:
                     os.unlink(name)  # up to hundreds of MB a run; the numbers are in the result
                 except OSError:
                     pass
+
+    def keep_movie(self, path):
+        """Gives the recording's movie a name of its own (the next recording of the same name writes `path` again)
+        and returns it; None when the app wrote no movie."""
+        kept = f"{path[:-len('.mov')]}-take{len(self.movies) + 1}.mov"
+        try:
+            os.replace(path, kept)
+        except OSError:
+            return None
+        self.movies.append(kept)
+        return kept
 
     def quit(self):
         try:
@@ -682,6 +701,55 @@ def screen_fault(result, hz, display_wanted=None):
     return None
 
 
+def first_and_worst(takes):
+    """Which movies of one entry stay. `takes` is [(movie path or None, [latency ms, ...])], one item for each
+    recording in the order they ran. The first recording that has a movie stays, and the one with the largest
+    latency (the earliest of equals). Returns {path: "first" | "worst" | "first and worst"}."""
+    keep = {}
+    first = next((movie for movie, _ in takes if movie), None)
+    if first:
+        keep[first] = "first"
+    scored = [(max(samples), -index, movie) for index, (movie, samples) in enumerate(takes) if movie and samples]
+    if scored:
+        worst = max(scored)[2]
+        keep[worst] = "first and worst" if worst == first else "worst"
+    return keep
+
+
+def prune_movies(takes):
+    """Removes each movie of `takes` that `first_and_worst` does not keep. Returns the kept {path: which}."""
+    keep = first_and_worst(takes)
+    for movie, _ in takes:
+        if movie and movie not in keep:
+            try:
+                os.unlink(movie)
+            except OSError:
+                pass
+    return keep
+
+
+def filmed_round(takes, entry):
+    """One more round of a (row, load) with `--keep-movies`: its movie joins `takes`, and each movie that is now
+    neither the first nor the worst goes at once, so a run holds at most 2 movies for each (row, load). Only a
+    "measured" round can be the worst: the samples of an "invalid" or a "not run" round are not numbers.
+    Returns the kept {path: which}."""
+    samples = entry.get("samples") if entry.get("status") == "measured" else None
+    takes.append((entry.get("movie"), samples or []))
+    keep = prune_movies(takes)
+    takes[:] = [(movie if movie in keep else None, samples) for movie, samples in takes]
+    return keep
+
+
+def list_movies(out, filmed):
+    """Writes `out`/movies.json, the kept movies of each (row, load) of `filmed` so far, and returns its items.
+    `run` writes it after each round: a run that is killed leaves the list of the movies on disk."""
+    kept = [{"row": row, "load": load, "which": which, "movie": movie}
+            for (row, load), takes in filmed.items() for movie, which in first_and_worst(takes).items()]
+    with open(os.path.join(out, "movies.json"), "w") as f:
+        json.dump(kept, f, indent=1)
+    return kept
+
+
 def cmux_row(bundle, out, server, screen, hz, row, load, run_index, note="", display_wanted=None):
     """One (row, load) run of the cmux arm: a clean launch, the measure, the quit. Never raises: a failure is that
     run's "not run" with its reason; numbers from a screen that fails honesty rule 1 are "invalid"."""
@@ -694,16 +762,28 @@ def cmux_row(bundle, out, server, screen, hz, row, load, run_index, note="", dis
         result = RUNNERS[row](cmux, server, hz, load == "load", random.Random(f"{row}-{load}-{run_index}"))
         fault = screen_fault(result, hz, display_wanted)
         if fault:
-            return {**base, "status": "invalid", **result, "reason": fault}
-        return {**base, "status": "measured", **result}
+            return row_movie({**base, "status": "invalid", **result, "reason": fault}, cmux.movies)
+        return row_movie({**base, "status": "measured", **result}, cmux.movies)
     except NotRun as error:
-        return {**base, "status": "not run", "reason": str(error)}
+        return row_movie({**base, "status": "not run", "reason": str(error)}, cmux.movies if cmux else [])
     except Exception as error:  # noqa: BLE001  one run's failure is that run's "not run", never the bench's end
-        return {**base, "status": "not run", "reason": f"{type(error).__name__}: {error}"[:300]}
+        return row_movie({**base, "status": "not run", "reason": f"{type(error).__name__}: {error}"[:300]},
+                         cmux.movies if cmux else [])
     finally:
         if cmux:
             cmux.quit()
         pause(2)
+
+
+def row_movie(entry, movies):
+    """`entry` with the movie of its run (`--keep-movies`): the last one that the run's app kept, also for a run
+    that is "not run" (its result has no facts). An earlier movie of the same run is removed: one run, one movie."""
+    for extra in movies[:-1]:
+        try:
+            os.unlink(extra)
+        except OSError:
+            pass
+    return {**entry, "movie": movies[-1]} if movies else entry
 
 
 # ---------------------------------------------------------------- the bench page's own report of delivered keys
@@ -776,6 +856,8 @@ def run(args):
         json.dump(machine, f, indent=1)
     log(f"console {machine['console']}; displays {machine['displays']}")
     results = open(os.path.join(out, "results.jsonl"), "a")
+    Cmux.keep_movies = bool(getattr(args, "keep_movies", False))
+    filmed = {}  # (row, load) -> [(movie or None, samples)] of the cmux arm, one item for each round (`filmed_round`)
 
     def record(entry):
         entry.setdefault("at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
@@ -824,7 +906,11 @@ def run(args):
                                                       "the screen capture loses frames on a loaded host"})
                                     continue
                                 if arm == "cmux":
-                                    record(cmux_row(args.cmux, out, server, args.screen, args.hz, row, load, rnd, args.note, wanted))
+                                    entry = cmux_row(args.cmux, out, server, args.screen, args.hz, row, load, rnd, args.note, wanted)
+                                    if Cmux.keep_movies:
+                                        filmed_round(filmed.setdefault((row, load), []), entry)
+                                        list_movies(out, filmed)
+                                    record(entry)
                                 else:
                                     record(chrome_row(ctx, row, load, rnd, args.note))
                     except NotRun as error:  # the host's GUI lock stayed taken
@@ -833,6 +919,9 @@ def run(args):
         results.close()
         if ctx:
             ctx.close()
+        if Cmux.keep_movies:
+            for item in list_movies(out, filmed):
+                log(f"movie kept ({item['which']}) {item['row']} {item['load']}: {item['movie']}")
     return 0
 
 
@@ -1019,6 +1108,9 @@ def main():
             p.add_argument("--max-host-load", type=float, default=15.0,
                            help="a run that starts at this 1-min load average or more is 'invalid' (no number)")
             p.add_argument("--note", default="")
+            p.add_argument("--keep-movies", action="store_true",
+                           help="keep the cmux arm's movie of the first and of the worst round of each (row, load), "
+                                "listed in <out>/movies.json; without it every movie is removed after its scan")
     r = sub.add_parser("report")
     r.add_argument("--out", required=True)
     r.add_argument("--md", default="")

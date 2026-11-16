@@ -26,6 +26,7 @@ use super::read_paths::{resource, touched};
 use super::*;
 
 mod tab_state_fields;
+mod workspace_state_fields;
 
 /// A session in the shape of the person's: each workspace has one screen with one pane and one
 /// terminal; each eighth workspace has a second terminal tab. No terminal has a process.

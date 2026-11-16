@@ -183,12 +183,13 @@ public final class HomeNativeTranscriptView: NSView {
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
     let showsHeader = HomeTunables.chatHeader.value
+    /// Find in this chat's pill, made on the first Cmd-F (HomeNativeTranscriptView+Find.swift).
+    var findPill: FindPillView?
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
-    /// - Parameter widgets: runs agents' widget parts natively (the app's ``HomeWidgetHosting`` over its app host); nil shows their fallback text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                widgets: (any HomeWidgetHosting)? = nil, openPanel: MadeAheadOpenPanel? = nil) {
+                openPanel: MadeAheadOpenPanel? = nil) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
@@ -199,8 +200,7 @@ public final class HomeNativeTranscriptView: NSView {
         // first pass installs it at the newest message, as it does a chat another
         // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
         binding = HomeStoreBinding(store: store, conversation: conversation)
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams,
-                                         widgets: widgets)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         attachmentPreparer = store
@@ -238,7 +238,7 @@ public final class HomeNativeTranscriptView: NSView {
         }
         transcript.agentPillMenu = { [weak self] peer in self?.agentPillMenuItems(peer) ?? [] }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
-        transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
+        transcript.onRowsChange = { [weak self] in self?.updateFirstRun(); self?.findRowsChanged() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
         transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
@@ -361,6 +361,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
 
+    /// Where the keyboard goes when Home gets focus or a key typed elsewhere in it: the picture viewer while it is
+    /// open over the chat (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { transcript.keyboardTarget }
+
     /// The home (`$MUX_HOME`) of the Chief that answers here, when its host runs on this Mac: `/` in the
     /// message box then lists its skills, the person's Claude Code skills and their plugins' skills (the
     /// folders its host reads, slash_skills.rs). Nil: no `/` menu.
@@ -438,7 +442,7 @@ public final class HomeNativeTranscriptView: NSView {
     static let defaultChatScale: CGFloat = 1
 
     /// The Chief chat's scale: its default size times Agent Chat Zoom.
-    private static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
+    static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
 
     /// The live interface scale applies to the native first-run chrome, times the Chief chat's scale
     /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
@@ -513,6 +517,7 @@ public final class HomeNativeTranscriptView: NSView {
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
+        layoutFind()
         followToasts()
     }
 

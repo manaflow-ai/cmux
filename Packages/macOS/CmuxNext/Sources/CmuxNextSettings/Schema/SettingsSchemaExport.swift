@@ -75,7 +75,8 @@ public struct SettingsSchemaExport {
                 "lead": spec.lead.map(\.rawValue),
                 "trail": spec.trail.map(\.rawValue),
                 "actions": spec.actions.map(\.rawValue),
-                "aliases": spec.aliases.map(\.rawValue),
+                // Section ids, then old category ids (`theme`, `server`), that open this category.
+                "aliases": spec.aliases.map(\.rawValue) + spec.legacyIDs,
             ]
             // Only DEV builds show it (the page asks the host); absent everywhere else.
             if spec.devOnly { entry["dev_only"] = true }
@@ -164,6 +165,8 @@ public struct SettingsSchemaExport {
         // names, installed fonts, system sounds) or with its own shape (row-facts.json).
         row["validation"] = SettingsSchema.validationByKey[descriptor.id]
             ?? (row["kind"] as? String).flatMap { SettingsSchema.validationByKind[$0] } ?? SettingsSchema.defaultValidation
+        // An app id row carries the manifest's id pattern, so the web page checks the same rule.
+        if row["validation"] as? String == "domain:app_id" { row["pattern"] = SettingsSchema.appIDPattern }
         let samples = SettingsSchemaSamples.samples(row: row)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
         row["refuses"] = samples.refuse.filter { !descriptor.accepts($0) }.map(foundation)

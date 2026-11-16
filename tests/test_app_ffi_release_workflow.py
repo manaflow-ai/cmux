@@ -42,10 +42,13 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from test_seed_derived_data import evaluate  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
@@ -111,7 +114,7 @@ def executable(path: Path, text: str) -> None:
 
 
 def render(text: str, context: dict) -> str:
-    return re.sub(r"\$\{\{(.*?)\}\}", lambda match: str(evaluate(match.group(1), context) or ""), str(text))
+    return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(match.group(1), context) or ""), str(text))
 
 
 def condition(expression: str | None, context: dict, failed: bool, cancelled: bool = False) -> bool:
@@ -132,21 +135,25 @@ def condition(expression: str | None, context: dict, failed: bool, cancelled: bo
 class PublishJob(unittest.TestCase):
     def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False,
                     read_fails: str = "", curl_fails: str = "") -> tuple[bool, str]:
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = document["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             bin_dir, state, work = temp_path / "bin", temp_path / "state", temp_path / "work"
-            for path in (bin_dir, state, work / "assets"):
+            # The job downloads into ${{ runner.temp }}/assets (RUNNER_TEMP is `temp`), not into its workspace.
+            assets = temp_path / "assets"
+            work.mkdir()
+            for path in (bin_dir, state, assets):
                 path.mkdir(parents=True)
             executable(bin_dir / "gh", FAKE_GH)
             executable(bin_dir / "curl", FAKE_CURL)
             executable(bin_dir / "sleep", "#!/bin/sh\nexit 0\n")
-            archive = work / "assets/CCmuxAppFFI.xcframework.zip"
+            archive = assets / "CCmuxAppFFI.xcframework.zip"
             archive.write_bytes(b"xcframework bytes")
             checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-            (work / "assets/CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
-            (work / "assets/SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
-            (work / "assets/SOURCE_SHA").write_text(SHA + "\n")
+            (assets / "CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
+            (assets / "SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
+            (assets / "SOURCE_SHA").write_text(SHA + "\n")
             if existing:
                 (state / "release").mkdir()
                 (state / "release/CCmuxAppFFI.xcframework.zip").write_bytes(archive.read_bytes())
@@ -165,7 +172,7 @@ class PublishJob(unittest.TestCase):
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
                         "GITHUB_STEP_SUMMARY": str(temp_path / "summary")})
-            base_env.update({key: render(value, context) for key, value in (job.get("env") or {}).items()})
+            base_env.update({key: render(value, context) for key, value in workflow_jobs.effective_env(document, job).items()})
             failed, log = False, []
             for step in job["steps"]:
                 if "run" not in step or not condition(step.get("if"), context, failed):
@@ -213,8 +220,8 @@ class PublishJob(unittest.TestCase):
     def test_the_hand_publish_command_is_one_shell_command_that_ends_with_the_pin_proved(self):
         # Review of #37645 at ec4829a3, F1: it read "...; then pin it with ...", prose no shell accepts, so the
         # command named on a failed publish could not be pasted as given.
-        command = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]["env"]["HAND_PUBLISH"]
-        command = re.sub(r"\$\{\{[^}]*\}\}", "X", command)
+        command = workflow_jobs.resolve(workflow_jobs.jobs(WORKFLOW)["publish"]).env["HAND_PUBLISH"]
+        command = gh_expressions.EXPRESSION.sub("X", command)
         checked = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True)
         self.assertEqual(checked.returncode, 0, checked.stderr)
         self.assertRegex(command, r"&& scripts/cmux-next/repin-app-ffi\.sh X X "
@@ -258,7 +265,7 @@ class PublishToken(unittest.TestCase):
         self.steps = {step.get("id") or step.get("name"): step for step in self.job["steps"]}
 
     def test_the_job_runs_in_the_ffi_release_environment_with_a_read_only_github_token(self):
-        self.assertEqual(self.job.get("environment"), "ffi-release")
+        self.assertEqual(workflow_jobs.resolve(self.job).environment, {"name": "ffi-release"})
         self.assertEqual(self.job.get("permissions"), {"contents": "read"})
 
     def test_the_app_tokens_are_scoped_to_this_repository(self):
@@ -289,9 +296,10 @@ class PublishToken(unittest.TestCase):
 
 
 REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
-_pin_spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
-app_ffi_pin = importlib.util.module_from_spec(_pin_spec)
-_pin_spec.loader.exec_module(app_ffi_pin)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import app_ffi_pin  # noqa: E402
 
 
 def manifest(checksum):
@@ -405,6 +413,11 @@ if Path(sys.argv[0]).name == "git":
             same = state.get("same_inputs")
             sys.exit(0 if same is True or (isinstance(same, list) and (shas in same or shas[::-1] in same)) else 1)
         sys.exit(1)
+    if args[0] == "show" and "--format=%ct" in args:
+        # `git show -s --format=%ct SHA`: the release commit's time, when the test gives its age; else unknown.
+        if state.get("pin_age_min") is None: sys.exit(128)
+        import time
+        print(int(time.time()) - 60 * state["pin_age_min"]); sys.exit(0)
     if args[0] == "show":
         # `git show REV:PATH`: the files of the re-pin branch's head (the test's pr_files), nothing else.
         rev, _, file = args[-1].partition(":")
@@ -538,7 +551,7 @@ class RePinPublication(unittest.TestCase):
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
                   check_total=None, runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
-                  jobs_read="ok", base_result="newer", base_enabled="true"):
+                  jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -587,6 +600,7 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
+                "pin_age_min": pin_age_min,
                 **({} if check_total is None else {"check_total": check_total})}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
@@ -737,13 +751,16 @@ class RePinPublication(unittest.TestCase):
         job = workflow["jobs"]["repin"]
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)
-        self.assertEqual(job["environment"], "ffi-release")
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ffi-release"})
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
         self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ github.token }}")
         self.assertEqual(pin_step(release)["env"]["READ_TOKEN"], "${{ github.token }}")
-        self.assertNotIn("macos", str(job["runs-on"]))
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "repin: runs-on reads a matrix value nothing resolves, or is missing")
+        for runs_on in cells:
+            self.assertNotIn("macos", runs_on)
         self.assertEqual([s.get("with") for s in job["steps"]], [s.get("with") for s in release["steps"]])
         self.assertEqual(pin_step(job)["run"], pin_step(release)["run"])
         result, state = self.run_repin(workflow=REPIN_WORKFLOW, refs={})
@@ -1013,6 +1030,19 @@ class RePinPublication(unittest.TestCase):
                 self.assertNotIn("closes", state)
                 self.assertEqual(state["published"], [])
 
+    def test_a_release_older_than_the_hold_bound_is_pinned_at_once(self):
+        # 2026-11-14 (hq#10943): ead26e75 published 148 min after its commit and held for a newer queued run, so the
+        # base stayed red. A release whose commit is already older than the bound pins now; a young one still holds.
+        newer = "7" * 40
+        for age, holds in ((90, False), (10, True)):
+            with self.subTest(age=age):
+                result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                                               ancestry=[(self.NEWEST, newer)], jobs={"9": []}, pin_age_min=age)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("Re-pin held" in result.stdout, holds, result.stdout + result.stderr)
+                if not holds:
+                    self.assertIn("no newer run holds its re-pin", result.stderr)
+
     def test_a_run_waiting_for_hours_does_not_hold(self):
         # A run stuck waiting for a runner or an approval would hold every re-pin until it ends, maybe for days.
         newer = "7" * 40
@@ -1224,6 +1254,18 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertEqual(repin["group"], "app-ffi-repin")
         self.assertIs(repin["cancel-in-progress"], False)
 
+    def test_the_re_pin_hold_ends_inside_the_pin_grace(self):
+        # publish-app-ffi-repin.sh holds a published release for a newer run created at most REPIN_PENDING_MAX_MIN
+        # ago. That hold plus the newer build's timeout-minutes must end inside "Check the app FFI pin"'s
+        # --stale-grace, or a newer run still queued turns the base red (2026-11-14, hq#10943: the hold was 180 min,
+        # the grace 120).
+        script = (ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh").read_text()
+        hold = int(re.search(r'pending_max_min="\$\{REPIN_PENDING_MAX_MIN:-(\d+)\}"', script).group(1))
+        checks = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        grace = int(re.search(r"check-app-ffi-pin\.sh --verify-release --stale-grace (\d+)", checks).group(1)) // 60
+        build = int(self.jobs["build"]["timeout-minutes"])
+        self.assertLess(hold + build, grace, f"re-pin hold {hold} min + build {build} min vs pin grace {grace} min")
+
     def test_build_checkout_is_treeless_with_full_history(self):
         checkout = self.jobs["build"]["steps"][0]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
@@ -1252,7 +1294,7 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
 
     def runner(self, promote: str, event: str = "push", attempt: int = 1) -> str:
         build = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build"]
-        return evaluate(build["runs-on"], {
+        return evaluate(workflow_jobs.single_runs_on(build), {
             "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
             "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL,
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL})}})

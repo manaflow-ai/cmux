@@ -45,9 +45,9 @@
 //!   set-up snapshot once that is ready (zero-setup hot start), keyed by the
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
-//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: a folder
-//!   in git goes on; a plain one past the copy's limits is refused with `copy.too_large`, naming
-//!   the git working copies right inside it (`repos`) to start in instead ([`preflight`]).
+//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
+//!   absolute folder goes on, whatever its size; one past the copy's limits goes as a first pass
+//!   ([`preflight`], `sync_cli::size_cap`).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -430,11 +430,11 @@ fn plan_with_calls(
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
-            let pane = match Ledger::update(ledger, |pins| pins.target_pane(&send, &id)) {
-                Ok(pane) => pane,
+            let (pane, made) = match Ledger::update(ledger, |pins| pins.retry_facts(&send, &id)) {
+                Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             };
-            json!({"ok": true, "machine": id, "target_pane": pane})
+            json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
@@ -462,9 +462,9 @@ fn plan_with_calls(
                 Ok(body) => {
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
-                    // Pinned before the App opens anything there, as a machine the App made.
+                    let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
                     if let Err(error) = Ledger::update(ledger, |pins| {
-                        pins.record(id, &send);
+                        pins.record_made(id, &send, made);
                         if let Some(workspace) = workspace {
                             pick::claim(pins, workspace, &request.account, id);
                         }
@@ -972,7 +972,7 @@ pub(super) fn pin(
     match Ledger::update(ledger, |pins| {
         let send = Send::new(key, account);
         let before = pins.machine(&send);
-        pins.record(machine, &send);
+        pins.record_pin(machine, &send);
         if let Some(workspace) = workspace {
             let repick = before.as_deref().is_some_and(|before| {
                 before != machine

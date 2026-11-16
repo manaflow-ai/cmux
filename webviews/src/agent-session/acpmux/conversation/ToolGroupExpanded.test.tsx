@@ -14,6 +14,7 @@ import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
 import { thoughtLayout } from "./thoughtRowModel";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -54,6 +55,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -104,7 +106,8 @@ test("opening a command group shows all 13 calls and the intervening thought wit
   expect(container.querySelectorAll(".cv-command")).toHaveLength(0);
   await act(async () => group.click());
   expect(container.querySelectorAll(".cv-command")).toHaveLength(13);
-  expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(1);
+  // Closing the group closed the call the reader opened in it (Lucas, 2026-11-11).
+  expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(0);
 });
 
 for (const [kind, toolKind] of GROUP_KINDS.slice(1))
@@ -379,7 +382,7 @@ test("one mixed run exposes individual steps and drills into an MCP call's field
   expect(steps.textContent).not.toContain("Waiting…");
 });
 
-// A running turn draws by liveTurnWork.experiment.ts: the shipped `line` arm draws no finished run
+// A running turn draws by liveTurnWork.experiment.ts: the `line` arm draws no finished run
 // of the stretch still running (one live line, as chatgpt.com draws a running turn); the `runs` arm
 // keeps each finished run's calls in sight until the turn ends. Each arm is pinned for its case.
 async function underLiveTurnArm<T>(arm: "line" | "runs", body: () => Promise<T>): Promise<T> {
@@ -410,7 +413,7 @@ for (const agentFamily of ["claude", "codex"])
   for (const working of [false, true])
     test(`${agentFamily} ${
       working
-        ? "live turn under the runs arm keeps mixed calls in sight"
+        ? "live turn under the runs arm folds mixed calls into one run"
         : "finished turn projects mixed calls into one folded run"
     }`, async () => {
       const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
@@ -421,21 +424,15 @@ for (const agentFamily of ["claude", "codex"])
       const projected = working ? await underLiveTurnArm("runs", project) : await project();
       const work = projected.find((row) => row.kind === "activity")!;
       expect(work).toBeDefined();
-      if (working) {
-        // Under `runs`, while the turn runs nothing folds: the run's finished calls are in sight
-        // with no click, and only the turn's end folds them (Leo, 2026-11-08: "you only do the
-        // overarching fold at the very end").
-        expect(work.foldRun).toBe(false);
-        const live = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
-        expect(live.textContent).toContain("Find the retry handler");
-        expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
-        return;
-      }
+      // A live turn folds its finished runs as the ended turn does, as the Codex app (Lucas, 2026-11-11:
+      // "we should not auto expand commands etc when the turn is live").
       expect(work.foldRun).toBe(true);
       const container = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
       const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
       expect(header.getAttribute("aria-expanded")).toBe("false");
       await act(async () => header.click());
+      // A finished call stays in its run while the live line reads Thinking (#37635), so a live
+      // turn of finished calls lists every step, as the ended turn does.
       expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);
       expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
     });
@@ -473,9 +470,14 @@ test("an opened mixed run keeps a command's returned image and printed screensho
   const container = await render(<ToolRows row={row} sessionId="mixed-capture" />);
   await act(async () => container.querySelector<HTMLButtonElement>("button.cv-tool")!.click());
   const steps = container.querySelector("[data-mixed-tool-steps]")!;
-  // As base draws a run's command (ToolRow): its images show under its row, opened or not.
+  // Closed, a command's images are one small image at its row's edge; opened, the strip under it
+  // (Lucas, 2026-11-11), as the Codex app's rows draw them.
+  expect(steps.querySelector(".cv-tool-images")).toBeNull();
+  expect(steps.querySelector(".cv-tool-visual")).not.toBeNull();
+  await act(async () => steps.querySelector<HTMLButtonElement>('button[data-tool-id="capture-shell"]')!.click());
   const strip = steps.querySelector(".cv-tool-images");
   expect(strip).not.toBeNull();
+  expect(steps.querySelector(".cv-tool-visual")).toBeNull();
   expect(strip!.querySelector(`img[src="${shot}"]`)).not.toBeNull();
 });
 

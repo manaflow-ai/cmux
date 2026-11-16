@@ -9,6 +9,7 @@ import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 /// The `_meta.acpmux` keys the cmux host's pane policy lets through on `session/prompt`.
 const policyPath = path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json");
@@ -26,7 +27,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

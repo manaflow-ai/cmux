@@ -5,6 +5,7 @@
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -38,7 +39,8 @@ Object.assign(scope, replacements);
 
 const { saveSnapshot, savedSessions, turnEndedBetween } = await import("../src/agent-session/acpmux/snapshotCache");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

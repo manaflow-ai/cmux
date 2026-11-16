@@ -5,10 +5,11 @@ import CmuxNextTestSupport
 import Testing
 
 /// The omnibar follows density and `browser.omnibar.height` / `fontSize`
-/// (https://github.com/manaflow-ai/cmux/issues/28734): Standard (the `compact` preset, the default)
-/// stays today's 28 pt bar with 14 pt text, Comfortable is Chrome's roomier 34 pt bar with 15 pt
-/// text, an override beats density and is clamped, and at every density and override the bar's
-/// text, chip, star, toolbar buttons and suggestion rows stay inside their bounds.
+/// (https://github.com/manaflow-ai/cmux/issues/28734): the bar and its buttons are the window's one
+/// chrome row (a sidebar workspace row, a tab pill; Lawrence 2026-11-09), 24 pt with 14 pt text at
+/// Standard (the `compact` preset, the default) and 32 pt with 15 pt text at Comfortable, an override
+/// beats density and is clamped, and at every density and override the bar's text, chip, star,
+/// toolbar buttons and suggestion rows stay inside their bounds.
 @MainActor @Suite(.serialized, .closesItsWindows) struct OmnibarDensityTests {
     // MARK: Tokens
 
@@ -30,25 +31,41 @@ import Testing
         }
     }
 
-    @Test func standardIsTodaysBarExactly() {
+    /// The toolbar glyph whose ink box is `side` (the pack's ink is 0.6 of the glyph).
+    private static func glyph(inking side: CGFloat) -> CGFloat { side / DensityTokens.toolbarGlyphInkRatio }
+
+    @Test func standardIsOneChromeRow() {
         let standard = OmnibarMetrics(tokens: DensityPreset.compact.tokens)
         #expect(standard == OmnibarMetrics(tokens: .compact))
-        #expect(standard.barHeight == 28 && standard.buttonSize == 28)
-        #expect(standard.fontSize == TypeScale.field)
-        #expect(standard.iconPointSize == 13 && standard.toolbarIconSize == 20 && standard.trailingIconSize == 18)
+        // Compact is 20 pt tall (Lawrence 2026-11-13): its 12 pt body fits the bar at 11, the glyphs ink a point under
+        // the 12 pt small icon, and the trailing icon is what the bar leaves.
+        #expect(standard.barHeight == 20 && standard.buttonSize == 20)
+        #expect(standard.fontSize == 11)
+        #expect(standard.iconPointSize == 10 && standard.toolbarIconSize == Self.glyph(inking: 11) && standard.trailingIconSize == 14)
     }
 
-    @Test func levelOneIsChromesRoomierBar() {
+    @Test func levelOneIsTheComfortableRow() {
         let comfortable = OmnibarMetrics(tokens: DensityTokens(id: "comfortable", name: "Comfortable", level: 1))
-        #expect(comfortable.barHeight == 34 && comfortable.buttonSize == 34)
-        #expect(comfortable.fontSize == TypeScale.title)
-        #expect(comfortable.iconPointSize == 15 && comfortable.toolbarIconSize == 22 && comfortable.trailingIconSize == 20)
+        #expect(comfortable.barHeight == 32 && comfortable.buttonSize == 32)
+        // The URL is the body text (13 at level 1); the glyphs ink a point under the 14 pt small icon.
+        #expect(comfortable.fontSize == 13)
+        #expect(comfortable.iconPointSize == 15 && comfortable.toolbarIconSize == Self.glyph(inking: 13) && comfortable.trailingIconSize == 20)
+    }
+
+    /// The chrome row the caller passes (the sidebar's, with its density's and text size's extra
+    /// height) sizes the bar and the buttons, and the text fits a short one.
+    @Test func theBarTakesTheChromeRow() {
+        let roomy = OmnibarMetrics(tokens: .compact, rowHeight: 28)
+        #expect(roomy.barHeight == 28 && roomy.buttonSize == 28 && roomy.fontSize == DensityTokens.compact.bodySize)
+        let short = OmnibarMetrics(tokens: .compact, rowHeight: 20)
+        #expect(short.barHeight == 20 && short.buttonSize == 20)
+        #expect(short.barHeight >= OmnibarMetrics.minimumBarHeight(fontSize: short.fontSize), "\(short)")
     }
 
     /// Ultra-compact is tighter than today, Spacious roomier, and every size grows with the density.
     @Test func everyDensitySitsOnOneLine() {
         let all = DensityPreset.allCases.map { OmnibarMetrics(tokens: $0.tokens) }
-        #expect(all.first!.barHeight < 28, "Ultra-compact is \(all.first!.barHeight) pt")
+        #expect(all.first!.barHeight < 24, "Ultra-compact is \(all.first!.barHeight) pt")
         for (denser, roomier) in zip(all, all.dropFirst()) {
             #expect(denser.barHeight <= roomier.barHeight && denser.fontSize <= roomier.fontSize && denser.buttonSize <= roomier.buttonSize)
         }
@@ -60,7 +77,7 @@ import Testing
     /// A custom density's `fontSize` scales the bar's text with the rest of the chrome.
     @Test func aCustomDensityFontSizeScalesTheBarText() {
         let large = DensityTokens(id: "large", name: "Large", fontSize: 14)
-        #expect(OmnibarMetrics(tokens: large).fontSize > TypeScale.field)
+        #expect(OmnibarMetrics(tokens: large).fontSize > OmnibarMetrics(tokens: .compact).fontSize)
     }
 
     // MARK: Overrides
@@ -89,7 +106,7 @@ import Testing
         #expect(metrics.barHeight == 30)
         #expect(metrics.fontSize == 13)
         // The buttons keep the density's size.
-        #expect(metrics.buttonSize == 34)
+        #expect(metrics.buttonSize == 32)
     }
 
     @Test func overridesAreClampedIntoTheirRanges() {
@@ -235,7 +252,7 @@ import Testing
         let view = Chrome()
         defer { view.tearDown() }
         let bar = view.chrome.addressBar
-        #expect(view.rect(bar).height == 28)
+        #expect(view.rect(bar).height == OmnibarMetrics.current.barHeight)
         overrides.applySize(height: 40, fontSize: 18)
         await Self.settle()
         view.chrome.layoutSubtreeIfNeeded()
@@ -247,8 +264,8 @@ import Testing
         overrides.applySize(height: nil, fontSize: nil)
         await Self.settle()
         view.chrome.layoutSubtreeIfNeeded()
-        #expect(view.rect(bar).height == 28)
-        #expect(bar.field.font?.pointSize == TypeScale.field)
+        #expect(view.rect(bar).height == OmnibarMetrics.current.barHeight)
+        #expect(bar.field.font?.pointSize == OmnibarMetrics.current.fontSize)
     }
 
     /// Lets the binding's observation re-apply (it re-arms on the next main-actor turn).

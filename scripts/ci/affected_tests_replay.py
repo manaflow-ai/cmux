@@ -317,6 +317,8 @@ def check(path: Path, metadata: Path, out: Path | None) -> int:
             f["test"] = RUNNER_CHECKOUT.sub("", f["test"])
     meta = json.loads(metadata.read_text())
     lanes = affected_tests.python_lane_tests(ROOT)
+    # A head that merged a base newer than this clone's copy would plan that base's files as the PR's own.
+    affected_tests.refresh_base(ROOT, f"origin/{BASE_BRANCH}")
     plans: dict[str, dict] = {}
     seen_on = collections.defaultdict(set)
     for f in data["failures"]:

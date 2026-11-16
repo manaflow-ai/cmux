@@ -32,7 +32,7 @@
 // wheel_tick.<engine>.<mode>.scaling.work_p95_ratio (the largest size's p95 over the smallest's; 1 is flat).
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium, webkit } from "playwright";
+import { chromium, webkit } from "./browsers";
 import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
 import { createServer, type ViteDevServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";

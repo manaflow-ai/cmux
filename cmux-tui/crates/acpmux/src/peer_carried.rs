@@ -67,6 +67,9 @@ impl Carried {
 #[derive(Default)]
 pub(super) struct Carriers {
     entries: HashMap<String, Carried>,
+    /// Cancels waiting for room on the shadow of each link, not in its queue yet: the shadow
+    /// does not end before they are (review F2 of #41392), or the copy it carried runs on.
+    writing: HashMap<u64, usize>,
 }
 
 impl Carriers {
@@ -131,6 +134,11 @@ impl Carriers {
     }
 
     /// Whether the shadow of link `link` carries any request still owed.
+    /// Whether a cancel to the shadow of link `link` still waits for room in its queue.
+    pub(super) fn cancels_due(&self, link: u64) -> bool {
+        self.writing.get(&link).is_some_and(|n| *n > 0)
+    }
+
     pub(super) fn shadow_carries(&self, link: u64) -> bool {
         self.entries.values().any(|e| {
             e.carriers.iter().any(|c| matches!(c, Carrier::Shadow { link: l, .. } if *l == link))
@@ -229,12 +237,29 @@ impl PeerCancel {
         for carrier in live {
             match carrier {
                 Carrier::Link(link) => {
+                    // Its epoch is the link's that carries the request as the cancel is queued,
+                    // under the record's lock: a resend after it finds the request gone and
+                    // sends nothing (review F1 of #41392).
                     let frame = Outbound { epoch: *link, key: None, line: note.clone() };
-                    queue(&self.out, frame, &self.peer, self.id, "link");
+                    queue(&self.out, frame, &self.peer, self.id, "link", || {});
                 }
-                Carrier::Shadow { tx, .. } => {
+                Carrier::Shadow { tx, link } => {
                     let line = note.trim_end_matches('\n').to_owned();
-                    queue(tx, line, &self.peer, self.id, "shadow");
+                    // One that waits for room is counted until it is in the shadow's queue: the
+                    // shadow ends only after (`Carriers::cancels_due`).
+                    let (record, link) = (self.carried.clone(), *link);
+                    let waits = queue(tx, line, &self.peer, self.id, "shadow", move || {
+                        let mut carried = record.lock_or_recover();
+                        if let Some(n) = carried.writing.get_mut(&link) {
+                            *n = n.saturating_sub(1);
+                            if *n == 0 {
+                                carried.writing.remove(&link);
+                            }
+                        }
+                    });
+                    if waits {
+                        *carried.writing.entry(link).or_default() += 1;
+                    }
                 }
             }
         }
@@ -242,10 +267,19 @@ impl PeerCancel {
 }
 
 /// `item` on `tx` now, or once there is room: never dropped for a full queue, only for a
-/// closed one (its carrier is gone), which is logged.
-fn queue<T: Send + 'static>(tx: &mpsc::Sender<T>, item: T, peer: &str, id: i64, on: &'static str) {
+/// closed one (its carrier is gone), which is logged. True when it waits for room: then
+/// `written` runs in the task that waits, once it is in the queue or its carrier is gone (the
+/// caller may hold the record's lock until it returns, never the task).
+fn queue<T: Send + 'static>(
+    tx: &mpsc::Sender<T>,
+    item: T,
+    peer: &str,
+    id: i64,
+    on: &'static str,
+    written: impl FnOnce() + Send + 'static,
+) -> bool {
     let item = match tx.try_send(item) {
-        Ok(()) => return,
+        Ok(()) => return false,
         Err(mpsc::error::TrySendError::Full(item)) => Some(item),
         Err(mpsc::error::TrySendError::Closed(_)) => None,
     };
@@ -260,8 +294,13 @@ fn queue<T: Send + 'static>(tx: &mpsc::Sender<T>, item: T, peer: &str, id: i64, 
                 if tx.send(item).await.is_err() {
                     gone(&peer);
                 }
+                written();
             });
+            true
         }
-        _ => gone(&peer),
+        _ => {
+            gone(&peer);
+            false
+        }
     }
 }

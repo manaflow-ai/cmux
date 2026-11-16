@@ -32,6 +32,7 @@ impl ListBytes {
 
     /// A list reply of `bytes` went to `client` (its name and origin, `"name (origin)"`).
     pub fn observe(&self, client: &str, bytes: usize) {
+        crate::gauges::global().mark("first list reply");
         let mut by = self.by_client.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let key = if by.contains_key(client) || by.len() < CLIENTS { client } else { "(other)" };
         let count = by.entry(key.to_owned()).or_default();

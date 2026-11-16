@@ -39,6 +39,8 @@ import {
   useArtifactCoversPane,
 } from "../src/agent-session/acpmux/conversation/artifactPanelModel";
 import { chat } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -81,6 +83,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -133,9 +136,8 @@ function Pane({ initiallyCovered }: { initiallyCovered: boolean }) {
   );
 }
 
-const panel = (container: HTMLElement) => container.querySelector("aside.acpmux-session-info");
-const toggle = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>("button.acpmux-session-info-toggle")!;
+const panel = (container: HTMLElement) => container.querySelector(SESSION_INFO);
+const toggle = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(SESSION_INFO_TOGGLE)!;
 
 async function mount(covered: boolean) {
   uncovered = 0;
@@ -249,7 +251,7 @@ test("floating beside a side panel, the card's right edge is the chat's", async 
       </SessionInfoPanel>,
     );
   });
-  const aside = container.querySelector<HTMLElement>("aside.acpmux-session-info")!;
+  const aside = container.querySelector<HTMLElement>(SESSION_INFO)!;
   expect(aside.style.getPropertyValue("--acpmux-session-info-side")).toBe("736px");
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/session-info/sessionInfo.css", import.meta.url),
@@ -384,7 +386,9 @@ async function mountFolderPane(width: number, opened: string[], height = 0) {
 }
 
 const projectRow = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>('ul[data-section="environment"] button.acpmux-session-info-row')!;
+  container.querySelector<HTMLButtonElement>(
+    `ul[data-section="environment"] button.acpmux-session-info-row[title="${snapshot.summary!.cwd!}"]`,
+  )!;
 
 test("over the chat, a project click opens its Files tab and the panel steps aside, still open", async () => {
   const opened: string[] = [];

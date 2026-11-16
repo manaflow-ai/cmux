@@ -1,5 +1,5 @@
 package import CmuxNextSettings
-import Foundation
+package import Foundation
 import UserNotifications
 
 /// Reads and asks for this app's notification permission (the seam tests replace).
@@ -18,6 +18,18 @@ package nonisolated struct NotificationPermission: Equatable, Sendable {
     package var sound: Bool
     package var badge: Bool
     package var bundleID: String?
+
+    /// macOS will not ask again: only the person turns it on, in System Settings > Notifications.
+    package var isDenied: Bool { authorization == "denied" }
+
+    /// System Settings > Notifications at this app's page (`?id=`), the pane `cmux setup notifications`
+    /// hands the person when the permission is denied.
+    package var settingsURL: URL? {
+        URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension" + (bundleID.map { "?id=\($0)" } ?? ""))
+    }
+
+    /// What a caller says when this process has no system notification center to read or ask.
+    package static var unavailableMessage: String { NotificationPermissionStrings.unavailable }
 
     package var json: JSONValue {
         ["authorization": .string(authorization), "alert": .bool(alert), "alert_style": .string(alertStyle),
@@ -58,7 +70,7 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
     }
 }
 
-struct NotificationPermissionStrings {
+nonisolated struct NotificationPermissionStrings {
     static var unavailable: String {
         String(localized: "notifications.permission.unavailable",
                defaultValue: "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)",

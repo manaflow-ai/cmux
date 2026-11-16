@@ -126,7 +126,7 @@ export function FontPicker({
         }}
       >
         {value ?? defaultLabel}
-        <Icon name="chevron" />
+        <Icon name="chevron.popup" className="popup-caret" />
       </Button>
       <Popover
         open={open && !disabled}
@@ -142,6 +142,7 @@ export function FontPicker({
           onSubmit={pick}
           onCancel={close}
           onHighlight={highlight}
+          isItemCurrent={(name) => (name === DEFAULT_FONT_ROW ? value === null : name === value)}
           label={title}
           placeholder={t("settingsPage.filter")}
           inputClassName="field font-search"

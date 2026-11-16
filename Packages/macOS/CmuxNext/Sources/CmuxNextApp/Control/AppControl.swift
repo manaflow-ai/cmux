@@ -4,11 +4,12 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserImport
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
+import CmuxNextNotifications
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -21,7 +22,7 @@ import CmuxNextWakeups
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    let watchdog = MainThreadWatchdog()
+    let watchdog = MainThreadWatchdog(configuration: .init(starvationProbeInterval: .seconds(5)))
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
@@ -100,8 +101,10 @@ final class AppControl {
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(services.cmuxRemoteActions.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
+        // `chat.composer.get`: what the composer of the chat that last took files from another app holds.
+        service.router.register(services.externalOpen.chatAttach.controlMethods { [weak services] in services?.windows.active?.focusedPane?.shownChat })
         service.router.register(PermissionsControl.methods(services: services))
-        service.router.register(NotificationsControl.methods(services: services))
+        service.router.register(ControlMethod.notifications(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
         service.router.register([CloudMachineStreamControl.method { [weak services] machine in try? await (await MainActor.run { services?.machines.session(machine)?.daemon.remoteEndpoint })?().socketPath }])
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
@@ -120,10 +123,9 @@ final class AppControl {
                 return try await ResourceControl.renderers(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
             // Installed Chrome extensions, shortcuts and toolbar badges.
-            .mainActor("browser.extensions") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(ExtensionControl.report(services))
-            },
+            .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
+            // `apps.views`: each open extension view and the words it shows now (read-only).
+            .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // `cmux app chat perf`: a chat page's frames and record-to-paint times, read-only; finds the page, never shows it.
@@ -384,6 +386,12 @@ final class AppControl {
             // One file-picker open, click to the frame that shows it (DebugOpenPanelBench).
             .async("debug.open_panel_bench") { [weak services] call in
                 await DebugOpenPanelBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
+            // One icon picker (Set Icon) or group editor (the first group's Rename) open, warm, cold or after intent, to its drawn frame.
+            .async("debug.overlay_open_bench") { @MainActor [weak services] call in
+                guard let services else { return .null }
+                let open = { (kind: String) in kind == "icon_picker" ? services.registry.perform("workspace.setIcon") : services.windows.active?.sidebar.container.beginRenameFirstGroup() ?? false }
+                return await OverlayOpenBench(pages: ["icon_picker": services.iconPicker, "group_editor": services.groupEditor], open: open).run(call.params)
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -667,3 +675,9 @@ final class AppControl {
         service?.stop()
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+// `debug.overlay_open_bench` drives the two WebKit overlay pages through these (OverlayOpenBench).
+extension IconPickerService: OverlayBenchPage {}
+extension GroupEditorService: OverlayBenchPage {}
+#endif

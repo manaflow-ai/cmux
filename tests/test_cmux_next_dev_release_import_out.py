@@ -16,13 +16,17 @@ publish (run 40133576073; reverted in #25050).
 
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+WORKFLOW = workflow_jobs.document(ROOT / ".github/workflows/cmux-next.yml")
 NIGHTLY = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 SCRIPT = (ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh").read_text()
 DEV_STEP = "Compile the cmux NEXT DEV Release app"
@@ -59,7 +63,7 @@ class DevReleaseImportOut(unittest.TestCase):
                   and "CMUX_NEXT_BROWSER_DATA_IMPORT" in (step.get("env") or {})]
         self.assertEqual(others, [], "another step compiles the import out")
         jobs = [name for name, job in WORKFLOW["jobs"].items()
-                if "CMUX_NEXT_BROWSER_DATA_IMPORT" in (job.get("env") or {})]
+                if "CMUX_NEXT_BROWSER_DATA_IMPORT" in workflow_jobs.resolve(job).env]
         self.assertEqual(jobs, [], "a job-wide setting would reach the Debug compile")
         self.assertNotIn("CMUX_NEXT_BROWSER_DATA_IMPORT", WORKFLOW.get("env") or {})
 

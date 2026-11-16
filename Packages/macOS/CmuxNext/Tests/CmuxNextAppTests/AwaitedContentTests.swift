@@ -1,3 +1,4 @@
+import CmuxNextFocus
 @testable import CmuxNextFocusUI
 import Testing
 
@@ -84,5 +85,21 @@ import Testing
         #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: false, command: "focusLocation", pageCreated: true), "Cmd-L passed held keys")
         #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: true, command: nil, pageCreated: true), "a page's chord ran into no document")
         #expect(AwaitedContent.pageHoldKeeps(isChord: false, holdIsEmpty: true, command: nil, pageCreated: true))
+    }
+
+    /// Lawrence, 2026-11-10 ("there are multiple steps"): the focus moves to an agent chat or an internal page tab this
+    /// window never showed (its view comes on a later frame) while a terminal in another pane has the keyboard. The
+    /// focus effect for it did nothing and no hold began, so plain keys typed then ran in that terminal's shell (the
+    /// case #32207 fixed for a browser tab). Such a tab is awaited as a page: its keys wait and run again once it shows.
+    @Test(arguments: [FocusState.Resolved.agentPage(pane: "p", tab: "a"), .page(pane: "p", tab: "a")])
+    func aFocusedAgentOrPageTabIsAwaitedAsAPageUntilItShows(_ resolved: FocusState.Resolved) throws {
+        var state = FocusState()
+        state.resolved = resolved
+        let awaitable = try #require(state.awaitableContent, "keys typed as the focus moves to a cold \(resolved) are held for nothing")
+        #expect(awaitable.pane == "p" && awaitable.tab == "a" && awaitable.isPage)
+        let kind: AwaitedContent.Kind = awaitable.isPage ? .browser : .terminal
+        #expect(AwaitedContent.awaited(kind, tab: "a", pane: Self.pane(selected: "a", shown: nil, kind: nil, live: false), paneInTopology: true)
+                == AwaitedContent(tab: "a", kind: .browser))
+        #expect(AwaitedContent.awaited(kind, tab: "a", pane: Self.pane(selected: "a", shown: "a", kind: .browser, live: false), paneInTopology: true) == nil)
     }
 }

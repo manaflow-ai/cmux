@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -10,7 +11,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(scope, key, descriptor);
     else delete scope[key];

@@ -9,6 +9,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/g/c2hhcmUtMTIzNDU2Nzg",
@@ -134,7 +135,7 @@ const { AvatarContext } = await import("../src/pages/home-channels/avatars");
 const { askingRecords, fakeRoom, joinFrames, memoryStorage } =
   await import("../src/agent-session/guest/fixtures/liveChat");
 
-afterAll(() => {
+afterAll(async () => {
   // Bun shares modules across test files: put every host and transport back as the pane has them.
   removeReporter();
   setNativeHost(undefined);
@@ -142,11 +143,7 @@ afterAll(() => {
   setBookmarkTransport(undefined);
   setMessageMenuSource(undefined);
   timers.clear();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 test("the guest host routes nothing to the app: native, chip and action calls all refuse", async () => {

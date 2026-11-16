@@ -140,12 +140,21 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         upstream_record_max_bytes: opts
             .num_or::<u64>("upstream-record-max-mb", 1024)?
             .saturating_mul(1 << 20),
-        frames_in_flight: 1,
+        // The hybrid link sizes this after its first RTT event; two keeps the
+        // stream moving while that measurement is still unknown.
+        frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        // The Cloud host streams its own virtual X display unless `--capture portal` asks
+        // for the compositor's screen (a Wayland desktop).
+        capture: opts
+            .get("capture")
+            .map(crate::capture_backend::CaptureBackend::parse)
+            .transpose()?
+            .unwrap_or_default(),
     })
 }
 
@@ -162,7 +171,7 @@ fn owner_policy(owner: String) -> HostPolicy {
 
 /// `--xauthority PATH`: the X cookie for the display connections (Linux), as `XAUTHORITY`.
 /// Set before any thread or X connection starts.
-fn set_xauthority(opts: &Opts) -> Res<()> {
+pub(crate) fn set_xauthority(opts: &Opts) -> Res<()> {
     let Some(path) = opts.get("xauthority") else {
         return Ok(());
     };
@@ -490,6 +499,10 @@ fn serve_viewer<S: ViewerStream>(
     // A UDP media link next to a stream carrier (the systemd socket), in a build with the link.
     if cfg!(feature = "link") && link.is_some() && udp.is_none() {
         host_caps.push(caps::LINK_UDP);
+    }
+    // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
+    if crate::desktop::reports_cursor() {
+        host_caps.push(caps::CURSOR);
     }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,

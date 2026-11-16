@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -41,7 +41,7 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
 use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
@@ -157,6 +157,12 @@ pub struct ServerConnection {
     lane_sends: [Mutex<()>; 4],
     closed: AtomicBool,
     close_state: watch::Sender<ServerCloseState>,
+    /// When the connection opened; [`Self::input_at_ms`] counts from it.
+    opened: Instant,
+    /// Milliseconds after [`Self::opened`] of the last client frame
+    /// [`Self::receive`] delivered (not connection control): the snapshot's
+    /// `input_idle_ms`. One relaxed store per frame.
+    input_at_ms: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -331,6 +337,8 @@ impl ServerConnection {
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             closed: AtomicBool::new(false),
             close_state,
+            opened: Instant::now(),
+            input_at_ms: AtomicU64::new(0),
         })
     }
 
@@ -357,7 +365,14 @@ impl ServerConnection {
             resume_lease_remaining_ms,
             lane_bindings: diagnostics.lane_bindings.clone(),
             physical_link_count: diagnostics.lane_bindings.len(),
+            input_idle_ms: Some(
+                self.opened_ms().saturating_sub(self.input_at_ms.load(Ordering::Relaxed)),
+            ),
         }
+    }
+
+    fn opened_ms(&self) -> u64 {
+        self.opened.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
     }
 
     pub async fn send(
@@ -415,9 +430,13 @@ impl ServerConnection {
                     if let Some(expected) = expected_generation {
                         return Err(DaemonError::Generation { expected, actual });
                     }
-                    // The failed send retained this reliable frame. Reconnect
-                    // replayed it with the original application sequence.
-                    return Ok(sequence);
+                    // A failed send the old session took (its sequence was used) was retained,
+                    // and reconnect replayed it with the original sequence. A send that found
+                    // the old session already closed took nothing: send it on the replacement,
+                    // or it is lost and the next frame takes its sequence.
+                    if self.session.read().await.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -433,7 +452,10 @@ impl ServerConnection {
             let generation = session.generation();
             match session.receive().await {
                 Ok(Some(frame)) => match self.handle_connection_control(&frame).await? {
-                    ConnectionControlAction::Deliver => return Ok(Some(frame)),
+                    ConnectionControlAction::Deliver => {
+                        self.input_at_ms.store(self.opened_ms(), Ordering::Relaxed);
+                        return Ok(Some(frame));
+                    }
                     ConnectionControlAction::Continue => continue,
                     ConnectionControlAction::Close => return Ok(None),
                 },
@@ -1604,7 +1626,7 @@ pub async fn serve_unix_with_shutdown(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_UNIX_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1620,7 +1642,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }

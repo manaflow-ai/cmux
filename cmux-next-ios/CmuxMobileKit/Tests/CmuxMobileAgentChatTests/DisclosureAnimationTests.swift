@@ -392,7 +392,9 @@ import UIKit
             "%d+4|user 2003: “is cmux internal iOS failing? if so fix it?”; spawned a51 (ws_3b1966b8fdf399628b7f1ad4cf05b6b7, cmuxterm-hq, shown, medium) — owed: tell user…",
             "%d+2|a51 IOS INTERNAL CI: builds skipped since dcac15b, trigger reports success; synced CmuxTabsKit 2c32c2e and CmuxConversation 62e6c76; run 42336657004 archiving",
         ]
-        var lines: [String] = ["<chat>"]
+        // A pasted copy of a Chief turn: not the Chief's own envelope (that collapses, below), so
+        // the whole text stays in the bubble.
+        var lines: [String] = ["Pasted from a Chief turn:", "<chat>"]
         for line in 0 ..< 240 {
             lines.append(String(format: shapes[line % shapes.count], arguments: [line * 8]))
         }
@@ -440,6 +442,73 @@ import UIKit
         #expect(fits <= frameHeight + 1, "the text draws past its frame: \(detail)")
         #expect(abs(label.frame.minY - 11) <= 0.5, "the text starts 11 pt under the bubble's top: \(detail)")
         #expect(abs(rowHeight - (frameHeight + 22)) <= 0.5, "the bubble is the text plus its padding: \(detail)")
+    }
+
+    /// Aziz 2026-11-11 ("why is the <chat> tag shown in the text"): a Chief subagent's first prompt
+    /// is the Chief's view (`<chat>` … `</chat>`) then `Your task:` and the task. The phone showed it
+    /// all, tags included, in the bubble; the Mac shows the view as one collapsed line and the task as
+    /// the message. The phone now does the same: a "Context from the Chief" row, then a bubble that
+    /// holds only the task.
+    @Test func aChiefSubagentPromptShowsOnlyItsTaskUnderACollapsedView() async throws {
+        let view = "<chat>\n0+256|user: engine->codex gpt-6-sol high\n8+1|talk: started a52\n\n</chat>Your task:\n\nWork Linear ticket CMUX-54."
+        let chat = try await chat(prompt: { (n: Int) -> String in n == 29 ? view : "prompt \(n)" })
+        defer { chat.window.isHidden = true }
+        let ids: [String] = chat.list.layout.items.map { (item: ChatTranscriptLayout.Item) -> String in item.id }
+        // The view's row (`cx-<turn>`, its kind `.chiefContext`), then the task's bubble.
+        let contextIndex: Int? = ids.firstIndex { $0.hasPrefix("cx-") }
+        var promptTexts: [String] = []
+        for id in ids {
+            if case .prompt(let text, _, _, _)? = chat.list.row(id)?.kind { promptTexts.append(text) }
+        }
+        let context = try #require(contextIndex, "the Chief's view draws as its own row")
+        let next = try #require(context + 1 < ids.count ? ids[context + 1] : nil)
+        guard case .prompt(let task, _, _, _)? = chat.list.row(next)?.kind else {
+            Issue.record("the task's bubble follows the view's row")
+            return
+        }
+        #expect(task == "Work Linear ticket CMUX-54.", "the bubble holds only the task")
+        #expect(!promptTexts.contains { $0.contains("<chat>") || $0.contains("Your task:") }, "no bubble shows the envelope")
+        // Drawn: the row is on screen and the bubble's label says the task, not the tags.
+        let top = try #require(chat.list.layout.top(of: ids[context]))
+        chat.surface.following = false
+        chat.scroll.contentOffset.y = max(0, top - 100)
+        await chat.frames(20)
+        let cell = try #require(chat.list.cell(for: next) as? ChatNativeRowCell, "the task is a native bubble")
+        let drawn: [String] = cell.contentView.subviews.compactMap { ($0 as? UILabel)?.attributedText?.string }
+        #expect(!drawn.contains { $0.contains("<chat>") }, "the bubble draws no <chat> tag: \(drawn)")
+        // Evidence for the ticket: the view's line and the task's bubble as drawn, closed and open,
+        // dark and light. Opening the view grows its row; the bubble stays under it.
+        for open in [false, true] {
+            let key = "chiefContext-\(ids[context])"
+            let disclosures = chat.surface.disclosures
+            if (disclosures.isOpen(key) ?? false) != open {
+                toggleDisclosure(chat.list.context.foldHold, key: key, in: disclosures) { disclosures.set(key, open) }
+            }
+            await chat.frames(40)
+            let contextCell = try #require(chat.list.cell(for: ids[context]), "the view's row is on screen")
+            let bubbleCell = try #require(chat.list.cell(for: next), "the bubble is on screen")
+            #expect(bubbleCell.frame.minY >= contextCell.frame.maxY - 0.5, "the bubble starts under the view's row (open: \(open))")
+            if open { #expect(contextCell.bounds.height > 100, "opened, the view shows its text: \(contextCell.bounds.height) pt") }
+            for style in [UIUserInterfaceStyle.dark, .light] {
+                let area = contextCell.frame.union(bubbleCell.frame).insetBy(dx: 0, dy: -12)
+                let shot = UIGraphicsImageRenderer(bounds: CGRect(origin: .zero, size: area.size), format: {
+                    let format = UIGraphicsImageRendererFormat(); format.scale = 3; return format
+                }()).image { image in
+                    (style == .dark ? UIColor.black : UIColor.white).setFill()
+                    image.fill(CGRect(origin: .zero, size: area.size))
+                    for drawnCell in [contextCell, bubbleCell] {
+                        drawnCell.overrideUserInterfaceStyle = style
+                        drawnCell.layoutIfNeeded()
+                        image.cgContext.saveGState()
+                        image.cgContext.translateBy(x: drawnCell.frame.minX - area.minX, y: drawnCell.frame.minY - area.minY)
+                        drawnCell.layer.render(in: image.cgContext)
+                        image.cgContext.restoreGState()
+                    }
+                }
+                let name = "chief-context-\(open ? "open" : "closed")-\(style == .dark ? "dark" : "light").png"
+                if let png = shot.pngData() { Attachment.record(png, named: name) }
+            }
+        }
     }
 }
 #endif

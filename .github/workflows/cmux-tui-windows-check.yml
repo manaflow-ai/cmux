@@ -87,7 +87,12 @@ jobs:
       - name: cargo check cmux-tui-core, cmux-tui and acpmux for Windows
         working-directory: cmux-tui
         run: |
-          if ! cargo check --locked --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux; then
+          set -o pipefail
+          # cargo's output is kept so a stale Cargo.lock is named as such, not as a broken
+          # Windows build (cargo-locks.py explain).
+          log="$RUNNER_TEMP/windows-check.log"
+          if ! cargo check --locked --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux 2>&1 | tee "$log"; then
+            if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
             echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm."
             exit 1
           fi

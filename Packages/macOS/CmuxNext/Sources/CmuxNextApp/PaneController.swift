@@ -14,6 +14,7 @@ import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
+import CmuxNextHibernation
 import CmuxNextWakeups
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
@@ -42,6 +43,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingSelect = PendingTabSelect()
     let placements = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots, in press order: each reads its slot after the last (NewTabSlot)
     private var observation: Task<Void, Never>?
+    lazy var hoverLoad = HoverWakeGate(owner: "PaneHoverLoad") { [weak self] in if case let .tab(key) = $0 { self?.loadOnHover(key) } } // a rest on a strip tab (PaneController+Neighbors)
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
         item: { [weak self] tab in self.map { ($0.tabItem(tab), FocusTopology.Kind.of(tab)) } },
@@ -114,7 +116,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let views = spare ?? Spare(services: services)
         (stripModel, view) = (views.stripModel, views.view)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        stripModel.closeSuccessor = { [weak state] in state?.selection.closeRule.successor(of: $0, old: $1, surviving: $2, shown: $3) } // the window's one close rule
+        stripModel.closeSuccessor = { [weak state] in state?.selection.closeRule.successor(of: $0, old: $1, surviving: $2, shown: $3, groups: $4) } // the window's one close rule
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
@@ -136,6 +138,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func teardown() {
         observation?.cancel()
+        hoverLoad.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
         launchFrames.withdrawAhead(in: view.contentHost)
@@ -244,13 +247,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // The column kind decides (`pinned-dock-v1`), never the tab's title or page.
         let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
         let pinned = dock?.isPinned == true
-        // Read the preview setting in the pane's observed structure, so every
-        // mounted pane swaps away from a disabled page without a daemon event.
-        let previews = services.settings?.snapshot.previewFeatures == true
-        let tabs = pane.tabs.filter {
-            !hidden.contains($0.id) && (previews || !InternalPageTabStore.isPreviewPage($0.page)
-                && $0.appTab?.app != "cmux/app-store")
-        }
+        let tabs = pane.tabs.filter { !hidden.contains($0.id) }
         // The Home Chief pane (a pinned dock) shows no tab bar while it holds only Home (Lawrence
         // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
         // is there (plans/cmux-next/home-chief-pane.md H1).
@@ -322,7 +319,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
-        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
+        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; if let mark = SubagentTabTitles.shared.icon(ofTab: tab.id) { item.icon = TabItemMapping.subagentIcon(harness: mark.harness) }; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
         return item
     }
 
@@ -351,10 +348,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
-        let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs) // once listed (OutboundTab)
-        if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue)) }
+        let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs, selected: state?.selection.selection(in: paneKey), listed: { id in snapshot.items.contains { $0.id.rawValue == id } }, fate: { daemon.store.creations.fate(ofStandIn: $0, in: pane) }) // once listed (OutboundTab); else the tab of the selected stand-in
+        if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue), standIn: { daemon.store.creations.fate(ofStandIn: $0, in: pane) }) }
         // Members of a collapsed group are hidden (`hiddenTabs`): a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs })
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs }, standIn: { daemon.store.creations.fate(ofStandIn: $0, in: pane) })
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)

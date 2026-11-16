@@ -14,6 +14,7 @@ import { configureMessageLineLook } from "./messageLineLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -50,6 +51,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

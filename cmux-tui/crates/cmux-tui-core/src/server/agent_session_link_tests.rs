@@ -226,31 +226,47 @@ fn paced(
     after: Duration,
     alive: bool,
 ) -> (Arc<AcpmuxLink>, Arc<std::sync::atomic::AtomicUsize>, cmux_unix_socket::TestDir) {
+    paced_after_probes(slow, after, 0, alive)
+}
+
+/// [`paced`], whose `slow` answer also waits until it was asked `probes_first` status questions:
+/// the answer comes after the call asked whether acpmux still answers, however slow the machine.
+fn paced_after_probes(
+    slow: &'static str,
+    after: Duration,
+    probes_first: usize,
+    alive: bool,
+) -> (Arc<AcpmuxLink>, Arc<std::sync::atomic::AtomicUsize>, cmux_unix_socket::TestDir) {
     let dir = cmux_unix_socket::short_test_dir("aspace");
     let socket = dir.path().join("acpmux.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let probes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = probes.clone();
+    let asked = Arc::new((Mutex::new(0_usize), std::sync::Condvar::new()));
     std::thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let writer = Arc::new(Mutex::new(stream.try_clone().unwrap()));
         for line in BufReader::new(stream).lines() {
             let Ok(line) = line else { return };
             let request: Value = serde_json::from_str(&line).unwrap();
-            let (writer, counted) = (writer.clone(), counted.clone());
+            let (writer, counted, asked) = (writer.clone(), counted.clone(), asked.clone());
             std::thread::spawn(move || {
-                let wait = match request["method"].as_str() {
+                let (wait, probes_first) = match request["method"].as_str() {
                     Some(LIVENESS_PROBE) => {
                         counted.fetch_add(1, Ordering::SeqCst);
+                        *asked.0.lock().unwrap() += 1;
+                        asked.1.notify_all();
                         if !alive {
                             return;
                         }
-                        Duration::ZERO
+                        (Duration::ZERO, 0)
                     }
-                    Some(method) if method == slow => after,
+                    Some(method) if method == slow => (after, probes_first),
                     _ => return,
                 };
                 std::thread::sleep(wait);
+                let count = asked.0.lock().unwrap();
+                drop(asked.1.wait_while(count, |count| *count < probes_first).unwrap());
                 let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": {"ok": true}});
                 let _ = writeln!(writer.lock().unwrap(), "{reply}");
             });
@@ -275,16 +291,21 @@ const MS: Patience = Patience {
 
 /// A harness that answers `session/new` after 90 s at full scale (90 ms here) while acpmux answers
 /// its status beside it: the start waits and gets its session. The old fixed 60 s bound (60 ms
-/// here) failed the same start.
+/// here) failed the same start. The status question keeps the start's own 30 s bound and the
+/// answer waits for two of them: a loaded machine (the full parallel --lib run) answers a status
+/// later than a compressed 200 ms, which is a silent acpmux only at test scale.
 #[test]
 fn a_slow_start_whose_acpmux_still_answers_waits_for_it() {
-    let (link, probes, _dir) = paced("session/new", Duration::from_millis(90), true);
+    let (link, probes, _dir) =
+        paced_after_probes("session/new", Duration::from_millis(90), 2, true);
     let started = Instant::now();
-    let reply = alive_call(&link, MS).unwrap();
+    let reply = alive_call(&link, Patience { probe: Duration::from_secs(30), ..MS }).unwrap();
     assert_eq!(reply, json!({"ok": true}));
     assert!(started.elapsed() >= Duration::from_millis(90));
     assert!(probes.load(Ordering::SeqCst) >= 2, "acpmux was asked whether it still answers");
-    let (link, _probes, _dir) = paced("session/new", Duration::from_millis(90), true);
+    // A fixed bound fails a start slower than it. Its answer never comes: a 90 ms answer reached a
+    // waiter that a loaded machine woke after it came, and the fixed call returned it.
+    let (link, _probes, _dir) = paced("session/new", Duration::from_secs(3600), true);
     let fixed = link.call("session/new", json!({}), Duration::from_millis(60));
     assert_eq!(fixed, Err(LinkError::Timeout));
 }

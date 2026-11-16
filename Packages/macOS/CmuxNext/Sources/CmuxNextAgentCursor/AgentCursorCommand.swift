@@ -22,6 +22,11 @@ public enum AgentCursorCommand: Equatable, Sendable {
     case indicate(session: String, anchor: CGPoint)
     /// The target is not in this window.
     case hide(session: String)
+    /// The target moved, showed or hid with no agent action (the person switched tabs or
+    /// workspaces, scrolled, resized): the cursor goes to `point`, as a dot there when
+    /// `indicates` (a hidden target's tab chip), and keeps the idle hide the agent's last
+    /// action armed, so a cursor whose agent went idle does not come back.
+    case reposition(session: String, point: CGPoint, indicates: Bool)
     /// The person paused or took over: draw the cursor as an outline, still.
     case setPaused(session: String, paused: Bool)
     /// The lease ended.

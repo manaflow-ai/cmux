@@ -192,7 +192,7 @@ impl Hub {
             if name.ends_with(".durable-transfer-state.importing")
                 || name.ends_with(".replacement-state.json.importing")
             {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
         let Ok(entries) = std::fs::read_dir(root) else { return };
@@ -234,12 +234,12 @@ impl Hub {
             };
             let committed = phase == "committed" || landed;
             if committed {
-                let _ = std::fs::remove_dir_all(entry.path());
+                let _ = crate::home_fs::remove_dir_all(entry.path());
             } else {
                 if std::fs::symlink_metadata(&target).is_ok() {
-                    let _ = std::fs::remove_dir_all(&target);
+                    let _ = crate::home_fs::remove_dir_all(&target);
                 }
-                let _ = std::fs::rename(entry.path(), target);
+                let _ = crate::home_fs::rename(entry.path(), target);
             }
         }
         let Ok(entries) = std::fs::read_dir(root) else { return };
@@ -271,7 +271,7 @@ impl Hub {
                     if matches!(phase, "prepared" | "staged" | "committed")
                         && recovery_owner(root, agent, outer)
                     {
-                        let _ = std::fs::remove_file(entry.path());
+                        let _ = crate::home_fs::remove_file(entry.path());
                     }
                 }
             }
@@ -299,10 +299,10 @@ impl Hub {
                     return;
                 }
                 if !replace_durable {
-                    let _ = std::fs::remove_dir_all(target);
+                    let _ = crate::home_fs::remove_dir_all(target);
                 }
             }
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
             return;
         }
         if phase != "staged" && phase != "committed" {
@@ -357,31 +357,31 @@ impl Hub {
         let pi = root.join(filename);
         let pi_backup = root.join(format!("{filename}.transfer-backup"));
         if outer_committed {
-            let _ = std::fs::remove_file(&journal_backup);
-            let _ = std::fs::remove_file(&pi_backup);
+            let _ = crate::home_fs::remove_file(&journal_backup);
+            let _ = crate::home_fs::remove_file(&pi_backup);
         } else {
             if std::fs::symlink_metadata(&journal_backup).is_ok() {
-                let _ = std::fs::remove_file(&journal);
-                let _ = std::fs::rename(&journal_backup, &journal);
+                let _ = crate::home_fs::remove_file(&journal);
+                let _ = crate::home_fs::rename(&journal_backup, &journal);
             } else if !had_journal {
-                let _ = std::fs::remove_file(&journal);
+                let _ = crate::home_fs::remove_file(&journal);
             }
             if std::fs::symlink_metadata(&pi_backup).is_ok() {
-                let _ = std::fs::remove_file(&pi);
-                let _ = std::fs::rename(&pi_backup, &pi);
+                let _ = crate::home_fs::remove_file(&pi);
+                let _ = crate::home_fs::rename(&pi_backup, &pi);
             } else if !had_pi {
-                let _ = std::fs::remove_file(&pi);
+                let _ = crate::home_fs::remove_file(&pi);
             }
         }
-        let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
-        let _ = std::fs::remove_file(root.join(format!("{filename}.importing")));
+        let _ = crate::home_fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
+        let _ = crate::home_fs::remove_file(root.join(format!("{filename}.importing")));
         if !dir_was_present {
-            let _ = std::fs::remove_dir(root.join(agent_id));
+            let _ = crate::home_fs::remove_dir(root.join(agent_id));
         }
         if !replace_durable && !outer_committed && super::transfer::is_plain_id(outer_id) {
-            let _ = std::fs::remove_dir_all(root.join(outer_id));
+            let _ = crate::home_fs::remove_dir_all(root.join(outer_id));
         }
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
     }
 
     /// Fence the outgoing instance before staging the incoming durable store. Keep
@@ -477,12 +477,12 @@ impl Hub {
         self.sweep();
         let receive_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{receive_id}"));
-        let made = std::fs::create_dir_all(dir.join("bundle")).and_then(|()| {
+        let made = crate::home_fs::create_dirs(dir.join("bundle")).and_then(|()| {
             // The guard first: a receive with a manifest and no guard file is an unguarded one.
             if let Some(g) = &guard {
                 g.store(&dir)?;
             }
-            std::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
+            crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         super::transfer_watch::note_activity(&dir, None);
@@ -523,12 +523,16 @@ impl Hub {
             return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
         }
         use std::io::Write;
-        let wrote = std::fs::create_dir_all(file.parent().unwrap_or(&dir)).and_then(|()| {
-            std::fs::OpenOptions::new().create(true).append(true).open(&file)?.write_all(&data)
+        let wrote = crate::home_fs::create_dirs(file.parent().unwrap_or(&dir)).and_then(|()| {
+            crate::home_fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&file)?
+                .write_all(&data)
         });
         wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         // Kept from the sweep while pages come (`transfer_out.rs` `sweep_transfers`).
-        let _ = std::fs::write(dir.join("alive"), offset.to_string());
+        let _ = crate::home_fs::write(dir.join("alive"), offset.to_string());
         Ok(json!({"next": have + data.len() as u64}))
     }
 
@@ -625,7 +629,7 @@ impl Hub {
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
                 meta.set("cwd", json!(cwd));
-                Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
+                Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
@@ -757,7 +761,7 @@ impl Hub {
         }
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = crate::home_fs::remove_dir_all(&dir);
         Ok(self.session_summary(&session))
     }
 
@@ -772,7 +776,7 @@ impl Hub {
             return Err(RpcError::invalid_params("transfer_forget: bad transferId"));
         };
         let _receives = RECEIVES.lock().await;
-        let made = std::fs::create_dir_all(&mark);
+        let made = crate::home_fs::create_dirs(&mark);
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         for entry in std::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -780,7 +784,7 @@ impl Hub {
                 && receive_manifest(&entry.path())
                     .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
             {
-                let _ = std::fs::remove_dir_all(entry.path());
+                let _ = crate::home_fs::remove_dir_all(entry.path());
             }
         }
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();

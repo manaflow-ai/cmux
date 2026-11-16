@@ -73,6 +73,18 @@ export function stillness(samples: Sample[]) {
   if (settled !== undefined)
     for (const sample of samples.slice(settled + 1, settled + 1 + PARKED_FRAMES))
       parkedTop = Math.max(parkedTop, Math.abs(sample.top - samples[settled]!.top));
+  // And how far the picture drifted from where it settled, over every frame after it: the sum of each
+  // frame's scroll, at its furthest. A drift under half a pixel a frame never shows in `late`, and past
+  // the first PARKED_FRAMES nothing else read it: 30 frames held, then 0.25 px a frame for 109 frames
+  // (27 px) read as parked (review of #41454 F1). The picture's scroll, not the offset: the quiet fold
+  // of a held chase into the offset (VirtualTranscript `settleHeldFollowMotion`) moves nothing on screen.
+  let drift = 0;
+  let parkedDrift = 0;
+  if (settled !== undefined)
+    for (let index = settled + 1; index < samples.length; index += 1) {
+      drift += pictureScroll(samples[index - 1]!, samples[index]!);
+      parkedDrift = Math.max(parkedDrift, Math.abs(drift));
+    }
   const t0 = samples[from]?.t ?? 0;
   for (let index = from + 1; index < samples.length; index += 1) {
     const before = samples[index - 1]!;
@@ -106,6 +118,7 @@ export function stillness(samples: Sample[]) {
     settled: settled === undefined ? undefined : Math.round(samples[settled]!.t - t0),
     parked,
     parkedTop: round(parkedTop),
+    parkedDrift: round(parkedDrift),
     unprompted: unprompted.slice(0, 16),
     late: late.slice(0, 16),
     events: events.length,
@@ -114,12 +127,13 @@ export function stillness(samples: Sample[]) {
 }
 
 /// The reader's scroll came to rest and then held: it ended, PARKED_FRAMES frames at least followed,
-/// the offset held through them, and nothing scrolled after it ended.
+/// the offset held through them, the picture drifted no more than half a pixel in all from where it
+/// settled to the last frame, and nothing scrolled after it ended.
 export function parkedAfterScroll(report: ReturnType<typeof stillness>) {
   return {
     settled: report.settled !== undefined,
     parked: report.parked >= PARKED_FRAMES,
-    still: report.parkedTop <= 0.5,
+    still: report.parkedTop <= 0.5 && report.parkedDrift <= 0.5,
     late: report.late,
   };
 }

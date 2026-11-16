@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb. */
+/* cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb" as const;
+export const SDK_IR_SHA256 = "d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -93,13 +93,29 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "attach-identity-v1"
       },
+      "hybrid_frame": {
+        "since": null,
+        "capability": "agent-cli-hybrid-v1"
+      },
+      "hybrid_stream": {
+        "since": null,
+        "capability": "agent-cli-hybrid-v1"
+      },
       "mode": {
         "since": 7,
         "capability": null
       },
+      "output_coalesce_ms": {
+        "since": null,
+        "capability": "attach-output-coalesce-v1"
+      },
       "replay_history_rows": {
         "since": null,
         "capability": "attach-replay-history-rows-v1"
+      },
+      "replay_history_start": {
+        "since": null,
+        "capability": "attach-replay-history-window-v1"
       },
       "rows": {
         "since": null,
@@ -128,6 +144,7 @@ export const COMMAND_METADATA = {
     },
     "stream": {
       "event_names": [
+        "agent-cli-frame",
         "browser-state",
         "colors-changed",
         "detached",
@@ -154,6 +171,7 @@ export const COMMAND_METADATA = {
         ],
         "bytes": [
           "vt-state",
+          "agent-cli-frame",
           "output",
           "resized",
           "colors-changed",
@@ -174,7 +192,11 @@ export const COMMAND_METADATA = {
       "terminal_event": "detached"
     },
     "constraints": [
-      "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+      "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted.",
+      "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
+      "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
+      "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once.",
+      "A connection that declared agent-cli-hybrid-v1 in set-client-info gets a bytes attach (no snapshot) of a terminal whose agent report names claude, codex or opencode as colors-changed, then agent-cli-frame events instead of vt-state and output: a keyframe (base null), or with hybrid_stream and hybrid_frame naming a stream the daemon still keeps at the same size, one delta from that frame; then at most one frame per 100 ms while the screen changes. resized becomes a keyframe at the new size. hybrid_stream and hybrid_frame go together; without the capability they are ignored."
     ]
   },
   "bind-conversation-tab-session": {
@@ -337,6 +359,18 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; values are CSS pixels.",
       "The frame sequence must be the exact presented token for this connection.",
       "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
+  "cancel-creating-input": {
+    "authority": "control",
+    "since": 12,
+    "capability": "creating-input-cancel-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "terminal_id is the host terminal id (32 hex digits) the caller named in a split, new-pane, new-pane-right or new-tab that is still being created.",
+      "Only the connection that sent the creation cancels its input: cancelled is true when the caller owns a creation of the id whose queue was not written or given back yet (also when it cancelled it before), else false and nothing changes.",
+      "The creation is not stopped. The caller's queued bytes are dropped with no terminal-input-unclaimed event; bytes other connections queued go back to them with reason cancelled. Input by terminal_id then fails with error code input.cancelled until the creation ends, and for 10 s after a creation that committed."
     ]
   },
   "chief-inspect": {
@@ -1154,6 +1188,10 @@ export const COMMAND_METADATA = {
     "since": 7,
     "capability": "workspace-registry-v1",
     "fields": {
+      "create_workspace": {
+        "since": 12,
+        "capability": "create-terminal-workspace-v1"
+      },
       "detached": {
         "since": 12,
         "capability": "detached-terminals-v1"
@@ -1173,6 +1211,10 @@ export const COMMAND_METADATA = {
       "terminal_id": {
         "since": 9,
         "capability": null
+      },
+      "workspace_name": {
+        "since": 12,
+        "capability": "create-terminal-workspace-v1"
       }
     },
     "stream": null,
@@ -1664,7 +1706,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "known": {
+        "since": 12,
+        "capability": "list-workspaces-known-v1"
+      },
+      "limit": {
+        "since": 12,
+        "capability": "list-workspaces-limit-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -2774,7 +2825,7 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event."
+      "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event. After the creator's cancel-creating-input (creating-input-cancel-v1), terminal_id fails with error code input.cancelled."
     ]
   },
   "send-key": {
@@ -3481,6 +3532,17 @@ export const COMMAND_METADATA = {
       "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
     ]
   },
+  "terminal-command-context": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-command-context-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Read from the surface's screen when asked; nothing is read per output line and no command history is needed.",
+      "Null without shell integration, on the alternate screen and while a command runs."
+    ]
+  },
   "terminal-events": {
     "authority": "control",
     "since": 9,
@@ -3835,6 +3897,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "agent-cli-frame": {
+    "since": 12,
+    "capability": "agent-cli-hybrid-v1",
+    "streams": [
+      "attach-byte"
     ],
     "emission": "emitted"
   },
@@ -4322,6 +4392,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "screen-device-changed": {
+    "since": 12,
+    "capability": "screen-device-identity-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -7958,6 +8036,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "array"
         }
       },
+      "machine_device": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "machine_id": {
         "nullable": false,
         "presence": "optional",
@@ -7983,6 +8070,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "MachinePlatform"
+        }
+      },
+      "machine_symbol": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "min_api_revision": {
@@ -8016,6 +8112,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_device_id": {
+        "capability": "machine-identity-v1",
+        "constraints": [
+          "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -8560,6 +8669,69 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "TerminalRecord"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ListWorkspacesKnown": {
+    "additional_properties": false,
+    "fields": {
+      "generation": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pane_revision": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "registry_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_revision": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "tree_revision": {
+        "constraints": [
+          "Opaque; from the tree_revision of the last whole tree."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace_revision": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -14036,6 +14208,81 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalCommandContext": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "cwd": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "exit_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "output": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandContextIntent": {
+    "kind": "enum",
+    "values": [
+      "context",
+      "fix"
+    ]
+  },
+  "TerminalCommandContextResult": {
+    "additional_properties": false,
+    "fields": {
+      "context": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalCommandContext"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalCommandDeleteResult": {
     "additional_properties": false,
     "fields": {
@@ -15431,6 +15678,45 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "total": {
+        "capability": "list-workspaces-limit-v1",
+        "constraints": [
+          "With limit: the number of workspaces in the session."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "tree_revision": {
+        "capability": "list-workspaces-known-v1",
+        "constraints": [
+          "Opaque revision of everything the tree shows; only in replies to a request with known. Send it back in known."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "unchanged": {
+        "capability": "list-workspaces-known-v1",
+        "constraints": [
+          "True when the request's known tree is current: workspaces is then empty, and the client keeps the tree it holds."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "workspace_revision": {
         "capability": "workspace-registry-v1",
         "nullable": false,
@@ -16092,6 +16378,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "hybrid_frame": {
+          "capability": "agent-cli-hybrid-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "hybrid_stream": {
+          "capability": "agent-cli-hybrid-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "mode": {
           "default": "bytes",
           "nullable": true,
@@ -16105,6 +16411,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             ]
           }
         },
+        "output_coalesce_ms": {
+          "capability": "attach-output-coalesce-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
         "replay_history_rows": {
           "capability": "attach-replay-history-rows-v1",
           "default": null,
@@ -16113,6 +16429,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint32"
+          }
+        },
+        "replay_history_start": {
+          "capability": "attach-replay-history-window-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "rows": {
@@ -16824,6 +17150,36 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "cancel-creating-input": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "cancelled": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "chief-inspect": {
@@ -20959,6 +21315,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "At least one of workspace and key must be supplied unless detached is true; when both are supplied they must identify the same workspace. detached forbids workspace and key.",
+        "create_workspace requires key, origin and mutation_id, and forbids workspace and detached.",
         "argv and command are mutually exclusive and must be nonempty when supplied.",
         "cols and rows must be supplied together.",
         "origin and mutation_id are either both present or both absent.",
@@ -20994,6 +21351,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "create_workspace": {
+          "capability": "create-terminal-workspace-v1",
+          "default": false,
+          "description": "Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "cwd": {
@@ -21144,6 +21513,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "workspace_name": {
+          "capability": "create-terminal-workspace-v1",
+          "default": null,
+          "description": "The name of the workspace create_workspace makes.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
@@ -22617,7 +22998,36 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "list-workspaces": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "known": {
+          "capability": "list-workspaces-known-v1",
+          "constraints": [
+            "The identity and revisions of the whole tree the client holds ({} when none). When all are current the result is unchanged: true with empty workspaces; keep the tree you hold. Otherwise the whole tree with its tree_revision."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ListWorkspacesKnown"
+          }
+        },
+        "limit": {
+          "capability": "list-workspaces-limit-v1",
+          "constraints": [
+            "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {
@@ -29270,6 +29680,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TerminalClipboardSubscribeResult"
     }
   },
+  "terminal-command-context": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "intent": {
+          "default": "context",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "TerminalCommandContextIntent"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandContextResult"
+    }
+  },
   "terminal-events": {
     "request": {
       "additional_properties": false,
@@ -30641,6 +31080,100 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-cli-frame": {
+    "additional_properties": false,
+    "fields": {
+      "base": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "cols": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "cursor_visible": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "cursor_x": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "cursor_y": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "data": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Base64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-cli-frame"
+        }
+      },
+      "frame": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },
@@ -33216,6 +33749,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": "resized"
         }
       },
+      "history_rows_omitted": {
+        "capability": "attach-replay-history-window-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "kitty_graphics_state": {
         "nullable": false,
         "presence": "optional",
@@ -33399,6 +33941,33 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "screen-device-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "Delivered only to authenticated owner app subscribers (local Unix or owner WebSocket); page relays, paired clients, and other remote clients do not receive it.",
+      "The subscription sends one current-value replay before live events. A null replay or event means the worker has no available screen identity."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "screen-device-changed"
+        }
+      },
+      "screen_device_id": {
+        "description": "The authenticated worker screen UUID, or null when the worker is unavailable.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -34392,6 +34961,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "history_rows_omitted": {
         "capability": "attach-replay-history-rows-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "history_rows_skipped": {
+        "capability": "attach-replay-history-window-v1",
         "nullable": false,
         "presence": "optional",
         "type": {

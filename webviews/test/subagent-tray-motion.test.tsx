@@ -8,6 +8,7 @@
 // - with no motion (no Web Animations, Reduce Motion) every change applies at once.
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=host><div id=root></div></div>", {
   url: "http://localhost/",
@@ -530,9 +531,6 @@ describe("subagent tray motion edges", () => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });

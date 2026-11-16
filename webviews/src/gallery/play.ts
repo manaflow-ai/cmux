@@ -222,6 +222,17 @@ function caller(invoker: string): string {
 }
 
 /**
+ * Whether a long frame is a step's: it ended after the step began. The engine reports a frame after
+ * it ends, so a step's observer also hears a frame that ended before the step (the gallery entry's
+ * own module load): that one is not the step's work, and it is not counted or judged in it. A frame
+ * that began before the step and ended in it is the step's: a step with no driver starts inside a
+ * frame callback, so its own frame begins a little before it.
+ */
+export function frameIsOfStep(entry: { startTime: number; duration: number }, stepStart: number): boolean {
+  return entry.startTime + entry.duration > stepStart;
+}
+
+/**
  * Where a long frame's time went, for the person who reads a red: the time before its render (tasks:
  * the handlers of real input, timers, a scheduler's work, and the wait for the display's next
  * refresh), its frame callbacks, and the time from its style and layout to its end (observers and

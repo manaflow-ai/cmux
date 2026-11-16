@@ -145,10 +145,10 @@ fn byo_endpoint_openai_profile_configures_opencode_with_a_keychain_key() {
         assert_eq!(seen.len(), 1);
         assert!(seen[0].0.iter().all(|a| !a.contains(GOOD_KEY)), "the value is in argv");
         assert!(seen[0].1.contains(GOOD_KEY));
+        let named = stored_account(&seen[0].0, &seen[0].1);
         assert!(
-            seen[0].0.iter().any(|a| a.contains("acme-oai/CMUX_BYO_API_KEY")),
-            "{:?}",
-            seen[0].0
+            named.as_deref().is_some_and(|a| a.contains("acme-oai/CMUX_BYO_API_KEY")),
+            "{named:?}"
         );
     }
     assert!(!std::fs::read_to_string(&added.path).unwrap().contains(GOOD_KEY));
@@ -161,7 +161,11 @@ fn byo_endpoint_openai_profile_configures_opencode_with_a_keychain_key() {
     assert_eq!(profile.argv, vec!["opencode".to_owned(), "acp".to_owned()]);
     assert_eq!(profile.model.as_deref(), Some("byo/org/model-7b"));
     let account = own_account(&profile, "acme-oai", OPENAI_KEY_ENV);
-    assert!(seen.lock().unwrap()[0].0.contains(&account), "stored in another item than it names");
+    let stored = {
+        let seen = seen.lock().unwrap();
+        stored_account(&seen[0].0, &seen[0].1)
+    };
+    assert_eq!(stored, Some(account.clone()), "stored in another item than it names");
     assert_eq!(reply["secret"]["keychainItem"], json!(format!("cmux-harness/{account}")));
     assert_eq!(Kind::of_env(&profile.env), Some(Kind::OpenAi));
     let config: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
@@ -893,6 +897,20 @@ async fn byo_endpoint_doctor_runs_a_real_turn_and_names_the_fix() {
 }
 
 /// A store that records each (account argv, stdin) and may fail.
+/// The account (item name) a store command writes, from its argv and stdin. On macOS argv is only
+/// `security -i` and the item is the `-a` word of the stdin line; elsewhere it is the word after
+/// `account` in `secret-tool store`'s argv. The tests ran only the second shape and so failed on
+/// every Mac (the item is never in a Mac's argv).
+fn stored_account(argv: &[String], stdin: &str) -> Option<String> {
+    if argv == ["/usr/bin/security", "-i"] {
+        let rest = stdin.strip_prefix("add-generic-password ")?.split_once(" -a \"")?.1;
+        Some(rest.split_once('"')?.0.to_owned())
+    } else {
+        let at = argv.iter().position(|a| a == "account")?;
+        argv.get(at + 1).cloned()
+    }
+}
+
 fn recording(
     fail: bool,
 ) -> (Arc<std::sync::Mutex<Vec<String>>>, impl Fn(&StoreCommand) -> anyhow::Result<()> + Sync) {
@@ -1493,7 +1511,13 @@ fn byo_endpoint_a_replace_stores_its_key_in_a_new_item_the_old_profile_never_rea
         assert!(admin::add_endpoint_keyed(&third, &src, &key(GOOD_KEY)).is_err());
         let log = log.lock().unwrap();
         assert_eq!(log.len(), 2, "{log:?}");
-        let staged = log[0].split(' ').find(|a| a.starts_with("team/")).unwrap().to_owned();
+        // The item word: bare in secret-tool's argv, quoted on `security -i`'s stdin line.
+        let staged = log[0]
+            .split(' ')
+            .map(|a| a.trim_matches('"'))
+            .find(|a| a.starts_with("team/"))
+            .unwrap()
+            .to_owned();
         assert_ne!(staged, second);
         assert!(log[1].contains(&staged) && log[1].ends_with("| "), "not rolled back: {log:?}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), before);

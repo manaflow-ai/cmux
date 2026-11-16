@@ -37,10 +37,11 @@ enum SidebarDensityTokens {
     /// which the sidebar's cards read too).
     private static var extra: CGFloat { SidebarRowTokens.current.extraHeight }
 
-    /// A one-line workspace row, group header or band row: 30 pt with no gap at Default (``SidebarRowTokens/matchesCodex``).
-    static var rowHeight: CGFloat { SidebarRowTokens.current.listRowHeight }
-    /// The gap between list rows: 0 at Default, as Codex's rows touch; `space1` at every other density.
-    static var rowSpacing: CGFloat { matchesCodex ? 0 : Metrics.space1 }
+    /// A one-line workspace row, group header or band row: 30 pt at Default (``SidebarRowTokens/matchesCodex``).
+    static var rowHeight: CGFloat { SidebarRowTuning.rowHeight.value }
+    /// The gap between list rows, `space1` at every density: 2 pt at Default, so two lit rows' fills do not touch
+    /// (Lucas 2026-11-11: "lets change this to 2px"; Codex's rows touch).
+    static var rowSpacing: CGFloat { SidebarRowTuning.rowGap.value }
     /// ``SidebarRowTokens/matchesCodex`` read from its two inputs: the per-frame reads below (every `columns` and
     /// `textY` reads ``contentInset``) must not build the whole token set, fonts too, each time.
     static var matchesCodex: Bool { density == .compact && Metrics.tokens.id == DensityPreset.cozy.rawValue }
@@ -52,14 +53,16 @@ enum SidebarDensityTokens {
     /// Rows inset from the sidebar edge, and their content from the row edge: `SidebarRowTokens.horizontalInset`'s
     /// rule, read from its two inputs. Every row frame reads it several times (`SidebarListView.frame(for:)`), and
     /// `SidebarRowTokens.current` builds the whole token set, fonts too, for each read.
-    static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
+    static var horizontalInset: CGFloat { SidebarRowTuning.outerInset.value }
     /// The padding between a one-line row's fill and its content on every side (Lawrence 2026-11-09: "for each
     /// workspace row, padding on left/bottom/top/right should be even, on all densities"): the room the row's title
     /// has above its capitals and below its baseline, which the row centers, so the first glyph, the last trailing box
     /// and the text all sit this far inside the fill. On the half-point grid. Read from the density's list row (one
     /// line, not Minimal Mode's shorter row) and the title font, so a text size or type scale change follows. At
     /// Default (``matchesCodex``) it is Codex's `--padding-row-x`, 8 pt, on both sides (#39984).
-    static var contentInset: CGFloat {
+    static var contentInset: CGFloat { SidebarRowTuning.contentInset.value }
+    /// ``contentInset`` as the density and the title font derive it (`sidebarRows.contentInset`'s default).
+    static var derivedContentInset: CGFloat {
         if matchesCodex { return Metrics.space4 }
         let row = Metrics.sidebarRowHeight + (isComfortable ? Metrics.space2 : 0) + textSize.rowStep
         return ((row - SidebarStyle.titleFont.capHeight) / 2 * 2).rounded() / 2
@@ -69,12 +72,11 @@ enum SidebarDensityTokens {
     /// independent of the sidebar's group nesting grid and remains the original space4.
     static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
-    /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`),
-    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness"), except at
-    /// Default, where it is Codex's row corner (``SidebarRowTokens/codexCornerRadius``, 10 on a 30 pt row; #39956).
-    static var rowCornerRadius: CGFloat {
-        matchesCodex ? (SidebarRowTokens.current.codexCornerRadius ?? Metrics.tabCornerRadius) : Metrics.tabCornerRadius
-    }
-    static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
+    /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`), one token for
+    /// both at every density and setting (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs
+    /// roundness"; Lucas 2026-11-12: "exactly the same"): Chrome's tab corner, 8 on Default's 30 pt row (Lawrence
+    /// 2026-11-11: "same roundness as chrome").
+    static var rowCornerRadius: CGFloat { SidebarRowTuning.cornerRadius.value }
+    static var sectionSpacing: CGFloat { SidebarRowTuning.sectionGap.value }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
 }

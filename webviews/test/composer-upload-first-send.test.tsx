@@ -18,6 +18,7 @@ import {
   UPLOAD_AUTO_RETRIES,
   UPLOAD_RETRY_DELAY_MS,
 } from "../src/agent-session/acpmux/composer/uploadRetry";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -48,12 +49,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const mp4 = () => new File(["video bytes"], "Sunbringer Menu Animation.mp4", { type: "video/mp4" });
@@ -264,6 +261,38 @@ test("an automatic retry stays in its original chat after a plain chat switch", 
   expect(aCalls).toBe(2);
   expect(bCalls).toBe(0);
   input.restore();
+});
+
+test("a paste whose twin screenshots are compared after a chat switch uploads through its own chat", async () => {
+  const handle: { current: Probe | null } = { current: null };
+  const calls: string[] = [];
+  const makeOptions = (scope: string): AttachmentIntakeOptions => ({
+    allowImages: true,
+    scope,
+    pasteTarget: () => ({ uploads: true }),
+    upload: async () => {
+      calls.push(scope);
+      return { paths: [`/${scope}/shot.png`] };
+    },
+  });
+  const [a, b] = [makeOptions("chat-a"), makeOptions("chat-b")];
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  // One screenshot twice (attachments.ts filesOnce): its bytes are compared after the paste's task.
+  const bytes = new Uint8Array(600).fill(7);
+  const files = [
+    new File([bytes], "shot.png", { type: "image/png" }),
+    new File([bytes], "copy.png", { type: "image/png" }),
+  ];
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  act(() => {
+    dom.window.document.dispatchEvent(event);
+  });
+  // The person moves to chat B before the compare answers, and stays there while A's file uploads.
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  await until(() => calls.length > 0);
+  expect(calls).toEqual(["chat-a"]);
 });
 
 test("an intentionally carried upload retries through its destination chat", async () => {

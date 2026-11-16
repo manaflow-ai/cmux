@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
+cmux-unix-socket.workspace = true
 base64.workspace = true
 hmac.workspace = true
 ring.workspace = true

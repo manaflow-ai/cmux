@@ -3,6 +3,10 @@ import { MockTasksProvider } from "./mockProvider";
 import { statusGroups } from "./model";
 import { TasksStore } from "./store";
 import { TasksOps } from "./types";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says (the owner's text stays in the error). */
+const GENERIC = userMessage(undefined);
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -79,7 +83,7 @@ describe("TasksStore", () => {
     expect(store.getSnapshot().tasks.some((t) => t.id === "task_3")).toBe(false);
     await tick();
     expect(store.getSnapshot().tasks.some((t) => t.id === "task_3")).toBe(true);
-    expect(store.getSnapshot().reject).toBe("rejected by the owner");
+    expect(store.getSnapshot().reject).toBe(GENERIC);
     expect(store.getSnapshot().pending).toEqual([]);
   });
 
@@ -158,7 +162,7 @@ describe("TasksStore", () => {
     expect(store.retry("k1")).toBe(true);
     await tick();
     expect(store.unsent("task_3")?.key).toBe("k1");
-    expect(store.getSnapshot().reject).toBe("no answer");
+    expect(store.getSnapshot().reject).toBe(GENERIC);
     store.discard("k1");
     expect(store.unsent("task_3")).toBeUndefined();
     expect(store.getSnapshot().tasks.some((t) => t.id === "task_3")).toBe(true);

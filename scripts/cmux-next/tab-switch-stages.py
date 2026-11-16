@@ -23,6 +23,7 @@ import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 # `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
 # same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
@@ -182,7 +183,7 @@ def measure(label, step, count):
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if os.environ.get("TABSWITCH_KEEP") or not LAUNCHED:
         return
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
@@ -198,7 +199,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 2)
             if len(parts) == 3 and parts[2].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:

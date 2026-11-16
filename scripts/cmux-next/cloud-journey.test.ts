@@ -4,14 +4,180 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { clientPlatformOrigin, Journey, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("preclaim table survives the enclosing journey step on success and failure", async () => {
+    for (const fail of [false, true]) {
+      const out = mkdtempSync(join(tmpdir(), "preclaim-summary-test-"));
+      try {
+        const journey = new Journey(resolveBackend("staging"), out, { account: "private-account" }, true);
+        const row = preclaimClaimRecord({ claim: 1, machine: "private-machine", leaseHit: true, firstReplyMs: 27 });
+        const burst = journey.step("preclaim burst", async () => {
+          Object.assign(journey, { preclaimRows: [row] });
+          journey.flush();
+          if (fail) throw new Error("private failure detail");
+          return { value: 0, detail: "private step detail" };
+        });
+        if (fail) await expect(burst).rejects.toThrow("private failure detail");
+        else await burst;
+        journey.flush();
+        const summary = readFileSync(join(out, "summary.md"), "utf8");
+        expect(summary).toContain(preclaimSummaryMarkdown([row]));
+        expect(summary).toContain("preclaim burst");
+        expect(summary).not.toContain("private-");
+        expect(summary).not.toContain("private failure detail");
+        expect(summary).not.toContain("private step detail");
+      } finally {
+        rmSync(out, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("preclaim reply waits through idle before a queued prompt starts", async () => {
+    const replies = ["@@exit 0", "@@exit 0", "@@wait 0\n", "@@wait 0\nThe measured reply."];
+    const commands: string[] = [];
+    const result = await runPreclaimChat(async (command) => {
+      commands.push(command);
+      const stdout = replies.shift();
+      if (stdout === undefined) throw new Error("unexpected extra command");
+      return { code: 0, stdout, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(commands).toHaveLength(4);
+    expect(replies).toEqual([]);
+    expect(result.replyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("preclaim records preserve the claim-to-bound split and receipt state", () => {
+    const row = preclaimClaimRecord({
+      claim: 2,
+      spare: "vm_spare",
+      answer: {
+        machine_id: "vm_claim",
+        lease_hit: true,
+        stages_ms: [
+          { step: "machine", ms: 40 },
+          { step: "join", ms: 12 },
+          { step: "guest_bind", ms: 8 },
+          { step: "connect_info", ms: 10 },
+          { step: "bound", ms: 5 },
+        ],
+      },
+      postBindLogin: "receipt",
+    });
+    expect(row).toEqual({
+      claim: 2,
+      machine: "vm_claim",
+      spare: "vm_spare",
+      lease_id: null,
+      lease_hit: true,
+      health_before: { http_status: 0, outcome: "error", commit: null },
+      health_after: { http_status: 0, outcome: "error", commit: null },
+      claim_to_bound: { claim_answer_ms: 40, join_ms: 52, guest_bind_ms: 60, connect_info_ms: 70, bound_ms: 75 },
+      post_bind_login: "receipt",
+      first_chat_ms: null,
+      first_reply_ms: null,
+      claimed_behind: null,
+      spare_skips: null,
+      spare_fallback: null,
+    });
+  });
+
+  test("preclaim records name a claim served one image roll behind (held across a roll) and the claim's skips", () => {
+    const held = preclaimClaimRecord({ claim: 0, answer: { claim: { behind: true }, spare_skips: { image: 2, "vm_private id": 1 }, spare_fallback: "image" } });
+    expect(held.claimed_behind).toBe(true);
+    expect(held.spare_skips).toEqual({ image: 2 });
+    expect(held.spare_fallback).toBe("image");
+    const current = preclaimClaimRecord({ claim: 1, answer: { claim: { behind: false } } });
+    expect(current.claimed_behind).toBe(false);
+    expect(preclaimClaimRecord({ claim: 2, answer: { machine_id: "vm_cold" } }).claimed_behind).toBeNull();
+  });
+
+  test("the preclaim summary counts held claims and their failures apart from normal hits", () => {
+    const ok = { postBindLogin: "receipt" as const, firstChatMs: 5, firstReplyMs: 9 };
+    const rows = [
+      preclaimClaimRecord({ claim: 0, leaseHit: true, answer: { claim: { behind: false }, spare_skips: { image: 1 } }, ...ok }),
+      preclaimClaimRecord({ claim: 1, leaseHit: true, answer: { claim: { behind: true } }, ...ok }),
+      preclaimClaimRecord({ claim: 2, leaseHit: true, answer: { claim: { behind: true }, spare_skips: { image: 3, disconnected: 1 } }, postBindLogin: "receipt", firstChatMs: 5, firstReplyMs: null }),
+      preclaimClaimRecord({ claim: 3, leaseHit: false, answer: { spare_fallback: "image", spare_skips: { image: 2 } }, postBindLogin: "post-bind", firstReplyMs: 40 }),
+    ];
+    const failures = [preclaimFailureRecord(4, new Error("reply wait exit 1"), [], true), preclaimFailureRecord(5, new Error("create refused"))];
+    expect(failures[0].claimed_behind).toBe(true);
+    expect(failures[1].claimed_behind).toBeNull();
+    const summary = preclaimSummary(rows, failures);
+    expect(summary).toMatchObject({ claims: 4, lease_hits: 3, lease_misses: 1, cold_creates: 1, held_claims: 3, held_failures: 2, image_skips: 6, claims_with_image_skip: 3 });
+    const md = preclaimSummaryMarkdown(rows, failures);
+    expect(md).toContain("- held claims (one image roll behind): 3");
+    expect(md).toContain("- held claim failures: 2");
+    expect(md).toContain("- cold creates: 1");
+    expect(md).toContain("| held |");
+    expect(md).not.toContain("reply wait exit 1");
+  });
+
+  test("preclaim health and lease evidence stay bounded and opaque", () => {
+    expect(opaquePreclaimLeaseId("lease-secret-value")).toMatch(/^lease:[0-9a-f]{12}$/);
+    expect(opaquePreclaimLeaseId("lease-secret-value")).not.toContain("secret");
+    expect(preclaimHealthSnapshot({ status: 200, body: { commit: "c684eb73", account: "other-account" } })).toEqual({ http_status: 200, outcome: "ok", commit: "c684eb73" });
+    const row = preclaimClaimRecord({ claim: 1, leaseId: "lease:opaque", healthBefore: { http_status: 200, outcome: "ok", commit: "a" }, healthAfter: { http_status: 200, outcome: "ok", commit: "b" }, firstChatMs: 11, firstReplyMs: 22 });
+    expect(row.lease_id).toBe("lease:opaque");
+    expect(row.machine).toBeNull();
+    expect(row.health_before.commit).toBe("a");
+    expect(row.first_reply_ms).toBe(22);
+    const publicText = preclaimSummaryMarkdown([preclaimClaimRecord({ claim: 1, machine: "vm_private", spare: "vm_spare", leaseId: "lease:opaque", leaseHit: true, firstChatMs: 11, firstReplyMs: 22 })]);
+    expect(publicText).toContain("lease:opaque");
+    expect(publicText).toContain("11");
+    expect(publicText).not.toContain("vm_private");
+    expect(publicText).not.toContain("vm_spare");
+  });
+
+  test("preclaim public journey output drops setup identifiers", () => {
+    const safe = preclaimPublicStep({ step: "user.ensure", status: "pass", ms: 17, detail: "user user_secret install install_secret" });
+    expect(safe).toEqual({ step: "user.ensure", status: "pass", ms: 17, detail: "pass" });
+    const md = summaryMarkdown(resolveBackend("staging"), [safe], preclaimPublicMeta());
+    expect(md).toContain("mode: preclaim");
+    expect(md).not.toContain("user_secret");
+    expect(md).not.toContain("install_secret");
+  });
+
+  test("cold preclaim claims use the post-bind login fallback before chat", () => {
+    expect(preclaimLoginMode(null, "cold-machine")).toBe("post-bind");
+    expect(preclaimLoginMode("ready-spare", "ready-spare")).toBe("preclaim");
+    expect(preclaimLoginMode("ready-spare", "different-claimed-machine")).toBe("post-bind");
+  });
+
+  test("preclaim failures retain a private failed row and force a nonzero incomplete run", () => {
+    const failure = preclaimFailureRecord(3, new Error("credential installer refused: secret-value"), ["secret-value"]);
+    expect(failure).toEqual({ claim: 3, outcome: "fail", error: "credential installer refused: [secret]", claimed_behind: null });
+    expect(preclaimRunComplete([], [failure], 1)).toBe(false);
+    expect(preclaimRunComplete([preclaimClaimRecord({ claim: 0 })], [], 1)).toBe(true);
+  });
+
+  test("lease classification uses explicit broker evidence and keeps unknown separate from a miss", () => {
+    expect(classifyLeaseHit({ lease_hit: false })).toBe(false);
+    expect(classifyLeaseHit({ source: "warm" })).toBe(true);
+    expect(classifyLeaseHit({}, "claim lease_hit=no")).toBe(false);
+    expect(classifyLeaseHit({ message: "claimed spare" }, "claimed spare")).toBeNull();
+    expect(classifyLeaseHit({ machine_id: "vm_cold" })).toBeNull();
+  });
+
+  test("preclaim waits only for the owner's team stream and accepts its replayed ready event", () => {
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_a", data: { machine: "vm_spare", team: "team_a" } }, "vm_spare", "team_a")).toBe(true);
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_b", data: { machine: "vm_spare", team: "team_b" } }, "vm_spare", "team_a")).toBe(false);
+    expect(cloudSpareReadyFrame({ t: "snapshot", stream: "cloud:team_a", spares_needing_login: ["vm_spare"] }, "vm_spare", "team_a")).toBe(true);
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_a", data: { machine: "vm_other", team: "team_a" } }, "vm_spare", "team_a")).toBe(false);
+  });
+
+  test("claim stage extraction accepts the cloud start-session steps object without inventing missing stages", () => {
+    expect(claimToBoundSplit({ steps: [{ step: "claim", ms: 10 }, { step: "bound", ms: 5 }] })).toEqual({ claim_answer_ms: 10, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: 15 });
+    expect(claimToBoundSplit(undefined)).toEqual({ claim_answer_ms: null, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: null });
+  });
+
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
     const calls: Array<{ method: string; url: string; auth: string }> = [];
     const fake = async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {
@@ -84,7 +250,7 @@ describe("cloud journey", () => {
     expect(programs.preflight.startsWith("set -eu\n")).toBe(true);
     expect(programs.preflight).toContain("/etc/cmux/vm-kind");
     const install = programs.install("/home/cmux/.cmux/credential-transfer/A.json");
-    expect(install).toContain("python3 - 'claude' '/home/cmux/.cmux/credential-transfer/A.json' owner <<'CMUX_CREDENTIAL_INSTALL'\nimport json, os");
+    expect(install).toContain("python3 - 'claude' '/home/cmux/.cmux/credential-transfer/A.json' owner <<'CMUX_CREDENTIAL_INSTALL'\nimport fcntl, hashlib, json, os");
     expect(install).toContain("env['CLAUDE_CODE_OAUTH_TOKEN'] = value");
     expect(install.endsWith("\nCMUX_CREDENTIAL_INSTALL")).toBe(true);
   });
@@ -102,6 +268,9 @@ describe("cloud journey", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
     expect(JOURNEY_STUB_SCRIPT.steps[0].shell).not.toContain("{{nonce}}-tool");
     expect(JOURNEY_STUB_SCRIPT.steps[1].text).toContain("{{result.0}}");
+    expect(JOURNEY_STUB_SCRIPT.turns).toEqual(expect.arrayContaining([
+      { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] },
+    ]));
   });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
@@ -2130,6 +2299,45 @@ describe("claudeTranscriptModelsProgram", () => {
       expect(transcriptModels(run(join(home, "none")))).toEqual([]);
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a warm-spare refusal names the verb's own error_code and error, else stderr's last line", () => {
+    // The shape start_chat_cli.rs `refused` prints before it exits 1 (run 43804741509 recorded only "exit 1").
+    const stdout = `${JSON.stringify({ ok: false, error: "the install token names no team", error_code: "team_unresolved" })}\n`;
+    expect(warmSpareRefusal({ code: 1, stdout, stderr: "" })).toBe("warm-spare refused (exit 1): team_unresolved: the install token names no team");
+    expect(warmSpareRefusal({ code: 64, stdout: "", stderr: "usage: cmux link start-chat ...\nunknown flag --x\n" })).toBe("warm-spare refused (exit 64): unknown flag --x");
+    expect(warmSpareRefusal({ code: 1, stdout: "", stderr: "" })).toBe("warm-spare refused (exit 1)");
+  });
+
+  test("the preclaim burst warms at client-config's platform_origin, not the API host", async () => {
+    // cloud-api forwards a fixed list of platform paths; /v1/cloud/spare/warm is not one, so a warm sent to the API
+    // host gets an empty 404 (runs 43804741509 and 43809949753). The app sends it to client-config's platform_origin.
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-platform-test-"));
+    try {
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\necho '{"ok":false,"error":"stub refused","error_code":"stub"}'\nexit 1\n`, { mode: 0o755 });
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (method: string, route: string) => route === "/v1/client-config"
+          ? { status: 200, body: { platform_origin: "https://cmux-platform-staging.debussy.workers.dev" } }
+          : { status: 200, body: { ok: true } },
+      };
+      const journey = new Journey(resolveBackend("staging"), null, {}, true);
+      const code = runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+      });
+      await expect(code).rejects.toThrow("warm-spare refused (exit 1): stub: stub refused");
+      const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
+      const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
+      expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(request.scope.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(() => clientPlatformOrigin({})).toThrow("client-config names no https platform_origin");
+      expect(() => clientPlatformOrigin({ platform_origin: "http://x.test" })).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

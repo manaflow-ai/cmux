@@ -99,6 +99,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { list?.window }
+    /// The sidebar's rows and owner cards share one card that morphs between them.
+    var hoverCardGroup: HoverCardGroup? { .sidebar }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }
@@ -368,7 +370,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         guard isLive, let content else { return nil }
         let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
         guard let newest = starts.max() else { return nil }
-        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
+        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60) // hover-timing: clock refresh, not a delay
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")

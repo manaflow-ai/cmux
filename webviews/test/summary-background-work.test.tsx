@@ -23,6 +23,7 @@ import { SubagentStatusList } from "../src/agent-session/acpmux/summary/Subagent
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
 import { WorkflowSummaryRow } from "../src/agent-session/acpmux/summary/WorkflowSummary";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -55,6 +56,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

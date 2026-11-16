@@ -5,7 +5,7 @@ import { relayEntitlement } from "./billing";
 import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { internalCall, why } from "./internalCall";
-import { type Scope, mintTicket } from "./tickets";
+import { REATTACH_TTL_S, TICKET_TTL_S, type Scope, mintTicket } from "./tickets";
 import { type IceServer, mintTurn } from "./turn";
 
 /** Who is calling: the hub user, the public origin, and the Stack token for the billing lookup (never stored). */
@@ -88,6 +88,17 @@ const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PING = JSON.stringify({ type: "ping" });
 const PONG = JSON.stringify({ type: "pong" });
+
+interface WireTicket {
+  sessionId: string;
+  ticket: string;
+  signalURL: string;
+  ice: IceServer[];
+  peer: { id: string; name: string; signingKey: string };
+  role: "viewer" | "host";
+  scope: Scope;
+  reattach?: boolean;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS devices(
@@ -456,6 +467,7 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && m === "POST") {
         if (!SESSION_ID.test(b!)) throw notFound("session not found");
         if (d === "decision") return this.decide(me, b!, this.parse(raw), c);
+        if (d === "reattach") return this.reattach(me, b!, c);
         if (d === "end") return this.endFromDevice(me, b!, raw.length ? this.parse(raw) : {});
         if (d === "ice") return this.ice(me, b!, c);
       }
@@ -826,26 +838,41 @@ export class UserDO extends DurableObject<Env> {
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
-    const ice: IceServer[] = (await entitled) === "paid" ? await mintTurn(this.env) : [];
-    if (!this.stillOpen(s.id)) return;
+    const tickets = await this.issueTickets(s, c, (await entitled) === "paid" ? await mintTurn(this.env) : [], TICKET_TTL_S, false);
+    if (!tickets) return;
+    for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
+  }
+
+  /** Mints fresh tickets for the same approved viewer/host pair. */
+  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], ttlS: number, reattach: boolean): Promise<[WireTicket, WireTicket] | null> {
+    if (!this.stillOpen(s.id)) return null;
+    const viewer = this.device(s.viewer_id);
+    const host = this.device(s.host_id);
+    if (!viewer || !host) return null;
     const signalURL = `${c.origin.replace(/^http/, "ws")}/v1/sessions/${s.id}/ws`;
-    for (const [self, peer, role] of [
-      [viewer, host, "viewer"],
-      [host, viewer, "host"],
-    ] as const) {
-      const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope });
-      if (!this.stillOpen(s.id)) return;
-      this.send(self.id, {
-        type: "session.ticket",
-        sessionId: s.id,
-        ticket,
-        signalURL,
-        ice,
-        peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key },
-        role,
-        scope: s.scope,
-      });
+    const result: WireTicket[] = [];
+    for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
+      const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
+      if (!this.stillOpen(s.id)) return null;
+      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope });
     }
+    return result as [WireTicket, WireTicket];
+  }
+
+  /** Re-admits only the original viewer for the still-open, same-device session. */
+  private async reattach(me: DeviceRow, id: string, c: CallContext): Promise<Response> {
+    const s = this.session(id);
+    if (!s || s.viewer_id !== me.id || (s.state !== "approved" && s.state !== "live")) throw new ApiError(409, "session_not_active", "session is not active");
+    const host = this.liveDevice(s.host_id);
+    if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
+    if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
+    if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
+    const entitled = (await this.entitlement(c)) === "paid";
+    const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
+    if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
+    for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
+    this.audit("reattached", { viewerId: me.id, hostId: host.id, scope: s.scope, sessionId: id, detail: "viewer" });
+    return json({ session: publicSession(s), ticket: tickets[0] });
   }
 
   private async decide(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Promise<Response> {

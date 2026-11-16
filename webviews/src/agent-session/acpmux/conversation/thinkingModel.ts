@@ -25,6 +25,12 @@ export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: strin
 /// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.
 export const WRITING_MS = 5000;
 
+/// How long a running turn may go with no sign of life (no chunk, call or reply) before its live
+/// line stops saying "Thinking" and says "Waiting", timed from the last thing it heard (Leo,
+/// 2026-11-12, on a frozen "Thinking 683ms": "the whatever ms gets stuck and becomes false really
+/// quickly.... or else gets stale?"). Past WRITING_MS, so a paused reply reads Thinking first.
+export const SILENT_MS = 10_000;
+
 /// The live line's words split as Claude Code words them: the action ("Using repo", "Running",
 /// "Sending"), then the rest (": repo grep", " bun test"), both in the line's one muted tone
 /// (conversation.css `.cv-worked__lead`; Leo, 2026-11-07: "don't make it white"). An MCP call's

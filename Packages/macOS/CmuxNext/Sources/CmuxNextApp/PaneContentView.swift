@@ -185,20 +185,22 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - slot, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
+        // A toolbar row under the strip (a browser's omnibar) or content sharing the tab row (the docked Home, msg 31502): no divider.
+        stripView.meetsToolbar = onTop && !isBandActive && shown > 0 && (rowTools > 0 || (visibleContent as? any ToolbarEdgeHosting)?.showsToolbarRowAtTop == true)
         var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        contentHost.paintsRestingGround = rowTools <= 0
         let listWidth = layoutVerticalList()
         if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
-        if hostChanged { contentHost.frame = hostFrame }
+        if hostChanged { contentHost.frame = hostFrame; paintHold.placeKept() } // a kept outgoing view stays where it shows until the swap
         if launchImageView != nil, !held, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
             // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
             // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }
-        // After the host frame: a strip pinned to a browser's band reads its
-        // frame from constraints that depend on the host frame.
+        // Lay out the browser's band after the host frame its constraints depend on.
         super.layout()
         toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or by the band's constraints
         // Restored terminal views are attached while the pane is still at

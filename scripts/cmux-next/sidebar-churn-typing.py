@@ -55,7 +55,7 @@ ran past their class budget with their stacks (debug.hangs over_budget). Fleet (
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
-import argparse, csv, glob, json, os, random, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
+import argparse, csv, glob, json, os, random, re, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 
@@ -141,6 +141,14 @@ def cli(*args, timeout=120):
     if done.returncode != 0:
         note(f"cli {' '.join(args)[:120]} -> {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}")
     return done
+
+
+def created_id(done):
+    """The id of the workspace that a `workspace create` made, or None. The CLI prints what it made as a record
+    (rows of `key value`), never a bare id: the id is the record's `value.workspace_id` row, as
+    tab-switch-matrix.py reads it. The whole record was taken as the id before."""
+    found = re.search(r"value\.workspace_id\s+(\S+)", done.stdout or "")
+    return found.group(1) if found else None
 
 
 def wait(predicate, seconds, step=0.25):
@@ -606,7 +614,7 @@ def main():
             ids = list(builder.background)  # STRESS's 59 other workspaces are the ones that rearrange
         else:
             for i in range(opts.workspaces):
-                ref = cli("workspace", "create", "--empty", "--name", f"churn {i:04d}").stdout.strip()
+                ref = created_id(cli("workspace", "create", "--empty", "--name", f"churn {i:04d}"))
                 if ref:
                     made.append(ref)
             by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
@@ -623,9 +631,11 @@ def main():
             builder.show(typed_id)
             builder.focus_pane(pane["id"])
         else:
-            typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat").stdout.strip()
+            typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
             by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
-            typed_id = by_name.get("typing") or typed
+            typed_id = by_name.get("typing") or created_id(typed)
+            if not typed_id:
+                sys.exit(f"the typing workspace was not made: {(typed.stdout + typed.stderr).strip()[-300:]}")
             cli("workspace", typed_id, "focus")
         rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal, not the list
         if opts.input == "real":

@@ -3,13 +3,12 @@
 # build-setting variant, as p50/p95. Run alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/rust-dev-loop.sh --ref SHA \
 #     [--arg=variants=base,lld,nodebug] [--arg=n=8] [--arg=clean_n=1] \
-#     [--arg=scenarios=core,tui,acpmux,switch] [--arg=tests=acpmux] \
+#     [--arg=scenarios=acpmux_leaf,shared_struct,test_only] [--arg=tests=acpmux] \
 #     --artifact .build/rust-dev-loop/samples.json --timeout 10800
 # Each variant gets its own target directory and a clean build (clean_n of them), then n
-# interleaved rounds of a one-line edit in cmux-tui-core, cmux-tui and acpmux, each followed
-# by `cargo build -p cmux-tui -p acpmux --bins`. scenario `switch` builds acpmux and cmux-tui
-# alone after the pair (dependencies recompiled there are feature-unification churn, what a
-# workspace-hack crate removes). tests=PKGS times `cargo test` against `cargo nextest run`.
+# interleaved rounds of an acpmux leaf edit, a shared Formula layout edit, and an acpmux
+# test-only edit. Check, build, and test-run commands are timed separately. tests=PKGS times
+# `cargo test` against `cargo nextest run`.
 # Variants (scripts/measure/rust-dev-loop.py `variants`): base, lld (macOS) or mold/split
 # (Linux), nodebug, lld+nodebug, nightly, nightly+threads8, cranelift, cranelift+all, and blaze
 # (github.com/indexable-inc/blaze, its pinned release; one clean build, then edits; rss_mb per build).
@@ -22,7 +21,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 # blaze_home_path: a BLAZE_HOME whose daemon socket fits a Unix socket address (macOS: 104 bytes).
 source "$root/scripts/measure/blaze-home.sh"
-variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests="" out="" timings=0 custom=()
+variants=base n=8 clean_n=1 scenarios=acpmux_leaf,shared_struct,test_only tests="" out="" timings=0 custom=()
 for kv in "$@"; do
   case "$kv" in
     variants=*) variants="${kv#*=}" ;;

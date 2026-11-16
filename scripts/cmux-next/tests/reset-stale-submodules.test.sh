@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 RESET="$ROOT/scripts/ci/reset-stale-submodules.sh"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main -c protocol.file.allow=always "$@" >/dev/null 2>&1; }
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 

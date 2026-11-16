@@ -2248,7 +2248,10 @@
    "name": "workspace",
    "meaning": "Workspace",
    "sf": "rectangle.stack",
-   "family": "workspace"
+   "family": "workspace",
+   "overrides": [
+    "rectangle.stack"
+   ]
   },
   {
    "name": "workspace.new",

@@ -5,6 +5,7 @@
 // and on every path a chip is drawn on: a live session, a chat restored from the list before its
 // session attaches, a held pick of another harness's model, and a switch to another harness.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 
 setDefaultTimeout(900_000);
 import { JSDOM } from "jsdom";
@@ -77,7 +78,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 }, 900_000);
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

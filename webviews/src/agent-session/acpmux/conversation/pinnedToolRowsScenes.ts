@@ -4,7 +4,7 @@
 // after two reads). Under the runs arm of liveTurnWork.experiment.ts the run regroups ("Read 2
 // files") and a call the reader opened stays open and in place (Leo, 2026-11-08: "if i have a tool
 // call expanded, the auto folding situation shouldn't collapse it when a new tool call comes in and
-// the folds reformat"). The shipped `line` arm draws no finished run while the turn runs, only the
+// the folds reformat"). These scenes pin the `line` arm, which draws no finished run while the turn runs, only the
 // reply and the one live line (turns.ts `codexRuns`), so there is no call to open and nothing to
 // regroup in view: these scenes check that the next call, and the turn's end in the group scene,
 // move nothing the reader reads. test/pinned-tool-rows-browser.test.ts plays them in Chromium.
@@ -113,7 +113,7 @@ declare global {
     cmuxPinnedToolRows?: {
       before: number;
       after: number;
-      /// Rows of the running turn's run drawn after the next call arrived (the shipped `line` draws none).
+      /// Rows of the running turn's run drawn after the next call arrived (the `line` draws none).
       runs: number;
       /// The live line is the turn's last row.
       line: boolean;
@@ -132,7 +132,7 @@ const runs = (ctx: Parameters<Play>[0]) => ctx.document.querySelectorAll(`[data-
 const liveLine = (ctx: Parameters<Play>[0]) =>
   ctx.document.querySelector('.acpmux-row[data-row-id="thinking-live"]') !== null;
 
-/// The scene as the shipped live-turn-work `line` draws a running turn (liveTurnWork.experiment.ts):
+/// The scene as live-turn-work `line` (pinned) draws a running turn (liveTurnWork.experiment.ts):
 /// the reply in sight, one live line under it, and no finished run, so no call the reader could
 /// have opened. The reader reads the reply (or, `below`, the text above it, the reply under the
 /// view's foot); the next call arrives and moves nothing in view, and a turn that then ends moves
@@ -182,20 +182,26 @@ function scene(which: Scene): Play {
   };
 }
 
+/// The arm these scenes are about, pinned so they keep it whatever the default.
+const LINE = { "live-turn-work": "line" };
+
 export const pinnedVariants = {
   "pinned-lone": {
-    note: "Play: a running turn after a lone read, the reader scrolled up to the reply; a second read arrives. As the shipped live-turn-work `line` draws it: the reply and the live line, no finished run, and the reply stays where it was.",
+    note: "Play: a running turn after a lone read, the reader scrolled up to the reply; a second read arrives. Under live-turn-work `line`, pinned: the reply and the live line, no finished run, and the reply stays where it was.",
     snapshot: snapshot(lone.before, 1),
     play: scene(lone),
+    experiments: LINE,
   },
   "pinned-below": {
     note: "Play: the reader scrolled up so the reply sits under the view's foot; a second read arrives. The text in view stays where it is, and no finished run draws.",
     snapshot: snapshot(lone.before, 1),
     play: scene({ ...lone, below: true }),
+    experiments: LINE,
   },
   "pinned-group": {
     note: "Play: two reads, then a command joins the running turn and the turn ends. While it runs the reply and the live line show and no finished run; the next call moves nothing in view; at the turn's end the view's offset holds and the reply moves down by the work drawn above it.",
     snapshot: snapshot(group.before, 1),
     play: scene(group),
+    experiments: LINE,
   },
 };

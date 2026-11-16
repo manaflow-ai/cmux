@@ -5,6 +5,7 @@ import { act } from "react";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { settleReact } from "./support/domTeardown";
 
 // Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout shifts/flicker
 // renderings". The relaunch bench at 7ed8d1ffedd: the Updated card's span read the build list from the
@@ -96,6 +97,7 @@ test("the Updated card reports its span's notes from the cached build list witho
     expect(sizes.length).toBe(1);
     expect((host.textContent ?? "").toLowerCase()).toContain("click never drags");
   } finally {
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

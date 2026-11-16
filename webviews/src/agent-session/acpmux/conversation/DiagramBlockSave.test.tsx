@@ -2,6 +2,7 @@
 // A drawn chart or diagram offers Save: its SVG goes to the host's save panel (`pane.saveFile`, kind svg),
 // and is copied instead where the host has none. Nothing is offered before the chart is drawn.
 import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -68,10 +69,11 @@ beforeEach(() => {
   setNativeHost(host);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   setNativeHost(undefined);
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

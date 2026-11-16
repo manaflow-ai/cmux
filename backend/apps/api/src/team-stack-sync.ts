@@ -309,7 +309,12 @@ export class StackTeamSync {
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
     // A cmux VM personal tenant is a private Stack team behind one personal owner: never a cmux team (team-vm-api-personal.ts).
-    if (team.vm_personal_tenant === true) return "vm_personal_tenant_ignored"
+    // A tenant made before its create marked it for clients too is marked now (CMUX-380), so the person's sign-in
+    // client stops offering it as a team; a failed mark leaves it ignored, and the next sync tries again.
+    if (team.vm_personal_tenant === true) {
+      if (team.vm_personal_tenant_visible === true || !stack.markVmPersonalTenantVisible) return "vm_personal_tenant_ignored"
+      return (await stack.markVmPersonalTenantVisible(ev.stack_team).catch(() => false)) ? "vm_personal_tenant_marked" : "vm_personal_tenant_ignored"
+    }
     const missing = () => (schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped")
     // Members are read before the mirror commit: a team not mirrored here yet whose Stack members are all
     // anonymous is a cmux.com visitor's sign-up personal team (StackMember.anonymous) and is never mirrored.

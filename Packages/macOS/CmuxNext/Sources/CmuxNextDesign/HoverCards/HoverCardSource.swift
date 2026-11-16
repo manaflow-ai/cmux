@@ -82,9 +82,12 @@ public protocol HoverCardSource: AnyObject {
     /// sidebar, `HoverCardEscapeGeometry.rowBand`): the room between it and the card keeps the
     /// card only for a pointer heading into the card. Nil when the anchor is the target itself.
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect?
+    /// The sources this one shares its card window with (``HoverCardGroup``); nil: none.
+    var hoverCardGroup: HoverCardGroup? { get }
 }
 
 public extension HoverCardSource {
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool { false }
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect? { nil }
+    var hoverCardGroup: HoverCardGroup? { nil }
 }

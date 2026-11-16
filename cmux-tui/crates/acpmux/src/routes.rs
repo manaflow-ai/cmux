@@ -637,12 +637,12 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::create_dirs(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
     crate::router_socket::owner_only(&tmp);
-    std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
+    crate::home_fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
 /// Write a new route (`replace`: over an existing one).
@@ -686,9 +686,9 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     if id.starts_with(ONE_RUN_PREFIX) {
         // A one-run route (cmux-hand's gateway route) leaves no backup: it
         // names only a token file that is removed with it.
-        std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
     } else {
-        crate::home_fs::rename(&route.path, &backups.join(&name))
+        crate::home_fs::rename(&route.path, backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     // Chats bound to it fall back to their inherited route, and a workspace,
@@ -726,8 +726,8 @@ pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, R
     if to.exists() {
         return Err(RouteError::Exists(format!("a route {id:?} exists again")));
     }
-    std::fs::create_dir_all(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dirs(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
     find(Some(dir), &id)
 }
 
@@ -960,8 +960,45 @@ pub fn local_router_with(
     Ok((url, key))
 }
 
+/// The model router's path on a Cloud machine's model plane: the inference gateway hands
+/// `<origin>/router/v1/messages` to the model router as the machine's team (cmux-platform
+/// `RouterRoute.ts`).
+pub const CLOUD_ROUTER_PATH: &str = "/router";
+
+/// The `https://` origin of this machine's model plane when it is a cmux Cloud machine (its
+/// records under `root/etc/cmux`, or `CMUX_VM_ID`): the launch's `CMUX_CODEROUTER_URL`, else the
+/// model-plane env file the image writes (`codex_cloud_auth::Inputs::team_origin`). There the
+/// cmux model router is reached through the team's inference gateway, not a local CodeRouter
+/// (Leo, 2026-11-15: "We're doing it through the gateway."). None on a Mac.
+pub fn cloud_gateway_origin(
+    root: &Path,
+    home: &Path,
+    var: &(dyn Fn(&str) -> Option<String> + Sync),
+) -> Option<String> {
+    if !crate::cloud_host::detect(&root.join("etc/cmux"), var("CMUX_VM_ID").as_deref()) {
+        return None;
+    }
+    let inputs = crate::codex_cloud_auth::Inputs { root, home, var, broker: false };
+    let origin = inputs.team_origin()?;
+    let origin = origin.trim_end_matches('/');
+    (origin.len() > "https://".len()).then(|| origin.to_owned())
+}
+
 /// The env a route gives a spawn of `family`.
 pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, RouteError> {
+    env_for_on(route, family, home, None)
+}
+
+/// [`env_for`] on a machine whose model plane is at `gateway` ([`cloud_gateway_origin`]). With
+/// no local CodeRouter to carry it, the cmux model router's Claude goes to the gateway's model
+/// router path with the image's public placeholder key: the machine's edge adds its own
+/// credential, so no token is ever on the machine. A local CodeRouter, when one runs, still wins.
+pub fn env_for_on(
+    route: &Route,
+    family: &str,
+    home: &Path,
+    gateway: Option<&str>,
+) -> Result<RouteEnv, RouteError> {
     if !route.serves(family) {
         return Err(RouteError::BadParams(format!(
             "route {} does not serve the {family} harness",
@@ -983,8 +1020,15 @@ pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, Rou
     );
     if route.uses_relay() {
         let cmux = route.file.kind == RouteKind::CmuxRouter;
-        let (url, key) = local_router_with(home, family, cmux)?;
-        let relay = if anthropic { url } else { format!("{url}/v1") };
+        let (relay, key) = match (local_router_with(home, family, cmux), gateway) {
+            (Ok((url, key)), _) => (if anthropic { url } else { format!("{url}/v1") }, key),
+            // The gateway's model router speaks the Messages API only.
+            (Err(RouteError::Unavailable(_)), Some(origin)) if cmux && anthropic => (
+                format!("{origin}{CLOUD_ROUTER_PATH}"),
+                crate::codex_cloud_auth::PLACEHOLDER_KEY.to_owned(),
+            ),
+            (Err(e), _) => return Err(e),
+        };
         // The cmux model router is reached only through the relay: a URL in
         // the file would get the relay's key, which works nowhere else.
         if cmux || base.is_none() {

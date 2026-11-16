@@ -19,10 +19,18 @@ impl Drop for Daemon {
 }
 
 fn start(home: &Path, config: Value, ssh_dir: Option<&Path>) -> Daemon {
+    start_in(home, config, ssh_dir, true)
+}
+
+/// A daemon in `home`; with `memory` off it keeps its state there across runs.
+fn start_in(home: &Path, config: Value, ssh_dir: Option<&Path>, memory: bool) -> Daemon {
     std::fs::write(home.join("config.json"), config.to_string()).unwrap();
     let mut command = daemon_env::acpmux(home);
+    command.args(["daemon", "run", "--ready-fd", "1", "--listen", "127.0.0.1:0"]);
+    if memory {
+        command.arg("--memory");
+    }
     command
-        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--listen", "127.0.0.1:0"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
@@ -115,6 +123,71 @@ os.write(1, open(os.path.join(home, "config.json"), "rb").read() + b"\0" + open(
     let peer = &reply["result"]["peers"][0];
     assert_eq!(peer["state"], "connected", "{reply}");
     assert_eq!(peer["servedAs"], "peer", "{reply}");
+}
+
+/// The WireGuard path of an `ssh://` peer with no configured tokens waits on their read over
+/// ssh only on the first run: a restarted daemon dials it at once with the tokens it kept
+/// (`peer_kept_tokens.rs`), and the stand-in `ssh` sees no second read.
+#[test]
+fn a_restarted_daemon_dials_wireguard_with_the_tokens_it_kept_and_reads_none() {
+    let local = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let scripts = tempfile::tempdir().unwrap();
+    let local_key = acpmux::cli::mesh_node_key::load_or_create_at(local.path()).unwrap();
+    let remote_key = acpmux::cli::mesh_node_key::load_or_create_at(remote.path()).unwrap();
+    let local_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let remote_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let local_endpoint = local_udp.local_addr().unwrap();
+    let remote_endpoint = remote_udp.local_addr().unwrap();
+    let remote_config = json!({
+        "transport":{"wireguard":true,"wireguardStatic":{"listen":remote_endpoint,"address":"10.81.0.2:4100"}},
+        "peers":{"local":{"url":"ws://127.0.0.1:1","wireguard":{
+            "publicKey":local_key.public_key_b64(),"endpoint":local_endpoint.to_string(),"address":"10.81.0.1:4100"}}}
+    });
+    drop(remote_udp);
+    let _remote = start(remote.path(), remote_config, None);
+    let reads = scripts.path().join("reads");
+    let script = format!(
+        r#"#!/usr/bin/env python3
+import os, sys
+if "-W" in sys.argv:
+    raise SystemExit("this test requires the WireGuard data path")
+open({reads}, "a").write("read\n")
+home = {home}
+os.write(1, open(os.path.join(home, "config.json"), "rb").read() + b"\0" + open(os.path.join(home, "run", "peer.token"), "rb").read())
+"#,
+        reads = serde_json::to_string(&reads.to_string_lossy()).unwrap(),
+        home = serde_json::to_string(&remote.path().to_string_lossy()).unwrap()
+    );
+    let ssh = scripts.path().join("ssh");
+    std::fs::write(&ssh, script).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let local_config = json!({
+        "transport":{"wireguard":true,"wireguardStatic":{"listen":local_endpoint,"address":"10.81.0.1:4100"}},
+        "peers":{"remote":{"url":"ssh://fixture.invalid:1","wireguard":{
+            "publicKey":remote_key.public_key_b64(),"endpoint":remote_endpoint.to_string(),"address":"10.81.0.2:4100"}}}
+    });
+    drop(local_udp);
+    let read_count = || std::fs::read_to_string(&reads).unwrap_or_default().lines().count();
+    let connected = |home: &Path| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let peer = request(home, "_acpmux/peers", json!({}))["result"]["peers"][0].clone();
+            if peer["state"] == "connected" && peer["servedAs"] == "peer" {
+                return;
+            }
+            assert!(std::time::Instant::now() < deadline, "not connected as a peer: {peer}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    let first = start_in(local.path(), local_config.clone(), Some(scripts.path()), false);
+    connected(local.path());
+    assert_eq!(read_count(), 1, "the first run reads the tokens over ssh");
+    drop(first);
+    let _second = start_in(local.path(), local_config, Some(scripts.path()), false);
+    connected(local.path());
+    assert_eq!(read_count(), 1, "the restarted daemon dialed WireGuard with no ssh read");
 }
 
 #[tokio::test]

@@ -68,8 +68,9 @@ final class PageInfoCardView: NSView {
         let inset = PageInfoStyle.inset
         let width = PageInfoStyle.bubbleWidth
         NSLayoutConstraint.activate([
+            // No trailing pin: the card is still zero-sized on a controller's first page, and a
+            // trailing pin plus the fixed width broke a required constraint there.
             view.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: inset / 2),
-            view.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -inset / 2),
             view.topAnchor.constraint(equalTo: body.topAnchor, constant: inset / 2),
             view.widthAnchor.constraint(equalToConstant: width - inset),
         ])

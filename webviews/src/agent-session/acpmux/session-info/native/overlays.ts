@@ -12,11 +12,12 @@
 // nodes, so a streaming transcript costs nothing more than the nodes it adds) and measured each frame
 // while any is mounted, as they place and animate. The frame loop stops when the last one unmounts.
 import { useEffect } from "react";
+import { onVisualViewport, visualViewportScale } from "../../../../ui/visualViewportBox";
 import { postNative } from "../../native";
 
 export const OVERLAY_SELECTOR = ".ui-popup, .ui-tooltip, [data-native-overlay]";
 
-/// A popup's box in the page's viewport, CSS pixels, with its corner radius.
+/// A popup's box in the page's viewport, CSS pixels (where it shows under a pinch zoom), with its corner radius.
 export type OverlayRect = { left: number; top: number; right: number; bottom: number; radius: number };
 
 /// The most rects one report carries (the App refuses more).
@@ -29,16 +30,18 @@ export function overlayRect(element: Element): OverlayRect | undefined {
   const view = element.ownerDocument.defaultView;
   const style = view?.getComputedStyle(element);
   if (style && (style.visibility === "hidden" || style.display === "none")) return undefined;
-  const box = element.getBoundingClientRect();
-  if (!(box.width > 0 && box.height > 0)) return undefined;
-  const radius = Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0;
+  const layout = element.getBoundingClientRect();
+  if (!(layout.width > 0 && layout.height > 0)) return undefined;
+  // Where it shows under a trackpad pinch, so the panel's cut-out zooms and pans with the popup.
+  const box = onVisualViewport(layout, view);
+  const radius = (Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0) * visualViewportScale(view);
   const round = (value: number) => Math.round(value * 100) / 100;
   return {
     left: round(box.left),
     top: round(box.top),
     right: round(box.right),
     bottom: round(box.bottom),
-    radius: round(Math.min(radius, box.width / 2, box.height / 2)),
+    radius: round(Math.min(radius, (box.right - box.left) / 2, (box.bottom - box.top) / 2)),
   };
 }
 

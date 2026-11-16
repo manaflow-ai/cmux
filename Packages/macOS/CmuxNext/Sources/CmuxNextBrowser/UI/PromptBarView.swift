@@ -48,7 +48,7 @@ final class PromptBarView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.promptCornerRadius)
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
@@ -77,12 +77,12 @@ final class PromptBarView: NSView {
             alwaysCheck.font = BrowserMetrics.bodyFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
             for field in [inputField, userField, passwordField] as [NSTextField] {
-                field.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+                field.layer?.cornerRadius = Metrics.buttonCornerRadius
             }
             buttons.spacing = BrowserMetrics.itemSpacing
             stack.spacing = padding
             stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
-            glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+            glass.cornerRadius = BrowserMetrics.promptCornerRadius
         }
         density.start()
     }

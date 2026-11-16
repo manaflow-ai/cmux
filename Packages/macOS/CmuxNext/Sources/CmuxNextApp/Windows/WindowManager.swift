@@ -117,6 +117,7 @@ final class WindowManager {
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    var reopenCreating = false // a reopen with no window is making one (`reopenOrCreateWindow`): another reopen meanwhile makes none
     /// Restore finished: windows saved in full screen may enter it.
     var fullScreenRestoreReady = false
     /// A restored window is entering full screen (one at a time).
@@ -448,8 +449,8 @@ final class WindowManager {
 
     /// Orders a new window in without taking focus under no-activate.
     func present(_ controller: WindowController) {
-        // Tests: never on the user's display. Otherwise one rule: under
-        // no-activate behind the others (in front on a test screen), never key.
+        controller.sidebar.sectionsPass?.completeFirstFrame() // the first frame reads each band item's value (SidebarFirstFrame)
+        // Tests: never on the user's display. Otherwise one rule: under no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
         services.background.windowWillAppear(activates: !behind && ordersWindowsIn) // leave background mode first (cx-ghagp)
         let restacks = restacking.remove(controller.state.id) != nil

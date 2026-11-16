@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextIcons
 public import CoreGraphics
 import Foundation
 
@@ -17,6 +18,9 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
     /// secondary label colour, in the favicon's slot, so the title stays on the icon column; the favicon replaces it
     /// when it loads (Lawrence default: "a site with no favicon gets a placeholder").
     case pagePlaceholder
+    /// A cmux page's own icon (a Cloud desktop's cloud, History's clock) in the favicon's slot, drawn as
+    /// ``pagePlaceholder`` is: a cmux page is no site, so it never wears the site globe.
+    case page(IconName)
 
     /// The SF Symbol ``pagePlaceholder`` draws, on every surface that shows a page's favicon (workspace rows, band
     /// items, the hover card's tab rows).
@@ -29,7 +33,7 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
         case .swatch: nil
         case let .symbol(name, _): .symbol(name, tint: nil)
         case let .emoji(text, _): .emoji(text, chip: nil)
-        case .favicon, .pagePlaceholder: self
+        case .favicon, .pagePlaceholder, .page: self
         }
     }
 
@@ -40,7 +44,7 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
         switch self {
         case let .swatch(color): color
         case let .symbol(_, tint): tint
-        case .emoji, .favicon, .pagePlaceholder: nil
+        case .emoji, .favicon, .pagePlaceholder, .page: nil
         }
     }
 

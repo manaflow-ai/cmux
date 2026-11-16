@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
+import { settleReact } from "./support/domTeardown";
 
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
@@ -67,6 +68,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   await act(async () => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

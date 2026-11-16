@@ -1,12 +1,14 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map(["window", "document"].map((key) => [key, Object.getOwnPropertyDescriptor(scope, key)]));
 beforeAll(() => Object.assign(scope, { window: dom.window, document: dom.window.document }));
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(scope, key, descriptor);
     else delete scope[key];

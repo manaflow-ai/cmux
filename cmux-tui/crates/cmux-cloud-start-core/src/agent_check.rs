@@ -157,10 +157,15 @@ pub struct Request {
 }
 
 /// A start refused before its lease: a code and the person's words (what is wrong, and what to do).
+/// `until_at` (`untilAt` in JSON) is when the used-up limit resets ("2026-11-18T03:00:00Z"), when the reply named it: the
+/// app hands it to a caller with the code (a CLI's JSON error), so no caller reads the words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Refusal {
     pub code: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until_at: Option<String>,
 }
 
 /// [`check`]'s answer: the refusal (None: start), the limit it read, and until when (unix seconds) the
@@ -205,7 +210,11 @@ pub fn check(request: &Request) -> Answer {
         ),
     };
     Answer {
-        refusal: Some(Refusal { code: CODE.to_owned(), message }),
+        refusal: Some(Refusal {
+            code: CODE.to_owned(),
+            message,
+            until_at: found.resets_at.map(utc_iso),
+        }),
         limit: Some(found),
         fresh_until: found.resets_at.unwrap_or(request.now + SPENT_UNKNOWN_RESET_SECONDS),
     }
@@ -235,6 +244,18 @@ pub fn utc_words(at: i64, now: i64) -> String {
         let name = MONTHS.get(usize::try_from(month - 1).unwrap_or(0)).copied().unwrap_or("Jan");
         format!("{name} {day}, {time} UTC")
     }
+}
+
+/// `at` (unix seconds) as an RFC 3339 UTC time to the second: "2026-11-18T03:00:00Z".
+pub fn utc_iso(at: i64) -> String {
+    let (year, month, day) = civil(at.div_euclid(86_400));
+    let seconds = at.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
 }
 
 /// The proleptic Gregorian (year, month 1-12, day 1-31) of `days` since 1970-01-01 (Howard

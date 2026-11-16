@@ -106,3 +106,83 @@ fn a_tab_or_screen_write_journals_its_change_not_the_session() {
         );
     }
 }
+
+/// What a screen move and a screen pin journaled in a session of
+/// `workspaces` empty workspaces beside the one that holds the three screens
+/// written to. Both reorder screens, so they commit a full projection
+/// (`Mux::commit_screen_request`), not screen rows alone as
+/// `screen.update` of a color does.
+fn screen_order_costs(workspaces: usize) -> Vec<(&'static str, usize, usize)> {
+    let mux = Mux::new_for_test(
+        format!("state-journal-screen-budget-{workspaces}"),
+        SurfaceOptions::default(),
+    );
+    mux.new_workspace(None, None).unwrap();
+    let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+    for _ in 0..2 {
+        mux.new_screen(Some(workspace), None).unwrap();
+    }
+    let screens = mux.with_state(|state| {
+        let index = state.workspace_index(workspace).unwrap();
+        state.workspaces[index]
+            .screens
+            .iter()
+            .map(|screen| screen.public_id.to_string())
+            .collect::<Vec<_>>()
+    });
+    for index in 0..workspaces {
+        empty_workspace(&mux, &format!("screen-budget-{index}"));
+    }
+    // The first full projection seeds the journal's public fold.
+    mutate(&mux, "screen.move", json!({"screen": screens[2], "index": 0}), "screen-budget-warm");
+    let writes = [
+        ("screen.move", json!({"screen": screens[2], "index": 2}), "move-last"),
+        ("screen.move", json!({"screen": screens[2], "index": 0}), "move-first"),
+        ("screen.update", json!({"screen": screens[1], "pinned": true}), "screen-pin"),
+    ];
+    writes
+        .into_iter()
+        .map(|(operation, params, key)| {
+            let before = revision(&mux);
+            mutate(&mux, operation, params, &format!("screen-budget-{key}"));
+            let (changes, bytes) = journaled_after(&mux, before);
+            (key, changes, bytes)
+        })
+        .collect()
+}
+
+/// The most changes a reorder of three screens may journal: the three
+/// screens, their workspace and the state rows that ride with them.
+const SCREEN_ORDER_CHANGES_BUDGET: usize = 8;
+
+#[test]
+fn a_screen_reorder_journals_its_screens_not_the_session() {
+    let small = screen_order_costs(4);
+    let large = screen_order_costs(40);
+    let mut report = String::new();
+    for ((key, small_changes, small_bytes), (_, large_changes, large_bytes)) in
+        small.iter().zip(&large)
+    {
+        report.push_str(&format!(
+            "{key}: {small_changes} changes ({small_bytes} B) at 4 workspaces, {large_changes} \
+             changes ({large_bytes} B) at 40; "
+        ));
+    }
+    eprintln!("journal screen budget: {report}");
+    for ((key, small_changes, _), (_, large_changes, large_bytes)) in small.iter().zip(&large) {
+        assert!(*large_changes >= 1, "{key} journaled no change ({report})");
+        assert!(
+            *large_changes <= SCREEN_ORDER_CHANGES_BUDGET,
+            "{key} journaled {large_changes} changes at 40 workspaces (budget \
+             {SCREEN_ORDER_CHANGES_BUDGET}): it restates the session ({report})"
+        );
+        assert_eq!(
+            large_changes, small_changes,
+            "{key}: its journal cost grows with the session ({report})"
+        );
+        assert!(
+            *large_bytes <= BYTES_BUDGET,
+            "{key} journaled {large_bytes} bytes at 40 workspaces (budget {BYTES_BUDGET})"
+        );
+    }
+}

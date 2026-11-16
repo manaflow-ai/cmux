@@ -98,6 +98,13 @@ public nonisolated enum HomeStrings {
         String(format: String(localized: "home.chief.welcome.chord", defaultValue: "`%1$@` then `%2$@`",
                               table: "Home", bundle: .module), first, second)
     }
+    /// The welcome's Start Agent from Any App line while its system-wide key is off, as Markdown: its
+    /// `keys` (already a code span), its `title`, and the `link` that turns the key on.
+    static func chiefWelcomeAnyApp(_ keys: String, _ title: String, link: String) -> String {
+        String(format: String(localized: "home.chief.welcome.anyApp",
+                              defaultValue: "%1$@ %2$@ (off until you [turn it on](%3$@))",
+                              table: "Home", bundle: .module), keys, title, link)
+    }
     /// The heading over the welcome's other shortcuts.
     static var chiefWelcomeShortcuts: String {
         String(localized: "home.chief.welcome.shortcuts", defaultValue: "More shortcuts:", table: "Home", bundle: .module)

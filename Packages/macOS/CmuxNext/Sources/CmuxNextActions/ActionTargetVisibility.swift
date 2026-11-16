@@ -16,7 +16,7 @@ public enum ActionTargetVisibility {
 
     /// Gates a bound action on what its target lacks (Open Desktop on a machine with no desktop):
     /// while `reason` returns a string the row is left out of that target's context menu, the
-    /// palette row is disabled with it (read for no explicit target), and every run (palette, CLI,
+    /// palette collects a supported target when declared, otherwise disables the row with it, and every run (palette, CLI,
     /// MCP, keyboard) is refused with it. `reason` never refuses on its own.
     public static func gate(_ id: ActionID, in registry: ActionRegistry, reason: @escaping @MainActor (ActionInvocation) -> String?) {
         let quiet: @MainActor (ActionInvocation) -> String? = { [weak registry] invocation in registry?.withoutRefusals { reason(invocation) } }

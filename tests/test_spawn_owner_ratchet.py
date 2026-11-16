@@ -12,8 +12,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path. It turns
-# git's auto maintenance off in the fixture repository (scripts/check-test-determinism.py).
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
 _spec = importlib.util.spec_from_file_location(
     "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = importlib.util.module_from_spec(_spec)
@@ -192,6 +192,21 @@ class SpawnOwnerRatchet(unittest.TestCase):
         self.write("cmux-tui/crates/acpmux/src/new.rs", "fn g() {}\n")
         code, out = self.check("--base-ref", "HEAD")
         self.assertEqual(code, 0, out)
+
+    def test_a_known_moved_row_carries_its_base_allowance(self):
+        old = "cmux-tui/crates/cmux-remote/src/identity.rs"
+        moved = "cmux-tui/crates/cmux-remote/src/identity/auth_database.rs"
+        self.git("init", "-q")
+        self.baseline({old: 2})
+        self.write(old, "fn f() {\n    tokio::spawn(a());\n    tokio::spawn(b());\n}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.baseline({moved: 2})
+        self.write(old, "fn f() {}\n")
+        self.write(moved, "fn f() {\n    tokio::spawn(a());\n    tokio::spawn(b());\n}\n")
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"carries {old} -> {moved}", out)
 
     def test_the_committed_baseline_holds_on_this_tree(self):
         result = subprocess.run([sys.executable, "-I", str(CHECK), str(SOURCE)], capture_output=True, text=True)

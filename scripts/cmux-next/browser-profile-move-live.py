@@ -30,6 +30,7 @@ import argparse, glob, http.server, json, os, plistlib, socket, subprocess, sys,
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -305,7 +306,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,860"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, page {URL}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, page {URL}, out {opts.out}", flush=True)
 try:
     ready = quiet_wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180)
     check(bool(ready), "the app opened a window")
@@ -313,7 +314,7 @@ try:
         for engine in opts.engines.split(","):
             run_engine(engine.strip(), URL)
 finally:
-    print("quit:", json.dumps(rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=15))[:200], flush=True)
+    safe_print("quit:", json.dumps(rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=15))[:200], flush=True)
     try:
         app.wait(timeout=30)
     except subprocess.TimeoutExpired:

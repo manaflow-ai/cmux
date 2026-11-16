@@ -1,6 +1,6 @@
 // l10n-allow-file: browser fixtures and measurement diagnostics.
 // The turn's two levels in Chromium (TurnLevels.gallery.ts): the opened outer "Worked for" line
-// counts every call, each run between the agent's asides has its own line and count, and an inner
+// names the elapsed time, each run between the agent's asides has its own line and count, and an inner
 // line the reader opens stays open while the outer stays open. Writes each arm's capture to
 // $FAST_CHECKS_OUT for the PR (Leo, 2026-11-07: "do you think we should distinguish the absolute top
 // level one versus the inner ones that are interrupted by your little asides in between?").
@@ -40,7 +40,7 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
 
   for (const variant of ["outer-line", "indented", "guide", "live"])
     for (const colorScheme of ["light", "dark"])
-      test(`${variant} (${colorScheme}): the outer line counts the turn, each run between asides its own`, async () => {
+      test(`${variant} (${colorScheme}): the outer line times the turn, each run between asides counts its own`, async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
@@ -54,36 +54,31 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
           );
           expect(await page.locator("html").getAttribute("data-gallery-ready")).toBe("1");
           const live = variant === "live";
-          // A running turn draws no run to wait for (below): its last aside is its last row of words.
-          if (live) await page.getByText("Another short aside before the last check:", { exact: false }).waitFor();
-          else await page.locator(".cv-tool.is-run").first().waitFor();
+          await page.locator(".cv-tool.is-run").first().waitFor();
           const runs = (await lines(page)).map((text) => text.trim());
           console.log(`TURN_LEVELS ${JSON.stringify({ variant, colorScheme, runs })}`);
           const outers = (await page.locator(".cv-worked").allTextContents()).join(" | ");
           console.log(`TURN_LEVELS_OUTER ${variant} ${outers}`);
-          // The running turn is its replies and one live line (live-turn-work `line`, the shipped arm
-          // since 8a37e5fcf650; test/live-turn-one-line.test.ts): no outer line, no run line and no
-          // finished call in sight, and each aside is its own paragraph, not a note in a run. The two
-          // levels are the ended turn's, in the three variants before this one.
           if (live) {
-            expect(runs).toEqual([]);
-            expect(await page.locator(".cv-tool.is-run").count()).toBe(0);
-            // The live line is the turn's only line: no "Worked for" over the work.
+            expect(runs).toEqual(["Ran 4 commands and read a file", "Ran 3 commands"]);
+            expect(await page.locator(".cv-tool.is-run").count()).toBe(2);
+            expect(await page.locator('.cv-tool.is-run[aria-expanded="true"]').count()).toBe(0);
             expect(await page.locator("output.cv-thinking").count()).toBe(1);
             expect(outers).not.toContain("Worked for");
-            expect(await page.locator(".cv-tool-note").count()).toBe(0);
-            expect(await page.getByText("Approval recorded.", { exact: false }).count()).toBeGreaterThanOrEqual(1);
           } else {
             // 4 commands and a read, then 3 commands after the first aside; the lone call after the
             // second aside is a row of its own.
             expect(runs).toEqual(["Ran 4 commands and read a file", "Ran 3 commands"]);
             const outer = (await page.locator(".cv-worked").textContent())?.trim() ?? "";
-            expect(outer).toMatch(/^Worked for 2m 17s · 9 tool calls/);
-            expect(await page.locator(".cv-tool-note").count()).toBeGreaterThanOrEqual(1);
+            expect(outer).toBe("Worked for 2m 17s");
+            // Every commentary paragraph ends a run and draws as its own paragraph, never a note
+            // folded into a run (turns.ts, Codex parity #42247).
+            expect(await page.locator(".cv-tool-note").count()).toBe(0);
+            expect(await page.locator(".cv-md", { hasText: "Another short aside" }).count()).toBe(1);
           }
           // Toggle the later line: it keeps the reader's state (the outer stays open around it). An
-          // ended turn's run line opens; a running turn has no run line to toggle.
-          if (!live) {
+          // ended and running turn's run lines both keep a reader's choice.
+          {
             const later = page.locator(".cv-tool.is-run").nth(1);
             await later.click();
             expect(await later.getAttribute("aria-expanded")).toBe("true");

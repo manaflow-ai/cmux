@@ -64,8 +64,8 @@ const CONTROLS = "button, input, select, textarea, [role='switch'], [role='combo
 
 /// What a frame shows: rows, setting rows whose controls are all disabled (a row waiting for its
 /// value draws that way), and the page's groups. A disabled button beside enabled ones is the row's
-/// state, not a wait: an ordered list's first Move Up and last Move Down (tabs.newTabWidgets.order,
-/// #22903). Keep unrelated card actions out of this signal: they can be disabled for their own state.
+/// state, not a wait: an ordered list's first Move Up and last Move Down (an
+/// ordered_choices row, #22903). Keep unrelated card actions out of this signal: they can be disabled for their own state.
 function screen() {
   return {
     rows: document.querySelectorAll("[data-row-key]").length,

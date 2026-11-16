@@ -16,7 +16,7 @@ import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/tur
 import { callsToHold, linedCallOf, withoutHeldCalls } from "../src/agent-session/acpmux/conversation/turnEndHold";
 
 // This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
-// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
 // turn) is covered by live-turn-one-line.test.ts.
 const liveTurnArmsBefore = globalThis.cmuxExperiments;
 beforeAll(() => {

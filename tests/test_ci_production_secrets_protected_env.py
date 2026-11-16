@@ -13,10 +13,12 @@ Stack credentials also requires that ref to be the run's own revision.
 """
 
 import os
-import re
 import sys
 
 import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workflow_jobs  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = os.path.join(ROOT, ".github", "workflows")
@@ -76,7 +78,8 @@ def main():
         document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            environment = definition.get("environment")
+            # The environment's name as written (workflow_jobs.environment_spec: a string or a mapping's `name`).
+            environment = (workflow_jobs.environment_spec(definition) or {}).get("name")
             if name == "nightly.yml" and environment == NIGHTLY_TRACK_ENVIRONMENT:
                 # nightly.yml picks the environment per track in `decide`:
                 # release-next only for branch nightly-next, release otherwise.
@@ -91,18 +94,19 @@ def main():
     for name, jobs in RELEASE_NEXT_JOBS.items():
         document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
         for job in jobs:
-            _check(document["jobs"].get(job, {}).get("environment") == "release-next",
+            spec = workflow_jobs.environment_spec(document["jobs"].get(job) or {}) or {}
+            _check(spec.get("name") == "release-next",
                    f"{name} {job} runs in the release-next environment")
     for name, jobs in ARTIFACT_JOBS.items():
         text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
         document = yaml.load(text, Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            environment = definition.get("environment")
             # A mapping keeps the environment and only sets whether it records a deployment.
-            _check((environment.get("name") if isinstance(environment, dict) else environment) == "artifacts",
+            _check((workflow_jobs.environment_spec(definition) or {}).get("name") == "artifacts",
                    f"{name} {job} runs in the artifacts environment")
-            used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
+            # Every form GitHub accepts; `secrets: inherit` or a computed index reads ALL_SECRETS, never a subset.
+            used = workflow_jobs.secret_names(definition)
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")

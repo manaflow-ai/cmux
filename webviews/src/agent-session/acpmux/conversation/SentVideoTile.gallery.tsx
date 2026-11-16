@@ -136,6 +136,27 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
+    "video-expanded-click-outside": {
+      note: 'Leo, 2026-11-12: "The video playing thing, I need to be able to, like, click outside of the video and have that exit as well, but right now it\'s not doing that. It works for attachments like pictures though." The recording open large and playing; a click on the video leaves it open, a click beside it closes the viewer and brings the tile back, as beside an image in the image viewer.',
+      props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
+      chipHost: { media: { [PATH]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video img"));
+        const tile = ctx.document.querySelector<HTMLElement>(".cv-user__video")!;
+        const view = ctx.document.defaultView!;
+        tile.dispatchEvent(new view.MouseEvent("dblclick", { bubbles: true }));
+        const playing = ".acpmux-image-viewer .cv-media__frame.is-playing video";
+        await ctx.waitFor(() => ctx.document.querySelector(playing));
+        const press = (element: Element) => {
+          for (const type of ["mousedown", "mouseup", "click"])
+            element.dispatchEvent(new view.MouseEvent(type, { bubbles: true, cancelable: true, detail: 1 }));
+        };
+        press(ctx.document.querySelector(playing)!);
+        if (!ctx.document.querySelector(".acpmux-image-viewer")) throw new Error("a click on the video closed it");
+        press(ctx.document.querySelector(".acpmux-image-viewer .cv-media-stage")!);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer") === null);
+      },
+    },
     "video-unplayable": {
       note: 'Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". A chat on another machine whose host will not stream the recording (an older daemon there, a file outside the chat\'s folders) and Quick Look refuses too: the click says so on the tile instead of doing nothing.',
       props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },

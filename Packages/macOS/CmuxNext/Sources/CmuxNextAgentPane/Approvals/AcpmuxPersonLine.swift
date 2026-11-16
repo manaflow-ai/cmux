@@ -21,6 +21,9 @@ public final class AcpmuxPersonLine {
     public private(set) var capabilities: Set<String> = []
     /// The `error.message` of the last request acpmux refused (its own words, never a secret).
     public private(set) var lastError: String?
+    /// The `error.data.reason` of the last request acpmux refused, when it gave one (`consent_required`,
+    /// `machine.unlisted`): a word for a program, never a secret.
+    public private(set) var lastErrorReason: String?
 
     private init(environment: AcpmuxEnvironment) {
         line = AcpmuxCheckedLine(environment: environment)
@@ -112,7 +115,10 @@ public final class AcpmuxPersonLine {
         let batch = MainActorLineBatch<Reply> { [weak self] drain in
             guard let self else { return }
             for reply in drain.values {
-                if let error = reply.error { lastError = error }
+                if let error = reply.error {
+                    lastError = error
+                    lastErrorReason = reply.reason
+                }
                 waiters.removeValue(forKey: reply.id)?.resume(returning: reply.result)
             }
             if drain.overflowed || drain.closed { close() }
@@ -131,6 +137,8 @@ public final class AcpmuxPersonLine {
         let id: Int
         let result: ResultBox?
         var error: String?
+        /// The error's `data.reason`, when it has one.
+        var reason: String?
     }
 
     /// Decodes one line on the line's queue; nil for a line that is not a reply.
@@ -138,6 +146,8 @@ public final class AcpmuxPersonLine {
         guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let id = (message["id"] as? NSNumber)?.intValue else { return nil }
         let error = message["error"].map { (($0 as? [String: Any])?["message"] as? String) ?? "" }
-        return Reply(id: id, result: error == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil, error: error)
+        let reason = ((message["error"] as? [String: Any])?["data"] as? [String: Any])?["reason"] as? String
+        return Reply(id: id, result: error == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil, error: error,
+                     reason: reason)
     }
 }

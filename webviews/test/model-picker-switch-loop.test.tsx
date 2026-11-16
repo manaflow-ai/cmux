@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from 
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 setDefaultTimeout(60_000);
 
@@ -63,12 +64,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function press(element: Element) {

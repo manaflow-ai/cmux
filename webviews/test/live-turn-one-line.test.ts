@@ -4,9 +4,10 @@
 // steps never stack up as rows). The user, 2026-11-10: "it says 'worked for 36s' but if i hide it,
 // it still shows a bunch of tool calls ... we need to match and be the same." What the agent says to
 // the person stays in sight (Leo, 2026-11-06: an intermediate message "can never" get lost), and so
-// does a file change waiting for the person's permission. liveTurnWork.experiment.ts keeps the
-// earlier look (every finished run in sight until the turn ends, cmux#38339) as its `runs` arm.
-import { afterEach, expect, test } from "bun:test";
+// does a file change waiting for the person's permission. This file covers the `line` arm of
+// liveTurnWork.experiment.ts and pins it; the shipped `runs` arm keeps each finished run in sight as
+// its folded line (transcript-live-runs.test.tsx).
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
@@ -29,8 +30,15 @@ const live = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true })
 const kinds = (rows: AcpmuxRow[]) => rows.map((entry) => entry.kind).filter((kind) => kind !== "date");
 
 const armsBefore = globalThis.cmuxExperiments;
+// The clock on the live line: "Working for" over the work (liveTurnClock.experiment.ts `top`) with
+// this arm is transcript-live-turn-clock.test.ts.
+const clockOnLine = { "live-turn-clock": "line" };
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...armsBefore, ...clockOnLine, "live-turn-work": "line" };
+});
 afterEach(() => {
-  globalThis.cmuxExperiments = armsBefore;
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
 });
 
 test("a running turn draws no finished run: the prompt, then one live line naming the call in flight", () => {
@@ -115,7 +123,7 @@ test("a stretch that already ended keeps its run while the chat works, so its en
 });
 
 test("the runs arm keeps every finished run in sight until the turn ends", () => {
-  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "runs" };
+  globalThis.cmuxExperiments = { ...armsBefore, ...clockOnLine, "live-turn-work": "runs" };
   const shaped = live([
     row("u", "user", { text: "Fix the flaky test" }),
     row("run", "activity", { items: [call("git log"), call("bun test src/net", "in_progress")] }),

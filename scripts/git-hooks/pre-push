@@ -28,8 +28,8 @@
 # total), then what a failure means: after a pass, a failure is git or GitHub (retry); a refusal names its phase.
 # Pushes took 34-98 s on 2026-11-09 and nothing said whether the hook, git's pack step or GitHub was slow.
 # A push whose every ref is a delete (`git push origin :refs/heads/x`) sends no commits: nothing above has
-# anything to check, so it passes before any step, the work-tree lookup included (a clone without a work tree,
-# a bare or core.bare one such as a shared clone root, deletes branches too). Any other ref runs every step.
+# anything to check, so it passes before any step. Any other ref runs every step, from a clone without a work tree
+# too (a bare wt mirror, a core.bare clone root): the checks read the pushed commits from git objects.
 set -euo pipefail
 
 # Every check reads git's pushed-refs lines; read them once. $1 is the pushed remote (a name, or the URL of a
@@ -173,8 +173,22 @@ if [[ "$CMUX_PREPUSH_QUEUE_HELD" =~ ^[0-9]+$ ]]; then
     PHASE_TIMES="queue ${CMUX_PREPUSH_QUEUE_HELD}s"  # the wait for a turn, first in the hook-times line
 fi
 unset CMUX_PREPUSH_QUEUE_HELD  # a push a check starts (none does today) queues for itself
+# One id per run of this hook (its refs file is unique while the run lasts): push_range.py's base-fetch stamp holds
+# for this run's checks only, so the same push tried again after the base moved fetches it again (cmux#41310 review).
+export CMUX_PREPUSH_RUN="$$:$REFS_FILE"
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# A clone with no work tree (a bare wt mirror, a core.bare clone root) is checked from its objects: every check
+# reads the pushed commits by sha (`git -C REPO ls-tree / cat-file / diff` on the refs above), never files of a
+# checkout, so REPO is the git dir there. 2026-11-15: repo_publish pushes from the bare mirror died here with
+# "fatal: this operation must be run in a work tree" (exit 128) before any check ran, which left agents whose local
+# commits were blocked no way to push.
+if [[ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" == true ]]; then
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+    HAS_WORK_TREE=1
+else
+    REPO_ROOT="$(git rev-parse --absolute-git-dir)"
+    HAS_WORK_TREE=0
+fi
 cd "$REPO_ROOT"
 
 PUSHED_REMOTE="${1:-origin}"
@@ -262,6 +276,11 @@ if [[ ! -f "$SCANNER" || ! -f "$MASKER" ]]; then
     exit 0  # the namespace autofix is opt-in (install-git-hooks.sh --namespace-fix)
 fi
 
+if (( ! HAS_WORK_TREE )); then
+    # The autofix edits files of the checkout; a clone with no work tree has none to fix (CI's namespace lint judges).
+    echo "pre-push: namespace autofix skipped: this clone has no work tree." >&2
+    exit 0
+fi
 phase namespace-autofix
 before="$(git status --porcelain --untracked-files=normal)"
 enum_roots=()

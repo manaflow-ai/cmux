@@ -75,8 +75,9 @@ extension UpdaterService {
                                                    publicEDKey: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
                                                    progress: progress)
             .keep(build: build, from: source.url, signature: signature) {
+            // The reason names the step and its error: the log keeps it, the person reads plain words.
             log.append("switch: \(build) not kept: \(failure)")
-            return UpdaterStrings.channelsSwitchFailed(failure)
+            return UpdaterStrings.channelsSwitchFailed
         }
         log.append("switch: \(build) downloaded and checked in \(started.duration(to: .now))")
         return nil
@@ -196,7 +197,7 @@ nonisolated extension UpdaterStrings {
     static var channelsSwitchGone: String {
         text("updater.channels.switchGone", "That build is no longer offered for download.")
     }
-    static func channelsSwitchFailed(_ why: String) -> String {
-        format("updater.channels.switchFailed", "Could not switch: %@", why)
+    static var channelsSwitchFailed: String {
+        text("updater.channels.switchFailedPlain", "Couldn't switch: that build didn't download or didn't pass its checks. Try again.")
     }
 }

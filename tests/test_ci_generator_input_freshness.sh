@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixtur
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 checker="$root/scripts/cmux-next/check-generator-inputs.sh"
 repo="$(mktemp -d "${TMPDIR:-/tmp}/cmux-generator-freshness.XXXXXX")"
-trap 'rm -rf "$repo"' EXIT
+git_fixture_trap_exit 'rm -rf "$repo"'
 
 git -C "$repo" init -q -b base
 git -C "$repo" config user.name fixture

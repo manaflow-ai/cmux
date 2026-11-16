@@ -10,6 +10,7 @@ import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-sess
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
+import { teardownDom } from "./support/domTeardown";
 
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };
@@ -144,13 +145,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = (error: string, errorCode?: string) => ({
@@ -166,6 +163,7 @@ const failed = (error: string, errorCode?: string) => ({
   prompt: "Run the sidebar tests and fix what fails",
   retryRowId: "user-1",
 });
+const { FailedSendsContext } = await import("../src/agent-session/acpmux/conversation/promptDeliveryModel");
 const card = () => host.querySelector(".cv-turn-error")!;
 const button = (label: string) =>
   [...card().querySelectorAll("button")].find((element) => element.textContent === label);
@@ -193,6 +191,40 @@ test('"agent process closed" draws a card: the cause, Retry first, the raw words
   expect(details.querySelector("summary")!.textContent).toBe("Details");
   expect(details.textContent).toContain("agent process closed");
   expect([...details.querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Copy error"]);
+});
+
+test("a turn the folder's trust held offers Trust folder from its card, where the pane answers for the folder", async () => {
+  for (const error of [
+    "trust.pending: answer the trust question for the folder first",
+    "trust.untrusted: the folder is not trusted",
+  ]) {
+    let trusted = 0;
+    await act(async () =>
+      root.render(
+        <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+          <FailedSendsContext.Provider value={{ runs: new Map(), trustFolder: () => void trusted++ }}>
+            <TurnFooter row={failed(error)} />
+          </FailedSendsContext.Provider>
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    const trust = button("Trust folder");
+    expect(trust, error).toBeDefined();
+    expect(trust!.classList.contains("cv-turn-error__primary")).toBe(true);
+    await act(async () => trust!.click());
+    expect(trusted).toBe(1);
+    // A folder already trusted, or one this pane may not answer for, offers no Trust folder.
+    await act(async () =>
+      root.render(
+        <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+          <FailedSendsContext.Provider value={{ runs: new Map() }}>
+            <TurnFooter row={failed(error)} />
+          </FailedSendsContext.Provider>
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    expect(button("Trust folder")).toBeUndefined();
+  }
 });
 
 test("cloud credential transfer retries only the failed prompt after a successful transfer", async () => {

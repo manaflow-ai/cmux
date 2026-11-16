@@ -71,6 +71,22 @@ struct PageInfoBubblePagesTests {
         #expect(sent.commands == [.manageSiteData])
     }
 
+    @Test(arguments: [false, true])
+    func theBackArrowPointsWhereTheBackKeyGoes(rightToLeft: Bool) {
+        // Left arrow key and a left arrow, or (right to left) the right ones: never a mismatch.
+        let key = PageInfoController.backKey(rightToLeft: rightToLeft)
+        #expect(PageInfoHeaderView.backSymbol(rightToLeft: rightToLeft) == (key == 123 ? "arrow.left" : "arrow.right"))
+    }
+
+    @Test func aFreshCardSizesItsFirstPageAtTheBubbleWidth() {
+        // The card is still zero-sized when a controller renders its first page.
+        let card = PageInfoCardView(frame: .zero)
+        let page = PageInfoPages(model: makeModel(.main), send: { _ in }).build()
+        let size = card.setContent(page)
+        #expect(size.width == PageInfoStyle.bubbleWidth)
+        #expect(size.height > PageInfoStyle.inset)
+    }
+
     @Test func aPageThatIsNoWebSiteShowsOneIdentityLine() {
         let model = PageInfoModel()
         model.site = PageInfoSite(url: URL(fileURLWithPath: "/tmp/report.html"), kind: .file)

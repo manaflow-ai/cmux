@@ -12,13 +12,14 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { openEndedStretch } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
-import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
+import { FRESH_REPLY_MINUTES, GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
   BUILD_TIMES_PNG,
   LOGIN_SCREENSHOT_PNG,
   LOGIN_TESTS_MP4,
 } from "../../../gallery/fixtures/toolImages";
+import { JUMP_LATEST_SHOWN } from "../transcriptSelectors";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -314,7 +315,7 @@ const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: bool
   if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
 };
 
-/// A turn that wrote one file whole: its Edited card opens to the file's diff (EditedFilesCard.tsx).
+/// A turn that wrote one file whole, used by the raw edit-tool diff fixtures.
 const editedRows = (id: string, path: string, text: string) => [
   user(`Write ${path}`, 3, { id: `${id}-user` }),
   activity(
@@ -329,7 +330,14 @@ const editedRows = (id: string, path: string, text: string) => [
 ];
 
 const openEditedDiff = async (ctx: PlayContext) => {
-  await ctx.click({ selector: ".acpmux-edited-toggle" });
+  // Exercise the edit tool's diff; the summary card opens the native changes pane instead.
+  (ctx.document.defaultView as unknown as { cmuxAcpmuxEditedFiles(value: unknown): void }).cmuxAcpmuxEditedFiles({
+    show: "never",
+  });
+  await openEndedStretch(ctx);
+  const toggle = "button.cv-tool.is-toggle[data-tool-id], button.cv-tool.is-toggle[data-tool-group]";
+  await ctx.waitFor(() => ctx.document.querySelector(toggle));
+  if (ctx.find({ selector: toggle }).getAttribute("aria-expanded") !== "true") await ctx.click({ selector: toggle });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-edit-diff")));
 };
 
@@ -368,7 +376,7 @@ const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine
 
 /// A command still running, its output streaming in, in its own row: its stretch ended with its
 /// summary while it ran on, and the turn went on past it (a lone running call reads only on the
-/// turn's live line, and under the shipped live-turn-work `line` the stretch still running draws no
+/// turn's live line, and under the live-turn-work `line` the stretch still running draws no
 /// run, so the command is in sight only from a stretch that ended: turns.ts `codexRuns`).
 const liveShellRows = (id: string, output: string) => [
   user("Follow the retry log", 1, { id: `${id}-user` }),
@@ -451,22 +459,38 @@ const showCutLine = (open: boolean) => async (ctx: PlayContext) => {
   if (text.scrollWidth > text.clientWidth + 1) throw new Error("the opened line's label is still cut");
 };
 
-/// A long command output at the transcript's end, opened with Show all: closing it from its Show
+/// A long file list at the transcript's end, opened with Show all N files: closing it from its Show
 /// less, scrolled down to, leaves the reader at the control they clicked, never on a view of blank
 /// room under rows that closed up above it (foldAnchor.ts `foldHoldTarget`, review BLOCK at 5e59e449).
-const SHOW_LESS_LOG = Array.from(
-  { length: 160 },
-  (_, index) => `(pass) retry backoff case ${index + 1} [0.${index % 10}ms]`,
-).join("\n");
+/// A Glob's card is the block whose row still grows it: a long Shell block or output scrolls in its
+/// eight-line box, opened or not (Leo, 2026-11-12: "this is a really useless show all 9 lines").
+const SHOW_LESS_FILES = Array.from({ length: 160 }, (_, index) => `/work/app/src/net/retry${index + 1}.ts`).join("\n");
+const showLessRows = [
+  user("List every retry module", 3, { id: "gallery-show-less-user" }),
+  activity(
+    [
+      tool("Glob src/net/**/*.ts", "read", "completed", {
+        inputSummary: JSON.stringify({ pattern: "src/net/**/*.ts" }),
+        output: SHOW_LESS_FILES,
+      }),
+    ],
+    2.8,
+    { id: "gallery-show-less-activity" },
+  ),
+  assistant("There are 160 retry modules under src/net.", 2.6, { id: "gallery-show-less-answer" }),
+  summary(2.6, { id: "gallery-show-less-summary", status: "completed", toolCount: 1 }),
+];
 const showLessAtEnd = async (ctx: PlayContext) => {
-  await openSingleShell(ctx);
-  const more = { selector: ".cv-shell .cv-output-more" };
+  await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-filematches .cv-output-more")));
+  const more = { selector: ".cv-filematches .cv-output-more" };
   // The reader clicks the row's words, at its start. The row is the block's whole width
   // (ExpandRow.tsx), so its centre sits under Jump to latest, centred over the view's foot.
-  const words = { selector: ".cv-shell .cv-output-more .cv-expand-row__label" };
+  const words = { selector: ".cv-filematches .cv-output-more .cv-expand-row__label" };
   await ctx.click(words);
   await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
-  // The opened output lands first: its fold plays and the rows under it place by their drawn
+  // The opened list lands first: its fold plays and the rows under it place by their drawn
   // heights, so the content stops growing (three frames at one height, nothing animating).
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
   let height = -1;
@@ -476,7 +500,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
     height = scroller.scrollHeight;
     return still >= 3 && scroller.getAnimations({ subtree: true }).every((a) => a.playState !== "running");
   });
-  // The reader scrolls down to Show less, under the opened output, at the view's foot. A reader's
+  // The reader scrolls down to Show less, under the opened list, at the view's foot. A reader's
   // scroll is a wheel, which lets go of the hold Show all's click started (App.tsx `release`); an
   // offset set alone, inside that hold, is put back where the click held the row. The wheel is a
   // pixel, so its own glide moves nothing that matters.
@@ -486,7 +510,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   const view = () => scroller.getBoundingClientRect();
   await ctx.waitFor(() => (ctx.find(more) as HTMLElement).getBoundingClientRect().bottom <= view().bottom + 1);
   const row = ctx.find(more).closest(".acpmux-row")!;
-  if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
+  if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened list's row top is still in view");
   await ctx.click(words);
   const clicked = performance.now();
   // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
@@ -496,7 +520,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   );
   const control = (ctx.find(more) as HTMLElement).getBoundingClientRect();
   if (control.bottom <= view().top || control.top >= view().bottom)
-    throw new Error("closing the output left the view on blank room: the control the reader clicked is out of view");
+    throw new Error("closing the list left the view on blank room: the control the reader clicked is out of view");
 };
 
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
@@ -612,7 +636,7 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
 
 /// A thought of a few lines, and a step that holds `items` and a call, then `after` and a second
 /// call (ThoughtRow.tsx, thoughts.ts). The chat still works, but the step's stretch already ended
-/// with its summary: under the shipped live-turn-work `line` a running stretch draws none of its
+/// with its summary: under the live-turn-work `line` a running stretch draws none of its
 /// finished work, only the live line, so a finished thought's row shows once its stretch ended
 /// (turns.ts `codexRuns`, liveTurnWork.experiment.ts).
 const SHORT_THOUGHT =
@@ -742,6 +766,74 @@ const BUILD_CHART = [
   "Splitting the app target's type check (41% of its time) is the biggest win.",
 ].join("\n");
 
+// A ```chart fence (chartSpec.ts): the same kinds of answer in the small JSON an agent writes without
+// Vega-Lite, one per chart type.
+const chartReply = (lead: string, chart: unknown, tail: string) =>
+  [lead, "", "```chart", JSON.stringify(chart, null, 2), "```", "", tail].join("\n");
+const CHART_FENCE = {
+  bar: chartReply(
+    "Per-target build time from the last 20 CI runs on main, in seconds:",
+    {
+      type: "bar",
+      title: "Build time by target",
+      data: [
+        { target: "app", p50: 312, p90: 371 },
+        { target: "api", p50: 204, p90: 229 },
+        { target: "worker", p50: 171, p90: 190 },
+        { target: "ui-kit", p50: 122, p90: 140 },
+        { target: "docs", p50: 88, p90: 97 },
+      ],
+      x: "target",
+      y: ["p50", "p90"],
+    },
+    "The app target is most of it.",
+  ),
+  line: chartReply(
+    "Cold start over the last week, by build:",
+    {
+      type: "line",
+      labels: ["Nov 8", "Nov 9", "Nov 10", "Nov 11", "Nov 12", "Nov 13", "Nov 14"],
+      series: [
+        { name: "nightly", values: [910, 880, 870, 640, 610, 600, 590] },
+        { name: "release", values: [940, 940, 930, 930, 925, 930, 920] },
+      ],
+      yTitle: "ms",
+    },
+    "The nightly dropped by a third after the cache landed on Nov 11.",
+  ),
+  pie: chartReply(
+    "Where this week's CI minutes went:",
+    {
+      type: "pie",
+      data: [
+        { job: "macOS build", minutes: 2400 },
+        { job: "Linux tests", minutes: 900 },
+        { job: "Web checks", minutes: 600 },
+        { job: "Other", minutes: 200 },
+      ],
+    },
+    "The macOS build is more than half.",
+  ),
+  scatter: chartReply(
+    "Chat length against memory, one point per open chat:",
+    {
+      type: "scatter",
+      data: [
+        { messages: 40, mb: 61 },
+        { messages: 120, mb: 66 },
+        { messages: 300, mb: 70 },
+        { messages: 800, mb: 74 },
+        { messages: 1500, mb: 79 },
+        { messages: 2600, mb: 82 },
+        { messages: 4000, mb: 86 },
+      ],
+      xTitle: "messages",
+      yTitle: "MB",
+    },
+    "Memory grows slowly with length.",
+  ),
+};
+
 const MARKDOWN_MIX = [
   "## What changed",
   "",
@@ -830,14 +922,15 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
       datasetMatches &&
       group !== null &&
       group.querySelector('button[aria-label="Copy"]') !== null &&
-      group.querySelector('button[aria-label="Retry"]') !== null
+      group.querySelector('button[aria-label="Read aloud"]') !== null
     );
   });
   const footer = ctx.document.querySelector<HTMLElement>(".cv-turn-actions");
   const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
   const copy = group?.querySelector('button[aria-label="Copy"]');
-  const retry = group?.querySelector('button[aria-label="Retry"]');
-  if (!footer || !group || !copy || !retry) throw new Error("turn footer actions did not render");
+  const readAloud = group?.querySelector('button[aria-label="Read aloud"]');
+  if (!footer || !group || !copy || !readAloud) throw new Error("turn footer actions did not render");
+  if (group.querySelector('button[aria-label="Retry"]')) throw new Error("completed resend belongs in the menu");
   await ctx.focus({ selector: 'button[aria-label="Copy"]' });
   const footerBox = footer.getBoundingClientRect();
   const groupBox = group.getBoundingClientRect();
@@ -847,12 +940,37 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
-/// The live line at the bottom of a running turn never overlaps the row over it. Under a run of
-/// one-line rows it is one more line of the run, flush, 22 apart top to top (#31497,
-/// design/chat-transcript.md "One-line row pitch", transcriptGrid.ts `transcriptGap`), never a gap
-/// apart; under prose it keeps the footer slot's gap (`TRANSCRIPT_FOOTER_GAP`; Leo, 2026-10-21: "THE
-/// RUNNING A COMMAND IS WAY TOO CLOSE"). Its words shimmer, and its "⌃B to run in background" waits
-/// for the pointer.
+/** Observe the finite sweep while it runs, rather than requiring a loop during its three-second rest. */
+const runningLineSweep = async (ctx: PlayContext, line: HTMLElement) => {
+  await ctx.waitFor(() => {
+    const animations = line
+      .getAnimations({ subtree: true })
+      .filter(
+        (animation) =>
+          animation.effect?.getTiming().iterations === Infinity ||
+          (animation as CSSAnimation).animationName?.startsWith("cmux-cadenced-shimmer-"),
+      );
+    const check = checkRunningLineLoops(
+      animations.map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          iterations: effect?.getTiming().iterations ?? 0,
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      }),
+    );
+    return hasCompleteRunningLineShimmer(check);
+  });
+};
+
+/// The live line never overlaps the row over it: work keeps the grid's run-gap token and prose
+/// keeps at least the footer gap. Its words sweep, and "⌃B to run in background" waits for hover.
 const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
@@ -860,6 +978,7 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
+  // Resolve the same run-gap token the transcript grid uses, including Interface Size.
   probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
   doc.body.append(probe);
   const runGap = probe.getBoundingClientRect().height;
@@ -885,24 +1004,7 @@ const liveLineClear = async (ctx: PlayContext) => {
     throw new Error("the ⌃B hint shows before the pointer is on the line");
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
     const line = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!;
-    const loops = line
-      .getAnimations({ subtree: true })
-      .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
-      .map((animation) => {
-        const effect = animation.effect as KeyframeEffect | null;
-        return {
-          name: (animation as CSSAnimation).animationName,
-          target: effect?.target instanceof Element ? effect.target : null,
-          playState: animation.playState,
-          playbackRate: animation.playbackRate,
-          currentTime: animation.currentTime,
-          duration: Number(effect?.getTiming().duration),
-          progress: effect?.getComputedTiming().progress ?? null,
-        };
-      });
-    const check = checkRunningLineLoops(loops);
-    if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
-      throw new Error("the live line's words do not shimmer as one loop per text layer");
+    await runningLineSweep(ctx, line);
   }
   await ctx.hover({ selector: ".cv-worked.is-below" });
   if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
@@ -957,31 +1059,9 @@ const runningLineStill =
     if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
     const first = line.firstElementChild?.textContent?.trim() ?? "";
     if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
-    const loops = line
-      .getAnimations({ subtree: true })
-      .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-    const check = checkRunningLineLoops(
-      loops.map((animation) => {
-        const effect = animation.effect as KeyframeEffect | null;
-        return {
-          name: (animation as CSSAnimation).animationName,
-          target: effect?.target instanceof Element ? effect.target : null,
-          playState: animation.playState,
-          playbackRate: animation.playbackRate,
-          currentTime: animation.currentTime,
-          duration: Number(effect?.getTiming().duration),
-          progress: effect?.getComputedTiming().progress ?? null,
-        };
-      }),
-    );
-    if (check.unapproved.length || check.duplicateTargets.length)
-      throw new Error(
-        `${check.unapproved.length + check.duplicateTargets.length} unapproved or duplicate animations loop on the running line`,
-      );
-    // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
-    if (shimmers && !hasCompleteRunningLineShimmer(check))
-      throw new Error(`Thinking shimmers ${check.shimmer.length} times, not one loop per text layer`);
-    if (!shimmers && check.shimmer.length) throw new Error("a line other than Thinking shimmers");
+    if (shimmers) await runningLineSweep(ctx, line);
+    else if (line.getAnimations({ subtree: true }).some((animation) => animation.playState === "running"))
+      throw new Error("a line other than Thinking animates");
   };
 
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
@@ -1036,17 +1116,20 @@ const loneToolCalls = () =>
     summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
   ]);
 
-/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
-/// call's check and time are hidden and keep their room; the failure's red word shows.
+/// Opens the turn's Worked for and its folded run ("Searched the web"). A finished call draws no
+/// check and no time (Codex parity, 2026-11-11); the failure's word is for screen readers only.
+const noFinishedCallMarks = (ctx: PlayContext) => {
+  if (ctx.document.querySelector(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    throw new Error("a finished call draws a check or a time");
+};
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
   await openWorked(ctx);
   // Each call between the agent's asides is its own run, so a lone call draws as its own row; a
   // folded run line, when there is one, opens too.
   if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-tool__failed"));
   const view = ctx.document.defaultView!;
-  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
-    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  noFinishedCallMarks(ctx);
   // For Codex parity a failure draws no word: it stays for screen readers, clipped away whole.
   const failed = ctx.find({ selector: ".cv-tool__failed" });
   const style = view.getComputedStyle(failed);
@@ -1127,7 +1210,7 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
         "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
         3,
       ),
-      // The stretch above ended with its summary: under the shipped live-turn-work `line` only an
+      // The stretch above ended with its summary: under the live-turn-work `line` only an
       // ended stretch draws its runs while the chat works (turns.ts `codexRuns`); the work after it
       // is the live line's.
       summary(2.9, { status: "completed", durationMs: 66_000, toolCount: 6 }),
@@ -1591,7 +1674,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
-    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#PendingDelivery",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/conversation/icons.tsx#MultiTool",
@@ -1664,13 +1747,13 @@ export default agentPaneEntry({
       snapshot: completedFooterSnapshot,
     },
     "footer-actions-left": {
-      note: "A completed answer keeps Copy and Retry at the transcript's left edge.",
+      note: "A completed answer keeps Copy and Read aloud at the transcript's left edge.",
       theme: { turnActionsPlacement: "left" },
       snapshot: completedFooterSnapshot,
       play: footerActionsPlacement("left"),
     },
     "footer-actions-right": {
-      note: "A completed answer keeps Copy and Retry at the transcript's right edge.",
+      note: "A completed answer keeps Copy and Read aloud at the transcript's right edge.",
       theme: { turnActionsPlacement: "right" },
       snapshot: completedFooterSnapshot,
       play: footerActionsPlacement("right"),
@@ -2251,10 +2334,12 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
+      note: "A live Claude turn with reported usage shows Thinking and elapsed time only. Nonzero output and input usage must not add a token count or tooltip. Play: the line holds still.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
+          user(prompt, 0.6),
           activity(
             [
               thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
@@ -2263,9 +2348,11 @@ export default agentPaneEntry({
               }),
               tool("Search for parseError", "search", "completed"),
             ],
-            5.85,
+            0.55,
           ),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          // Past WRITING_MS and inside SILENT_MS (thinkingModel.ts): the line reads "Thinking"; a reply
+          // silent for longer reads "Waiting" (reconvene/live-line.gallery.ts `after-reply-silent`).
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         {
           isWorking: true,
@@ -2276,19 +2363,21 @@ export default agentPaneEntry({
       play: runningLineStill(/^Thinking/, true),
     },
     "working-tokens-total": {
-      note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
+      note: "A live turn with output usage only still shows Thinking and elapsed time, without token counts.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
-          activity([tool("Search for parseError", "search", "completed")], 5.85),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          user(prompt, 0.6),
+          activity([tool("Search for parseError", "search", "completed")], 0.55),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
       play: runningLineStill(/^Thinking/, true),
     },
     "worked-tokens": {
-      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). The tokens show on the running line only.",
+      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). Token counts stay hidden on both running and completed lines.",
       snapshot: chat([
         user(prompt, 5.9),
         activity(
@@ -2598,6 +2687,8 @@ export default agentPaneEntry({
       ),
     },
     "codex-turn-command-under-messages": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
       snapshot: chat(
         [
@@ -2632,6 +2723,8 @@ export default agentPaneEntry({
       },
     },
     "codex-turn-raw-commands": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
@@ -2765,7 +2858,7 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta": {
-      note: "A finished command's check and run time show only while it is pointed at; a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
+      note: "A finished command draws no check and no run time, pointed at or not, and a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
       snapshot: chat([
         user("Run the checks", 3),
         activity(
@@ -2780,35 +2873,28 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await openGroupedRun(ctx);
-        const ok = () => ctx.find({ selector: ".cv-command .cv-command__ok" });
         const failed = ctx.document.defaultView!.getComputedStyle(
           ctx.find({ selector: ".cv-command .cv-command__failed" }),
         );
         if (failed.position !== "absolute" || failed.clipPath !== "inset(50%)")
           throw new Error("the failure word is drawn");
-        if (ctx.document.defaultView!.getComputedStyle(ok()).opacity !== "0")
-          throw new Error("the check shows at rest");
+        noFinishedCallMarks(ctx);
         await ctx.hover({ selector: ".cv-command" });
-        await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+        noFinishedCallMarks(ctx);
       },
     },
     "tool-hover-meta-lone": {
-      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
+      note: "Calls that are not shells, at rest: a finished fetch draws no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
       snapshot: loneToolCalls(),
       play: loneToolMetaAtRest,
     },
     "tool-hover-meta-lone-hovered": {
-      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
+      note: "The same calls with the finished fetch pointed at: it still draws no check and no run time (Codex parity); the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
       snapshot: loneToolCalls(),
       play: async (ctx) => {
         await loneToolMetaAtRest(ctx);
-        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.waitFor(() =>
-          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
-            (node) => getComputedStyle(node).opacity === "1",
-          ),
-        );
+        await ctx.hover({ selector: ".cv-tool:not(.is-toggle):not(:has(.cv-tool__failed))" });
+        noFinishedCallMarks(ctx);
       },
     },
     "mcp-calls": {
@@ -2827,7 +2913,7 @@ export default agentPaneEntry({
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
         // would hold the last finished call instead. The stretch ended with its summary while the
-        // chat works on: under the shipped live-turn-work `line` only an ended stretch draws its
+        // chat works on: under the live-turn-work `line` only an ended stretch draws its
         // calls (turns.ts `codexRuns`).
         [
           user("Stop the watcher, check the issues and run the tests.", 1),
@@ -3148,7 +3234,7 @@ export default agentPaneEntry({
       },
     },
     "prompt-delivery": {
-      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      note: "Each sent prompt's way to the agent, one state per row: the read check once it started, unread once acpmux took it, Sending in the footer's time slot while it waits (no age beside it, no second label), and one that failed with Retry, Edit, Remove and Details and no sent footer.",
       snapshot: chat([
         user("Add retries to the client", 6, {
           delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
@@ -3178,6 +3264,7 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    ...promptPendingLooks(),
     "failed-sends-grouped": {
       note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
       snapshot: chat([
@@ -3377,6 +3464,30 @@ export default agentPaneEntry({
       height: 520,
       snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
     },
+    "chart-fence-bar": {
+      note: "A ```chart fence (small JSON): two y fields draw as grouped bars, one color per field.",
+      height: 560,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(CHART_FENCE.bar, 2.9), summary(2.9)]),
+    },
+    "chart-fence-line": {
+      note: "A ```chart fence in the labels-and-series shape: a line per series, labels in order.",
+      height: 560,
+      snapshot: chat([user("How did cold start move this week?", 3), assistant(CHART_FENCE.line, 2.9), summary(2.9)]),
+    },
+    "chart-fence-pie": {
+      note: "A ```chart pie: one slice per row, colored by category in the order given.",
+      height: 520,
+      snapshot: chat([user("Where do our CI minutes go?", 3), assistant(CHART_FENCE.pie, 2.9), summary(2.9)]),
+    },
+    "chart-fence-scatter": {
+      note: "A ```chart scatter: numeric x and y, axis titles from xTitle and yTitle.",
+      height: 560,
+      snapshot: chat([
+        user("Does memory grow with chat length?", 3),
+        assistant(CHART_FENCE.scatter, 2.9),
+        summary(2.9),
+      ]),
+    },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",
       height: 720,
@@ -3519,7 +3630,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     "jump-latest-working": {
@@ -3528,7 +3639,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     selection: {
@@ -3612,7 +3723,7 @@ export default agentPaneEntry({
       },
     },
     "shell-long-colored-output": {
-      note: "A long, coloured test run: no colour codes, its end scrolling in an eight-line box with Show all 1200 lines (every line, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
+      note: "A long, coloured test run: no colour codes, its last 400 lines scrolling in an eight-line box, with Show all output under it to draw the rest, and Wrap lines and Copy in the label.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
@@ -3625,39 +3736,35 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1200 lines");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
       },
     },
     "edit-long-line-code": {
-      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
+      note: "An edit tool's inline diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
       play: openEditedDiff,
     },
     "edit-long-line-prose": {
-      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; its first eight lines show under a fade with Show all 21 lines.",
+      note: "An edit tool's inline diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: openEditedDiff,
     },
-    "edit-preview-open": {
-      note: "Show all 21 lines opens the whole diff and turns into Show less.",
+    "edit-preview-scrolled": {
+      note: "The long diff scrolled to its end in its box: its last line shows whole, the bottom edge hard.",
       checks: shellDisclosureChecks,
-      snapshot: chat(editedRows("gallery-edit-open", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
+      snapshot: chat(editedRows("gallery-edit-scrolled", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: async (ctx) => {
         await openEditedDiff(ctx);
-        // Show all opens the rendered diff: its lines, not the placeholder drawn while their
-        // renderer loads (EditDiffLoading.tsx; the inline-diff-loading entry covers that).
+        // The rendered diff's lines, not the placeholder drawn while their renderer loads
+        // (EditDiffLoading.tsx; the inline-diff-loading entry covers that).
         await ctx.waitFor(() =>
           ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
         );
-        // The reader clicks the row's words, at its start: the row is the block's whole width
-        // (ExpandRow.tsx), and with the card at the view's foot its centre sits under Jump to latest.
-        ctx.find({ role: "button", name: "Show all 21 lines" });
-        await ctx.click({ selector: ".cv-edit-diff .cv-output-more .cv-expand-row__label" });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",
-        );
+        const body = ctx.document.querySelector<HTMLElement>(".cv-edit-diff__body")!;
+        body.scrollTop = body.scrollHeight;
+        await ctx.waitFor(() => !body.hasAttribute("data-more-below"));
       },
     },
     "shell-unwrapped-long-line": {
@@ -3689,13 +3796,13 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code-cut": {
-      note: "An Edited card's diff for code past eight lines, lines whole: the first eight under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "An edit tool's inline diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
       play: openEditedDiff,
     },
     "shell-unwrapped-long-cut": {
-      note: "A long command output with Wrap lines off: the first eight lines under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "A long command output with Wrap lines off: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
@@ -3715,7 +3822,7 @@ export default agentPaneEntry({
       play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
     },
     "shell-live-unwrapped-long-cut": {
-      note: "A running command's long output with Wrap lines off: the first eight lines under a fade and the sideways scrollbar's lane under them while it runs.",
+      note: "A running command's long output with Wrap lines off: it scrolls in an eight-line box that follows its end, with the sideways scrollbar's lane under the lines while it runs.",
       checks: shellDisclosureChecks,
       snapshot: chat(liveShellRows("gallery-shell-live-cut", SHELL_LONG_LOG_CUT), { isWorking: true }),
       play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
@@ -3734,14 +3841,14 @@ export default agentPaneEntry({
       play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
     },
     "output-unwrapped-long-cut": {
-      note: "A call's long output with Wrap lines off: its first eight lines whole under a fade, and the thin sideways scrollbar under them in the output's bottom padding, the preview that much taller (Codex review of #23967).",
+      note: "A call's long output with Wrap lines off: it scrolls in a box of eight whole lines whose bottom fades, and the thin sideways scrollbar under them in the output's bottom padding, the preview that much taller (Codex review of #23967).",
       checks: shellDisclosureChecks,
       snapshot: chat([
         user("Fetch the whole retry log", 3, { id: "gallery-output-unwrapped-cut-user" }),
         activity([tool("Fetch the whole retry log", "fetch", "completed", { output: SHELL_LONG_LOG_CUT })], 2.8, {
           id: "gallery-output-unwrapped-cut-activity",
         }),
-        assistant("Its first eight lines show; Show all opens the rest.", 2.6, {
+        assistant("It scrolls in an eight-line box.", 2.6, {
           id: "gallery-output-unwrapped-cut-answer",
         }),
         summary(2.6, { id: "gallery-output-unwrapped-cut-summary", status: "completed", toolCount: 1 }),
@@ -3830,17 +3937,15 @@ export default agentPaneEntry({
       play: showCutLine(true),
     },
     "show-less-keeps-place": {
-      note: "A long command output at the transcript's end, opened with Show all, then closed from Show less after scrolling down to it: the view stays on the control the reader clicked, with the rows above it, not on blank room under a row that closed up above the view.",
+      note: "A long Glob file list at the transcript's end, opened with Show all 160 files, then closed from Show less after scrolling down to it: the view stays on the control the reader clicked, with the rows above it, not on blank room under a row that closed up above the view.",
       checks: {
         layoutShiftMax: {
           value: 1,
           reason:
-            "Show all and Show less open and close a 160-line output; the play checks the clicked control stays in view.",
+            "Show all and Show less open and close a 160-file list; the play checks the clicked control stays in view.",
         },
       },
-      snapshot: chat(
-        shellRows("gallery-show-less", "Run the whole suite", "bun test", { output: SHOW_LESS_LOG, exitCode: 0 }),
-      ),
+      snapshot: chat(showLessRows),
       play: showLessAtEnd,
     },
     "background-turns": {
@@ -3925,5 +4030,46 @@ function forkTurns(family: string | undefined, title = "Add retries to the fetch
     ...snapshot,
     summary: snapshot.summary && { ...snapshot.summary, family, title },
     sessions: snapshot.sessions.map((entry) => ({ ...entry, displayTitle: title })),
+  };
+}
+
+/// A slow acknowledgement on a prompt, and a steer on its way into the running turn, in each look
+/// (Leo, 2026-11-11: "what's up with this still sending thing? ... it already, like, shows that it's
+/// sent. So this is incongruous."). Every look keeps the state in the footer's time slot, the age's
+/// place once it lands, so the row moves nothing and never says sent and sending at once.
+function promptPendingLooks() {
+  const rows = () =>
+    chat(
+      [
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added retries with backoff.", 5.5, { streaming: true }),
+        user("Use the cache dir, not tmp", 1, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p2", sessionId: "s", sentAt: 0, queued: true },
+        }),
+        user("Then open a PR", 0.5, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+      ],
+      { isWorking: true },
+    );
+  return {
+    "prompt-pending": {
+      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending; Queued, sends when the current turn ends for a steer behind the running turn), shown at rest; the row's buttons come with the pointer and the age takes the slot once it lands.",
+      snapshot: rows(),
+    },
+    "prompt-pending-clock": {
+      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but a reader cannot tell a queued steer from a slow send without hovering.",
+      snapshot: rows(),
+      documentAttributes: { "prompt-pending-look": "clock" },
+    },
+    "prompt-pending-dim": {
+      note: "Variant C, not shipped: A's words, and the bubble's text muted until it lands. Clearest at a glance, but the bubble changing tone when the send lands reads as a second event.",
+      snapshot: rows(),
+      documentAttributes: { "prompt-pending-look": "dim" },
+    },
   };
 }

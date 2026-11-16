@@ -15,11 +15,15 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
     public var id: String
     public var title: String?
     public var showsTitle: Bool
+    /// The document band that owns this section. Projection customization
+    /// reorders only inside this band, preserving fixed app/sidebar regions.
+    public var region: SidebarRegion
 
-    public init(id: String, title: String? = nil, showsTitle: Bool = false) {
+    public init(id: String, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle) {
         self.id = id
         self.title = title
         self.showsTitle = showsTitle
+        self.region = region
     }
 }
 
@@ -90,6 +94,10 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     public var name: String
     public var kind: Kind
     public var status: Status
+    /// A verified macOS device in the device hub; nil for Linux or an unresolved machine.
+    public var screenDeviceID: String?
+    /// A known Mac stays visible while offline, with its screen action disabled.
+    public var screenAvailable = true
     /// Tooltip for the header: why an update is needed and what it enables.
     public var detail: String?
     /// The machine's own icon (`session-icon-v1`, from the home session

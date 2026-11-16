@@ -27,6 +27,15 @@ export {};
   writeDesignScale({ log: () => {} });
 }
 
+// React's scheduler keeps its queue private, and react-dom copies its entry points when it first
+// loads: count the tasks it queues from here on, before anything loads react-dom, so a teardown can
+// wait for them (support/domTeardown.ts: a scheduler task that runs after a file deletes its DOM
+// globals fails the file with "window is not defined" between tests).
+{
+  const { trackReactScheduler } = await import("./support/domTeardown");
+  trackReactScheduler();
+}
+
 // react-dom picks the animationend event name once, when it first loads: without
 // window.AnimationEvent it listens for the prefixed webkitAnimationEnd for the rest of the run,
 // and onAnimationEnd handlers never fire (the agent pane's Search chats sheet exit). WebKit has

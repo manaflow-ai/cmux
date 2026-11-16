@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
   const update = (update: Record<string, unknown>) => ({
@@ -81,7 +82,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
   /// The surfaces watched, by selector: each must be on the page when the scroll starts.
   const SURFACES = {
     tray: ".acpmux-running-tray",
-    sessionInfo: "aside.acpmux-session-info",
+    sessionInfo: SESSION_INFO,
   };
 
   /// Watches every surface across 100 frames of wheel scrolling up then down; returns, per surface,
@@ -177,6 +178,18 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
           if (target instanceof Element && target.closest(".acpmux-minimap")) continue;
           const name = (animation as CSSAnimation).animationName;
           const label = name ?? (animation as CSSTransition).transitionProperty;
+          // The running line's shimmer is a one-second sweep every four seconds, started 600 ms after
+          // its label comes into view (conversation/shimmerCadence.ts), on no shared phase: a pass
+          // that begins while the wheel moves is the cadence's next pass, not a restart. Whether one
+          // fell inside the 100 frames was the runner's speed (run 43395228044: 3 of 6 cases red with
+          // seven browser files at once). Only the two approved layers pass (runningLineMotion.ts).
+          if (
+            target instanceof Element &&
+            ((name === "cmux-cadenced-shimmer-band" && target.matches(".cv-shimmer__band, .cv-row-shimmer__band")) ||
+              (name === "cmux-cadenced-shimmer-lit" &&
+                target.matches(".cv-shimmer__band > .cv-shimmer__lit, .cv-row-shimmer__band > .cv-row-shimmer__lit")))
+          )
+            continue;
           if (name && shared.has(name)) {
             // The drawn phase is the iteration's progress: a shimmer phased by a negative delay
             // (ui/spinnerClock.ts `setLoopPhase`) is that far ahead of its currentTime.
@@ -250,7 +263,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
           });
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
           if ((await page.locator(SURFACES.sessionInfo).count()) === 0) await toggle.click({ force: true });
           await page.locator(`${SURFACES.sessionInfo}[data-presence=shown]`).waitFor({ timeout: 10_000 });
@@ -278,7 +291,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
           });
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
           if ((await page.locator(SURFACES.sessionInfo).count()) === 0) await toggle.click({ force: true });
           await page.locator(`${SURFACES.sessionInfo}[data-presence=shown]`).waitFor({ timeout: 10_000 });

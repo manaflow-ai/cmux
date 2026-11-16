@@ -460,7 +460,7 @@ public final class ActionRegistry {
     /// while Merge Workspace Into… (which acts on a workspace) still asks
     /// for the other workspace, unless the argument names the target itself
     /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
-    static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
+    public static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
         guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
         return target.kind == kind && (argument.isSuppliedByTarget || !descriptor.targets.contains(kind))
     }

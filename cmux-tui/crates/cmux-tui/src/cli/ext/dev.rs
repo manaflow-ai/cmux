@@ -13,6 +13,11 @@
 //! preview mount when it is not installed) to learn whether the new script
 //! loads and renders, and unmounts it. The daemon says where its local
 //! folder is in `apps-list` (`local_dir`).
+//!
+//! Before each build it asks the daemon for its capability manifest's digest
+//! (`apps-capabilities {brief}`) and, when the running cmux's typed global
+//! differs from the project's `cmux-app.d.ts`, writes the live one there, so
+//! the types the editor checks against are the API the daemon serves.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -60,6 +65,46 @@ pub(super) const MARKER: &str = ".cmux-ext-dev.json";
 /// The packer every sample and first-party app is built with, embedded so an
 /// extension folder outside a cmux checkout builds the same way.
 const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
+
+/// The extension SDK's source, embedded so `cmux-extension-sdk` resolves in a folder with
+/// no copy of its own (a sample copied out of a checkout, one a person installs): the
+/// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
+/// SDK's relative imports of its tables expect.
+const SDK_FILES: [(&str, &str); 3] = [
+    (
+        "cmux-extension-sdk/typescript/src/index.ts",
+        include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
+    ),
+    (
+        "cmux-app-host/schema/v2/events.json",
+        include_str!("../../../../cmux-app-host/schema/v2/events.json"),
+    ),
+    (
+        "cmux-app-host/generated/scopes.json",
+        include_str!("../../../../cmux-app-host/generated/scopes.json"),
+    ),
+];
+
+/// Writes the packer and the SDK into `dir`; returns the SDK entry for `CMUX_EXTENSION_SDK`.
+pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
+    std::fs::write(dir.join("pack.ts"), PACK_TS)?;
+    for (path, text) in SDK_FILES {
+        let file = dir.join("sdk").join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, text)?;
+    }
+    // `cmux-extension-sdk/customize`: the types of what this build lets you customize,
+    // written from the same schema `cmux customize schema` prints (not committed anywhere).
+    let types = dir.join("sdk/cmux-extension-sdk/typescript/src/generated/customize.ts");
+    if let Some(parent) = types.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let schema = cmux_customize::schema::Schema::current();
+    std::fs::write(types, cmux_customize::schema::typescript(&schema))?;
+    Ok(dir.join("sdk").join(SDK_FILES[0].0))
+}
 
 /// One problem with file and position where known.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -249,10 +294,14 @@ pub(super) fn build(
             let packer = tempfile::Builder::new()
                 .prefix("cmux-ext-pack")
                 .tempdir()
-                .and_then(|dir| std::fs::write(dir.path().join("pack.ts"), PACK_TS).map(|()| dir));
-            let packer = packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
+                .and_then(|dir| write_packer(dir.path()).map(|sdk| (dir, sdk)));
+            let (packer, sdk) =
+                packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
             let mut pack = Command::new(bun);
-            pack.arg(packer.path().join("pack.ts")).arg(&pkg.dir).current_dir(&pkg.dir);
+            pack.arg(packer.path().join("pack.ts"))
+                .arg(&pkg.dir)
+                .current_dir(&pkg.dir)
+                .env("CMUX_EXTENSION_SDK", sdk);
             run_bounded(pack, deadline)
         }
     };
@@ -651,8 +700,89 @@ pub(super) fn fingerprint(dir: &Path) -> u64 {
     hasher.finish()
 }
 
-/// Where each contribution shows, from the manifest.
-fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
+/// The typed app global in an extension folder (`cmux ext new` writes it).
+pub(super) const TYPES_FILE: &str = "cmux-app.d.ts";
+
+/// Writes `types` to `dir/cmux-app.d.ts` when the folder uses the types (the
+/// file is there, or a `src/` folder) and the text differs; by an atomic
+/// rename. `Ok(true)` when it wrote.
+pub(super) fn write_types(dir: &Path, types: &str) -> std::io::Result<bool> {
+    let path = dir.join(TYPES_FILE);
+    let current = std::fs::read_to_string(&path).ok();
+    if current.is_none() && !dir.join("src").is_dir() {
+        return Ok(false);
+    }
+    if current.as_deref() == Some(types) {
+        return Ok(false);
+    }
+    // A dot name: the watch and the fingerprint skip it.
+    let staged = dir.join(format!(".{TYPES_FILE}.cmux-ext-dev"));
+    std::fs::write(&staged, types)?;
+    std::fs::rename(&staged, &path)?;
+    Ok(true)
+}
+
+/// The page Cmd-T draws, from the settings file the app reads
+/// (`tabs.newTabApp`, `tabs.nativeNewTabPage`; Swift `NewTabAppSetting`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct NewTabPick {
+    /// The app named in `tabs.newTabApp`; None when unset.
+    pub app: Option<String>,
+    /// `tabs.nativeNewTabPage` is on: that page never draws an extension.
+    pub native: bool,
+}
+
+impl NewTabPick {
+    /// The pick in the settings file (`cmux_config::config_path`); a missing
+    /// or unreadable file is the defaults: cmux's own page.
+    pub(super) fn read() -> Self {
+        std::fs::read_to_string(cmux_config::config_path())
+            .map_or_else(|_| Self::default(), |t| Self::of(&t))
+    }
+
+    pub(super) fn of(text: &str) -> Self {
+        let Ok(root) = cmux_config::jsonc::parse(text) else { return Self::default() };
+        let at = |key: &str| cmux_config::value::value_at(&root, &["tabs", key]).cloned();
+        Self {
+            app: at("newTabApp").and_then(|v| v.as_str().map(str::to_owned)),
+            native: at("nativeNewTabPage").and_then(|v| v.as_bool()) == Some(true),
+        }
+    }
+
+    /// Why `id`'s New Tab page is not the one Cmd-T draws, with the step that
+    /// makes it so; None when it is.
+    pub(super) fn not_shown(&self, id: &str) -> Option<String> {
+        if self.native {
+            return Some(format!(
+                "the native New Tab page is on, which draws no extension: cmux settings set tabs.nativeNewTabPage false{}",
+                if self.app.as_deref() == Some(id) {
+                    String::new()
+                } else {
+                    format!(" and cmux settings set tabs.newTabApp {id}")
+                }
+            ));
+        }
+        match self.app.as_deref() {
+            Some(app) if app == id => None,
+            Some(app) => {
+                Some(format!("tabs.newTabApp names {app}: cmux settings set tabs.newTabApp {id}"))
+            }
+            None => Some(format!(
+                "tabs.newTabApp is unset, so cmux draws its own page: cmux settings set tabs.newTabApp {id}"
+            )),
+        }
+    }
+}
+
+/// Where each contribution shows, from the manifest. `shown` is the app's
+/// record (installed, on, not hidden); a whole New Tab page also needs the
+/// person's pick (`new_tab`), so it is never reported as shown without it.
+pub(super) fn placements(
+    manifest: &Value,
+    id: &str,
+    shown: bool,
+    new_tab: &NewTabPick,
+) -> Vec<Value> {
     let Some(implements) = manifest.get("implements").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -668,27 +798,61 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
-                "cmux.chat.widget/1" => "chat messages that name the app".into(),
-                "cmux.newtab.widget/1" => "the new tab page".into(),
+                "cmux.newtab/1" => {
+                    "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
+                        .into()
+                }
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
+                "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
+                "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
+                "cmux.chat.widget/1" => {
+                    match entry.pointer("/options/tools").and_then(Value::as_array) {
+                        Some(tools) if !tools.is_empty() => format!(
+                            "the agent chat, under tool calls named {}",
+                            tools.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+                        ),
+                        _ => "the agent chat, for widget parts that name this extension".into(),
+                    }
+                }
                 other => other.to_string(),
             };
-            json!({ "interface": interface, "where": place, "shown": shown })
+            let held = (interface == "cmux.newtab/1").then(|| new_tab.not_shown(id)).flatten();
+            json!({ "interface": interface, "where": place, "shown": shown && held.is_none(), "why": held })
         })
         .collect()
+}
+
+/// The web panes (`render: web`) of `manifest` as the daemon hosts them: its
+/// record's `web_pages`. A page the manifest declares that the daemon does
+/// not list is a load problem (a daemon older than web panes, or a page its
+/// rules refused), so `--once` fails instead of reporting a pane that never
+/// opens.
+pub(super) fn web_check(manifest: &Value, record: Option<&Value>) -> Result<Vec<Value>, Problem> {
+    let served: Vec<Value> = record
+        .and_then(|r| r.get("web_pages"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for page in cmux_app_manifest::web_pages(manifest) {
+        if !served.iter().any(|s| s.field("interface").as_str() == Some(page.interface.as_str())) {
+            return Err(Problem {
+                field: Some(format!("/implements/{}/web", page.interface.replace('/', "~1"))),
+                ..Problem::message(format!(
+                    "cmux does not host the web page of {} ({}/{}); run `cmux version` to compare the CLI and the daemon",
+                    page.interface, page.root, page.entry
+                ))
+            });
+        }
+    }
+    Ok(served)
 }
 
 /// The interface the load check mounts: a view that renders with no context.
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 5] = [
-        "cmux.section/1",
-        "cmux.newtab.widget/1",
-        "cmux.pane/1",
-        "cmux.session.info.section/1",
-        "cmux.chat.widget/1",
-    ];
+    const PREFERRED: [&str; 4] =
+        ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1", "cmux.newtab/1"];
     PREFERRED
         .iter()
         .find(|name| has_export(name))
@@ -711,10 +875,17 @@ pub(super) struct Outcome {
     pub installed: Option<bool>,
     pub placed: Vec<Value>,
     pub probe: Option<String>,
+    /// The outline of the probe's first scene (`scene.rs`): what the view rendered.
+    pub scene: Vec<String>,
     pub logs: Vec<Value>,
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
     pub interrupted: bool,
+    /// `cmux-app.d.ts` was rewritten from the running cmux (API version).
+    pub types_updated: Option<String>,
+    /// The web panes (`render: web`) the daemon hosts for the app (its
+    /// record's `web_pages`): `{interface, root, entry, symbol}` each.
+    pub web: Vec<Value>,
 }
 
 impl Outcome {
@@ -732,9 +903,12 @@ impl Outcome {
             installed: None,
             placed: Vec::new(),
             probe: None,
+            scene: Vec::new(),
             logs: Vec::new(),
             next: None,
             interrupted: false,
+            types_updated: None,
+            web: Vec::new(),
         }
     }
 
@@ -770,8 +944,11 @@ impl Outcome {
             "installed": self.installed,
             "placed": self.placed,
             "probe": self.probe,
+            "scene": self.scene,
             "logs": self.logs,
             "next": self.next,
+            "typesUpdated": self.types_updated,
+            "web": self.web,
         })
     }
 
@@ -799,6 +976,16 @@ impl Outcome {
                 }
                 if self.installed == Some(false) {
                     line.push_str(", as a preview (not installed)");
+                }
+                if !self.web.is_empty() {
+                    let count = self.web.len();
+                    line.push_str(&format!(
+                        "; {count} web pane{} reloads in place",
+                        if count == 1 { "" } else { "s" }
+                    ));
+                }
+                if let Some(version) = &self.types_updated {
+                    line.push_str(&format!("; {TYPES_FILE} now matches this cmux (API {version})"));
                 }
                 line
             }
@@ -828,6 +1015,9 @@ pub(super) struct Session {
     /// The folder's fingerprint right after the last build: what that
     /// reload loaded (its own build output included).
     pub built_print: Option<u64>,
+    /// The daemon's types digest the project's `cmux-app.d.ts` was last
+    /// checked against: the whole manifest is fetched only when it moves.
+    types_digest: Option<String>,
 }
 
 impl Session {
@@ -843,7 +1033,28 @@ impl Session {
             probes: 0,
             last: None,
             built_print: None,
+            types_digest: None,
         }
+    }
+
+    /// Hot reload of the API itself: when the running cmux's typed global
+    /// (`apps-capabilities`) differs from the project's `cmux-app.d.ts`,
+    /// writes the live one. Checked on start and whenever the daemon's
+    /// digest moves; an older daemon without the manifest changes nothing.
+    /// Returns the API version when it wrote the file.
+    fn refresh_types(&mut self) -> Option<String> {
+        let brief =
+            self.daemon.call(json!({ "cmd": "apps-capabilities", "brief": true })).ok()?.ok()?;
+        let digest = brief.field("typesDigest").as_str()?.to_string();
+        if self.types_digest.as_deref() == Some(digest.as_str()) {
+            return None;
+        }
+        let manifest = self.daemon.call(json!({ "cmd": "apps-capabilities" })).ok()?.ok()?;
+        let types = manifest.field("types").as_str()?;
+        let version = manifest.field("apiVersion").as_str().unwrap_or_default().to_string();
+        let wrote = write_types(&self.dir, types).ok()?;
+        self.types_digest = Some(digest);
+        wrote.then_some(version)
     }
 
     /// Validate, build, copy, wait for the daemon's reload, check the load.
@@ -857,6 +1068,9 @@ impl Session {
             Err(errors) => return outcome.failed(Phase::Manifest, errors),
         };
         outcome.app = Some(pkg.id.clone());
+        // Before the build, so the build checks against the live API and the
+        // fingerprint below includes the rewritten file (no second reload).
+        outcome.types_updated = self.refresh_types();
         let plan = build_plan(&pkg, self.build.as_deref(), self.bun.as_deref());
         outcome.build = match &plan {
             BuildPlan::Command(_) => Some("command"),
@@ -940,7 +1154,15 @@ impl Session {
         let enabled = record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
         let hidden = record.as_ref().is_some_and(|r| r.field("hidden").as_bool() == Some(true));
         outcome.installed = Some(installed);
-        outcome.placed = placements(&pkg.manifest, installed && enabled && !hidden);
+        let new_tab = NewTabPick::read();
+        outcome.placed =
+            placements(&pkg.manifest, &pkg.id, installed && enabled && !hidden, &new_tab);
+        let new_tab_held =
+            outcome.placed.iter().find_map(|p| p.field("why").as_str().map(str::to_owned));
+        match web_check(&pkg.manifest, record.as_ref()) {
+            Ok(web) => outcome.web = web,
+            Err(problem) => return outcome.failed(Phase::Load, vec![problem]),
+        }
         if !installed {
             outcome.next = Some(format!(
                 "cmux apps install {}   (shows a card in cmux; until then it loads as a preview)",
@@ -948,12 +1170,14 @@ impl Session {
             ));
         } else if !enabled {
             outcome.next = Some(format!("{} is turned off in Settings > Apps", pkg.id));
+        } else if let Some(why) = new_tab_held {
+            outcome.next = Some(format!("not your New Tab page yet: {why}"));
         }
         if outcome.changed || probe_unchanged {
             outcome.probe = probe_interface(&pkg.manifest);
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
                 match self.probe(&pkg.id, &interface, !installed) {
-                    Ok(Ok(())) => {}
+                    Ok(Ok(ops)) => outcome.scene = super::scene::outline(&[&ops]),
                     Ok(Err(problem)) => {
                         outcome.logs = self.daemon.take_logs();
                         return outcome.failed(Phase::Load, vec![problem]);
@@ -1018,10 +1242,38 @@ impl Session {
 
     /// Waits for the daemon's answer to a copied change: its reload of the
     /// app, its refusal of the saved script (an open view keeps the last
-    /// good one), or its refusal of the folder.
+    /// good one), or its refusal of the folder. It asks for the reload
+    /// (`apps-reload-local`) instead of waiting on the daemon's file watch,
+    /// whose events a loaded Mac delivers seconds late (ask-7fc19bd861): the
+    /// pass's events come before its reply, so a reply with none for this
+    /// app means the daemon already had these files. A daemon that does not
+    /// know the request still reloads on its watch, waited for as before.
     fn pickup(&mut self, id: &str, target: &Path) -> Result<Result<(), Problem>, Stop> {
         let folder = target.display().to_string();
+        let asked = self.daemon.send(json!({ "cmd": "apps-reload-local" }))?;
         self.daemon.wait(Instant::now() + PICKUP_DEADLINE, |value| {
+            if value.get("id").and_then(Value::as_str) == Some(asked.as_str()) {
+                if value.field("ok").as_bool() != Some(true) {
+                    return None;
+                }
+                let data = value.field("data");
+                if data.field("safeMode").as_bool() == Some(true) {
+                    return Some(Err(Problem::message(
+                        "cmux is in safe mode: it reloads no extension until safe mode ends",
+                    )));
+                }
+                let refused =
+                    data.field("rejected").as_array().into_iter().flatten().find_map(|r| {
+                        (r.field("dir").as_str() == Some(folder.as_str()))
+                            .then(|| r.field("issue").as_str().unwrap_or("refused").to_owned())
+                    });
+                return Some(match refused {
+                    Some(issue) => {
+                        Err(Problem { file: Some(V1.into()), ..Problem::message(issue) })
+                    }
+                    None => Ok(()),
+                });
+            }
             let event = value.get("event").and_then(Value::as_str)?;
             let app = value.get("app").and_then(Value::as_str);
             match event {
@@ -1044,14 +1296,14 @@ impl Session {
         })
     }
 
-    /// Mounts `interface` once and waits for its first scene (loaded) or its
-    /// failure (the load error); then unmounts it.
+    /// Mounts `interface` once and waits for its first scene (loaded: its op
+    /// batch) or its failure (the load error); then unmounts it.
     fn probe(
         &mut self,
         id: &str,
         interface: &str,
         preview: bool,
-    ) -> Result<Result<(), Problem>, Stop> {
+    ) -> Result<Result<Value, Problem>, Stop> {
         self.probes += 1;
         let mount_id = format!("ext-dev-probe-{}-{}", std::process::id(), self.probes);
         let mut context = json!({});
@@ -1074,7 +1326,7 @@ impl Session {
                 return None;
             }
             match value.field("event").as_str()? {
-                "apps-scene" => Some(Ok(())),
+                "apps-scene" => Some(Ok(value.field("ops").clone())),
                 "apps-mount-failed" => {
                     Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
                 }
@@ -1231,6 +1483,28 @@ pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) 
     Session::new(options.dir.clone(), options, daemon).reload(true)
 }
 
+/// The debounce after a file event: DEBOUNCE of quiet after the last one (a
+/// deadline only while file events come; log lines and other daemon events
+/// do not hold the reload back). Returns why the loop stops when a wake said
+/// so, else `None`: one reload is due.
+pub(super) fn settle(daemon: &mut Daemon) -> Option<(&'static str, i32)> {
+    let mut quiet_at = Instant::now() + DEBOUNCE;
+    loop {
+        let left = quiet_at.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        match daemon.next_wake_within(left) {
+            None => return None,
+            Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
+            Some(Wake::Interrupt) => return Some(("stopped", exit::OK)),
+            Some(Wake::DaemonGone) => return Some(("the cmux daemon went away", exit::NO_DAEMON)),
+            Some(Wake::Installed(installed)) => super::daemon::print_installed(installed),
+            Some(Wake::Daemon(_)) => {}
+        }
+    }
+}
+
 /// `ext dev` without `--once`: reload, then reload on every save.
 pub(super) fn run_watch(
     global: &GlobalArgs,
@@ -1286,32 +1560,7 @@ pub(super) fn run_watch(
             }
             Some(Wake::Daemon(_)) => None,
             Some(Wake::Files) => {
-                // Debounce: DEBOUNCE of quiet after the last file event (a
-                // deadline only while file events come; log lines and other
-                // daemon events do not hold the reload back), then one reload.
-                let mut stop = None;
-                let mut quiet_at = Instant::now() + DEBOUNCE;
-                loop {
-                    let left = quiet_at.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        break;
-                    }
-                    match session.daemon.next_wake_within(left) {
-                        None => break,
-                        Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
-                        Some(Wake::Interrupt) => stop = Some(("stopped", exit::OK)),
-                        Some(Wake::DaemonGone) => {
-                            stop = Some(("the cmux daemon went away", exit::NO_DAEMON));
-                        }
-                        Some(Wake::Installed(installed)) => {
-                            super::daemon::print_installed(installed);
-                        }
-                        Some(Wake::Daemon(_)) => {}
-                    }
-                    if stop.is_some() {
-                        break;
-                    }
-                }
+                let mut stop = settle(&mut session.daemon);
                 if stop.is_none() && !dir.is_dir() {
                     stop = Some(("the extension folder is gone", exit::OK));
                 }

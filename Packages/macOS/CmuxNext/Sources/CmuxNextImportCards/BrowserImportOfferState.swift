@@ -32,10 +32,10 @@ public struct BrowserImportOfferState: Codable, Equatable, Sendable {
     }
 
     /// Whether a browser tab's page may show the banner: the person's own
-    /// tab (never incognito, never an agent's), with no other notice on it,
-    /// until cookies came over.
+    /// tab (never incognito, never an agent's) on a page that asks to sign in,
+    /// with no other notice on it, until cookies came over.
     public func offers(_ page: BrowserImportOfferPage) -> Bool {
-        !imported && page.isPersonal && !page.showsOtherNotice
+        !imported && page.isPersonal && !page.showsOtherNotice && page.asksSignIn
     }
 
     /// An import finished: once cookies came over, the banner never shows again.

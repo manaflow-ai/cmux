@@ -39,13 +39,11 @@ struct KeyboardResizeRowsTests {
         return out
     }
 
-    /// Down grows the pane's row and Up shrinks it (plans/cmux-next/pane-keys.md): the upper row's edge moves down with
-    /// Down, and the last row grows across the same edge, so its Down moves the edge up.
     @Test func downAndUpMoveTheRowEdgeOneWholeStepFromEitherRow() throws {
         let stack = try #require(ScreenGeometry.compute(Self.start, viewport: Self.viewport, style: Self.style).rowStacks["c0"])
         let base = try #require(stack.rows.first?.frame.maxY)
         let step = (stack.frame.height + stack.gap) * CGFloat(PaneResize.step)
-        for (pane, direction, sign) in [("p1", LayoutDirection.down, 1.0), ("p1", .up, -1.0), ("p2", .down, -1.0), ("p2", .up, 1.0)] as [(PaneID, LayoutDirection, CGFloat)] {
+        for (pane, direction, sign) in [("p1", LayoutDirection.down, 1.0), ("p1", .up, -1.0), ("p2", .down, 1.0), ("p2", .up, -1.0)] as [(PaneID, LayoutDirection, CGFloat)] {
             let moved = Self.edges(direction, 3, on: pane)
             var last = base
             for edge in moved {

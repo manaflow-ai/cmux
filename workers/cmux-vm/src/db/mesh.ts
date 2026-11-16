@@ -12,7 +12,7 @@ import type { AclDocument, MeshProtocol } from "../mesh/acl.ts";
 import { SqlClient, StoreError, type SqlParam } from "./sql.ts";
 import { sqlOverlayServerCodes, type OverlayServerCodeStore } from "./overlay-server-codes.ts";
 import { sqlDeviceIntents, type DeviceIntentStore } from "./mesh-intents.ts";
-import { sqlOverlayServers, type OverlayServerStore } from "./overlay-servers.ts";
+import { OverlayServerJsonRow, overlayServerColumns, sqlOverlayServers, toOverlayServerRow, type OverlayServerRow, type OverlayServerStore } from "./overlay-servers.ts";
 
 export interface MeshDeviceRow {
   readonly deviceId: string;
@@ -148,6 +148,11 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
   readonly aclVersionsSince: (tenantId: TenantId, meshId: string, since: Date) => Effect.Effect<ReadonlyArray<Date>, StoreError>;
 
   readonly listRules: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyArray<MeshRuleRow>, StoreError>;
+  /**
+   * What a compile reads, in one database round trip: listDevices, listOverlayServers, listMembers, deviceAddresses
+   * and listRules of one mesh, each with its own filters and order, read by one statement (one snapshot).
+   */
+  readonly meshInventory: (tenantId: TenantId, meshId: string) => Effect.Effect<MeshInventory, StoreError>;
   readonly recordRule: (tenantId: TenantId, rule: MeshRuleRow) => Effect.Effect<void, StoreError>;
   /** `recordRule` for many rules in one statement: all of them are recorded, or none. */
   readonly recordRules: (tenantId: TenantId, rules: ReadonlyArray<MeshRuleRow>) => Effect.Effect<void, StoreError>;
@@ -155,6 +160,25 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
   /** `markRuleDeleted` for many keys of one mesh in one statement. */
   readonly markRulesDeleted: (tenantId: TenantId, meshId: string, keys: ReadonlyArray<string>, at: Date) => Effect.Effect<void, StoreError>;
 }
+
+export interface MeshInventory {
+  readonly devices: ReadonlyArray<MeshDeviceRow>;
+  readonly servers: ReadonlyArray<OverlayServerRow>;
+  readonly members: ReadonlyArray<MeshMemberRow>;
+  readonly deviceIpv6: ReadonlyMap<string, string>;
+  readonly rules: ReadonlyArray<MeshRuleRow>;
+}
+
+/** meshInventory for a store that reads each part on its own (the in-memory store): the five reads, side by side. */
+export const inventoryOf = (store: Pick<MeshStoreService, "listDevices" | "listOverlayServers" | "listMembers" | "deviceAddresses" | "listRules">) =>
+  (tenantId: TenantId, meshId: string): Effect.Effect<MeshInventory, StoreError> =>
+    Effect.all({
+      devices: store.listDevices(tenantId, meshId),
+      servers: store.listOverlayServers(tenantId, meshId),
+      members: store.listMembers(tenantId, meshId),
+      deviceIpv6: store.deviceAddresses(tenantId, meshId),
+      rules: store.listRules(tenantId, meshId),
+    }, { concurrency: "unbounded" });
 
 export class MeshStore extends Context.Tag("cmux-vm/MeshStore")<MeshStore, MeshStoreService>() {}
 
@@ -211,6 +235,19 @@ const DeviceAddressAtRow = Schema.Struct({
   public_ipv6: Schema.NullOr(Schema.String),
   public_ipv6_at: Schema.NullOr(When),
 });
+
+/**
+ * meshInventory's one row: each list as a JSON array, built by the same WHERE and ORDER BY as its own query
+ * (listDevices, listOverlayServers, listMembers, deviceAddresses, listRules), so the compile reads what it did.
+ */
+const InventoryRow = Schema.Struct({
+  devices: Schema.Array(DeviceRow),
+  servers: Schema.Array(OverlayServerJsonRow),
+  members: Schema.Array(MemberRow),
+  addresses: Schema.Array(DeviceAddressRow),
+  rules: Schema.Array(RuleRow),
+});
+const asJson = (rows: string) => `COALESCE((SELECT json_agg(row_to_json(x)) FROM (${rows}) x), '[]'::json)`;
 
 const decode = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
   Schema.decodeUnknown(Schema.Array(schema))(rows).pipe(Effect.mapError((cause) => new StoreError({ operation, cause })));
@@ -620,6 +657,38 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [meshId, tenantId, since.toISOString()],
           )
           .pipe(Effect.flatMap(decode(WhenRow, "mesh.aclVersionsSince")), Effect.map((rows) => rows.map((row) => row.created_at))),
+      meshInventory: (tenantId, meshId) =>
+        sql
+          .query(
+            "mesh.inventory",
+            `SELECT
+              ${asJson(`SELECT ${DEVICE_COLUMNS} FROM cmux_vm.mesh_devices
+                WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL ORDER BY created_at, device_cmux_id`)} AS devices,
+              ${asJson(`SELECT ${overlayServerColumns} FROM cmux_vm.mesh_overlay_servers
+                WHERE tenant_id = $2 AND mesh_cmux_id = $1 AND revoked_at IS NULL ORDER BY device_cmux_id`)} AS servers,
+              ${asJson(`SELECT m.mesh_cmux_id, m.vm_cmux_id, m.ipv4, m.attached_at FROM cmux_vm.mesh_members m
+                WHERE m.mesh_cmux_id = $1 AND m.tenant_id = $2 AND m.detached_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM cmux_vm.resources r
+                    WHERE r.cmux_id = m.vm_cmux_id AND r.tenant_id = m.tenant_id AND r.deleted_at IS NOT NULL)
+                ORDER BY m.attached_at, m.vm_cmux_id`)} AS members,
+              ${asJson(`SELECT device_cmux_id, public_ipv6 FROM cmux_vm.mesh_devices
+                WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND public_ipv6 IS NOT NULL
+                ORDER BY device_cmux_id`)} AS addresses,
+              ${asJson(`SELECT ${RULE_COLUMNS} FROM cmux_vm.mesh_firewall_rules
+                WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL ORDER BY rule_key`)} AS rules`,
+            [meshId, tenantId],
+          )
+          .pipe(
+            Effect.flatMap(decode(InventoryRow, "mesh.inventory")),
+            Effect.flatMap((rows) => rows[0] === undefined ? Effect.fail(new StoreError({ operation: "mesh.inventory", cause: "no row" })) : Effect.succeed(rows[0])),
+            Effect.map((row): MeshInventory => ({
+              devices: row.devices.map(toDevice),
+              servers: row.servers.map(toOverlayServerRow),
+              members: row.members.map(toMember),
+              deviceIpv6: new Map(row.addresses.map((a) => [a.device_cmux_id, a.public_ipv6])),
+              rules: row.rules.map(toRule),
+            })),
+          ),
       listRules: (tenantId, meshId) =>
         sql
           .query(

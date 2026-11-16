@@ -6,6 +6,7 @@ use super::agent::{Agents, EventSink};
 use super::config::HandConfig;
 use super::policy::{Decision, decide, resolve};
 use super::{HandError, exec, fsops, patch};
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -15,13 +16,6 @@ fn s<'a>(p: &'a Value, k: &str) -> Result<&'a str, HandError> {
         .and_then(Value::as_str)
         .ok_or_else(|| HandError::new("request.invalid", format!("{k} (string) is required")))
 }
-fn opt_s<'a>(p: &'a Value, k: &str) -> Option<&'a str> {
-    p.get(k).and_then(Value::as_str)
-}
-fn opt_u(p: &Value, k: &str) -> Option<u64> {
-    p.get(k).and_then(Value::as_u64)
-}
-
 pub struct Ctx<'a> {
     pub cfg: &'a HandConfig,
     pub agents: &'a Agents,
@@ -29,7 +23,7 @@ pub struct Ctx<'a> {
 }
 
 fn cwd_of(p: &Value) -> Result<Option<PathBuf>, HandError> {
-    opt_s(p, "cwd")
+    p.get_str("cwd")
         .map(|c| resolve(c, None).map_err(|m| HandError::new("request.invalid", m)))
         .transpose()
 }
@@ -120,8 +114,14 @@ where
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
         })
         .flatten();
-    match decide(ctx.cfg, action, &paths, opt_s(p, "_level"), opt_s(p, "_verdict"), argv.as_deref())
-    {
+    match decide(
+        ctx.cfg,
+        action,
+        &paths,
+        p.get_str("_level"),
+        p.get_str("_verdict"),
+        argv.as_deref(),
+    ) {
         Decision::Allow => {}
         Decision::Deny(why) => return Err(HandError::new("policy.denied", why)),
         Decision::Ask => {
@@ -139,8 +139,8 @@ where
     consent()?;
     let path = paths.first().cloned().unwrap_or_default();
     match action {
-        "fs.read" => fsops::read(&path, opt_u(p, "start_line"), opt_u(p, "end_line")),
-        "fs.write" => fsops::write(&path, s(p, "text")?, opt_s(p, "expect_sha256")),
+        "fs.read" => fsops::read(&path, p.get_u64("start_line"), p.get_u64("end_line")),
+        "fs.write" => fsops::write(&path, s(p, "text")?, p.get_str("expect_sha256")),
         "fs.edit" => {
             let edits = p
                 .get("edits")
@@ -157,8 +157,8 @@ where
         // A search walks folders: off the async workers.
         "fs.glob" | "fs.grep" => {
             let pattern = s(p, "pattern")?.to_owned();
-            let only = opt_s(p, "glob").map(str::to_owned);
-            let limit = opt_u(p, "limit").map(|n| n as usize);
+            let only = p.get_str("glob").map(str::to_owned);
+            let limit = p.get_u64("limit").map(|n| n as usize);
             let grep = action == "fs.grep";
             tokio::task::spawn_blocking(move || {
                 if grep {
@@ -185,13 +185,13 @@ where
                         .ok_or_else(|| HandError::new("request.invalid", "argv holds only strings"))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            exec::run(&argv, &path, opt_u(p, "timeout_ms")).await
+            exec::run(&argv, &path, p.get_u64("timeout_ms")).await
         }
         "agent.start" => {
             // A missing work folder is made (its path passed the policy above, so it is inside the
             // hand's roots and not one of its own files).
             if !path.exists() {
-                std::fs::create_dir_all(&path).map_err(|e| {
+                crate::home_fs::create_dirs(&path).map_err(|e| {
                     HandError::new("agent.bad_cwd", format!("cannot make {}: {e}", path.display()))
                 })?;
             }
@@ -204,13 +204,13 @@ where
                 .start(
                     &ctx.cfg.api,
                     model_route,
-                    super::policy::Level::of(opt_s(p, "_level"), ctx.cfg.profile),
+                    super::policy::Level::of(p.get_str("_level"), ctx.cfg.profile),
                     &ctx.cfg.agent_policy,
                     s(p, "harness")?,
                     path,
                     s(p, "prompt")?,
-                    opt_s(p, "model"),
-                    opt_s(p, "effort"),
+                    p.get_str("model"),
+                    p.get_str("effort"),
                     ctx.sink.clone(),
                 )
                 .await
@@ -230,8 +230,8 @@ where
             ctx.agents
                 .events(
                     s(p, "session")?,
-                    opt_u(p, "after_seq").unwrap_or(0),
-                    opt_u(p, "limit").unwrap_or(200),
+                    p.get_u64("after_seq").unwrap_or(0),
+                    p.get_u64("limit").unwrap_or(200),
                 )
                 .await
         }

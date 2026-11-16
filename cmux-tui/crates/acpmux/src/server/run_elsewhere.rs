@@ -150,12 +150,10 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
 fn write_script(run_id: &str, script: &str) -> std::io::Result<PathBuf> {
     use std::io::Write as _;
     let dir = crate::config::home().join("run-elsewhere");
-    std::fs::create_dir_all(&dir)?;
+    crate::home_fs::create_dirs(&dir)?;
     let path = dir.join(format!("{run_id}.sh"));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.write(true).create_new(true).mode(0o600);
     options.open(&path)?.write_all(script.as_bytes())?;
     Ok(path)
 }

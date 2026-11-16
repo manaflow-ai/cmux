@@ -35,14 +35,10 @@ WORKFLOWS = ROOT / ".github/workflows"
 
 # The required contexts on main, from the one in-tree mirror of the ruleset.
 # scripts/ci/required_status_checks.py reconciles that mirror against GitHub.
-_SPEC = importlib.util.spec_from_file_location(
-    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
-)
-_required_status_checks = importlib.util.module_from_spec(_SPEC)
-assert _SPEC.loader is not None
-# Registered before execution: the module defines a dataclass.
-sys.modules["required_status_checks"] = _required_status_checks
-_SPEC.loader.exec_module(_required_status_checks)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import required_status_checks as _required_status_checks  # noqa: E402
 # A hung job wastes runners whether or not its check is required.
 ALWAYS_BOUNDED = ("ci-status", "web-validation", "Web complexity")
 # pull_request workflows that end a superseded run themselves instead of with a

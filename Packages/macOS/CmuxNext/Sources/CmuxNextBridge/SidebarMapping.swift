@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
@@ -68,11 +69,15 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the Cloud icon), in place of a favicon:
+        /// a cmux page is no site, so its row never wears the no-favicon globe.
+        public var icon: IconName?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.icon = icon
         }
     }
 

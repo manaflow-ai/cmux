@@ -257,63 +257,6 @@ class FailureBackoffTests(unittest.TestCase):
         runs = failing(50)[:-1]
         self.assertFalse(self.plan(runs=runs, since_failure=self.IOS).build)
 
-    def test_drift_blocks_before_any_mac_build_and_force_does_not_skip_it(self):
-        for force in (False, True):
-            decision = self.plan(drift="Packages/iOS/CmuxConversation differs from origin/feat-imsg-parity-gui",
-                                 force=force)
-            self.assertFalse(decision.build)
-            self.assertIn("CmuxConversation", decision.reason)
-
-
-SYNC_SCRIPT = '''#!/usr/bin/env bash
-pairs=(
-  "Packages/iOS/CmuxTabsKit feat-cmux-next-tabs-kit"
-  "Packages/iOS/CmuxConversation feat-imsg-parity-gui"
-)
-echo "not a pair"
-'''
-
-
-class PackageDriftTests(unittest.TestCase):
-    """The plan runs check-tabskit-sync.sh's comparison on Linux, so a drifted head never reaches the Mac."""
-
-    def test_pairs_come_from_the_sync_script(self):
-        self.assertEqual(ib.sync_pairs(SYNC_SCRIPT), [("Packages/iOS/CmuxTabsKit", "feat-cmux-next-tabs-kit"),
-                                                      ("Packages/iOS/CmuxConversation", "feat-imsg-parity-gui")])
-        self.assertEqual(ib.sync_pairs(None), [])
-
-    def test_the_real_sync_script_parses(self):
-        pairs = ib.sync_pairs((ROOT / ib.SYNC_SCRIPT).read_text())
-        self.assertIn(("Packages/iOS/CmuxConversation", "feat-imsg-parity-gui"), pairs)
-
-    def git(self, repo, *args):
-        return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
-
-    def commit(self, repo, files, message):
-        for path, text in files.items():
-            (repo / path).parent.mkdir(parents=True, exist_ok=True)
-            (repo / path).write_text(text)
-        self.git(repo, "add", "-A")
-        self.git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message)
-        return self.git(repo, "rev-parse", "HEAD")
-
-    def test_detects_drift_and_a_match_from_trees(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            up = Path(tmp) / "up"
-            up.mkdir()
-            self.git(up, "init", "-q", "-b", "feat-cmux-next")
-            self.commit(up, {"Packages/iOS/P/a.swift": "1"}, "base")
-            self.git(up, "branch", "feat-p")
-            same = self.commit(up, {"cmux-next-ios/x": "1"}, "app change")
-            drifted = self.commit(up, {"Packages/iOS/P/a.swift": "2"}, "patch the package in place")
-            work = Path(tmp) / "work"
-            subprocess.run(["git", "clone", "-q", "--no-local", str(up), str(work)], check=True, capture_output=True)
-            pairs = [("Packages/iOS/P", "feat-p")]
-            self.assertIsNone(ib.package_drift(str(work), same, pairs))
-            self.assertIn("Packages/iOS/P differs from origin/feat-p", ib.package_drift(str(work), drifted, pairs))
-            self.assertIsNone(ib.package_drift(str(work), drifted, [("Packages/iOS/P", "no-such-branch")]))
-
 
 class BuilderScriptProbeTests(unittest.TestCase):
     """builder_has_script reads the signing branch with git; the contents API is only the fallback."""
@@ -609,27 +552,47 @@ class GitHubApiTests(CapturedOutput):
         self.assertIn("Resource not accessible by integration", self.err.getvalue())
 
 
-class DriftExitTests(CapturedOutput):
-    """Nov 2026: a drifted head made every decide run green while cmux INTERNAL shipped nothing for 26 hours."""
+class PackagesLiveInTheAppTests(unittest.TestCase):
+    """2026-11-11: Packages/iOS/CmuxConversation and CmuxTabsKit live in feat-cmux-next and are edited there.
+    The old package branches (feat-imsg-parity-gui, feat-cmux-next-tabs-kit) are frozen; a head whose packages
+    differ from them blocked cmux INTERNAL eight times between 2026-10-30 and 2026-11-11."""
 
-    def run_plan(self, drift):
-        with mock.patch.object(ib, "builder_runs", return_value=[]), \
-                mock.patch.object(ib, "_show", return_value="x"), \
-                mock.patch.object(ib, "builder_has_script", return_value=True), \
-                mock.patch.object(ib, "changed_files", return_value=["cmux-next-ios/x"]), \
-                mock.patch.object(ib, "package_drift", return_value=drift), \
-                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": ""}):
-            return ib.cmd_plan(A, ".")
+    def git(self, repo, *args):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
 
-    def test_drift_fails_the_decide_run(self):
-        self.assertEqual(self.run_plan("Packages/iOS/CmuxTabsKit differs from origin/feat-cmux-next-tabs-kit"), 1)
-        self.assertIn("::error title=cmux INTERNAL builder held::BLOCKED: Packages/iOS/CmuxTabsKit differs",
-                      self.out.getvalue())
+    def commit(self, repo, files, message):
+        for path, text in files.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-q", "-m", message)
+        return self.git(repo, "rev-parse", "HEAD")
 
-    def test_no_drift_still_passes(self):
-        self.assertEqual(self.run_plan(None), 0)
-        self.assertIn("BUILD: no upload yet", self.out.getvalue())
-        self.assertNotIn("::error", self.out.getvalue())
+    def test_a_package_branch_behind_the_app_does_not_hold_the_build(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            up = Path(tmp) / "up"
+            up.mkdir()
+            self.git(up, "init", "-q", "-b", "feat-cmux-next")
+            self.commit(up, {
+                "cmux-next-ios/project.yml": "name: CmuxMobile\n",
+                "cmux-next-ios/scripts/check-tabskit-sync.sh":
+                    'pairs=(\n  "Packages/iOS/CmuxConversation feat-imsg-parity-gui"\n)\n',
+                "Packages/iOS/CmuxConversation/a.swift": "1",
+            }, "base")
+            self.git(up, "branch", "feat-imsg-parity-gui")
+            head = self.commit(up, {"Packages/iOS/CmuxConversation/a.swift": "2"}, "fix in the app's own copy")
+            work = Path(tmp) / "work"
+            subprocess.run(["git", "clone", "-q", "--no-local", str(up), str(work)], check=True, capture_output=True)
+            out = Path(tmp) / "out"
+            out.write_text("")
+            with mock.patch.object(ib, "builder_runs", return_value=[]), \
+                    mock.patch.object(ib, "builder_has_script", return_value=True), \
+                    mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
+                code = ib.cmd_plan(head, str(work))
+            self.assertEqual(code, 0)
+            self.assertIn("build=true", out.read_text())
 
 
 class TriggerRunnerTests(unittest.TestCase):

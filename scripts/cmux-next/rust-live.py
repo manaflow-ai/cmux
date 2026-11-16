@@ -67,6 +67,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 WATCHED_SUFFIXES = (".rs", ".toml")
 WATCHED_NAMES = ("Cargo.lock",)
@@ -288,11 +290,24 @@ class Builder:
     def cancel(self) -> None:
         """End the running build (its own process group: cargo or the ssh that runs it)."""
         proc = self.current
-        if proc and proc.poll() is None:
+        if proc is None:
+            return
+        # The group, whatever its leader's state: a leader that exited (and was reaped) can leave a child running in
+        # it, and that child would run into later builds (cmux#41767 review F1). start_new_session made the group's id
+        # the leader's pid, which the kernel keeps while any member lives; ProcessLookupError means it is empty.
+        pgid = proc.pid
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                return
+            except PermissionError:  # macOS, a group whose members are exiting: SIGKILL still goes after the grace
                 pass
+            if sig == signal.SIGTERM:
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
 
     def run_build(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -843,7 +858,7 @@ def command_stop(_args) -> int:
     if pid is None:
         if any(state.glob("app-original-*.json")):
             return restore_left_apps(state)
-        print("rust-live: not watching")
+        safe_print("rust-live: not watching")
         return 0
     os.kill(pid, signal.SIGTERM)
     # It ends after the build under way, if any (and swaps nothing more); wait so no second loop starts.
@@ -852,10 +867,10 @@ def command_stop(_args) -> int:
         time.sleep(0.1)
     if running_pid(state) == pid:
         # Still finishing a build; it swaps nothing more. Its pid file stays, so no second loop starts.
-        print(f"rust-live: pid {pid} is finishing its build and then ends; it will swap nothing more")
+        safe_print(f"rust-live: pid {pid} is finishing its build and then ends; it will swap nothing more")
         return 0
     pid_file(state).unlink(missing_ok=True)
-    print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
+    safe_print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
     # The watcher puts an app's daemon back on its way out; a marker it left means that did not finish.
     return restore_left_apps(state)
 
@@ -948,7 +963,7 @@ def command_measure(args) -> int:
     edit_path = tree / EDIT_FILE
     original = edit_path.read_text()
     if EDIT_ANCHOR not in original:
-        print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
+        safe_print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
         return 1
     sock = work / "mux.sock"
     env = {k: v for k, v in os.environ.items()
@@ -1059,7 +1074,7 @@ def command_measure(args) -> int:
                 result["terminals"] = checks
                 result["terminals_survived"] = all(c.get("same_shell") and c.get("scrollback_kept") for c in checks)
             report["runs"].append(result)
-            print(f"rust-live measure: run {run_index}: {json.dumps(result)}", file=sys.stderr, flush=True)
+            safe_print(f"rust-live measure: run {run_index}: {json.dumps(result)}", file=sys.stderr, flush=True)
     except KeyboardInterrupt:
         report["error"] = "interrupted (SIGINT or SIGTERM)"
     except Exception as error:  # noqa: BLE001 - the report says what failed
@@ -1097,7 +1112,7 @@ def command_measure(args) -> int:
     report["passed"] = bool(report["runs"]) and "error" not in report and len(good) == args.runs and all(
         r.get("terminals_survived") for r in good)
     (out / "result.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps(report, indent=2))
+    safe_print(json.dumps(report, indent=2))
     return 0 if report["passed"] else 1
 
 

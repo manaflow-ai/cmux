@@ -35,4 +35,12 @@ public struct CMUXAuthTeam: Codable, Equatable, Identifiable, Sendable {
         guard let plan = metadata["cmuxPlan"] as? String, !plan.isEmpty, plan.count <= 64 else { return nil }
         return plan
     }
+
+    /// Whether a Stack team is a cmux VM personal tenant, not a team: the private team cmux's server makes for the
+    /// VM API and marks in its read-only metadata (`cmuxVmPersonalTenant: true`, backend
+    /// team-vm-api-personal-stack.ts). Stack lists it among the person's teams; cmux never mirrors it, so selecting
+    /// it made every team-scoped call refuse (CMUX-380).
+    public static func isVmPersonalTenant(clientReadOnlyMetadata metadata: [String: Any]) -> Bool {
+        metadata["cmuxVmPersonalTenant"] as? Bool == true
+    }
 }

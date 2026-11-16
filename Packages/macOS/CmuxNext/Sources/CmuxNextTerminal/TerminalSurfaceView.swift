@@ -401,7 +401,6 @@ public final class TerminalSurfaceView: NSView {
         if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
         // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
         if !frameOwnership.landing { copyMode.syncCursor() }
-        if resized { selectionHint.resized() }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`

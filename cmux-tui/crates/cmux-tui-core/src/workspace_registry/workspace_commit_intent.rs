@@ -11,6 +11,7 @@
 
 use super::public_fold::workspace_value_stated;
 use super::*;
+use cmux_json::JsonGet as _;
 
 /// One prepared workspace registry commit.
 #[derive(Debug)]
@@ -32,8 +33,10 @@ pub(crate) struct WorkspaceCommitIntent {
     /// The resource topology before this commit (with `project_resource`).
     previous_topology: Option<ResourceTopologySnapshot>,
     /// What the journal states for each workspace before this commit (the public fold at its head, read at
-    /// prepare on the registry's thread), or `None` while the fold is unseeded. The commit journals only the
-    /// workspace upserts the fold does not state already (#32408).
+    /// prepare on the registry's thread), or `None` when the journal head could not be read. The commit
+    /// journals only the workspace upserts the fold does not state already (#32408). A fold that was lost
+    /// and started again (a daemon start) holds no workspace: of the ones it does not hold, the commit
+    /// journals only the ones it changes.
     stated_workspaces: Option<(u64, HashMap<String, Value>)>,
     session_id: SessionPublicId,
     /// Rows written after the ledger, before the resource batch.
@@ -372,8 +375,16 @@ impl WorkspaceCommitIntent {
             )?;
             // Only what the journal does not state already (#32408): each upsert is compared, decorated as the
             // journal writes it, with the public fold read at prepare. The commit's own workspace always goes
-            // when extra rows ran (a metadata commit changes only its decorations). With the fold unseeded,
-            // or behind this commit's base revision, every workspace is stated, as before.
+            // when extra rows ran (a metadata commit changes only its decorations). With no fold, or one
+            // behind this commit's base revision, every workspace is stated, as before.
+            //
+            // A fold that was lost and started again (each daemon start) holds no workspace. Of the
+            // workspaces that it does not hold, the commit states only the ones that it changes: its own
+            // workspace, a row that it wrote (new, moved, renamed), a workspace with no resource row yet,
+            // and the two ends of a focus move (`focused` is a field of the value). Before, the first workspace commit
+            // after a start stated the value of each workspace of the session (826 values for one new
+            // workspace); the restatement in parts states the others
+            // (`mux/startup_restore/restate_parts.rs`).
             let stated = self
                 .stated_workspaces
                 .as_ref()
@@ -381,7 +392,32 @@ impl WorkspaceCommitIntent {
                 .map(|(_, workspaces)| workspaces);
             let keep = extra_ran.then_some(workspace_key);
             let resource_deltas = match stated {
-                Some(stated) => prune_stated_workspace_upserts(tx, &resource_deltas, stated, keep)?,
+                Some(stated) => {
+                    let resourced = previous_topology
+                        .active_screens
+                        .iter()
+                        .map(|(workspace, _)| workspace)
+                        .collect::<HashSet<_>>();
+                    let mut changed = workspaces
+                        .iter()
+                        .filter(|workspace| {
+                            workspace.key == workspace_key
+                                || written.contains(&workspace.key)
+                                || !resourced.contains(&workspace.public_id)
+                        })
+                        .map(|workspace| workspace.public_id.as_str())
+                        .collect::<HashSet<_>>();
+                    let was_active = previous_topology.active_workspace.as_ref();
+                    if was_active != active_workspace {
+                        changed.extend(
+                            [was_active, active_workspace]
+                                .into_iter()
+                                .flatten()
+                                .map(WorkspacePublicId::as_str),
+                        );
+                    }
+                    prune_stated_workspace_upserts(tx, &resource_deltas, stated, &changed, keep)?
+                }
                 None => resource_deltas,
             };
             append_resource_journal_record(
@@ -469,11 +505,14 @@ pub(super) fn push_focus_move_upserts(
 }
 
 /// `deltas` without the workspace upserts whose decorated value `stated` holds already (the public fold:
-/// what the journal states). Every other change stays, renumbered. `keep` (a workspace key) is never dropped.
+/// what the journal states), and without the ones of a workspace that `stated` does not hold and that this
+/// commit did not change (`changed`, public ids). Every other change stays, renumbered. `keep` (a
+/// workspace key) is never dropped.
 fn prune_stated_workspace_upserts(
     tx: &Transaction<'_>,
     deltas: &Value,
     stated: &HashMap<String, Value>,
+    changed: &HashSet<&str>,
     keep: Option<&str>,
 ) -> anyhow::Result<Value> {
     let raw = deltas.as_array().context("resource deltas are not an array")?;
@@ -483,7 +522,11 @@ fn prune_stated_workspace_upserts(
     // workspace's. Decorating every workspace made each create read the whole session (#40449).
     let candidates = raw
         .iter()
-        .filter(|change| !(is_workspace_upsert(change) && raw_upsert_stated(change, stated, keep)))
+        .filter(|change| {
+            !(is_workspace_upsert(change)
+                && (raw_upsert_stated(change, stated, keep)
+                    || raw_upsert_not_owed(change, stated, changed)))
+        })
         .cloned()
         .collect::<Vec<_>>();
     let mut decorated = Value::Array(candidates.clone());
@@ -492,7 +535,7 @@ fn prune_stated_workspace_upserts(
     let mut kept = Vec::with_capacity(candidates.len());
     for (change, decorated_change) in candidates.iter().zip(changes) {
         if is_workspace_upsert(change) {
-            let id = text_field(change, "id").unwrap_or_default();
+            let id = change.get_str("id").unwrap_or_default();
             let value = decorated_change.get("value").unwrap_or(&Value::Null);
             let own = keep.is_some_and(|key| {
                 value.pointer("/extra/key").and_then(Value::as_str) == Some(key)
@@ -513,8 +556,17 @@ fn prune_stated_workspace_upserts(
 }
 
 fn is_workspace_upsert(change: &Value) -> bool {
-    text_field(change, "kind") == Some("upsert")
-        && text_field(change, "resource") == Some("workspace")
+    change.get_str("kind") == Some("upsert") && change.get_str("resource") == Some("workspace")
+}
+
+/// Whether this raw workspace upsert is of a workspace that `stated` does not hold and that the commit
+/// did not change: the commit does not owe its value (see the caller).
+fn raw_upsert_not_owed(
+    change: &Value,
+    stated: &HashMap<String, Value>,
+    changed: &HashSet<&str>,
+) -> bool {
+    change.get_str("id").is_some_and(|id| !stated.contains_key(id) && !changed.contains(id))
 }
 
 /// Whether `stated` holds every field of this raw (undecorated) workspace upsert, its
@@ -522,7 +574,7 @@ fn is_workspace_upsert(change: &Value) -> bool {
 /// The upsert of the workspace keyed `keep` is never dropped here.
 fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Option<&str>) -> bool {
     let Some(value) = change.get("value").and_then(Value::as_object) else { return false };
-    let Some(stated) = text_field(change, "id").and_then(|id| stated.get(id)) else {
+    let Some(stated) = change.get_str("id").and_then(|id| stated.get(id)) else {
         return false;
     };
     if keep.is_some_and(|key| stated.pointer("/extra/key").and_then(Value::as_str) == Some(key)) {
@@ -534,9 +586,4 @@ fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Opti
         }),
         _ => stated.get(field) == Some(raw),
     })
-}
-
-/// A string field of a change, or `None` when it is absent or not a string.
-fn text_field<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
-    value.get(field).and_then(Value::as_str)
 }

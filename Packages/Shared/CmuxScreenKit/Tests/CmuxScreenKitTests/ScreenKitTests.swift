@@ -9,14 +9,17 @@ struct ScreenKitTests {
         #expect(old.fitToDisplay, "fitted mode is the default")
         #expect(old.showStats)
         #expect(old.quality == .auto)
+        #expect(old.showTrackpad, "the trackpad is up by default, also for preferences saved before it existed")
         let unknownQuality = try JSONDecoder().decode(ScreenPreferences.self, from: Data(#"{"quality":"ultra"}"#.utf8))
         #expect(unknownQuality.quality == .auto)
     }
 
     @Test func preferencesRoundTrip() throws {
-        let preferences = ScreenPreferences(localCursor: false, showStats: false, fitToDisplay: false, quality: .medium)
+        let preferences = ScreenPreferences(localCursor: false, showStats: false, fitToDisplay: false, quality: .medium,
+                                            showTrackpad: false)
         let decoded = try JSONDecoder().decode(ScreenPreferences.self, from: JSONEncoder().encode(preferences))
         #expect(decoded == preferences)
+        #expect(decoded.showTrackpad == false, "a tucked-away trackpad stays tucked away")
     }
 
     /// A closed session (its Mac forgotten, its tab closed) never connects again.

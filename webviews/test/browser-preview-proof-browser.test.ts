@@ -50,12 +50,16 @@ await requireBrowserLane("browser-preview-proof-browser.test.ts", async () => {
             ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
           );
           expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+          // Closed, the call is one line with its screenshot small at its edge; opened, the screenshot
+          // shows over the report (Lucas, 2026-11-11: a run of captures stays a list of lines).
+          await page.locator(".cv-tool-visual img").waitFor();
+          expect(await page.locator(".cv-tool-images img").count()).toBe(0);
+          await page.locator('[data-tool-id="gallery-browser-proof"]').click();
           const image = page.locator(".cv-tool-images img");
           await image.waitFor();
           await image.evaluate((element) => (element as HTMLImageElement).decode());
           expect(await image.count()).toBe(1);
           expect(await image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(640);
-          await page.locator('[data-tool-id="gallery-browser-proof"]').click();
           await page.getByText('"consoleErrors"', { exact: false }).first().waitFor();
           await page.waitForFunction(() => {
             const fold = document.querySelector(".cv-fold");

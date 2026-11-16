@@ -127,6 +127,7 @@ import { aptUpdateCommand } from "./apt-update";
 import {
   baseInputTree,
   cachedInstallCommand,
+  imageInputsSha256,
   imagePackagesCommand,
   layerLabel,
   isAppProgram,
@@ -242,8 +243,8 @@ export type BakeOptions = {
   updateLock: boolean;
   keepBuilder: boolean;
   promotion: boolean;
-  /** Bake the agent tools (agent-tools.ts); off by default. */
-  agentTools?: boolean;
+  /** Bake the required Cloud desktop closure (agent-tools.ts); on for Cloud Native bakes. */
+  agentTools: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
@@ -1074,6 +1075,17 @@ export function layerFlags(options: BakeOptions): string[] {
   return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
 }
 
+/**
+ * The image's inputs_sha256 (layers.ts imageInputsSha256) from the lock, this bake's layerFlags and the input
+ * tree. The full and the layered bake both call this, so one lock gives one value. Undefined where the key would
+ * not cover the image: --dev-tree carries a checkout of this commit, and --update-lock can rewrite the lock
+ * mid-bake. The platform then falls back to the image's id@revision.
+ */
+export function bakeInputsSha256(options: BakeOptions, lockText: string, inputTree: string): string | undefined {
+  if (options.devTree || options.updateLock) return undefined;
+  return imageInputsSha256(lockText, layerFlags(options), inputTree);
+}
+
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
 async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
   const all: Array<{ id: string; slug?: string | null }> = [];
@@ -1143,10 +1155,19 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       agentToolsFiles(lock);
       result.desktop = desktopRecord(lock);
     }
+    // The full bake records the key too, but needs no git for it: without the tree it records none.
+    let inputTree: string | undefined;
+    try {
+      inputTree = baseInputTree(REPO_ROOT);
+    } catch (error) {
+      if (options.layered) throw error;
+      L.log(`no inputs_sha256: ${String(error)}`);
+    }
+    if (inputTree !== undefined) result.inputsSha256 = bakeInputsSha256(options, lockText, inputTree);
     if (options.layered) {
       // layers.ts: system -> agents -> app. A cached layer is reused by its slug; a missing one is built on its
       // parent and kept (its builder is on a ledger of its own, which the run's cleanup never reads).
-      const keys = layerKeys(lockText, layerFlags(options), baseInputTree(REPO_ROOT));
+      const keys = layerKeys(lockText, layerFlags(options), inputTree!);
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
       const snapshots = await allSnapshots(fs);
       const layers: Array<Record<string, unknown>> = [];
@@ -1201,14 +1222,17 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
+  const promotion = hasFlag("--promotion", argv);
   return {
     tag,
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
     lockPath: path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH),
     updateLock: hasFlag("--update-lock", argv),
     keepBuilder: hasFlag("--keep-builder", argv),
-    promotion: hasFlag("--promotion", argv),
-    agentTools: hasFlag("--agent-tools", argv),
+    promotion,
+    // Cloud Native images always carry the desktop closure. The legacy promotion
+    // path is the only image bake that intentionally keeps it off.
+    agentTools: !promotion,
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),

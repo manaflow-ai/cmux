@@ -57,6 +57,16 @@ export interface TenantLimitsService {
   readonly lock: (tenantId: TenantId, key: string, holder: string, leaseMs: number) => Effect.Effect<boolean, LimitsUnavailable>;
   /** Releases the lock if `holder` holds it; best effort (the lease ends it otherwise). */
   readonly unlock: (tenantId: TenantId, key: string, holder: string) => Effect.Effect<void>;
+  /** `lock`, unless coverage `coverageKey` already applied change `need`: then "covered", and nothing is taken. */
+  readonly lockUnlessCovered: (
+    tenantId: TenantId, key: string, holder: string, leaseMs: number, coverageKey: string, need: number,
+  ) => Effect.Effect<"taken" | "busy" | "covered", LimitsUnavailable>;
+  /** Counts one more change that needs an apply under coverage `key`; answers its number. */
+  readonly coverageWant: (tenantId: TenantId, key: string) => Effect.Effect<number, LimitsUnavailable>;
+  /** The number of the latest change counted under `key`. */
+  readonly coverageWanted: (tenantId: TenantId, key: string) => Effect.Effect<number, LimitsUnavailable>;
+  /** Records that an apply covering every change up to `upTo` landed. */
+  readonly coverageApplied: (tenantId: TenantId, key: string, upTo: number) => Effect.Effect<void, LimitsUnavailable>;
 }
 
 export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimits, TenantLimitsService>() {}
@@ -89,6 +99,10 @@ interface LedgerHandle {
   abandon(key: string, nowMs: number): Promise<void>;
   lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean>;
   unlock(key: string, holder: string): Promise<void>;
+  lockUnlessCovered(key: string, holder: string, leaseMs: number, nowMs: number, coverageKey: string, need: number): Promise<"taken" | "busy" | "covered">;
+  coverageWant(key: string): Promise<number>;
+  coverageWanted(key: string): Promise<number>;
+  coverageApplied(key: string, upTo: number): Promise<void>;
 }
 
 const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLimitsService => {
@@ -129,6 +143,11 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     abandon: (tenantId, key) => call((ledger, now) => ledger.abandon(key, now))(tenantId).pipe(Effect.ignore),
     lock: (tenantId, key, holder, leaseMs) => call((ledger, now) => ledger.lock(key, holder, leaseMs, now))(tenantId),
     unlock: (tenantId, key, holder) => call((ledger) => ledger.unlock(key, holder))(tenantId).pipe(Effect.ignore),
+    lockUnlessCovered: (tenantId, key, holder, leaseMs, coverageKey, need) =>
+      call((ledger, now) => ledger.lockUnlessCovered(key, holder, leaseMs, now, coverageKey, need))(tenantId),
+    coverageWant: (tenantId, key) => call((ledger) => ledger.coverageWant(key))(tenantId),
+    coverageWanted: (tenantId, key) => call((ledger) => ledger.coverageWanted(key))(tenantId),
+    coverageApplied: (tenantId, key, upTo) => call((ledger) => ledger.coverageApplied(key, upTo))(tenantId),
   };
 };
 
@@ -188,6 +207,13 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         lock: (key, holder, leaseMs, nowMs) => decoded(Schema.Boolean)(stub.lock(key, holder, leaseMs, nowMs)),
         unlock: async (key, holder) => {
           await stub.unlock(key, holder);
+        },
+        lockUnlessCovered: (key, holder, leaseMs, nowMs, coverageKey, need) =>
+          decoded(Schema.Literal("taken", "busy", "covered"))(stub.lockUnlessCovered(key, holder, leaseMs, nowMs, coverageKey, need)),
+        coverageWant: (key) => decoded(Schema.Number)(stub.coverageWant(key)),
+        coverageWanted: (key) => decoded(Schema.Number)(stub.coverageWanted(key)),
+        coverageApplied: async (key, upTo) => {
+          await stub.coverageApplied(key, upTo);
         },
       };
     }),

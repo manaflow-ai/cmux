@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { Checkpoint, CheckpointList } from "./protocol";
 import type { CheckpointStrings } from "./strings";
 import "./styles.css";
@@ -37,6 +38,8 @@ export function CheckpointReview({
 }) {
   const [selection, setSelection] = useState<{ list: CheckpointList; paths: ReadonlySet<string> }>();
   const [copiedFor, setCopiedFor] = useState<string>();
+  const candidateEdges = useScrollEdges();
+  const skippedEdges = useScrollEdges();
   const candidates = list?.candidates ?? [];
   const selected =
     selection && selection.list === list
@@ -119,7 +122,7 @@ export function CheckpointReview({
               <summary>
                 {s.skipped} · {count(record.skipped_total)}
               </summary>
-              <ul>
+              <ul ref={skippedEdges} className="ui-scroll-edge-fade">
                 {record.skipped.map((file, index) => (
                   <li key={`${file.path}:${index}`}>
                     <code>{file.path}</code>
@@ -170,7 +173,7 @@ export function CheckpointReview({
           <fieldset disabled={!!busy || !!pending || !list}>
             <legend>{s.untracked}</legend>
             {list && !candidates.some((candidate) => candidate.eligible) && <p>{s.emptyUntracked}</p>}
-            <ul className="acpmux-checkpoint-candidates">
+            <ul ref={candidateEdges} className="acpmux-checkpoint-candidates ui-scroll-edge-fade">
               {candidates.map((candidate) => (
                 <li key={candidate.path}>
                   <label>

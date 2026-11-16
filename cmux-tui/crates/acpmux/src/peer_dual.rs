@@ -573,7 +573,12 @@ impl Peer {
 
     /// Whether the shadow should end now: the doubt cleared, or its link ended and the grace for
     /// answers to what it carried passed. Unregisters it from copies at once when its link ended.
+    /// Never while a cancel to it still waits for room in its queue: its loop writes that
+    /// first (review F2 of #41392).
     pub(super) fn shadow_done(&self, run: &mut ShadowRun) -> bool {
+        if self.carried.lock_or_recover().cancels_due(run.link) {
+            return false;
+        }
         if run.link != self.link_epoch() || self.serving() == Some(run.via) {
             self.unregister_shadow(run);
             let at = *run.orphaned_at.get_or_insert_with(tokio::time::Instant::now);

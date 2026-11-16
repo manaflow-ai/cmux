@@ -47,7 +47,7 @@ fn open_owner_rw(fifo: &std::path::Path) -> std::io::Result<std::fs::File> {
     if !std::fs::symlink_metadata(fifo)?.file_type().is_fifo() {
         return Err(std::io::Error::other("the router owner path is not a FIFO"));
     }
-    std::fs::OpenOptions::new().read(true).write(true).open(fifo)
+    crate::home_fs::OpenOptions::new().read(true).write(true).open(fifo)
 }
 
 impl RouterOwner for FifoOwner {
@@ -178,9 +178,9 @@ fn let_go(owner: FifoOwner, stop: bool) {
 fn make_owner_fifo(fifo: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     if let Some(dir) = fifo.parent() {
-        std::fs::create_dir_all(dir)?;
+        crate::home_fs::create_dirs(dir)?;
     }
-    let _ = std::fs::remove_file(fifo);
+    let _ = crate::home_fs::remove_file(fifo);
     let path = std::ffi::CString::new(fifo.as_os_str().as_bytes())?;
     // SAFETY: a valid NUL-terminated path.
     if unsafe { libc::mkfifo(path.as_ptr(), 0o600) } != 0 {

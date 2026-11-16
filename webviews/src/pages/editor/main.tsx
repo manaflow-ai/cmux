@@ -167,6 +167,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
   if (client) {
     // Cmd-S and the find chords are the app key dispatcher's page commands; the page never reads them.
     void subscribePageStreams(client, {
+      // The owner link back up reads the file again when the page lost it (EditorPage's quiet wait).
+      onConnection: (connected) => store.linkChanged(connected),
       onCommand: ({ command, text }) => {
         if (command === FOCUS_CONTENT_COMMAND) return focus.request();
         if (command === "save") return void store.save({ format: true });

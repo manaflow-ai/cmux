@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import importlib.util
 import os
 import re
 import subprocess
@@ -218,6 +219,22 @@ def touches(flag: dict, changes: dict[str, list[tuple[int, int]]]) -> bool:
     return False
 
 
+def _load_clock():
+    # The one CMUX_NOW_EPOCH parser, shared with ci/asc_developer_id_app.py; by path, as -I drops this folder.
+    spec = importlib.util.spec_from_file_location("cmux_now_epoch", Path(__file__).resolve().parent / "ci" / "cmux_now_epoch.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def today_utc() -> datetime.date:
+    """CMUX_NOW_EPOCH when set, else today; a malformed value exits 2 with one line
+    (scripts/ci/cmux_now_epoch.py). Tests pass --today; the tooling-tests time-bomb row sets
+    CMUX_NOW_EPOCH far in the future, so a test leaning on the real clock goes red there, not on
+    the day a fixture date passes."""
+    return _load_clock().utc_now().date()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Lint PostHog feature flag declarations.")
     parser.add_argument(
@@ -225,7 +242,12 @@ def main(argv: list[str] | None = None) -> int:
         help="fail an expired reviewBy only where the diff since REF edits that flag "
              "(default: FEATURE_FLAG_LINT_BASE, HEAD^1 in CI, else the merge-base "
              "with the remote default branch)")
+    parser.add_argument(
+        "--today", metavar="YYYY-MM-DD", type=datetime.date.fromisoformat,
+        help="the date reviewBy is judged against (default: CMUX_NOW_EPOCH when set, else today)")
     args = parser.parse_args([] if argv is None else argv)
+    # Before any scan: a malformed CMUX_NOW_EPOCH stops here with one line.
+    today = args.today or today_utc()
     warnings.clear()
     flags, registry_files = collect_flags()
 
@@ -233,7 +255,6 @@ def main(argv: list[str] | None = None) -> int:
         print("lint-feature-flags: no flags declared")
         return 0
 
-    today = datetime.date.today()
     base = args.base or default_base()
     changes = changed_lines(base, registry_files) if base else None
     if base and changes is None:

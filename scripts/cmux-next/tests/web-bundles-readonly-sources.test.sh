@@ -19,7 +19,7 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d)
 src="$TMP/src"
 cleanup() { git -C "$ROOT" worktree remove --force "$src" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
-trap cleanup EXIT
+git_fixture_trap_exit cleanup
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 git_q() { git -c user.name=t -c user.email=t@example.com -c core.hooksPath=/dev/null "$@" >/dev/null 2>&1; }
 

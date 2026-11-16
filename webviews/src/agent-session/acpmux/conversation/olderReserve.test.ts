@@ -14,7 +14,7 @@ const turns = (from: number, to: number) => Array.from({ length: to - from }, (_
 const pass = (
   state: OlderReserve | undefined,
   rows: AcpmuxRow[],
-  more: { canLoadOlder?: boolean; earlier?: number; promptCount?: number },
+  more: { canLoadOlder?: boolean; earlier?: number; promptCount?: number; dragging?: boolean },
 ) =>
   olderReserve(state, {
     sessionId: "s",
@@ -24,9 +24,46 @@ const pass = (
     canLoadOlder: more.canLoadOlder ?? true,
     earlier: more.earlier,
     promptCount: more.promptCount,
+    dragging: more.dragging,
   });
 
 describe("olderReserve", () => {
+  test("a thumb drag keeps its scroll range through pages and settles the estimate after release", () => {
+    const first = pass(undefined, turns(40, 50), { earlier: 40 });
+    const firstHeight = first.reserve + 2000;
+    let step = pass(first.state, turns(30, 50), { earlier: 30, dragging: true });
+    expect(step.reserve + 4000).toBe(firstHeight);
+    step = pass(step.state, turns(20, 50), { earlier: 20, dragging: true });
+    expect(step.reserve + 6000).toBe(firstHeight);
+    const released = pass(step.state, turns(20, 50), { earlier: 20 });
+    expect(released.reserve).toBe(4080);
+    expect(pass(released.state, turns(20, 50), { earlier: 20 }).reserve).toBe(released.reserve);
+  });
+
+  test("the final page keeps the thumb range until release without leaving unused history space", () => {
+    const first = pass(undefined, turns(40, 50), { earlier: 40 });
+    const complete = pass(first.state, turns(0, 50), { canLoadOlder: false, dragging: true });
+    expect(complete.reserve + 10000).toBe(first.reserve + 2000);
+    expect(pass(complete.state, turns(0, 50), { canLoadOlder: false }).reserve).toBe(0);
+  });
+
+  test("upward thumb movement does not pay owed height during the drag or catch up after release", () => {
+    const first = pass(undefined, turns(40, 50), { earlier: 40 });
+    const input = {
+      sessionId: "s",
+      rows: turns(30, 50),
+      rowTop: (index: number) => (index < 20 ? index * 200 : 4000 + (index - 20) * 100),
+      rowsHeight: 6000,
+      canLoadOlder: true,
+      earlier: 30,
+    };
+    const page = olderReserve(first.state, input);
+    expect(page.state?.owed).toBe(8080);
+    const drag = olderReserve(page.state, { ...input, rose: 100, dragging: true });
+    expect(drag.reserve).toBe(page.reserve);
+    expect(olderReserve(drag.state, { ...input, rose: 100 }).reserve).toBe(page.reserve);
+  });
+
   test("pages that land take their height out of the room: the rows' end never moves down", () => {
     // 10 of 50 turns held: 40 more at the loaded turns' 200px a turn, leaning 2% high (8160).
     let rows = turns(40, 50);

@@ -18,8 +18,8 @@ import Observation
 /// closed items of that pane), and its
 /// action reopens exactly those records at their own places, never "the
 /// newest". Only a costly close shows it (`CloseToastRule`: several real
-/// tabs, an agent at work or an unsent chat, a terminal running a program);
-/// Settings, New Tab, History and one idle tab close silently, and Cmd-Shift-T
+/// tabs, an agent at work or an unsent chat); Settings, New Tab, History and
+/// one tab that is not working (a terminal too) close silently, and Cmd-Shift-T
 /// still reopens them. "Closed “title”" for one tab, "Closed N tabs" for
 /// several; closes made while a close toast shows join it, so one Undo
 /// reopens them all. Automation closes (CLI, agents) never announce, so they
@@ -55,12 +55,6 @@ final class CloseUndoToasts {
     var pageDecidesClose: @MainActor (PaneController, StripTabID) -> Bool = CloseUndoToasts.livePageDecidesClose
     /// Tabs whose page decides a person's close now: a quick next Cmd-W skips them (``PageClosingTabs``).
     let pageClosing = PageClosingTabs()
-    /// Those tabs, out of their strip (and an emptied pane out of its window) while the page decides; a page that asks brings its tab back.
-    let hiddenPages = HiddenPageCloses<PaneController>(
-        hidden: { pane in pane.apply(pane.snapshot()); return pane.stripModel.tabs.isEmpty ? pane.showPaneClose() : nil },
-        lifted: { pane, close in pane.workspace?.layoutModel.cancelPaneClose(close) },
-        restored: { held, _, id in if let workspace = held.workspace, workspace.layoutModel.withdrawPaneClose(held.layoutPaneID) { workspace.applyCurrent() }; let pane = held.services.paneController(for: held.pane) ?? held; pane.apply(pane.snapshot()); pane.select(StripTabID(id)) }, // whichever close hid the pane
-        timedOut: { pane, id in pane.services.closedTabs?.undoToasts.pageClosing.end(id); pane.close([StripTabID(id)]) }) // the daemon's close: never asks
     /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
     let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
         prepare: { pane, ids in pane.prepareClose(ids) }, send: { PaneController.send($0, from: $1, userClose: $2) })
@@ -176,48 +170,32 @@ final class CloseUndoToasts {
                     + deciding.filter { part in !closing.contains { $0.pane === part.pane } }
                 undo.expectGroup(parts, costly: costly)
                 undo.pageDecidedCloses.begin(closing: closing.filter { !$0.ids.isEmpty }, deciding: deciding, userClose: user)
-                for part in deciding { undo.hidePages(part.ids, in: part.pane) }
                 return
             }
             closing = closing.filter { !$0.ids.isEmpty }
             undo?.expectGroup(closing, costly: costly)
             PaneController.close(closing)
-            for part in deciding { part.pane.services.closedTabs?.undoToasts.hidePages(part.ids, in: part.pane) } // they leave now too
         }
-        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts, keeping: selecting) { [weak services] asked, hidden in
-            guard user, let undo = services?.closedTabs?.undoToasts else { hidden?.lift(); return closeAll(nil, false) }
-            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in hidden?.lift(); closeAll(undo, costly) }
+        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts, keeping: selecting) { [weak services] _, hidden in
+            hidden?.lift()
+            guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
+            closeAll(undo, undo.isCostly(tabs))
         }
     }
 
-    /// Tabs `ids` of `pane` whose page decides their close leave now, their pages alive (`hiddenPages`).
-    func hidePages(_ ids: [StripTabID], in pane: PaneController) {
-        let tabs = ids.compactMap { id in pane.tab(id).map { (id: id.rawValue, surface: $0.surface, asks: pane.services.cache.browsers[id.rawValue].map { PageClosingTabs.asksPerson($0.tab) }) } }
-        hiddenPages.hide(tabs, in: pane, store: pane.daemon.store)
-    }
-
-    /// `CloseToastRule`'s answer for `tabs`, read before their close runs: a
-    /// closed terminal ends, and could no longer say what it ran (cx-lb4al).
-    /// `asked` holds terminals the close's question already asked; when it
-    /// covers every terminal the rule asks about, the close runs at once.
-    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:], window: NSWindow? = nil,
-                     then run: @escaping @MainActor (_ costly: Bool) -> Void) {
+    /// `CloseToastRule`'s answer for `tabs`, read before their close runs: whether the close earns its undo toast.
+    /// Synchronous: no terminal is asked what it runs (Lawrence 2026-11-09, one idle terminal's toast).
+    func isCostly(_ tabs: [TabModel]) -> Bool {
         switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
-        case .show: run(true)
-        case .skip: run(false)
-        case .askTerminals(let terminals) where asked.covers(terminals):
-            run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
-        case .askTerminals(let terminals):
-            let coordinator = services?.keyRouter.creationInputCoordinator, keys = coordinator?.beginClose(of: tabs, in: window)
-            // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
-            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty); coordinator?.endClose(keys, in: window) }
+        case .show: true
+        case .skip: false
         }
     }
 
     /// No action run (a click in the strip) or a user-origin run.
     static var isUserClose: Bool { (ActionRunScope.current?.origin ?? .user) == .user }
 
-    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `decideFirst`'s answer.
+    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `isCostly`'s answer.
     func expectGroup(_ ids: [StripTabID], in pane: PaneController, costly: Bool) {
         expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, window: pane.view.window, costly: costly)
     }

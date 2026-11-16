@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -14,8 +15,11 @@ import CmuxNextWakeups
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
-        DebugTimings.markLaunch("main_start")
+        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
         announceBenchHooksBuild()
+        // Before anything reads NSScroller.preferredScrollerStyle (AppKit reads it once): every
+        // scroll view is an overlay one, also with a mouse attached or "Always" (ScrollerStylePin).
+        ScrollerStylePin().apply(to: .standard)
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
@@ -41,7 +45,7 @@ public struct CmuxNextApp {
             SingleInstanceGuard.handOff(activates: activates)
         }
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
-        LaunchWarmup.start()
+        LaunchWarmup.start(); AcpmuxEnvironment.startBuildHomeAdoption() // the old homes' adoption, before anything awaits it
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true

@@ -348,9 +348,9 @@ impl Dir {
             let _ = (file, folders);
             let path = self.path.join(relative);
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
+                crate::home_fs::create_dirs(parent)?;
             }
-            std::fs::write(path, bytes)
+            crate::home_fs::write(path, bytes)
         }
     }
 

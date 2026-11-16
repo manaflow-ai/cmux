@@ -19,6 +19,7 @@ import {
   teamAuditParams,
 } from "../src/agent-session/acpmux/teamAudit/teamAuditModel";
 import { experimentById } from "../src/experiments/registry";
+import { settleReact } from "./support/domTeardown";
 
 const NOW = Date.UTC(2026, 10, 9, 15, 30);
 
@@ -157,7 +158,8 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
     if (value === undefined) delete scope[name];

@@ -144,7 +144,6 @@ cmux-tui/crates/acpmux/src/peer_carriers.rs	1
 cmux-tui/crates/acpmux/src/peer_health.rs	1
 cmux-tui/crates/acpmux/src/peer_overlay.rs	1
 cmux-tui/crates/acpmux/src/peer_ssh.rs	1
-cmux-tui/crates/acpmux/src/secret_mcp.rs	2
 cmux-tui/crates/acpmux/src/server/carrier.rs	4
 cmux-tui/crates/acpmux/src/server/chat_windows.rs	1
 cmux-tui/crates/acpmux/src/server/chats.rs	1
@@ -243,9 +242,8 @@ cmux-tui/crates/cmux-remote/src/client.rs	2
 cmux-tui/crates/cmux-remote/src/connection.rs	4
 cmux-tui/crates/cmux-remote/src/daemon.rs	8
 cmux-tui/crates/cmux-remote/src/http.rs	1
-cmux-tui/crates/cmux-remote/src/identity.rs	2
+cmux-tui/crates/cmux-remote/src/identity/auth_database.rs	2
 cmux-tui/crates/cmux-remote/src/link.rs	3
-cmux-tui/crates/cmux-remote/src/network_watch.rs	1
 cmux-tui/crates/cmux-remote/src/provider/iroh.rs	1
 cmux-tui/crates/cmux-remote/src/provider/relay.rs	5
 cmux-tui/crates/cmux-remote/src/provider/ssh.rs	2

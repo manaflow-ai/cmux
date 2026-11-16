@@ -61,6 +61,12 @@ pub(crate) struct JournalCommitHooks {
         Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     pub(super) after_commit_admission:
         Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
+    /// One commit runs a statement that ends only when the deadline's progress handler
+    /// interrupts it: the real SQLite interrupt, on the real error path.
+    pub(super) statement_until_deadline: bool,
+    /// After the before-commit hold ends, one commit runs a statement SQLite rejects (no such
+    /// table): a real error that is not contention, with no deadline check in between.
+    pub(super) failing_statement_after_hold: bool,
 }
 
 // TODO(cx-ags0): the reentrant lock and its pin go away in PR7, when request

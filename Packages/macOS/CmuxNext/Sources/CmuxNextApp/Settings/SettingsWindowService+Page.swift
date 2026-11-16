@@ -8,6 +8,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextWebUpdates
 
@@ -87,14 +88,12 @@ extension SettingsWindowService {
         }
     }
 
-    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
+    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved,
+    /// and each size row's live value (``SettingsUnsetSizes``).
     func pageDerivedNumbers() -> [String: JSONValue] {
-        var derived: [String: JSONValue] = [:]
-        for path in [WindowBackgroundSetting.opacityPath] {
-            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedNumber(at: path) else { continue }
-            derived[id] = .number(value)
-        }
-        return derived
+        SettingsUnsetSizes(terminalFontSize: GhosttyRuntime.shared.configuredFontSize,
+                           backingScale: services.windows.active?.window?.backingScaleFactor ?? 2)
+            .derivedNumbers(windowOpacity: derivedNumber(at: WindowBackgroundSetting.opacityPath))
     }
 
     /// The wallpaper grid's choices (``BackdropCatalogStore``: built off main, again after a

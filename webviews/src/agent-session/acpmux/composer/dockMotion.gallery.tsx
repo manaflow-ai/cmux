@@ -14,6 +14,7 @@ import { Composer } from "../Composer";
 import type { AcpmuxRow } from "../model";
 import { turnView } from "../conversation/turns";
 import { composerDockMotion } from "./dockMotion.experiment";
+import { COMPOSER_MD } from "../composerSelectors";
 
 const paragraph = (index: number) =>
   `Answer ${index + 1}: the client waits longer before each retry, capped at eight seconds, and stops after five attempts.`;
@@ -64,7 +65,7 @@ const settled = (ctx: Parameters<Play>[0]) =>
 
 /// Three lines, each after Shift-Return, as Leo typed them.
 const typeLines: Play = async (ctx) => {
-  await ctx.focus({ selector: ".acpmux-composer-box .acpmux-md" });
+  await ctx.focus({ selector: COMPOSER_MD });
   for (const [index, line] of LINES.entries()) {
     if (index > 0) await ctx.press("Shift+Enter");
     await ctx.type(line);
@@ -107,12 +108,12 @@ export default componentEntry<Record<string, never>>({
     "grown-overlay": {
       props: {},
       play: typeLines,
-      note: "Selected (overlay): three lines typed, the transcript where it was; the composer's glass covers its foot.",
+      note: "Selected (overlay): three lines typed at the latest row; the transcript rose with the composer, the last answer above it.",
     },
     "grown-reached": {
       props: {},
       play: typeAndReach,
-      note: "Overlay, then a wheel past the end: the room takes the composer's growth at once and the last row scrolls into view.",
+      note: "Overlay, then a wheel past the end: the last row stays in view above the grown composer.",
     },
     "sent-overlay": {
       props: {},

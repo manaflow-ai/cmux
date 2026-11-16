@@ -77,6 +77,8 @@ await requireBrowserLane("fold-ride-map-scrub-browser.test.ts", async () => {
       localStorage.clear();
       (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
         "thread-minimap-layout": "full",
+        // The fold ride concerns a run that grows the transcript; box runs scroll internally.
+        "run-scroll": "inline",
       };
     });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "n100" })}`);

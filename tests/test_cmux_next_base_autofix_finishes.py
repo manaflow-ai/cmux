@@ -21,6 +21,8 @@ import subprocess
 import tempfile
 import unittest
 
+import sys
+
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -29,6 +31,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -154,7 +159,10 @@ class BaseAutofixFinishes(unittest.TestCase):
             hook = work / "remote.git" / "hooks" / "pre-receive"
             hook.write_text("#!/bin/sh\nexit 1\n")
             hook.chmod(0o755)
-        done = subprocess.run(["bash", str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
+        done = subprocess.run(["bash", "-c", 'tmp=$1; source "$2"; shift 2; exec bash "$@"',
+                               "publication-fixture", str(work),
+                               str(ROOT / "scripts/cmux-next/tests/lib/action-parity-stub.sh"),
+                               str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
                               cwd=runner, capture_output=True, text=True)
         tip = git(work / "remote.git", "rev-parse", "refs/heads/feat-cmux-next")
         landed = {path: git(work / "remote.git", "show", f"{tip}:{path}") for path in repair}
@@ -294,6 +302,17 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("scripts/cmux-next/base-autofix-land.sh", push)
         self.assertIn("base-autofix-push.sh", (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text())
 
+    def test_each_publishing_job_installs_pinned_rust_before_publication(self):
+        for name in ("autofix", "target-graph"):
+            with self.subTest(job=name):
+                steps = DOC["jobs"][name]["steps"]
+                setup = next(i for i, step in enumerate(steps)
+                             if step.get("uses") == "./.github/actions/setup-cmux-tui-rust")
+                publish = next(i for i, step in enumerate(steps)
+                               if "base-autofix-land.sh" in step.get("run", ""))
+                self.assertLess(setup, publish)
+                self.assertNotIn("if", steps[setup])
+
     def test_the_mac_job_regenerates_the_settings_exports_on_the_newest_tip(self):
         # 2026-10-21: a run takes ~28 minutes and feat-cmux-next takes a push a minute, so some push
         # nearly always moved a settings input and the exports made at HEAD_SHA were held on every run.
@@ -357,8 +376,12 @@ class BaseAutofixFinishes(unittest.TestCase):
         # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
         job = DOC["jobs"]["target-graph"]
         self.assertNotIn("needs", job)
-        self.assertIn("ubuntu", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
+        self.assertTrue(cells)
+        for runner in cells:
+            self.assertIn("ubuntu", runner)
+            self.assertNotIn("macos", runner)
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
         self.assertNotEqual(job["concurrency"]["group"], DOC["jobs"]["autofix"]["concurrency"]["group"])
         push = next(step for step in job["steps"] if step.get("name") == "Push the graph")

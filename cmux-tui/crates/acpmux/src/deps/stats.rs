@@ -104,7 +104,7 @@ impl Stats {
         }
         let path = path();
         let Some(dir) = path.parent() else { return Ok(()) };
-        std::fs::create_dir_all(dir)?;
+        crate::home_fs::create_dirs(dir)?;
         let mut tmp = tempfile::Builder::new().prefix(".deps-stats-").tempfile_in(dir)?;
         #[cfg(unix)]
         {

@@ -5,7 +5,7 @@ the clone about 1 s after the app exits. bench_memory.end_bundle and perf-bench 
 process of the bundle as soon as the app was gone, the helper too, so each launch left its clone until reboot
 (29 GB on cmux18, 2026-11-02). Fake process table and signals, no app, no process is started or signalled.
 Run: python3 -I scripts/cmux-next/tests/test_teardown_clone_cleanup.py"""
-import importlib.util, os, sys, unittest
+import importlib, os, sys, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -13,11 +13,13 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
 
 def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
+    # Imported by name, never loaded by path: one module object per file (the script module load check).
+    assert os.path.splitext(os.path.basename(path))[0] == name, (name, path)
+    folder = os.path.dirname(path)
+    if folder not in sys.path:
+        sys.path.insert(0, folder)
     with mock.patch("ctypes.CDLL"):  # procs.py binds libproc at import; nothing here calls it
-        spec.loader.exec_module(module)
-    return module
+        return importlib.import_module(name)
 
 
 bench_memory = load("bench_memory", os.path.join(REPO, "scripts/cmux-next/bench_memory.py"))

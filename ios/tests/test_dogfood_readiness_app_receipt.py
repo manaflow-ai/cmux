@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Regression tests for the iPhone dogfood readiness modes.
+"""Regression tests for the iPhone dogfood readiness gate.
 
-mac-rpc (default, unchanged) proves signed in + paired through the tagged Mac.
 app-receipt proves signed in from a nonce-bound receipt that the app writes in
-its own data container. These tests run the real launcher scripts against a
-fake `xcrun` on PATH, so no simulator, device, Mac app, or credential leaves
-the temporary directory. They run on Linux and macOS.
+its own data container. It is the only gate: the old mac-rpc mode waited for
+the Mac's mobile.rpc.ready event, which the cmux-next Mac app no longer
+publishes, so the scripts refuse it (and an auto mode that would fall back to
+it) with exit 2 before loading credentials. These tests run the real launcher
+scripts against a fake `xcrun` on PATH, so no simulator, device, Mac app, or
+credential leaves the temporary directory. They run on Linux and macOS.
 """
 
 from __future__ import annotations
@@ -99,6 +101,44 @@ json.dump({
 PY
   exit 0
 fi
+if [[ "$1" == simctl && -n "${FAKE_SIM_UDID:-}" ]]; then
+  case "$2" in
+    list) printf '    iPhone 17 (%s) (Booted)\n' "$FAKE_SIM_UDID"; exit 0 ;;
+    get_app_container)
+      case "$5" in
+        app) [[ -n "${FAKE_SIM_APP:-}" ]] && printf '%s\n' "$FAKE_SIM_APP"; exit 0 ;;
+        data) printf '%s\n' "$state/sim-data"; exit 0 ;;
+      esac
+      ;;
+    terminate|spawn) exit 0 ;;
+    launch)
+      {
+        printf 'argv=%s\n' "$*"
+        printf 'nonce=%s\n' "${SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE:-}"
+        printf 'client=%s\n' "${SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID:-}"
+        printf 'password_set=%s\n' "${SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD:+1}"
+        printf 'attach=%s\n' "${SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL:-}"
+      } > "$state/launch.env"
+      mkdir -p "$state/sim-data/Library/Application Support/cmux-dogfood"
+      FAKE_NONCE="$SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE" \
+      FAKE_CLIENT="$SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID" /usr/bin/python3 - \
+        "$state/sim-data/Library/Application Support/cmux-dogfood/readiness.json" <<'PY'
+import json, os, sys
+json.dump({
+    "schema": 1,
+    "nonce": os.environ["FAKE_NONCE"],
+    "client_id": os.environ["FAKE_CLIENT"],
+    "bundle_id": os.environ["FAKE_BUNDLE_ID"],
+    "account_email": os.environ["FAKE_ACCOUNT"],
+    "user_id": "user-1",
+    "session_source": os.environ["FAKE_SESSION_SOURCE"],
+    "written_at": "2026-10-02T00:00:00Z",
+}, open(sys.argv[1], "w"))
+PY
+      exit 0
+      ;;
+  esac
+fi
 if [[ "$1" == simctl ]]; then
   exit 1
 fi
@@ -106,8 +146,8 @@ echo "fake xcrun: unhandled: $*" >&2
 exit 1
 """
 
-# Records that the mac-rpc path armed the tagged Mac without touching the
-# developer's real defaults database.
+# Records any attempt to arm the tagged Mac's pairing host without touching
+# the developer's real defaults database. No path may write it now.
 FAKE_DEFAULTS = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$FAKE_STATE/defaults.log"
 exit 0
@@ -358,20 +398,84 @@ class LauncherTest(unittest.TestCase):
                 self.assertIn(reason, result.stderr)
                 self.assertIn("iPhone auth gate FAILED", result.stderr)
 
-    def test_default_mode_is_unchanged_mac_rpc(self) -> None:
-        # No CMUXDogfoodReadiness key (or no app path) keeps the tagged Mac
-        # flow: --ensure-mac arms the pairing host and, with no local Mac
-        # build in this sandbox, fails before launching the phone.
+    def test_reload_style_launch_ignores_ensure_mac(self) -> None:
+        # ios/scripts/reload.sh passes CMUX_INSTALLED_APP_PATH and --ensure-mac.
+        app = write_app(self.box.root / "cmux.app", "app-receipt-v1")
+        result = self.box.launch("--ensure-mac", CMUX_INSTALLED_APP_PATH=str(app))
+        self.assert_app_receipt_pass(result)
+        self.assertIn("--attach/--ensure-mac ignored", result.stdout)
+
+    def assert_refused_before_work(self, result: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("no longer runs the iroh phone listener", result.stderr)
+        self.assertIn("mobile.attach_ticket.create / mobile.rpc.ready", result.stderr)
+        self.assertNotIn(PASSWORD, result.stdout + result.stderr)
+        self.assertEqual(self.box.log("defaults.log"), "")
+        self.assertNotIn("devicectl", self.box.log("xcrun-argv.log"))
+        self.assertEqual(self.box.launch_env(), {})
+
+    def test_auto_without_the_app_receipt_contract_is_refused(self) -> None:
+        # No CMUXDogfoodReadiness key (or no app path) used to fall back to
+        # mac-rpc and wait for a Mac event. Nothing publishes it now.
         app = write_app(self.box.root / "old.app", None)
         for env in ({}, {"CMUX_INSTALLED_APP_PATH": str(app)}):
             with self.subTest(env=env):
-                (self.box.state / "defaults.log").unlink(missing_ok=True)
-                result = self.box.launch(**env)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn("device launch defaults to --ensure-mac", result.stdout)
-                self.assertIn("could not prepare tagged Mac", result.stderr)
-                self.assertIn("mobile.iOSPairingHost.enabled", self.box.log("defaults.log"))
-                self.assertEqual(self.box.log("copy-from.log"), "")
+                for args in ((), ("--ensure-mac",), ("--no-attach",)):
+                    result = self.box.launch(*args, **env)
+                    self.assert_refused_before_work(result)
+                    self.assertIn("--readiness app-receipt", result.stderr)
+                    self.assertIn("CMUX_INSTALLED_APP_PATH", result.stderr)
+
+    def test_refusal_happens_before_credentials_load(self) -> None:
+        missing = self.box.root / "missing.env"
+        result = subprocess.run(
+            ["bash", str(LAUNCHER), "--tag", "rdyt", "--device", "--device-id", DEVICE_ID,
+             "--auth-profile", "personal", "--credentials-file", str(missing)],
+            env=self.box.env(), cwd=REPO_ROOT, text=True, capture_output=True, timeout=60,
+        )
+        self.assert_refused_before_work(result)
+
+    def test_explicit_mac_rpc_is_refused(self) -> None:
+        result = self.box.launch("--readiness", "mac-rpc", "--ensure-mac")
+        self.assert_refused_before_work(result)
+        self.assertIn("--readiness mac-rpc has no target", result.stderr)
+
+    def simulator_launch(self, *args: str, **env: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(LAUNCHER), "--tag", "rdyt", "--simulator", "iPhone 17", "--detach",
+             "--auth-profile", "personal", "--credentials-file", str(self.box.credentials), *args],
+            env=self.box.env(FAKE_SIM_UDID="AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", **env),
+            cwd=REPO_ROOT, text=True, capture_output=True, timeout=120,
+        )
+
+    def test_simulator_auto_reads_the_installed_simulator_app(self) -> None:
+        # dev-setup.sh and ios-sim-install.sh pass --ensure-mac/--attach with no
+        # app path; auto reads the app installed on the simulator.
+        app = write_app(self.box.root / "sim.app", "app-receipt-v1")
+        result = self.simulator_launch("--ensure-mac", FAKE_SIM_APP=str(app))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--attach/--ensure-mac ignored", result.stdout)
+        self.assertIn("signed-in app receipt verified", result.stdout)
+        launched = self.box.launch_env()
+        self.assertEqual(launched["argv"], "simctl launch AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA dev.cmux.ios.rdyt")
+        self.assertRegex(launched["nonce"], r"^[0-9a-f]{32}$")
+        self.assertEqual(launched["password_set"], "1")
+        self.assertEqual(launched["attach"], "")
+        self.assertEqual(self.box.log("defaults.log"), "")
+        receipt = json.loads((self.box.receipts / "rdyt-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.json").read_text())
+        self.assertEqual(receipt["readiness"], "app-receipt")
+        self.assertEqual(receipt["target"], "simulator_injection")
+
+    def test_simulator_without_the_contract_is_refused_before_launch(self) -> None:
+        for name, env in (("no installed app", {}),
+                          ("app without the key", {"FAKE_SIM_APP": str(write_app(self.box.root / "old.app", None))})):
+            with self.subTest(name=name):
+                result = self.simulator_launch("--attach", **env)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("no longer runs the iroh phone listener", result.stderr)
+                self.assertIn("simulator's installed dev.cmux.ios.rdyt", result.stderr)
+                self.assertNotIn("simctl launch", self.box.log("xcrun-argv.log"))
+                self.assertNotIn("simctl terminate", self.box.log("xcrun-argv.log"))
                 self.assertEqual(self.box.launch_env(), {})
 
     def test_contract_check_ignores_an_ambient_app_path(self) -> None:
@@ -386,16 +490,23 @@ class LauncherTest(unittest.TestCase):
         self.assertIn(f"CMUX_DEV_AUTH_ACCOUNT={ACCOUNT}", result.stdout)
         self.assertNotIn(PASSWORD, result.stdout + result.stderr)
 
-    def test_invalid_mode_and_release_gate_combination_are_refused(self) -> None:
+    def test_invalid_mode_is_refused(self) -> None:
         result = self.box.launch("--readiness", "pairing")
         self.assertEqual(result.returncode, 2)
-        result = subprocess.run(
-            ["bash", str(LAUNCHER), "--tag", "rdyt", "--iroh-release-gate", "relayOnly",
-             "--readiness", "app-receipt"],
-            env=self.box.env(), cwd=REPO_ROOT, text=True, capture_output=True, timeout=60,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("cannot be combined with the Iroh release gate", result.stderr)
+        self.assertIn("--readiness must be app-receipt or auto", result.stderr)
+
+    def test_release_gate_and_restore_pairing_are_refused(self) -> None:
+        for args in (("--iroh-release-gate", "relayOnly"),
+                     ("--iroh-release-gate", "relayOnly", "--readiness", "app-receipt"),
+                     ("--restore-pairing", "--iroh-release-gate", "automatic")):
+            with self.subTest(args=args):
+                result = subprocess.run(
+                    ["bash", str(LAUNCHER), "--tag", "rdyt", *args],
+                    env=self.box.env(), cwd=REPO_ROOT, text=True, capture_output=True, timeout=60,
+                )
+                self.assert_refused_before_work(result)
+                self.assertIn(f"{args[0]} has no target", result.stderr)
+                self.assertEqual(self.box.log("xcrun-argv.log"), "")
 
 
 class VerifierTest(unittest.TestCase):
@@ -432,13 +543,38 @@ class VerifierTest(unittest.TestCase):
         result = self.box.verify(session_source="restored")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_default_mode_still_requires_the_tagged_mac(self) -> None:
-        result = self.box.verify(session_source="restored")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("NOT verified signed in + paired", result.stdout)
-        self.assertIn("is not running and no local build exists", result.stdout)
-        self.assertIn("rerun with --readiness app-receipt", result.stdout)
-        self.assertEqual(self.box.log("copy-from.log"), "")
+    def assert_refused_before_work(self, result: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("no longer runs the iroh phone listener", result.stderr)
+        self.assertNotIn("PASS:", result.stdout)
+        self.assertEqual(self.box.log("xcrun-argv.log"), "", "no device may be probed")
+        self.assertEqual(self.box.log("cmux.log"), "")
+
+    def test_auto_without_an_app_receipt_contract_is_refused(self) -> None:
+        old = write_app(self.box.root / "old.app", None)
+        self.box.receipts.mkdir(mode=0o700)
+        recorded = self.box.receipts / f"rdyt-{DEVICE_ID.lower()}.json"
+        for name, env, receipt in (
+            ("nothing known", {}, None),
+            ("app without the key", {"CMUX_INSTALLED_APP_PATH": str(old)}, None),
+            ("old mac-rpc receipt", {}, {"schema": "cmux-ios-dogfood-readiness-v1"}),
+        ):
+            with self.subTest(name=name):
+                recorded.unlink(missing_ok=True)
+                if receipt is not None:
+                    recorded.write_text(json.dumps(receipt))
+                result = self.box.verify(session_source="restored", **env)
+                self.assert_refused_before_work(result)
+                self.assertIn("rerun with --readiness app-receipt", result.stderr)
+
+    def test_explicit_mac_rpc_is_refused_before_credentials_load(self) -> None:
+        result = subprocess.run(
+            ["bash", str(VERIFIER), "--tag", "rdyt", "--device-id", DEVICE_ID,
+             "--credentials-file", str(self.box.root / "missing.env"), "--readiness", "mac-rpc"],
+            env=self.box.env(), cwd=REPO_ROOT, text=True, capture_output=True, timeout=60,
+        )
+        self.assert_refused_before_work(result)
+        self.assertIn("--readiness mac-rpc has no target", result.stderr)
 
 
 if __name__ == "__main__":

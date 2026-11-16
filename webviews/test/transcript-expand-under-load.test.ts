@@ -4,7 +4,7 @@
 // "way too discontinuous"). In his recording a row opened while the list reflowed under it, rows
 // regrouped mid-motion and the view jumped. An ended stretch's run stays open while the chat works,
 // so the reader has shut it (ExpandAtBottom.gallery.ts "under-load"); a stretch still running draws
-// no run under the shipped live-turn-work `line`. Here the agent's next command lands on the live
+// no run under the live-turn-work `line`. Here the agent's next command lands on the live
 // line on the fold's third frame, with frames coming steadily and with the main thread held in every frame. An open at
 // the very bottom grows down (Lucas, 2026-11-06; transcript-expand-at-bottom.test.ts),
 // so on every painted frame the clicked line and the view's offset stay on their pixels, no row is

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb. */
+/* cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1. */
 
 
 import type * as T from "./types.js";
@@ -64,8 +64,12 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "expected_generation"?: (string) | null;
   "expected_terminal_id"?: (string) | null;
+  "hybrid_frame"?: (bigint) | null;
+  "hybrid_stream"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
+  "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
+  "replay_history_start"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -221,6 +225,15 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface CancelCreatingInputRequest extends CmuxRequestBase {
+  cmd: "cancel-creating-input";
+  "terminal_id": string;
+}
+export type CancelCreatingInputResult = {
+  "cancelled": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
@@ -1076,6 +1089,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "argv"?: (Array<string>) | null;
   "cols"?: (number) | null;
   "command"?: (string) | null;
+  /** Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace. */
+  "create_workspace"?: boolean;
   "cwd"?: (string) | null;
   "detached"?: boolean;
   "env"?: (Record<string, string>) | null;
@@ -1090,6 +1105,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
+  /** The name of the workspace create_workspace makes. */
+  "workspace_name"?: (string) | null;
 }
 export type CreateTerminalResult = T.TerminalPlacement;
 
@@ -1477,6 +1494,8 @@ export type ListWorkspaceGroupsResult = T.JsonValue;
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
+  "known"?: (T.ListWorkspacesKnown) | null;
+  "limit"?: (bigint) | null;
 }
 export type ListWorkspacesResult = T.Tree;
 
@@ -2739,6 +2758,13 @@ export interface TerminalClipboardSubscribeRequest extends CmuxRequestBase {
   "terminal_ids": Array<string>;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalCommandContextRequest extends CmuxRequestBase {
+  cmd: "terminal-command-context";
+  "intent"?: T.TerminalCommandContextIntent;
+  "surface": T.Id;
+}
+
 /** Protocol v9; authority: control. */
 export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
@@ -3040,6 +3066,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | CancelCreatingInputRequest
   | ChiefInspectRequest
   | ChiefWorkRequest
   | ClearHistoryRequest
@@ -3289,6 +3316,7 @@ export type CmuxRequest =
   | SwapPaneRequest
   | TerminalClipboardReplyRequest
   | TerminalClipboardSubscribeRequest
+  | TerminalCommandContextRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
@@ -3481,6 +3509,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "cancel-creating-input": {
+    request: CancelCreatingInputRequest;
+    result: CancelCreatingInputResult;
+    authority: "control";
+    since: 12;
+    capability: "creating-input-cancel-v1";
     stream: null;
   };
   "chief-inspect": {
@@ -5474,6 +5510,14 @@ export interface CmuxCommandDefinitionMap {
     since: 12;
     capability: "terminal-clipboard-read-v1";
     stream: "subscribe";
+  };
+  "terminal-command-context": {
+    request: TerminalCommandContextRequest;
+    result: T.TerminalCommandContextResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-command-context-v1";
+    stream: null;
   };
   "terminal-events": {
     request: TerminalEventsRequest;

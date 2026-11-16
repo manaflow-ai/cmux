@@ -6,6 +6,7 @@
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [app-ffi-pin.json [Package.swift]]
     python3 scripts/ci/app_ffi_pin.py check-manifest [Package.swift [app-ffi-pin.json]]
     python3 scripts/ci/app_ffi_pin.py check-dump DUMP.json [app-ffi-pin.json]  # `swift package dump-package` output
+    python3 scripts/ci/app_ffi_pin.py not-built ROOT INPUT...   # the INPUT crates' directories the library never reads
 
 Leo, 2026-11-07, on the Swift-reading pin match it replaces: "why were you writing a Swift parser in regex in the
 first place, right?" The pin now lives in data. Package.swift reads app-ffi-pin.json at manifest time with Foundation
@@ -34,6 +35,7 @@ rewrite the pin through this file alone; a rewrite writes the pin file and the c
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -44,6 +46,67 @@ PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 MANIFEST_FILE = "Packages/macOS/CmuxNext/Package.swift"
 TARGET = "CCmuxAppFFI"
 ASSET = f"{TARGET}.xcframework.zip"
+
+# The app FFI inputs are whole crate directories (check-app-ffi-pin.sh --list-inputs, cmux_next_route.app_ffi_inputs),
+# but Cargo builds a crate's library from its src/, build.rs and manifest: the auto-discovered integration tests,
+# benchmarks and examples in its own tests/, benches/ and examples/ never reach the archive. A change there (a cargo fmt
+# of tests/sidebar_caps.rs, cmux#41522; tests/ffi_bench.rs and tests/drag_handle.rs, cmux#41508) left the pin stale
+# and needed a release and a re-pin to go green. These directories are not inputs, defined here once for every reader:
+# the pin check and the pin on the base (check-app-ffi-pin.sh --list-excluded), the router and build_class.py
+# (cmux_next_route.app_ffi_input) and base_red_excuse.py (ffi_input). A src/**/*_tests.rs file stays an input: only a
+# #[cfg(test)] on its `mod` line keeps it out of the library, and no reader here proves that.
+NOT_BUILT = ("tests", "benches", "examples")
+# A quoted literal with a / in a crate's Rust or TOML that names a path into one of these directories (an include_str!
+# of a test vector, a #[path], a [lib] path, even from a #[cfg(test)] file) keeps that directory an input; so does a
+# build script that names the directory at all, since it may compute the path.
+_LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+
+
+def not_built(root: Path, inputs: list[str]) -> list[str]:
+    """The tests/, benches/ and examples/ directories of the crates among INPUTS (directories with a Cargo.toml),
+    present or not (a pull request may add one), that no other file of those crates names. Sorted, no trailing /."""
+    root = Path(root)
+    crates = sorted({i.rstrip("/") for i in inputs if (root / i.rstrip("/") / "Cargo.toml").is_file()})
+    candidates = {f"{crate}/{name}" for crate in crates for name in NOT_BUILT}
+
+    def inside(rel: str) -> str | None:
+        return next((d for d in candidates if rel == d or rel.startswith(d + "/")), None)
+
+    kept: set[str] = set()
+    for crate in crates:
+        for directory, subdirs, files in os.walk(root / crate):
+            here = Path(directory)
+            rel_dir = here.relative_to(root).as_posix()
+            subdirs[:] = [d for d in subdirs if inside(f"{rel_dir}/{d}") is None and d not in ("target", ".git")]
+            for name in files:
+                if not name.endswith((".rs", ".toml")):
+                    continue
+                try:
+                    text = (here / name).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if name == "build.rs":
+                    kept |= {f"{crate}/{n}" for n in NOT_BUILT if re.search(rf"\b{n}\b", text)}
+                for literal in _LITERAL.findall(text):
+                    # A file in such a directory is named with a /; a bare word ("tests") names no path.
+                    if "/" not in literal or not any(n in literal for n in NOT_BUILT):
+                        continue
+                    # From the file's folder (include_str!, #[path]) and from the crate (a manifest path,
+                    # concat!(env!("CARGO_MANIFEST_DIR"), "/tests/...")).
+                    for base in (here, root / crate):
+                        rel = Path(os.path.relpath(os.path.normpath(base / literal.lstrip("/")), root)).as_posix()
+                        if (hit := inside(rel)) is not None:
+                            kept.add(hit)
+    return sorted(candidates - kept)
+
+
+def is_input(path: str, inputs: list[str], excluded: list[str]) -> bool:
+    """PATH is an app FFI input: under one of INPUTS (a trailing / is a directory) and in none of EXCLUDED."""
+    def under(prefix: str) -> bool:
+        prefix = prefix.rstrip("/")
+        return path == prefix or path.startswith(prefix + "/")
+    return any(under(i) for i in inputs) and not any(under(d) for d in excluded)
+
 
 # The one block of Package.swift that reads the pin. Fully qualified Foundation names, so nothing else in the
 # manifest can stand in for them; any read or decode error stops the manifest with the file's path.
@@ -298,6 +361,10 @@ def main(argv: list[str]) -> int:
             path = Path(argv[1]) if len(argv) >= 2 else PACKAGE / "Package.swift"
             pin = Path(argv[2]) if len(argv) == 3 else path.with_name("app-ffi-pin.json")
             check_manifest(path.read_text(encoding="utf-8"), read(pin.read_text(encoding="utf-8"))[1])
+            return 0
+        if argv[:1] == ["not-built"] and len(argv) >= 2:
+            for directory in not_built(Path(argv[1]), argv[2:]):
+                print(directory)
             return 0
     except NotCanonical as why:
         print(f"error: {why}", file=sys.stderr)

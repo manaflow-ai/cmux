@@ -5,7 +5,7 @@
 // prompt, and a busy chat's palette fork silently doing nothing.
 import { expect, test } from "bun:test";
 import type { AcpmuxSnapshot } from "../model";
-import { forkRefusal, forkToTarget } from "./messageMenu";
+import { canFork, forkRefusal, forkToTarget } from "./messageMenu";
 
 const snapshot = (over: Partial<AcpmuxSnapshot>): AcpmuxSnapshot =>
   ({ canFork: true, isWorking: false, connection: "connected", rows: [], ...over }) as unknown as AcpmuxSnapshot;
@@ -42,4 +42,14 @@ test("a chat acpmux cannot fork here says so", () => {
   expect(forkRefusal(snapshot({ connection: "disconnected", rows: [turn] as AcpmuxSnapshot["rows"] }))).toBe(
     "unavailable",
   );
+});
+
+// Leo, 2026-11-11: "why are only some chats forkable". A chat on another computer forks there:
+// acpmux forwards the fork to it, so the pane offers Fork as for a chat on this one.
+test("a chat on another computer forks, from any turn", () => {
+  const rows = [{ kind: "turnSummary", seq: 3 }, turn] as AcpmuxSnapshot["rows"];
+  const remote = snapshot({ rows, summary: { peer: "cosmic-gray", family: "claude" } as AcpmuxSnapshot["summary"] });
+  expect(forkRefusal(remote)).toBeUndefined();
+  expect(canFork(remote)).toBe(true);
+  expect(forkToTarget(remote)).toEqual({ throughSeq: 7 });
 });

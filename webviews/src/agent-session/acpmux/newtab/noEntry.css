@@ -4,13 +4,12 @@
    and what the page opens appears in the frame it lands in: every popup's open (Menu, Select,
    Popover, ContextMenu, the composer's pickers, the ··· and filter menus), tooltips and hover cards,
    dialogs and their backdrops, and surfaces that enter from an edge (`data-enter`, presence). Each
-   exit keeps its own token and fade: --ui-popup-close, --tooltip-fade-out, --ui-exit-duration.
+   exit keeps its own token and fade: --ui-dialog-close, --ui-exit-duration. Popups, tooltips and
+   hover cards open and close in one frame on every page (ui/popupSurface.css, desktop.css).
    test/new-tab-no-entry-motion.test.ts holds this. */
 :root[data-new-tab] {
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
-  --tooltip-fade-in: 0s;
-  --tooltip-rise: 0px;
   --ui-enter-duration: 0s;
 }
 /* Popups and menus open in one frame on every page (ui/popupSurface.css). The drop sheet runs on

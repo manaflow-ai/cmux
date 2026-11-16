@@ -14,21 +14,24 @@ export type MotionReport = ReturnType<typeof analyze>;
 
 /// A move of more than this in one 120 Hz frame reads as a jump: a third of a line.
 const JUMP_PX = 7.5;
-/// The most any row in view in both frames moved where it paints, px; undefined when either frame has
-/// no row samples or no row is in view in both.
+/// The most any row in view in the first frame, and still mounted in the second, moved where it
+/// paints, px; undefined when either frame has no row samples or no such row. A row that leaves the
+/// view counts by how far it moved: a jump that carries a row out of view is a jump the reader saw
+/// (review of #41470 F1: a row 48.6 px out of view read as no move while another stayed covered).
 function paintedMove(before: Sample, after: Sample): number | undefined {
   if (!before.rows || !after.rows) return undefined;
   const was = new Map(before.rows.filter((row) => row.inView).map((row) => [row.id, row.top]));
   let most: number | undefined;
   for (const row of after.rows) {
-    const top = row.inView ? was.get(row.id) : undefined;
+    const top = was.get(row.id);
     if (top !== undefined) most = Math.max(most ?? 0, Math.abs(row.top - top));
   }
   return most;
 }
 
 /// One frame of the turn's end, row by row: the thread's own shift (its box, scroll and translate),
-/// and for each row in view in both frames that shift plus the row's own move in the thread's layout
+/// and for each row in view in the first frame and still mounted in the second (in view or not, as
+/// `paintedMove`) that shift plus the row's own move in the thread's layout
 /// plus the change of the translate on it (the fold's offset). The sum is where the row paints: if the
 /// fold's offsets stop covering the thread's shift, it is the shift. `undefined` without row samples.
 function netMove(before: Sample, after: Sample): { threadPx: number; netPx: number; offsetPx: number } | undefined {
@@ -38,7 +41,7 @@ function netMove(before: Sample, after: Sample): { threadPx: number; netPx: numb
   let netPx: number | undefined;
   let offsetPx = 0;
   for (const row of after.rows) {
-    const prior = row.inView ? was.get(row.id) : undefined;
+    const prior = was.get(row.id);
     if (!prior || row.layoutTop === undefined || prior.layoutTop === undefined) continue;
     const offset = (row.offset ?? 0) - (prior.offset ?? 0);
     offsetPx = Math.max(offsetPx, Math.abs(offset));
@@ -58,8 +61,8 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number, t
     // The turn's end: the fold (turnEndFold.ts) slides each row from where it was drawn to its new
     // place, so the thread's own box can jump while no row on screen does (the tools turn: the
     // thread 48.57 px, every row in view under 0.5 px). There the move is where the rows paint: the
-    // most any row in view in both frames moved (`?rows=1`). A thread jump the rows take with them
-    // moves every row by it and counts whole.
+    // most any row in view before the frame and still mounted moved (`?rows=1`), out of view too. A
+    // thread jump the rows take with them moves every row by it and counts whole.
     const painted = sample.phase === "end" ? paintedMove(before, sample) : undefined;
     const moved = painted ?? Math.abs(sample.top - before.top);
     const slots = Math.max(1, Math.round((sample.t - before.t) / FRAME_MS));

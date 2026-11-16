@@ -160,7 +160,10 @@ impl Cache {
             .collect();
         aged.sort_by_key(|(at, _)| *at);
         let extra = aged.len().saturating_sub(keep);
-        aged.into_iter().take(extra).filter(|(_, path)| std::fs::remove_file(path).is_ok()).count()
+        aged.into_iter()
+            .take(extra)
+            .filter(|(_, path)| crate::home_fs::remove_file(path).is_ok())
+            .count()
     }
 }
 

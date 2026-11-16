@@ -14,7 +14,7 @@ import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row
 /// (a button or a `role="button"` line with `aria-expanded`: a tool or sent message's line, Show
-/// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and a header that is its
+/// more, Show all output, Raw, a file list's "+N more"), a `<summary>`, and a header that is its
 /// toggle edge to edge (`data-header-toggle`, headerToggle.ts: an agent message's line, the edits
 /// card's header, a disclosure row's line). A menu's trigger
 /// (`aria-haspopup`) opens no body in the row and is left out. An `aria-pressed` button is held only
@@ -205,7 +205,7 @@ const HEADER_TOGGLE =
   'button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], [role="button"][aria-expanded], summary, [data-header-toggle]';
 
 /// What a click on `toggle` holds in place. A line that opens a body under itself holds itself. Any
-/// other control (Show more, Show all lines, "+N more", Raw) may sit under or beside the body it
+/// other control (Show more, Show all output, "+N more", Raw) may sit under or beside the body it
 /// opens or closes, so its row holds by its top: the body grows and shrinks downward and nothing
 /// above it moves, the control with it. A row whose top is above `scroller`'s view (Show less under
 /// a long output, scrolled down to) holds the control instead: held by its top, the row would close

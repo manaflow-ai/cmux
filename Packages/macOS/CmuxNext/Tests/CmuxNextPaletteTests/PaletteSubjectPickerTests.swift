@@ -1,0 +1,166 @@
+import CmuxNextActions
+@testable import CmuxNextPalette
+import Testing
+
+/// Leo, 2026-11-12: “what” — Open Desktop must collect a machine instead of
+/// running with no target and showing the control socket's CLI instructions.
+@MainActor
+struct PaletteSubjectPickerTests {
+    private final class Targets: PaletteTargetSource {
+        var reads = 0
+        var options = [PaletteTargetOption(id: "chosen", title: "Design desktop")]
+        func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
+            reads += 1
+            return options
+        }
+    }
+
+    private func row(_ id: ActionID, registry: ActionRegistry, targets: Targets,
+                     captured: [ActionTargetRef] = []) throws -> PaletteItem {
+        let provider = RegistryPaletteProvider(registry: registry)
+        provider.targets = targets
+        provider.capturedTargets = captured
+        return try #require(provider.makeItems().first { $0.actionID == id })
+    }
+
+    @Test func missingMachineOpensPickerAndSelectionSuppliesTheSubject() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        var received: ActionInvocation?
+        registry.bind("cloudOpenDesktop", invoke: { received = $0 })
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
+        #expect(targets.reads == 0, "listing commands must not enumerate machines")
+        guard case .push(let page) = item.primary.effect.resolved() else {
+            Issue.record("Open Desktop ran instead of asking which machine"); return
+        }
+        #expect(received == nil)
+        let choice = try #require(await page.providers.first?.items().first)
+        #expect(choice.title == "Design desktop")
+        guard case .perform(let run) = choice.primary.effect.resolved() else {
+            Issue.record("choosing the machine did not complete the invocation"); return
+        }
+        run()
+        #expect(received?.target == ActionTargetRef(kind: .machine, id: "chosen"))
+        #expect(received?.arguments.isEmpty == true, "the subject is not a CLI argument")
+    }
+
+    @Test func capturedMachineStaysPinnedWhenTheActionHasNoArguments() throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        var received: ActionTargetRef?
+        registry.bind("cloudOpenDesktop", invoke: { received = $0.target })
+        let machine = ActionTargetRef(kind: .machine, id: "original")
+        targets.options = [PaletteTargetOption(id: machine.id, title: "Original desktop")]
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets, captured: [machine])
+        guard case .perform(let run) = item.primary.effect.resolved() else {
+            Issue.record("a captured target must not ask again"); return
+        }
+        run()
+        #expect(received == machine)
+        #expect(targets.reads == 1, "validate the captured subject against this action's inventory once")
+    }
+
+    @Test func capturedMachineOutsideTheActionsInventoryStillAsks() throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", invoke: { _ in Issue.record("wrong machine ran") })
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets,
+                           captured: [ActionTargetRef(kind: .machine, id: "local")])
+        guard case .push = item.primary.effect.resolved() else { Issue.record("missing Cloud picker"); return }
+    }
+
+    @Test func sharedMachinePickerPrecedesRequiredFilePath() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudFileRead", invoke: { _ in })
+        let item = try row("cloudFileRead", registry: registry, targets: targets)
+        guard case .push(let page) = item.primary.effect.resolved() else {
+            Issue.record("file action must choose its machine before asking for a path"); return
+        }
+        let choice = try #require(await page.providers.first?.items().first)
+        guard case .textInput = choice.primary.effect.resolved() else {
+            Issue.record("the file path must follow the shared machine picker"); return
+        }
+    }
+
+    @Test func inlineRepairRunsSetupOnTheOldMachine() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        var created = false, opened = false
+        registry.bind("cloudOpenDesktop", invoke: { _ in opened = true })
+        registry.bind("cloudSetupDesktop", invoke: {
+            #expect($0.target == ActionTargetRef(kind: .machine, id: "old"))
+            created = true
+        })
+        targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "Desktop service unavailable",
+            recovery: PaletteTargetRecovery(action: "cloudSetupDesktop", title: "Set up desktop",
+                                             target: ActionTargetRef(kind: .machine, id: "old")))]
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
+        guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing picker"); return }
+        let choice = try #require(await page.providers.first?.items().first)
+        #expect(choice.accessory == "Set up desktop")
+        guard case .perform(let run) = choice.primary.effect.resolved() else { Issue.record("missing repair"); return }
+        run()
+        #expect(created)
+        #expect(!opened)
+    }
+
+    @Test func unsupportedCapturedMachineOffersRecoveryDespiteTargetGate() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", invoke: { _ in Issue.record("unsupported machine ran") })
+        registry.bind("cloudSetupDesktop", invoke: { _ in })
+        ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { _ in "Desktop service unavailable" }
+        targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "Desktop service unavailable",
+            recovery: PaletteTargetRecovery(action: "cloudSetupDesktop", title: "Set up desktop",
+                                             target: ActionTargetRef(kind: .machine, id: "old")))]
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets,
+                           captured: [ActionTargetRef(kind: .machine, id: "old")])
+        #expect(item.isEnabled)
+        guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing recovery picker"); return }
+        let choice = try #require(await page.providers.first?.items().first)
+        #expect(choice.accessory == "Set up desktop")
+    }
+
+    @Test func disabledCapturedMachineStaysInThePicker() throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", invoke: { _ in Issue.record("starting machine ran") })
+        targets.options = [PaletteTargetOption(id: "starting", title: "Starting machine", isEnabled: false)]
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets,
+                           captured: [ActionTargetRef(kind: .machine, id: "starting")])
+        guard case .push = item.primary.effect.resolved() else { Issue.record("missing starting picker"); return }
+    }
+
+    @Test func subjectPickerPreservesAnAlternativeAcceptedTargetKind() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        var received: ActionTargetRef?
+        registry.bind("sidebar.item.hideApp", invoke: { received = $0.target })
+        targets.options = [PaletteTargetOption(id: "sidebar-section:app-section", title: "App section")]
+        let item = try row("sidebar.item.hideApp", registry: registry, targets: targets)
+        guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing app picker"); return }
+        let choice = try #require(await page.providers.first?.items().first)
+        guard case .perform(let run) = choice.primary.effect.resolved() else { Issue.record("missing app action"); return }
+        run()
+        #expect(received == ActionTargetRef(kind: .sidebarSection, id: "app-section"))
+    }
+
+    @Test func missingTargetSourceNeverAsksForAControlSocketID() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "cloudOpenDesktop" })
+        let flow = PaletteArgumentFlow(registry: .standard(), descriptor: descriptor, targets: nil)
+        guard case .push = flow.effect(collected: ActionInvocation()) else {
+            Issue.record("a missing target source must never become a CLI text input"); return
+        }
+    }
+
+    @Test func targetContextDoesNotBypassGlobalAvailability() throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", unavailable: { "Account is unavailable" }, invoke: { _ in })
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
+        #expect(!item.isEnabled)
+        #expect(item.subtitle == "Account is unavailable")
+    }
+
+    @Test func creationWithNoSubjectKeepsItsExistingMeaning() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "newCloudWorkspace" })
+        let targets = Targets()
+        let flow = PaletteArgumentFlow(registry: .standard(), descriptor: descriptor, targets: targets)
+        guard case .perform = flow.effect(collected: ActionInvocation()) else {
+            Issue.record("creating a machine must not ask for an existing machine"); return
+        }
+        #expect(targets.reads == 0)
+    }
+}

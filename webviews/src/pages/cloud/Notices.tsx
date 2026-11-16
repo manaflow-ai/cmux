@@ -1,7 +1,7 @@
 // Three notices: the team's spending cap (cmuxterm-hq#8205: near it, a pending pause, machines paused,
 // or no starts; drawn from `cloud.plan.get`'s `spend_cap`), the one-time banner for machines from cmux
 // Cloud classic (contract 4: "Move them" runs `cloud.migration.start` as a native action, "Later"
-// hides it for this page session), and a typed plan refusal (contract 1.5: `plan_required`, `quota_exceeded {limit, used}`, `size_locked`)
+// hides it for this account, kept in this browser), and a typed plan refusal (contract 1.5: `plan_required`, `quota_exceeded {limit, used}`, `size_locked`)
 // as a localized sentence with "See plans", which links the public plans page until billing lands.
 import { Notice } from "../../ui/Notice";
 import type { Strings } from "../shared/i18n";

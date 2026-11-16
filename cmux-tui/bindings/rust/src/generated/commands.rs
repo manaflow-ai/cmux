@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb.
+// cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -75,9 +75,17 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hybrid_frame: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hybrid_stream: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub output_coalesce_ms: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_rows: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replay_history_start: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -311,6 +319,18 @@ pub struct BrowserWheelGuardedRequest {
 
 #[rustfmt::skip]
 pub type BrowserWheelGuardedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelCreatingInputRequest {
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelCreatingInputResult {
+    pub cancelled: bool,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1546,6 +1566,9 @@ pub struct CreateTerminalRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub command: Optional<String>,
+    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub create_workspace: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1574,6 +1597,9 @@ pub struct CreateTerminalRequest {
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
+    /// The name of the workspace create_workspace makes.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace_name: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2111,6 +2137,10 @@ pub type ListWorkspaceGroupsResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListWorkspacesRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub known: Optional<T::ListWorkspacesKnown>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
 }
 
 #[rustfmt::skip]
@@ -3911,6 +3941,14 @@ pub struct TerminalClipboardSubscribeRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContextRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub intent: Option<T::TerminalCommandContextIntent>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -4334,11 +4372,23 @@ impl CmuxClient {
         if !request.expected_terminal_id.is_missing() {
             self.require_capability_field("attach-surface", "attach-identity-v1")?;
         }
+        if !request.hybrid_frame.is_missing() {
+            self.require_capability_field("attach-surface", "agent-cli-hybrid-v1")?;
+        }
+        if !request.hybrid_stream.is_missing() {
+            self.require_capability_field("attach-surface", "agent-cli-hybrid-v1")?;
+        }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
         }
+        if !request.output_coalesce_ms.is_missing() {
+            self.require_capability_field("attach-surface", "attach-output-coalesce-v1")?;
+        }
         if !request.replay_history_rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;
+        }
+        if !request.replay_history_start.is_missing() {
+            self.require_capability_field("attach-surface", "attach-replay-history-window-v1")?;
         }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
@@ -4419,6 +4469,10 @@ impl CmuxClient {
 
     pub fn browser_wheel_guarded(&mut self, request: BrowserWheelGuardedRequest) -> Result<BrowserWheelGuardedResult> {
         self.execute(&BROWSER_WHEEL_GUARDED_METADATA, &request)
+    }
+
+    pub fn cancel_creating_input(&mut self, request: CancelCreatingInputRequest) -> Result<CancelCreatingInputResult> {
+        self.execute(&CANCEL_CREATING_INPUT_METADATA, &request)
     }
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
@@ -4773,6 +4827,10 @@ impl CmuxClient {
     }
 
     pub fn create_terminal(&mut self, request: CreateTerminalRequest) -> Result<CreateTerminalResult> {
+        if request.create_workspace.is_some() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "create-terminal-workspace-v1")?;
+        }
         if request.detached.is_some() {
             self.require_protocol_field("create-terminal", 12)?;
             self.require_capability_field("create-terminal", "detached-terminals-v1")?;
@@ -4791,6 +4849,10 @@ impl CmuxClient {
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
+        }
+        if !request.workspace_name.is_missing() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "create-terminal-workspace-v1")?;
         }
         self.execute(&CREATE_TERMINAL_METADATA, &request)
     }
@@ -5002,6 +5064,14 @@ impl CmuxClient {
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
+        if !request.known.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-known-v1")?;
+        }
+        if !request.limit.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
+        }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 
@@ -5901,6 +5971,10 @@ impl CmuxClient {
 
     pub fn terminal_clipboard_subscribe(&mut self, request: TerminalClipboardSubscribeRequest) -> Result<CmuxStream> {
         self.execute_stream(&TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn terminal_command_context(&mut self, request: TerminalCommandContextRequest) -> Result<T::TerminalCommandContextResult> {
+        self.execute(&TERMINAL_COMMAND_CONTEXT_METADATA, &request)
     }
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {

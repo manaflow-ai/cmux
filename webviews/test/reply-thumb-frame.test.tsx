@@ -4,6 +4,7 @@
 // image viewer (a guest or read-only page), which draws the thumbnail as a plain span.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -44,7 +45,8 @@ const { createRoot } = await import("react-dom/client");
 const { OpenableImage } = await import("../src/agent-session/acpmux/chips/ReplyImage");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
