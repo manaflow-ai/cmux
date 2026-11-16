@@ -7,6 +7,8 @@ public final class BrowserEntry {
     public let tab: any BrowserTab
     public let state = BrowserChromeTabState()
     @MainActor public var chrome: BrowserChromeView? { state.chrome }
+    /// The id of the tab this page shows, as the daemon, the focus model and the tab cache name it.
+    @MainActor public var key: String { tab.id.rawValue }
     /// Owns the chrome's (weak) Extensions menu handler.
     public var extensionMenuHandler: (any ExtensionMenuHandling)?
 
