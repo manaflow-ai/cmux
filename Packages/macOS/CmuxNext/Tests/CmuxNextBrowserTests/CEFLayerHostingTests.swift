@@ -528,4 +528,22 @@ private final class LiveResizeWindow: NSWindow {
         for done in fork.dones { done(true) }
         #expect(CEFHostView.trackerStats.resizeFencePresented == presented + 2)
     }
+
+    /// After its turn, a fence with a page still out keeps its send right until that page reports, then lets it go: a
+    /// fence freed with its right would hold the window's commits for good, and one kept past `done` would too.
+    @Test func aFenceOutlivesItsTurnUntilItsPagesReport() {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        guard let fence = fork.fences.first else { return } // no Core Animation context in this test host
+        // The end of the turn seals the fence (CEFLayerHosting.atEndOfTurn).
+        CFRunLoopRunInMode(.defaultMode, 0.005, false)
+        var type: mach_port_type_t = 0
+        let send: mach_port_type_t = 1 << 16 // MACH_PORT_TYPE_SEND (a C macro Swift does not import)
+        #expect(mach_port_type(mach_task_self_, fence.port, &type) == KERN_SUCCESS && type & send != 0)
+        for done in fork.dones { done(true) }
+        let gone = mach_port_type(mach_task_self_, fence.port, &type) != KERN_SUCCESS || type & send == 0
+        #expect(gone)
+    }
 }
