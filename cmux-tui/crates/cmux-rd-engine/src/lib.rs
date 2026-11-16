@@ -43,6 +43,16 @@ pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
 pub const TAIL_PROBE_US: u64 = 250_000;
 /// Probes before the host stops resending and starts over from a keyframe.
 pub const TAIL_PROBES: u32 = 3;
+/// The window the idle-link copy measures the host's recent sends over (one
+/// second: its bytes compare with the target's bits per second).
+pub const IDLE_COPY_WINDOW_US: u64 = 1_000_000;
+/// A frame of one data shard goes out with a parity copy while the last
+/// [`IDLE_COPY_WINDOW_US`]'s frame bytes stay under this share of the
+/// controller's target, in percent: losing either copy then costs no
+/// tail-probe wait, and the copy costs under 1 % of the link.
+pub const IDLE_COPY_PERCENT: u64 = 1;
+/// Frames the idle-link copy remembers (more than a second at any frame rate).
+const IDLE_COPY_FRAMES: usize = 512;
 /// Most streams per peer (the viewer's CMUX_RD_SESSION_MAX_STREAMS).
 pub const MAX_STREAMS: usize = 16;
 /// Share of the target that popup streams may take together, in percent.
@@ -335,6 +345,10 @@ pub struct MediaEngine {
     clock: Option<ClockEstimate>,
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
+    /// Recent frames' send time and bytes (every stream), for the idle-link copy.
+    recent_sends: VecDeque<(u64, u64)>,
+    /// The bytes in `recent_sends`.
+    recent_bytes: u64,
     upstreams: BTreeMap<u16, Upstream>,
 }
 
@@ -359,6 +373,8 @@ impl MediaEngine {
             keyframes: 0,
             clock: None,
             ack_rtts: VecDeque::new(),
+            recent_sends: VecDeque::new(),
+            recent_bytes: 0,
             upstreams: BTreeMap::new(),
             cfg,
         }
@@ -552,6 +568,7 @@ impl MediaEngine {
         now_us: u64,
     ) -> Result<Output, PacketizeError> {
         let loss = self.loss;
+        let idle_link = self.idle_link(now_us);
         let surface_frame = self
             .streams
             .get(&req.stream)
@@ -577,6 +594,9 @@ impl MediaEngine {
             (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
         // Tile frames are standalone, so they get keyframe-grade protection.
         let parity = parity_for(data_shards, loss, enc.idr || tile);
+        // A one-datagram frame (a key press's) whose only copy is lost waits for
+        // the tail probe; on a nearly idle link a second copy is cheaper.
+        let parity = if data_shards == 1 && idle_link { parity.max(1) } else { parity };
         let flags = if tile {
             flags::TILE
         } else if enc.idr {
@@ -596,10 +616,19 @@ impl MediaEngine {
             }
             Err(e) => return Err(e),
         };
+        let mut frame_bytes: u64 = 0;
         for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
             self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
+            frame_bytes = frame_bytes.saturating_add(d.len() as u64);
+        }
+        self.recent_sends.push_back((now_us, frame_bytes));
+        self.recent_bytes = self.recent_bytes.saturating_add(frame_bytes);
+        while self.recent_sends.len() > IDLE_COPY_FRAMES {
+            if let Some((_, bytes)) = self.recent_sends.pop_front() {
+                self.recent_bytes = self.recent_bytes.saturating_sub(bytes);
+            }
         }
         state.history.insert(req.frame, packets.datagrams.clone());
         state.sent_at_us.insert(req.frame, now_us);
@@ -816,6 +845,26 @@ impl MediaEngine {
     /// Returns the minimum recent cumulative frame-ack RTT. The history ages
     /// out when a new ACK advances, so an earlier short route cannot constrain
     /// a slower route for the rest of the session.
+    /// True while the frames sent over the last [`IDLE_COPY_WINDOW_US`] are
+    /// under [`IDLE_COPY_PERCENT`] of the controller's target, so a small
+    /// frame may go out with a copy. Forgets frames older than the window.
+    fn idle_link(&mut self, now_us: u64) -> bool {
+        while let Some(&(at, bytes)) = self.recent_sends.front() {
+            if now_us.saturating_sub(at) < IDLE_COPY_WINDOW_US {
+                break;
+            }
+            self.recent_sends.pop_front();
+            self.recent_bytes = self.recent_bytes.saturating_sub(bytes);
+        }
+        // A full history may have dropped frames still inside the window: not idle.
+        if self.recent_sends.len() >= IDLE_COPY_FRAMES {
+            return false;
+        }
+        let window_bits = self.recent_bytes.saturating_mul(8).saturating_mul(100);
+        // The window is one second, so the target's bits per second are its bits.
+        window_bits < self.cc.target_bps().saturating_mul(IDLE_COPY_PERCENT)
+    }
+
     pub fn ack_rtt_us(&self) -> Option<u64> {
         self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
     }
