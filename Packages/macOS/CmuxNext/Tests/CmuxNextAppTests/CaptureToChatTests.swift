@@ -68,7 +68,9 @@ import Testing
         let recorder = Recorder()
         let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi },
                                           showHideEnabled: { false }, startAgentEnabled: { false }, captureEnabled: { enabled })
-        service.apply()
+        // start(), not apply(): only start() installs the registrar's onPress (#43102 review F1).
+        service.start()
+        defer { service.stop() }
         let hotKey = try #require(CarbonHotKey(Self.key, layout: .ansi))
         #expect(!recorder.registered.values.contains(hotKey), "off: the key stays other apps'")
 
@@ -84,7 +86,6 @@ import Testing
         enabled = false
         service.apply()
         #expect(!recorder.registered.values.contains(hotKey), "turning it off releases the key")
-        service.stop()
     }
 
     // MARK: The route
@@ -122,7 +123,10 @@ import Testing
             == .region(x: 10, y: 20, width: 300, height: 200))
         for bad: JSONValue in [.array([.number(1), .number(2), .number(3)]), .string("1,2,3,4"),
                                .array([.number(0), .number(0), .number(0), .number(10)]),
-                               .array([.number(0), .number(0), .string("w"), .number(10)])] {
+                               .array([.number(0), .number(0), .string("w"), .number(10)]),
+                               // Past Int's range: rejected, never a trapping conversion (#43102 review F2).
+                               .array([.number(1e100), .number(0), .number(10), .number(10)]),
+                               .array([.number(0), .number(-1e300), .number(10), .number(10)])] {
             #expect(throws: ScreenshotToChat.BadRegion.self) { try ScreenshotToChat.pick(from: ["region": bad]) }
         }
     }
