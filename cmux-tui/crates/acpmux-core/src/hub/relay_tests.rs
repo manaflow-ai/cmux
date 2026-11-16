@@ -135,7 +135,7 @@ fn view_page(origin: &str, after: Option<ListKey>, max: u32) -> Page {
 
 fn sent(hub: &Hub, page: &Page) -> RelayedPage {
     match hub.relayed_page(page).expect("the relay takes it").expect("a relayed page") {
-        Relayed::Sent(relayed) => relayed,
+        Relayed::Sent(relayed) => *relayed,
         Relayed::Done(_) => panic!("answered at once"),
         Relayed::Busy => panic!("busy"),
     }
@@ -426,8 +426,6 @@ async fn a_local_connection_gets_the_relayed_page_on_its_held_sub() {
     task.await.unwrap().unwrap();
 }
 
-use crate::conn::Source as _;
-
 /// A list source that also answers a chat's `page` through its later reply at once, and
 /// records the sids its connection ends.
 struct ChatAndList {
@@ -435,7 +433,7 @@ struct ChatAndList {
     ended: Mutex<Vec<String>>,
 }
 
-impl crate::conn::Source for ChatAndList {
+impl Source for ChatAndList {
     fn subscribe(
         &self,
         sub: &crate::wire::Sub,
@@ -588,19 +586,23 @@ async fn more_origins_than_fit_ask_the_first_ones_and_rest_the_others() {
     assert!(matches!(hub.relayed_page(&tight), Some(Err(HubError::InvalidPage))));
 }
 
-/// A relay that sends a view page under a shorter sid than the asker's: the origin's page is
-/// sized so the asker's frame, under the asker's sid, still fits its `max_bytes`.
+/// A relay that sends a view page under a shorter sid than the asker's (1 byte against 200):
+/// the origin's page is sized so the asker's frame, under the asker's sid, still fits its `max_bytes`.
 #[tokio::test]
 async fn a_relay_sending_under_a_shorter_sid_still_fits_the_askers_budget() {
+    // An origin as long as `local`: renaming adds nothing, so the page keeps no room for it.
+    const SAME: &str = "peer5";
     let (hub, peer) = pair();
     let mut relay = FakeRelay::new(peer, Answer::Peer);
-    Arc::get_mut(&mut relay).unwrap().sid = Some("r".into());
+    let fake = Arc::get_mut(&mut relay).unwrap();
+    fake.sid = Some("r".into());
+    fake.takes = vec![SAME.into()];
     hub.set_page_relay(relay.clone());
-    let sid = "s".repeat(100);
+    let sid = "s".repeat(200);
     let mut walked = Vec::new();
     let mut after = None;
     loop {
-        let mut request = view_page(PEER, after.clone(), 12_000);
+        let mut request = view_page(SAME, after.clone(), 12_000);
         request.sid = sid.clone();
         let frame = sent(&hub, &request).answer().await.expect("fits the asker's budget");
         assert!(frame.encoded_len() <= 12_000);

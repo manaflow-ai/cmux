@@ -89,7 +89,7 @@ pub enum Relayed {
     /// An origin it asks has [`RELAY_IN_FLIGHT`] requests in flight.
     Busy,
     /// Sent; [`RelayedPage::answer`] waits for the origins.
-    Sent(RelayedPage),
+    Sent(Box<RelayedPage>),
 }
 
 /// A relayed page with its slots taken. [`RelayedPage::answer`] sends it; dropping it before
@@ -102,7 +102,7 @@ pub struct RelayedPage {
 }
 
 enum Work {
-    View { origin: String, sid: String, max: usize, request: Page },
+    View { origin: String, sid: String, max: usize, request: Box<Page> },
     Keys { plan: KeyedPlan, asks: Vec<(String, Page)> },
 }
 
@@ -212,7 +212,7 @@ impl Hub {
         let Some(slots) = self.take_slots(std::slice::from_ref(&origin.to_owned())) else {
             return Ok(Relayed::Busy);
         };
-        Ok(Relayed::Sent(RelayedPage {
+        Ok(Relayed::Sent(Box::new(RelayedPage {
             _slots: slots,
             hub: self.relay.clone(),
             relay: relay.clone(),
@@ -220,9 +220,9 @@ impl Hub {
                 origin: origin.to_owned(),
                 sid: request.sid.clone(),
                 max,
-                request: peer,
+                request: Box::new(peer),
             },
-        }))
+        })))
     }
 
     fn relay_keys(
@@ -326,12 +326,12 @@ impl Hub {
                 Ok((origin, peer))
             })
             .collect::<Result<Vec<_>, HubError>>()?;
-        Ok(Relayed::Sent(RelayedPage {
+        Ok(Relayed::Sent(Box::new(RelayedPage {
             _slots: slots,
             hub: self.relay.clone(),
             relay: relay.clone(),
             work: Work::Keys { plan, asks },
-        }))
+        })))
     }
 
     /// All of `origins` or none: a request takes one slot per origin it asks.
@@ -359,7 +359,7 @@ impl RelayedPage {
         let state = self.hub.clone();
         match self.work {
             Work::View { origin, sid, max, request } => {
-                let answer = self.relay.page(&origin, request);
+                let answer = self.relay.page(&origin, *request);
                 let page = match tokio::time::timeout_at(deadline, answer).await {
                     Err(_) => {
                         return Err(RelayError {
