@@ -25,6 +25,8 @@ struct Fake {
     advance_ms: VecDeque<u64>,
     /// Every action run (and every look), with the fake clock.
     timed: Vec<(u64, &'static str)>,
+    /// The session host's restart budget, when the test keeps one.
+    budget: Option<cmux_supervise_core::Budget>,
 }
 
 impl Platform for Fake {
@@ -78,6 +80,37 @@ impl Platform for Fake {
     fn reply_identity(&mut self, id: Option<&str>) {
         self.replies.push((self.reads, id.map(str::to_owned)));
     }
+    fn record_stop(
+        &mut self,
+        cause: cmux_supervise_core::StopCause,
+    ) -> Option<cmux_supervise_core::BudgetState> {
+        self.budget.as_ref().map(|b| b.record(cause).unwrap())
+    }
+}
+
+/// A session host crash is counted on the supervisor contract before the machine sees it; past
+/// the budget the agent holds (an hour's backoff) instead of restarting at once.
+#[test]
+fn a_crash_past_the_restart_budget_is_counted_and_held() {
+    let dir = std::env::temp_dir().join(format!("cmux-host-budget-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let budget = cmux_supervise_core::Budget::new(dir.join("stops.json"), 0);
+    let fake = Fake {
+        observations: std::iter::repeat_n(Some("a"), 4).collect(),
+        wakes: [Wake::Identity, Wake::ProcessExit, Wake::Terminate].into(),
+        exits: [Exit::Daemon { lived_ms: 60_000 }].into(),
+        budget: Some(budget.clone()),
+        ..Fake::default()
+    };
+    let mut agent = Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
+    agent.run().unwrap();
+    let ran = &agent.platform.ran;
+    assert!(ran.contains(&"arm-backoff"), "held: {ran:?}");
+    assert!(!ran.contains(&"spawn-daemon"), "held, no restart: {ran:?}");
+    let ledger = budget.today();
+    assert_eq!(ledger.faults, 1);
+    assert!(matches!(ledger.recent[0].cause, cmux_supervise_core::StopCause::Died(_)));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
