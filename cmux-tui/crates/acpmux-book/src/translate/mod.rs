@@ -251,6 +251,80 @@ pub fn cut(value: &str, cap: usize) -> &str {
     }
     value.get(..end).unwrap_or_default()
 }
+
+/// Parse RFC3339 seconds independently of the local timezone. Fractional seconds are ignored;
+/// an absent or malformed timestamp leaves the checkpoint time unchanged.
+fn timestamp(s: &str) -> Option<u64> {
+    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    let y = n(0..4)?;
+    let m = n(5..7)?;
+    let d = n(8..10)?;
+    let h = n(11..13)?;
+    let min = n(14..16)?;
+    let sec = n(17..19)?;
+    if s.get(4..5)? != "-"
+        || s.get(7..8)? != "-"
+        || !matches!(s.get(10..11)?, "T" | "t")
+        || s.get(13..14)? != ":"
+        || s.get(16..17)? != ":"
+        || !(1..=12).contains(&m)
+        || !(1..=31).contains(&d)
+        || !(0..=23).contains(&h)
+        || !(0..=59).contains(&min)
+        || !(0..=59).contains(&sec)
+    {
+        return None;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let month_days = *month_days.get(usize::try_from(m - 1).ok()?)?;
+    if d > month_days {
+        return None;
+    }
+    let y = y.checked_sub(i64::from(m <= 2))?;
+    let era = y.div_euclid(400);
+    let yo = y.checked_sub(era.checked_mul(400)?)?;
+    let mp = m.checked_add(if m > 2 { -3 } else { 9 })?;
+    let doy = (153i64.checked_mul(mp)?.checked_add(2)? / 5).checked_add(d)?.checked_sub(1)?;
+    let doe = yo.checked_mul(365)?.checked_add(yo / 4)?.checked_sub(yo / 100)?.checked_add(doy)?;
+    let days = era.checked_mul(146097)?.checked_add(doe)?.checked_sub(719468)?;
+    let tail = s.get(19..)?;
+    let zone = if let Some(frac) = tail.strip_prefix('.') {
+        let pos = frac.find(|c: char| !c.is_ascii_digit())?;
+        if pos == 0 {
+            return None;
+        }
+        frac.get(pos..)?
+    } else {
+        tail
+    };
+    let offset = if matches!(zone, "Z" | "z") {
+        0
+    } else {
+        if zone.len() != 6 || zone.get(3..4)? != ":" {
+            return None;
+        }
+        let zh = zone.get(1..3)?.parse::<i64>().ok()?;
+        let zm = zone.get(4..6)?.parse::<i64>().ok()?;
+        if zh > 23 || zm > 59 {
+            return None;
+        }
+        let v = zh.checked_mul(3600)?.checked_add(zm.checked_mul(60)?)?;
+        match zone.get(..1)? {
+            "+" => v,
+            "-" => v.checked_neg()?,
+            _ => return None,
+        }
+    };
+    u64::try_from(
+        days.checked_mul(86400)?
+            .checked_add(h.checked_mul(3600)?)?
+            .checked_add(min.checked_mul(60)?)?
+            .checked_add(sec)?
+            .checked_sub(offset)?,
+    )
+    .ok()
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Stream {
     key: String,

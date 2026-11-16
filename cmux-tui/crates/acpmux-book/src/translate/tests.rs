@@ -13,6 +13,14 @@ fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error
 }
 const SEED: &str = include_str!("fixtures/seed-turn.ndjson");
 const ANSWER: &str = "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
+
+#[test]
+fn shared_timestamp_handles_leap_year_boundaries() {
+    assert_eq!(timestamp("2024-02-29T00:00:00Z"), Some(1_709_164_800));
+    assert_eq!(timestamp("2024-03-01T00:00:00Z"), Some(1_709_251_200));
+    assert_eq!(timestamp("2024-12-31T00:00:00Z"), Some(1_735_603_200));
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Mirror {
     rows: BTreeMap<u64, OwnedRow>,

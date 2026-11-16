@@ -166,7 +166,7 @@ fn answer(
 pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Result<(), Error> {
     let record: Record<'_> = input::parse(bytes)?;
     let Some(payload) = record.payload.as_ref() else { return Ok(()) };
-    state.at = timestamp(&record.timestamp).unwrap_or(state.at);
+    state.at = super::timestamp(&record.timestamp).unwrap_or(state.at);
     state.at_ms = state.at.saturating_mul(1000);
 
     if record.kind == "event_msg" {
@@ -245,55 +245,11 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
         if let Some(raw) = payload.message {
             let _ = input::text(raw)?;
         }
-        if let Some(raw) = payload.content {
-            if raw.get().starts_with('[') {
-                let _ = content_text(raw, false)?;
-            }
+        if let Some(raw) = payload.content
+            && raw.get().starts_with('[')
+        {
+            let _ = content_text(raw, false)?;
         }
     }
     Ok(())
-}
-
-fn timestamp(value: &str) -> Option<u64> {
-    let n = |range: std::ops::Range<usize>| value.get(range)?.parse::<u64>().ok();
-    let y = n(0..4)?;
-    let m = n(5..7)?;
-    let d = n(8..10)?;
-    let h = n(11..13)?;
-    let min = n(14..16)?;
-    let sec = n(17..19)?;
-    if value.get(4..5)? != "-"
-        || value.get(7..8)? != "-"
-        || !matches!(value.get(10..11)?, "T" | "t")
-        || value.get(13..14)? != ":"
-        || value.get(16..17)? != ":"
-    {
-        return None;
-    }
-    // A small civil-date conversion, sufficient for the RFC3339 seconds used by rollouts.
-    let days = 365u64
-        .saturating_mul(y.saturating_sub(1970))
-        .saturating_add((y.saturating_sub(1969)) / 4)
-        .saturating_add(match m {
-            1 => 0,
-            2 => 31,
-            3 => 59,
-            4 => 90,
-            5 => 120,
-            6 => 151,
-            7 => 181,
-            8 => 212,
-            9 => 243,
-            10 => 273,
-            11 => 304,
-            12 => 334,
-            _ => return None,
-        })
-        .saturating_add(d.saturating_sub(1));
-    Some(
-        days.saturating_mul(86_400)
-            .saturating_add(h.saturating_mul(3_600))
-            .saturating_add(min.saturating_mul(60))
-            .saturating_add(sec),
-    )
 }
