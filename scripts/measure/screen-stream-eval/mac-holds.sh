@@ -29,6 +29,15 @@ PY=/usr/bin/python3
 PROFILES="stall wifi-away wifi-short wifi-long wifi-loss"
 
 plr_of() { case "$1" in wifi-away|wifi-loss) echo 0.02 ;; *) echo 0 ;; esac; }
+# A recorded pid may be stale (a killed watchdog, a reboot): act on it only while it still runs this
+# script's watchdog, its hold loop or a dnctl the loop started.
+ours() {
+  [ -n "${1:-}" ] || return 1
+  case "$(ps -o command= -p "$1" 2>/dev/null)" in
+    *mac-holds.sh\ _watchdog*|*[Pp]ython*" -I - $PIPE "*|"dnctl pipe $PIPE "*) return 0 ;;  # /usr/bin/python3 may exec the CLT Python
+  esac
+  return 1
+}
 known() { case " $PROFILES " in *" $1 "*) return 0 ;; esac; echo "unknown profile $1 (one of: $PROFILES)" >&2; return 1; }
 
 schedule() {  # PROFILE MAX_S: one {"start_s", "hold_ms", "kind"} line per hold, in order
@@ -85,7 +94,7 @@ case "${1:-}" in
     for p in "$@"; do
       [[ "$p" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || { echo "not an IPv4 address: $p" >&2; exit 2; }
     done
-    [ -f "$ST/watchdog.pid" ] && kill -0 "$(cat "$ST/watchdog.pid")" 2>/dev/null && { echo "watchdog already running" >&2; exit 1; }
+    ours "$(cat "$ST/watchdog.pid" 2>/dev/null)" && { echo "watchdog already running" >&2; exit 1; }
     clear_all
     : > "$ST/holds.jsonl"
     schedule "$prof" "$max" > "$ST/schedule.jsonl" || { echo "no schedule" >&2; exit 1; }
@@ -142,7 +151,8 @@ PYEOF
   clear)
     # The hold loop first, and wait until it and any dnctl it started have exited: a `dnctl pipe config`
     # still running after the pipe is deleted would create it again. Then the watchdog, then the pipe.
-    stop_pid() {  # PID: TERM, wait up to 3 s, then KILL and wait
+    stop_pid() {  # PID: TERM, wait up to 3 s, then KILL and wait; never a pid that is no longer ours
+      ours "$1" || return 0
       kill -TERM "$1" 2>/dev/null
       for _ in $(seq 15); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.2; done
       kill -KILL "$1" 2>/dev/null; for _ in $(seq 10); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.2; done
@@ -155,7 +165,7 @@ PYEOF
     clear_all
     sleep 0.5
     dnctl list 2>/dev/null | grep -q "^0$PIPE:" && { echo "pipe came back; clearing again" >&2; clear_all; }
-    for p in $pp $wp; do kill -0 "$p" 2>/dev/null && echo "still running: $p" || echo "exited: $p"; done
+    for p in $pp $wp; do ours "$p" && echo "still running: $p" || echo "exited: $p"; done
     echo "holds: $(wc -l < "$ST/holds.jsonl" 2>/dev/null || echo 0)"
     ;;
   show)
