@@ -1,6 +1,7 @@
 /**
- * One apt index update with the snapshot mirror outage fallback, shared by the base image's apt
- * (bake.ts APT_UPDATE_COMMAND) and the browser role's first-use install (browser-probe.ts).
+ * One apt index update with the snapshot mirror outage fallback, for the base image's pgdg install
+ * (bake.ts APT_UPDATE_COMMAND). Ubuntu pins read no index: they are fetched by content
+ * (lock.ts aptDebFetchCommand), because the archive this falls back to drops superseded versions.
  *
  * `--error-on=any`: without it apt-get update exits 0 when an index fails to download (it warns
  * and keeps the old or no index), so a mirror outage surfaced later as a locked pin with no size,
