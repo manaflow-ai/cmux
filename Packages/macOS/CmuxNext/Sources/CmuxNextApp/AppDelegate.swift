@@ -216,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
-        daemonPrompts = DaemonPrompts.start(services)
+        daemonPrompts = DaemonPrompts.start(services, afterFrame: firstFrame.whenOpen)
         services.healthFeeds.start() // app health: before the daemon's first ensure
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
@@ -369,7 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, untilWritable: { [daemon = services.daemon] in await daemon.untilLive() }) // fresh-install Glass, theme rotation: written once the daemon is live
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
-        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
+        firstFrame.whenOpen { [weak services] in services.map { KeepAwakeService.shared.start(settings: settings, store: $0.daemon.store, menuBar: $0.menuBarExtra) } } // its per-workspace feed: after the first frame
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
@@ -406,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !environment.noActivate { services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
-        WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
+        firstFrame.whenOpen { [weak services] in services.map { WorkspaceAutoNameWiring(services: $0).start(settings: settings) } } // hq#1957; its per-workspace watches: after the first frame
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
         services.followMacScreenSettings(settings)
