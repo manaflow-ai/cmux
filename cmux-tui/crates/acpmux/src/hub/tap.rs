@@ -490,7 +490,7 @@ impl Hub {
                 }
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     todo_plan =
-                        crate::acp_todo_plan::observe(&tap_session.id, &mut params["update"])
+                        super::tap_stage::observe_todo(&tap_session.id, &mut params["update"])
                             .map(|update| (params.get("sessionId").cloned(), update));
                 }
                 // A predicted next prompt reaches the composer only when likely to be taken
@@ -498,7 +498,7 @@ impl Hub {
                 if subagent.is_none() && !muted && kind == "prompt_suggestion" {
                     let harness =
                         tap_session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness.clone();
-                    crate::suggestion_gate::filter_update(
+                    super::tap_stage::filter_suggestion(
                         &tap_hub.suggestion_gate,
                         &tap_session.id,
                         &harness,

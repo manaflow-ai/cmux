@@ -13,3 +13,16 @@ pub(super) fn enrich_gemini_plan(update: &mut Value, cwd: &Path, homes: &[std::p
         super::gemini_plan::with_plan_update(update, cwd, homes);
     }
 }
+
+pub(super) fn observe_todo(session: &str, update: &mut Value) -> Option<Value> {
+    super::acp_todo_plan::observe(session, update)
+}
+
+pub(super) fn filter_suggestion(
+    gate: &std::sync::Mutex<super::suggestion_gate::Gate>,
+    session: &str,
+    harness: &str,
+    update: &mut Value,
+) {
+    super::suggestion_gate::filter_update(gate, session, harness, update);
+}
