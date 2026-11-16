@@ -2494,28 +2494,31 @@ function TranscriptView({
     // corners rounding as it turns into a card, the ghost copy of one that left removed. Each surface
     // is watched itself, motions are read once they end, and the dock's own children and their
     // `data-card` are read as they change.
+    const SURFACES = `:scope > .acpmux-running-tray, .acpmux-composer-box`;
     const watched = new WeakSet<Element>();
-    const watchSurfaces = () => {
-      for (const surface of dock.querySelectorAll(`:scope > .acpmux-running-tray, .acpmux-composer-box`)) {
-        if (watched.has(surface)) continue;
-        watched.add(surface);
-        besideObserver.observe(surface);
-      }
-    };
-    watchSurfaces();
-    const settled = () => paintBeside();
-    dock.addEventListener("animationend", settled);
-    dock.addEventListener("transitionend", settled);
+    // Its childList on the dock (a ghost tray removed, a new tray), and each surface's own
+    // `data-card` (its corners round as the tray turns into a card).
     const besideMutations = new MutationObserver(() => {
       watchSurfaces();
       paintBeside();
     });
-    besideMutations.observe(dock, {
-      childList: true,
-      attributes: true,
-      attributeFilter: ["data-card"],
-      subtree: false,
-    });
+    const watchSurfaces = () => {
+      for (const surface of dock.querySelectorAll(SURFACES)) {
+        if (watched.has(surface)) continue;
+        watched.add(surface);
+        besideObserver.observe(surface);
+        besideMutations.observe(surface, { attributes: true, attributeFilter: ["data-card"] });
+      }
+    };
+    besideMutations.observe(dock, { childList: true });
+    watchSurfaces();
+    // Only a surface's own motion moves it; the composer's hovers and the tray's count rolls do not.
+    const settled = (event: Event) => {
+      if (event.target instanceof Element && event.target.matches(".acpmux-running-tray, .acpmux-composer-box"))
+        paintBeside();
+    };
+    dock.addEventListener("animationend", settled);
+    dock.addEventListener("transitionend", settled);
     noteQueue();
     const space = over();
     const fullHeight = height();
