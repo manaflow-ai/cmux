@@ -478,6 +478,37 @@ async fn a_remote_start_keeps_its_report_to_watch_on_the_starters_daemon() {
     assert!(app_child["result"]["sessionId"].is_string(), "{app_child}");
     let watches = ca.call(method::MUX_WATCH_LS, json!({})).await;
     assert_eq!(watches["result"]["watches"].as_array().unwrap().len(), 2);
+
+    // The child emits its refusal in its journal. The starter's daemon reads it over
+    // the peer link and delivers the report without running any tool in the child.
+    let mut events = a.subscribe();
+    a.start_watches();
+    let remote = b.resolve(&child).unwrap();
+    b.append(
+        &remote,
+        "mux",
+        "harness_sandbox_failed",
+        json!({
+            "error": "cannot create .git/index.lock: Permission denied", "remote": true
+        }),
+    );
+    let report = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.session_id == parent
+                && event.record.kind == "user_message"
+                && let Some(text) = event.record.msg["text"].as_str()
+                && text.contains("index.lock")
+            {
+                break text.to_owned();
+            }
+        }
+    })
+    .await
+    .expect("the remote refusal never reached the starter");
+    assert!(report.contains("blocked") && report.contains("Full access"), "{report}");
+    b.shutdown_all().await;
+    a.shutdown_all().await;
 }
 
 #[cfg(target_os = "linux")]
