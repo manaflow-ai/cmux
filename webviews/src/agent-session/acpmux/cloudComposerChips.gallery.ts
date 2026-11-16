@@ -9,8 +9,9 @@
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../gallery/play";
+import { COMPOSER_EDITOR } from "./composerSelectors";
 
-const FIELD = ".acpmux-composer-prompt [contenteditable='true']";
+const FIELD = COMPOSER_EDITOR;
 const STRIP = ".acpmux-composer-context";
 const PLACEHOLDER = "Mode";
 const LONG_TEAM = "leo@cmux.com's";

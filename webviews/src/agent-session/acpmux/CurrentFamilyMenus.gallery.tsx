@@ -2,11 +2,12 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
+import { MODEL_PICKER } from "./composerSelectors";
 
 type Props = { harness: "claude" | "codex"; surface: "composer" | "retry" };
 const open: Play = async (ctx) => {
   const retry = ctx.document.querySelector(".cv-turn-retry-menu");
-  await ctx.click({ selector: retry ? ".cv-turn-retry-menu" : ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: retry ? ".cv-turn-retry-menu" : MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
 };
 
