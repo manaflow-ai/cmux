@@ -75,27 +75,56 @@ struct CmdClickOpensInRightPaneTests {
     func aCLIBrowserFromATerminalOpensInThePaneOnItsRight(_ kind: Right) async throws {
         try await Self.withLayout(right: kind) { services, content, source, right, connection in
             let panes = Set(content.panes.keys)
-            // The harness's first pane holds an agent chat: give it the terminal the person types `cmux browser open` in.
-            let shell = try await connection.newTab(in: source.pane.handle).surface
-            try await PinnedPageTests.until({ source.pane.tabs.contains { $0.surface == shell && $0.terminalID != nil } },
-                                            report: { "the source's new terminal has no id: \(source.pane.tabs.map { "\($0.id) \($0.kind)" })" })
-            let terminal = try #require(source.pane.tabs.first { $0.surface == shell })
-            let before = Set(services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-            var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: terminal.id),
-                                              arguments: ["url": .string("http://127.0.0.1:9/from-the-cli")], origin: .cli)
-            invocation.callerTerminal = terminal.terminalResourceID?.rawValue ?? terminal.terminalID?.rawValue
-            #expect(services.registry.perform("openBrowser", invocation: invocation))
-            @MainActor func made() -> String? {
-                services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-                    .first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
-            }
-            try await PinnedPageTests.until({ made() != nil }, report: { "the CLI's browser made no tab" })
-            let tab = try #require(made())
+            let tab = try await Self.openFromCLI(services, connection, in: source)
             try await PinnedPageTests.until({ right.pane.tabs.contains { $0.id == tab } },
                                             report: { "the CLI's browser is not a tab in the pane on the right: " + Self.describe(content) })
             #expect(Set(content.panes.keys) == panes, "the CLI's browser made a new split: \(Self.describe(content))")
             #expect(!source.pane.tabs.contains { $0.id == tab }, "the CLI's browser stayed in the terminal's pane: \(Self.describe(content))")
         }
+    }
+
+    /// The gap left by the first fix (Chief 2026-11-16): `cmux browser open` from a terminal with nothing on its right
+    /// opened in the terminal's own pane. Like a Cmd-click it splits right: a new pane, never the source.
+    @Test func aCLIBrowserFromATerminalWithNothingOnItsRightSplitsRight() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
+            let source = try #require(services.paneController(for: model))
+            services.windows.active?.window?.setFrame(NSRect(x: 0, y: 0, width: 2000, height: 1000), display: true)
+            try await PinnedPageTests.until({ (LinkOpener.width(of: source) ?? 0) >= 2 * RightColumnPlacement.minimumChatWidth },
+                                            report: { "the source pane did not widen: \(LinkOpener.width(of: source) ?? -1)" })
+            services.linkOpener.placement = { .splitRight }
+            let panes = Set(content.panes.keys)
+            let tab = try await Self.openFromCLI(services, connection, in: source)
+            @MainActor func shown() -> PaneController? {
+                content.panes.first { !panes.contains($0.key) && $0.value.pane.tabs.contains { $0.id == tab } }?.value
+            }
+            try await PinnedPageTests.until({ shown() != nil },
+                                            report: { "the CLI's browser is not in a new pane on the right: " + Self.describe(content) })
+            #expect(!source.pane.tabs.contains { $0.id == tab }, "the CLI's browser stayed in the terminal's pane: \(Self.describe(content))")
+        }
+    }
+
+    /// Runs `openBrowser` as `cmux browser open` from a terminal does: aimed at the caller's own terminal tab,
+    /// naming that terminal. The harness's first pane holds an agent chat, so a terminal is added to `source` first.
+    /// Returns the new browser tab once the daemon lists it.
+    private static func openFromCLI(_ services: AppServices, _ connection: DaemonConnection, in source: PaneController) async throws -> String {
+        // The harness's first pane holds an agent chat: give it the terminal the person types `cmux browser open` in.
+        let shell = try await connection.newTab(in: source.pane.handle).surface
+        try await PinnedPageTests.until({ source.pane.tabs.contains { $0.surface == shell && $0.terminalID != nil } },
+                                        report: { "the source's new terminal has no id: \(source.pane.tabs.map { "\($0.id) \($0.kind)" })" })
+        let terminal = try #require(source.pane.tabs.first { $0.surface == shell })
+        let before = Set(services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: terminal.id),
+                                          arguments: ["url": .string("http://127.0.0.1:9/from-the-cli")], origin: .cli)
+        invocation.callerTerminal = terminal.terminalResourceID?.rawValue ?? terminal.terminalID?.rawValue
+        #expect(services.registry.perform("openBrowser", invocation: invocation))
+        @MainActor func made() -> String? {
+            services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                .first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
+        }
+        try await PinnedPageTests.until({ made() != nil }, report: { "the CLI's browser made no tab" })
+        return try #require(made())
     }
 
     enum Right: Sendable { case browser, terminal }

@@ -12,4 +12,12 @@ extension Strings {
     static var verificationFillCode: String { String(localized: "browser.verification.fillCode", defaultValue: "Fill Code", bundle: .localizedModule) }
     static var verificationOpenLink: String { String(localized: "browser.verification.openLink", defaultValue: "Open Link", bundle: .localizedModule) }
     static var verificationNotNow: String { String(localized: "browser.verification.notNow", defaultValue: "Not Now", bundle: .localizedModule) }
+    /// The suggestion under the code field: "Fill code 482 913".
+    static func verificationSuggestionFill(code: String) -> String {
+        String(localized: "browser.verification.suggestion.fill", defaultValue: "Fill code \(code)", bundle: .localizedModule)
+    }
+    /// Its second line: the sender's site, "From slack.com".
+    static func verificationSuggestionFrom(site: String) -> String {
+        String(localized: "browser.verification.suggestion.from", defaultValue: "From \(site)", bundle: .localizedModule)
+    }
 }
