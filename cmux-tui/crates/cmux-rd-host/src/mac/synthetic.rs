@@ -23,7 +23,7 @@ use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, as ScreenCaptureKit delivers.
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
@@ -259,9 +259,11 @@ pub fn open(cfg: &SessionCfg, source: Synthetic) -> Res<Halves> {
         let shared = shared.clone();
         let interval = Duration::from_nanos(1_000_000_000 / u64::from(fps.max(1)));
         std::thread::Builder::new().name("cmux-rd-synthetic".into()).spawn(move || {
+            let mut deadline = Instant::now() + interval;
             while !shared.stop.load(Ordering::Relaxed) {
-                std::thread::sleep(interval);
+                synthetic::sleep_until(deadline);
                 shared.wake();
+                deadline = synthetic::next_tick(deadline, interval, Instant::now());
             }
         })
     });
