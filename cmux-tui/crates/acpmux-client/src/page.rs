@@ -1462,7 +1462,7 @@ mod tests {
                     sid: "fixture-sid".into(),
                     slot: "all".into(),
                     upserts: vec![row("chat-old", "session-old", 10)],
-                    remove: Vec::new(),
+                    remove: vec![RowRef { origin: "local".into(), chat_id: "chat-a".into() }],
                     complete: false,
                 },
                 ListEvent::Page {

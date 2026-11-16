@@ -37,8 +37,8 @@ function refusalCode(error: unknown): string {
   return SESSION_LIST_LOST;
 }
 
-function pageFields(request: Record<string, unknown>, kind: SessionListPageRequest["kind"]): Record<string, unknown> {
-  const fields: Record<string, unknown> = { kind };
+function pageFields(request: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = { kind: request.kind };
   if (request.key && typeof request.key === "object") fields.key = request.key;
   if (typeof request.folder === "string") fields.folder = request.folder;
   if (typeof request.cold === "boolean") fields.cold = request.cold;
@@ -126,11 +126,7 @@ export class SessionListHost {
   }
 
   /** Starts a page operation; wire continuation and question ids never enter this request. */
-  page(
-    sid: string,
-    request: Record<string, unknown>,
-    kind: SessionListPageRequest["kind"],
-  ): Promise<string | SessionListResult> {
+  page(sid: string, request: Record<string, unknown>): Promise<string | SessionListResult> {
     const requestedKind = validPageRequest(request);
     if (!requestedKind) return Promise.resolve({ ok: false, code: "list.request" });
     if (!this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.sid" });
@@ -141,7 +137,7 @@ export class SessionListHost {
     } catch {
       return Promise.resolve({ ok: false, code: "list.busy" });
     }
-    const fields = pageFields(request, allowedKind);
+    const fields = pageFields(request);
     return this.post("list.page", { sid, ...fields }).then(
       (reply) => {
         const remote = typeof (reply as { id?: unknown })?.id === "string" ? (reply as { id: string }).id : id;

@@ -255,6 +255,9 @@ class SidList {
             this.questions.set(change.id, { ...question, state: "failed", complete: false, error: change.code });
             this.changed = true;
           }
+        } else {
+          this.error = change.code;
+          this.changed = true;
         }
     }
   }
@@ -601,7 +604,10 @@ export function parseSessionListChange(value: unknown): SessionListChange | null
   }
   if (kind === "origin" && (typeof change.origin !== "string" || typeof change.state !== "string")) return null;
   if ((kind === "off" || kind === "error") && typeof change.code !== "string") return null;
-  if (kind === "error" && change.sid !== undefined && typeof change.sid !== "string") return null;
+  if (kind === "off" || kind === "error") {
+    if (change.sid === null) delete change.sid;
+    if (change.sid !== undefined && typeof change.sid !== "string") return null;
+  }
   if (kind === "rows" && change.complete === undefined) change.complete = false;
   if (kind === "page") {
     if (change.complete === undefined) change.complete = false;

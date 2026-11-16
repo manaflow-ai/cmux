@@ -155,22 +155,23 @@ test("the checked-in ListBatch bytes are applied once by the document store", as
       return method === "list.open" ? { sid: params.sid } : {};
     },
     new SessionListStore(),
-    () => "s.serialized",
+    () => "fixture-sid",
   );
   await host.open();
-  host.store.questionAsked("s.serialized", "q-older", "older");
-  host.store.questionAsked("s.serialized", "q-family", "family");
+  host.store.questionAsked("fixture-sid", "q-older", "older");
+  host.store.questionAsked("fixture-sid", "q-family", "family");
   const fixture = JSON.parse(
     await Bun.file(new URL("./fixtures/v2-session-list-batch.bin", import.meta.url)).text(),
   ) as SessionListBatch;
   receiveSessionList(fixture, lanes);
   await clock.frame();
-  const snapshot = host.store.snapshot("s.serialized")!;
-  expect(snapshot.slots.get("all")?.map((item) => item.chatId)).toEqual(["chat-b", "chat-a", "chat-old"]);
+  const snapshot = host.store.snapshot("fixture-sid")!;
+  expect(snapshot.slots.get("all")?.map((item) => item.chatId)).toEqual(["chat-b", "chat-old"]);
   expect(snapshot.slots.get("live")?.map((item) => item.chatId)).toEqual(["chat-live"]);
   expect(snapshot.questions.get("q-older")?.rows).toEqual([]);
   expect(snapshot.questions.get("q-family")?.deeper).toEqual([{ origin: "local", chatId: "chat-child" }]);
   expect(snapshot.off).toBe("lost");
+  expect(snapshot.error).toBe("list.protocol");
   expect(calls.filter((call) => call.method === "list.taken")).toHaveLength(1);
 });
 
@@ -194,7 +195,7 @@ test("question ids are opaque and a page event may beat its operation reply", as
   await host.open();
   const seen: string[] = [];
   host.store.subscribe("local.1", (snapshot) => seen.push([...snapshot.questions.keys()][0] ?? ""));
-  const page = host.page("local.1", { key: { origin: "local", chatId: "head" } }, "family");
+  const page = host.page("local.1", { kind: "family", key: { origin: "local", chatId: "head" } });
   await clock.frame();
   expect(seen).toEqual([]);
   answer!({ id: "q1" });
@@ -227,7 +228,7 @@ test("on clears a lost state and closes one question without closing its sid", a
     () => "s.on",
   );
   await host.open();
-  const id = (await host.page("s.on", {}, "family")) as string;
+  const id = (await host.page("s.on", { kind: "family" })) as string;
   host.store.apply({ kind: "off", sid: "s.on", code: "lost" });
   host.store.commit("s.on");
   expect(host.store.snapshot("s.on")?.off).toBe("lost");
@@ -248,5 +249,5 @@ test("page refuses unknown caller fields before posting wire-shaped data", async
     () => "s.request",
   );
   await host.open();
-  expect(await host.page("s.request", { cursor: "wire" }, "family")).toEqual({ ok: false, code: "list.request" });
+  expect(await host.page("s.request", { kind: "family", cursor: "wire" })).toEqual({ ok: false, code: "list.request" });
 });
