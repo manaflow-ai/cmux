@@ -238,20 +238,69 @@ struct MacScreenAppKitViewTests {
         window.close()
     }
 
-    @Test func approvalShowsTheRequestAndItsFourAnswers() throws {
+    /// Leo, 2026-11-16: "super ugly". One primary answer (Allow, which the hub remembers for that Mac),
+    /// a quiet Not Now, and the device key and Allow Only This Time behind Details, never a wall of
+    /// four buttons and a fingerprint.
+    @Test func approvalAsksPlainlyWithOneAnswerAndHidesTheKeyBehindDetails() throws {
         let prompt = MacScreenApprovalPrompt()
         prompt.present = { _ in }
+        defer { prompt.update([]) }
         let fingerprint = String(repeating: "ab", count: 32)
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: fingerprint, scope: .full)])
         let view = MacScreenApprovalView(prompt: prompt)
         let shown = texts(under: view)
         #expect(shown.contains(String(format: L.t("macScreen.approval.titleFull", "%@ wants to control this Mac"), "Laptop")))
-        #expect(shown.contains(DeviceIdentity.displayFingerprint(fingerprint)))
-        for id in ["macScreen.approval.deny", "macScreen.approval.once", "macScreen.approval.alwaysView", "macScreen.approval.alwaysFull"] {
-            #expect(findView(id, under: view) is NSButton, "\(id)")
+        #expect(shown.contains(L.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")))
+        #expect(!shown.contains(DeviceIdentity.displayFingerprint(fingerprint)), "the key waits behind Details")
+        let buttons = views(under: view).compactMap { $0 as? MacScreenButton }
+        #expect(buttons.map(\.accessibilityIdentifier()) == ["macScreen.approval.details", "macScreen.approval.deny", "macScreen.approval.allow"])
+        #expect(buttons.filter { $0.role == .primary }.map(\.accessibilityIdentifier()) == ["macScreen.approval.allow"])
+        #expect(view.fittingSize.width == MacScreenApprovalView.width && view.fittingSize.height > 80)
+
+        view.toggleDetails()
+        #expect(texts(under: view).contains(DeviceIdentity.displayFingerprint(fingerprint)))
+        #expect(findView("macScreen.approval.once", under: view) is MacScreenButton)
+        #expect(views(under: view).compactMap { $0 as? MacScreenButton }.filter { $0.role == .primary }.count == 1)
+    }
+
+    /// Allow is the hub's Always at the scope asked for: View Only for a request to see, Full Control
+    /// for a request to control, so the same Mac's next request of that scope is not asked.
+    @Test func allowRemembersTheScopeAskedFor() {
+        for (scope, choice, stored) in [(SessionScope.view, MacScreenApprovalChoice.alwaysView, SessionScope.view),
+                                        (.full, .alwaysFull, .full)] {
+            let words = MacScreenApprovalWords(SessionRequest(id: "s", viewerId: "v", viewerName: "Laptop", scope: scope))
+            #expect(words.allowChoice == choice)
+            let answer = words.allowChoice.answer(requested: scope)
+            #expect(answer.decision == .always && answer.scope == stored && answer.thenPermission == nil)
         }
-        let size = view.fittingSize
-        #expect(size.width == MacScreenApprovalView.width && size.height > 100)
-        prompt.update([])
+    }
+
+    /// Details, an error line: what comes and goes opens below the buttons, so the title, the words
+    /// and the buttons never move, and the panel (anchored at its top) only grows downward.
+    @Test func detailsOpenBelowTheButtonsWithoutMovingThem() throws {
+        let prompt = MacScreenApprovalPrompt()
+        prompt.present = { _ in }
+        defer { prompt.update([]) }
+        prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "cd", count: 32),
+                                      scope: .view)])
+        let view = MacScreenApprovalView(prompt: prompt)
+        func frames() -> [String: CGRect] {
+            view.frame.size = view.fittingSize
+            view.layoutSubtreeIfNeeded()
+            var out: [String: CGRect] = [:]
+            for id in ["macScreen.approval.details", "macScreen.approval.deny", "macScreen.approval.allow"] {
+                if let button = findView(id, under: view) { out[id] = button.convert(button.bounds, to: view) }
+            }
+            return out
+        }
+        let closed = frames()
+        let closedHeight = view.fittingSize.height
+        #expect(closed.count == 3)
+        view.toggleDetails()
+        let open = frames()
+        #expect(open == closed)
+        #expect(view.fittingSize.height > closedHeight)
+        view.toggleDetails()
+        #expect(frames() == closed && view.fittingSize.height == closedHeight)
     }
 }

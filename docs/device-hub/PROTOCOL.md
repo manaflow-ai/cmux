@@ -61,7 +61,7 @@ host-signed allow lists are later work.
 ```
 devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
-        name_pinned INT 0/1, owner_kind, owner_id)
+        name_pinned INT 0/1, owner_kind, owner_id, machine NULL)  -- machine: never listed
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
         PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
@@ -104,7 +104,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, machine?}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `machine` (64 lowercase hex digits, else 400) names the Mac the device runs on: the app sends the SHA-256 of `cmux.device-hub.machine\n` and the Mac's hardware UUID, the same for every build of the app. The first `machine` a device names stays; the hub never lists it. See "Permissions are per Mac". |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
@@ -167,6 +167,18 @@ signing key. Pushes reach only connected devices; there is no backlog, so a
 device refetches state after it reconnects: its devices, relays, its own
 permission list, and every other device's permission list it shows (its access
 to each host), so a change made while it was away never leaves an old value.
+
+## Permissions are per Mac
+
+A Mac gets a new device id for each tagged build of the app (its own bundle id, so its own
+Keychain items) and whenever its identity renews (`device_removed`, `device_key_mismatch`). The
+host's answer is about the Mac, so permission(host, viewer) reads the newest permission row
+(`updated_at`, which a store keeps strictly increasing) between any live device of the host's
+Mac and any live device of the viewer's Mac: the devices with the same `machine` and platform.
+A device that named no `machine` is its own Mac. Lowering a permission ends the sessions above
+it between any devices of the two Macs, and `permissions.changed` goes out for every device of
+the host's Mac. Removing a device still deletes every row that names it, so an answer given to a
+removed device does not carry to the Mac's other devices.
 
 ## Session flow
 

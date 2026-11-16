@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// A button in the theme: `primary` is the accent fill (the default action),
-/// `plain` a faint fill, `destructive` the danger color, `icon` a bare glyph
+/// `plain` a faint fill, `destructive` the danger color, `quiet` bare secondary text, `icon` a bare glyph
 /// that fills on hover. A `hint` draws the key that presses it after the
 /// title and binds that key (u2647), as `CmuxDialogActionButton` did.
 @MainActor
@@ -12,6 +12,8 @@ final class MacScreenButton: NSButton, MacScreenInked {
         case plain
         case destructive
         case icon
+        /// A text button with no fill until hovered, in the secondary ink: a quiet link (Details).
+        case quiet
     }
 
     let role: Role
@@ -138,7 +140,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
         case .primary: colors.onAccent
         case .destructive: colors.danger
         case .plain: colors.primary
-        case .icon: hovering ? colors.primary : colors.secondary
+        case .icon, .quiet: hovering ? colors.primary : colors.secondary
         }
     }
 
@@ -146,7 +148,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
         let pressed = isHighlighted
         switch role {
         case .primary: return colors.accent.withAlphaComponent(colors.accent.alphaComponent * (pressed ? 0.75 : (hovering ? 0.9 : 1)))
-        case .icon: return pressed ? colors.pressed : (hovering && isEnabled ? colors.hover : .clear)
+        case .icon, .quiet: return pressed ? colors.pressed : (hovering && isEnabled ? colors.hover : .clear)
         case .plain, .destructive: return pressed ? colors.pressed : (hovering ? colors.selection : colors.hover)
         }
     }

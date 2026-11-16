@@ -44,6 +44,18 @@ import Testing
         #expect(body["platform"] as? String == "macos")
         #expect(body["signingKey"] as? String == identity.signingKey)
         #expect(body["agreementKey"] as? String == identity.agreementKey)
+        // The Mac it runs on, the same for every build: the hub reads an Always answer about this Mac across its device ids.
+        #expect(body["machine"] as? String == DeviceMachine.current.id)
+        #expect((body["machine"] as? String).map { $0.count == 64 && $0.allSatisfy(\.isHexDigit) && $0 == $0.lowercased() } ?? true)
+    }
+
+    /// The hub matches answers by this value: every build hashes the same hardware UUID to the same id, and only a hash leaves the Mac.
+    @Test func theMachineIsAStableHashOfTheHardwareUUID() {
+        let a = DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445566")
+        #expect(a.id == DeviceMachine(hardwareUUID: " 8a1c3f2e-0d4b-4c5a-9e7f-112233445566\n").id)
+        #expect(a.id?.count == 64 && a.id?.contains("8A1C") == false && a.id?.contains("8a1c") == false)
+        #expect(a.id != DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445567").id)
+        #expect(DeviceMachine(hardwareUUID: nil).id == nil && DeviceMachine(hardwareUUID: "").id == nil)
     }
 
     /// Sign-out ends this device's sessions on the hub (reason `signed_out`) before the account session goes.

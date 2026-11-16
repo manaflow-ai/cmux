@@ -4,9 +4,9 @@ import CmuxDeviceHub
 import Foundation
 
 /// The approval banner for a device hub request (permission Ask), shown by
-/// the Screen Sharing worker, so it appears with the cmux app quit too: the
-/// asking device's name and key fingerprint, the scope, and Deny, Allow Once,
-/// Always Allow View Only, Always Allow Full Control. A floating,
+/// the Screen Sharing worker, so it appears with the cmux app quit too:
+/// who asks and what it could do, Allow (remembered for that Mac) and Not
+/// Now, with the device key and Allow Only This Time under Details. A floating,
 /// non-activating panel at the top right of the main screen, over every app
 /// (full-screen ones too); it never takes the keyboard or the frontmost app.
 /// One request at a time, oldest first; it gives up after the protocol's
@@ -16,6 +16,8 @@ final class ApprovalBanner {
     private(set) var current: SessionRequest?
     private(set) var error: String?
     private var answering = false
+    /// Details is open on the request on screen (closed again for the next request).
+    private var detailsOpen = false
     private var settled: Set<String> = []
     private var panel: NSPanel?
     private var expiry: Timer?
@@ -33,6 +35,7 @@ final class ApprovalBanner {
         guard next?.id != current?.id else { return }
         current = next
         error = nil
+        detailsOpen = false
         answering = false
         expiry?.invalidate()
         expiry = nil
@@ -77,6 +80,12 @@ final class ApprovalBanner {
         changed()
     }
 
+    /// Details opens below the buttons; the panel keeps its top and grows downward.
+    func toggleDetails() {
+        detailsOpen.toggle()
+        render()
+    }
+
     // MARK: Panel
 
     private func render() {
@@ -86,7 +95,8 @@ final class ApprovalBanner {
         }
         let panel = self.panel ?? Self.makePanel()
         self.panel = panel
-        let content = ApprovalView(request: request, error: error, enabled: !answering) { [weak self] in self?.answer($0) }
+        let content = ApprovalView(request: request, error: error, enabled: !answering, detailsOpen: detailsOpen,
+                                   toggleDetails: { [weak self] in self?.toggleDetails() }) { [weak self] in self?.answer($0) }
         panel.contentView = content
         let size = content.fittingSize
         let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -115,15 +125,32 @@ final class ApprovalBanner {
     var frame: CGRect? { panel?.isVisible == true ? panel?.frame : nil }
 }
 
-/// The banner's content (AppKit): a rounded popup surface with the request
-/// and its four answers. Only a press on these buttons answers it.
+/// The banner's content (AppKit), as the app's Mac Screen prompt (`MacScreenApprovalView`): who
+/// asks and what it could do, in plain words; Allow (the hub's Always at the scope asked for, so
+/// this Mac is not asked again) and a quiet Not Now; Details opens below the buttons, so nothing
+/// above them moves, with what Allow keeps, the asking device's key and Allow Only This Time.
+/// Only a press on these buttons answers it.
 @MainActor
 final class ApprovalView: NSView {
-    static let width: CGFloat = 380
+    static let width: CGFloat = 360
     private let stack = NSStackView()
+    private let request: SessionRequest
+    private let error: String?
+    private let enabled: Bool
+    private let answer: (ApprovalChoice) -> Void
+    private let detailsOpen: Bool
+    private let toggle: () -> Void
+    private var targets: [ApprovalButtonTarget] = []
 
-    init(request: SessionRequest, error: String?, enabled: Bool, answer: @escaping (ApprovalChoice) -> Void) {
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
+    init(request: SessionRequest, error: String?, enabled: Bool, detailsOpen: Bool = false, toggleDetails: @escaping () -> Void = {},
+         answer: @escaping (ApprovalChoice) -> Void) {
+        self.detailsOpen = detailsOpen
+        toggle = toggleDetails
+        self.request = request
+        self.error = error
+        self.enabled = enabled
+        self.answer = answer
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 160))
         let surface = NSVisualEffectView()
         surface.material = .popover
         surface.state = .active
@@ -137,7 +164,7 @@ final class ApprovalView: NSView {
         addSubview(surface)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = 12
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
         surface.addSubview(stack)
@@ -145,71 +172,106 @@ final class ApprovalView: NSView {
             surface.leadingAnchor.constraint(equalTo: leadingAnchor), surface.trailingAnchor.constraint(equalTo: trailingAnchor),
             surface.topAnchor.constraint(equalTo: topAnchor), surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor), stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: surface.topAnchor), stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+            stack.topAnchor.constraint(equalTo: surface.topAnchor),
             widthAnchor.constraint(equalToConstant: Self.width),
         ])
-        let textWidth = Self.width - 32
-        let glyph = NSImageView(image: NSImage(systemSymbolName: request.scope == .full ? "cursorarrow.and.square.on.square.dashed" : "eye",
-                                               accessibilityDescription: nil) ?? NSImage())
-        glyph.symbolConfiguration = .init(textStyle: .title3)
-        glyph.contentTintColor = .controlAccentColor
-        let title = Self.label(String(format: request.scope == .full
-                ? RemoteText.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
-                : RemoteText.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName),
-            style: .headline, wraps: true, width: textWidth - 34)
-        let header = NSStackView(views: [glyph, title])
-        header.orientation = .horizontal
-        header.spacing = 10
-        header.alignment = .centerY
-        stack.addArrangedSubview(header)
-        stack.addArrangedSubview(Self.label(String(format: RemoteText.t("macScreen.approval.scope", "Asks for %@."), request.scope.remoteTitle),
-                                            style: .body, color: .secondaryLabelColor))
-        if let fingerprint = request.viewerKeyFingerprint {
-            let caption = Self.label(RemoteText.t("macScreen.approval.fingerprint", "Device key fingerprint"), style: .caption1,
-                                     color: .secondaryLabelColor)
-            let code = Self.label(DeviceIdentity.displayFingerprint(fingerprint), style: .body)
-            code.font = .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
-            code.isSelectable = true
-            let column = NSStackView(views: [caption, code])
-            column.orientation = .vertical
-            column.alignment = .leading
-            column.spacing = 2
-            stack.addArrangedSubview(column)
-        }
-        if let error {
-            stack.addArrangedSubview(Self.label(error, style: .caption1, color: .systemRed, wraps: true, width: textWidth))
-        }
-        func button(_ choice: ApprovalChoice, primary: Bool = false, destructive: Bool = false) -> NSButton {
-            let button = NSButton(title: choice.title, target: nil, action: nil)
-            button.bezelStyle = .push
-            button.isEnabled = enabled
-            button.setAccessibilityIdentifier("macScreen.approval.\(choice.rawValue)")
-            if primary { button.keyEquivalent = "\r" }
-            if destructive { button.hasDestructiveAction = true }
-            let target = ApprovalButtonTarget { answer(choice) }
-            button.target = target
-            button.action = #selector(ApprovalButtonTarget.press)
-            targets.append(target)
-            return button
-        }
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let first = NSStackView(views: [button(.deny, destructive: true), spacer, button(.once, primary: true)])
-        first.orientation = .horizontal
-        first.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(first)
-        first.widthAnchor.constraint(equalToConstant: textWidth).isActive = true
-        let second = NSStackView(views: [button(.alwaysView), button(.alwaysFull)])
-        second.orientation = .horizontal
-        stack.addArrangedSubview(second)
+        build()
     }
-
-    private var targets: [ApprovalButtonTarget] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    override var isFlipped: Bool { true }
+
     override var fittingSize: NSSize { NSSize(width: Self.width, height: ceil(stack.fittingSize.height)) }
+
+    /// Details: the banner rebuilds its content with it open or closed.
+    func toggleDetails() { toggle() }
+
+    private func build() {
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        targets = []
+        let full = request.scope == .full
+        let fullWidth = Self.width - 32
+        let textWidth = fullWidth - 40
+        let glyph = NSImageView(image: NSImage(systemSymbolName: full ? "cursorarrow.and.square.on.square.dashed" : "eye",
+                                               accessibilityDescription: nil) ?? NSImage())
+        glyph.symbolConfiguration = .init(textStyle: .title2)
+        glyph.contentTintColor = .controlAccentColor
+        glyph.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        let title = Self.label(String(format: full
+                ? RemoteText.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
+                : RemoteText.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName),
+            style: .headline, wraps: true, width: textWidth)
+        let body = Self.label(full ? RemoteText.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")
+            : RemoteText.t("macScreen.approval.bodyView", "It can see your screen but can’t control it."),
+            style: .body, color: .secondaryLabelColor, wraps: true, width: textWidth)
+        let text = NSStackView(views: [title, body])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 3
+        let header = NSStackView(views: [glyph, text])
+        header.orientation = .horizontal
+        header.spacing = 12
+        header.alignment = .top
+        stack.addArrangedSubview(header)
+
+        let details = button(RemoteText.t("macScreen.approval.details", "Details"), id: "details", quiet: true) { [weak self] in
+            self?.toggleDetails()
+        }
+        details.setAccessibilityExpanded(detailsOpen)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let notNow = button(RemoteText.t("macScreen.approval.notNow", "Not Now"), id: ApprovalChoice.deny.rawValue) { [weak self] in
+            self?.answer(.deny)
+        }
+        let allowChoice: ApprovalChoice = full ? .alwaysFull : .alwaysView
+        let allow = button(RemoteText.t("macScreen.approval.allow", "Allow"), id: "allow") { [weak self] in self?.answer(allowChoice) }
+        allow.keyEquivalent = "\r"
+        let row = NSStackView(views: [details, spacer, notNow, allow])
+        row.orientation = .horizontal
+        row.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalToConstant: fullWidth).isActive = true
+
+        // Below the buttons: what comes and goes never moves them.
+        if let error {
+            stack.addArrangedSubview(Self.label(error, style: .caption1, color: .systemRed, wraps: true, width: fullWidth))
+        }
+        if detailsOpen {
+            stack.addArrangedSubview(Self.label(String(format: full
+                    ? RemoteText.t("macScreen.approval.remembersFull", "Allow lets %@ control this Mac from now on. Change it in Devices.")
+                    : RemoteText.t("macScreen.approval.remembersView", "Allow lets %@ see this Mac from now on. Change it in Devices."),
+                request.viewerName), style: .caption1, color: .secondaryLabelColor, wraps: true, width: fullWidth))
+            if let fingerprint = request.viewerKeyFingerprint {
+                let caption = Self.label(RemoteText.t("macScreen.approval.deviceKey", "Device key"), style: .caption1, color: .tertiaryLabelColor)
+                let code = Self.label(DeviceIdentity.displayFingerprint(fingerprint), style: .caption1, color: .secondaryLabelColor)
+                code.font = .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
+                code.isSelectable = true
+                code.focusRingType = .none
+                let line = NSStackView(views: [caption, code])
+                line.orientation = .horizontal
+                line.spacing = 6
+                line.alignment = .firstBaseline
+                stack.addArrangedSubview(line)
+            }
+            stack.addArrangedSubview(button(RemoteText.t("macScreen.approval.onlyThisTime", "Allow Only This Time"), id: ApprovalChoice.once.rawValue,
+                                            quiet: true) { [weak self] in self?.answer(.once) })
+        }
+    }
+
+    private func button(_ title: String, id: String, quiet: Bool = false, run: @escaping () -> Void) -> NSButton {
+        let button = NSButton(title: title, target: nil, action: nil)
+        button.bezelStyle = quiet ? .accessoryBarAction : .push
+        if quiet { button.isBordered = false; button.contentTintColor = .secondaryLabelColor }
+        button.isEnabled = enabled
+        button.setAccessibilityIdentifier("macScreen.approval.\(id)")
+        let target = ApprovalButtonTarget(run)
+        button.target = target
+        button.action = #selector(ApprovalButtonTarget.press)
+        targets.append(target)
+        return button
+    }
 
     static func label(_ text: String, style: NSFont.TextStyle, color: NSColor = .labelColor, wraps: Bool = false,
                       width: CGFloat? = nil) -> NSTextField {
