@@ -752,6 +752,9 @@ impl Peer {
                     |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),
                 );
             me.list_follow.store(follows, Ordering::SeqCst);
+            // Every link in this cut asks for the legacy watch at handshake time. Cut E clears
+            // this for a watchless link after feature negotiation.
+            me.set_watch_active(true);
             let kept = me.keep_pipelined(pipelined.as_ref(), build.as_ref());
             let _ = kept_tx.send(kept);
             // The reader publishes the list (`watch_key`) once it is whole, then `Listed`. A
@@ -988,7 +991,6 @@ impl Peer {
                             let mut stopped = false;
                             *self.list_cursor.lock_or_recover() = list_at.take();
                             listed = true;
-                            self.set_watch_active(watch);
                             let list = if follow {
                                 PeerNotice::SessionsPatch { rows, gone: gone_ids(list) }
                             } else {

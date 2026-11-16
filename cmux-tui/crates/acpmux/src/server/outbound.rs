@@ -225,7 +225,7 @@ impl Shared {
             );
             OVERRUNS.fetch_add(1, Ordering::Relaxed);
             state.overrun = Some(overrun);
-            state.held = state.sent.iter().map(|(size, _)| size).sum();
+            state.held = state.sent_bytes;
             state.queue = VecDeque::new();
             state.reads = VecDeque::new();
             self.closed.send_replace(true);
