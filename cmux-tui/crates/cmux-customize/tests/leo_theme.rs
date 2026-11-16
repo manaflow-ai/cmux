@@ -86,7 +86,7 @@ fn every_theme_file_reads_with_no_key_dropped() {
             fs::read_to_string(leo().join(&variant).join(format!("themes/{name}.json"))).unwrap();
         let file = ThemeFile::read(
             &name,
-            Some(Ok(&text)),
+            Some(Ok(text.as_str())),
             &json!({}),
             None,
             Schema::embedded(),
