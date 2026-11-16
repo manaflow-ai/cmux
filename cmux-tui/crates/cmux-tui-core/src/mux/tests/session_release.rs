@@ -376,6 +376,9 @@ fn a_commit_admitted_before_the_release_does_not_land_under_the_next_owner() {
     let session = "release-commit";
     let held = HeldWriter::open(&root, session);
     held.mux.release_ownership(&root.join("control.sock"));
+    // The owner never gives the session up here: a small bound for the wait
+    // of the open that it refuses.
+    let _ = set_owner_wait(SHORT_OWNER_WAIT);
     let next = match WorkspaceRegistry::open(&root, session) {
         Ok(next) => next,
         Err(error) => {
@@ -488,6 +491,9 @@ fn the_next_owner_has_no_commit_that_the_owner_before_made_after_its_release() {
     held.mux.release_ownership(&root.join("control.sock"));
     // The writer's commit ends here, after the release.
     let mux = held.finish();
+    // The owner never gives the session up here: a small bound for the wait
+    // of the open that it refuses.
+    let _ = set_owner_wait(SHORT_OWNER_WAIT);
     let next = match WorkspaceRegistry::open(&root, session) {
         Ok(next) => next,
         Err(error) => {
@@ -529,6 +535,11 @@ fn the_next_owner_says_in_its_start_line_that_the_writer_before_it_ended_late() 
     let held = HeldWriter::open(&root, session);
     let folder = session_folder(&held.mux);
     let mux = held.finish();
+    // The writer's thread ends after its commit. The test waits for that
+    // end here, so the bound of the release does not decide its result.
+    let writer_ended =
+        mux.journal_ingress.writer_ended_by(std::time::Instant::now() + WRITER_THREAD_WAIT);
+    assert!(writer_ended, "setup: the journal writer did not end after its commit");
     mux.shutdown();
     mux.release_ownership(&root.join("control.sock"));
     drop(mux);

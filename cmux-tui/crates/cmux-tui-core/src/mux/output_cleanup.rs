@@ -375,8 +375,14 @@ mod tests {
         (root, mux)
     }
 
-    /// The text with which the open of `session` is refused, if it is.
+    /// The text with which the open of `session` is refused, if it is. The
+    /// owner in these tests never gives the session up, so the open's wait
+    /// for it has a small bound.
     fn refusal_of_the_next_open(root: &Path, session: &str) -> Option<String> {
+        crate::workspace_registry::terminal_state_end::set_kept_owner_wait_for_test(
+            Duration::from_millis(50),
+            None,
+        );
         WorkspaceRegistry::open(root, session).err().map(|error| format!("{error:#}"))
     }
 
