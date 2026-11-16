@@ -82,7 +82,7 @@ main() {
     [[ $rc == 0 ]] || exit "$rc"
   else
     if [[ "$dmg" == nightly ]]; then
-      dmg="$(curl -fsSL --proto '=https' --retry 3 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
         | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
     fi
     [[ "$dmg" == https://* ]] || { echo "LR no nightly DMG in the feed"; exit 3; }
