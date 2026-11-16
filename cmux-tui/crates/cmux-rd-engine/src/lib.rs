@@ -758,6 +758,11 @@ impl MediaEngine {
         }
         let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
+        if self.cc.take_outage_resume() {
+            for state in self.streams.values_mut() {
+                state.gate.clear_in_flight();
+            }
+        }
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         if fb.acked_frame > 0
