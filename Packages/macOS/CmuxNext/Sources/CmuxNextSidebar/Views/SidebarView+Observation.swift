@@ -198,6 +198,8 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 showSpace(leaving: lastState?.activeProfile, entering: state.activeProfile)
+                // A window's first draw (its seed wrote its space) lists a create's row as the reload below does: the row's measure ends here.
+                if lastState == nil { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it

@@ -2,21 +2,23 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextAppCore
 import CmuxNextCompat
+@testable import CmuxNextDaemon
 import CmuxNextLayout
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// A window that the launch's restore opens runs its sidebar's rows pass one time.
+/// A window runs its sidebar's rows pass one time, in the pass's task: a window that the launch's restore opens,
+/// and a new window.
 ///
 /// The restore makes each saved window and then writes `registry.isLaunching = false`, in one turn. The rows pass
 /// reads that value. A rows pass that runs while the window is made (in front of its order-in) reads `true` and its
 /// registration is on that value: the write of `false` marks the pass, and the pass's task runs it a second time,
-/// which is a second walk of each row and a second fill of the rows feed for each restored window. So the window
-/// manager's `present` runs no pass for such a window (2026-11-16): its passes run in their tasks only. A
-/// window that is not the launch's reads `false` while it is made and no write follows: its pass runs one time,
-/// in front of its order-in.
+/// which is a second walk of each row and a second fill of the rows feed for each restored window. The window
+/// manager's `present` runs no pass, for any window (2026-11-16): each pass's first run is its task's, one hop
+/// after the order-in. The spaces of the space bar do not wait for that run: the sidebar's seed writes them from
+/// the store (`NewWindowSidebarRowsFirstFrameTests`).
 ///
 /// The count is the process counter `rebuilds` (`SidebarView.perfCounters`): one for each fill of a sidebar's rows
 /// feed, and the rows pass is the one caller of that fill. Each test sets the counter to zero in its own body, after
@@ -34,8 +36,8 @@ import Testing
     /// A run that marks its own pass again adds at most one hop for each such run. Eight hops are four times the
     /// two, with room for six runs more.
     ///
-    /// The number is checked by a run, not only by this count: in `SidebarSameTurnPendingTests`, a change after the
-    /// call is run by the pass's task inside one drain, and that run is the same first job of the task.
+    /// The number is checked by a run, not only by this count: two tests here read the counter at 0 in front of
+    /// the drain and at 1 after it, and that run is the first job of the pass's task.
     static let hops = 8
 
     /// Lets the main actor run what is queued, `hops` times.
@@ -75,11 +77,10 @@ import Testing
         #expect(runs == 1, "the rows pass of a window that the launch restores ran \(runs) times")
     }
 
-    /// What `present` leaves to the passes' tasks for a window that the launch restores, and what it keeps. The
-    /// window here has no saved sidebar. At its order-in no rows pass ran and the sidebar has no first-frame sample,
-    /// so the model has no spaces: the limit of the rule, the space bar comes one hop after the first frame, as
-    /// before the passes ran in front of an order-in. The band items have their values: that check runs for each
-    /// window. After the launch's end the pass's task writes the spaces, in one run.
+    /// What `present` leaves to the passes' tasks for a window that the launch restores, and what the window has
+    /// at its order-in. The window here has no saved sidebar. At its order-in no rows pass ran, and the model has
+    /// the spaces: the seed wrote them from the store. The band items have their values: that check runs for each
+    /// window. After the launch's end the pass's task runs the pass one time and the spaces are the same.
     @Test func aWindowThatTheLaunchRestoresKeepsItsPassesForTheirTasks() async throws {
         let services = try NewWindowSidebarRowsFirstFrameTests.app()
         let windows = services.windows, id = "restored-no-saved-sidebar"
@@ -102,17 +103,42 @@ import Testing
         #expect(SidebarFirstFrame(model).isComplete, "present left band items of a restored window with no info: \(SidebarFirstFrame(model).faults.map(\.id.rawValue))")
         let atOrderIn = Self.rowsPassRuns
         #expect(atOrderIn == 0, "the rows pass of a window that the launch restores ran \(atOrderIn) times in front of the order-in")
-        #expect(controller.sidebar.sameTurn.firstFrame == nil, "a window that the launch restores has a first-frame sample: a pass ran in front of its order-in")
-        #expect(model.profiles.isEmpty, "a restored window with no saved sidebar has its spaces at the order-in: the limit that the texts name is gone")
+        #expect(model.profiles.map(\.id.rawValue) == NewWindowSidebarRowsFirstFrameTests.spaces, "a restored window with no saved sidebar is ordered in with no spaces in the model: the seed did not write the store's")
         windows.registry.isLaunching = false
         await Self.drain()
-        #expect(model.profiles.map(\.id.rawValue) == NewWindowSidebarRowsFirstFrameTests.spaces, "the pass's task did not write the spaces of a restored window after the launch's end")
+        #expect(model.profiles.map(\.id.rawValue) == NewWindowSidebarRowsFirstFrameTests.spaces, "the pass's task wrote other spaces of a restored window after the launch's end")
         let runs = Self.rowsPassRuns
         #expect(runs == 1, "the rows pass of a window that the launch restores ran \(runs) times")
     }
 
-    /// The control: a window that is not the launch's. Its rows pass runs in the turn that makes the window, and
-    /// the pass's task runs it no second time.
+    /// The spaces that the seed takes from the store are not a saved sidebar's. The rows pass keeps a saved
+    /// sidebar's spaces while the launch's store lists none; it must not keep these, or a space that the store
+    /// dropped would stay in the bar. The window here has no saved sidebar and the store lists two spaces at the
+    /// seed. Then the store lists none, in the launch: a run of the rows pass writes the store's list, which is empty.
+    @Test func theSeedsSpacesFromTheStoreAreNotKeptAsASavedSidebarsAre() throws {
+        let services = try NewWindowSidebarRowsFirstFrameTests.app()
+        let windows = services.windows, id = "restored-seed-spaces"
+        try #require(services.sidebarSnapshots.launchDocument.snapshot(for: id, fallback: true) == nil, "the fixture is wrong: the window has a saved sidebar")
+        windows.previousLaunch = PreviousLaunch(windowIDs: [id], restoredAtMs: 0)
+        windows.registry.isLaunching = true
+        try #require(windows.restoresSession(id), "the fixture is wrong: the window is not one that the launch restores")
+        let controller = windows.makeController(for: WindowRegistry.Window(id: id))
+        defer {
+            controller.teardown()
+            controller.window?.close()
+            withExtendedLifetime(services) {} // the window does not keep the app
+        }
+        let model = controller.sidebar.model
+        try #require(model.profiles.map(\.id.rawValue) == NewWindowSidebarRowsFirstFrameTests.spaces, "the fixture is wrong: the seed wrote no spaces from the store")
+        services.machines.local.store.profiles = []
+        let launching = SidebarBridge.passSections(services, window: controller.state).1
+        try #require(launching, "the fixture is wrong: the rows pass does not read a launch, so it keeps no spaces at all")
+        controller.sidebar.sameTurn.syncNow(rows: true)
+        #expect(model.profiles.isEmpty, "the rows pass kept the spaces that the seed took from the store, as it keeps a saved sidebar's")
+    }
+
+    /// The control: a window that is not the launch's. No rows pass runs in the turn that makes the window, and
+    /// the pass's task runs it one time.
     @Test func aNewWindowRunsItsRowsPassOneTime() async throws {
         let services = try NewWindowSidebarRowsFirstFrameTests.app()
         let windows = services.windows, id = "new-rows-pass"
@@ -125,7 +151,7 @@ import Testing
             withExtendedLifetime(services) {} // the window does not keep the app
         }
         let made = Self.rowsPassRuns
-        #expect(made == 1, "the rows pass of a new window ran \(made) times in the turn that made the window")
+        #expect(made == 0, "the rows pass of a new window ran \(made) times in the turn that made the window")
         await Self.drain()
         let runs = Self.rowsPassRuns
         #expect(runs == 1, "the rows pass of a new window ran \(runs) times")
