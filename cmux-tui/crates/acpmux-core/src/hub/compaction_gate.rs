@@ -355,7 +355,7 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
         let entries = fs::read(dir.path().join("index.snap.kin"))
             .ok()
             .and_then(|bytes| {
-                bytes.get(40..48).map(|bytes| u64::from_le_bytes(bytes.try_into().ok()?))
+                bytes.get(40..48).and_then(|bytes| bytes.try_into().ok()).map(u64::from_le_bytes)
             })
             .unwrap_or(0);
         eprintln!("PR5i compaction_fixture=four_way_closed kin_entries={entries}");
