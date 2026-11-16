@@ -276,6 +276,7 @@
         "appearance.customDensity",
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
+        "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.sidebarSurface",
