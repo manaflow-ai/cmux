@@ -368,6 +368,7 @@ function contentOf(
       // An animated bar is a track and a fill the value scales, so the value runs on `animation`.
       if (props.animation !== undefined) {
         const fraction = Math.max(0, Math.min(1, value));
+        // oxlint-disable jsx-a11y/prefer-tag-over-role -- a native <progress> cannot spring its fill: the fill is a span the value scales, so the track carries the progressbar role.
         return (
           <span
             className="cmux-app-scene-progress-track"
@@ -384,6 +385,7 @@ function contentOf(
             />
           </span>
         );
+        // oxlint-enable jsx-a11y/prefer-tag-over-role
       }
       return (
         <progress
