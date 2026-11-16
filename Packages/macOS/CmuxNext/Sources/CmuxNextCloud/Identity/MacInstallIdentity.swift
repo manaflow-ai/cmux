@@ -1,6 +1,7 @@
 public import CmuxInstallAuthCore
 import CmuxNextCompat
 public import CmuxNextDaemon
+import CmuxNextWakeups
 import CryptoKit
 public import Foundation
 import os
@@ -40,20 +41,20 @@ public actor MacInstallIdentity {
     private var bindWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
     private let now: @Sendable () -> Date
-    /// Waits out a span of `now`'s time: a mint waiter's deadline (tests move their clock instead).
-    private let sleep: @Sendable (TimeInterval) async -> Void
+    /// The clock a mint waiter's deadline runs on (a test's manual clock moves it instead of waiting).
+    private let clock: any Clock<Duration>
     /// The lease Rust's `signin::lease` decides on: the token held, the one mint in flight, the last failed mint.
     private var held: Held?
     private var mint: RunningMint?
     private var failedMint: (id: UUID, error: any Error)?
     /// Callers of ``installToken()`` waiting on the running mint, each until its answer or Rust's bound.
-    private var mintWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var mintWaiters: [UUID: MintWaiter] = [:]
 
     public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?,
                 now: @escaping @Sendable () -> Date = Date.init,
-                sleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) }) {
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
-        self.sleep = sleep
+        self.clock = clock
         self.store = store
         self.transport = transport
         self.deviceName = deviceName
@@ -182,14 +183,11 @@ public actor MacInstallIdentity {
     private func waitForMint(until: Date) async {
         let remaining = max(0, until.timeIntervalSince(now()))
         let id = UUID()
+        let deadline = DemandTimer(owner: "cloud.install.mint-wait", clock: clock)
         await withCheckedContinuation { continuation in
-            mintWaiters[id] = continuation
-            // task-owner: one bounded wait per waiter; the mint's answer, a drop or this deadline resumes it once.
-            Task { [weak self, sleep] in
-                // wakeup-allow: the one deadline of this wait (Rust's mint bound); the mint's answer ends it earlier.
-                await sleep(remaining)
-                await self?.wakeMintWaiter(id)
-            }
+            mintWaiters[id] = MintWaiter(continuation: continuation, deadline: deadline)
+            // The one deadline of this wait (Rust's mint bound); the mint's answer or a drop resumes it earlier.
+            deadline.schedule(after: .seconds(remaining)) { [weak self] in await self?.wakeMintWaiter(id) }
         }
     }
 
@@ -199,6 +197,17 @@ public actor MacInstallIdentity {
         let waiters = mintWaiters
         mintWaiters = [:]
         for waiter in waiters.values { waiter.resume() }
+    }
+
+    /// A caller waiting on the running mint, and the deadline that resumes it at Rust's bound.
+    private struct MintWaiter {
+        var continuation: CheckedContinuation<Void, Never>
+        var deadline: DemandTimer
+
+        func resume() {
+            deadline.cancel()
+            continuation.resume()
+        }
     }
 
     /// Forgets the lease: the held token and the mint in flight (a 401, a sign-out, another user).

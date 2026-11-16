@@ -1,5 +1,6 @@
 import CmuxInstallAuthCore
 import CmuxNextCloud
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// machine list loads); a caller with no usable token hears the stalled step once Rust's bound
 /// (`signin::MINT_BOUND`, 15 s) passes, never "the cmux API did not answer" after the relay's own timeout.
 /// Ordered by events, not timings: the owner holds `/v1/auth/token` until the test releases it, and the bound
-/// passes on the test's clock once the mint is held there. A caller that waits on the held mint never returns,
+/// passes on manual clocks once the mint is held there. A caller that waits on the held mint never returns,
 /// so the time limit fails it.
 @Suite(.timeLimit(.minutes(1))) struct MacInstallMintStallTests {
     @Test func aStalledRenewalNeverHoldsACallWhileTheHeldTokenIsValid() async throws {
@@ -33,21 +34,22 @@ import Testing
     @Test func aStalledMintWithNoUsableTokenNamesItsStepWithinTheBound() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let clock = MintStallClock(), owner = MintStallOwner(clock: clock)
-        // A waiter's deadline passes on the test's clock once the mint is held at the owner.
-        let identity = MacInstallIdentity(
-            store: .files(directory: root), transport: owner, deviceName: "Test Mac", clientVersion: "2.4.0",
-            now: { clock.now },
-            sleep: { span in
-                if await owner.mintHeld() { clock.advance(span) } else { try? await Task.sleep(for: .seconds(span)) }
-            })
+        let clock = MintStallClock(), owner = MintStallOwner(clock: clock), deadlines = ManualClock()
+        let identity = MacInstallIdentity(store: .files(directory: root), transport: owner, deviceName: "Test Mac",
+                                          clientVersion: "2.4.0", now: { clock.now }, clock: deadlines)
         try await identity.signedIn(stackUser: "stack_1", session: { "test-session" })
 
         // The held token expired (a Mac that slept); the next mint hangs at POST /v1/auth/token.
         clock.advance(600)
         await owner.holdTokens()
+        let call = Task { try await identity.installToken() }
+        // The mint is held there and its caller waits on Rust's bound: the bound passes.
+        #expect(await owner.mintHeld())
+        try await deadlines.waitForSleeper()
+        clock.advance(15)
+        deadlines.advance(by: .seconds(15))
         do {
-            _ = try await identity.installToken()
+            _ = try await call.value
             Issue.record("a stalled mint answered a token")
         } catch let stalled as MacInstallIdentity.MintStalled {
             #expect(stalled.refusal["code"]?.stringValue == "credential.minting")
