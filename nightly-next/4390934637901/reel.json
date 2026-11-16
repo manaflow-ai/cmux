@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4390934637901",
+  "notes": "notes/4390934637901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44459,
+      "title": "cmux-tui: unix-only tests compile out on Windows; the PR Windows check compiles tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44548,
+      "title": "acpmux place: the pick's room, this machine's over-budget verdict, and the app's own pane may ask",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44637,
+      "title": "What's New clips: waiting befores share one older app instead of one per tour",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44567,
+      "title": "cmux-rd linux-host: enable --non-interactive for the machine join (one portal grant, or a virtual display)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44582,
+      "title": "base red: AgentPaneView+ResizeProbe decodes the page's resize_probe JSON off the main actor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44556,
+      "title": "Screen sharing: Linux hosts encode on the GPU through VAAPI, with software fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44535,
+      "title": "perf(agent chat): nextFrame cancels the frame or fallback timer that lost",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
