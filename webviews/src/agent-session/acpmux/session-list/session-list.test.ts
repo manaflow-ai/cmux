@@ -62,7 +62,7 @@ const rowsChange = (sid: string, ids: string[]) => ({
 });
 
 const pageChange = (sid: string, id: string, complete = true) => ({
-  kind: "page",
+  kind: "page" as const,
   sid,
   id,
   rows: [row("page-row")],

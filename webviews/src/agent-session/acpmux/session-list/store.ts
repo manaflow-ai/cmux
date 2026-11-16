@@ -30,6 +30,8 @@ export type SessionListSnapshot = {
   readonly off?: string;
 };
 
+export type SessionListBatch = { batch: number; changes: readonly unknown[] };
+
 export type SessionListChange =
   | {
       kind: "rows";

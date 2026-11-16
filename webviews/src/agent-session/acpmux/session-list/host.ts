@@ -1,8 +1,7 @@
-import { SessionListStore, LIST_MAX_QUESTIONS, LIST_MAX_WANTS } from "./store";
+import { SessionListStore, LIST_MAX_QUESTIONS, LIST_MAX_WANTS, type SessionListBatch } from "./store";
 import { receiveSessionList, addSessionListHost, removeSessionListHost } from "./receiver";
 
 export type SessionListPost = (method: string, params: Record<string, unknown>) => Promise<unknown>;
-export type SessionListBatch = { batch: number; changes: readonly unknown[] };
 export type SessionListOpen = { sid: string } | { fallen: string };
 
 export const SESSION_LIST_OFF = "list.off";
