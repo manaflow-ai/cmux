@@ -258,16 +258,29 @@ pub enum ActWriteError {
     Io(#[from] std::io::Error),
     #[error("daemon line writer is unavailable")]
     Unavailable,
+    #[error("daemon line is {bytes} bytes; maximum is 262144")]
+    LineTooLong { bytes: usize },
+}
+
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
+
+pub fn validate_daemon_line(line: &[u8]) -> Result<(), ActWriteError> {
+    if line.len() > MAX_DAEMON_LINE_BYTES {
+        return Err(ActWriteError::LineTooLong { bytes: line.len() });
+    }
+    Ok(())
 }
 
 /// The narrow seam used by the action path to append a daemon line.
 ///
-/// Implementations must not return a place until the line and its terminating
-/// newline have been synced. The shared reference keeps the seam object-safe;
-/// hosted implementations can put their append-only file behind a mutex while
-/// test writers can provide a small in-memory implementation.
+/// Implementations must validate every line as at most 256 KiB, append the
+/// complete batch atomically, sync once, and roll back the file on any error.
+/// They must not return a place until every line and its terminating newline
+/// have been synced. The shared reference keeps the seam object-safe; hosted
+/// implementations can put their append-only file behind a mutex while test
+/// writers can provide a small in-memory implementation.
 pub trait DaemonLineWriter: Send + Sync {
-    fn append_daemon_line(&self, line: &[u8]) -> Result<u64, ActWriteError>;
+    fn append_daemon_lines(&self, lines: &[&[u8]]) -> Result<u64, ActWriteError>;
 }
 
 impl std::fmt::Display for ChatError {

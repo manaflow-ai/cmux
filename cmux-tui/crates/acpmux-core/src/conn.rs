@@ -504,6 +504,9 @@ fn process_frame(
     let value: serde_json::Value = frame.decode_json()?;
     validate_identifiers(&value)?;
     let request: Request = frame.decode_json()?;
+    if let Request::Act(act) = &request {
+        act.validate().map_err(|message| ConnError::InvalidRequest(message.into()))?;
+    }
     if role == Role::Peer {
         validate_peer_request(&request)?;
     }

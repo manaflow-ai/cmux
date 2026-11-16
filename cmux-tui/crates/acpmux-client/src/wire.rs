@@ -20,6 +20,9 @@ pub const CREDIT_WINDOW_BYTES: u64 = 1024 * 1024;
 pub const CONNECTION_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_SUBSCRIPTIONS: usize = 256;
 pub const MAX_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_ACT_ID_BYTES: usize = 64;
+pub const MAX_ACT_OP_BYTES: usize = 32;
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
 
 /// Subscription and request identifiers have one UTF-8 byte bound.
 pub fn identifier_fits(value: &str) -> bool {
@@ -372,6 +375,22 @@ impl Act {
     pub fn since(mut self, since: u64) -> Self {
         self.since = Some(since);
         self
+    }
+
+    /// Validates the bounded fields used by the daemon action writer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.id.is_empty() || self.id.len() > MAX_ACT_ID_BYTES {
+            return Err("action id must be 1..64 UTF-8 bytes");
+        }
+        if self.op.len() > MAX_ACT_OP_BYTES {
+            return Err("action op must be at most 32 UTF-8 bytes");
+        }
+        let encoded =
+            serde_json::to_vec(&self.body).map_err(|_| "action body is not serializable")?;
+        if encoded.len() > MAX_DAEMON_LINE_BYTES {
+            return Err("action daemon line exceeds 256 KiB");
+        }
+        Ok(())
     }
 }
 
@@ -1252,6 +1271,38 @@ mod tests {
         assert_eq!(value["params"]["since"], 7);
         assert!(
             matches!(serde_json::from_value::<Request>(value), Ok(Request::Act(decoded)) if decoded == act)
+        );
+    }
+
+    #[test]
+    fn act_validation_bounds_id_op_and_body() {
+        let valid = Act::new("chat:demo", "append", "a", serde_json::json!({"text":"ok"}));
+        assert!(valid.validate().is_ok());
+        assert!(Act::new("chat:demo", "append", "", serde_json::Value::Null).validate().is_err());
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x".repeat(MAX_ACT_ID_BYTES + 1),
+                serde_json::Value::Null
+            )
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Act::new("chat:demo", "x".repeat(MAX_ACT_OP_BYTES + 1), "x", serde_json::Value::Null)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x",
+                serde_json::Value::String("x".repeat(MAX_DAEMON_LINE_BYTES))
+            )
+            .validate()
+            .is_err()
         );
     }
 
