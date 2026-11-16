@@ -22,18 +22,25 @@ class AgentCLIHybridBenchUITests: XCTestCase {
             .appendingPathComponent("verify/agent-cli-hybrid/\(name).json").path
     }
 
+    /// Whether this test process ran the bench once already. The first launch on a fresh
+    /// simulator draws nothing for its first seconds (it read blank in pty, hybrid and lean
+    /// runs alike, whichever session went first), so one run is made and dropped before any
+    /// is measured.
+    @MainActor private static var warmedUp = false
+
     @MainActor
     func testReplaysEachSessionAsPTYBytesAndAsCellChanges() throws {
+        if !Self.warmedUp, let first = Self.sessions.first, let mode = Self.modes.first {
+            Self.warmedUp = true
+            let app = launch(first, mode)
+            _ = app.staticTexts["hybrid-bench.result"].waitForExistence(timeout: 180)
+            app.terminate()
+        }
         for name in Self.sessions {
             let path = fixture(name)
             XCTAssertTrue(FileManager.default.fileExists(atPath: path), "missing \(path)")
             for mode in Self.modes {
-                let app = XCUIApplication()
-                app.launchArguments += [
-                    "-CmuxMobileHybridBench", "-CmuxMobileHybridBenchFile", path,
-                    "-CmuxMobileHybridBenchMode", mode,
-                ]
-                app.launch()
+                let app = launch(name, mode)
                 let result = app.staticTexts["hybrid-bench.result"]
                 // The attach is drawn within a few seconds; the rest plays at the recorded pace.
                 _ = XCTWaiter.wait(for: [XCTestExpectation(description: "the attach is drawn")], timeout: 4)
@@ -49,6 +56,17 @@ class AgentCLIHybridBenchUITests: XCTestCase {
                 app.terminate()
             }
         }
+    }
+
+    @MainActor
+    private func launch(_ name: String, _ mode: String) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-CmuxMobileHybridBench", "-CmuxMobileHybridBenchFile", fixture(name),
+            "-CmuxMobileHybridBenchMode", mode,
+        ]
+        app.launch()
+        return app
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {
