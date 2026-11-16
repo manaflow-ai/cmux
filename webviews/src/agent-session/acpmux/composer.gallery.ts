@@ -230,7 +230,7 @@ async function pasteCompactImages(ctx: PlayContext, count: number) {
     );
     await new Promise<void>((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(() => done())));
     const ready = sameHeight("ready");
-    editor.dataset.imageHeightProof = JSON.stringify({ before, loading, ready });
+    editor.setAttribute("data-image-height-proof", JSON.stringify({ before, loading, ready }));
   } finally {
     view.Worker.prototype.postMessage = original;
     for (const send of held) send();
