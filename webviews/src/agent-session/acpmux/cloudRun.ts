@@ -36,6 +36,9 @@ export type CloudStart = {
   signedIn?: true;
   /** The plan card's Switch to <team>: the host switches to this team (as the team picker does), then starts. */
   team?: string;
+  /** This tab's empty local chat, which the start replaces: the host accepts a start from a tab whose
+   *  chat is this one, and closes the tab with it once the Cloud chat opens (AgentPaneHandOff). */
+  replacesChat?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -284,6 +287,7 @@ export async function startCloudChat(
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   if (start.signedIn) params.signedIn = true;
   if (start.team) params.team = start.team;
+  if (start.replacesChat) params.replacesChat = start.replacesChat;
   try {
     await call("cloud.startChat", params);
     return { ok: true };

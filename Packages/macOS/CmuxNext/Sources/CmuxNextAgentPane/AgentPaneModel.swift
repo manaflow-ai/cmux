@@ -143,6 +143,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudSignedIn: (@MainActor () -> Bool)?
     /// Bumped by `cloud.signInCancel`: a `cloud.signIn` that began under an older value keeps no click.
     @ObservationIgnored var cloudSignInGeneration = 0
+    /// The empty chat of this pane a `cloud.startChat` named as the one it replaces (``AgentPaneCloudStart/replacesChat``):
+    /// its start's `cloud.signIn` and `cloud.setUp` are taken while this pane still shows that chat.
+    @ObservationIgnored var cloudStartReplaces: String?
     /// This pane's browser sign-in while a `cloud.signIn` waits on it; an expired `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
     /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.

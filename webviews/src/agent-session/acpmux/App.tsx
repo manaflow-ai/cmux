@@ -2259,7 +2259,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (snapshot.sessionId !== undefined || !directClient.current?.newChatPeer());
   /// The composer's agent runs on this Mac (composerAgentLocal): not with Cloud picked for a new chat.
   /// Its health and sign-in are read only then; the folder's trust, rules and accounts stay `healthLocal`'s.
-  const agentLocal = composerAgentLocal(healthLocal, sandbox.mode, snapshot.sessionId);
+  /// An empty chat whose local session opened first still starts on Cloud when picked (`emptyLocalChat`).
+  const agentLocal = composerAgentLocal(
+    healthLocal,
+    sandbox.mode,
+    isNewChat(snapshot, newSession) ? undefined : snapshot.sessionId,
+  );
   // A new chat that will start on another of the person's machines: whether the agent the composer
   // shows is set up there (machineHarnesses.ts; Austin, 2026-11-12: "ideally we should check if the
   // model that is selected is supported on that machine as well but this should just work").
@@ -4832,6 +4837,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sessionSelection?.state !== "pending" &&
     surface !== "quick";
   const sandboxOffered = sandbox.checked && sandboxOfferable;
+  /// A new chat whose local session already opened and is still empty: New Agent Chat or New Cloud
+  /// Chat beside a chat starts its inherited agent at once (a harness switch), so a session shows
+  /// before anything is said. Cloud is still this chat's choice: its first Send starts the chat on a
+  /// Cloud machine, and the host closes this tab with the empty chat (`replacesChat`, AgentPaneHandOff).
+  /// Sandboxed is not: its run's result would be this chat's, which already is one.
+  const emptyLocalChat =
+    freshChat &&
+    Boolean(snapshot.sessionId) &&
+    snapshot.summary?.sessionId === snapshot.sessionId &&
+    snapshot.switching === undefined &&
+    sessionSelection?.state !== "pending" &&
+    surface !== "quick" &&
+    !snapshot.summary?.peer &&
+    snapshot.summary?.hostKind !== "cloud" &&
+    snapshot.origin !== "remote" &&
+    snapshot.origin !== "peer" &&
+    cloudMachineID === undefined;
+  /// Cloud as where this new chat runs: wherever Sandboxed is, and in an empty local chat too.
+  const cloudOfferable = sandboxOfferable || emptyLocalChat;
+  const cloudOffered = sandbox.checked && cloudOfferable;
   /// The tab's Sandboxed result (sandboxRun.ts SandboxTab): its run (running, receipt, or an answer
   /// that may hide a live Run) or a refusal before any Run.
   const sandboxView = sandbox.view();
@@ -4915,9 +4940,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ({
       mode: sandboxModeRows.mode,
       environment: sandboxModeRows.environment,
+      // An empty local chat offers Cloud, not Sandboxed (`emptyLocalChat`).
+      ...(sandboxOffered ? {} : { sandbox: false as const }),
       onMode: (mode: RunMode) => composerModePick.current(mode),
     }),
-    [sandboxModeRows.mode, sandboxModeRows.environment],
+    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered],
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
@@ -4928,11 +4955,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
-  const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  const cloudPicked = sandbox.mode === "cloud" && (!snapshot.sessionId || emptyLocalChat);
   // The permission mode picked for that Cloud start (cloudModePick.ts).
   const cloudModePick = useCloudModePick();
+  // A warm machine is reserved only before a chat opened here: the host reserves none for a tab with one.
   cloudComposeEligible.current = cloudPicked && sandboxOfferable;
-  const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
+  const cloudPickedNotOffered = cloudPicked && !cloudOffered;
   const [startCloud] = useState(() =>
     grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
   );
@@ -5096,7 +5124,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// was held. Edited meanwhile, the composer keeps the edit and the start takes nothing from it.
     heldStillShown?: boolean,
   ): string | boolean => {
-    const refused = cloudPageRefusal({ offerable: sandboxOfferable, checked: sandbox.checked });
+    const refused = cloudPageRefusal({ offerable: cloudOfferable, checked: sandbox.checked });
     if (refused === "cloud_chat_starting") return translate("cloudStart.chatStartingHere");
     if (refused === "cloud_checking") {
       // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
@@ -5140,6 +5168,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(environment ? { environment } : {}),
       ...(reservationKey ? { reservationKey } : {}),
       ...(team ? { team } : {}),
+      // The empty chat this start replaces: the host closes this tab with it once the Cloud chat opens.
+      ...(emptyLocalChat && snapshot.sessionId ? { replacesChat: snapshot.sessionId } : {}),
     };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
@@ -5158,15 +5188,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // becomes that refusal, with New Cloud chat.
   useEffect(() => {
     if (!cloudWaitsForCheck) return;
-    if (sandbox.mode !== "cloud" || snapshot.sessionId) {
+    if (sandbox.mode !== "cloud" || (snapshot.sessionId && !emptyLocalChat)) {
       cloudAfterCheck.drop();
       setCloudHeld(undefined);
-    } else if (sandboxOffered) {
+    } else if (cloudOffered) {
       cloudAfterCheck.offered();
     } else if (sandbox.unread && cloudHeldOnPage.current) {
       cloudAfterCheck.drop();
       setCloudHeld(undefined);
-    } else if (sandbox.checked && !sandboxOfferable) {
+    } else if (sandbox.checked && !cloudOfferable) {
       const held = cloudAfterCheck.take();
       setCloudHeld({
         refusal: translate("cloudStart.chatStartingHere"),
@@ -5177,8 +5207,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [
     cloudAfterCheck,
     cloudWaitsForCheck,
-    sandboxOffered,
-    sandboxOfferable,
+    cloudOffered,
+    cloudOfferable,
+    emptyLocalChat,
     sandbox.checked,
     sandbox.unread,
     sandbox.mode,
@@ -7761,7 +7792,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     runMode: () => sandbox.mode,
     setRunMode(mode) {
-      if (!sandboxOffered && !sandboxPickedNotOffered && !cloudPickedNotOffered) return false;
+      // An empty local chat offers Cloud and This Mac, never Sandboxed (`emptyLocalChat`).
+      const offered = sandboxOffered || (cloudOffered && mode !== "sandboxed");
+      if (!offered && !sandboxPickedNotOffered && !cloudPickedNotOffered) return false;
       sandboxModeRows.onMode(mode);
       return true;
     },
@@ -11117,8 +11150,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!cloudPickPending) return;
     if (newTabWithoutCloud && sandboxOffered && !onOtherMachine) return setCloudLeftPage(newTabGeneration);
     if (showNewTab) return;
-    if (snapshot.sessionId) return takeCloudPick();
-    if (!sandboxOffered || onOtherMachine) return;
+    // A chat that started here drops it; an empty one whose local session opened first still takes it.
+    if (
+      snapshot.sessionId &&
+      (snapshot.rows.length > 0 || (snapshot.summary?.sessionId === snapshot.sessionId && !freshChat))
+    )
+      return takeCloudPick();
+    if (!cloudOffered || onOtherMachine) return;
     takeCloudPick();
     pickCloudInComposer();
   }, [
@@ -11127,6 +11165,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTabGeneration,
     showNewTab,
     snapshot.sessionId,
+    snapshot.summary?.sessionId,
+    snapshot.rows.length,
+    freshChat,
+    cloudOffered,
     sandboxOffered,
     onOtherMachine,
     takeCloudPick,
@@ -13031,7 +13073,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             })}
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(sandboxOffered ? { runMode: composerModeRows } : {})}
+            {...(cloudOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }

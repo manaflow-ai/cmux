@@ -56,8 +56,6 @@ enum CloudHandlers {
             let request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            // The chat the person asked from, read now: sign-in may finish after focus moved.
-            let chat = CloudChatPick.chatTab(invocation, context.services)
             let start: @MainActor () -> ActionWorkFailure? = {
                 guard cloud.isSignedIn else { return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst) }
                 if let reason = cloud.unavailableReason { return ActionWorkFailure(refusal: .unavailable, reason: reason) }
@@ -67,8 +65,10 @@ enum CloudHandlers {
                 let start = CloudHandlerRules().ask("cloud_handler_new_machine_start", [
                     "isDefault": request.takesPlainPath, "byUser": actionOrigin == .user, "hasWindow": window != nil,
                 ])?["start"] as? String
+                // A person's New Cloud Machine opens a chat that runs in Cloud (New Cloud Chat), in the folder of the
+                // tab it was asked from, no setup dialog: the chat's first send starts its machine.
                 if start == "setup" {
-                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
+                    _ = context.registry.perform("palette.newCloudChat", invocation: invocation)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,

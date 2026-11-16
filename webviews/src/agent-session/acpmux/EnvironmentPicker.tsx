@@ -266,7 +266,7 @@ export function EnvironmentPicker({
   // ⌥ already held as the trigger is pressed counts too: the press's own modifier state.
   const [alternate, setAlternate] = useState(false);
   const altAtPress = useRef(false);
-  const offersSandbox = runMode !== undefined;
+  const offersSandbox = runMode !== undefined && runMode.sandbox !== false;
   useEffect(() => {
     if (!open || !offersSandbox) return;
     setAlternate(altAtPress.current);
