@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -2624,6 +2624,18 @@
             "tabs",
             "both",
             "none"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+          "kind": "choice",
+          "default": "antialiased",
+          "group": "Density and Motion",
+          "values": [
+            "antialiased",
+            "system"
           ]
         },
         {
