@@ -294,6 +294,60 @@ mod tests {
         drop(writer);
     }
 
+    /// A bounded step that answers at once answers its own output and exit, on every Unix the drill runs on (the
+    /// production drill runs on macOS): never `--timeout ran out` with the deadline far off.
+    #[cfg(unix)]
+    #[test]
+    fn a_bounded_step_that_answers_at_once_answers_its_output() {
+        let mut command = cmux_process::Command::new("sh");
+        command.arg("-c").arg("echo hi; echo there >&2; exit 3");
+        let began = Instant::now();
+        let ran = output_by(command, began + Duration::from_secs(30));
+        assert_eq!(
+            (ran.code, ran.stdout.as_str(), ran.stderr.as_str()),
+            (3, "hi\n", "there\n"),
+            "after {:?}",
+            began.elapsed()
+        );
+        assert!(began.elapsed() < Duration::from_secs(10), "{:?}", began.elapsed());
+    }
+
+    /// The marker a re-run of this test binary reads to be the child that ignores `SIGCHLD`.
+    #[cfg(unix)]
+    const IGNORED_SIGCHLD_CHILD: &str = "CMUX_TEST_BOUNDED_IGNORED_SIGCHLD_CHILD";
+
+    /// A drill started with `SIGCHLD` ignored (inherited across exec from whatever ran it) still answers a bounded
+    /// step's own output: the system then reaps the step behind the runner's back, and a wait that cannot see its
+    /// exit is not a deadline. Run in a child process of its own (this test binary again), so the ignored `SIGCHLD`
+    /// touches no other test.
+    #[cfg(unix)]
+    #[test]
+    fn a_bounded_step_under_an_ignored_sigchld_answers_its_output() {
+        if std::env::var_os(IGNORED_SIGCHLD_CHILD).is_some() {
+            // SAFETY: `signal` with SIG_IGN installs no handler code; this process is this one test.
+            unsafe {
+                libc::signal(libc::SIGCHLD, libc::SIG_IGN);
+            }
+            let mut command = cmux_process::Command::new("sh");
+            command.arg("-c").arg("echo hi; exit 3");
+            let began = Instant::now();
+            let ran = output_by(command, began + Duration::from_secs(30));
+            assert_eq!((ran.code, ran.stdout.as_str()), (3, "hi\n"), "{}", ran.stderr);
+            assert!(began.elapsed() < Duration::from_secs(10), "{:?}", began.elapsed());
+            return;
+        }
+        let status = cmux_process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "cli::cloud_start_chat::internal::bounded::tests::a_bounded_step_under_an_ignored_sigchld_answers_its_output",
+                "--nocapture",
+            ])
+            .env(IGNORED_SIGCHLD_CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "the child with SIGCHLD ignored failed: {status}");
+    }
+
     /// Under a second left after the kill grace and the dispatch margin, no remote script is sent; otherwise the
     /// machine's `timeout` holds those whole seconds, the script quoted whole.
     #[test]
