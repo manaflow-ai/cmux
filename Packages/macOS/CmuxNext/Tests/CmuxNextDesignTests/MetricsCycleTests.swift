@@ -81,7 +81,8 @@ import Testing
             #expect(Metrics.tabStripIsSet)
             #expect(Metrics.tabStripHeight == MetricTunables.tabStripHeight.value)
             #expect(Metrics.tabHeight == Metrics.tabStripHeight - 2 * Metrics.scale(4) - Metrics.stripTopOutset)
-            #expect(readEveryChromeMetric().allSatisfy(\.isFinite))
+            let finite = readEveryChromeMetric().allSatisfy { $0.isFinite }
+            #expect(finite)
         } }
     }
 
@@ -94,8 +95,8 @@ import Testing
                         for panePadding in [nil, 0, 6] as [CGFloat?] {
                             for sidebarRow in [nil, 30] as [CGFloat?] {
                                 with(strip: strip, cornerPadding: cornerPadding, panePadding: panePadding, sidebarRow: sidebarRow) {
-                                    let values = readEveryChromeMetric()
-                                    #expect(values.allSatisfy(\.isFinite),
+                                    let finite = readEveryChromeMetric().allSatisfy { $0.isFinite }
+                                    #expect(finite,
                                             "\(preset) strip \(String(describing: strip)) corner \(String(describing: cornerPadding))")
                                     #expect(Metrics.tabHeight >= 0)
                                     if strip != nil, cornerPadding != nil {
