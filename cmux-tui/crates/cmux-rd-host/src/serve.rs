@@ -213,6 +213,14 @@ impl ServeCarrier {
 }
 
 impl Carrier for ServeCarrier {
+    fn drain_departures(&mut self, out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {
+        self.link.drain_departures(out);
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.link.departure_overflows()
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         let mut fds = self.link.fds();
         fds.push(libc::STDIN_FILENO);
