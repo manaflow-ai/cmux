@@ -367,13 +367,17 @@ export function mentionItems({
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
 /// files land around it), else the first. While the files for the word are still on their way, a
 /// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. Nor is an
-/// extension's item, unless the word named its provider (`@pr`), which puts those rows first. -1: none.
-export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
+/// extension's item, unless the word named its provider (`@pr`, `providerAsked`). -1: none.
+export function mentionSelection(
+  items: readonly MentionItem[],
+  activeKey: string | undefined,
+  pending: boolean,
+  providerAsked = false,
+) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
   if (!pending) return items.length > 0 ? 0 : -1;
-  const extensionLeads = items[0]?.kind === "extension";
-  return items.findIndex((item) => item.kind !== "session" && (item.kind !== "extension" || extensionLeads));
+  return items.findIndex((item) => item.kind !== "session" && (item.kind !== "extension" || providerAsked));
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its

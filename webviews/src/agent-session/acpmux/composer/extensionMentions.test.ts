@@ -67,7 +67,7 @@ describe("extension @ mentions (cmux.composer.mention/1)", () => {
     const after = mentionItems({ query: "app", files: [], sessions: [], extension: [PR] });
     expect(mentionSelection(after, undefined, true)).toBe(-1);
     const first = mentionItems({ query: "pr", files: [], sessions: [], extension: [PR], extensionFirst: true });
-    expect(mentionSelection(first, undefined, true)).toBe(0);
+    expect(mentionSelection(first, undefined, true, true)).toBe(0);
   });
 
   test("an insert that starts like a Markdown block is escaped at the start of a line", () => {

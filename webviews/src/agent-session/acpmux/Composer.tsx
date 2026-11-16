@@ -1382,6 +1382,8 @@ function ComposerFrame({
   const recentScope = searchFiles
     ? recentMentionScope(snapshot.summary?.cwd, snapshot.summary?.peer ?? snapshot.summary?.host)
     : undefined;
+  const mentionProviderAsked =
+    mentionWord !== undefined && mentionAsk(mentionWord, mentionPrefixes).prefix !== undefined;
   const mentions = useMemo(
     () =>
       mentionWord === undefined
@@ -1394,7 +1396,7 @@ function ComposerFrame({
             chatId,
             harnesses: guestHarnesses,
             extension: extensionMentions,
-            extensionFirst: mentionWord !== undefined && mentionAsk(mentionWord, mentionPrefixes).prefix !== undefined,
+            extensionFirst: mentionProviderAsked,
           }),
     [
       mentionWord,
@@ -1404,7 +1406,7 @@ function ComposerFrame({
       chatId,
       recentScope,
       extensionMentions,
-      mentionPrefixes,
+      mentionProviderAsked,
     ],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
@@ -1413,7 +1415,7 @@ function ComposerFrame({
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
     !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
-  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
+  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
   // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
