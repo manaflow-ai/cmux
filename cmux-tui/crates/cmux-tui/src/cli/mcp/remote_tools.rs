@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
+use super::super::app::{ActionName, action_run_params, waiting_run_timeout};
+use super::super::remote_host::LowerChange;
 use super::transport::{CallFailure, FailureKind};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -126,7 +128,7 @@ impl RemoteTool {
             }
             "remote_share" => match arguments.get("on").and_then(Value::as_bool) {
                 Some(true) => return confirm(backend, json!({"action": "share", "on": true})),
-                Some(false) => call("screen.share", json!({"on": false})),
+                Some(false) => return lower(backend, LowerChange::ShareOff),
                 None => return invalid("on is required"),
             },
             "remote_set_access" => {
@@ -149,13 +151,40 @@ impl RemoteTool {
                     Err(failure) => return failure_result(failure),
                 }
             }
-            "remote_stop_session" => call("screen.stop_session", json!({})),
+            "remote_stop_session" => return lower(backend, LowerChange::StopSession),
             _ => return invalid("unknown cmux Remote tool"),
         };
         match backend.daemon(request) {
-            Ok(value) => success(value, self.name != "remote_status"),
+            Ok(mut value) if self.name == "remote_status" => {
+                if let Some(note) = super::super::remote_host::not_bundled_note(&value)
+                    && let Some(fields) = value.as_object_mut()
+                {
+                    fields.insert("note".into(), Value::String(note.into()));
+                }
+                success(value, false)
+            }
+            Ok(value) => success(value, true),
             Err(failure) => failure_result(failure),
         }
+    }
+}
+
+/// Share-off and stop-session: cmux Remote's worker when this build has it,
+/// the cmux app's own action when the daemon says it has none (Release and
+/// NIGHTLY), the same routing as `cmux remote-host share off|stop`.
+fn lower(backend: &impl Backend, change: LowerChange) -> Value {
+    let status = backend.daemon(json!({"cmd": "remote-host-status"})).ok();
+    if !super::super::remote_host::routes_to_app(status.as_ref()) {
+        return match backend.daemon(change.worker_call()) {
+            Ok(value) => success(value, true),
+            Err(failure) => failure_result(failure),
+        };
+    }
+    let action = change.app_action();
+    let params = Value::Object(action_run_params(action, ActionName::Any, "cli"));
+    match backend.app("action.run", params, waiting_run_timeout(action), None, true) {
+        Ok(value) => success(value, true),
+        Err(failure) => failure_result(failure),
     }
 }
 
