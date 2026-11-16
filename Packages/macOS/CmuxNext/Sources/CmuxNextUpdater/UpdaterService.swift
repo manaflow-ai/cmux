@@ -109,6 +109,8 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
+    /// The one-time ask to star cmux on GitHub, in the tip card's slot (``StarPromptCenter``).
+    public let starPrompt: StarPromptCenter
     /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
@@ -310,6 +312,7 @@ public final class UpdaterService {
         self.switcher = switcher
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
+        starPrompt = StarPromptCenter(defaults: defaults, now: now)
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         // On disk too (``UpdateLogFile``): unified logging kept none of a nightly's updater lines.
