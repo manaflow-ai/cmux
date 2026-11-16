@@ -59,7 +59,10 @@ impl Runs {
     }
 
     fn replay_command(&self, seed: u64) -> String {
-        format!("(cd cmux-tui && CMUX_FAULT_SEED={seed} {} -- --nocapture)", self.replay)
+        format!(
+            "(cd cmux-tui && CMUX_FAULT_SEED={seed} {} -- --nocapture --include-ignored)",
+            self.replay
+        )
     }
 
     /// Runs `scenario` once per seed; `Err` names every seed that failed. A run that panics
