@@ -503,3 +503,110 @@ fn own_tree_open_opens_each_folder_whose_git_entry_is_a_link_to_a_git_folder_of_
     assert_eq!(top_folder(&first), first);
     assert_eq!(top_folder(&second), second);
 }
+
+/// git makes the git folder of a linked work tree with the record of the place of the work
+/// tree's `.git` file. A git folder that uses a common folder and has no such record does not
+/// say which folder it is for.
+#[test]
+fn own_tree_open_refuses_a_git_folder_of_a_linked_work_tree_that_has_no_record_of_its_place() {
+    let scratch = Scratch::new("no-record");
+    let main = scratch.0.join("main");
+    new_repository(&main);
+    let linked = linked_work_tree(&main, "linked");
+    let git_folder = main.join(".git/worktrees/linked");
+    std::fs::remove_file(git_folder.join("gitdir")).expect("remove the record");
+    // A folder with a copy of the `.git` file, and a folder whose `.git` entry is a link.
+    let by_file = scratch.folder("by-file");
+    std::fs::copy(linked.join(".git"), by_file.join(".git")).expect("copy the git file");
+    let by_link = scratch.folder("by-link");
+    link_as_git_entry(&by_link, &git_folder);
+
+    let folders = [&linked, &by_file, &by_link];
+    let opened = folders.map(|folder| Repository::open(folder).is_ok());
+    assert_eq!(opened, [false; 3], "the work tree, the `.git` file, the `.git` link");
+    for folder in folders {
+        let problem = refusal(folder);
+        assert!(names_no_command(&problem), "{problem}");
+    }
+
+    assert_eq!(top_folder(&main), main, "the main checkout still opens");
+    let second = linked_work_tree(&main, "second");
+    assert_eq!(top_folder(&second), second, "a linked work tree with its record still opens");
+    git(&linked, &["worktree", "repair"]);
+    assert_eq!(top_folder(&linked), linked, "the work tree opens after git repaired its record");
+}
+
+/// git takes the `core.worktree` setting of a git folder from the config file of that git
+/// folder. A file that the config file includes gives git no such setting.
+#[test]
+fn own_tree_open_takes_no_work_tree_setting_from_a_file_that_the_config_file_includes() {
+    let scratch = Scratch::new("included");
+    let other = scratch.folder("other");
+    let included = scratch.0.join("included");
+    let setting = format!("[core]\n\tworktree = {}\n", text(&other));
+    std::fs::write(&included, setting).expect("write a file");
+    // A work tree whose `.git` file names its git folder, and one whose `.git` entry is a link.
+    let (by_file, store) = (scratch.folder("by-file"), scratch.0.join("store"));
+    new_repository_with_its_git_folder_at(&by_file, &store);
+    let second_store = scratch.0.join("second-store");
+    let by_link = folder_with_a_link_to_a_git_folder(&scratch, "by-link", &second_store);
+
+    let mut opened = Vec::new();
+    for folder in [&by_file, &by_link] {
+        git(folder, &["config", "include.path", text(&included)]);
+        // The control: a read of the config gives the setting, and git gives the folder.
+        assert_eq!(git(folder, &["config", "--get", "core.worktree"]), text(&other));
+        assert_eq!(git(folder, &["rev-parse", "--show-toplevel"]), text(folder));
+        opened.push(Repository::open(folder).map(|repository| repository.root).ok());
+    }
+
+    let each = [Some(by_file.clone()), Some(by_link.clone())];
+    assert_eq!(opened, each, "the open of the `.git` file, of the `.git` link");
+    assert_eq!(top_folder(&by_file), by_file);
+    assert_eq!(top_folder(&by_link), by_link);
+}
+
+/// The setting of an included file changes nothing for a `.git` file that names the git folder
+/// in another work tree: the open reads the name of the git folder, as with no setting.
+#[test]
+fn own_tree_open_reads_the_name_of_a_git_folder_also_with_a_setting_in_an_included_file() {
+    let scratch = Scratch::new("included-name");
+    let other = scratch.0.join("other");
+    new_repository(&other);
+    let folder = scratch.folder("folder");
+    let git_file = format!("gitdir: {}\n", text(&other.join(".git")));
+    std::fs::write(folder.join(".git"), git_file).expect("write a file");
+    let included = scratch.0.join("included");
+    let setting = format!("[core]\n\tworktree = {}\n", text(&folder));
+    std::fs::write(&included, setting).expect("write a file");
+    git(&other, &["config", "include.path", text(&included)]);
+    // The control: a read of the config gives the setting, and git gives the folder as before.
+    assert_eq!(git(&other, &["config", "--get", "core.worktree"]), text(&folder));
+    assert_eq!(git(&other, &["rev-parse", "--show-toplevel"]), text(&other));
+
+    assert!(Repository::open(&folder).is_err(), "the open opens the folder");
+    let problem = refusal(&folder);
+    assert!(problem.contains(NAME_IS_GIT), "{problem}");
+    assert_eq!(top_folder(&other), other, "the other work tree still opens");
+}
+
+/// With the extension `worktreeConfig`, git takes the setting from the file `config.worktree`
+/// of the git folder also.
+#[test]
+fn own_tree_open_takes_the_work_tree_setting_of_the_file_config_worktree() {
+    let scratch = Scratch::new("tree-config");
+    let store = scratch.0.join("store");
+    let folder = folder_with_a_link_to_a_git_folder(&scratch, "folder", &store);
+    git(&folder, &["config", "extensions.worktreeConfig", "true"]);
+    git(&folder, &["config", "--worktree", "core.worktree", text(&folder)]);
+    // The control: the setting is in the file `config.worktree` only.
+    let of = |file: &str| std::fs::read_to_string(store.join(file)).expect("read a file");
+    let in_each =
+        [of("config").contains("worktree ="), of("config.worktree").contains("worktree =")];
+    assert_eq!(in_each, [false, true], "the setting in `config`, in `config.worktree`");
+
+    let problem = refusal(&folder);
+
+    assert!(problem.contains("is a link"), "{problem}");
+    assert!(names_no_command(&problem), "{problem}");
+}
