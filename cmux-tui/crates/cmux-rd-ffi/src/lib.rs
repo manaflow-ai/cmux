@@ -463,6 +463,8 @@ mod line_reader_tests;
 #[cfg(test)]
 mod rb_client_tests;
 #[cfg(test)]
+mod receiver_tests;
+#[cfg(test)]
 mod session_tests;
 #[cfg(test)]
 mod tests;
