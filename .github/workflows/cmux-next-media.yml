@@ -669,9 +669,10 @@ jobs:
             --receipt "$media_dir/capture-receipt.json"
 
       # The new tip's app records each planned clip; for an improvement the app of the commit before its
-      # highlight records its before: the previous tip's for the ones the tip adds, and for an earlier
-      # one (the plan's `before`) an app built at that commit in the base slot, after the base app's
-      # tours are done (at most PLAN_EXTRA_BEFORES such builds). tour.py writes <out>/<role>/<id>/
+      # highlight records its before: the previous tip's for the ones the tip adds, and for the earlier
+      # ones (the plan's `before`) one app built in the base slot, after the base app's tours are done, at
+      # the one older commit they all share (whats-new-clips.py shared_before), so the loop below builds
+      # it once and runs every one of their befores on it. tour.py writes <out>/<role>/<id>/
       # (manifest.json, capture.mov), which the whats-new-clips job renders and publishes. Best effort:
       # a clip that fails is left out.
       - name: Record What's New clips
