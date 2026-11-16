@@ -431,7 +431,7 @@ no cell pass; cmux f14); it has no commit of #40174.
 ## 6. Baseline
 
 **Not measured** (still true at 2026-11-10 07:55Z). At 01:38Z and 01:43Z the controller
-(`http://100.89.225.106:18765/status`) did not answer (curl status 000). No job was submitted. The step-0 tools (sec. 1.3) do not exist yet, so even an online fleet gives
+(its `/status`) did not answer (curl status 000). No job was submitted. The step-0 tools (sec. 1.3) do not exist yet, so even an online fleet gives
 only the cmux side of S1-S2 and O1 today (the kit's `render_counters` fps), not a parity table.
 
 Exact commands, run from a worktree at the feat tip (`SHA`):

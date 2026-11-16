@@ -11,8 +11,8 @@ name: cmux-next car guards
 #          lane), cargo tests. A python test or webviews file that fails at the car's base
 #          too (it exists there, and fails rather than times out) is the base's; cargo and
 #          Swift reds are never excused
-#   mac    focused Swift test targets, one build per package, on a CI Mac (never cosmic-gray
-#          or air-blue); runs only when the plan selects Swift tests
+#   mac    focused Swift test targets, one build per package, on a CI Mac (never a person's
+#          desktop Mac); runs only when the plan selects Swift tests
 # A pull request that changes the car guards runs them on itself (base = its merge base).
 on:
   workflow_call:

@@ -480,7 +480,7 @@ disk, as the acpmux cloud peer for Chief subagents.
   pauses it 60 s after its last live cloud subagent, never mid-turn.
 - acpmux on the box is built there from the NIGHTLY's sha (e80d1f65e), the same
   build as the Mac. Claude Code goes through sr2, Codex (0.164.0) through the
-  cmux-lawrence subrouter (the tag:agent-cloud ACL now grants 100.89.225.106:31415).
+  team router (the tag:agent-cloud ACL now grants it).
 
 ### Why new peers failed with ssh exit 255
 

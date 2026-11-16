@@ -78,9 +78,9 @@ Evidence: git history of `origin/feat-cmux-next` (bcd6c373839) and cmuxterm-hq `
 | Cloud VMs (`cmux vm`, web `app/api/vm/*`, Freestyle driver) | Classic cmux Cloud VMs on Vercel + PlanetScale `cmux-prod` | **Live in prod** | deployed from `main` (5b084f4fc76) |
 | Freestyle tenant VMs (a205) | The Cloud VM API as the per-team wrapper ("4 GB VM") | **Prod API live; the checkout-link fix is feat-cmux-next only** | cmuxterm-hq `plans/freestyle-tenant-DESIGN.md` (#2610); fixes b505c5d0d6b..08bd8ab1a7f not on `main`; acpmux not in the image |
 | Org workflows (a203/a205) | Machine and agent steps in automations | **Prototype only** | `org-workflows-DESIGN.md` section 7: no run through the deployed staging Worker |
-| Cloud Chief (a184/a196/a235) | Lawrence's Chief host on Freestyle VM `vm-4d2e45630a2c4814ac3d8b1884fcd9d1` (tailnet `cloud-chief`) | **Running on prod infra, not finished** | cmuxterm-hq `tools/cloud-chief/`, `plans/cloud-chief/REPORT.md`: pairing done by a196 (M7KP-SNJC); no full chat turn proven; a235's redeploy gap fix pending |
-| Agent hub | Moved onto the Cloud Chief VM (`cloud-chief-hub`, 100.127.110.65:8790) | **Live (internal)** | cmuxterm-hq #2611 8e30537cb2f; old hub VM deleted |
-| Cloud subagents (a242) | Subagents as acpmux peers on Freestyle VMs | **Prototype on HQ infra** | `cloud-subagents-PROOF.md`, cmuxterm-hq #2623 |
+| Cloud Chief (a184/a196/a235) | a team Chief host on a Cloud VM (tailnet only) | **Running on prod infra, not finished** | cmuxterm-hq `tools/cloud-chief/`, `plans/cloud-chief/REPORT.md`: pairing done by a196 (M7KP-SNJC); no full chat turn proven; a235's redeploy gap fix pending |
+| Agent hub | Moved onto the Cloud Chief VM (`cloud-chief-hub`, port 8790, tailnet only) | **Live (internal)** | cmuxterm-hq #2611 8e30537cb2f; old hub VM deleted |
+| Cloud subagents (a242) | Subagents as acpmux peers on Cloud VMs | **Prototype on HQ infra** | `cloud-subagents-PROOF.md`, cmuxterm-hq #2623 |
 | Hosted Chief (`ChiefBrainDO`, `chief-cc`) and the other Durable Objects (TeamDO, CloudDO, TeamVmDO) | `backend/apps/api` Worker | **Staging current (347a9270354); production held** | `CMUX_NEXT_PRODUCTION_HOLD` is on; last `cmux-next-production` deploy 2026-10-03 |
 | Open Cloud as Pane (a166) | Cloud page as a pane | **Shipped to nightly-next** | test cbb869c4d1c, fix 31681277023 |
 | Pricing `/next/pricing` | Proposal page | **Preview only, noindex** | 01f72d5cbe8 |

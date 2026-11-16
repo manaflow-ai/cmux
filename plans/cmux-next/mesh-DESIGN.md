@@ -1,8 +1,8 @@
 # Weft: the cmux mesh (design)
 
-Status: design and v1 build, 2026-10-22. Code: `cmux-tui/crates/cmux-weft`. Fly apps (org
-`manaflow`): `cmux-weft-coord-staging`, `cmux-weft-relay-staging`, then `cmux-weft-coord`,
-`cmux-weft-relay` for production.
+Status: design and v1 build, 2026-10-22. Code: `cmux-tui/crates/cmux-weft`. Deploy files:
+`cmux-tui/crates/cmux-weft/deploy/`. The operated staging and production apps, their secrets and
+the fleet measurements are documented in the private platform repo, not here.
 
 Weft is cmux's own Tailscale-shaped network: a coordination service that knows every device
 and the policy, a WireGuard data plane that runs inside the cmux process (no root, no kernel
@@ -16,18 +16,17 @@ parts that tie cmux to a vendor.
 
 | Piece | Where | What it is | Vendor tie |
 | --- | --- | --- | --- |
-| `cmux-wg` | `cmux-tui/crates/cmux-wg` | In-process WireGuard (boringtun) plus smoltcp TCP. `WgMesh` = one key, one UDP socket, many peers, crypto-key routing, roaming, gateways, multipath, watchdog. Authors: Lawrence (59 commits), Aziz (5), Austin (3). | None. Weft's data plane. |
-| cmux VM mesh M1-M4 | `workers/cmux-vm/mesh/` (DESIGN.md, agent, validation) | Meshes, devices, enrollment codes, ACL compiled to **Freestyle** firewall rules, Freestyle tunnels per device, Stack membership revoke webhook. Cloudflare Worker + PlanetScale. | **Freestyle** (VPC, tunnels, firewall). Freestyle does not forward tunnel to tunnel, has one region (SF), and all tenants share one account and its 200-rule limit. |
-| Cloud terminal hub | `docs/cloud-userspace-wireguard.md`, `cmux-tui/src/remote_wg_hub.rs` | App-owned userspace WireGuard peer into the Freestyle private network for Cloud VMs. | **Freestyle** tunnel endpoint. |
-| iPhone link (Aziz) | `cmux-next-ios/rust/crates/cmux-mobile-link`, PROTOCOL.md; PRs #20322, #23829, #18426 | Phone to Mac: WireGuard over UDP with STUN candidates, WebRTC media, **Cloudflare TURN** as the relay, signaling on a Cloudflare Worker + Durable Object. | **Cloudflare** (TURN, Workers). Not Freestyle. |
-| Native enrollment (Leo) | PRs #22066, #21928, #22081, #22074 (open) | Mac and server device enrollment with per-account/team/mesh WireGuard keys, wired into server pairing and the Cloud hub. | Builds on the cmux VM mesh, so **Freestyle** underneath. |
+| `cmux-wg` | `cmux-tui/crates/cmux-wg` | In-process WireGuard (boringtun) plus smoltcp TCP. `WgMesh` = one key, one UDP socket, many peers, crypto-key routing, roaming, gateways, multipath, watchdog. | None. Weft's data plane. |
+| cmux VM mesh M1-M4 | `workers/cmux-vm` (mesh routes and validation) | Meshes, devices, enrollment codes, ACL compiled to the VM provider's firewall rules, one provider tunnel per device, Stack membership revoke webhook. Cloudflare Worker + PlanetScale. | The VM provider (VPC, tunnels, firewall), with its routing, region and rule limits. |
+| Cloud terminal hub | `docs/cloud-userspace-wireguard.md`, `cmux-tui/src/remote_wg_hub.rs` | App-owned userspace WireGuard peer into the VM provider's private network for Cloud VMs. | The VM provider's tunnel endpoint. |
+| iPhone link | `cmux-next-ios/rust/crates/cmux-mobile-link`, PROTOCOL.md; PRs #20322, #23829, #18426 | Phone to Mac: WireGuard over UDP with STUN candidates, WebRTC media, **Cloudflare TURN** as the relay, signaling on a Cloudflare Worker + Durable Object. | **Cloudflare** (TURN, Workers). Not the VM provider. |
+| Native enrollment | PRs #22066, #21928, #22081, #22074 (open) | Mac and server device enrollment with per-account/team/mesh WireGuard keys, wired into server pairing and the Cloud hub. | Builds on the cmux VM mesh, so the VM provider underneath. |
 | `cmux-relay` | `cmux-tui/crates/cmux-relay` | Opaque WebSocket circuit relay for remote sessions (tickets, admission). | None. Pattern reused by the Weft relay. |
 | iroh v2 | `workers/iroh-v2`, `iroh` dep in cmux-tui | iroh endpoint ownership and directory on Cloudflare DO. | iroh relays (n0) unless self-hosted. |
-| Tailscale | hq `tsadmin`, ACL hq#2604, acpmux `tailnet.rs`, `cmux host serve` tcp 7319 | How the fleet and Cloud Chief reach each other today. | **Tailscale** (coordination, DERP, ACL). |
+| Tailscale | acpmux `tailnet.rs`, `cmux host serve` tcp 7319, the team's tailnet ACL | How team machines and Cloud Chief reach each other today. | **Tailscale** (coordination, DERP, ACL). |
 
-Fact-check of the user's claim: "Aziz's work relies on Freestyle" is **partly wrong**. Aziz's
-link (phone to Mac) uses Cloudflare (TURN and the Worker), not Freestyle. The work that does
-rely on Freestyle is the cmux VM mesh (Lawrence) and Leo's enrollment PRs built on it.
+The phone-to-Mac link uses Cloudflare (TURN and the Worker), not the VM provider. The work
+that does rely on the VM provider is the cmux VM mesh and the enrollment PRs built on it.
 
 ## 1. Goals and non-goals
 
@@ -111,7 +110,7 @@ JSON (comments allowed), Tailscale-compatible in shape so people already know it
 
 ```json
 {
-  "groups": { "group:eng": ["user:lawrence", "user:austin"] },
+  "groups": { "group:eng": ["user:alice", "user:bob"] },
   "tagOwners": { "tag:fleet": ["group:eng"], "tag:vm": ["group:eng"] },
   "acls": [
     { "action": "accept", "src": ["group:eng"], "dst": ["tag:fleet:22,7319", "tag:vm:*"] },
@@ -188,16 +187,17 @@ each).
 
 1. v1: Weft runs beside Tailscale. acpmux and cmux-tui use a Weft address when the peer is in the
    Weft netmap, otherwise the Tailscale path as today.
-2. Mirror the tsadmin ACL (hq#2604) into a Weft policy with the same tags, compare with a
-   dry-run tool, then move one fleet group (for example the minis' `cmux host serve` port 7319).
-3. Replace Freestyle tunnels for device-to-VM traffic with Weft on the VM (the VM API mints the
-   auth key). Freestyle VPC remains only for VM-to-VM inside the datacenter, if at all.
+2. Mirror the team's Tailscale ACL into a Weft policy with the same tags, compare with a
+   dry-run tool, then move one group of machines (for example `cmux host serve` port 7319).
+3. Replace the VM provider's tunnels for device-to-VM traffic with Weft on the VM (the VM API
+   mints the auth key). The provider's VPC remains only for VM-to-VM inside the datacenter, if at
+   all.
 4. Retire Tailscale for agent traffic once Weft has direct paths (M2) and a month of no incidents.
 
 ## 6. Milestones
 
 - v1 (this change): coord + ACL + audit, relay, client CLI and library, relay data path,
-  staging on Fly in four regions, two real machines (a fleet Mac mini and a Freestyle VM)
+  staging on Fly in four regions, two real machines (a Mac mini and a Cloud VM)
   passing traffic under the ACL, latency against Tailscale.
 - M2: direct paths. Endpoint candidates (local interfaces, STUN on the relay over UDP with a Fly
   dedicated IPv4), disco pings through the relay, and upgrade with `cmux-wg` `Multipath`, which
@@ -216,29 +216,24 @@ each).
 
 ## 8. Staging evidence (2026-10-22)
 
-Deployed from `cmux-tui/crates/cmux-weft/deploy/` (org `manaflow`):
+Deployed from `cmux-tui/crates/cmux-weft/deploy/`: one coordinator machine (sjc, with a volume)
+and four relay machines (sjc, iad, fra, nrt); `/v1/relay/<region>` and `/healthz/<region>` reach
+that region through `fly-replay` (checked: each answers with its own region).
 
-| App | URL | Machines |
-| --- | --- | --- |
-| `cmux-weft-coord-staging` | https://cmux-weft-coord-staging.fly.dev | 1 (sjc, 1 GB volume `weft_data`) |
-| `cmux-weft-relay-staging` | https://cmux-weft-relay-staging.fly.dev | 4 (sjc, iad, fra, nrt); `/v1/relay/<region>` and `/healthz/<region>` reach that region through `fly-replay` (checked: each answers with its own region) |
-
-Secrets live in Fly and in `~/.secrets/weft-staging.env` (mode 600) on the operator Mac.
-
-Live run, tailnet `cmux-staging`, policy `tag:fleet -> tag:vm:7, tag:fleet:7`:
+Live run, policy `tag:fleet -> tag:vm:7, tag:fleet:7`:
 
 | Check | Result |
 | --- | --- |
-| Fleet Mac mini (cmux-lawrence-2, Santa Clara) to Freestyle VM (Ubuntu 24.04, egress 443/53 only, no inbound), echo port 7, 300 x 64 B | first reachable 342 ms after start; connect 12.2 ms; RTT min 10.5, p50 12.6, p90 18.2, p99 31.4, max 236 ms; both homed on relay sjc |
-| Freestyle VM (`tag:vm`) to the mini's port 7 | refused by the mini's inbound filter (not reachable within 15 s) |
-| Mac mini to Mac mini (cmux-lawrence-2 to cmux-lawrence, same LAN) over Weft via relay sjc | p50 14.2, p90 16.4, p99 21.0 ms |
-| Same pair over Tailscale | direct LAN path: ICMP avg 1.2 ms (min 0.6); Tailscale's nearest DERP (sfo) is 12.2 ms one way from cmux-lawrence-2 |
+| Mac mini (Bay Area) to a Cloud VM (Ubuntu 24.04, egress 443/53 only, no inbound), echo port 7, 300 x 64 B | first reachable 342 ms after start; connect 12.2 ms; RTT min 10.5, p50 12.6, p90 18.2, p99 31.4, max 236 ms; both homed on relay sjc |
+| Cloud VM (`tag:vm`) to the mini's port 7 | refused by the mini's inbound filter (not reachable within 15 s) |
+| Mac mini to Mac mini (same LAN) over Weft via relay sjc | p50 14.2, p90 16.4, p99 21.0 ms |
+| Same pair over Tailscale | direct LAN path: ICMP avg 1.2 ms (min 0.6); Tailscale's nearest DERP (sfo) is 12.2 ms one way |
 | Mac mini to Fly relay (sjc) | ICMP avg 8.3 ms |
 
 Reading: Weft v1 always relays, so it costs about the two legs to the nearest Fly region. That is
 close to a DERP-relayed Tailscale path, and about 12 times a direct LAN path. Direct UDP paths
 (M2) are the next milestone and are what closes that gap. After the run the VM was deleted
-(Freestyle 404) and the five test nodes were revoked (audit `node.revoke`).
+and the five test nodes were revoked (audit `node.revoke`).
 
 Tests (`cargo test -p cmux-weft`, 23 tests): policy compile and validation, signature binding,
 replay, clock window, tickets, frames, 6 property-fuzz targets (2000 cases each), and a loopback

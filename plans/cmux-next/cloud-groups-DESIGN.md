@@ -15,7 +15,7 @@ Builds on (read before changing this):
 [chief-group-chats-DESIGN.md](chief-group-chats-DESIGN.md) and `home-dm-group-chats/` (a132/a287),
 [agent-cursor.md](agent-cursor.md) and the a201 glass cursor, [pricing-DESIGN.md](pricing-DESIGN.md)
 (one credits ledger, a205), cmuxterm-hq `plans/agent-cloud/DESIGN.md` and `plans/cloud-chief/REPORT.md`
-(the agent hub, now `cloud-chief-hub` on 100.127.110.65:8790), cmuxterm-hq
+(the agent hub, now `cloud-chief-hub` on port 8790, tailnet only), cmuxterm-hq
 `plans/multiplayer-chief/DESIGN.md` (owner/member/guest on one Linux box).
 
 ## 0. Summary
@@ -56,7 +56,7 @@ machine kind there.
 
 ### Default picked: the authority is `TeamDO`, not the agent hub
 
-The task named the agent hub (`cloud-chief-hub`, 100.127.110.65:8790) as the source of truth. I
+The task named the agent hub (`cloud-chief-hub`) as the source of truth. I
 picked `TeamDO` in cmux Cloud instead, and the hub becomes a client. Reasons, each checked:
 
 | Need | Agent hub (`hub.py`, SQLite on the Cloud Chief VM) | `TeamDO` (cmux Cloud Worker) |
