@@ -175,6 +175,34 @@ struct InstantCreateIntentTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
+    /// A resync can bring the tree that holds the created tab before the raw `tab-added` and before
+    /// the reply: the tab with the terminal id that the stand-in named takes its place in that
+    /// apply too, and the covered event then changes nothing.
+    @Test func daemonTerminalTabInASnapshotTakesTheStandInsPlaceBeforeTheReply() throws {
+        let store = Self.store()
+        let provisional = ProvisionalTab(), terminal = TerminalID.generate()
+        let transaction = ClientTransactionID.generate()
+        let base = SurfaceID(rawValue: 4), daemon = SurfaceID(rawValue: 7)
+        store.intend(.createTab(pane: Self.pane, provisional: provisional.terminal(terminal, cwd: nil)), transaction: transaction)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, provisional.surface])
+        // The tree of a resync at sequence 1: it holds the daemon's tab, and no event named the create.
+        var resynced = Self.base
+        resynced.screens[0].panes[0].tabs.append(TabSnapshot(surface: daemon, terminalID: terminal, kind: .pty))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [resynced]))
+        store.snapshotBarrier = 1
+        store.advanceAppliedSequence(to: 1)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemon], "after the tree: one new tab, the daemon's")
+        // The raw `tab-added` that the tree covers: no transaction, not above the barrier.
+        _ = store.apply(batch: [Self.tabAdded(daemon, terminal: terminal, sequence: 1)])
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemon], "after the covered event: one new tab, the daemon's")
+        // The reply names the same tab: nothing changes, the intent settles.
+        ProvisionalTab.created(transaction, surface: daemon, in: store)
+        store.noteSettled(transaction, at: 1)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemon])
+        #expect(store.pendingIntents.isEmpty)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     /// Another terminal's tab (a CLI `new-tab` racing the key) is not the stand-in's.
     @Test func anotherTerminalTabShowsBesideTheStandIn() throws {
         let store = Self.store()
