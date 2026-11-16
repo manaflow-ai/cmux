@@ -42,9 +42,10 @@ echo "ok: $helper ($mode)"
 # <app bundle id>.screen-sharing and executable cmux-screen-sharing
 # (scripts/cmux-next/bundle-screen-sharing-helper.sh). cmux copies it out of the
 # app as it does the Computer Use helper, so a signed one must carry the team's
-# Developer ID signature and the hardened runtime. Its id is the one it was
-# stamped and notarized with: a re-identified copy of the app
-# (nightly-next-legacy-identity.sh) keeps it, as it keeps the Computer Use helper.
+# Developer ID signature and the hardened runtime. Once signed, its id is the
+# app's own plus .screen-sharing: a re-identified copy of the app
+# (stable-next-identity.sh, nightly-next-legacy-identity.sh) re-stamps it
+# (sign-cmux-bundle.sh), so no two channels share its grants.
 for share in "$app/Contents/Library/"*" Screen Sharing.app"; do
   [[ -e "$share" || -L "$share" ]] || continue
   name="${share##*/}"
@@ -55,6 +56,10 @@ for share in "$app/Contents/Library/"*" Screen Sharing.app"; do
   [[ -f "$share/Contents/MacOS/cmux-screen-sharing" && -x "$share/Contents/MacOS/cmux-screen-sharing" ]] \
     || fail "$name has no executable Contents/MacOS/cmux-screen-sharing"
   if [[ "$mode" == signed ]]; then
+    app_id="$(python3 -I -c 'import plistlib, sys; print(plistlib.load(open(sys.argv[1], "rb")).get("CFBundleIdentifier", ""))' \
+      "$app/Contents/Info.plist" 2>/dev/null || true)"
+    [[ "$share_id" == "$app_id.screen-sharing" ]] \
+      || fail "$name has bundle id '$share_id', expected $app_id.screen-sharing (bundle-screen-sharing-helper.sh --stamp)"
     # The Developer ID requirement cmux-cua-helper-trust.sh states for the
     # Computer Use helper, for this helper's identifier: an ad hoc, Apple
     # Development or Apple Distribution signature fails.

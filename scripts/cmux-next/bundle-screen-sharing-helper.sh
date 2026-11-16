@@ -114,9 +114,11 @@ else
 fi
 on_exit() {
   status=$?
-  if (( status == 0 )) && [[ -n "$stamp" ]]; then
-    mkdir -p "$(dirname "$stamp")"
-    printf 'completed\n' > "$stamp"
+  if (( status == 0 )); then
+    if [[ -n "$stamp" ]]; then
+      mkdir -p "$(dirname "$stamp")"
+      printf 'completed\n' > "$stamp"
+    fi
   fi
   exit "$status"
 }
