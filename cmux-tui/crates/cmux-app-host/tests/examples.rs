@@ -6,8 +6,10 @@
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use cmux_app_host::Limits;
@@ -31,8 +33,16 @@ mod apps {
         found
     }
 
-    /// `dir` packed by `tools/pack.ts`, as `cmux ext dev` builds `src/main.ts`; nothing is written.
+    /// `dir` packed by `tools/pack.ts`, as `cmux ext dev` builds `src/main.ts`, once per test binary.
+    /// pack.ts writes a wrapper into `src/` and removes it, so two packs of one folder at once
+    /// (tests run in parallel) would race: they take turns, and each folder is packed once.
     fn packed(dir: &Path) -> String {
+        static PACKED: Mutex<BTreeMap<PathBuf, String>> = Mutex::new(BTreeMap::new());
+        let mut packed = PACKED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        packed.entry(dir.to_path_buf()).or_insert_with(|| pack_now(dir)).clone()
+    }
+
+    fn pack_now(dir: &Path) -> String {
         let pack = Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/pack.ts");
         let script = format!(
             "const {{ pack }} = await import({:?}); process.stdout.write(await pack(process.argv[1]))",

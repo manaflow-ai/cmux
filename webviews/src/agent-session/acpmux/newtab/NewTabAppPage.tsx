@@ -31,12 +31,32 @@ export type NewTabAppFailure = { kind: "failed"; reason: string } | { kind: "slo
 /// the reason, and the next Cmd-T tries the app again.
 export const NEW_TAB_APP_DEADLINE_MS = 2000;
 
-/// Whether `element` shows anything a person can see: text, an image, a field or a control. A
-/// scene whose root is only stacks and spacers draws a blank page.
+/// Scene nodes that only lay out their children (SceneRenderer `data-app-type`): on their own they
+/// draw nothing, unless the app gave them a fill or a border.
+const LAYOUT_ONLY_NODES = new Set([
+  "VStack",
+  "LazyVStack",
+  "HStack",
+  "ZStack",
+  "Group",
+  "ForEach",
+  "Reorderable",
+  "Spacer",
+]);
+
+/// Whether `element` shows anything a person can see: text, an image, a field or a control, or a
+/// scene node that draws by itself (a shape, an icon, a spinner, a divider, a panel's box) or has a
+/// fill or a border. A scene whose root is only stacks and spacers draws a blank page.
 export function drawsSomething(element: Element | null): boolean {
   if (!element) return false;
   if ((element.textContent ?? "").trim()) return true;
-  return element.querySelector("img, input, textarea, select, button, progress, svg, canvas") !== null;
+  if (element.querySelector("img, input, textarea, select, button, progress, svg, canvas") !== null) return true;
+  for (const node of element.querySelectorAll<HTMLElement>("[data-app-type]")) {
+    if (!LAYOUT_ONLY_NODES.has(node.dataset.appType ?? "")) return true;
+    const { background, backgroundColor, backgroundImage, borderStyle } = node.style;
+    if (background || backgroundColor || backgroundImage || (borderStyle && borderStyle !== "none")) return true;
+  }
+  return false;
 }
 
 /// A whole New Tab page drawn by an extension (`cmux.newtab/1`), shown only because the person named

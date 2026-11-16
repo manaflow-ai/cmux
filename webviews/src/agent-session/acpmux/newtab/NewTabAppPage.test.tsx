@@ -255,6 +255,28 @@ test("a first scene that draws nothing visible (only stacks and spacers) hands t
   await act(async () => root.unmount());
 });
 
+test("a first scene of only shapes, with no text, draws and keeps the page", async () => {
+  const host = new Host();
+  const { container, root, failures } = await render(host);
+  await act(async () => {
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "c", type: "Circle", props: { fill: "accent", size: 40 } },
+          { op: "create", id: "v", type: "VStack" },
+          { op: "children", id: "v", children: ["c"] },
+          { op: "root", id: "v" },
+        ],
+      },
+      1,
+    );
+  });
+  expect(failures).toEqual([]);
+  expect(container.querySelector(".nt-app-page")).not.toBeNull();
+  await act(async () => root.unmount());
+});
+
 test("cmux's own page says why the app could not draw, in place", async () => {
   const container = document.createElement("div");
   document.body.append(container);
