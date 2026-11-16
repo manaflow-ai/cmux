@@ -216,6 +216,16 @@ async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<v
 }
 
 test("an early attach the open dropped while its switch was out, for a chat no longer shown, is never sent", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  // The client as its open asks the attach with the list, before `connect` answers: the pick below
+  // lands while that open is still out, as a person's click can.
+  const proto = AcpmuxDirectClient.prototype as any;
+  const askEarly = proto.askEarly;
+  let opening: any;
+  proto.askEarly = function (this: unknown) {
+    opening = this;
+    return askEarly.call(this);
+  };
   let listed = () => {};
   const list = new Promise<void>((resolve) => (listed = resolve));
   let answerA = () => {};
@@ -229,40 +239,22 @@ test("an early attach the open dropped while its switch was out, for a chat no l
     }
     return { sid: params.sid };
   }, list);
-  const client = await run.connecting;
   try {
     await settle(() => run.hostPosts().some((post) => post.method === "chat.rows.open" && post.params.chat === run.a));
-    // Another chat is picked with the switch for the first still out; then the list answers, and the
-    // open drops the early attach of the chat no longer shown.
-    const trace = (label: string) =>
-      console.log(
-        "DEBUG",
-        label,
-        JSON.stringify({
-          early: client.earlyAttach ? { s: client.earlyAttach.sessionId, d: client.earlyAttach.sent.dropped } : null,
-          gen: client.selectionGeneration,
-          sel: client.selectedSessionId,
-          a: run.a,
-          b: run.b,
-          asked: run.asked.map((ask) => [
-            ask.to,
-            ask.method,
-            ask.params?.sessionId ?? ask.params?.chat ?? ask.params?.sid,
-          ]),
-        }),
-      );
-    trace("before-select");
-    const picking = client.select(run.b);
+    proto.askEarly = askEarly;
+    // Another chat is picked with the switch for the first still out (well within `OPEN_ANSWER_MS`);
+    // then the list answers, and the open drops the early attach of the chat no longer shown.
+    const picking = opening.select(run.b);
     listed();
-    await picking;
-    trace("after-select");
-    await settle(() => client.selectedSessionId === run.b && !client.earlyAttach);
+    await settle(() => opening.selectedSessionId === run.b && !opening.earlyAttach);
     answerA();
+    await picking;
+    await run.connecting;
     for (let turn = 0; turn < 10; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
-    trace("end");
     expect(run.attaches()).toHaveLength(0);
   } finally {
-    client.close?.();
+    proto.askEarly = askEarly;
+    opening?.close?.();
     resetChatRowsReceiver();
   }
 });
