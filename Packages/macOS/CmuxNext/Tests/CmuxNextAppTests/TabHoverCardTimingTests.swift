@@ -263,4 +263,20 @@ import CmuxNextWakeupsTestSupport
         try await Self.settle(until: { previews.asked == 2 })
         #expect(previews.asked == 2, "the card kept its picture from the other theme")
     }
+
+    /// Lawrence 2026-11-15 (msg 34360): the card snapped taller when its tab's picture landed. A card
+    /// that opened with no picture frame grows to hold the picture on the card's spring (its fixed
+    /// corner stays on the tab) while the picture fades in.
+    @Test func aPictureLandingGrowsTheCardOnItsSpring() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        let previews = Previews()
+        s.strip.hoverCard.previewProvider = previews
+        try await Self.open("a", s)
+        try await Self.settle(until: { s.strip.hoverCard.shownThumbnail != nil })
+        try #require(s.strip.hoverCard.shownThumbnail != nil, "the picture never landed")
+        #expect(s.coordinator.panel?.activeMorph != nil, "the card took the picture's height at once")
+    }
 }
