@@ -65,7 +65,14 @@ public nonisolated enum SidebarProjectionEditor {
             if case .null? = value { return nil }
             return value
         }
-        return [(path: sectionsPath, value: value(reply.sections)), (path: workspacesPath, value: value(reply.workspaces))]
+        var edits: [(path: [String], value: JSONValue?)] = [(path: sectionsPath, value: value(reply.sections)),
+                                                            (path: workspacesPath, value: value(reply.workspaces))]
+        // The flat key hides the nested one; once the flat key is removed the nested one would apply,
+        // so a reset removes both.
+        if flat != nil, value(reply.workspaces) == nil, root.value(at: Self.workspacesPath) != nil {
+            edits.append((path: Self.workspacesPath, value: nil))
+        }
+        return edits
     }
 }
 
