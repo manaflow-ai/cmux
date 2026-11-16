@@ -17,7 +17,8 @@ $NX_ARTIFACTS/<phase>/. Exit 0 when every check of the phase passed.
 Checks (ublock): loaded and enabled as manifest 2 with a background page;
 a known ad script is blocked by a network filter; a cosmetic filter hides an
 ad slot (with a control that the host itself reaches both scripts); the
-popup opens; the dashboard loads; a dynamic rule (`* * 3p-script block`)
+popup opens; the element picker launches and starts; a website cannot drive
+the picker (GHSA-cmqw-9r2w-6wv2 probe); the dashboard loads; a dynamic rule (`* * 3p-script block`)
 blocks a third-party script that loads without it. The public score pages
 (d3ward, turtlecute) are recorded as information, not checks.
 """
@@ -83,8 +84,23 @@ def log(message):
     print(f"[ext-mv2] {message}", flush=True)
 
 
+# GHSA-cmqw-9r2w-6wv2 probe (scripts/cmux-next/ublock-picker-probe/index.html): a website that
+# tries to frame and drive uBlock Origin's element picker. Served on a host a default war: filter
+# matches (dropgalaxy.localhost: `dropgalaxy.*##+js(no-fetch-if, adsbygoogle, war:...)`).
+PICKER_PROBE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ublock-picker-probe", "index.html")
+
+
 class Pages(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
+        if self.path.startswith("/ubo-picker-probe.html"):
+            with open(PICKER_PROBE, "rb") as probe:
+                body = probe.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         body = ADS_PAGE.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -194,7 +210,10 @@ class Job:
             return self.client.call(method, params or {})
 
     def open_tab(self, url, match=None, timeout=30):
-        before = {t.get("id") for t in cdp.targets(self.port)}
+        key = match or url
+        # A new tab can take over a page target that already exists (a preloaded New Tab
+        # page), so "new" means a target that did not show this URL before, not a new id.
+        before = {t.get("id") for t in cdp.targets(self.port) if key in t.get("url", "")}
         # A tab a person opens (origin remote), not an agent-driven one: extensions
         # cannot reach agent-driven tabs (fork API 20, cmux_tab_set_extension_access).
         for _ in range(3):  # right after a start the action can miss its 2 s deadline
@@ -204,7 +223,6 @@ class Job:
                 break
             time.sleep(2)
         self.last_created = ((opened.get("result") or {}).get("created") or [None])[0]
-        key = match or url
         target = cdp.wait_target(self.port, lambda t: t.get("type") == "page" and t.get("id") not in before
                                  and key in t.get("url", ""), timeout)
         if not target:
@@ -744,6 +762,66 @@ def phase_ublock(args):
         job.row("ublock: popup opens", bool(target and detail.get("size")), detail)
         job.call("debug.extensions.popup", {"hide": True})
 
+    def picker():
+        """The element picker, launched as the popup's eyedropper does (µBlock.elementPickerExec
+        for the tab): its frame loads in the page and starts, which it does only after the
+        content script hands it the launch secret (1.75.4+)."""
+        session = job.open_tab("https://example.com/?pick=1", match="example.com/?pick=1")
+        detail = {}
+        try:
+            poll(session, "document.readyState === 'complete' && !!document.body", 30)
+            bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
+            try:
+                detail["launch"] = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => {
+                  const t = tabs.find(t => (t.url || '').includes('example.com/?pick=1'));
+                  if (!t) return r({error: 'no tab'});
+                  self.µBlock.epickerArgs.mouse = false;
+                  self.µBlock.elementPickerExec(t.id, 0);
+                  r({tab: t.id});
+                }))""")
+            finally:
+                bg.close()
+            detail["frame_loaded"] = poll(session, "[...document.documentElement.children].some(e => e.tagName === 'IFRAME'"
+                                                   " && [...e.attributes].some(a => a.name.endsWith('-loaded')))", 15)
+            frame = cdp.wait_target(job.port, lambda t: "epicker-ui.html" in t.get("url", ""), 10)
+            detail["frame"] = (frame or {}).get("url")
+            if frame:
+                ui = cdp.Session(frame["webSocketDebuggerUrl"])
+                try:
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline and not detail.get("started"):
+                        # startPicker() alone adds the Create button's click listener.
+                        r = ui.call("Runtime.evaluate", {"expression": "(getEventListeners(document.getElementById('create')).click || []).length",
+                                                         "includeCommandLineAPI": True, "returnByValue": True})
+                        detail["started"] = ((r.get("result") or {}).get("value") or 0) > 0
+                        time.sleep(0.5)
+                finally:
+                    ui.close()
+            time.sleep(1)
+            detail["shot"] = job.page_shot(session, "ublock-picker")
+            detail["window_shot"] = job.window_shot("ublock-picker-window")
+            session.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
+        finally:
+            session.close()
+        job.row("ublock: element picker launches and starts (secret handshake)",
+                bool(detail.get("frame_loaded") and detail.get("started")), detail)
+
+    def website_picker():
+        """GHSA-cmqw-9r2w-6wv2: a website must not be able to frame and drive the picker. The
+        probe hooks XHR to catch a war: URL (and its secret), frames epicker-ui.html and sends
+        epickerStart without the launch secret; uBlock Origin 1.75.0 answered "start"."""
+        port = server.server_address[1]
+        session = job.open_tab(f"http://dropgalaxy.localhost:{port}/ubo-picker-probe.html",
+                               match="/ubo-picker-probe.html")
+        try:
+            verdict = poll(session, "/^(SAFE|VULNERABLE)/.test(document.title) && document.title", 25)
+            log = session.evaluate("document.getElementById('log').textContent")
+            shot = job.page_shot(session, "ublock-website-picker-probe")
+        finally:
+            session.close()
+        job.row("ublock: a website cannot drive the element picker (GHSA-cmqw-9r2w-6wv2)",
+                bool(verdict) and verdict.startswith("SAFE"), {"verdict": verdict, "log": log, "shot": shot})
+
     def dynamic():
         state, outcomes = observed_load(job, url + "?dyn=1", "ublock-dynamic", {"jQuery": JQUERY})
         before = (ctx.get("net") or {}).get("jQuery")
@@ -815,6 +893,7 @@ def phase_ublock(args):
                            *([("agent read", agent_read)] if args.agent_read else []),
                            ("ublock: ready", ready), ("ublock: network", network),
                            ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
+                           ("ublock: element picker", picker), ("ublock: website-driven picker", website_picker),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])

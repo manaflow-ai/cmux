@@ -129,6 +129,11 @@ public struct WindowRegistry: Equatable, Sendable {
         return recency.first { open.contains($0) } ?? windows.first { open.contains($0.id) }?.id
     }
 
+    /// The most recently active of `ids` (the windows on screen: the front one), nil when empty.
+    public func mostRecent(of ids: [String]) -> String? {
+        ids.min { (recency.firstIndex(of: $0) ?? .max) < (recency.firstIndex(of: $1) ?? .max) }
+    }
+
     public func isIncognito(_ windowID: String) -> Bool { incognito.contains(windowID) }
 
     /// True when moving `workspaceIDs` into window `id` would cross between

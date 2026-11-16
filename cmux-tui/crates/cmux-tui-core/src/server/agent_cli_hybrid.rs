@@ -22,13 +22,21 @@
 //!   [`PARKED_MAX`] of them.
 //! - `resized` becomes a keyframe at the new size; `colors-changed` passes through;
 //!   `detached` ends the stream as before.
+//! - A connection that also declared [`AGENT_CLI_HYBRID_LEAN_CAPABILITY`] gets each frame as
+//!   an `agent-cli-lean` event instead: `{event, surface, f}`, `f` one lean frame
+//!   (`cmux_agent_cli_render::lean`), which says the stream, size, frame numbers and cursor only
+//!   when the viewer does not know them yet and names styles from a table the connection builds,
+//!   so the link carries less than the PTY it replaces for every agent CLI (v1's JSON per frame
+//!   cost more than the PTY for Claude Code).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use cmux_agent_cli_render::lean::LeanEncoder;
 use cmux_agent_cli_render::stream::{Frame, FramePacer, HybridStream};
+use cmux_agent_cli_render::vt;
 use cmux_agent_cli_render::{Cell, Color, Grid, Style, UNDERLINE};
 use serde_json::{Value, json};
 
@@ -38,6 +46,8 @@ use crate::{Mux, SurfaceId};
 
 /// Advertised in `identify`; a client declares it in `set-client-info` before `attach-surface`.
 pub const AGENT_CLI_HYBRID_CAPABILITY: &str = "agent-cli-hybrid-v1";
+/// With [`AGENT_CLI_HYBRID_CAPABILITY`]: frames go as lean `agent-cli-lean` events.
+pub const AGENT_CLI_HYBRID_LEAN_CAPABILITY: &str = "agent-cli-hybrid-v2";
 
 /// The agent adapters (`cmux_agent` hook `adapter.id`) whose terminals get the hybrid stream.
 pub(super) const AGENT_CLIS: &[&str] = &["claude", "claude-code", "codex", "opencode"];
@@ -100,6 +110,8 @@ pub(super) struct HybridViewer {
     stream: HybridStream,
     pacer: FramePacer,
     started: Instant,
+    /// The connection's lean encoder, when it declared `agent-cli-hybrid-v2`.
+    lean: Option<LeanEncoder>,
 }
 
 impl HybridViewer {
@@ -112,6 +124,7 @@ impl HybridViewer {
         rows: u16,
         replay: &[u8],
         resume: Option<(String, u64)>,
+        lean: bool,
     ) -> anyhow::Result<(HybridViewer, Value)> {
         let term = shadow(cols, rows, replay)?;
         let render = ghostty_vt::RenderState::new()?;
@@ -136,6 +149,7 @@ impl HybridViewer {
             stream,
             pacer: FramePacer::default(),
             started: Instant::now(),
+            lean: lean.then(LeanEncoder::new),
         };
         let (real, cursor) = viewer.screen()?;
         viewer.stream.update(&real, 0);
@@ -170,7 +184,8 @@ impl HybridViewer {
         self.pacer.sent(now);
         let (real, cursor) = self.screen()?;
         let at_ms = u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
-        Ok(self.stream.update(&real, at_ms).map(|frame| self.event(&frame, cursor)))
+        let Some(frame) = self.stream.update(&real, at_ms) else { return Ok(None) };
+        Ok(Some(self.event(&frame, cursor)))
     }
 
     /// The terminal changed size and `replay` rebuilds its screen: a keyframe at that size.
@@ -221,8 +236,19 @@ impl HybridViewer {
         Ok(())
     }
 
-    fn event(&self, frame: &Frame, cursor: Option<ghostty_vt::CursorInfo>) -> Value {
+    fn event(&mut self, frame: &Frame, cursor: Option<ghostty_vt::CursorInfo>) -> Value {
         let (cols, rows) = self.stream.size();
+        let at =
+            cursor.map_or(vt::Cursor::default(), |c| vt::Cursor { x: c.x, y: c.y, visible: true });
+        if let Some(lean) =
+            self.lean.as_mut().and_then(|encoder| encoder.encode(&self.id, cols, rows, frame, at))
+        {
+            return json!({
+                "event": "agent-cli-lean",
+                "surface": self.surface,
+                "f": base64::engine::general_purpose::STANDARD.encode(lean),
+            });
+        }
         json!({
             "event": "agent-cli-frame",
             "surface": self.surface,
@@ -327,7 +353,7 @@ mod tests {
 
     #[test]
     fn a_left_stream_resumes_from_its_frame_and_another_size_starts_over() {
-        let (mut viewer, first) = HybridViewer::start(7, 20, 4, b"hello", None).unwrap();
+        let (mut viewer, first) = HybridViewer::start(7, 20, 4, b"hello", None, false).unwrap();
         assert_eq!(first["base"], Value::Null);
         let id = first["stream"].as_str().unwrap().to_owned();
         let applied = first["frame"].as_u64().unwrap();
@@ -338,12 +364,13 @@ mod tests {
         drop(viewer);
         // Back after missing frame `next`: one delta from `applied`, not a keyframe.
         let (_viewer, resumed) =
-            HybridViewer::start(7, 20, 4, b"hello\r\nworld!", Some((id.clone(), applied))).unwrap();
+            HybridViewer::start(7, 20, 4, b"hello\r\nworld!", Some((id.clone(), applied)), false)
+                .unwrap();
         assert_eq!(resumed["stream"].as_str(), Some(id.as_str()));
         assert_eq!(resumed["base"].as_u64(), Some(applied));
         drop(_viewer);
         let (_viewer, other) =
-            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied))).unwrap();
+            HybridViewer::start(7, 30, 4, b"hello", Some((id, applied)), false).unwrap();
         assert_eq!(other["base"], Value::Null);
     }
 }
