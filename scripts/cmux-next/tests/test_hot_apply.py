@@ -1042,6 +1042,9 @@ class PinCompatibility(unittest.TestCase):
             self.hot.live_from(self.repo, broken)
         with self.assertRaises(ValueError):
             self.hot.ffi_digest(self.repo, broken, {}, [])
+        with mock.patch.object(self.hot, "keys_plan", return_value={"parts": ["rust"]}):
+            with self.assertRaises(ValueError):
+                self.hot.plan(self.repo, self.repo / "unused.app", broken, base=self.added)
 
     def test_before_pinning_the_digest_still_tracks_linked_sources(self):
         path = "cmux-tui/crates/cmux-app-ffi/src/lib.rs"

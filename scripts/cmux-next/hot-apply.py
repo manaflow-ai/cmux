@@ -677,8 +677,13 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None
             planned = keys_plan(app, sha, app_base, bool(base), unsigned)
             # The keys compare the pinned release, but a repin also changes package files that keys classify as
             # shell; the diff plan reads both pins to select the ffi part and remove only its packaging changes.
-            if planned and not ffi_part.pin_moved(repo, app_base, sha):
-                return planned
+            if planned:
+                # Published keys also work without a checkout. When both commits are here, a bad pin must
+                # fail rather than masquerade as an unchanged release on that fast path.
+                if not (have_commit(repo, app_base) and have_commit(repo, sha)):
+                    return planned
+                if pinned_ffi_source(repo, app_base) == pinned_ffi_source(repo, sha):
+                    return planned
         return _plan(repo, app, sha, branch, base, unsigned)
 
 
@@ -789,7 +794,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
                     raise ffi_part.Left("no app FFI pin to establish the linked release: it needs a new app")
                 if branch:
                     raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
-                if ffi_part.pin_moved(repo, base, sha):
+                if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha):
                     moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
                     if moved:
                         out["ffi"] = {**moved, "files": linked}
