@@ -42,11 +42,16 @@ fn parses_new_dev_list_remove_and_help() {
     assert_eq!(parse(&words("dev --help")), Ok(Request::Help));
     assert_eq!(
         parse(&words("new my-prs")),
-        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None })
+        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None, repo: None })
     );
     assert_eq!(
         parse(&words("new w --kind section --dir /tmp/w")),
-        Ok(Request::New { name: "w".into(), kind: "section".into(), dir: Some("/tmp/w".into()) })
+        Ok(Request::New {
+            name: "w".into(),
+            kind: "section".into(),
+            dir: Some("/tmp/w".into()),
+            repo: None
+        })
     );
     let Ok(Request::Dev(options)) = parse(&words("dev")) else { panic!("dev") };
     assert_eq!(options.dir, PathBuf::from("."));
@@ -216,6 +221,7 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
         manifest: json!({}),
         id: "local/hello".into(),
         name: "hello".into(),
+        published: None,
     };
     dev::build(&pkg, &dev::BuildPlan::Pack(bun), dev::BUILD_TIMEOUT)
         .unwrap_or_else(|problems| panic!("{problems:?}"));
