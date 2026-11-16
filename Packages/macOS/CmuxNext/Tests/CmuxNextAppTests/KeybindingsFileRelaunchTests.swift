@@ -45,7 +45,7 @@ struct KeybindingsFileRelaunchTests {
             } else {
                 AppActions.bind(services)
             }
-            let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: config,
+            let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: config,
                                               managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             await settings.reload()
             services.settings = settings

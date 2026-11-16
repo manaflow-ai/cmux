@@ -951,6 +951,20 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Every dialog keycap style on a real dialog card's buttons, rest, hover and pressed, light and dark (Lawrence
+    // 2026-11-16 on the quit dialog's esc and return chips: "come up with more variations").
+    Action {
+        id: "debug.keycapPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.keycapPlayground", "Keycap Playground"),
+        keywords: &["keycap", "keycaps", "shortcut", "key hint", "dialog", "button", "variants", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "keyboard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-keycap-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,

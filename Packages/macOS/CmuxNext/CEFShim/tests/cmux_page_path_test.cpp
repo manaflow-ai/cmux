@@ -474,6 +474,18 @@ int main() {
     Expect(!cmux_shim::IsContentHashedQuery("v=0123abcd"), "another parameter is not kept");
   }
 
+  // cmux-page:// asks for V8's code cache (pane.js compiles once, not on every launch), which
+  // Chromium allows only for a standard scheme; the rest of its options stay as they were.
+  {
+    namespace opt = cmux_shim::page_scheme_option;
+    const int options = cmux_shim::kCmuxPageSchemeOptions;
+    Expect((options & opt::kCodeCache) != 0, "cmux-page registers as a code cache scheme");
+    Expect(opt::kCodeCache == (1 << 7), "the code cache bit is the fork's CMUX_CEF_SCHEME_OPTION_CODE_CACHE (1 << 7)");
+    Expect((options & opt::kStandard) != 0, "cmux-page stays standard (Chromium's code cache needs it)");
+    Expect(options == (opt::kStandard | opt::kSecure | opt::kCorsEnabled | opt::kFetchEnabled | opt::kCodeCache),
+           "cmux-page is standard, secure, CORS, fetch and code cache, nothing else (no local, CSP bypass or isolation)");
+  }
+
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";
