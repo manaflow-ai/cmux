@@ -35,6 +35,7 @@ pub mod author;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
+pub mod build_info;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
@@ -176,7 +177,9 @@ pub mod peer_link;
 pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
+pub mod person_tokens;
 pub mod placement;
+pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
 pub mod pricing;
@@ -192,10 +195,13 @@ pub mod protocol;
 mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;
+pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
+pub mod race_records;
 pub mod recovery;
 pub mod registry;
+pub(crate) mod remote_chain_profile;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -231,7 +237,9 @@ pub mod sha256;
 pub mod memory_inbox;
 pub mod prompt_coach;
 pub mod shadow_admission;
+pub(crate) mod shell_readonly;
 pub mod shell_words;
+pub mod sidecar_census;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
@@ -251,6 +259,7 @@ pub mod subagent_notice;
 pub mod subagents;
 pub mod subrouter_session;
 pub mod subsession_mcp;
+pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
@@ -264,6 +273,7 @@ mod test_stack;
 /// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
+pub(crate) mod time_breakdown;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
@@ -271,6 +281,7 @@ pub mod trust;
 pub mod trust_auto;
 pub mod tui;
 pub mod turn_attestation;
+pub(crate) mod turn_errors;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

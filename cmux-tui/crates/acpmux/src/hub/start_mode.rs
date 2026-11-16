@@ -292,40 +292,7 @@ pub(super) fn file_allows_full_access() -> bool {
     }
 }
 
-/// The markers of a mode id or option value that skips every approval, shared with the cmux NEXT
-/// app (`spec/full-access-modes.json`).
-const FULL_ACCESS_RULE: &str = include_str!("../../../../spec/full-access-modes.json");
-
-fn full_access_markers() -> Option<&'static [String]> {
-    static MARKERS: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
-    MARKERS
-        .get_or_init(|| {
-            let rule: Value = serde_json::from_str(FULL_ACCESS_RULE).ok()?;
-            Some(
-                rule.get("markers")?
-                    .as_array()?
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect(),
-            )
-        })
-        .as_deref()
-}
-
-/// Whether a mode id or option value skips every approval, by the shared rule
-/// (`spec/full-access-modes.json`): lowercased, without `-`, `_` or spaces, it contains a
-/// marker. Wider than `FULL_ACCESS_MODES` (the modes acpmux itself picks), so a harness's
-/// `danger-full-access` or `auto-approve` is refused too.
-pub(crate) fn is_full_access(mode: &str) -> bool {
-    let folded: String = mode
-        .chars()
-        .filter(|c| !matches!(c, '-' | '_' | ' '))
-        .flat_map(char::to_lowercase)
-        .collect();
-    // A rule that does not parse names every mode full access: refused while the setting is off.
-    full_access_markers().is_none_or(|markers| markers.iter().any(|m| folded.contains(m.as_str())))
-}
+pub(crate) use crate::web_modes::is_full_access;
 
 /// The mode a resumed chat runs in: its saved mode, or the harness default (`fallback`) when the
 /// saved one skips every approval and `sessions.allowFullAccess` is off (`allowed`).

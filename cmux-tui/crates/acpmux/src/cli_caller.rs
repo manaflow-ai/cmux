@@ -110,7 +110,7 @@ pub fn of_initialize(params: &Value) -> Option<Declared> {
 /// Whether `env` is an acpmux session's environment: its session id or its caller token is set.
 pub fn in_session_env(env: impl Fn(&str) -> Option<String>) -> bool {
     let set = |key: &str| env(key).is_some_and(|v| !v.trim().is_empty());
-    set("ACPMUX_SESSION_ID") || set(crate::hub::person::CALLER_TOKEN_ENV)
+    set("ACPMUX_SESSION_ID") || set(crate::person_tokens::CALLER_TOKEN_ENV)
 }
 
 /// Adds this CLI's declaration to the `_meta.acpmux` of its `initialize`.
@@ -143,7 +143,7 @@ pub const OLD_CLI_REASON: &str = "caller.old_client";
 /// no caller: it names the client and says which CLI to run instead. The daemon does not know the
 /// old client's locale, so the text is English, then Japanese.
 pub fn old_cli_refused(client: &str, what: &str) -> crate::rpc::RpcError {
-    let daemon = crate::hub::VERSION;
+    let daemon = crate::build_info::VERSION;
     crate::rpc::RpcError::new(
         -32000,
         format!(
