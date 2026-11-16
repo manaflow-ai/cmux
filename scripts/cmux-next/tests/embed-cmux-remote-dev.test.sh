@@ -16,8 +16,11 @@ result=0
 pass() { echo "ok: $1"; }
 fail() { echo "FAIL: $1" >&2; echo "$output" >&2; failed=$((failed + 1)); }
 # What the app target's script phase gets from `reload.sh --config bench` (the flags of a real build
-# line, with the two bench defines of lib/bench-swift-defines.sh).
-bench_flags="-Xcc -fmodule-map-file=/b/GeneratedModuleMaps/CmuxNextMallocZone.modulemap -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS"
+# line). The bench defines come from the one shared file that reload.sh reads, so a change of the
+# define there that the embed script does not follow makes the bench cases fail.
+# shellcheck source=../lib/bench-swift-defines.sh
+source "$root/scripts/cmux-next/lib/bench-swift-defines.sh"
+bench_flags="-Xcc -fmodule-map-file=/b/GeneratedModuleMaps/CmuxNextMallocZone.modulemap $CMUX_BENCH_SWIFT_DEFINES"
 dest="$scratch/build/cmux.app/Contents/Library/cmux Remote (dev).app"
 asset="cmux-remote-dev-macos-arm64.zip"
 # A stand-in for ditto: it records its arguments and unpacks nothing.
@@ -60,45 +63,80 @@ run() { # <configuration> [NAME=VALUE ...] -> output, result
 warnings() { printf '%s\n' "$output" | grep -c '^warning: ' || true; }
 stamp="$scratch/temp/embed-cmux-remote-dev.stamp"
 not_embedded="warning: cmux-remote-dev: NOT EMBEDDED (this Mac has no cached zip and no read credentials)"
+# The copy and the stamp of an earlier build: a build that embeds nothing removes both. Each case
+# that expects `gone` makes them first, so the check can fail.
+stale() { mkdir -p "$dest/Contents" "$scratch/temp"; echo stale > "$stamp"; }
+gone() { [[ ! -e "$dest" && ! -e "$stamp" ]]; }
+# A build that is optional and has no asset: one warning, the note, nothing left in the app.
+optional_without_asset() {
+  [[ "$result" == 0 && "$(warnings)" == 1 && "$output" == *"warning: pin.json unavailable"* &&
+    "$output" == *"not embedding"* && "$output" != *"NOT EMBEDDED"* ]] && gone
+}
 
 # 1. No pin file.
 name="Release with no pin file fails"
 run Release
 if [[ "$result" != 0 && "$output" == *"requires pin file"* ]]; then pass "$name"; else fail "$name"; fi
 name="Debug with no pin file embeds nothing and passes"
+stale
 run Debug
-if [[ "$result" == 0 && "$output" == *"not embedding"* ]]; then pass "$name"; else fail "$name"; fi
+if [[ "$result" == 0 && "$output" == *"not embedding"* ]] && gone; then pass "$name"; else fail "$name"; fi
 name="a bench build with no pin file embeds nothing and passes"
+stale
 run Release OTHER_SWIFT_FLAGS="$bench_flags"
-if [[ "$result" == 0 && "$output" == *"not embedding"* ]]; then pass "$name"; else fail "$name"; fi
+if [[ "$result" == 0 && "$output" == *"not embedding"* ]] && gone; then pass "$name"; else fail "$name"; fi
 
 # 2. A pin, and the asset in no source: no cache, no store, no credentials.
 printf '{"asset":"%s","sha256":"%064d","arch":"arm64"}\n' "$asset" 0 > "$scratch/pin.json"
 name="Release with no source for the asset prints the one NOT EMBEDDED line, embeds nothing and passes"
+stale
 run Release
-if [[ "$result" == 0 && "$output" == "$not_embedded" && ! -e "$dest" ]]; then pass "$name"; else fail "$name"; fi
+if [[ "$result" == 0 && "$output" == "$not_embedded" ]] && gone; then pass "$name"; else fail "$name"; fi
 name="Release with other defines, and no bench define, is a Release build: the one NOT EMBEDDED line"
+stale
 run Release OTHER_SWIFT_FLAGS="-DCMUX_BLOCKING_CHECKS -DCMUX_BENCH_HOOKS_OFF"
-if [[ "$result" == 0 && "$output" == "$not_embedded" && ! -e "$dest" ]]; then pass "$name"; else fail "$name"; fi
+if [[ "$result" == 0 && "$output" == "$not_embedded" ]] && gone; then pass "$name"; else fail "$name"; fi
 name="Release with no source for the asset removes the copy and the stamp of an earlier build"
-mkdir -p "$dest/Contents" "$scratch/temp"
-echo stale > "$stamp"
+stale
 run Release
-if [[ "$result" == 0 && ! -e "$dest" && ! -e "$stamp" ]]; then pass "$name"; else fail "$name"; fi
-rm -rf "$dest" "$stamp"
+if [[ "$result" == 0 ]] && gone; then pass "$name"; else fail "$name"; fi
 name="Release with CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 fails with no source for the asset"
 run Release CMUX_NEXT_REQUIRE_CMUX_REMOTE=1
 if [[ "$result" != 0 && "$output" == *"error: pin.json unavailable"* && "$output" != *"NOT EMBEDDED"* ]]; then pass "$name"; else fail "$name"; fi
 name="Debug with no asset warns one time, embeds nothing and passes"
+stale
 run Debug
-if [[ "$result" == 0 && "$(warnings)" == 1 && "$output" == *"not embedding"* && ! -e "$dest" ]]; then pass "$name"; else fail "$name"; fi
+if optional_without_asset; then pass "$name"; else fail "$name"; fi
+name="Debug with the bench define and no asset warns one time, embeds nothing and passes"
+stale
+run Debug OTHER_SWIFT_FLAGS="$bench_flags"
+if optional_without_asset; then pass "$name"; else fail "$name"; fi
 name="a bench build with no asset warns one time, embeds nothing and passes"
+stale
 run Release OTHER_SWIFT_FLAGS="$bench_flags"
-if [[ "$result" == 0 && "$(warnings)" == 1 && "$output" == *"warning: pin.json unavailable"* &&
-  "$output" == *"not embedding"* && ! -e "$dest" ]]; then pass "$name"; else fail "$name"; fi
+if optional_without_asset; then pass "$name"; else fail "$name"; fi
+# The embed script looks for the word -DCMUX_BENCH_HOOKS between spaces: also as the only flag and
+# as the last flag.
+name="a bench build with the bench define as its only flag is a bench build"
+stale
+run Release OTHER_SWIFT_FLAGS="-DCMUX_BENCH_HOOKS"
+if optional_without_asset; then pass "$name"; else fail "$name"; fi
+name="a bench build with the bench define as its last flag is a bench build"
+stale
+run Release OTHER_SWIFT_FLAGS="-DCMUX_BLOCKING_CHECKS -DCMUX_BENCH_HOOKS"
+if optional_without_asset; then pass "$name"; else fail "$name"; fi
 name="a bench build with CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 fails with no asset"
 run Release OTHER_SWIFT_FLAGS="$bench_flags" CMUX_NEXT_REQUIRE_CMUX_REMOTE=1
 if [[ "$result" != 0 && "$output" == *"unavailable"* ]]; then pass "$name"; else fail "$name"; fi
+# A local copy with other bytes than the pin's: a sha256 mismatch is an error in each build, also
+# where a missing asset is not.
+printf 'not the pinned bytes\n' > "$scratch/other.zip"
+name="a bench build with a local copy of other bytes fails with a sha256 mismatch"
+run Release OTHER_SWIFT_FLAGS="$bench_flags" CMUX_CUA_ASSET_FILE="$scratch/other.zip"
+if [[ "$result" != 0 && "$output" == *"error: sha256 mismatch"* ]]; then pass "$name"; else fail "$name"; fi
+name="Release with a local copy of other bytes fails with a sha256 mismatch"
+run Release CMUX_CUA_ASSET_FILE="$scratch/other.zip"
+if [[ "$result" != 0 && "$output" == *"error: sha256 mismatch"* && "$output" != *"NOT EMBEDDED"* ]]; then pass "$name"; else fail "$name"; fi
 
 # 3. The asset is in the cache: each configuration goes on to the unpack step with the cached file.
 # The stand-in unpacks nothing, so the script stops at its next check; the embed itself needs macOS
