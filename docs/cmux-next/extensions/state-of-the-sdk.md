@@ -44,10 +44,11 @@ it into each new extension.
    page, `cmux.newtab/1`, is built and shows only when the person sets `tabs.newTabApp`;
    the old `cmux.newtab.widget/1` is gone), status items
    (validated, never drawn), chat widgets (`cmux.chat.widget/1` is validated and routed by the
-   daemon, `apps.chat_widgets.route`; the transcript does not draw them yet), composer mentions
-   (`cmux.composer.mention/1` is answered by the daemon, `apps.composer.mentions`; the `@` menu does
-   not list them yet; slash commands, `cmux.composer.command/1`, are listed in the `/` menu),
-   right sidebar panels. `cmux ext new` scaffolds a sidebar section, a Session Info section, a pane, a New Tab page, a widget or a command (`--kind`).
+   daemon, `apps.chat_widgets.route`; the transcript does not draw them yet), right sidebar panels.
+   Composer mentions (`cmux.composer.mention/1`) are listed in the `@` menu: the page asks the
+   daemon's matcher (`apps.composer.mentions`) through `cmux.apps.panels.mentions`, and `@pr` or
+   `@pr:441` narrows the menu to that provider; slash commands, `cmux.composer.command/1`, are
+   listed in the `/` menu. `cmux ext new` scaffolds a sidebar section, a Session Info section, a pane, a New Tab page, a widget or a command (`--kind`).
 5. **Sharing.** Extensions install from a local folder only; `cmux ext add/share/search` is #42068.
 6. **Budgets.** The batch-rate ladder (Slowed, Paused) is designed but not enforced (#41554); the
    node cap is checked in the VM, not the host.

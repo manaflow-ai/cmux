@@ -39,8 +39,12 @@ public protocol AppsTransport: AnyObject {
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
     /// The composer's extension slash commands and mention providers (`apps.composer.list`).
     func composerPlaces() async throws(AppsTransportError) -> AppJSON
+    /// The extension mention items that match a query (`apps.composer.mentions {query, prefix?, limit?}`).
+    func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON
     /// One read-only App Store op (`apps-store {op}`, no arguments), the reply as the daemon wrote it.
     func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON
+    /// One App Store op with arguments (`apps-store {op, args}`), the reply as the daemon wrote it.
+    func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
@@ -76,8 +80,11 @@ extension AppsTransport {
 }
 
 extension AppsTransport {
+    /// A read with no arguments is a read with an empty argument object.
+    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await storeCall(op, args: .object([:])) }
+
     /// A transport that serves no App Store reads answers each with an empty object.
-    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { .object([:]) }
+    public func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON { .object([:]) }
 
     public func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
         AppSessionInfoPanel.list(try await storeCall("apps.panels.list"))
@@ -86,4 +93,10 @@ extension AppsTransport {
     /// The agent chat composer's extension places (`apps.composer.list`): the reply as the daemon
     /// wrote it, `{commands, mentions}`.
     public func composerPlaces() async throws(AppsTransportError) -> AppJSON { try await storeCall("apps.composer.list") }
+
+    /// The installed extensions' `@` items for a query, ranked by the daemon (`apps.composer.mentions`):
+    /// `{mentions: [{app, extension, prefix, id, label, detail?, insert}]}`.
+    public func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        try await storeCall("apps.composer.mentions", args: args)
+    }
 }

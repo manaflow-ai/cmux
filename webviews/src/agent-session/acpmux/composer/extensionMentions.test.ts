@@ -1,0 +1,73 @@
+// l10n-allow-file: synthetic extension mention labels.
+import { describe, expect, test } from "bun:test";
+import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
+import { mentionInsert, mentionItems } from "../mentionItems";
+import {
+  ExtensionMentionProviders,
+  extensionMentionsFrom,
+  mentionAsk,
+  mentionPrefixesFrom,
+  type ExtensionMention,
+} from "./extensionMentions";
+
+const PR: ExtensionMention = {
+  app: "local/team-flow",
+  extension: "Team flow",
+  prefix: "pr",
+  id: "441",
+  label: "#441 Fix the login redirect",
+  insert: "PR #441 (https://github.com/o/r/pull/441)",
+};
+
+describe("extension @ mentions (cmux.composer.mention/1)", () => {
+  test("a provider's prefix as the word, or prefix:query, asks only that provider", () => {
+    expect(mentionAsk("pr", ["pr"])).toEqual({ prefix: "pr", query: "" });
+    expect(mentionAsk("PR:441", ["pr"])).toEqual({ prefix: "pr", query: "441" });
+    expect(mentionAsk("login", ["pr"])).toEqual({ query: "login" });
+    expect(mentionAsk("jira:12", ["pr"])).toEqual({ query: "jira:12" });
+  });
+
+  test("replies are read defensively: no id or label drops the entry, no insert writes the label", () => {
+    expect(mentionPrefixesFrom({ mentions: [{ prefix: "pr" }, { prefix: "pr" }, { prefix: "" }, {}] })).toEqual(["pr"]);
+    expect(mentionPrefixesFrom(null)).toEqual([]);
+    const read = extensionMentionsFrom({ mentions: [{ id: "1", label: "One" }, { id: "2" }, null, { label: "x" }] });
+    expect(read).toEqual([{ app: "", extension: "", prefix: "", id: "1", label: "One", insert: "One" }]);
+  });
+
+  test("the providers are read from the page host and again when the installed apps change", async () => {
+    const client = new MockAppPanelsClient();
+    const owner = new ExtensionMentionProviders(client);
+    owner.start();
+    await owner.refresh();
+    expect(owner.getSnapshot()).toEqual(["pr"]);
+    let told = 0;
+    owner.subscribe(() => told++);
+    client.composerMentions = [];
+    client.setComposerCommands([]);
+    await owner.refresh();
+    expect(owner.getSnapshot()).toEqual([]);
+    expect(told).toBe(1);
+    owner.stop();
+  });
+
+  test("the page asks the daemon's matcher through cmux.apps.panels.mentions", async () => {
+    const client = new MockAppPanelsClient();
+    const reply = await client.call("cmux.apps.panels.mentions", mentionAsk("pr:450", ["pr"]));
+    expect(extensionMentionsFrom(reply).map((m) => m.id)).toEqual(["450"]);
+    expect(client.mentionAsks).toEqual([{ prefix: "pr", query: "450" }]);
+  });
+
+  test("the @ menu lists extension rows after the chats, first when the word names their prefix", () => {
+    const base = { query: "pr", files: [], sessions: [], extension: [PR] };
+    expect(mentionItems(base).map((item) => item.kind)).toEqual(["extension"]);
+    expect(mentionItems({ ...base, extensionFirst: true })[0]?.kind).toBe("extension");
+  });
+
+  test("picking an extension row writes its insert text, not an @ path", () => {
+    const [row] = mentionItems({ query: "pr", files: [], sessions: [], extension: [PR] });
+    expect(mentionInsert(row!)).toEqual({
+      shown: "PR #441 (https://github.com/o/r/pull/441) ",
+      markdown: "PR #441 (https://github.com/o/r/pull/441) ",
+    });
+  });
+});
