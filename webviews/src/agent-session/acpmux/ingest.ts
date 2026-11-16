@@ -179,3 +179,34 @@ export function coalesceStream(records: readonly EventRecord[]): IngestStep[] {
   }
   return steps;
 }
+
+/**
+ * Whether `raw` is a reply to a request: a top-level `"id"` and no top-level `"method"` (acpmux writes keys
+ * sorted, so an error reply starts `{"error":`). Read from the frame's top level only, to its end or its
+ * `"method"`; a frame it cannot read is not a reply (`receive` then folds the queue before it, which is
+ * always safe).
+ */
+export function isReplyFrame(raw: string): boolean {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let id = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw.charCodeAt(index);
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === 0x5c) escaped = true;
+      else if (char === 0x22) inString = false;
+      continue;
+    }
+    if (char === 0x22) {
+      if (depth === 1) {
+        if (raw.startsWith('"method"', index)) return false;
+        if (raw.startsWith('"id"', index)) id = true;
+      }
+      inString = true;
+    } else if (char === 0x7b || char === 0x5b) depth += 1;
+    else if (char === 0x7d || char === 0x5d) depth -= 1;
+  }
+  return id;
+}

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { EventRecord } from "./direct";
-import { coalesceStream, isStreamFrame } from "./ingest";
+import { coalesceStream, isReplyFrame, isStreamFrame } from "./ingest";
 
 const update = (seq: number, body: Record<string, unknown>, meta?: Record<string, unknown>) =>
   ({
@@ -92,4 +92,15 @@ test("records whose segment differs never join; their seq and time stamps do not
   ];
   const steps = coalesceStream(records);
   expect(steps.map((step) => step.hold.map((record) => record.seq))).toEqual([[1], [2, 3], [4]]);
+});
+
+test("isReplyFrame: a top-level id and no top-level method, error replies included", () => {
+  expect(isReplyFrame('{"id":4,"jsonrpc":"2.0","result":{"events":[]}}')).toBe(true);
+  expect(isReplyFrame('{"error":{"code":-32000,"data":{"method":"x"},"message":"no"},"id":7,"jsonrpc":"2.0"}')).toBe(
+    true,
+  );
+  expect(isReplyFrame('{"jsonrpc":"2.0","id":"a","result":null}')).toBe(true);
+  expect(isReplyFrame('{"jsonrpc":"2.0","method":"session/update","params":{"id":1}}')).toBe(false);
+  expect(isReplyFrame('{"id":9,"jsonrpc":"2.0","method":"_cmux/ask","params":{}}')).toBe(false);
+  expect(isReplyFrame("not json")).toBe(false);
 });

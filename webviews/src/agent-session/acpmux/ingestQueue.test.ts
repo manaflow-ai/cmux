@@ -210,3 +210,54 @@ test("a notification that is not a stream record applies after the records sent 
     manual.lanes.dispose();
   }
 });
+
+test("a duplicate record in a push is dropped as before, never folded ahead of the records before it", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const manual = manualLanes();
+  AcpmuxDirectClient.scheduleFrame = () => undefined;
+  AcpmuxDirectClient.ingestLanes = manual.lanes;
+  const chat = await openChat();
+  try {
+    const from = chat.pane.lastSeq;
+    // A replaced socket's or a reconnect's replay sends a record twice.
+    chat.push([
+      chat.chunk(from + 1, "a "),
+      chat.chunk(from + 2, "b "),
+      chat.chunk(from + 3, "c "),
+      chat.chunk(from + 4, "d "),
+      chat.chunk(from + 3, "c "),
+    ]);
+    await manual.frame();
+    const reply = chat.rows().find((row) => row.kind === "assistant" && row.text?.startsWith("a "));
+    expect(reply?.text).toBe("a b c d ");
+    expect(chat.pane.events.slice(-4).map((event) => event.seq)).toEqual([from + 1, from + 2, from + 3, from + 4]);
+  } finally {
+    chat.client.close?.();
+    AcpmuxDirectClient.scheduleFrame = undefined;
+    AcpmuxDirectClient.ingestLanes = undefined;
+    manual.lanes.dispose();
+  }
+});
+
+test("a page that hides folds what it received at once", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const manual = manualLanes();
+  AcpmuxDirectClient.scheduleFrame = () => undefined;
+  AcpmuxDirectClient.ingestLanes = manual.lanes;
+  const chat = await openChat();
+  const doc = dom.window.document;
+  try {
+    const from = chat.pane.lastSeq;
+    chat.push([chat.chunk(from + 1, "x "), chat.chunk(from + 2, "y ")]);
+    expect(chat.pane.lastSeq).toBe(from);
+    Object.defineProperty(doc, "visibilityState", { configurable: true, get: () => "hidden" });
+    doc.dispatchEvent(new dom.window.Event("visibilitychange"));
+    expect(chat.pane.lastSeq).toBe(from + 2);
+  } finally {
+    Object.defineProperty(doc, "visibilityState", { configurable: true, get: () => "visible" });
+    chat.client.close?.();
+    AcpmuxDirectClient.scheduleFrame = undefined;
+    AcpmuxDirectClient.ingestLanes = undefined;
+    manual.lanes.dispose();
+  }
+});
