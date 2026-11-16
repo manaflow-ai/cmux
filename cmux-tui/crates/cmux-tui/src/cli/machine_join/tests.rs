@@ -331,6 +331,42 @@ fn add_json_prints_the_env_form_line_and_the_token_only_in_line_and_token() {
 }
 
 #[test]
+fn device_invite_uses_the_hub_join_script_and_names_its_channel() {
+    let (origin, requests) = fake(joining(vec![json!([])], far()));
+    let invite =
+        mint_invite(&platform(&origin), Some("build-box"), Some(300), "nightly-next").unwrap();
+    assert!(invite.expiry.starts_with("expires at "), "{}", invite.expiry);
+    let value = invite.json;
+    assert_eq!(
+        value["line"],
+        format!(
+            " curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_CHANNEL=nightly-next CMUX_JOIN={TOKEN} sh"
+        )
+    );
+    assert_eq!(value["channel"], "nightly-next");
+    assert_eq!(value["scriptUrl"], format!("{origin}/v1/machines/join.sh"));
+    assert!(!value["line"].as_str().unwrap().contains("host join"));
+    assert!(!value["line"].as_str().unwrap().contains("install-static.sh"));
+    let request = requests.recv().unwrap();
+    let (_, body) = request.split_once("\r\n\r\n").unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(body).unwrap(),
+        json!({"label": "build-box", "ttlSeconds": 300})
+    );
+}
+
+#[test]
+fn invite_channels_are_the_names_the_join_script_accepts() {
+    for ok in [DEFAULT_INVITE_CHANNEL, "nightly-next", "rc-2"] {
+        assert!(check_channel(ok).is_ok(), "{ok}");
+    }
+    let long = "a".repeat(65);
+    for bad in ["", "Nightly", "feat/next", "a b", "x;rm", long.as_str()] {
+        assert!(check_channel(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
 fn add_human_prints_the_line_and_waits_on_a_terminal_until_it_joins() {
     let (origin, _requests) = fake(joining(
         vec![json!([entry("jt_other")]), json!({"credentials": [entry("jt_1")]})],

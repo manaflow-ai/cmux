@@ -142,6 +142,8 @@ mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
+pub(crate) use auth_token::app_access_token;
+#[cfg(unix)]
 pub(crate) use auth_token::app_token;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
@@ -166,10 +168,10 @@ mod machine_join;
 mod machine_link;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    Auth as PlatformAuth, CallError as PlatformCallError, Platform,
-    device_credential as joined_machine_credential, platform_origin,
-    read_credential as read_platform_credential, refusal_reason as platform_refusal_reason,
-    rows_for_devices as joined_machine_rows,
+    Auth as PlatformAuth, CallError as PlatformCallError, DEFAULT_INVITE_CHANNEL, Platform,
+    check_channel as check_invite_channel, device_credential as joined_machine_credential,
+    mint_invite, parse_ttl, platform_origin, read_credential as read_platform_credential,
+    refusal_reason as platform_refusal_reason, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -420,7 +422,7 @@ pub(super) struct GlobalArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct UsageError(pub String);
+pub(crate) struct UsageError(pub String);
 
 #[derive(Debug)]
 struct ParseFailure {

@@ -312,16 +312,7 @@ pub(in crate::cli) fn account_rows(global: &GlobalArgs) -> Result<Vec<Value>, St
 
 /// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`).
 fn app_token(global: &GlobalArgs) -> Result<String, String> {
-    const TIMEOUT: Duration = Duration::from_secs(30);
-    let mut stream = super::super::app::connect_command(global)
-        .map_err(|_| "not signed in: no CMUX_CLOUD_ACCESS_TOKEN and no cmux app".to_owned())?;
-    let params = Value::Object(super::super::auth_token::request(None));
-    let answer = super::super::app::request(&mut stream, "auth.token", params, TIMEOUT)?.map_err(
-        |error| error.get("message").and_then(Value::as_str).unwrap_or("not signed in").to_owned(),
-    )?;
-    super::super::auth_token::token_line(&answer)
-        .map(|line| line.trim().to_owned())
-        .ok_or_else(|| "the cmux app gave no token".to_owned())
+    super::super::auth_token::signed_in_token(global)
 }
 
 /// The chat's name on the machine: `--name`, else a few words of the prompt, with four letters
