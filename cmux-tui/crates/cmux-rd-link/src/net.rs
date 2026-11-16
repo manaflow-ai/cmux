@@ -182,7 +182,7 @@ struct MediaFrame {
 /// The link queue keeps at most one frame being drained plus one waiting. A
 /// new droppable frame replaces the waiting frame, so media never waits behind
 /// an unbounded burst while control traffic continues to use the lossless
-/// command channel.
+/// command channel. Protected frames may exceed this bound until they drain.
 const MAX_WAITING_MEDIA_FRAMES: usize = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -208,7 +208,10 @@ enum DropReason {
 
 #[derive(Default)]
 struct MediaQueue {
+    // A droppable frame can only be the sole pending frame. Protected arrivals
+    // evict it, and droppable arrivals cannot join a protected backlog.
     frames: VecDeque<MediaFrame>,
+    queued_datagrams: usize,
     dropped_frames: u64,
     dropped_datagrams: u64,
     dropped_replaced_frames: u64,
@@ -225,8 +228,8 @@ impl MediaQueue {
             return;
         }
         if datagrams.droppable {
-            if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
-                if let Some(old) = self.frames.remove(index) {
+            if self.frames.front().is_some_and(|frame| frame.droppable) {
+                if let Some(old) = self.pop() {
                     self.record_drop(old, DropReason::Replaced);
                 }
             } else if self.frames.len() >= MAX_WAITING_MEDIA_FRAMES {
@@ -235,22 +238,25 @@ impl MediaQueue {
                 self.record_drop(datagrams, DropReason::RejectedProtected);
                 return;
             }
-        } else if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
-            if let Some(old) = self.frames.remove(index) {
+        } else if self.frames.front().is_some_and(|frame| frame.droppable) {
+            if let Some(old) = self.pop() {
                 self.record_drop(old, DropReason::EvictedForProtected);
             }
         }
+        self.queued_datagrams += datagrams.datagrams.len();
         self.frames.push_back(datagrams);
     }
 
     fn pop(&mut self) -> Option<MediaFrame> {
-        self.frames.pop_front()
+        let frame = self.frames.pop_front()?;
+        self.queued_datagrams -= frame.datagrams.len();
+        Some(frame)
     }
 
     fn stats(&self) -> NetStats {
         NetStats {
             queue_frames: self.frames.len(),
-            queue_datagrams: self.frames.iter().map(|frame| frame.datagrams.len()).sum(),
+            queue_datagrams: self.queued_datagrams,
             dropped_frames: self.dropped_frames,
             dropped_datagrams: self.dropped_datagrams,
             dropped_replaced_frames: self.dropped_replaced_frames,
@@ -1106,6 +1112,7 @@ mod tests {
             Some(vec![b"new-a".to_vec(), b"new-b".to_vec()])
         );
         assert!(queue.pop().is_none(), "old frame fragments must not survive");
+        assert_eq!(queue.stats().queue_datagrams, 0);
     }
 
     #[test]
@@ -1141,10 +1148,12 @@ mod tests {
 
         let stats = queue.stats();
         assert_eq!(stats.queue_frames, 2);
+        assert_eq!(stats.queue_datagrams, 2);
         assert_eq!(stats.dropped_rejected_protected_frames, 1);
         assert_eq!(stats.dropped_rejected_protected_datagrams, 2);
         assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"key".to_vec()]));
         assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"recovery".to_vec()]));
         assert!(queue.pop().is_none());
+        assert_eq!(queue.stats().queue_datagrams, 0);
     }
 }
