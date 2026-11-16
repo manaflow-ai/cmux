@@ -39,7 +39,7 @@ import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
-import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { MINIMAL_SCROLLER_ATTRIBUTE, SETTLING_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -1537,7 +1537,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   useEffect(
     () =>
       wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
-        ? followScrollEdges(wrapper.current)
+        ? // No mark while the field settles to a height its draft fits (composer/fieldGrowth.ts).
+          followScrollEdges(wrapper.current, "y", { quietWhile: SETTLING_SCROLLER_ATTRIBUTE })
         : undefined,
     [],
   );
