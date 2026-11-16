@@ -12,7 +12,7 @@ import Testing
 struct WindowTitleLifecycleTests {
     @Test func profileRenameWhileTopPageIsShownUpdatesNativeWindowTitle() async throws {
         var tree = SidebarMultiViewWindowTests.Fixture.tree(["k0", "k1"])
-        tree.personal.profiles = [ProfileSnapshot(id: .defaultProfile, name: "Personal", index: 0)]
+        tree.personal?.profiles = [ProfileSnapshot(id: .defaultProfile, name: "Personal", index: 0)]
         let fixture = try await SidebarMultiViewWindowTests.Fixture(keys: ["k0", "k1"], tree: tree)
         defer { fixture.close() }
 
@@ -45,11 +45,11 @@ struct WindowTitleLifecycleTests {
         var tree = SidebarMultiViewWindowTests.Fixture.tree(["k0", "k1"])
         tree.workspaces[0].name = "Shared"
         tree.workspaces[1].name = "Shared"
-        tree.personal.profiles = [
+        tree.personal?.profiles = [
             ProfileSnapshot(id: personal, name: "Personal", index: 0),
             ProfileSnapshot(id: work, name: "Work", index: 1),
         ]
-        tree.personal.pins = [
+        tree.personal?.pins = [
             WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "k0"), profile: personal),
             WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "k1"), profile: work),
         ]
@@ -73,7 +73,7 @@ struct WindowTitleLifecycleTests {
 
     @Test func restoredTopPageHasNativeTitleBeforeWorkspaceMounts() async throws {
         var tree = SidebarMultiViewWindowTests.Fixture.tree(["k0"])
-        tree.personal.profiles = [ProfileSnapshot(id: .defaultProfile, name: "Personal", index: 0)]
+        tree.personal?.profiles = [ProfileSnapshot(id: .defaultProfile, name: "Personal", index: 0)]
         let fixture = try await SidebarMultiViewWindowTests.Fixture(keys: ["k0"], tree: tree)
         defer { fixture.close() }
         let state = WindowState()
@@ -98,10 +98,10 @@ struct WindowTitleLifecycleTests {
             fixture.frame()
         }
         let actual = fixture.controller.window?.title ?? "nil"
-        try #require(actual == expected, "native title stayed " + actual + ", expected " + expected)
+        try #require(actual == expected, "native title stayed \(actual), expected \(expected)")
         if let chrome {
             #expect(fixture.controller.root.titlebar.title == chrome,
-                    "titlebar stayed " + fixture.controller.root.titlebar.title + ", expected " + chrome)
+                    "titlebar stayed \(fixture.controller.root.titlebar.title), expected \(chrome)")
         }
     }
 
@@ -114,9 +114,9 @@ struct WindowTitleLifecycleTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         try #require(first.window?.title == firstExpected,
-                     "first native title stayed " + (first.window?.title ?? "nil") + ", expected " + firstExpected)
+                     "first native title stayed \(first.window?.title ?? "nil"), expected \(firstExpected)")
         try #require(second.window?.title == secondExpected,
-                     "second native title stayed " + (second.window?.title ?? "nil") + ", expected " + secondExpected)
+                     "second native title stayed \(second.window?.title ?? "nil"), expected \(secondExpected)")
     }
 
     private static func frame(_ controller: WindowController) {
