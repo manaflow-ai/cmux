@@ -270,7 +270,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let name = |verb: &str| format!("{family}.{verb}");
     let mut go = op(&name("go"), "go");
     go["palette"] = json!({ "title": "Go", "when": "paneFocused:editor" });
-    // A page key (page_keys.rs) and a chord, which is no page key.
+    // A page key (page_keys.rs) and a chord (shortcuts.rs).
     go["keyboard"] = json!([{ "key": "g", "when": "browserFocused" }, { "key": "cmd+g" }]);
     let ops = [go, op(&name("crash"), "crash"), op(&name("focus"), "focusTab")];
     let catalog = json!({ "family": family, "operations": ops });
@@ -879,7 +879,10 @@ fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
     let demo = app_entry(&f.supervisor.list(), "cmux/demo");
     assert_eq!(
         demo["commands"],
-        json!([{ "op": "demo.go", "title": "Go", "when": "paneFocused:editor", "page_keys": ["g"] }])
+        json!([{
+            "op": "demo.go", "title": "Go", "when": "paneFocused:editor", "page_keys": ["g"],
+            "shortcuts": [{ "key": "g", "modifiers": ["cmd"] }]
+        }])
     );
     let (tx, rx) = channel();
     f.supervisor.run(

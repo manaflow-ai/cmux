@@ -177,6 +177,10 @@ impl Package {
                 if !keys.is_empty() {
                     command.set("page_keys", serde_json::json!(keys));
                 }
+                let shortcuts = super::shortcuts::shortcuts(&entry);
+                if !shortcuts.is_empty() {
+                    command.set("shortcuts", Value::Array(shortcuts));
+                }
                 Some(command)
             })
             .collect()

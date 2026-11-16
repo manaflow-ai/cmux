@@ -63,13 +63,36 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         /// The single keys that run it on a browser page (`page_keys`: `f`, `shift+f`, `/`), the
         /// person's bindings already applied by the daemon (`apps/page_keys.rs`).
         public var pageKeys: [String]
+        /// The key chords that run it anywhere (`shortcuts`, `apps/shortcuts.rs`): its catalog
+        /// defaults, which the person rebinds in Settings > Keyboard.
+        public var shortcuts: [Chord]
         public var id: String { op }
 
-        public init(op: String, title: AppLocalizedText, when: String? = nil, pageKeys: [String] = []) {
+        /// One chord as the daemon sends it: a one-character key (`k`, ` ` for Space) and modifier
+        /// names (`cmd`, `ctrl`, `opt`, `shift`).
+        public struct Chord: Sendable, Hashable {
+            public var key: String
+            public var modifiers: [String]
+
+            public init(key: String, modifiers: [String]) {
+                self.key = key
+                self.modifiers = modifiers
+            }
+
+            init?(json: AppJSON) {
+                guard let key = json["key"]?.stringValue, !key.isEmpty else { return nil }
+                self.init(key: key, modifiers: json["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+            }
+
+            var json: AppJSON { ["key": .string(key), "modifiers": .array(modifiers.map(AppJSON.string))] }
+        }
+
+        public init(op: String, title: AppLocalizedText, when: String? = nil, pageKeys: [String] = [], shortcuts: [Chord] = []) {
             self.op = op
             self.title = title
             self.when = when
             self.pageKeys = pageKeys
+            self.shortcuts = shortcuts
         }
 
         /// Whether `key` (a page key: the lowercase character, Shift apart) runs this command.
@@ -130,7 +153,8 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
             return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue,
-                           pageKeys: entry["page_keys"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+                           pageKeys: entry["page_keys"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                           shortcuts: entry["shortcuts"]?.arrayValue?.compactMap(Command.Chord.init(json:)) ?? [])
         }
     }
 
@@ -143,7 +167,7 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             "grants": .array(grants.sorted().map(AppJSON.string)), "manifest": manifest.raw, "available": .bool(available),
             "bundle_dir": bundleDirectory.map { .string($0.path) } ?? .null,
             "revision": revision.map { .number(Double($0)) } ?? .null,
-            "commands": .array(commands.map { ["op": .string($0.op), "title": .string($0.title.english), "page_keys": .array($0.pageKeys.map(AppJSON.string))] }),
+            "commands": .array(commands.map { ["op": .string($0.op), "title": .string($0.title.english), "page_keys": .array($0.pageKeys.map(AppJSON.string)), "shortcuts": .array($0.shortcuts.map(\.json))] }),
         ]
     }
 }

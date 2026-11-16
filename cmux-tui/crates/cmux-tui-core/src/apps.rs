@@ -80,6 +80,8 @@ mod servers;
 #[cfg(unix)]
 mod serves;
 #[cfg(unix)]
+mod shortcuts;
+#[cfg(unix)]
 mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
