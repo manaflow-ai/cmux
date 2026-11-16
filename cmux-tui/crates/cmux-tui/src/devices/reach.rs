@@ -6,8 +6,8 @@
 //! One bounded pass: every host at once, one thread each, and the pass returns at
 //! [`BUDGET`] whatever is still pending, so its wall time does not grow with the host count.
 
+use cmux_process::{Command, Stdio};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs as _};
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
