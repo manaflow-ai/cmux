@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43808482192",
+  "recorded_at": "2026-11-16T05:18:38Z",
+  "reason": "cmux-tui 379e8982edc0 changes the image's cmux-tui (pinned 2945d17d284f)",
+  "dry_run": false,
+  "cmux_tui": "379e8982edc0bba4f9819d8768971acab6f1d48c",
+  "fixes": [
+    {
+      "sha": "20902e11fa5b435a45ba6f7d1f8a6bb20663b9f5",
+      "mergedAt": "2026-11-15T20:52:57-08:00",
+      "subject": "Motion: MotionFlight, one motion in flight for a surface (#44190)"
+    },
+    {
+      "sha": "96cd8ac33b99b9e55a69798cc0489550e4e22d66",
+      "mergedAt": "2026-11-15T20:50:47-08:00",
+      "subject": "acpmux v2: the rest of the best-of-rounds gates report their rounds (#43988)"
+    },
+    {
+      "sha": "39f140d4984cbc1d83f3cf99fcc8e8e7a5dd2c48",
+      "mergedAt": "2026-11-15T20:48:55-08:00",
+      "subject": "GitHub webhooks reach extensions as github.changed (#44146)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T05:18:38Z",
+    "snapshot_id": "sh-1973257d24d94dddb9a154aeec1a59e3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43808482192): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fe58d5e8e6d477312324dd43c47969eab6bb40c3",
+    "image": "cloud-native-auto-379e8982-43808482192-1",
+    "revision": "ci-43808482192-1",
+    "at": "2026-11-16T05:18:38Z"
+  },
+  "rolled_back": false
+}
