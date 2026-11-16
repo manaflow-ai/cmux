@@ -813,6 +813,13 @@ mod encode_off_loop_tests {
         fn send_datagram(&mut self, _datagram: &[u8]) -> std::io::Result<()> {
             Ok(())
         }
+        fn send_datagram_frame(
+            &mut self,
+            _datagrams: Vec<Vec<u8>>,
+            _droppable: bool,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
         fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
             Ok(())
         }
