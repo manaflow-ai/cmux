@@ -56,6 +56,10 @@ public final class AgentPaneSpareRefiller {
     /// paint, the tab strip's motion) pass first, so the make's main-thread tasks land in none of them; and it is
     /// short enough that the pool has a page again before a person's next open after a pause. The value was set for
     /// Cmd-T (PACING TRIAGE #32910). It is not tuned by a measure of chat opens yet.
+    ///
+    /// Limit: those are the frames of the open that took the page, and of each chat page that held the make. A chat
+    /// that built its own page and drew before the make's task asked the pages holds nothing, so when it draws less
+    /// than the settle after the chat that took the page, the make comes 0 to 250 ms after its paint.
     public static let settle: Duration = .milliseconds(250)
 
     /// What the refill's make tasks did since launch (tests read it).

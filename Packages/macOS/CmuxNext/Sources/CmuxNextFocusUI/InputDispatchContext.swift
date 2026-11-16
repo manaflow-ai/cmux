@@ -30,6 +30,8 @@ public final class InputDispatchContext {
     /// content moves, a gesture and its momentum send an event each frame (8 to 17 ms apart), so 100 ms with no
     /// event means that nothing scrolls: the momentum ended, or the fingers rest. It spans a few dropped events,
     /// and it has no end event to miss: a gesture whose end went to another run loop holds nothing for longer.
+    /// No measure set it; a moving scroll's events come 8 to 17 ms apart by a read (one event for each display
+    /// frame at 60 to 120 Hz), not by a run.
     public static let scrollGap: TimeInterval = 0.1
 
     private var stack: [Dispatch] = []
