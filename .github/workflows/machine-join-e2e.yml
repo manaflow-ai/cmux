@@ -17,6 +17,11 @@ name: Machine join E2E (development)
 # the run's cmux install are revoked in that step's `finally` and on a cancel;
 # the evidence check below fails the job when a joined machine is not shown
 # revoked. Manual dispatch on feat-cmux-next only.
+#
+# screen_share (off by default): while joined, `cmux-rd linux-host enable --non-interactive` runs as the
+# disposable user with no account token (the machine signs in to the development device hub with the
+# join's credential), and a viewer device of the same account finds it listed, shared and online and
+# starts one session that the hub approves at once and that starts (scripts/cmux-next/machine-join-e2e.ts).
 on:
   workflow_dispatch:
     inputs:
@@ -39,6 +44,11 @@ on:
           - none
           - deps
           - deps-slow
+      screen_share:
+        description: "While joined, run `cmux-rd linux-host enable --non-interactive` as the joined user, find the machine on the development device hub and start one session from a viewer of the same account with no prompt"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,6 +69,8 @@ jobs:
     timeout-minutes: 90
     env:
       HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
+      # The development device hub (workers/device-hub wrangler.toml [env.dev]), for screen_share only.
+      DEVICE_HUB_ORIGIN: https://cmux-device-hub-dev.debussy.workers.dev
     steps:
       - name: Refuse any ref but feat-cmux-next
         env:
@@ -240,6 +252,40 @@ jobs:
             fi
           fi
 
+      # With screen_share: cmux-rd built from the run's commit, root-owned beside acpmux and linked from the
+      # user's ~/.local/bin (where the host's user unit runs it); Xvfb for the virtual display enable starts;
+      # and a user manager for the disposable user (lingering, with its session bus), so `systemctl --user`
+      # works for it with no login, as on a server reached over ssh. No secret here.
+      - name: Prepare the screen share
+        id: share
+        if: inputs.screen_share
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_UID: ${{ steps.user.outputs.uid }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          JOIN_HOME: ${{ steps.user.outputs.home }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y xvfb dbus-user-session
+          cd cmux-tui/crates/cmux-rd-host
+          cargo build --locked --no-default-features --features openh264,link --bin cmux-rd
+          target_dir="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)"
+          cd "$GITHUB_WORKSPACE"
+          sudo install -o root -g root -m 0755 "$target_dir/debug/cmux-rd" "$JOIN_BASE/bin/cmux-rd"
+          sudo -n -u "$JOIN_USER" -- install -d -m 0700 "$JOIN_HOME/.local" "$JOIN_HOME/.local/bin"
+          sudo -n -u "$JOIN_USER" -- ln -s "$JOIN_BASE/bin/cmux-rd" "$JOIN_HOME/.local/bin/cmux-rd"
+          sudo loginctl enable-linger "$JOIN_USER"
+          runtime="/run/user/$JOIN_UID"
+          for _ in $(seq 1 30); do
+            if sudo test -S "$runtime/bus"; then break; fi
+            sleep 1
+          done
+          if ! sudo test -S "$runtime/bus"; then
+            echo "::error::no user manager with a session bus for $JOIN_USER at $runtime"
+            exit 1
+          fi
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
       - name: Mint, join, verify and revoke
         timeout-minutes: 60
@@ -251,13 +297,19 @@ jobs:
           JOIN_BASE: ${{ steps.user.outputs.base }}
           JOIN_HOME: ${{ steps.user.outputs.home }}
           BENCH: ${{ inputs.bench }}
+          SCREEN_SHARE: ${{ inputs.screen_share }}
+          SHARE_RUNTIME: ${{ steps.share.outputs.runtime }}
         # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
         run: |
           bench=()
           case "$BENCH" in deps | deps-slow) bench=(--bench "$JOIN_BASE/bin/deps-bench.sh") ;; esac
+          share=()
+          if [ "$SCREEN_SHARE" = true ]; then
+            share=(--screen-share "$JOIN_BASE/bin/cmux-rd" --device-hub "$DEVICE_HUB_ORIGIN" --runtime-dir "$SHARE_RUNTIME")
+          fi
           exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
             --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \
-            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}"
+            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}" "${share[@]}"
 
       # Fails on a token or credential prefix, a JWT or an auth header in the evidence (nothing is then
       # uploaded or summarized), on missing evidence, and on a joined machine not shown revoked.
@@ -313,6 +365,9 @@ jobs:
           JOIN_BASE: ${{ steps.user.outputs.base }}
         run: |
           set -uo pipefail
+          # screen_share's user manager (lingering) goes first, so nothing starts the user's units again.
+          sudo loginctl disable-linger "$JOIN_USER" 2>/dev/null || true
+          sudo loginctl terminate-user "$JOIN_USER" 2>/dev/null || true
           sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1 2>/dev/null || true
           sleep 1
           sudo userdel --remove "$JOIN_USER" 2>/dev/null || true

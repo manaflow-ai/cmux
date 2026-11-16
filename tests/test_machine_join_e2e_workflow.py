@@ -53,7 +53,9 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name"])
+        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "screen_share"])
+        share = load()["on"]["workflow_dispatch"]["inputs"]["screen_share"]
+        self.assertEqual((share["type"], share["default"]), ("boolean", "false"))
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
         self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
@@ -195,6 +197,37 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         for var in ("CARGO_HOME", "BUN_INSTALL", "BUN_INSTALL_CACHE_DIR", "XDG_CACHE_HOME", "TMPDIR"):
             self.assertRegex(script, rf'export {var}="\$bench/')
         self.assertNotIn("$HOME", script)
+
+    def test_screen_share_is_opt_in_secret_free_and_development_only(self) -> None:
+        # cmux-rd is built from the run's commit with no secret in reach, root-owned beside acpmux; the user's
+        # ~/.local/bin only links to it. Off by default, so a run without the input is the join alone.
+        prep = step("Prepare the screen share")
+        self.assertEqual(prep["if"], "inputs.screen_share")
+        self.assertNotIn("secrets", str(prep))
+        self.assertNotIn("CMUX_UITEST_STACK", str(prep))
+        run = prep["run"]
+        self.assertIn("cargo build --locked --no-default-features --features openh264,link --bin cmux-rd", run)
+        self.assertIn('sudo install -o root -g root -m 0755 "$target_dir/debug/cmux-rd" "$JOIN_BASE/bin/cmux-rd"', run)
+        self.assertIn('ln -s "$JOIN_BASE/bin/cmux-rd" "$JOIN_HOME/.local/bin/cmux-rd"', run)
+        self.assertIn('sudo loginctl enable-linger "$JOIN_USER"', run)
+        names = [s.get("name") for s in steps()]
+        self.assertLess(names.index("Create the disposable user"), names.index("Prepare the screen share"))
+        self.assertLess(names.index("Prepare the screen share"), names.index("Mint, join, verify and revoke"))
+        document = load()
+        self.assertEqual(
+            workflow_jobs.effective_env(document, document["jobs"]["e2e"])["DEVICE_HUB_ORIGIN"],
+            "https://cmux-device-hub-dev.debussy.workers.dev",
+        )
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"', script)
+        self.assertIn("if (opts.deviceHub !== DEV_DEVICE_HUB)", script)
+        mint = step("Mint, join, verify and revoke")
+        self.assertEqual(mint["env"]["SCREEN_SHARE"], "${{ inputs.screen_share }}")
+        self.assertIn('if [ "$SCREEN_SHARE" = true ]; then', mint["run"])
+        self.assertIn('--device-hub "$DEVICE_HUB_ORIGIN"', mint["run"])
+        # The user manager goes before the user's processes are killed and the user removed.
+        remove = step("Remove the disposable user")["run"]
+        self.assertLess(remove.index('sudo loginctl disable-linger "$JOIN_USER"'), remove.index("/bin/kill -KILL -1"))
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]

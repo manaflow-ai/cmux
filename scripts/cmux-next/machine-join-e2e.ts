@@ -3,7 +3,8 @@
  * Machine join end to end on the DEVELOPMENT platform, for .github/workflows/machine-join-e2e.yml.
  *
  *   bun scripts/cmux-next/machine-join-e2e.ts --origin https://cmux-platform-development.debussy.workers.dev \
- *     --acpmux PATH --user USER --home DIR --name NAME --evidence FILE --run ID --sha SHA [--bench SCRIPT]
+ *     --acpmux PATH --user USER --home DIR --name NAME --evidence FILE --run ID --sha SHA [--bench SCRIPT] \
+ *     [--screen-share CMUX_RD --device-hub https://cmux-device-hub-dev.debussy.workers.dev --runtime-dir /run/user/UID]
  *
  * The stack account comes only from this process's environment (CMUX_UITEST_STACK_EMAIL and
  * CMUX_UITEST_STACK_PASSWORD, which the workflow maps from the repo's dev stack secrets). This
@@ -17,6 +18,16 @@
  * platform list entry matched by joinTokenId, consent (both none), credential file mode 600,
  * revoke, status and list show revoked, secret scan, evidence. The machine revoke and the install
  * revoke run in `finally` and on SIGINT/SIGTERM, so every path after the mint revokes.
+ *
+ * With --screen-share, while the machine is joined (after the heartbeat, before the revoke): a viewer
+ * device of the same account signs in to the development device hub with the stack session
+ * (`POST /v1/auth/stack`, which also records the account there, so the machine's own sign-in can find
+ * it) and registers. `cmux-rd linux-host enable --non-interactive` then runs as the disposable user with
+ * no account token: it signs the machine in with the join's credential (`POST /v1/auth/machine`), starts
+ * its virtual X display and its host unit. The viewer finds the machine in the account's device list,
+ * shared and online, and starts one session: the hub must approve it at once (state `approved`, so no
+ * request waits for anyone at the machine), and the session must start (the hub audits `started` once
+ * the host has joined the session's signaling socket). The run's hub devices are removed in cleanup.
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
  */
 import { spawn } from "node:child_process"
@@ -25,6 +36,17 @@ import { dirname } from "node:path"
 
 export const DEV_PLATFORM = "https://cmux-platform-development.debussy.workers.dev"
 export const DEV_API = "https://cmux-api-development.debussy.workers.dev"
+/** The development device hub: workers/device-hub wrangler.toml `[env.dev]` (cmux-device-hub-dev on
+ * workers.dev), the origin cmux-cloud-environment's DEVELOPMENT_DEPLOYMENT names. */
+export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"
+/** How long the enabled host has to be listed online in the account's devices. */
+export const HOST_ONLINE_LIMIT_MS = 90_000
+/** How long a session has for the viewer's ticket, and then for the hub's `started`. */
+export const SESSION_LIMIT_MS = 30_000
+/** The screen-share part's share of the run's deadline. */
+export const SCREEN_SHARE_LIMIT_MS = 5 * 60_000
+/** A hub device name this harness gives: the viewer's, and the default machine name. */
+const CI_DEVICE = /^ci-(?:join|viewer)-\d+(?:-\d+)?$/
 const STACK_API = "https://api.stack-auth.com/api/v1"
 // The development Stack project cmux-api-development trusts (backend/apps/api/wrangler.jsonc), and its public client key.
 const DEV_STACK_PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
@@ -84,6 +106,23 @@ export interface Options {
   sha: string
   /** A root-owned script run as the disposable user while the machine is joined (before the revoke), or "". */
   bench?: string
+  /** A root-owned `cmux-rd`, enabled as the disposable user while joined, or "": no screen share. */
+  cmuxRd?: string
+  /** With cmuxRd: the device hub (development only). */
+  deviceHub?: string
+  /** With cmuxRd: the disposable user's runtime directory, where its user manager listens. */
+  runtimeDir?: string
+}
+
+/** A device hub WebSocket, as the harness reads it. */
+export interface HubSocket {
+  /** Text frames in arrival order. */
+  readonly frames: string[]
+  readonly closed: boolean
+  /** Runs on each new frame and on the close. */
+  onChange(fn: () => void): void
+  send(text: string): void
+  close(): void
 }
 
 export interface ChildResult {
@@ -116,6 +155,8 @@ export interface Deps {
   sleep(ms: number, signal?: AbortSignal): Promise<void>
   /** A signal that aborts `ms` from now, on the same clock as `now` and `sleep`. */
   timeout(ms: number): AbortSignal
+  /** Opens a WebSocket sending `headers`; rejects when it is refused or not open within `timeoutMs`. */
+  socket?(url: string, headers: Record<string, string>, timeoutMs: number): Promise<HubSocket>
 }
 
 export interface Evidence {
@@ -143,8 +184,41 @@ export interface Evidence {
   revoke: { revokedListed: boolean | null; statusRevoked: boolean | null }
   /** With --bench: its exit code and the last JSON object it printed (numbers and plain strings only). */
   bench?: { code: number | null; result: Record<string, unknown> | null }
+  /** With --screen-share. */
+  screenShare?: ScreenShareEvidence
   result: "pass" | "fail"
   reason: string
+}
+
+export interface ScreenShareEvidence {
+  hubOrigin: string
+  /** The viewer's `POST /v1/auth/stack` and its device registration. */
+  viewerSignedIn: boolean
+  /** `cmux-rd linux-host enable --non-interactive` as the disposable user. */
+  enable: {
+    code: number | null
+    outcome: "shared" | "not_installed" | "other" | null
+    virtualDisplay: number | null
+    deviceId: string | null
+    /** The `not_installed:` reason, in plain characters. */
+    note: string | null
+  }
+  /** The enabled machine in the account's devices (`GET /v1/devices`), as the viewer reads it. */
+  device: { listed: boolean; platform: string | null; nameMatches: boolean; shared: boolean; online: boolean } | null
+  /** One session from the viewer. */
+  session: {
+    scope: string
+    /** The hub's answer to `POST /v1/sessions`: `approved` at once is no prompt; `pending` waits for the host. */
+    state: string | null
+    /** The audit `detail` of `approved` (`permission`: no one decided). */
+    approvedBy: string | null
+    viewerTicket: boolean
+    /** The hub audited `started`: the host joined the session's signaling socket. */
+    started: boolean
+    ended: boolean
+  } | null
+  /** Hub devices removed in cleanup: this run's two, and earlier runs' stale ones. */
+  removedDevices: number
 }
 
 class Refused extends Error {}
@@ -160,6 +234,11 @@ export function refusal(opts: Options): string | undefined {
   if (!opts.acpmux.startsWith("/")) return "acpmux must be an absolute path"
   if (!opts.evidence.startsWith("/")) return "evidence must be an absolute path"
   if (opts.bench && (!opts.bench.startsWith("/") || opts.bench.includes(".."))) return "bench must be an absolute path"
+  if (opts.cmuxRd) {
+    if (!opts.cmuxRd.startsWith("/") || opts.cmuxRd.includes("..")) return "screen-share must be an absolute path to cmux-rd"
+    if (opts.deviceHub !== DEV_DEVICE_HUB) return `device-hub must be ${DEV_DEVICE_HUB}`
+    if (!/^\/run\/user\/\d{1,10}$/.test(opts.runtimeDir ?? "")) return "runtime-dir must be /run/user/UID"
+  } else if (opts.deviceHub || opts.runtimeDir) return "device-hub and runtime-dir go with screen-share"
   return undefined
 }
 
@@ -305,9 +384,11 @@ export async function runE2E(
   const childEnv = { PATH: CHILD_PATH }
   // Everything runs as the disposable user, reads included: a path that user controls (a symlink, say)
   // reaches nothing beyond what that user could read anyway. Nothing here runs as root.
-  const asUserTool = (args: string[]) => [
+  // `extra`: more NAME=value assignments (never a secret), after the fixed five.
+  const asUserTool = (args: string[], extra: string[] = [], path = CHILD_PATH) => [
     "sudo", "-n", "-u", opts.user, "--", "/usr/bin/env", "-i", "-C", opts.home,
-    `HOME=${opts.home}`, `USER=${opts.user}`, `LOGNAME=${opts.user}`, `PATH=${CHILD_PATH}`, "LANG=C.UTF-8",
+    `HOME=${opts.home}`, `USER=${opts.user}`, `LOGNAME=${opts.user}`, `PATH=${path}`, "LANG=C.UTF-8",
+    ...extra,
     ...args
   ]
   const asUser = (args: string[]) => asUserTool([opts.acpmux, ...args])
@@ -570,6 +651,9 @@ export async function runE2E(
         }
       }
       if (evidence.joinTokenId && joinStarted && !machineRevoked && !evidence.machineId) say("no machine was listed for this join token; nothing to revoke")
+      // After the machine's revoke (it comes first on a cancel's short budget): this run's hub devices.
+      if (viewer && (!cancelled || left() > 1_500)) await cleanHub().catch(() => warn("could not remove this run's hub devices"))
+      else for (const sock of sockets.splice(0)) sock.close()
       // The auth stage (a registration in flight survives a cancel) gets what is left of the cancel budget,
       // less 1.5 s for the install's revoke and the sign-out. Its private key never leaves this process, so
       // an install whose answer never comes cannot be used.
@@ -605,6 +689,248 @@ export async function runE2E(
   }
   onCleanup?.(cancel)
   const stackHeaders = () => ({ "x-stack-project-id": DEV_STACK_PROJECT, "x-stack-publishable-client-key": DEV_STACK_CLIENT_KEY, "x-stack-access-type": "client" })
+
+  // Screen share (--screen-share). The viewer is a device of the same account, held in memory only: its
+  // keys are not extractable and its hub session is masked the moment it exists.
+  const hub = opts.deviceHub || DEV_DEVICE_HUB
+  const share: ScreenShareEvidence | undefined = opts.cmuxRd
+    ? {
+        hubOrigin: hub,
+        viewerSignedIn: false,
+        enable: { code: null, outcome: null, virtualDisplay: null, deviceId: null, note: null },
+        device: null,
+        session: null,
+        removedDevices: 0
+      }
+    : undefined
+  if (share) evidence.screenShare = share
+  let viewer: { id: string; session: string; keys: CryptoKeyPair } | undefined
+  let hostDevice: string | undefined
+  let openSession: string | undefined
+  const sockets: HubSocket[] = []
+  const sha256Hex = async (text: string) => Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).toString("hex")
+  /** The viewer's device headers for `method target` (docs/device-hub/PROTOCOL.md, Device-signed requests). */
+  const deviceHeaders = async (method: string, target: string, bodyText: string) => {
+    const ts = String(Math.floor(deps.now() / 1000))
+    const message = `${method}\n${target}\n${ts}\n${bodyText ? await sha256Hex(bodyText) : ""}`
+    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, viewer!.keys.privateKey, new TextEncoder().encode(message))
+    return { "x-device-id": viewer!.id, "x-device-ts": ts, "x-device-sig": Buffer.from(sig).toString("base64") }
+  }
+  /** A device-signed hub call as the viewer (`call` sends `body` as JSON.stringify writes it, the bytes signed here). */
+  const hubCall = async (method: string, path: string, body?: unknown) => {
+    const bodyText = body === undefined ? "" : JSON.stringify(body)
+    const headers = { ...(await deviceHeaders(method, path, bodyText)), authorization: `Bearer ${viewer!.session}` }
+    return call(`${hub}${path}`, { method, headers, ...(body === undefined ? {} : { body }) })
+  }
+  /** The first frame of `sock` that `pred` accepts within `ms`, parsed; null on the deadline, a close or a cancel. */
+  const nextFrame = async (sock: HubSocket, pred: (f: any) => boolean, ms: number) => {
+    const end = deps.now() + ms
+    for (let seen = 0; ; ) {
+      for (; seen < sock.frames.length; seen++) {
+        let f: unknown
+        try {
+          f = JSON.parse(sock.frames[seen]!)
+        } catch {
+          continue
+        }
+        if (pred(f)) return f as any
+      }
+      if (sock.closed || cancelled || deps.now() >= end) return null
+      let poke: () => void = () => undefined
+      const changed = new Promise<void>((resolve) => (poke = resolve))
+      sock.onChange(() => poke())
+      await within(changed, end - deps.now(), true)
+    }
+  }
+  const pause = (ms: number) => within(new Promise(() => undefined), ms, true)
+  /** Earlier runs' hub devices (this harness's names, offline, older than any run): removed, never failing the run. */
+  const sweepHub = async () => {
+    try {
+      const r = await hubCall("GET", "/v1/devices")
+      if (r.status !== 200 || !Array.isArray(r.json?.devices)) return
+      for (const d of r.json.devices as any[]) {
+        const id = safeId(d?.id)
+        const seen = Number(d?.lastSeenAt ?? d?.createdAt)
+        if (!id || id === viewer?.id || d?.online !== false || !CI_DEVICE.test(String(d?.name ?? ""))) continue
+        if (!Number.isFinite(seen) || deps.now() - seen < STALE_MS) continue
+        const gone = await hubCall("DELETE", `/v1/devices/${encodeURIComponent(id)}`)
+        if (gone.status >= 200 && gone.status < 300) share!.removedDevices += 1
+      }
+    } catch {
+      warn("could not sweep earlier runs' hub devices")
+    }
+  }
+  /** Closes the sockets, ends a session still open, and removes this run's hub devices (the machine's first). */
+  const cleanHub = async () => {
+    for (const sock of sockets.splice(0)) {
+      try {
+        sock.close()
+      } catch {
+        // already closed
+      }
+    }
+    if (!viewer || !share) return
+    if (openSession) await hubCall("POST", `/v1/sessions/${encodeURIComponent(openSession)}/end`, {}).catch(() => undefined)
+    openSession = undefined
+    for (const id of [hostDevice, viewer.id]) {
+      if (!id) continue
+      try {
+        const r = await hubCall("DELETE", `/v1/devices/${encodeURIComponent(id)}`)
+        if (r.status >= 200 && r.status < 300) share.removedDevices += 1
+        else warn(`could not remove hub device ${id} (HTTP ${r.status})`)
+      } catch {
+        warn(`could not remove hub device ${id}`)
+      }
+    }
+    viewer = undefined
+  }
+
+  /** Enable as the joined machine, find it from the viewer, start one session with no prompt. */
+  const screenShare = async (s: ScreenShareEvidence) => {
+    const socket = deps.socket
+    if (!socket) throw new Failed("screen share: no WebSocket client")
+    // 1. The viewer. Its stack sign-in also records the account on the hub, which the machine's sign-in needs
+    // (403 account_not_on_hub otherwise).
+    await refreshStack().catch(() => undefined)
+    live()
+    const signIn = await call(`${hub}/v1/auth/stack`, { method: "POST", body: { token: stack!.access } })
+    if (typeof signIn.json?.session === "string") hold(signIn.json.session)
+    if (signIn.status !== 200 || typeof signIn.json?.session !== "string") throw refusedBy("hub sign-in", signIn)
+    const keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])) as CryptoKeyPair
+    const agreement = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"])) as CryptoKeyPair
+    const raw = async (k: CryptoKey) => Buffer.from(await crypto.subtle.exportKey("raw", k)).toString("base64")
+    viewer = { id: crypto.randomUUID(), session: signIn.json.session, keys }
+    live()
+    const reg = await hubCall("POST", "/v1/devices", {
+      id: viewer.id,
+      name: `ci-viewer-${opts.runId}`,
+      platform: "linux",
+      signingKey: await raw(keys.publicKey),
+      agreementKey: await raw(agreement.publicKey)
+    })
+    if (reg.status !== 200) throw refusedBy("hub device registration", reg)
+    s.viewerSignedIn = true
+    say(`viewer device ${viewer.id} signed in to the device hub`)
+    await sweepHub()
+
+    // 2. Enable, as the disposable user, with no account token: the machine signs itself in with the join's
+    // credential. acpmux's directory is on PATH (how cmux-rd finds the acpmux home); the user manager's
+    // address lets it start the virtual display and the host unit.
+    live()
+    const rt = opts.runtimeDir!
+    const r = await deps.run(
+      asUserTool(
+        [opts.cmuxRd!, "linux-host", "enable", "--non-interactive", "--hub", hub, "--name", opts.name],
+        [`XDG_RUNTIME_DIR=${rt}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=${rt}/bus`],
+        `${dirname(opts.acpmux)}:${CHILD_PATH}`
+      ),
+      { env: childEnv, timeoutMs: 150_000, signal: inFlight.signal }
+    )
+    childText.push(r.stdout, r.stderr)
+    for (const line of `${r.stdout}\n${r.stderr}`.split("\n").filter((l) => l.trim()).slice(-20)) say(`  cmux-rd: ${redact(line, secrets).slice(0, 300)}`)
+    s.enable.code = r.code
+    const notInstalled = /^not_installed: (.*)$/m.exec(r.stdout)
+    const shared = /shared as "[^"\n]*" \(([0-9a-f-]{36})\)/.exec(r.stdout)
+    const display = /virtual display at :(\d{1,5})\b/.exec(r.stdout)
+    s.enable.virtualDisplay = display ? Number(display[1]) : null
+    if (notInstalled) {
+      s.enable.outcome = "not_installed"
+      s.enable.note = redact(notInstalled[1]!, secrets).replace(/[^A-Za-z0-9 ._:;,()/-]/g, "").slice(0, 200)
+    } else if (shared && r.code === 0) {
+      s.enable.outcome = "shared"
+      s.enable.deviceId = safeId(shared[1])
+    } else s.enable.outcome = "other"
+    if (s.enable.outcome !== "shared" || !s.enable.deviceId) {
+      throw new Failed(`screen share: enable did not share this machine (${s.enable.outcome}${s.enable.note ? `: ${s.enable.note}` : `, exit ${r.code}`})`)
+    }
+    hostDevice = s.enable.deviceId
+    expect(s.enable.virtualDisplay !== null, "screen share: enable started no virtual display on a machine with no desktop")
+
+    // 3. The account's devices, from the viewer: the machine, shared and online (its host unit connected).
+    const until = deps.now() + HOST_ONLINE_LIMIT_MS
+    let row: any
+    for (;;) {
+      live()
+      const l = await hubCall("GET", "/v1/devices")
+      if (l.status !== 200 || !Array.isArray(l.json?.devices)) throw refusedBy("hub device list", l)
+      row = (l.json.devices as any[]).find((d) => d?.id === hostDevice)
+      if (row?.online === true && row?.macScreenShared === true) break
+      if (deps.now() + 2_000 >= until) break
+      await pause(2_000)
+    }
+    s.device = {
+      listed: !!row,
+      platform: safeId(row?.platform),
+      nameMatches: row?.name === opts.name,
+      shared: row?.macScreenShared === true,
+      online: row?.online === true
+    }
+    expect(s.device.platform === "linux", "screen share: the machine is not listed as a linux device")
+    expect(s.device.nameMatches, "screen share: the listed device has another name")
+    if (!s.device.listed) throw new Failed("screen share: the machine is not in the account's devices")
+    if (!s.device.shared || !s.device.online) throw new Failed(`screen share: the machine is listed but ${s.device.shared ? "" : "not shared, "}${s.device.online ? "online" : `not online within ${HOST_ONLINE_LIMIT_MS / 1000} s`}`)
+
+    // 4. One session. The viewer's account socket gets the ticket; no one at the machine is asked.
+    live()
+    const wsOrigin = hub.replace(/^https:/, "wss:")
+    const account = await socket(`${wsOrigin}/v1/user/ws`, { ...(await deviceHeaders("GET", "/v1/user/ws", "")), authorization: `Bearer ${viewer.session}` }, 15_000).catch(() => {
+      throw new Failed("screen share: the account socket did not open")
+    })
+    sockets.push(account)
+    s.session = { scope: "full", state: null, approvedBy: null, viewerTicket: false, started: false, ended: false }
+    const start = await hubCall("POST", "/v1/sessions", { hostId: hostDevice, scope: "full" })
+    const sid = safeId(start.json?.session?.id)
+    if (start.status !== 200 || !sid) throw refusedBy("session start", start)
+    openSession = sid
+    const state = start.json.session.state
+    s.session.state = typeof state === "string" && /^[a-z_]{1,32}$/.test(state) ? state : null
+    say(`session ${sid}: ${s.session.state}`)
+    if (s.session.state !== "approved") {
+      throw new Failed(`screen share: the hub did not approve the session at once (state ${s.session.state}); it waits for someone at the machine`)
+    }
+    const ticket = await nextFrame(account, (f) => f?.type === "session.ticket" && f.sessionId === sid && f.role === "viewer", SESSION_LIMIT_MS)
+    if (typeof ticket?.ticket === "string") hold(ticket.ticket)
+    s.session.viewerTicket = typeof ticket?.ticket === "string" && typeof ticket?.signalURL === "string"
+    if (!s.session.viewerTicket) throw new Failed("screen share: no viewer ticket for the session")
+    let signalUrl: URL
+    try {
+      signalUrl = new URL(ticket.signalURL)
+    } catch {
+      throw new Failed("screen share: the ticket's signaling address is not a URL")
+    }
+    if (signalUrl.origin !== new URL(wsOrigin).origin || signalUrl.pathname !== `/v1/sessions/${sid}/ws`) {
+      throw new Failed("screen share: the ticket's signaling address is not this hub's session")
+    }
+    const target = `${signalUrl.pathname}?ticket=${encodeURIComponent(ticket.ticket)}`
+    live()
+    const signaling = await socket(`${signalUrl.origin}${target}`, await deviceHeaders("GET", target, ""), 15_000).catch(() => {
+      throw new Failed("screen share: the session's signaling socket did not open")
+    })
+    sockets.push(signaling)
+    // The hub audits `started` once both sides' signaling sockets are open: the host took its ticket and joined.
+    const by = deps.now() + SESSION_LIMIT_MS
+    for (;;) {
+      live()
+      const a = await hubCall("GET", "/v1/audit?limit=50")
+      const mine = a.status === 200 && Array.isArray(a.json?.entries) ? (a.json.entries as any[]).filter((e) => e?.sessionId === sid) : []
+      const approved = mine.find((e) => e?.event === "approved")
+      if (typeof approved?.detail === "string" && /^[a-z_]{1,32}$/.test(approved.detail)) s.session.approvedBy = approved.detail
+      if (mine.some((e) => e?.event === "started")) {
+        s.session.started = true
+        break
+      }
+      if (deps.now() + 1_000 >= by) break
+      await pause(1_000)
+    }
+    expect(s.session.approvedBy === "permission", "screen share: the hub's audit does not show the session approved by its own rule")
+    expect(s.session.started, "screen share: the session did not start (the host never joined its signaling socket)")
+    signaling.send(JSON.stringify({ type: "bye" }))
+    const end = await hubCall("POST", `/v1/sessions/${encodeURIComponent(sid)}/end`, {})
+    s.session.ended = end.status === 200
+    if (s.session.ended) openSession = undefined
+    expect(s.session.ended, "screen share: the session did not end")
+    if (s.session.started) say(`session ${sid} started with no prompt, then ended`)
+  }
 
   try {
     const why = refusal(opts)
@@ -772,6 +1098,13 @@ export async function runE2E(
       expect(r.code === 0 && evidence.bench.result !== null, `bench: exit ${r.code}`)
     }
 
+    // 6c. Screen share, while joined: enable, the hub's device list, one session with no prompt. Its
+    // devices are removed in cleanup, whatever happens here.
+    if (share) {
+      live()
+      await screenShare(share)
+    }
+
     // 7. Revoke, then status and list say revoked.
     await revokeMachine()
     const after = await status()
@@ -825,7 +1158,10 @@ export async function runE2E(
   if (secrets.some((s) => s.length >= 4 && logText.includes(s))) problems.push("output holds a secret value")
 
   evidence.result = problems.length === 0 ? "pass" : "fail"
-  evidence.reason = problems.length === 0 ? "joined, heartbeat, listed, consent none, mode 600, revoked, no secrets found" : problems.join("; ")
+  evidence.reason =
+    problems.length === 0
+      ? `joined, heartbeat, listed, consent none, mode 600, ${share ? "shared with no prompt (enable, listed online, session approved at once and started), " : ""}revoked, no secrets found`
+      : problems.join("; ")
   // 9. The evidence itself: scanned before it goes anywhere; a leak replaces it with a bare failure.
   let text = JSON.stringify(evidence, null, 2)
   const leaks = evidenceLeaks(text, secrets)
@@ -862,7 +1198,10 @@ export function parseArgs(argv: string[]): Options {
     evidence: value("--evidence"),
     runId: value("--run"),
     sha: value("--sha"),
-    bench: value("--bench")
+    bench: value("--bench"),
+    cmuxRd: value("--screen-share"),
+    deviceHub: value("--device-hub"),
+    runtimeDir: value("--runtime-dir")
   }
 }
 
@@ -952,7 +1291,38 @@ export function realDeps(): Deps {
         const t = setTimeout(resolve, ms)
         signal?.addEventListener("abort", () => clearTimeout(t), { once: true })
       }),
-    timeout: (ms) => AbortSignal.timeout(ms)
+    timeout: (ms) => AbortSignal.timeout(ms),
+    // Bun's WebSocket takes request headers (the device signature and, on the account socket, the session).
+    socket: (url, headers, timeoutMs) =>
+      new Promise<HubSocket>((resolve, reject) => {
+        const ws = new WebSocket(url, { headers } as unknown as string[])
+        let change: () => void = () => undefined
+        const sock = {
+          frames: [] as string[],
+          closed: false,
+          onChange: (fn: () => void) => (change = fn),
+          send: (text: string) => ws.send(text),
+          close: () => ws.close()
+        }
+        const timer = setTimeout(() => {
+          ws.close()
+          reject(new Error("socket did not open"))
+        }, timeoutMs)
+        ws.addEventListener("open", () => {
+          clearTimeout(timer)
+          resolve(sock)
+        })
+        ws.addEventListener("message", (e) => {
+          if (typeof e.data === "string") sock.frames.push(e.data)
+          change()
+        })
+        ws.addEventListener("close", () => {
+          clearTimeout(timer)
+          sock.closed = true
+          change()
+          reject(new Error("socket closed"))
+        })
+      })
   }
 }
 
@@ -969,7 +1339,7 @@ if (import.meta.main) {
   }
   // A cancel or a step timeout (SIGINT, then SIGTERM about 7.5 s later) stops the run and revokes at
   // once; the run then writes its (failed) evidence and exits. 9 s after the first signal it exits anyway.
-  // The run's own deadline (12 minutes, under the step's 15; 40 more with --bench) cancels the same way.
+  // The run's own deadline (12 minutes, under the step's 15; 40 more with --bench, 5 more with --screen-share) cancels the same way.
   let cancelNow: (() => Promise<void>) | undefined
   // Handled, not default, for both signals and every repeat: the second one must not kill the cleanup.
   let stopping = false
@@ -980,7 +1350,7 @@ if (import.meta.main) {
     setTimeout(() => process.exit(130), 9_000).unref()
   }
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, stop)
-  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0)).unref()
+  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0) + (opts.cmuxRd ? SCREEN_SHARE_LIMIT_MS : 0)).unref()
   runE2E(opts, env, realDeps(), (cancel) => (cancelNow = cancel)).then(
     (e) => process.exit(e.result === "pass" ? 0 : 1),
     (e) => {
