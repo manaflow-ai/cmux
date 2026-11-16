@@ -7,7 +7,15 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import {
+  memo,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
@@ -35,7 +43,7 @@ import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
 import { useShortcut } from "../shortcuts";
-import { registerPicker } from "../pickerOpeners";
+import { ChatViewParked, registerPicker } from "../pickerOpeners";
 import {
   Menu,
   MenuButton,
@@ -724,11 +732,12 @@ export function ChatMenu({
   }, [expand, onExpanded]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("chatMenu.open");
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
     const pickerLabel = registerPickerLabel === undefined ? label : registerPickerLabel;
-    if (pickerLabel === null) return;
+    if (pickerLabel === null || parked) return;
     return registerPicker(pickerLabel, () => showRef.current());
-  }, [label, registerPickerLabel]);
+  }, [label, registerPickerLabel, parked]);
   const onOpenChange = (next: boolean) => {
     if (next) return show();
     opening.current++;

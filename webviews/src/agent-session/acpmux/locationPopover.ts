@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { UiVirtualAnchor } from "../../ui/Popover";
 import type { UiPopupFlip, UiPopupSide } from "../../ui/openSide";
 import { resolveUiSide } from "../../ui/anchor";
 import { interfaceScale, viewOf } from "../../ui/interfaceScale";
-import { registerPicker } from "./pickerOpeners";
+import { ChatViewParked, registerPicker } from "./pickerOpeners";
 
 /// The composer a location control heads: the chat pane's form, or the New Tab page's composer.
 const COMPOSER = "form.acpmux-composer, .nt-composer";
@@ -97,11 +97,12 @@ export function locationMenuHeights(scale: number): { tallest: number; shortest:
 export function useLocationOpener(name: string | undefined, open: () => void) {
   const latest = useRef(open);
   latest.current = open;
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
-    if (!name) return;
+    if (!name || parked) return;
     return registerPicker(name, () => {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       latest.current();
     });
-  }, [name]);
+  }, [name, parked]);
 }
