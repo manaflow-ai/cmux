@@ -47,7 +47,7 @@ public final class DaemonService {
     public let recovery = DaemonRecovery()
     /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
     public let reads = TabReads()
-    public private(set) var connection: DaemonConnection?
+    public internal(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
     /// connect and on every change so the daemon answers OSC 10/11/12 queries

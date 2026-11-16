@@ -81,6 +81,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// handoff. Only the app's own connections to its local daemon set it
     /// (`DaemonLauncher.handingOffIncompatibleOwners`).
     var incompatibleOwner: (@Sendable (DaemonIdentity, LineTransport) async -> Bool)?
+    /// Answers the requests of a connection that has no ready transport (``DaemonRequestAnswering``). The
+    /// product sets no answerer: such a request is not connected.
+    var answers = DaemonRequestAnswers()
 
     public init(
         clientName: String = "cmux-next",
