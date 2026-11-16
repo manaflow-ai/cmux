@@ -1,7 +1,6 @@
+public import CmuxNextPages
+public import CmuxNextSettings
 import CmuxNextCompat
-import CmuxNextDaemonService
-import CmuxNextPages
-import CmuxNextSettings
 import Foundation
 
 /// The App Store's New Tab choice (`tabs.newTabApp`): which installed app draws on the New Tab page
@@ -13,26 +12,35 @@ import Foundation
 ///   key in the page, written as theirs.
 /// - `cmux.apps.newtab.changed` sends `{app}` each time the setting changes (any writer).
 @MainActor
-final class AppsNewTabPageProvider: PageProvider {
-    static let prefix = "cmux.apps.newtab."
+public final class AppsNewTabPageProvider: PageProvider {
+    public static let prefix = "cmux.apps.newtab."
     private let settings: @MainActor @Sendable () -> SettingsController?
+    /// The refusal a set without the person's own click or key shows (the app's shared sentence).
+    private let personOnly: String
 
-    init(settings: @escaping @MainActor @Sendable () -> SettingsController?) {
+    public init(settings: @escaping @MainActor @Sendable () -> SettingsController?, personOnly: String) {
         self.settings = settings
+        self.personOnly = personOnly
+    }
+
+    /// Its route on the App Store page; it goes before `cmux.apps.`, since Use as New Tab is the app's
+    /// own setting, not a daemon op.
+    public static func route(personOnly: String, settings: @escaping @MainActor @Sendable () -> SettingsController?) -> PageRoute {
+        PageRoute(prefix: prefix, provider: AppsNewTabPageProvider(settings: settings, personOnly: personOnly))
     }
 
     private static func json(_ app: String?) -> JSONValue {
         ["app": app.map(JSONValue.string) ?? .null]
     }
 
-    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let settings = settings() else { throw PageError.unavailable("settings are not loaded yet") }
         switch op {
         case "cmux.apps.newtab.get":
             return Self.json(settings.snapshot.newTabApp)
         case "cmux.apps.newtab.set":
             guard context.userGesture else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+                throw PageError(code: PageNativeOp.userOnlyCode, message: personOnly)
             }
             let value: JSONValue?
             switch params["app"] {
@@ -54,11 +62,11 @@ final class AppsNewTabPageProvider: PageProvider {
         }
     }
 
-    func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
-                   onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                          onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == "cmux.apps.newtab.changed" else { throw PageError.unknownOp(stream) }
         let read = settings
-        let task = Task { @MainActor in
+        let task = Task {
             let (first, later) = ObservationStream.current { read()?.snapshot.newTabApp }
             var last = first
             for await app in later where app != last {
