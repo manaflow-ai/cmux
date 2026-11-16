@@ -113,7 +113,12 @@ pub fn parse(source: Option<&str>, size: Option<&str>) -> Result<Option<Syntheti
             let (w, h) = text.split_once('x').ok_or_else(bad)?;
             let (w, h) =
                 (w.parse::<u32>().map_err(|_| bad())?, h.parse::<u32>().map_err(|_| bad())?);
-            if w < MIN_SIZE.0 || h < MIN_SIZE.1 || w % 2 == 1 || h % 2 == 1 || w > 7680 || h > 4320
+            if w < MIN_SIZE.0
+                || h < MIN_SIZE.1
+                || !w.is_multiple_of(2)
+                || !h.is_multiple_of(2)
+                || w > 7680
+                || h > 4320
             {
                 return Err(bad());
             }
@@ -183,7 +188,7 @@ pub fn paint(p: &mut Nv12<'_>, counter: u32, phase: u32) {
     let shift = phase as usize;
     let bar_luma = |x: usize, lift: u8| -> u8 {
         let k = (x + shift) / BAR;
-        if k % 2 == 0 {
+        if k.is_multiple_of(2) {
             40 + lift
         } else {
             (60 + (k / 2 * 37) % 150) as u8 + lift
@@ -200,7 +205,7 @@ pub fn paint(p: &mut Nv12<'_>, counter: u32, phase: u32) {
     let chroma: Vec<u8> = (0..half)
         .flat_map(|cx| {
             let k = (cx * 2 + shift) / BAR;
-            if k % 2 == 0 {
+            if k.is_multiple_of(2) {
                 [NEUTRAL, NEUTRAL]
             } else {
                 [(64 + (k * 53) % 128) as u8, (64 + (k * 91) % 128) as u8]

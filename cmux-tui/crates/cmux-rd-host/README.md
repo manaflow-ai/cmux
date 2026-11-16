@@ -27,6 +27,17 @@ marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-r
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
+For transport, encoder and controller measurements without any grant, a bench build of
+`cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick
+[--synthetic-size WxH]` (default 1920x1080, fitted to `--max-width`): it streams a generated
+NV12 picture with the marker at 0,0 through the same VideoToolbox and send path, and a
+viewer's key press, click or scroll bumps the marker instead of reaching the Mac.
+`synthetic` moves bars every frame, `synthetic-still` sends a frame only when input bumps
+the marker, and `synthetic-tick` also counts every frame (the fps probe). The two-Mac
+harness runs it over ssh with no rig and no marker app:
+`scripts/screen-share-vs.py run --source synthetic --stacks cmux --via ssh --host A --viewer B
+--host-ip IP --bin cmux-rd` (key trials use `synthetic-still`, fps trials `synthetic-tick`).
+
 ## Linux desktop host (shared with cmux on a Mac)
 
 A Linux desktop joins the person's devices and shows up on the Mac's Screen Sharing page
