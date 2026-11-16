@@ -158,12 +158,29 @@ final class WindowManager {
 
     /// The window actions without an explicit target act in: during an input event's dispatch the
     /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
-    /// last active one.
+    /// frontmost cmux window on screen, else the last active one. A CLI, MCP or script run while
+    /// another app is frontmost has no key window: it acts in the window in front, never in the
+    /// first one opened (Leo 2026-11-16: "idk why you guys opened a new window").
     var active: WindowController? {
         if let origin = eventOriginWindow { return origin }
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
-        return lastActive ?? controllers.first
+        return frontmostShown ?? lastActive ?? controllers.first
     }
+
+    /// The frontmost cmux window on screen (visible, not in the Dock), by the registry's recency: the
+    /// app's one record of its window order, which follows every key change and every window
+    /// `WindowActivation` orders in, also one ordered in front without the keys (an update relaunch's
+    /// restore, a CLI's `--focus` under no-activate), which ``lastActive`` never sees. No window server read.
+    var frontmostShown: WindowController? {
+        let shown = controllers.filter { $0.window.map(isOnScreen) ?? false }
+        guard shown.count > 1 else { return shown.first }
+        let recency = registry.value.recency
+        let rank = { (controller: WindowController) in recency.firstIndex(of: controller.state.id) ?? Int.max }
+        return shown.min { rank($0) < rank($1) }
+    }
+
+    /// Whether a window is on screen for ``frontmostShown``; a test that never orders its windows in sets its own.
+    var isOnScreen: @MainActor (NSWindow) -> Bool = { $0.isVisible && !$0.isMiniaturized }
 
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.
