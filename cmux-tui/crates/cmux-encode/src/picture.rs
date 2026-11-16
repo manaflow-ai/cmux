@@ -28,6 +28,17 @@ struct Band<'a> {
     v: &'a mut [u8],
 }
 
+/// The converter threads for this machine: [`threads_for_cores`] of its cores.
+pub fn convert_threads() -> usize {
+    threads_for_cores(std::thread::available_parallelism().map_or(1, |n| n.get()))
+}
+
+/// One thread up to two cores, where a second thread only competes with the encoder and
+/// the session's loop thread; half the cores past that, at most four.
+pub fn threads_for_cores(cores: usize) -> usize {
+    if cores <= 2 { 1 } else { (cores / 2).min(4) }
+}
+
 /// Converts a BGRX rectangle (rows of `w * 4` bytes, `h` rows) into `dst` at (`x`, `y`).
 /// `x`, `y`, `w`, `h` must be even and inside `dst`.
 pub fn bgrx_rect_to_i420(

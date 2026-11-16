@@ -113,6 +113,34 @@ fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
     Err("openh264 is not installed: run `cmux-rd openh264-install` (downloads Cisco's library from Cisco)".into())
 }
 
+/// The software encoder's threads (and OpenH264's slices) for this machine.
+pub fn default_threads() -> u16 {
+    2
+}
+
+/// [`open`], with OpenH264 coded under the bench's `key=value` settings when given
+/// (`cmux-rd encode-selftest --openh264-options`; cmux-encode `OpenH264Options::parse`).
+pub fn open_with(cfg: &EncCfg<'_>, openh264_options: Option<&str>) -> Res<Box<dyn H264Encoder>> {
+    #[cfg(any(feature = "openh264", feature = "bench"))]
+    if let (Some(options), "openh264") = (openh264_options, cfg.codec) {
+        let enc_cfg = cmux_encode::EncCfg {
+            width: cfg.width,
+            height: cfg.height,
+            fps: cfg.fps,
+            kbps: cfg.kbps,
+            threads: cfg.threads,
+            screen_content: cfg.screen_content,
+        };
+        let options = cmux_encode::openh264::OpenH264Options::parse(options)?;
+        let api = openh264_api(cfg.openh264_lib)?;
+        return Ok(Box::new(OpenH264::with_options(&enc_cfg, api, &options)?));
+    }
+    if openh264_options.is_some() && cfg.codec != "openh264" {
+        return Err("--openh264-options needs --codec openh264".into());
+    }
+    open(cfg)
+}
+
 pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
     match cfg.codec {
         #[cfg(any(feature = "openh264", feature = "bench"))]
