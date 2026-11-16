@@ -702,31 +702,3 @@
 2026-11-16T13:57:16.1001423Z ##[error]`cargo test --locked --workspace` failed in cmux-next-ios/rust
 2026-11-16T13:57:16.1005961Z rust-workspaces: cmux-next-ios/rust: red (test)
 2026-11-16T13:57:16.1059979Z ##[error]Process completed with exit code 1.
-2026-11-16T13:57:16.1187595Z Post job cleanup.
-2026-11-16T13:57:16.1706855Z [command]/usr/local/bin/git version
-2026-11-16T13:57:16.1737570Z git version 2.55.0
-2026-11-16T13:57:16.1758527Z Temporarily overriding HOME='/home/runner/_work/_temp/7d69ce9e-0ae7-47e7-bcc6-130da5f6803a' before making global git config changes
-2026-11-16T13:57:16.1758916Z Adding repository directory to the temporary git global config as a safe directory
-2026-11-16T13:57:16.1762771Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/_work/cmux/cmux
-2026-11-16T13:57:16.1788659Z Removing SSH command configuration
-2026-11-16T13:57:16.1793266Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
-2026-11-16T13:57:16.1820148Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-2026-11-16T13:57:16.2010568Z Removing HTTP extra header
-2026-11-16T13:57:16.2016491Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-2026-11-16T13:57:16.2050436Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-2026-11-16T13:57:16.2199416Z Removing includeIf entries pointing to credentials config files
-2026-11-16T13:57:16.2203889Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-2026-11-16T13:57:16.2237483Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-2026-11-16T13:57:16.2526622Z A job completed hook has been configured by the self-hosted runner administrator
-2026-11-16T13:57:16.2547676Z ##[group]Run '/job_completed.sh'
-2026-11-16T13:57:16.2558200Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
-2026-11-16T13:57:16.2558435Z env:
-2026-11-16T13:57:16.2558564Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 184
-2026-11-16T13:57:16.2558731Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 706
-2026-11-16T13:57:16.2558893Z   BLACKSMITH_CHECK_RUN_ID: 133344008558
-2026-11-16T13:57:16.2559067Z   BLACKSMITH_JOB_DISPLAY_NAME: cmux-next-ios/rust
-2026-11-16T13:57:16.2559250Z   GITHUB_ACTIONS_CACHE_MODE: write
-2026-11-16T13:57:16.2559397Z ##[endgroup]
-2026-11-16T13:57:16.2653359Z Docker container cache not activated, skipping hash computation.
-2026-11-16T13:57:16.3010186Z No active SSH sessions detected. Proceeding with shutdown immediately.
-2026-11-16T13:57:16.3156749Z Cleaning up orphan processes
