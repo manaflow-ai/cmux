@@ -648,8 +648,8 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
     resolve_gated(inputs, cua_helper::installed, || {
-        computer_use_allowed(crate::cli::cloud_join::local_computer_use_kept, || {
-            crate::cli::cloud_join::require_joined_consent("control").is_ok()
+        computer_use_allowed(crate::machine_record::local_computer_use_kept, || {
+            crate::machine_record::require_joined_consent("control").is_ok()
         })
     })
 }
