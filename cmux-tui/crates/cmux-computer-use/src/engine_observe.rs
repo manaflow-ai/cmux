@@ -11,6 +11,8 @@ use crate::observe::{Look, diff, guards, ids, outline};
 /// dropped first), and the most outline lines kept per session.
 const SEEN_WINDOWS: usize = 24;
 const SEEN_LINES: usize = 60_000;
+/// The most fingerprints kept per session and window (two full deep walks).
+const SHOWN_PER_WINDOW: usize = 12_000;
 
 /// What an agent last saw of each window: (session, window) -> (when, outline).
 type Seen = HashMap<(String, String), (u64, outline::Outline)>;
@@ -31,6 +33,9 @@ pub(super) struct Observe {
     /// (session, window) -> what each element was when its id was last shown
     /// to the agent, checked when it acts on the id.
     pub(super) shown: Mutex<Shown>,
+    /// (session, window) -> the fingerprints of the walk a look for that
+    /// session just made, taken with its ids ([`Engine::walk_tree_for`]).
+    walked: Mutex<HashMap<(String, String), HashMap<u32, ids::Fingerprint>>>,
     /// window -> the most elements a walk of it was asked for, when more than
     /// the default: later default walks read as far, so ids past the default
     /// limit stay current instead of being carried (and healed every action).
@@ -69,6 +74,7 @@ impl Observe {
             seen: Mutex::new(HashMap::new()),
             seen_tick: std::sync::atomic::AtomicU64::new(0),
             shown: Mutex::new(HashMap::new()),
+            walked: Mutex::new(HashMap::new()),
             reach: Mutex::new(HashMap::new()),
         }
     }
@@ -118,6 +124,18 @@ impl Engine {
         window_id: &str,
         options: TreeOptions,
     ) -> Result<UiTree, DesktopError> {
+        self.walk_tree_for(None, window_id, options)
+    }
+
+    /// [`Self::walk_tree`] for a look `session` will be shown: the walk's
+    /// fingerprints are taken under the same lock as its ids and kept for
+    /// that look, so a concurrent walk cannot swap what is recorded as shown.
+    pub(super) fn walk_tree_for(
+        &self,
+        session: Option<&str>,
+        window_id: &str,
+        options: TreeOptions,
+    ) -> Result<UiTree, DesktopError> {
         let window_lock =
             lock(&self.observe.walking).entry(window_id.to_string()).or_default().clone();
         let _walking = lock(&window_lock);
@@ -137,7 +155,13 @@ impl Engine {
         };
         let mut tree = self.desktop.ui_tree(window_id, options)?;
         let pid = self.desktop.window(window_id).ok().flatten().map(|w| w.pid);
-        lock(&self.observe.ids).assign(window_id, &mut tree, options.menus, pid);
+        let mut reg = lock(&self.observe.ids);
+        reg.assign(window_id, &mut tree, options.menus, pid);
+        if let Some(session) = session {
+            let fps = reg.window(window_id).map(|w| w.fingerprints()).unwrap_or_default();
+            drop(reg);
+            lock(&self.observe.walked).insert((session.to_string(), window_id.to_string()), fps);
+        }
         Ok(tree)
     }
 
@@ -149,22 +173,46 @@ impl Engine {
 
     pub(super) fn forget_session_seen(&self, session: &str) {
         lock(&self.observe.seen).retain(|(s, _), _| s != session);
+        lock(&self.observe.shown).retain(|(s, _), _| s != session);
+        lock(&self.observe.walked).retain(|(s, _), _| s != session);
     }
 
     /// Records the fingerprints of the window's latest walk as shown to the
     /// agent (merged: a look cut short keeps what it did not reach), keeping
     /// at most [`SEEN_WINDOWS`] windows per session.
     pub(super) fn record_shown(&self, session: &str, window_id: &str, ids: &[u32]) {
-        let fps: Vec<(u32, ids::Fingerprint)> = {
+        let key = (session.to_string(), window_id.to_string());
+        // The fingerprints of the walk this look comes from, else (a look
+        // with no walk of its own) the window's latest walk.
+        let walked = lock(&self.observe.walked).remove(&key);
+        let fps: Vec<(u32, ids::Fingerprint)> = match walked {
+            Some(map) => {
+                ids.iter().filter_map(|id| map.get(id).map(|f| (*id, f.clone()))).collect()
+            }
+            None => {
+                let reg = lock(&self.observe.ids);
+                let Some(w) = reg.window(window_id) else { return };
+                ids.iter().filter_map(|id| w.fingerprint(*id).map(|f| (*id, f))).collect()
+            }
+        };
+        // What is still worth checking: ids the registry still has (current,
+        // or carried past a cut walk or for the menus); gone ids are refused
+        // by the registry anyway.
+        let live: std::collections::HashSet<u32> = {
             let reg = lock(&self.observe.ids);
-            let Some(w) = reg.window(window_id) else { return };
-            ids.iter().filter_map(|id| w.fingerprint(*id).map(|f| (*id, f))).collect()
+            reg.window(window_id).map(|w| w.live_ids()).unwrap_or_default()
         };
         let tick = self.observe.seen_tick.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut shown = lock(&self.observe.shown);
-        let entry = shown.entry((session.to_string(), window_id.to_string())).or_default();
+        let entry = shown.entry(key).or_default();
         entry.0 = tick;
         entry.1.extend(fps);
+        entry.1.retain(|id, _| live.contains(id));
+        if entry.1.len() > SHOWN_PER_WINDOW {
+            // Keep this look's ids; drop the others.
+            let now: std::collections::HashSet<u32> = ids.iter().copied().collect();
+            entry.1.retain(|id, _| now.contains(id));
+        }
         loop {
             let mine: Vec<_> = shown.iter().filter(|((s, _), _)| s == session).collect();
             if mine.len() <= SEEN_WINDOWS {
@@ -744,7 +792,7 @@ impl Engine {
     fn menu_bar_listing(&self, session: &str, window_id: &str, n: u32) -> Option<ToolOutput> {
         // Menus change with the app's state (Open Recent, enabled items):
         // list them as they are now.
-        self.walk_tree(window_id, TreeOptions::default()).ok()?;
+        self.walk_tree_for(Some(session), window_id, TreeOptions::default()).ok()?;
         let reg = lock(&self.observe.ids);
         let item = reg.window(window_id)?.element(n)?.clone();
         drop(reg);

@@ -742,7 +742,11 @@ impl Engine {
                     .map(|n| n.clamp(1, 5000) as usize)
                     .unwrap_or(TreeOptions::default().max_nodes);
                 let mut tree = self
-                    .walk_tree(&window.id, TreeOptions { max_nodes, ..TreeOptions::default() })
+                    .walk_tree_for(
+                        Some(&ctx.session),
+                        &window.id,
+                        TreeOptions { max_nodes, ..TreeOptions::default() },
+                    )
                     .map_err(|e| ToolOutput::desktop(&e))?;
                 let geometry = self.geometry_for(ctx, &window);
                 rewrite_frames(&mut tree.root, &geometry);
@@ -840,7 +844,7 @@ impl Engine {
                 let window = self.window(need(args, "window_id")?)?;
                 let delivery = parse_delivery(args)?;
                 let app = self.act_on(&config, ctx, &window, delivery, true)?;
-                let g = self.geometry_for(ctx, &window);
+                let g = self.pixel_geometry(ctx, &window)?;
                 let from = g.to_global(need_f64(args, "from_x")?, need_f64(args, "from_y")?);
                 let to = g.to_global(need_f64(args, "to_x")?, need_f64(args, "to_y")?);
                 self.glide(ctx, from);
@@ -1140,6 +1144,42 @@ impl Engine {
             })
     }
 
+    /// How the agent's pixels of `window` map to the desktop: its latest
+    /// screenshot of the window, at the window's origin now (a window that
+    /// moved since is still hit where the agent saw it). Refused when the
+    /// session has no screenshot of the window (a retry, a worker restart, an
+    /// ended session: a guessed scale is twice off on a Retina display), or
+    /// when the window's size changed since (the pixels no longer say where).
+    fn pixel_geometry(&self, ctx: &CallContext, window: &Window) -> Result<Geometry, ToolOutput> {
+        let stored = lock(&self.seen)
+            .get(&(ctx.session.clone(), format!("w:{}", window.id)))
+            .map(|(g, _)| *g);
+        let Some(g) = stored else {
+            return Err(ToolOutput::error(
+                "no_screenshot",
+                format!(
+                    "x and y are pixels of your latest screenshot of window {}, and there is none in this session (after a retry or a restart, or it ended). Take a screenshot of this window first, or pass element_id.",
+                    window.id
+                ),
+            ));
+        };
+        let (w, h) = (g.width as f64 * g.points_per_pixel, g.height as f64 * g.points_per_pixel);
+        if (w - window.frame.width).abs() > 2.0 || (h - window.frame.height).abs() > 2.0 {
+            return Err(ToolOutput::error(
+                "window_resized",
+                format!(
+                    "window {} is {}x{} points now and was {}x{} in your latest screenshot of it, so its pixels no longer say where to act. Take a new screenshot of it first, or pass element_id.",
+                    window.id,
+                    window.frame.width.round(),
+                    window.frame.height.round(),
+                    w.round(),
+                    h.round()
+                ),
+            ));
+        }
+        Ok(Geometry { origin: Point { x: window.frame.x, y: window.frame.y }, ..g })
+    }
+
     fn pointer_target(
         &self,
         ctx: &CallContext,
@@ -1152,15 +1192,11 @@ impl Engine {
                 element_id: element.to_string(),
             });
         }
-        let (x, y) = match (args_f64(args, "x"), args_f64(args, "y")) {
-            (Some(x), Some(y)) => (x, y),
-            _ => {
-                // Scroll with no point: the window's center.
-                let g = self.geometry_for(ctx, window);
-                (g.width as f64 / 2.0, g.height as f64 / 2.0)
-            }
+        let point = match (args_f64(args, "x"), args_f64(args, "y")) {
+            (Some(x), Some(y)) => self.pixel_geometry(ctx, window)?.to_global(x, y),
+            // Scroll with no point: the window's center, in points.
+            _ => center(&window.frame),
         };
-        let point = self.geometry_for(ctx, window).to_global(x, y);
         Ok(PointerTarget::Point { window_id: window.id.clone(), point })
     }
 
@@ -1206,8 +1242,8 @@ impl Engine {
                         "click needs element_id or x and y",
                     ));
                 }
-                let target = self.pointer_target(ctx, &window, args)?;
-                (window, target)
+                // Mapped after the policy check (a denied app is refused as such).
+                (window, None)
             }
             None => {
                 let (x, y) = (need_f64(args, "x")?, need_f64(args, "y")?);
@@ -1232,7 +1268,7 @@ impl Engine {
                         ToolOutput::error("target_not_found", "no window at that point")
                     })?;
                 let target = PointerTarget::Point { window_id: window.id.clone(), point };
-                (window, target)
+                (window, Some(target))
             }
         };
         if args_str(args, "menu_item").is_some() && !self.desktop.picks_menu_items() {
@@ -1242,6 +1278,10 @@ impl Engine {
             ));
         }
         let app = self.act_on(config, ctx, &window, delivery, true)?;
+        let target = match target {
+            Some(t) => t,
+            None => self.pointer_target(ctx, &window, args)?,
+        };
         let point = match &target {
             PointerTarget::Point { point, .. } if args_str(args, "window_id").is_some() => {
                 Some(*point)
@@ -1601,8 +1641,11 @@ impl Engine {
         state["captures"] = json!(captures);
         let config = self.config();
         if self.still_allowed(&config, ctx, window_id, app).is_ok()
-            && let Ok(mut tree) =
-                self.walk_tree(window_id, TreeOptions { menus: false, ..TreeOptions::default() })
+            && let Ok(mut tree) = self.walk_tree_for(
+                Some(&ctx.session),
+                window_id,
+                TreeOptions { menus: false, ..TreeOptions::default() },
+            )
         {
             // The capture just recorded this window's geometry for the session.
             let seen = lock(&self.seen)

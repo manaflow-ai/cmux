@@ -190,10 +190,10 @@ fn a_disabled_element_is_refused_on_a_fresh_read_and_force_skips_it() {
 #[test]
 fn a_pixel_click_on_the_title_bar_is_refused_in_the_background_only() {
     let (d, e) = rig();
-    // Geometry: no screenshot yet, so pixels are points from the window's corner.
+    e.call(&ctx(), "screenshot", &json!({"window_id": "1"}));
     let out = e.call(&ctx(), "click", &json!({"window_id": "1", "x": 400.0, "y": 10.0}));
     assert_eq!(out.code.as_deref(), Some("title_bar"), "{}", out.body);
-    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "x": 900.0, "y": 300.0}));
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "x": 1600.0, "y": 300.0}));
     assert_eq!(out.code.as_deref(), Some("point_outside_window"), "{}", out.body);
     assert!(d.events().is_empty());
     let inside =
@@ -294,6 +294,7 @@ fn an_id_from_another_window_names_its_window() {
 fn a_title_bar_click_after_a_look_cut_short_is_still_refused() {
     let (d, e) = rig();
     // A look cut at max_nodes 2 is truncated; the guard reads the window again.
+    e.call(&ctx(), "screenshot", &json!({"window_id": "1"}));
     e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1", "max_nodes": 2}));
     let walks = *d.walks.lock().unwrap();
     let out = e.call(&ctx(), "click", &json!({"window_id": "1", "x": 400.0, "y": 10.0}));
@@ -403,6 +404,7 @@ fn a_look_keeps_the_json_tree_and_truncated_for_direct_callers() {
 fn every_guard_refusal_says_force_skips_it() {
     let (d, e) = rig();
     set_tree(&d, form(1, true, false, ""));
+    e.call(&ctx(), "screenshot", &json!({"window_id": "1"}));
     e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
     for args in [
         json!({"window_id": "1", "element_id": "3"}),
@@ -627,4 +629,66 @@ fn a_file_name_field_in_a_recycled_row_keeps_its_id_across_walks() {
         &json!({"window_id": "1", "element_id": field.unwrap(), "observe": false}),
     );
     assert!(!out.is_error, "{}", out.body);
+}
+
+#[test]
+fn a_pixel_click_with_no_screenshot_of_the_window_is_refused() {
+    // After a retry, a restart or a session's end there is no screenshot
+    // geometry: a guessed 1 pt/px is twice off on a Retina display.
+    let (d, e) = rig();
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "x": 400.0, "y": 300.0}));
+    assert_eq!(out.code.as_deref(), Some("no_screenshot"), "{}", out.body);
+    let drag = e.call(
+        &ctx(),
+        "drag",
+        &json!({"window_id": "1", "from_x": 10.0, "from_y": 100.0, "to_x": 50.0, "to_y": 100.0}),
+    );
+    assert_eq!(drag.code.as_deref(), Some("no_screenshot"), "{}", drag.body);
+    assert!(d.events().is_empty());
+}
+
+#[test]
+fn pixels_map_against_where_the_window_is_now_and_a_resize_is_refused() {
+    let (d, e) = rig();
+    // Window 1: 800x600 pt at (100, 100), 2x: a 1456x1092 screenshot.
+    let shot = e.call(&ctx(), "screenshot", &json!({"window_id": "1"}));
+    let k = 800.0 / shot.body["width"].as_f64().unwrap();
+    // The window moves 50 pt right: the agent's pixel still means the same
+    // spot of the window.
+    *d.reframed.lock().unwrap() =
+        vec![("1".into(), Rect { x: 150.0, y: 100.0, width: 800.0, height: 600.0 })];
+    let out = e.call(
+        &ctx(),
+        "click",
+        &json!({"window_id": "1", "x": 200.0, "y": 400.0, "observe": false}),
+    );
+    assert!(!out.is_error, "{}", out.body);
+    let Event::Click { point: Some(p), .. } = &d.events()[0] else { panic!("{:?}", d.events()) };
+    assert!(
+        (p.x - (150.0 + 200.0 * k)).abs() < 1e-6 && (p.y - (100.0 + 400.0 * k)).abs() < 1e-6,
+        "{p:?}"
+    );
+    // Resized: the pixels no longer say where.
+    *d.reframed.lock().unwrap() =
+        vec![("1".into(), Rect { x: 150.0, y: 100.0, width: 640.0, height: 600.0 })];
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "x": 200.0, "y": 400.0}));
+    assert_eq!(out.code.as_deref(), Some("window_resized"), "{}", out.body);
+}
+
+#[test]
+fn the_shown_map_keeps_only_live_ids_and_ends_with_the_session() {
+    let (d, e) = rig();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    // Save goes away for good: its fingerprint is dropped at the next look.
+    let mut gone = form(2, false, false, "");
+    gone.children.remove(1);
+    set_tree(&d, gone);
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    let kept: Vec<u32> = lock(&e.observe.shown)
+        .get(&("s1".to_string(), "1".to_string()))
+        .map(|(_, m)| m.keys().copied().collect())
+        .unwrap();
+    assert!(!kept.contains(&3), "{kept:?}");
+    e.end_session("s1");
+    assert!(lock(&e.observe.shown).keys().all(|(s, _)| s != "s1"));
 }

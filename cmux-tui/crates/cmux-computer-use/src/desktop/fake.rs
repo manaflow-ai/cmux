@@ -99,6 +99,8 @@ pub struct FakeDesktop {
     pub walks: Mutex<u32>,
     /// The element limit the latest walk was asked for.
     pub last_max_nodes: Mutex<usize>,
+    /// Windows moved or resized since the fake was made: id -> frame now.
+    pub reframed: Mutex<Vec<(String, Rect)>>,
 }
 
 impl FakeDesktop {
@@ -169,7 +171,16 @@ impl FakeDesktop {
             tree: Mutex::new(None),
             walks: Mutex::new(0),
             last_max_nodes: Mutex::new(0),
+            reframed: Mutex::new(Vec::new()),
         }
+    }
+
+    /// A window as it is now ([`Self::reframed`]).
+    fn reframe(&self, mut w: Window) -> Window {
+        if let Some((_, f)) = lock(&self.reframed).iter().find(|(id, _)| *id == w.id) {
+            w.frame = *f;
+        }
+        w
     }
 
     pub fn events(&self) -> Vec<Event> {
@@ -376,12 +387,12 @@ impl Desktop for FakeDesktop {
     }
     fn list_windows(&self) -> DResult<Vec<Window>> {
         *self.window_lists.lock().unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
-        let mut all = self.windows.clone();
+        let mut all: Vec<Window> = self.windows.iter().map(|w| self.reframe(w.clone())).collect();
         all.extend(self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone());
         Ok(all)
     }
     fn window(&self, id: &str) -> DResult<Option<Window>> {
-        Ok(self.windows.iter().find(|w| w.id == id).cloned())
+        Ok(self.windows.iter().find(|w| w.id == id).cloned().map(|w| self.reframe(w)))
     }
     fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
         let opened = self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

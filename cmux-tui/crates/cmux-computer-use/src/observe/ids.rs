@@ -759,6 +759,11 @@ impl WindowIds {
         })
     }
 
+    /// The ids the window still has: current, or carried.
+    pub fn live_ids(&self) -> std::collections::HashSet<u32> {
+        self.entries.keys().copied().collect()
+    }
+
     /// Fingerprints of every element of the latest walk.
     pub fn fingerprints(&self) -> HashMap<u32, Fingerprint> {
         self.entries

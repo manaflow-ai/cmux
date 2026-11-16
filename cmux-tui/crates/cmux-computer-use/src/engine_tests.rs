@@ -95,6 +95,7 @@ fn a_retried_call_id_does_not_click_twice() {
 fn denied_apps_are_refused_and_redacted() {
     let d = Arc::new(FakeDesktop::standard());
     let e = engine(d.clone(), PolicyConfig::default());
+    e.call(&ctx(None), "screenshot", &json!({"window_id": "2"}));
     let out = e.call(&ctx(None), "click", &json!({"window_id": "2", "x": 1, "y": 1}));
     assert_eq!(out.code.as_deref(), Some("app_denied"));
     assert!(d.events().is_empty());
@@ -246,6 +247,7 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     let d = Arc::new(FakeDesktop::standard());
     let (e, _) = settling_engine(d);
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["state"]["unchanged"], true);
@@ -263,6 +265,7 @@ fn single_capture_settle_modes_never_claim_no_visible_change() {
     for mode in ["openai", "anthropic"] {
         let (d, e, _) = settled(mode);
         assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+        e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
         let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
         assert_eq!(out.body["state"]["unchanged"], true, "{mode}: {}", out.body);
         assert_eq!(out.body["evidence"], "delivered", "{mode}: {}", out.body);
@@ -282,6 +285,7 @@ fn a_new_window_of_the_app_is_a_visible_change() {
     let (e, _) = settling_engine(d.clone());
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     *d.opens_on_input.lock().unwrap() = Some(sheet);
+    e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
     assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
@@ -300,6 +304,7 @@ fn a_window_of_another_process_over_the_target_is_a_visible_change() {
     let (e, _) = settling_engine(d.clone());
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     *d.opens_on_input.lock().unwrap() = Some(panel);
+    e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
     assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
@@ -369,6 +374,8 @@ fn cursor_glides_then_clicks() {
     instant_time(&mut parts);
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
+    e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
+    rec.0.lock().unwrap().clear();
     e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     let events = rec.0.lock().unwrap();
     assert!(matches!(events[0], CursorEvent::Move { .. }));
@@ -485,6 +492,8 @@ fn labels_shown_to_the_person_are_bounded() {
     let e = Engine::new(parts);
     let mut c = ctx(None);
     c.label = long;
+    e.call(&c, "screenshot", &json!({"window_id": "1"}));
+    rec.0.lock().unwrap().clear();
     e.call(&c, "click", &json!({"window_id": "1", "x": 1, "y": 100}));
     let events = rec.0.lock().unwrap();
     let CursorEvent::Move { label, .. } = &events[0] else { panic!() };
@@ -802,6 +811,7 @@ fn the_cursor_shows_a_refusal_and_a_wait_for_the_person() {
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
     // A denied app: refused, and the cursor says why.
+    e.call(&ctx(None), "screenshot", &json!({"window_id": "2"}));
     e.call(&ctx(None), "click", &json!({"window_id": "2", "x": 1, "y": 1}));
     assert!(rec.0.lock().unwrap().iter().any(
         |e| matches!(e, CursorEvent::Refused { reason, .. } if reason == "App is on the deny list")
