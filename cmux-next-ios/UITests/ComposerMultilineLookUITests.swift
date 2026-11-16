@@ -10,18 +10,26 @@ final class ComposerMultilineLookUITests: XCTestCase {
     }
 
     @MainActor
-    func testDarkChatComposerLinesLookAlike() throws { try capture(.dark, "dark") }
+    func testDarkChatComposerLinesLookAlike() throws { try capture(.dark, "dark", demo: "kbd-chat") }
 
     @MainActor
-    func testLightChatComposerLinesLookAlike() throws { try capture(.light, "light") }
+    func testLightChatComposerLinesLookAlike() throws { try capture(.light, "light", demo: "kbd-chat") }
+
+    /// The agent tab of a workspace: the composer is TabsKit's accessory row there.
+    @MainActor
+    func testDarkTabComposerLinesLookAlike() throws { try capture(.dark, "dark", demo: "kbd-tab") }
 
     @MainActor
-    private func capture(_ appearance: XCUIDevice.Appearance, _ name: String) throws {
+    func testLightTabComposerLinesLookAlike() throws { try capture(.light, "light", demo: "kbd-tab") }
+
+    @MainActor
+    private func capture(_ appearance: XCUIDevice.Appearance, _ look: String, demo: String) throws {
         XCUIDevice.shared.appearance = appearance
+        let name = "\(demo == "kbd-tab" ? "tab" : "chat")-\(look)"
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "kbd-chat",
-                                "-cmuxMobile.settings.appearance", name]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo,
+                                "-cmuxMobile.settings.appearance", look]
         app.launch()
         defer { app.terminate() }
         let field = app.textViews["chat.composer.field"]
@@ -30,10 +38,10 @@ final class ComposerMultilineLookUITests: XCTestCase {
         if !app.keyboards.firstMatch.exists { field.tap() }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
         field.typeText("line 1 of the draft")
-        attach(app, "chat-\(name)-1-line")
+        attach(app, "\(name)-1-line")
         for count in 2 ... 6 {
             field.typeText("\nline \(count) of the draft")
-            if count == 3 || count == 6 { attach(app, "chat-\(name)-\(count)-lines") }
+            if count == 3 || count == 6 { attach(app, "\(name)-\(count)-lines") }
         }
     }
 
