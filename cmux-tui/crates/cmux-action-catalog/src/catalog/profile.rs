@@ -478,6 +478,21 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "workspace move-to-space",
         ..Action::DEFAULT
     },
+    // A catalog request row (`Action::request`): the app sends the daemon's `room.unpin`, no handler of its own.
+    Action {
+        id: "workspace.unpinFromSpace",
+        group: GROUP,
+        title: t("ProfileActions", "action.workspace.unpinFromSpace", "Unpin Workspace from Space"),
+        keywords: &["room", "profile", "space", "unpin", "remove"],
+        category: "workspace",
+        symbol: "pin.slash",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["workspace"],
+        cli_name: "room unpin",
+        request: Some(Request { lane: RequestLane::Session, operation: "room.unpin", params: &[RequestParam { name: "workspace", source: ParamSource::Target("workspace") }] }),
+        ..Action::DEFAULT
+    },
     Action {
         id: "workspace.duplicateToSpace",
         group: GROUP,

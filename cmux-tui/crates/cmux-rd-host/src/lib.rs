@@ -41,6 +41,8 @@ mod clock;
 mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod desktop;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod encode_thread;
 mod encoder;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
 mod eval;

@@ -647,6 +647,20 @@ fn own_tree_a_json_write_gives_the_error_of_its_open() {
     assert_eq!(written.map_err(|error| error.kind()), Err(std::io::ErrorKind::NotFound));
 }
 
+/// A repository's git folder that is not open gives a worktree no block of ports: the blocks
+/// that the other worktrees of the repository have are not known then.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_git_folder_that_is_not_open_gives_no_block_of_ports() {
+    let top = folder_with_a_git_folder();
+    let (git_dir, root) = (top.join("no-such-folder"), top.join("root"));
+
+    let port = ports::allocate_within(&git_dir, &root, Duration::ZERO);
+
+    fs::remove_dir_all(top).unwrap();
+    assert!(matches!(port, Ok(None)), "a block from a list that was not read: {port:?}");
+}
+
 /// The read of a worktree's port opens no port lock: no lock file is there after it.
 #[cfg(unix)]
 #[test]

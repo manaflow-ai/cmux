@@ -21,14 +21,20 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use cmux_agent_cli_render::claude::{self, Chrome};
+use cmux_agent_cli_render::hybrid::{Delta, Overlay};
 use cmux_agent_cli_render::{Cell, Color, Grid, Style};
 use serde_json::{Value, json};
 
 const COLS: u16 = 100;
 const ROWS: u16 = 32;
 
-fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude-code-2.1.310").join(name)
+const CLAUDE: &str = "claude-code-2.1.310";
+/// A real Codex 0.164.0 session on the same script (two approvals). There is no Codex renderer,
+/// so it has no transcript: the hybrid over it sends the whole screen as deltas.
+const CODEX: &str = "codex-0.164.0";
+
+fn fixture(dir: &str, name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(dir).join(name)
 }
 
 struct Session {
@@ -37,8 +43,8 @@ struct Session {
     transcript: Vec<(Option<u64>, String)>,
 }
 
-fn load() -> Session {
-    let read = |name: &str| std::fs::read_to_string(fixture(name)).unwrap();
+fn load(dir: &str) -> Session {
+    let read = |name: &str| std::fs::read_to_string(fixture(dir, name)).unwrap_or_default();
     let chunks = read("pty.jsonl")
         .lines()
         .map(|line| {
@@ -68,17 +74,27 @@ fn load() -> Session {
 
 /// The real screen at `t`: every PTY byte written by then, through ghostty-vt.
 fn real_screen(session: &Session, t: u64) -> Grid {
-    let mut term =
-        ghostty_vt::Terminal::new(COLS, ROWS, 10_000_000, ghostty_vt::Callbacks::default())
-            .unwrap();
-    term.resize(COLS, ROWS, 8, 16).unwrap();
+    let mut term = terminal();
     for (at, bytes) in &session.chunks {
         if *at <= t {
             term.vt_write(bytes);
         }
     }
+    snapshot(&mut term)
+}
+
+fn terminal() -> ghostty_vt::Terminal {
+    let mut term =
+        ghostty_vt::Terminal::new(COLS, ROWS, 10_000_000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    term.resize(COLS, ROWS, 8, 16).unwrap();
+    term
+}
+
+/// The terminal's screen as a grid.
+fn snapshot(term: &mut ghostty_vt::Terminal) -> Grid {
     let mut state = ghostty_vt::RenderState::new().unwrap();
-    state.update(&mut term).unwrap();
+    state.update(term).unwrap();
     let frame = state.build_frame().unwrap();
     let color = |c: ghostty_vt::ColorSpec| match c {
         ghostty_vt::ColorSpec::Default => Color::Default,
@@ -269,7 +285,7 @@ fn diff_rows(real: &Grid, drawn: &Grid) -> String {
 
 #[test]
 fn claude_code_screens_from_acpmux_records() {
-    let session = load();
+    let session = load(CLAUDE);
     let scratch =
         std::env::temp_dir().join(format!("cmux-agent-cli-render-{}.jsonl", std::process::id()));
     let prompt = session
@@ -328,4 +344,190 @@ fn claude_code_screens_from_acpmux_records() {
     // Every scripted screen was compared, and the records are smaller than the stream.
     assert_eq!(session.moments.len(), 10);
     assert!(lb < pty && sb < pty);
+}
+
+// The hybrid: the phone draws the records, and the Mac sends a delta of the cells that drawing
+// gets wrong. The Mac follows the PTY through its own terminal; a frame goes out `interval` ms
+// after the first PTY write it holds (0: after every write), with the cells that differ between
+// the real screen and what the phone shows, against the records the phone has by then.
+
+/// What the phone draws at a time: the record seq it has and the grid those records draw.
+type Draw<'a> = Box<dyn FnMut(u64) -> (u64, Grid) + 'a>;
+
+struct Hybrid {
+    delta_bytes: usize,
+    frames: usize,
+    /// Per moment, the cells the phone shows as the real screen has them.
+    parity: Vec<(usize, usize)>,
+}
+
+fn hybrid(session: &Session, interval: u64, end: u64, draw: &mut Draw<'_>) -> Hybrid {
+    let start = session.chunks.first().unwrap().0;
+    let mut term = terminal();
+    let mut overlay = Overlay::new(COLS, ROWS);
+    let mut sent: Vec<(u64, Overlay)> = Vec::new();
+    let mut delta_bytes = 0;
+    let mut send = |at: u64, term: &mut ghostty_vt::Terminal, overlay: &mut Overlay| {
+        let real = snapshot(term);
+        let (seq, drawn) = draw(at);
+        let delta = overlay.delta(&drawn, &real, seq, at - start);
+        if delta.shift == 0 && delta.spans.is_empty() {
+            return;
+        }
+        overlay.apply_delta(&delta, &drawn);
+        // The phone, applying it over the same drawing, shows the real screen.
+        assert_eq!(real.parity(&overlay.compose(&drawn)), (3200, 3200));
+        let bytes = delta.encode();
+        assert_eq!(Delta::decode(&bytes).as_ref(), Some(&delta));
+        delta_bytes += bytes.len();
+        sent.push((at, overlay.clone()));
+    };
+    let mut due: Option<u64> = None;
+    for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
+        if let Some(at) = due.filter(|at| t > at) {
+            send(at, &mut term, &mut overlay);
+            due = None;
+        }
+        term.vt_write(bytes);
+        due.get_or_insert(t + interval);
+    }
+    if let Some(at) = due {
+        send(at, &mut term, &mut overlay);
+    }
+    let parity = session
+        .moments
+        .iter()
+        .map(|(_, t)| {
+            let shown = sent
+                .iter()
+                .rev()
+                .find(|(at, _)| at <= t)
+                .map_or_else(|| Overlay::new(COLS, ROWS), |(_, o)| o.clone());
+            let (_, drawn) = draw(*t);
+            real_screen(session, *t).parity(&shown.compose(&drawn))
+        })
+        .collect();
+    Hybrid { delta_bytes, frames: sent.len(), parity }
+}
+
+/// The phone drawing Claude Code from its live or seeded records, redrawn when they change.
+fn claude_draw<'a>(session: &'a Session, seeded: bool, scratch: &'a Path) -> Draw<'a> {
+    let mut last: Option<(usize, u64, Grid)> = None;
+    Box::new(move |t| {
+        let lines: Vec<&(Option<u64>, String)> =
+            session.transcript.iter().filter(|(at, _)| at.is_none_or(|at| at <= t)).collect();
+        if let Some((n, seq, grid)) = &last
+            && *n == lines.len()
+        {
+            return (*seq, grid.clone());
+        }
+        let (live, open) = live_records(&lines);
+        let records = if seeded { seeded_records(&lines, open, scratch) } else { live };
+        // No draft: the person types in the Mac's terminal, so the deltas carry it.
+        let grid = claude::render(&records, &chrome(""), COLS, ROWS);
+        let seq = records.len() as u64;
+        last = Some((lines.len(), seq, grid.clone()));
+        (seq, grid)
+    })
+}
+
+fn blank_draw<'a>() -> Draw<'a> {
+    Box::new(|_| (0, Grid::blank(COLS, ROWS)))
+}
+
+fn sum(parity: &[(usize, usize)]) -> (usize, usize) {
+    parity.iter().fold((0, 0), |(s, t), (a, b)| (s + a, t + b))
+}
+
+/// One table row per base and interval; answers each row's (parity %, bytes/s).
+fn bench(
+    session: &Session,
+    rows: &mut String,
+    base: &str,
+    record_bytes: usize,
+    mut draw: impl FnMut() -> Draw<'static>,
+) -> Vec<(f64, f64)> {
+    let start = session.chunks.first().unwrap().0;
+    let end = session.moments.last().unwrap().1;
+    let secs = (end - start) as f64 / 1000.0;
+    let mut out = Vec::new();
+    for interval in [0, 100, 250] {
+        let h = hybrid(session, interval, end, &mut draw());
+        let worst = session
+            .moments
+            .iter()
+            .zip(&h.parity)
+            .map(|((name, _), p)| (pct(*p), name.as_str()))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .unwrap();
+        let total = record_bytes + h.delta_bytes;
+        let rate = total as f64 / secs;
+        let all = pct(sum(&h.parity));
+        rows.push_str(&format!(
+            "| {base} + deltas | {interval} ms | {record_bytes} | {} | {} | {total} | {rate:.0} | {all:.1}% | {:.1}% ({}) |\n",
+            h.delta_bytes, h.frames, worst.0, worst.1
+        ));
+        out.push((all, rate));
+    }
+    out
+}
+
+const HEADER: &str = "| stream | frame | record bytes | delta bytes | frames | total bytes | bytes/s | parity, all screens | worst screen |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n";
+
+fn pty_row(session: &Session) -> (usize, f64, String) {
+    let start = session.chunks.first().unwrap().0;
+    let end = session.moments.last().unwrap().1;
+    let secs = (end - start) as f64 / 1000.0;
+    let pty: usize = session.chunks.iter().filter(|(t, _)| *t <= end).map(|(_, b)| b.len()).sum();
+    let rate = pty as f64 / secs;
+    (
+        pty,
+        rate,
+        format!(
+            "| PTY | every write | 0 | 0 | {} | {pty} | {rate:.0} | 100.0% | 100.0% |\n",
+            session.chunks.len()
+        ),
+    )
+}
+
+#[test]
+fn claude_code_hybrid_records_plus_screen_deltas() {
+    let session: &'static Session = Box::leak(Box::new(load(CLAUDE)));
+    let scratch: &'static Path = Box::leak(
+        std::env::temp_dir()
+            .join(format!("cmux-agent-cli-render-hybrid-{}.jsonl", std::process::id()))
+            .into_boxed_path(),
+    );
+    let all: Vec<&(Option<u64>, String)> = session.transcript.iter().collect();
+    let (live, _) = live_records(&all);
+    let (lb, sb) = (wire_bytes(&live), wire_bytes(&seeded_records(&all, false, scratch)));
+    let (_, pty_rate, mut rows) = pty_row(session);
+    let live_rows =
+        bench(session, &mut rows, "live records", lb, || claude_draw(session, false, scratch));
+    let seeded_rows =
+        bench(session, &mut rows, "seeded records", sb, || claude_draw(session, true, scratch));
+    let blank_rows = bench(session, &mut rows, "no records", 0, blank_draw);
+    std::fs::remove_file(scratch).ok();
+    println!("\nClaude Code 2.1.310, 100x32:\n{HEADER}{rows}");
+
+    // With frames at most 100 ms apart, the phone shows every scripted screen as the PTY does,
+    // for fewer bytes than the PTY however the records draw.
+    for rows in [&live_rows, &seeded_rows, &blank_rows] {
+        for (all, rate) in rows.iter().take(2) {
+            assert!(*all >= 98.0, "parity {all:.1}%");
+            assert!(*rate < pty_rate, "{rate:.0} B/s against the PTY's {pty_rate:.0}");
+        }
+    }
+}
+
+#[test]
+fn codex_screen_deltas_with_no_renderer() {
+    let session: &'static Session = Box::leak(Box::new(load(CODEX)));
+    let (_, pty_rate, mut rows) = pty_row(session);
+    let blank_rows = bench(session, &mut rows, "no records", 0, blank_draw);
+    println!("\nCodex 0.164.0, 100x32:\n{HEADER}{rows}");
+    assert_eq!(session.moments.len(), 8);
+    let (all, rate) = blank_rows.first().copied().unwrap();
+    assert!(all >= 98.0, "parity {all:.1}%");
+    assert!(rate < pty_rate, "{rate:.0} B/s against the PTY's {pty_rate:.0}");
 }
