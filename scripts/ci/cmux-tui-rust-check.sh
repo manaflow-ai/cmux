@@ -140,6 +140,11 @@ fi
 # is red (--no-tests=fail). No third argument: the whole workspace, as before. (2026-11-16)
 crate_scope="${3:-}"
 if [[ -n "$crate_scope" ]]; then
+  # 2 crates as 2 arguments would test the first crate only, with no word on the second one.
+  if [[ $# -gt 3 ]]; then
+    echo "error: the crate scope is one argument (2 crates are CRATE,CRATE), not $(( $# - 2 )) arguments" >&2
+    exit 2
+  fi
   if [[ "$mode" != test || -z "$filter" || -n "$shard" ]]; then
     echo "error: a crate scope takes the test mode with a TEST_FILTER (no @affected scope, no shard)" >&2
     exit 2
