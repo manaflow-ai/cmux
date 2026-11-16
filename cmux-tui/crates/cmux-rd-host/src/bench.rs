@@ -184,6 +184,9 @@ struct Viewer {
     decoded_frames: u64,
     eval_decode: Option<crate::eval::DecodeLog>,
     eval_quality: Option<crate::eval::Quality>,
+    /// `--frame-log 1`: every decoded frame's times, the gaps in media arrival and the host's
+    /// stats lines, on any path (`frame_log` in the report). Measurement only.
+    frame_log: Option<FrameLog>,
     bytes: u64,
     decode_ms: Vec<f64>,
     decode_errors: u64,
@@ -225,6 +228,87 @@ struct Viewer {
     /// host started with the same `--codec`, and the picture it decodes into.
     #[cfg(any(feature = "vp9", feature = "av1"))]
     alt: Option<(Box<dyn cmux_encode::VideoDecoder>, cmux_encode::I420)>,
+}
+
+/// `--frame-log 1`: per-frame viewer times for stall analysis on a real link. Times are this
+/// Mac's monotonic microseconds, except `capture_us` (the host's clock). A gap is any span over
+/// `FRAME_LOG_GAP_US` with no video or FEC datagram arriving.
+#[derive(Default)]
+struct FrameLog {
+    /// [frame, host capture_us, first datagram us, complete us, decoded us]
+    frames: Vec<[u64; 5]>,
+    /// [last datagram before the gap us, first datagram after it us]
+    gaps: Vec<[u64; 2]>,
+    /// [received us, target kbps, loss pct x1000, keyframes, frames]
+    stats: Vec<[u64; 5]>,
+    last_rx_us: u64,
+    truncated: bool,
+}
+
+const FRAME_LOG_GAP_US: u64 = 50_000;
+const FRAME_LOG_MAX: usize = 100_000;
+
+impl FrameLog {
+    fn datagram(&mut self, now_ns: u64) {
+        let now = now_ns / 1000;
+        if self.last_rx_us != 0 && now.saturating_sub(self.last_rx_us) > FRAME_LOG_GAP_US {
+            if self.gaps.len() < FRAME_LOG_MAX {
+                self.gaps.push([self.last_rx_us, now]);
+            } else {
+                self.truncated = true;
+            }
+        }
+        self.last_rx_us = now;
+    }
+
+    fn frame(
+        &mut self,
+        frame: u32,
+        capture_us: u64,
+        first_ns: u64,
+        complete_ns: u64,
+        decoded_ns: u64,
+    ) {
+        if self.frames.len() >= FRAME_LOG_MAX {
+            self.truncated = true;
+            return;
+        }
+        self.frames.push([
+            u64::from(frame),
+            capture_us,
+            first_ns / 1000,
+            complete_ns / 1000,
+            decoded_ns / 1000,
+        ]);
+    }
+
+    fn stats(&mut self, now_ns: u64, s: &serde_json::Value) {
+        if self.stats.len() >= FRAME_LOG_MAX {
+            self.truncated = true;
+            return;
+        }
+        let n = |k: &str| s.get(k).and_then(serde_json::Value::as_f64).unwrap_or(-1.0);
+        let loss = n("loss_pct");
+        self.stats.push([
+            now_ns / 1000,
+            n("kbps").max(0.0) as u64,
+            if loss < 0.0 { u64::MAX } else { (loss * 1000.0) as u64 },
+            n("keyframes").max(0.0) as u64,
+            n("frames").max(0.0) as u64,
+        ]);
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        json!({
+            "schema": "cmux.rd-bench-frame-log/1",
+            "clock": "viewer CLOCK_MONOTONIC us; capture_us is the host's clock",
+            "gap_us": FRAME_LOG_GAP_US,
+            "frames": self.frames,
+            "gaps": self.gaps,
+            "stats": self.stats,
+            "truncated": self.truncated,
+        })
+    }
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -270,6 +354,9 @@ impl Viewer {
         let Ok((h, payload)) = DatagramHeader::decode(d) else { return };
         match h.kind {
             DatagramKind::Video | DatagramKind::Fec => {
+                if let Some(fl) = self.frame_log.as_mut() {
+                    fl.datagram(now);
+                }
                 self.bytes += d.len() as u64;
                 self.ledger.on_shard(h.stream, h.frame, d.len(), now / 1000);
                 self.arrivals.push(Arrival {
@@ -304,6 +391,14 @@ impl Viewer {
                             Ok(Some(picture)) => {
                                 self.decoded_frames += 1;
                                 self.ledger.on_decoded(h.stream, frame.frame, t1 / 1000);
+                                if let Some(fl) = self.frame_log.as_mut() {
+                                    let first = self
+                                        .first_rx
+                                        .iter()
+                                        .find(|(f, _)| *f == frame.frame)
+                                        .map_or(now, |(_, at)| *at);
+                                    fl.frame(frame.frame, frame.body.t_capture_us, first, now, t1);
+                                }
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
@@ -346,6 +441,14 @@ impl Viewer {
                             Ok(true) => {
                                 self.decoded_frames += 1;
                                 self.ledger.on_decoded(h.stream, frame.frame, t1 / 1000);
+                                if let Some(fl) = self.frame_log.as_mut() {
+                                    let first = self
+                                        .first_rx
+                                        .iter()
+                                        .find(|(f, _)| *f == frame.frame)
+                                        .map_or(now, |(_, at)| *at);
+                                    fl.frame(frame.frame, frame.body.t_capture_us, first, now, t1);
+                                }
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
@@ -394,6 +497,14 @@ impl Viewer {
                                 }
                                 self.decoded_frames += 1;
                                 self.ledger.on_decoded(h.stream, frame.frame, t1 / 1000);
+                                if let Some(fl) = self.frame_log.as_mut() {
+                                    let first = self
+                                        .first_rx
+                                        .iter()
+                                        .find(|(f, _)| *f == frame.frame)
+                                        .map_or(now, |(_, at)| *at);
+                                    fl.frame(frame.frame, frame.body.t_capture_us, first, now, t1);
+                                }
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
@@ -481,7 +592,13 @@ impl Viewer {
                 Arrived::Control(payload) => payload,
             };
             match serde_json::from_slice::<Control>(&payload)? {
-                Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
+                Control::Stats { .. } => {
+                    let stats: serde_json::Value = serde_json::from_slice(&payload)?;
+                    if let Some(fl) = self.frame_log.as_mut() {
+                        fl.stats(now_ns(), &stats);
+                    }
+                    self.stats.push(stats);
+                }
                 Control::Welcome { max_datagram, .. } => {
                     // Upstream datagrams use the size the host agreed to.
                     self.max_datagram = max_datagram;
@@ -819,6 +936,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         decoded_frames: 0,
         eval_decode: eval_local.then(crate::eval::DecodeLog::default),
         eval_quality: if eval_local { crate::eval::Quality::from_env() } else { None },
+        frame_log: (opts.num_or("frame-log", 0u8)? == 1).then(FrameLog::default),
         bytes: 0,
         decode_ms: Vec::new(),
         decode_errors: 0,
@@ -1044,6 +1162,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         "host_stats_last": v.stats.last(),
         "upstream": upstream_report,
         "stage_ledger": v.stage_ledger(),
+        "frame_log": v.frame_log.as_ref().map(FrameLog::to_json),
         "ended": v.ended,
     });
     println!("{report}");
@@ -1136,6 +1255,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "stage_ledger": v.stage_ledger(),
+        "frame_log": v.frame_log.as_ref().map(FrameLog::to_json),
         "ended": v.ended,
     });
     println!("{report}");
