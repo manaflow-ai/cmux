@@ -54,6 +54,18 @@ import Testing
         #expect(again.showsChat(faceKey) == false)
     }
 
+    /// A pairings file from a build that kept no faces (only `chats`) still reads, pairings and all.
+    @Test func aFileFromABuildWithoutFacesKeepsItsPairings() async throws {
+        let file = Self.folder().appendingPathExtension("json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let older = #"{"chats":{"acct|mac|claude|h-1":{"value":"a-1","at":1}}}"#
+        try Data(older.utf8).write(to: file)
+        let kept = KeptTerminalChats(file: file, queue: DispatchQueue(label: "kept-terminal-chats-older"))
+        await kept.load()
+        #expect(kept.chat("acct|mac|claude|h-1") == "a-1")
+        #expect(kept.showsChat("acct|mac|s1") == nil)
+    }
+
     @Test func signOutDeletesThePairingsWithTheTranscripts() async throws {
         let directory = Self.folder()
         let cache = Self.cache(directory)
