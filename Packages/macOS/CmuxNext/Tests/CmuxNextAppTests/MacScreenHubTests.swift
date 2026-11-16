@@ -851,6 +851,7 @@ struct MacScreenDeviceActionTests {
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
         let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hubConfigured = true
         pages.hub = hub
         let settings = MacScreenDevicesSettings(pages: pages)
         var opened: String?
