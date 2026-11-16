@@ -6,7 +6,7 @@ import Testing
 @testable import CmuxMobileWorkspaces
 
 /// Toggle Terminal and Chat on the phone (Leo, 2026-11-12: terminal and GUI are two live views of one
-/// harness session, instant both ways; on iOS chat is the default for Claude Code and Codex). The
+/// harness session, instant both ways; Leo, 2026-11-15: a terminal opens on its terminal). The
 /// decisions are Rust's (cmux-mobile-link-ffi `terminal_chat.rs`); these check the binding: the facts
 /// the tab source reads, the face it shows and what a tap on the control does.
 @MainActor @Suite(.serialized)
@@ -55,18 +55,21 @@ struct TerminalChatToggleTests {
 
     static let watch = TerminalChatListing(sessionID: "a-1", harness: "claude", agentSessionID: "h-1", watching: true, status: "idle")
 
-    @Test func aClaudeTerminalOpensOnItsChatAndSwapsBothWaysInPlace() throws {
+    @Test func aClaudeTerminalOpensOnItsTerminalAndSwapsBothWaysInPlace() throws {
         let backend = PairBackend(listings: [Self.watch])
         let (_, source) = Self.make(backend, tabs: [Self.terminal("s1", agent: "claude-code", session: "h-1")])
         let workspace = try #require(source.workspace)
         let tab = try #require(source.workspaceTab("s1"))
         #expect(source.pairFaces(tab, in: workspace).offered)
-        // Chat is the default face, on the Mac's View Only chat of the session: nothing to ask for.
-        #expect(source.showsChatFace(tab, in: workspace))
+        // The terminal is the default face (Leo, 2026-11-15); its chat face is the Mac's View Only
+        // chat of the session, kept ready: nothing to ask for.
+        #expect(!source.showsChatFace(tab, in: workspace))
         #expect(source.terminalChatSessionID(tab, in: workspace) == "a-1")
         source.openTerminalChatIfNeeded("s1")
         #expect(backend.asked.isEmpty)
         // Both ways, the same tab: a face flag, no new tab, no request.
+        source.swapTerminalChat("s1", to: .chat)
+        #expect(source.showsChatFace(tab, in: workspace))
         source.swapTerminalChat("s1", to: .terminal)
         #expect(!source.showsChatFace(tab, in: workspace))
         source.swapTerminalChat("s1", to: .chat)
@@ -86,6 +89,8 @@ struct TerminalChatToggleTests {
         await Self.settle { source.terminalChatSessionID(tab, in: workspace) != nil }
         #expect(backend.asked == ["codex h-2 s1"])
         #expect(source.terminalChatSessionID(tab, in: workspace) == "w-9")
+        #expect(!source.showsChatFace(tab, in: workspace))
+        source.swapTerminalChat("s1", to: .chat)
         #expect(source.showsChatFace(tab, in: workspace))
     }
 
@@ -109,6 +114,7 @@ struct TerminalChatToggleTests {
         // Once the Mac opens the chat (its own Toggle), the chat face is back.
         backend.listings = [TerminalChatListing(sessionID: "a-3", harness: "claude", agentSessionID: "h-3", watching: true, status: "idle")]
         #expect(source.pairFaces(tab, in: workspace).chatEnabled)
+        source.swapTerminalChat("s1", to: .chat)
         #expect(source.showsChatFace(tab, in: workspace))
     }
 
