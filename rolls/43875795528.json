@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43875795528",
+  "recorded_at": "2026-11-16T13:42:22Z",
+  "reason": "cmux-tui 8544038cd74b changes the image's cmux-tui (pinned 2b2a04135275)",
+  "dry_run": false,
+  "cmux_tui": "8544038cd74b51e0590b08943157613082e1178e",
+  "fixes": [
+    {
+      "sha": "8544038cd74b51e0590b08943157613082e1178e",
+      "mergedAt": "2026-11-16T05:09:30-08:00",
+      "subject": "cmux-tui-core: a ports file that gives no list starts no setup, and a worktree create gives only a worktree that its repository keeps (#44447)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T13:42:22Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
