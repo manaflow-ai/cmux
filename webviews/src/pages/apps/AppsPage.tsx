@@ -31,9 +31,11 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   const tabs: ToolbarTab[] = examplesTab ? ["discover", "examples", "installed"] : ["discover", "installed"];
   const current: ToolbarTab =
     snap.tab === "installed" ? "installed" : examplesTab && snap.shelf === "example" ? "examples" : "discover";
+  // Discover is a plain tab change unless the Examples shelf is the one showing.
   const show = (tab: ToolbarTab) => {
-    if (tab === "installed") store.setTab("installed");
-    else store.setShelf(tab === "examples" ? "example" : "store");
+    if (tab === "examples") store.setShelf("example");
+    else if (tab === "discover" && snap.shelf === "example") store.setShelf("store");
+    else store.setTab(tab);
   };
   const direction = useUiDirection() === "rtl" ? -1 : 1;
   const moveTab = (event: KeyboardEvent<HTMLButtonElement>, tab: ToolbarTab) => {
@@ -123,7 +125,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   if (snap.layout !== "split" && selected) {
     return <AppDetailView snap={snap} store={store} strings={strings} showsBack />;
   }
-  const onStore = snap.shelf === "store";
+  const onStore = snap.shelf !== "example";
   const framed = onStore && !snap.query.trim() && !snap.category && snap.layout === "grid";
   // The `section` placement (DEV, examples=section) lists the examples under the store's apps.
   const examplesSection =
