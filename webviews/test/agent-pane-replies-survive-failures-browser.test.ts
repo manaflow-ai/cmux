@@ -4,8 +4,8 @@
 // on its reply after tool calls, a subagent and another agent's message mid-turn; a turn a notice opened;
 // a turn the API refused (429) or failed (529, its error streamed as text); a turn whose stream dropped
 // mid-reply; and the turns after all of those (Leo, 2026-11-15, ask-65b54490d2: "i feel like the gui
-// recovery for when api errors or whatever happen is pretty shit it just stops rendering messages";
-// ask-ef59fa0eb0: "wtf is happening here?", every turn an empty "Worked for Ns"). Runs the real pane in
+// recovery for when api errors or whatever happen is pretty s**t it just stops rendering messages";
+// ask-ef59fa0eb0: "w*f is happening here?", every turn an empty "Worked for Ns"). Runs the real pane in
 // Chromium and WebKit (the app's engine) against a stand-in acpmux that streams the records live.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -436,7 +436,8 @@ await requireBrowserLane("agent-pane-replies-survive-failures-browser.test.ts", 
           for (const text of [FINAL.work, FINAL.notice, FINAL.dropped, FINAL.later]) {
             const at = rows.findIndex((row) => row.id.startsWith("assistant-") && row.text.includes(text));
             expect(at, `${text}\n${report}`).toBeGreaterThanOrEqual(0);
-            const footer = rows.slice(at + 1).find((row) => row.id.startsWith("summary-"));
+            // The very next row is its turn's footer: a later turn's Copy row does not count for it.
+            const footer = rows[at + 1]?.id.startsWith("summary-") ? rows[at + 1] : undefined;
             expect(
               footer?.buttons.some((label) => /copy/i.test(label)),
               `${text} copy row\n${report}`,
