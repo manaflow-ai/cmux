@@ -459,19 +459,23 @@ impl Hub {
                     let meta = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
                     (meta.agent_session_id.clone(), meta.retired_agent_session_ids.clone())
                 };
-                let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
-                tree.set_own(own.as_deref());
-                let before = tree.background_running();
-                let running_before = tree.running_count();
-                tree.set_roots(own.iter().chain(&retired).map(String::as_str));
-                subagent = tree.annotate_live(
-                    params,
-                    !kind.ends_with(".replay"),
-                    crate::secret_scan::mask,
-                );
-                background_changed = tree.background_running() != before;
-                running_changed = tree.running_count() != running_before;
-                drop(tree);
+                let mut holder = SessionRecordState {
+                    session: &tap_session,
+                    awaiting_first_delta: &awaiting_first_delta,
+                };
+                holder.subagents(|tree| {
+                    tree.set_own(own.as_deref());
+                    let before = tree.background_running();
+                    let running_before = tree.running_count();
+                    tree.set_roots(own.iter().chain(&retired).map(String::as_str));
+                    subagent = tree.annotate_live(
+                        params,
+                        !kind.ends_with(".replay"),
+                        crate::secret_scan::mask,
+                    );
+                    background_changed = tree.background_running() != before;
+                    running_changed = tree.running_count() != running_before;
+                });
                 // The chat's own words in a turn the person did not start (`background_turn.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     tap_hub.background_turn_update(&tap_session, &params["update"]);
@@ -601,8 +605,11 @@ impl Hub {
             }
             // Watchers hear the new count on the summary (`subagentsRunning`, `hub/views.rs`).
             if running_changed {
-                let count =
-                    tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count();
+                let mut holder = SessionRecordState {
+                    session: &tap_session,
+                    awaiting_first_delta: &awaiting_first_delta,
+                };
+                let count = holder.subagents(|tree| tree.running_count());
                 tap_hub.subagents_running(&tap_session, count);
             }
             // A background shell, a subagent's too (`processes.rs`).
