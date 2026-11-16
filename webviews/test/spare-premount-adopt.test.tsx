@@ -174,6 +174,10 @@ test("a spare holds the chat view hidden, and its adopt shows those nodes instea
 }, 60_000);
 
 test("the chat a spare took shows what the same chat opened directly shows", async () => {
+  // The chat has a draft kept on this Mac: the empty view's composer must not stand in for it.
+  const { cachePersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
+  const { WORKED_SESSION } = await import("../src/agent-session/acpmux/mockFixture");
+  cachePersistedDraft(WORKED_SESSION, "the chat's kept draft");
   await mount("direct");
   await until(() => rows() > 0 && composerText() !== undefined && dock() !== null, "the chat opens directly");
   await until(() => host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null, "its composer");
@@ -182,6 +186,8 @@ test("the chat a spare took shows what the same chat opened directly shows", asy
   await act(async () => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  dom.window.localStorage.clear();
+  cachePersistedDraft(WORKED_SESSION, "the chat's kept draft");
 
   const session = await mount("spare");
   await until(() => dock() !== null && host.querySelector(".nt-field") !== null, "the spare built the chat view");
