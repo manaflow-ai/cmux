@@ -17,7 +17,7 @@ APP='/Applications/cmux NIGHTLY.app'
 fail() { echo "error=$1"; exit 1; }
 IFS= read -r url; IFS= read -r length; IFS= read -r team
 case "$url" in
-  https://files-next.cmux.com/nightly-next/next/*.dmg|https://github.com/manaflow-ai/cmux/releases/download/nightly-next/*.dmg) ;;
+  https://files-next.cmux.com/nightly-next/*.dmg|https://github.com/manaflow-ai/cmux/releases/download/nightly-next/*.dmg) ;;
   *) fail 'the DMG is not a nightly-next download' ;;
 esac
 case "$length" in ''|*[!0-9]*) fail 'the feed length is not a number' ;; esac

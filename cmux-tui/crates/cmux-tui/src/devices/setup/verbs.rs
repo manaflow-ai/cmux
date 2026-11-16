@@ -312,6 +312,17 @@ pub(crate) fn verb(args: &[String], mode: Mode) -> anyhow::Result<()> {
                 continue;
             }
             let run = run_one(&here, &name, mode, options, &mut |_, _| {});
+            // A device the probe found is not a Mac (an ssh peer with no recorded OS) is
+            // skipped, with the probe's reason, never counted as set up.
+            if let Some(reach) = run.not_a_mac() {
+                skipped += 1;
+                if json_out {
+                    println!("{}", reach.json(&name));
+                } else {
+                    println!("{name}: skipped, {}", reach.detail);
+                }
+                continue;
+            }
             if run.failed().is_empty() {
                 done += 1;
             } else {

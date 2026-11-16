@@ -263,7 +263,7 @@ fn item(build: u64, channel: Option<&str>, url: &str) -> String {
 }
 
 fn feed(newest: u64) -> String {
-    let base = "https://files-next.cmux.com/nightly-next/next/";
+    let base = "https://files-next.cmux.com/nightly-next/";
     format!(
         "<rss><channel>{}{}{}</channel></rss>",
         item(newest - 100, None, &format!("{base}cmux-{}.dmg", newest - 100)),
@@ -288,7 +288,7 @@ fn detail<'a>(run: &'a Run, step: &str) -> &'a str {
 fn the_feed_pick_is_the_newest_nightly_channel_item_never_a_dev_ring_one() {
     let picked = pick(&feed(2100)).unwrap();
     assert_eq!(picked.build, 2100, "the cmux-next-dev item (2150) is a Dev-ring build");
-    assert_eq!(picked.url, "https://files-next.cmux.com/nightly-next/next/cmux-2100.dmg");
+    assert_eq!(picked.url, "https://files-next.cmux.com/nightly-next/cmux-2100.dmg");
     assert_eq!(picked.length, 21000);
     let stable = format!(
         "{}{}",
@@ -297,10 +297,10 @@ fn the_feed_pick_is_the_newest_nightly_channel_item_never_a_dev_ring_one() {
             Some("cmux-next-stable"),
             "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/a.dmg"
         ),
-        item(4, None, "https://files-next.cmux.com/nightly-next/next/b.dmg")
+        item(4, None, "https://files-next.cmux.com/nightly-next/b.dmg")
     );
     assert_eq!(pick(&stable).unwrap().build, 5);
-    let canary = item(9, Some("canary"), "https://files-next.cmux.com/nightly-next/next/c.dmg");
+    let canary = item(9, Some("canary"), "https://files-next.cmux.com/nightly-next/c.dmg");
     assert!(pick(&canary).is_err(), "no Nightly item at all");
 }
 
@@ -309,7 +309,7 @@ fn the_feed_pick_refuses_a_dmg_outside_the_nightly_prefixes() {
     let evil = format!(
         "{}{}",
         item(7, None, "https://evil.example/nightly-next/next/x.dmg"),
-        item(6, None, "https://files-next.cmux.com/nightly-next/next/y.dmg")
+        item(6, None, "https://files-next.cmux.com/nightly-next/y.dmg")
     );
     let error = pick(&evil).unwrap_err();
     assert!(error.contains("is not a nightly-next download"), "{error}");
@@ -332,7 +332,7 @@ fn a_fresh_mac_gets_the_app_the_login_item_a_start_and_a_sign_in() {
     let stdin = String::from_utf8(install[0].clone().unwrap()).unwrap();
     assert_eq!(
         stdin,
-        "https://files-next.cmux.com/nightly-next/next/cmux-2100.dmg\n21000\n7WLXT3NR37\n"
+        "https://files-next.cmux.com/nightly-next/cmux-2100.dmg\n21000\n7WLXT3NR37\n"
     );
     // The handoff code went only on the redeem script's stdin.
     let redeem = mac.sent_script(REDEEM);
@@ -432,6 +432,31 @@ fn a_route_that_is_not_a_mac_is_skipped() {
     assert_eq!(state(&run, "reach"), StepState::Skip);
     assert_eq!(detail(&run, "reach"), "not a Mac (Linux)");
     assert!(run.failed().is_empty());
+    // `--all` counts it as skipped, not set up (#43385 review F3).
+    assert_eq!(run.not_a_mac().map(|l| l.detail.as_str()), Some("not a Mac (Linux)"));
+    let mac = FakeMac::new(Mac::default());
+    assert!(setup(&mac, &Asker::default()).not_a_mac().is_none());
+}
+
+/// #43385 review F1: the feed is the one nightly.yml publishes cmux NIGHTLY to
+/// (`NIGHTLY_NEXT_FEED_BASE`), never the retired cmux NEXT-identity feed under `/next/`, and the
+/// DMG prefixes and the INSTALL script's allowlist both take that feed's R2 downloads.
+#[test]
+fn the_feed_is_the_one_the_nightly_publisher_writes() {
+    let workflow = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.github/workflows/nightly.yml"),
+    )
+    .expect("nightly.yml");
+    let base = workflow
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("NIGHTLY_NEXT_FEED_BASE: "))
+        .expect("NIGHTLY_NEXT_FEED_BASE in nightly.yml")
+        .trim();
+    assert_eq!(FEED, format!("{base}/appcast-arm64.xml"));
+    let download = format!("{base}/cmux-NIGHTLY-2100-arm64.dmg");
+    let feed = item(2100, None, &download);
+    assert_eq!(pick(&feed).unwrap().url, download);
+    assert!(INSTALL.contains(&format!("{base}/*.dmg")), "INSTALL's allowlist refuses {download}");
 }
 
 #[test]

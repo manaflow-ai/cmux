@@ -21,11 +21,11 @@ use super::model::{self, Device, Kind, Listing, Sources, Via};
 /// The app this sets up, on the target Mac.
 pub(crate) const APP: &str = "/Applications/cmux NIGHTLY.app";
 /// The NIGHTLY Sparkle feed the asking side reads.
-pub(crate) const FEED: &str = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml";
+pub(crate) const FEED: &str = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml";
 /// The only places a NIGHTLY DMG may come from (scripts/fuzz/macos-matrix/onboarding/nightly.py).
 pub(crate) const DMG_PREFIXES: [&str; 2] = [
     "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-    "https://files-next.cmux.com/nightly-next/next/",
+    "https://files-next.cmux.com/nightly-next/",
 ];
 /// The feed channels a Nightly app is offered: none, `cmux-next-stable`, `cmux-next`. Any other
 /// (a Dev ring, Canary) is never installed.
@@ -106,6 +106,11 @@ pub(crate) struct Run {
 impl Run {
     pub(crate) fn failed(&self) -> Vec<&'static str> {
         self.lines.iter().filter(|l| l.state == StepState::Fail).map(|l| l.step).collect()
+    }
+
+    /// The probe's `reach` skip when the device turned out not to be a Mac: a skip, not a set-up.
+    pub(crate) fn not_a_mac(&self) -> Option<&Line> {
+        self.lines.iter().find(|l| l.step == "reach" && l.state == StepState::Skip)
     }
 
     pub(crate) fn summary(&self) -> String {
