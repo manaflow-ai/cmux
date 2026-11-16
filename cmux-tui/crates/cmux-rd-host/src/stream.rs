@@ -98,6 +98,12 @@ fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
 }
 
+fn carrier_send_queue_busy(carrier: &dyn Carrier) -> bool {
+    carrier
+        .media_queue_stats()
+        .is_some_and(|stats| stats.queue_frames != 0 || stats.queue_datagrams != 0)
+}
+
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
@@ -474,8 +480,19 @@ impl MediaSession {
     /// Hands the engine the frame the encode thread finished, if there is one, and sends its
     /// datagrams.
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
+        // Keep one encoded frame at the send boundary.  A link carrier reports
+        // frames/datagrams still pending in its bounded queue; the pacer is the
+        // equivalent queue for paced carriers.  Leave the encoder result in
+        // its one-slot completion channel until that queue drains instead of
+        // turning queue pressure into an acknowledgement-shaped backlog.
+        if self.pacer.as_ref().is_some_and(|pacer| !pacer.is_empty())
+            || carrier_send_queue_busy(carrier)
+        {
+            return Ok(());
+        }
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
+        let idr = frame.idr;
         // Logged after the send, with the send time (`sent_us`).
         let logged = self.timing.is_some().then(|| {
             let len = frame.access_unit.len();
@@ -503,9 +520,8 @@ impl MediaSession {
             _ => None,
         };
         let Some(pacer) = self.pacer.as_mut() else {
-            for datagram in &out.datagrams {
-                carrier.send_datagram(datagram)?;
-            }
+            let droppable = !idr;
+            carrier.send_datagram_frame(out.datagrams, droppable)?;
             if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
                 timing.frame_sent(line, now_us());
             }
@@ -748,6 +764,7 @@ mod encode_off_loop_tests {
         seen: Arc<Seen>,
         release: Option<mpsc::Sender<()>>,
         sent_input: bool,
+        queue_stats: Option<MediaQueueStats>,
         /// Always readable, so the loop keeps reading.
         ready: (UnixStream, UnixStream),
     }
@@ -798,6 +815,9 @@ mod encode_off_loop_tests {
         ) -> std::io::Result<()> {
             Ok(())
         }
+        fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+            self.queue_stats
+        }
         fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
             Ok(())
         }
@@ -845,8 +865,13 @@ mod encode_off_loop_tests {
         let ready = UnixStream::pair().expect("socket pair");
         use std::io::Write;
         (&ready.0).write_all(&[1]).expect("make the carrier readable");
-        let mut carrier =
-            FakeCarrier { seen: seen.clone(), release: Some(release_tx), sent_input: false, ready };
+        let mut carrier = FakeCarrier {
+            seen: seen.clone(),
+            release: Some(release_tx),
+            sent_input: false,
+            queue_stats: None,
+            ready,
+        };
         let viewer = Principal {
             user: "owner".into(),
             install: "test".into(),
@@ -878,5 +903,23 @@ mod encode_off_loop_tests {
             seen.injected_before_encode_returned.load(SeqCst),
             "the key press waited for the encode to finish"
         );
+    }
+
+    #[test]
+    fn a_pending_send_queue_blocks_the_next_encoded_frame() {
+        let seen = Arc::new(Seen::default());
+        let ready = UnixStream::pair().expect("socket pair");
+        let carrier = FakeCarrier {
+            seen,
+            release: None,
+            sent_input: false,
+            queue_stats: Some(MediaQueueStats {
+                queue_frames: 1,
+                queue_datagrams: 4,
+                ..MediaQueueStats::default()
+            }),
+            ready,
+        };
+        assert!(carrier_send_queue_busy(&carrier));
     }
 }
