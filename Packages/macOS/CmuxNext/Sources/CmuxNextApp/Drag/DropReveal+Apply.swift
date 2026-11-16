@@ -32,8 +32,11 @@ extension AppServices {
 
     /// The window that will show a tab after a move into `workspaceID` (its
     /// owner window when open), else the one showing `tabWorkspace` (the tab's now).
-    func landingWindow(tabWorkspace: String?, workspaceID: String?) -> WindowController? {
+    /// `preferring` (the window of a drop) wins when it lists `workspaceID`: two windows on one space both show it,
+    /// and the reveal and the focus of one drop must name the same one.
+    func landingWindow(tabWorkspace: String?, workspaceID: String?, preferring: WindowController? = nil) -> WindowController? {
         let value = windows.registry.value
+        if let workspaceID, let preferring, value.lists(workspaceID, in: preferring.state.id) { return preferring }
         if let workspaceID, let owner = windows.actingWindow(for: workspaceID), value.window(owner)?.isOpen == true {
             return windows.controller(for: owner)
         }
