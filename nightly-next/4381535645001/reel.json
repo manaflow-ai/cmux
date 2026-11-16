@@ -1,0 +1,451 @@
+{
+  "version": 1,
+  "build": "4381535645001",
+  "notes": "notes/4381535645001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44231,
+      "title": "webviews: the design token ratchet passes again (the Updated card's close x, the feature tip's padding)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44253,
+      "title": "cmux-next: a clean base merge carries the PR's Mac tiers from its passing older head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44221,
+      "title": "Motion: no motion that goes through MotionPolicy ends after 300 ms, and an exit ends before its enter",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44244,
+      "title": "measure: post-update-hitches seeds the chat and scrolls it with wheel events",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44241,
+      "title": "hot-verify: a look the worker stopped names the worker's reason, not only \"no marker\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44172,
+      "title": "Palette: a row's own aliases rank like yours, and words find their other forms (\"share screen\" finds Screen Sharing)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43509,
+      "title": "cmux-tui-core: 7c (b) kin readers on the v2 list (children, attach, chief work)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44191,
+      "title": "acpmux: chats with the same slash commands and tool rows hold one copy (896 MB to 110 MB over 1000 chats)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44218,
+      "title": "github.changes: pushed by webhooks; say why a read fails (sandboxed, public limit)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44219,
+      "title": "Session Info: Share screen / View screen runs again (the native route #42851's base merge dropped)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44101,
+      "title": "apps: GitHub read gateway for extensions (private repos, ETag/304 replay)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44100,
+      "title": "acpmux: relay seam for pages naming another origin (8b PR 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44148,
+      "title": "ci(gallery): mark visual differences without a Visual-change line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44226,
+      "title": "cmux-tui: the sidebar document decides a new workspace's place",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44171,
+      "title": "ci(cmux-tui-artifacts): the image roll, nightly-next and Team-signed requests move to the bot token when github.token is rate limited",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44078,
+      "title": "Screen sharing one cursor: the viewer wears the remote shape (rd cap cursor, Swift only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44021,
+      "title": "Extensions: sidebar sections reload on request (cmux ext reload, cmux reload-config, Reload Custom Views) and a live-edit tour in the real sidebar",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44021/cap-a303b3f0-tour-ext-sidebar-section-live.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 44150,
+      "title": "Fold peer messages behind Claude Code's \"A peer session sent a message\" line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43867,
+      "title": "cmux-action-catalog: the first catalog request rows (Remove Site, Recently Closed, Error Journal)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43979,
+      "title": "updater: the launch pre-warm never waits behind the rollback keep, and logs every step (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44178,
+      "title": "agents events: agent-idle and agent-needs-input fire for agent chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44147,
+      "title": "acpmux: a message bridged into Claude Code carries one line of ours, not four",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44130,
+      "title": "Agent page diagnostics: keep the page's reply-unpainted lines and hours of history",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44090,
+      "title": "cmux-action-catalog: a step-A row in a HandlerCoverage category needs an App binding (detector for the Debug launch trap)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44213,
+      "title": "cloud journey: a warm-spare refusal names its error_code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44217,
+      "title": "Agent chat: count the waits for another process before a chat's first paint",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44211,
+      "title": "Floating panes: the placement rules (cmux-layout-reducer)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44210,
+      "title": "measure: post-update-hitches, first launch after a Sparkle update against a second launch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44207,
+      "title": "tests, raw-flock baseline: 3 comments and 1 note name the build, the rule and the date",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44201,
+      "title": "cmux-tui: a layout size command reads one workspace and keeps the indexes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44216,
+      "title": "measure: the held new tab measure checks each act kind first and has two launch forms",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44197,
+      "title": "windows: Select Next Window goes through the windows in the order they were opened",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44203,
+      "title": "ci(cmux-next): a PR's Release compile borrows an idle gui runner while side is backed up, bounded",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44158,
+      "title": "Palette: \"Connect to Machine: <name>\" rows, one per machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44179,
+      "title": "Screen Sharing: Stop Sharing This Mac ends the session on either host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44181,
+      "title": "check-package-dependency-lists: scan sources once, and mask only files that name an undeclared module",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44190,
+      "title": "Motion: MotionFlight, one motion in flight for a surface",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44155,
+      "title": "skills: Claude Code finds the hot-loop skill; the loop names hot-verify.py",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44193,
+      "title": "cmux-next-ios-sim: test video also writes a small copy for PR media",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43988,
+      "title": "acpmux v2: the rest of the best-of-rounds gates report their rounds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44165,
+      "title": "hot-verify: a post out of GitHub quota waits for the reset instead of losing the look",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44187,
+      "title": "Zoom: the other panes dim while the pane moves",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44146,
+      "title": "GitHub webhooks reach extensions as github.changed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44194,
+      "title": "measure: the pane films check each key path before the session, and a film with a refused key is not made",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43937,
+      "title": "cmux-next: add ABI-3 acpmux client wrapper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44067,
+      "title": "Command palette: keep one copy of its rows (idle app about -4 MB, CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44153,
+      "title": "test(acpmux): gate_rounds compares each round with every other round",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44117,
+      "title": "Screen sharing one cursor: the host sends its cursor as metadata (rd cap cursor, Rust only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44157,
+      "title": "File menu: Screen Sharing row; every main_menu placement shown or palette-only by reason",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44160,
+      "title": "hot-verify plan: a lagging nightly with the fork's FFI pin can take the head's daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43308,
+      "title": "iPhone Screen Sharing: draw the last known Macs in the first frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44143,
+      "title": "customize: library refresh never swaps in a fork's new code unasked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44125,
+      "title": "acpmux conn: a late credit or unsub for a sid the connection ended needs no reply room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44122,
+      "title": "Cloud first pass: edits on the machine to a partial copy of a git repo come back (hq#11697)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44126,
+      "title": "measure: launch-ready works under macOS's bash 3.2 (dmg=build, profile=1) (CMUX-629)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43282,
+      "title": "iPhone Screen Sharing: silent reattach under 10 s, no failed flash, no layout jump",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44161,
+      "title": "webviews: useSystemChrome wraps launchServer, so chat-100k-flat runs on the perf cron (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44129,
+      "title": "Changes sidebar: a live pull request list as an opt-in extension (github.changes, git.status github_repo)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44087,
+      "title": "web: live theme playground in landing hero",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43909,
+      "title": "Cloud VM image: record inputs_sha256 (every input but cmux-tui) and list it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44132,
+      "title": "Agent-pane tests and galleries import shared selectors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44136,
+      "title": "Lint: a px/ms literal a named token already holds is a token copy (check:design-tokens)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44075,
+      "title": "apps: host start and apps.json write off the supervisor lock, constant under load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44121,
+      "title": "cmux-action-catalog: awaiting-repin markers are one file per entry, so parallel PRs never conflict on them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44050,
+      "title": "Customization Library: a late read can't undo a toggle; reveal the card and Remove's confirmation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44099,
+      "title": "ci: a hot-only PR keeps tooling-tests off the minis and compiles no Swift test target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43916,
+      "title": "acpmux: report every mirror v1 gate round",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43914,
+      "title": "Palette: Screen Sharing: <device> rows, and Screen Sharing found by \"screen share\", \"vnc\", \"remote desktop\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44030,
+      "title": "cmux NEXT: one Quit; Cmd-Q, the menu and the Dock quit the app only, no dialog (CMUX-630)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44029,
+      "title": "cmux-tui: agent CLI terminals stream cell deltas, not PTY bytes, to a viewer that asks (agent-cli-hybrid-v1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44094,
+      "title": "screen share: pre-create a decoder session at connect so the first frame skips the cold create",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44083,
+      "title": "rd host: encode off the input loop thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44128,
+      "title": "tests: register test_cmux_next_tab_switch_gate.py in the test execution registry",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
