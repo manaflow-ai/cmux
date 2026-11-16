@@ -401,6 +401,9 @@ const totalMs = new Map<string, number>();
 /// A built-in's (no url: style reads, layout, DOM calls) self ms by the nearest bundle function that called it.
 const nativeByCaller = new Map<string, number>();
 let profiled = 0;
+/// MODE=reopen-spare: how long each adopt event's own task ran (ms), the synchronous React pass
+/// `useSessionAdoption` flushes inside the event, before the browser can paint anything.
+const adoptSyncMs: number[] = [];
 const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
 type ProfileNode = CpuProfile["nodes"][number];
 const nodeKey = (frame: ProfileNode["callFrame"]) =>
@@ -863,10 +866,11 @@ try {
           window.dispatchEvent(
             new CustomEvent("acpmux-session-adopt", { detail: { sessionId: session, tail, scrollAnchor: null } }),
           );
-          return { at, shift };
+          return { at, shift, syncMs: performance.now() - at };
         },
         { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS },
       );
+      adoptSyncMs.push(start.syncMs);
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: RECORD_MS + 60_000,
         polling: 250,
@@ -1198,6 +1202,14 @@ try {
         p95: maxima[key] ?? 0,
         unit,
       });
+  }
+  if (adoptSyncMs.length) {
+    const sorted = [...adoptSyncMs].sort((a, b) => a - b);
+    const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]!;
+    console.log(
+      `reopen-spare adopt event's own task: p50 ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${sorted.at(-1)!.toFixed(1)} ms (n=${sorted.length}${PROFILE ? ", profiled" : ""})`,
+    );
+    json.adoptSync = { p50: at(0.5), p95: at(0.95), max: sorted.at(-1), n: sorted.length };
   }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
   printProfile();
