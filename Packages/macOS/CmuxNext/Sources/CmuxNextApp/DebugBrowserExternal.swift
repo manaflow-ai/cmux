@@ -78,7 +78,8 @@ extension DebugBrowserExternal {
             case "deny": .deny
             default: nil
             }
-            let first = tab.pendingPrompts.first
+            // A verification code offer is the person's alone: no socket caller accepts it (DESIGN.md "Threat model").
+            let first = tab.pendingPrompts.first { if case .verificationOffer = $0.kind { false } else { true } }
             if let response, let first { first.respond(response) }
             result["responded"] = .bool(response != nil && first != nil)
         }
