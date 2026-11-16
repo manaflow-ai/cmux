@@ -179,6 +179,9 @@ const ULTRA_MAX_BITS_PER_PIXEL: u64 = 3;
 /// Ultra's refinement frame may take this many frame budgets (within the per-pixel ceiling):
 /// the screen is still, so the next frame interval has room for it.
 const ULTRA_REFINE_BUDGETS: u64 = 4;
+/// Ultra's QP floor for a keyframe: high enough that a 1080p IDR stays well under 1 MB (to set
+/// from the sweep's frame-size column), since the encoder lets an IDR overrun DataRateLimits.
+pub const ULTRA_IDR_MIN_QP: i32 = 30;
 
 /// Ultra's QP floor: `CMUX_RD_VT_ULTRA_MIN_QP` when it is a QP in 1-51, else [`ULTRA_MIN_QP`].
 fn ultra_min_qp(env: Option<&str>) -> i32 {
@@ -707,15 +710,24 @@ impl VideoToolbox {
         if let Ok(mut o) = self.out.lock() {
             *o = Output::default();
         }
+        // Ultra's keyframe: this frame alone with a high floor, then back. VideoToolbox does not
+        // hold an IDR to DataRateLimits (the fleet sweep's 1080p keyframes ran 2.4 MB on text and
+        // 3.6 MB on noise at a one-frame-interval budget), so the floor is what keeps it small;
+        // the frames after it, and the still screen's refinement, bring the detail back.
+        let idr = force_idr && self.ultra;
         // Ultra's refinement: this frame alone with a lower floor and a larger budget, then back.
-        let refine = std::mem::take(&mut self.refine_next) && self.ultra;
-        if refine {
+        let refine = std::mem::take(&mut self.refine_next) && self.ultra && !idr;
+        if idr {
+            self.apply_min_qp(ULTRA_IDR_MIN_QP);
+        } else if refine {
             self.apply_rate(self.kbps, ULTRA_REFINE_BUDGETS);
             self.apply_min_qp(ULTRA_REFINE_MIN_QP);
         }
         let result = self.encode_buffer_at(pixel_buffer, force_idr, pts, out);
         if refine {
             self.apply_bitrate(self.kbps);
+        }
+        if idr || refine {
             self.apply_min_qp(self.ultra_min_qp);
         }
         result
@@ -818,7 +830,7 @@ mod tests {
         assert_eq!(ultra_min_qp(Some("0")), ULTRA_MIN_QP, "0 is out of range");
         assert_eq!(ultra_min_qp(Some("52")), ULTRA_MIN_QP, "past H.264's range");
         assert_eq!(ultra_min_qp(Some("x")), ULTRA_MIN_QP);
-        const { assert!(ULTRA_REFINE_MIN_QP < ULTRA_MIN_QP) };
+        const { assert!(ULTRA_REFINE_MIN_QP < ULTRA_MIN_QP && ULTRA_MIN_QP < ULTRA_IDR_MIN_QP) };
     }
 
     #[test]
