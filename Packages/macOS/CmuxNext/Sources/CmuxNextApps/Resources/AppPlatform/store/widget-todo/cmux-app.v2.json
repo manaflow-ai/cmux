@@ -5,8 +5,8 @@
   "name": { "en": "To Do", "ja": "やること" },
   "version": "1.0.0",
   "description": {
-    "en": "Your to-do list at a glance, like the Reminders widget: a big count of what is left, then your items with round checkboxes. Click one to check it off; type in New item and press Return to add one. The large size folds what you finished into one Completed row.",
-    "ja": "リマインダーのように、やることをひと目で。残りの数を大きく、その下に丸いチェックボックス付きの項目を並べます。クリックで完了、「新規項目」に入力して Return で追加。大サイズでは終わった項目を「完了」の 1 行にまとめます。"
+    "en": "Your to-do list at a glance: a big count of what is left, then your items with round checkboxes. Click one to check it off; type in New item and press Return to add one. The large size folds what you finished into one Completed row.",
+    "ja": "やることをひと目で。残りの数を大きく、その下に丸いチェックボックス付きの項目を並べます。クリックで完了、「新規項目」に入力して Return で追加。大サイズでは終わった項目を「完了」の 1 行にまとめます。"
   },
   "publisher": { "name": "cmux", "url": "https://cmux.com" },
   "repository": "https://github.com/manaflow-ai/cmux",
