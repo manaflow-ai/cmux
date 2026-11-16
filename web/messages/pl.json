@@ -1257,7 +1257,10 @@
           "failed": "błąd",
           "paused": "wstrzymana",
           "destroyed": "usunięta"
-        }
+        },
+        "wake": "Wybudź",
+        "waking": "Wybudzanie…",
+        "wakeError": "Nie udało się wybudzić tej maszyny. Spróbuj ponownie."
       },
       "network": {
         "open": "Sieć",

@@ -1257,7 +1257,10 @@
           "failed": "fehlgeschlagen",
           "paused": "pausiert",
           "destroyed": "gelöscht"
-        }
+        },
+        "wake": "Aufwecken",
+        "waking": "Wird aufgeweckt…",
+        "wakeError": "Diese Maschine konnte nicht aufgeweckt werden. Versuche es erneut."
       },
       "network": {
         "open": "Netzwerk",

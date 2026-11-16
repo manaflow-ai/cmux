@@ -1257,7 +1257,10 @@
           "failed": "con errores",
           "paused": "en pausa",
           "destroyed": "eliminada"
-        }
+        },
+        "wake": "Reanudar",
+        "waking": "Reanudando…",
+        "wakeError": "No se pudo reanudar esta máquina. Inténtalo de nuevo."
       },
       "network": {
         "open": "Red",

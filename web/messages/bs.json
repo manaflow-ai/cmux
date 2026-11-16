@@ -1257,7 +1257,10 @@
           "failed": "neuspjelo",
           "paused": "pauzirano",
           "destroyed": "izbrisano"
-        }
+        },
+        "wake": "Probudi",
+        "waking": "Buđenje…",
+        "wakeError": "Nije moguće probuditi ovu mašinu. Pokušajte ponovo."
       },
       "network": {
         "open": "Mreža",

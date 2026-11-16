@@ -1257,7 +1257,10 @@
           "failed": "başarısız",
           "paused": "duraklatıldı",
           "destroyed": "silindi"
-        }
+        },
+        "wake": "Uyandır",
+        "waking": "Uyandırılıyor…",
+        "wakeError": "Bu makine uyandırılamadı. Tekrar deneyin."
       },
       "network": {
         "open": "Ağ",

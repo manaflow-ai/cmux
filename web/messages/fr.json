@@ -1257,7 +1257,10 @@
           "failed": "échec",
           "paused": "en pause",
           "destroyed": "supprimée"
-        }
+        },
+        "wake": "Réveiller",
+        "waking": "Réveil en cours…",
+        "wakeError": "Impossible de réveiller cette machine. Réessayez."
       },
       "network": {
         "open": "Réseau",

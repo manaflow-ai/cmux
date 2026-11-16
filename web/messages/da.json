@@ -1257,7 +1257,10 @@
           "failed": "mislykkedes",
           "paused": "sat på pause",
           "destroyed": "slettet"
-        }
+        },
+        "wake": "Væk",
+        "waking": "Vækker…",
+        "wakeError": "Kunne ikke vække denne maskine. Prøv igen."
       },
       "network": {
         "open": "Netværk",

@@ -2,10 +2,16 @@ import { z } from "zod";
 import * as accessGrantsRoute from "@/app/api/vm/access-grants/route";
 import * as accessGrantRoute from "@/app/api/vm/access-grants/[id]/route";
 import * as networkRoute from "@/app/api/vm/[id]/network/route";
+import * as resumeRoute from "@/app/api/vm/[id]/resume/route";
 import { listUserVms, runVmWorkflow } from "@/services/vms/workflows";
 import { authed, dashboardOS, requireDashboardOrigin } from "./base";
 import { callRoute } from "./route-call";
-import { cloudDevicesSchema, cloudMachinesSchema, cloudNetworkStateSchema } from "./schemas/cloud";
+import {
+  cloudDevicesSchema,
+  cloudMachineResumeSchema,
+  cloudMachinesSchema,
+  cloudNetworkStateSchema,
+} from "./schemas/cloud";
 
 /**
  * The VM access-grant routes own authentication, request telemetry, and the
@@ -80,9 +86,9 @@ const machineInput = z.object({
   teamId: z.string().trim().min(1).max(200).nullable(),
 });
 
-function networkCall(input: z.output<typeof machineInput>) {
+function machineCall(input: z.output<typeof machineInput>, action: "network" | "resume") {
   return {
-    path: `/api/vm/${encodeURIComponent(input.id)}/network`,
+    path: `/api/vm/${encodeURIComponent(input.id)}/${action}`,
     params: { id: input.id },
     search: { teamId: input.teamId },
   };
@@ -93,7 +99,7 @@ const network = cloudOS
   .input(machineInput)
   .output(cloudNetworkStateSchema)
   .handler(async ({ context, input }) =>
-    cloudNetworkStateSchema.parse(await callRoute(context, networkRoute.GET, { method: "GET", ...networkCall(input) }))
+    cloudNetworkStateSchema.parse(await callRoute(context, networkRoute.GET, { method: "GET", ...machineCall(input, "network") }))
   );
 
 const setNetwork = cloudOS
@@ -102,9 +108,22 @@ const setNetwork = cloudOS
   .handler(async ({ context, input }) =>
     cloudNetworkStateSchema.parse(await callRoute(context, networkRoute.PUT, {
       method: "PUT",
-      ...networkCall(input),
+      ...machineCall(input, "network"),
       body: input.policy,
     }))
   );
 
-export const cloudRouter = { devices, renameDevice, revokeDevice, machines, network, setNetwork };
+/**
+ * Wake a paused machine from the browser, so a machine can be resumed without
+ * the Mac app. `POST /api/vm/{id}/resume` (what `cmux vm resume` and the iPhone
+ * call) owns auth, account scope, plan limits, and the provider wait; a running
+ * machine answers `running`.
+ */
+const resumeMachine = cloudOS
+  .input(machineInput)
+  .output(cloudMachineResumeSchema)
+  .handler(async ({ context, input }) =>
+    cloudMachineResumeSchema.parse(await callRoute(context, resumeRoute.POST, { method: "POST", ...machineCall(input, "resume") }))
+  );
+
+export const cloudRouter = { devices, renameDevice, revokeDevice, machines, network, setNetwork, resumeMachine };

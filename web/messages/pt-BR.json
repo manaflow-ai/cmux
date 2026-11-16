@@ -1257,7 +1257,10 @@
           "failed": "com falha",
           "paused": "pausada",
           "destroyed": "excluída"
-        }
+        },
+        "wake": "Retomar",
+        "waking": "Retomando…",
+        "wakeError": "Não foi possível retomar esta máquina. Tente novamente."
       },
       "network": {
         "open": "Rede",

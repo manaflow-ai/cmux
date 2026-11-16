@@ -1257,7 +1257,10 @@
           "failed": "non riuscita",
           "paused": "in pausa",
           "destroyed": "eliminata"
-        }
+        },
+        "wake": "Riattiva",
+        "waking": "Riattivazione…",
+        "wakeError": "Impossibile riattivare questa macchina. Riprova."
       },
       "network": {
         "open": "Rete",

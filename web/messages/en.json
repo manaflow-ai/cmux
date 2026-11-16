@@ -517,7 +517,10 @@
           "failed": "Failed",
           "paused": "Paused",
           "destroyed": "Deleted"
-        }
+        },
+        "wake": "Wake",
+        "waking": "Waking…",
+        "wakeError": "Could not wake this machine. Try again."
       },
       "network": {
         "open": "Network",

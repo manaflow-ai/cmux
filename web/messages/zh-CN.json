@@ -1257,7 +1257,10 @@
           "failed": "失败",
           "paused": "已暂停",
           "destroyed": "已删除"
-        }
+        },
+        "wake": "唤醒",
+        "waking": "正在唤醒…",
+        "wakeError": "无法唤醒这台机器。请重试。"
       },
       "network": {
         "open": "网络",
