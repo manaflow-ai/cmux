@@ -220,8 +220,12 @@ extension TabDragSession {
         // client's layout: no view change (product decision 2026-10-01).
         if let landed = drag.landedWorkspaceID, let source = drag.source.pane,
            services.machines.daemon(forWorkspace: landed) !== services.machines.daemon(forPane: source.pane) { return }
-        let landing = drag.landedWorkspaceID.flatMap { services.windows.registry.value.owner(of: $0) }
-            .flatMap(services.windows.controller(for:)) ?? dropWindow
+        // The window of the drop when it lists the workspace (its own or a guest: two windows on one space), else the owner.
+        let registry = services.windows.registry.value
+        let landing = drag.landedWorkspaceID.flatMap { landed in
+            dropWindow.flatMap { registry.lists(landed, in: $0.state.id) ? $0 : nil }
+                ?? registry.owner(of: landed).flatMap(services.windows.controller(for:))
+        } ?? dropWindow
         let facts = DropRevealPolicy.Facts(outcome: outcome, landed: true, userInitiated: true, filesAway: drag.filesAway,
                                            crossesWindows: landing !== drag.source.window, appActive: NSApp.isActive,
                                            noActivate: WindowPlacement.noActivate,

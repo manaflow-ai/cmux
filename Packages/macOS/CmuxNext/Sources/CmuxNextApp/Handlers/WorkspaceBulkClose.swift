@@ -58,7 +58,8 @@ enum WorkspaceBulkClose {
             let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.actingWindow(for: $0.id) : nil }
             closing = try windows.registry.members(of: owner ?? context.window(invocation).state.id)
         case "allWindows":
-            closing = windows.controllers.flatMap { windows.registry.members(of: $0.state.id) }
+            var seen = Set<String>() // two windows on one space list a workspace each: it closes once
+            closing = windows.controllers.flatMap { windows.registry.members(of: $0.state.id) }.filter { seen.insert($0).inserted }
         case "section":
             closing = try sectionWorkspaces(invocation, context)
         case "otherGroups":

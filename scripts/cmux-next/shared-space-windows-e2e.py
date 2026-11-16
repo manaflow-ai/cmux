@@ -133,7 +133,7 @@ listed_before = {w for entry in windows().values() for w in entry.get("workspace
 # 2. A switches to B's space, named by its id (not "the next space": a build may start with more than one).
 space = windows()[b].get("space")
 rpc("debug.window.focus", {"window": a})
-switched = rpc("action.run", {"action": "space.switch", "target": "room:%s" % space, "origin": "script"})
+switched = rpc("action.run", {"action": "space.switch", "target": "window:%s" % a, "args": {"space": space}, "focus": True, "origin": "script"})
 notes["switch"] = {"space": space, "reply": switched}
 wait(lambda: windows().get(a, {}).get("selected") == x, 20)
 time.sleep(2.0)  # test harness: a wrong build makes A's new workspace within this time
