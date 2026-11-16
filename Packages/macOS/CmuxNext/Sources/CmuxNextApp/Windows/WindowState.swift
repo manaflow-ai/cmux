@@ -28,6 +28,7 @@ final class WindowState: CloseSelectionWindow {
         didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) } }
     }
     @ObservationIgnored var onShownChange: ((String?, String?) -> Void)? // each change of `workspaceID` (new, old): the close-selection rule's feed
+    @ObservationIgnored var onProfileChange: (() -> Void)? // the window entered another space: its shared workspaces follow (`WindowManager.spaceDidChange`)
     /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
     /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
     var viewSet: WorkspaceViewSet?
@@ -154,9 +155,11 @@ extension WindowState {
     /// profile it leaves.
     func enterProfile(_ profile: ProfileID) {
         if let workspaceID { profileWorkspaces[profileID] = workspaceID }
+        let changed = profileID != profile
         profileID = profile
         profileRecency.removeAll { $0 == profile }
         profileRecency.insert(profile, at: 0)
+        if changed { onProfileChange?() }
     }
 }
 
