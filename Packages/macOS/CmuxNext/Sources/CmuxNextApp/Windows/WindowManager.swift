@@ -99,6 +99,16 @@ final class WindowManager {
     var restoreClosed = RestoreClosedWindows()
     /// True while `restore` runs.
     private(set) var restoring = false
+    /// Saved open windows but the front one, front to back, that `restore` has not made yet (launch-shell-first,
+    /// piece 7: stage 1 makes only what is visible). After the front window's frame commits they come back one per
+    /// main-thread turn (`restoreNextDeferredWindow`), each at its saved place in the order (`restacking`). A show or
+    /// raise aimed at one makes it at once (`liveController(for:)`). Empty once the launch's windows are all made.
+    private(set) var deferredWindows: [String] = []
+    /// Workspace views windows made cold to show a workspace (`WindowController.show`), this run: a launch makes one
+    /// for the front window, and a workspace's first show makes its own once (a parked one is kept, not made again).
+    var shownContentsMade = 0
+    /// Runs at the end of `restore`, before the deferred windows come back (tests).
+    var onRestored: (() -> Void)?
     /// The saved window records are not installed (yet, or the launch's read failed: `SavedWindowsRead`):
     /// they may hold windows this launch does not show, so nothing writes them (#26681). True until
     /// the launch's records are installed, so neither a window opened while it waits nor a quit before the
@@ -290,6 +300,9 @@ final class WindowManager {
         if opensFresh, let launch = launchWindowID { if let first = firstWorkspace { claimNew(workspaceID: first, window: launch) } else { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
+        // Only the front window is made now; the others follow its first frame, one per turn (`deferredWindows`).
+        let frontWindow = adopted?.state.id ?? registry.value.recency.first { registry.value.window($0)?.isOpen == true }
+        deferredWindows = registry.value.recency.filter { $0 != frontWindow && registry.value.window($0)?.isOpen == true && controller(for: $0) == nil }
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
         // it has none (the daemon failed to create one), it keeps showing
@@ -327,7 +340,45 @@ final class WindowManager {
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
+        onRestored?()
+        restoreDeferredWindowsAfterFrame()
     }
+
+    /// The next deferred saved window, after this pass's frame commits.
+    private func restoreDeferredWindowsAfterFrame() {
+        guard !deferredWindows.isEmpty else { return }
+        AfterFrameCommit().run { [weak self] in self?.restoreNextDeferredWindow() }
+    }
+
+    /// Makes one deferred saved window (still open in the registry, not made meanwhile), then schedules the next.
+    /// The last one fills the front window's Cmd-N spare, which waited for them (`WindowController.reservedContent`).
+    private func restoreNextDeferredWindow() {
+        guard !isTerminating else { return deferredWindows.removeAll() }
+        while !deferredWindows.isEmpty {
+            let id = deferredWindows.removeFirst()
+            if makeDeferredWindow(id) != nil { break }
+        }
+        guard deferredWindows.isEmpty else { return restoreDeferredWindowsAfterFrame() }
+        DebugTimings.markLaunch("deferred_windows_restored")
+        active?.reservedContent.fill()
+    }
+
+    /// Makes deferred window `id` now, when it is still open and has no controller; nil otherwise.
+    @discardableResult
+    private func makeDeferredWindow(_ id: String) -> WindowController? {
+        deferredWindows.removeAll { $0 == id }
+        guard controller(for: id) == nil, let window = registry.value.window(id), window.isOpen else { return nil }
+        return makeController(for: window)
+    }
+
+    /// The controller of window `id`, made now when it is a saved window the launch has not made yet: a show,
+    /// raise or pick aimed at it never waits for its turn.
+    func liveController(for windowID: String) -> WindowController? {
+        controller(for: windowID) ?? (deferredWindows.contains(windowID) ? makeDeferredWindow(windowID) : nil)
+    }
+
+    /// Whether saved window `id` still waits for its turn after the front window (`deferredWindows`).
+    func isDeferred(_ windowID: String) -> Bool { deferredWindows.contains(windowID) }
 
     /// The saved window records, kept pending through timeouts and reconnects. A cancelled or
     /// permanent failure returns nil, never an empty saved session. Saves stay blocked until
