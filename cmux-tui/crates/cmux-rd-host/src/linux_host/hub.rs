@@ -49,8 +49,12 @@ impl std::fmt::Display for HubError {
 impl std::error::Error for HubError {}
 
 /// The string a device signs: `"<METHOD>\n<path+query>\n<ts>\n<hex sha256 of body or empty>"`.
+/// The method is upper-cased and an empty body signs as no body, as the hub and the apps do
+/// (schemas/device-hub/request-signing-vectors.json).
 pub fn signing_string(method: &str, target: &str, ts: u64, body: Option<&[u8]>) -> String {
+    let method = method.to_ascii_uppercase();
     let digest = body
+        .filter(|b| !b.is_empty())
         .map(|b| crate::serve::hex(ring::digest::digest(&ring::digest::SHA256, b).as_ref()))
         .unwrap_or_default();
     format!("{method}\n{target}\n{ts}\n{digest}")
