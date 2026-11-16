@@ -372,6 +372,12 @@ def focus_waits():
             "journal": journal.get("stats")}
 
 
+def renderer_processes():
+    """The Chromium renderer processes of the app now (one `ps` read, after a row's times)."""
+    ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    return sum(1 for line in ps.splitlines() if (APP + "/") in line and "--type=renderer" in line)
+
+
 def timed(command, phase, index, arm=None):
     """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
     # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
@@ -387,8 +393,10 @@ def timed(command, phase, index, arm=None):
         params.update({"command": "newtab_url", "url": LINK_URL, "beside": command == "newtab_url_beside"})
     if command == "browser_workspace":  # New Browser Workspace: visible_ms is the window on the new workspace, chrome_ms its browser in the pane
         params.update({"command": "new_workspace", "run": "newBrowserWorkspace"})
+    renderers_before = renderer_processes()
     result = rpc("debug.new_tab", params, timeout=20) or {}
-    result.update({"phase": phase, "run": index, "command": command})
+    result.update({"phase": phase, "run": index, "command": command,
+                   "renderers_before": renderers_before, "renderers_after": renderer_processes()})
     if arm:
         result["arm"] = arm
     # After the row's times: the engine of the page that the key opened. Cmd-T and Cmd-N: the focused pane's shown
@@ -400,7 +408,7 @@ def timed(command, phase, index, arm=None):
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
           f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} "
-          f"engine={result.get('page_engine')} marks={marks} "
+          f"engine={result.get('page_engine')} renderers={result.get('renderers_before')}->{result.get('renderers_after')} marks={marks} "
           f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else "")
           + (f" diff={json.dumps(result.get('diff'))}" if command in DIFF_COMMANDS else ""), flush=True)
     return result

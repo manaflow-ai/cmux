@@ -14,6 +14,8 @@ extension DaemonStore {
     /// applied exactly (revision gap, generation change, coarse invalidation).
     @discardableResult
     public func apply(_ event: DaemonEvent) -> Followup {
+        let applyStart = ContinuousClock.now
+        defer { onApplyTimed?("store.apply.event", applyStart) }
         var followup = withOverlayLifted { applyEvent(event, sequence: nil) }
         // One event without a sequence: its personal state is fetched now (no barrier to hold back).
         if followup == .personal {
@@ -52,6 +54,8 @@ extension DaemonStore {
         // A staged script batch keeps the events of the workspaces it touches (DaemonStore+Stage.swift).
         let batch = stage?.passing(batch, in: self) ?? batch
         guard !batch.isEmpty else { return .none }
+        let applyStart = ContinuousClock.now
+        defer { onApplyTimed?("store.apply.batch", applyStart) }
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
         return updateCycles.run { applyBatch(batch) }

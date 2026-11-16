@@ -151,7 +151,7 @@ final class SidebarBridge {
         // Decorations go on after the feed: the pass names rows by stub (no title yet), and a patched row is undecorated.
         let feed = rowFeed, customization = services.sidebarCustomization, faces = faceBuffers
         feed.onChange = { [weak self] changed in
-            let decorations = customization.rowDecorations
+            let patchStart = ContinuousClock.now; defer { BenchSpans.mark("sidebar.rows.patch", milliseconds: BenchSpans.ms(.now - patchStart)) }; let decorations = customization.rowDecorations
             self?.rows.patch(changed.map { $0.decorated(by: decorations) })
         }
         // `state.id` is read inside: the launch window adopts a saved id.
@@ -163,14 +163,14 @@ final class SidebarBridge {
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, {
-            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
+            let (listed, launching, failed) = BenchSpans.measure("sidebar.pass.compute") { Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) })) }
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
                      services.sidebarDoc.store?.shownChanges, services.settings?.snapshot.sidebarSections.projection ?? .defaults), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(services, window: windowState))
         }) { [weak self] value in
             let ((sections, decorations, shownAt, projection), launching, failed, profiles, active, shown) = value
-            guard let self else { return }
+            guard let self else { return }; let passStart = ContinuousClock.now; defer { BenchSpans.mark("sidebar.pass.apply", milliseconds: BenchSpans.ms(.now - passStart)) }
             self.model.sectionCustomization = projection
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,

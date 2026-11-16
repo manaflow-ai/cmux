@@ -66,10 +66,10 @@ enum DebugInstantCreateBench {
         if command == .headerTerminal, chat() == nil, let pane = controller.content?.focusedPane { services.agentTabs.openTab(in: pane); frames.start(); _ = await frames.settled(until: { chat() != nil }, start: .now, window: 0, deadline: 15_000); _ = frames.stop() }
         let before = Probe(controller)
         let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
-        let (key, modifiers) = command.key
+        let (key, modifiers) = command.key; @MainActor func markPage() { guard command == .newTab, let view = controller.content?.focusedPane?.currentTabKey.flatMap({ services.agentTabs.existingView($0) }) else { return }; if view.model.hasHandshake, !BenchSpans.spans.contains(where: { $0.name == "page.handshake" }) { BenchSpans.mark("page.handshake") }; if view.model.hasPainted, !BenchSpans.spans.contains(where: { $0.name == "page.painted" }) { BenchSpans.mark("page.painted") } } // measure build only: the frame at which the new page answered and painted
         frames.start(); BenchSpans.begin()
-        services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
-        defer { services.cache.cef.benchMarks.arm(nil) }
+        services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }; let localStore = services.machines.local.store; localStore.onApplyTimed = { name, began in BenchSpans.mark(name, milliseconds: BenchSpans.ms(.now - began)) } // measure build only: the store's applies as spans
+        defer { services.cache.cef.benchMarks.arm(nil); localStore.onApplyTimed = nil }
         // The GitHub page's `shown` marks (`content` when it drew its pull request) and the open's answer, reported as `github`.
         let githubShown = OSAllocatedUnfairLock(initialState: [String]()), githubURL = params["url"]?.stringValue
         let githubTab = command == .githubRight ? WebPageTab.registerGitHub(services) : nil
@@ -108,7 +108,7 @@ enum DebugInstantCreateBench {
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
         let keyMilliseconds = BenchSpans.ms(.now - start)
-        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
+        let visible = await frames.settled(until: { markPage(); return before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
         let committed = frames.lastCommitted
         let chrome = visible == nil || (command != .newBrowser && !(command == .newWorkspace && params["run"] != nil)) ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
@@ -123,8 +123,8 @@ enum DebugInstantCreateBench {
                 if github != nil { return githubShown.withLock { $0.contains("content") } }
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
             }, start: start, window: 0, deadline: diff ? 20_000 : 5_000)
-        let ready = visible == nil || (command != .newWorkspace && command != .newTab) ? nil : await frames.settled(until: { Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
-        let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
+        let ready = visible == nil || (command != .newWorkspace && command != .newTab) ? nil : await frames.settled(until: { markPage(); return Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
+        let confirmed = visible == nil ? nil : await frames.settled(until: { markPage(); return Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end(), stats = frames.stop()
         var refresh = 1_000.0 / 60
         if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { refresh = value }

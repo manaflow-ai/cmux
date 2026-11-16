@@ -53,10 +53,10 @@ enum NewTabPage {
     /// (``NewTabPlaces``), the open tabs' folders (the current one first),
     /// and recent pages, newest first.
     static func omnibar(_ services: AppServices, excluding selectedID: String?, paletteActions: Bool = true) -> AgentPaneOmnibar {
-        let (tabs, workspaces, folders) = places(services, excluding: selectedID)
-        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
+        let (tabs, workspaces, folders) = BenchSpans.measure("newTab.places") { places(services, excluding: selectedID) }
+        let history: [AgentPaneOmnibar.Page] = BenchSpans.measure("newTab.history") { services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
-        }
+        } }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
         let actions = paletteActions ? Self.paletteActions(services) : []
@@ -115,8 +115,8 @@ enum NewTabPage {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
-        let machine = NewTabPageMachine(services, selected: selected, pane: pane)
-        var bar = omnibar(services, excluding: selectedID, paletteActions: paletteActions)
+        let machine = BenchSpans.measure("newTab.machine") { NewTabPageMachine(services, selected: selected, pane: pane) }
+        var bar = BenchSpans.measure("newTab.omnibar") { omnibar(services, excluding: selectedID, paletteActions: paletteActions) }
         // A page on another machine offers that machine's folders only (cx-k21v).
         if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
         return AgentPaneNewTab(

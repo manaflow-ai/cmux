@@ -124,6 +124,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
     /// Runs when the connection drops or the daemon shuts down (before any reconnect).
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
+    /// Measure build only: runs after each apply of events and each overlay pass, with its name and its start.
+    @ObservationIgnored public var onApplyTimed: (@MainActor (String, ContinuousClock.Instant) -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.

@@ -119,6 +119,8 @@ extension DaemonStore {
     /// intents waiting for one. Nested calls run `body` directly.
     func withOverlayLifted<T>(writer: String = "daemon apply", snapshot: Bool = false, _ body: () -> T) -> T {
         guard !overlayLifted else { return body() }
+        let liftStart = ContinuousClock.now
+        defer { onApplyTimed?("store.lift." + writer, liftStart) }
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
         let held = holdOverlayPublication()
