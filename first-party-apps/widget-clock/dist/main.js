@@ -2501,7 +2501,7 @@
     ]).frame({ width: dial, height: dial });
   }
   function renderClock(context = {}) {
-    return clockView(context ?? {}).frame({ maxWidth: "infinity", maxHeight: "infinity" });
+    return clockView(context ?? {}).padding(context?.place === "sidebar" ? 12 : 16).frame({ maxWidth: "infinity", minHeight: "infinity", maxHeight: "infinity" });
   }
   function minuteClock(context) {
     if (typeof context.now === "function")
@@ -2570,7 +2570,7 @@
           Text(() => shortDate(here())).font("title3").weight("semibold"),
           Spacer(),
           bigTime(time, period, twelve, size)
-        ]),
+        ]).frame({ minHeight: "infinity" }),
         list()
       ]);
     }
@@ -2579,6 +2579,7 @@
         Text(() => dateLine(here())).font("headline").weight("semibold").secondary(),
         bigTime(time, period, twelve, size)
       ]),
+      Spacer(),
       list()
     ]);
   }

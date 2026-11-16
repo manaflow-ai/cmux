@@ -48,6 +48,16 @@ describe("clock widget", () => {
     expect(texts(ops)).toEqual(["MON 16"])
   })
 
+  test("with the widget host's clock: no timer of its own, and a tick redraws only the time", async () => {
+    const { host } = await renderScene(source, { size: "small" })
+    if (typeof host.global.__cmuxAppTick !== "function") return // a runtime before cmux.widget/1: the next test covers it
+    expect(host.timers.size).toBe(0)
+    const before = host.batches("w").length
+    host.global.__cmuxAppTick("w", AT + 60_000)
+    await host.settle()
+    expect(host.batches("w").slice(before).flat()).toEqual([{ op: "update", id: expect.any(String), props: { text: "9:42" } }])
+  })
+
   test("without the host's clock: one one-shot timer to the next minute, and a tick redraws only the time", async () => {
     const { host } = await renderScene(source, { size: "small" })
     const timers = [...host.timers.entries()]

@@ -15,7 +15,7 @@ export async function renderScene(source: string, render: Render): Promise<{ ops
   // Pin the clock before the app's script runs, so nothing reads the real time.
   host.eval(`Date.now = () => ${AT}`)
   host.eval(source)
-  host.mount("w", "renderClock", { size: render.size, place: "newtab", instance: `preview-${render.size}`, settings: render.settings ?? {} })
+  host.mount("w", "renderClock", { surface: "widget", size: render.size, place: "newtab", instance: `preview-${render.size}`, settings: render.settings ?? {} })
   await host.settle()
   return { ops: host.batches("w").flat(), host }
 }

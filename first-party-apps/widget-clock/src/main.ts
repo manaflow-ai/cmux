@@ -102,7 +102,11 @@ function dialFace(dial: number, angles: () => { hourAngle: number; minuteAngle: 
 
 /** The widget's render export: the view fills the tile the host gives it. */
 export function renderClock(context: WidgetContext = {}): View {
-  return clockView(context ?? {}).frame({ maxWidth: "infinity", maxHeight: "infinity" })
+  // The host draws the tile (its card and corner); the widget insets its content as Apple's
+  // widgets do: 16 points, 12 in the narrower sidebar.
+  return clockView(context ?? {})
+    .padding(context?.place === "sidebar" ? 12 : 16)
+    .frame({ maxWidth: "infinity", minHeight: "infinity", maxHeight: "infinity" })
 }
 
 /**
@@ -189,7 +193,7 @@ function clockView(context: WidgetContext): View {
         Text(() => shortDate(here())).font("title3").weight("semibold"),
         Spacer(),
         bigTime(time, period, twelve, size)
-      ]),
+      ]).frame({ minHeight: "infinity" }),
       list()
     ])
   }
@@ -199,6 +203,7 @@ function clockView(context: WidgetContext): View {
       Text(() => dateLine(here())).font("headline").weight("semibold").secondary(),
       bigTime(time, period, twelve, size)
     ]),
+    Spacer(),
     list()
   ])
 }

@@ -2,8 +2,8 @@
 // The store app first-party-apps/widget-clock (cmux/clock, a cmux.widget/1) in each size and face,
 // drawn by the web scene renderer from the ops its render export sends at 9:41 AM on Monday,
 // November 16 (preview/scenes.json, written by its preview/build.ts from the packed app). The tile
-// is a stand-in for the widget host's frame: Apple's macOS widget sizes (small 170, medium 364 x 170,
-// large 364 x 382), 16 pt insets and a continuous corner. Light and dark use the gallery theme switch.
+// is a stand-in for the widget host's card: Apple's macOS widget sizes (small 170, medium 364 x 170,
+// large 364 x 382) and a 22 pt corner; the widget insets its own content. Light and dark use the gallery theme switch.
 import { useState } from "react";
 import scenes from "../../../../first-party-apps/widget-clock/preview/scenes.json";
 import { componentEntry } from "../../gallery/format";
