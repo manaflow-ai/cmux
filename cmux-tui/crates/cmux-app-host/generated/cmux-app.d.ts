@@ -1999,7 +1999,43 @@ interface CmuxView {
   fill(v: Bindable<string | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
   rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  /** Animate this node's animatable props (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value) from the value on screen whenever they change. */
+  animation(v: Bindable<CmuxMotion | null>): this
+  /** Scale about the node's center (1 = identity). */
+  scale(v: Bindable<number>): this
+  /** Move the drawing by points without changing layout. */
+  offset(v: Bindable<CmuxOffset>): this
+  /** Gaussian blur radius in points. */
+  blur(v: Bindable<number>): this
+  /** A colored, zero-offset shadow around the node's shape; `null` removes it. */
+  glow(v: Bindable<CmuxGlow | null>): this
+  /** A linear gradient fill (shapes) or background (stacks, panels): angle 0 = left to right, 90 (default) = top to bottom. */
+  gradient(v: Bindable<CmuxGradient | null>): this
+  /** Draw only this fraction of a stroked Circle, Capsule, Rectangle or RoundedRectangle outline (a circle starts at 12 o'clock, clockwise). */
+  trim(v: Bindable<CmuxTrim | null>): this
+  /** A host-run effect that repeats forever with no JS; `null` stops it. Stops under Reduce Motion. */
+  loop(v: Bindable<CmuxLoop | null>): this
+  /** How the node enters when created and leaves when removed (kept on screen until its exit ends). */
+  transition(v: Bindable<CmuxTransition | null>): this
 }
+/** `move`, `appear`, `disappear`, `fade`: the design-token springs and fade; `snappy` = spring 0.3 s / 0.8; `bouncy` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+type CmuxMotion =
+  | "move" | "appear" | "disappear" | "fade" | "snappy" | "bouncy"
+  | { spring: { response: number; dampingFraction: number } }
+  | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
+type CmuxOffset = { x?: number; y?: number }
+type CmuxGlow = { color: string; radius: number; opacity?: number }
+type CmuxGradient = { colors: string[]; angle?: number }
+type CmuxTrim = { from?: number; to: number }
+type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
+/** `period` in seconds; `amount` scales the effect's default amplitude. */
+type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
+type CmuxTransition = "fade" | "scale" | "slide" | "pop"
+type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
+type CmuxParticlesProps = { preset: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number> }
+/** A particle field (confetti, sparkles, rain, snow, embers, stars) that fills its frame and takes no input; first in a ZStack, it draws behind its siblings. Host-run; stops off screen and under Reduce Motion. */
+declare function Particles(props: CmuxParticlesProps): CmuxView
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
 declare function VStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView

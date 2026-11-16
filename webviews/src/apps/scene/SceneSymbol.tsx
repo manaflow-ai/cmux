@@ -33,6 +33,9 @@ const SYMBOLS: Record<string, string> = {
   "square.stack": "apps.stack",
   link: "link",
   "arrow.up.right": "link.external",
+  gauge: "context.usage",
+  "gauge.with.needle": "context.usage",
+  "gauge.with.needle.fill": "context.usage",
 };
 
 export function appSceneIcon(value: unknown): string {
