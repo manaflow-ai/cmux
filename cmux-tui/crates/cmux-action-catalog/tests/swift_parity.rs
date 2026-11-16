@@ -21,9 +21,16 @@ fn repo() -> PathBuf {
 
 /// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
-/// these rows with the re-pin, which takes them off this list (#38644, #41954).
-const AWAITING_REPIN: &[&str] =
-    &["terminal.fixLastCommand", "terminal.sendLastOutputToChat", "terminal.sendSelectionToChat"];
+/// these rows with the re-pin, which takes them off this list (#38644, #41954, and the catalog
+/// request rows).
+const AWAITING_REPIN: &[&str] = &[
+    "app.try.run",
+    "app.try.undo",
+    "terminal.fixLastCommand",
+    "terminal.sendLastOutputToChat",
+    "terminal.sendSelectionToChat",
+    "workspace.unpinFromSpace",
+];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
 /// lists) does not have yet: once the export has it, it comes off the list.
@@ -423,6 +430,29 @@ fn ids_and_cli_names_are_unique() {
     for action in cmux_action_catalog::actions() {
         assert!(ids.insert(action.id), "{} twice", action.id);
         assert!(cli.insert(action.cli_name), "CLI name {} twice", action.cli_name);
+    }
+}
+
+/// ActionSurfaceParityTests.declarationsAreConsistent's MCP rule, checked here at step A: an MCP
+/// exemption needs a CLI verb, since an action the CLI exempts already leaves MCP with the CLI's
+/// reason. Without this, a row like `ownerVerb` plus `systemChange` passes this crate and turns the
+/// Swift suite red only once the re-pin ships it (review F1 on #43637).
+#[test]
+fn mcp_exemptions_have_a_cli_verb() {
+    use cmux_action_catalog::Decision;
+    for action in cmux_action_catalog::actions() {
+        let plan = action.surface_plan;
+        let Some(mcp) = plan.mcp_exemption else { continue };
+        assert!(
+            !matches!(plan.cli, Some(Decision::Exempt(_))),
+            "{}: an MCP exemption without a CLI verb (the CLI exemption already covers MCP)",
+            action.id
+        );
+        assert!(
+            ["credentials", "endsApp", "systemChange"].contains(&mcp),
+            "{}: MCP reason {mcp}",
+            action.id
+        );
     }
 }
 
