@@ -132,10 +132,10 @@ import Testing
         let first = LayoutFloatingPane(pane: pane, frame: CGRect(x: 0.1, y: 0.1, width: 0.4, height: 0.4))
         let second = LayoutFloatingPane(pane: other, frame: CGRect(x: 0.5, y: 0.5, width: 0.3, height: 0.3))
         var state = FloatingPanesState()
-        #expect(state.takeChange() == .none)
+        #expect(state.takeChange() == FloatingPanesState.Change.none)
         state.list = [first, second]
         #expect(state.takeChange() == .panes)
-        #expect(state.takeChange() == .none)
+        #expect(state.takeChange() == FloatingPanesState.Change.none)
         state.list[0].frame.origin.x = 0.2
         #expect(state.takeChange() == .frames)
         state.list = [state.list[1], state.list[0]]

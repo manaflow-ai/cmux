@@ -13,14 +13,17 @@ import Testing
         /// Whether the pane of an invocation floats.
         var floats = false
         var zooms = 0
+        /// Each notice that a refused run showed.
+        var refusals: [String] = []
 
         init() {
             registry.context = ActionContext(rawValue: .max)
             registry.bindEffect("toggleSplitZoom", effect: { [unowned self] _ in
-                zooms += 1
+                self.zooms += 1
                 return .done
             })
-            FloatingPaneActions.withholdZoom(in: registry) { [unowned self] _ in floats }
+            FloatingPaneActions.withholdZoom(in: registry) { [unowned self] _ in self.floats }
+            registry.refusalObserver = { [unowned self] reason, _ in self.refusals.append(reason) }
         }
 
         var paletteOffersZoom: Bool {
@@ -35,11 +38,9 @@ import Testing
         fixture.registry.perform("toggleSplitZoom")
         #expect(fixture.zooms == 1, "a tiled pane zooms")
         fixture.floats = true
-        var refusals: [String] = []
-        fixture.registry.refusalObserver = { reason, _ in refusals.append(reason) }
         fixture.registry.perform("toggleSplitZoom")
         #expect(fixture.zooms == 1, "a floating pane does not")
-        #expect(refusals.isEmpty, "and the key shows no notice")
+        #expect(fixture.refusals.isEmpty, "and the key shows no notice")
         #expect(!fixture.registry.perform("toggleSplitZoom", invocation: named), "a run that names a floating pane is refused")
         #expect(fixture.zooms == 1)
         fixture.floats = false

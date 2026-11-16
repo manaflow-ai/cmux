@@ -67,7 +67,7 @@ import Testing
         #expect(look.cornerMode == .concentric)
         #expect(look.cornerFloor == CGFloat(FloatingPaneTunables.defaultCornerFloor))
         #expect(look.backgroundOpacity == 1 && !look.isSeeThrough)
-        #expect(look.material == .none && look.material.system == nil)
+        #expect(look.material == FloatingPaneMaterial.none && look.material.system == nil)
         var seeThrough = look
         seeThrough.backgroundOpacity = 0.8
         #expect(seeThrough.isSeeThrough)
