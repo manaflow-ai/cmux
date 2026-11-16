@@ -6,7 +6,8 @@ use super::*;
 use crate::receiver::MAX_READY_FRAMES;
 use cmux_rd_core::packetize::Packetizer;
 use cmux_rd_proto::{
-    DatagramHeader, DatagramKind, Feedback, FrameBody, MAX_DATAGRAM_VPC, REF_NONE, flags,
+    ClockPing, ClockPong, DatagramHeader, DatagramKind, Feedback, FrameBody, MAX_DATAGRAM_VPC,
+    REF_NONE, flags,
 };
 
 /// The datagrams of frame `frame` with `flags`, predicting from `ref_frame`.
@@ -51,6 +52,7 @@ fn a_keyframe_replaces_every_frame_still_waiting() {
     // An IDR needs nothing before it: only the newest is decoded.
     assert_eq!(ready(&mut r), vec![4]);
     let stats = r.stats();
+    assert_eq!(stats.frames_skipped, 3);
     assert_eq!(stats.frames_lost, 0);
     assert!(!stats.need_recovery);
 }
@@ -65,6 +67,7 @@ fn a_reference_chain_is_never_skipped() {
     }
     // Each P-frame needs the one before it: all go to the decoder, in order.
     assert_eq!(ready(&mut r), vec![1, 2, 3, 4, 5]);
+    assert_eq!(r.stats().frames_skipped, 0);
 }
 
 #[test]
@@ -81,6 +84,7 @@ fn a_recovery_frame_keeps_the_frames_before_it() {
     // 2 stays: the host counts it received and may predict from it later.
     deliver(&mut r, &packets(&mut p, 5, flags::RECOVERY, 1, 3000), 66_000);
     assert_eq!(ready(&mut r), vec![1, 2, 5]);
+    assert_eq!(r.stats().frames_skipped, 0);
     assert!(!r.need_recovery());
 }
 
@@ -93,6 +97,7 @@ fn tile_frames_never_replace_each_other() {
         deliver(&mut r, &packets(&mut p, f, flags::TILE, REF_NONE, 500), u64::from(f) * 1_000);
     }
     assert_eq!(ready(&mut r), vec![1, 2, 3]);
+    assert_eq!(r.stats().frames_skipped, 0);
 }
 
 #[test]
@@ -164,4 +169,126 @@ fn measured_repairs_size_the_wait_and_a_given_up_frame_asks_for_recovery_at_once
     let fb = decode_feedback(&r.feedback(give_up).expect("recovery at once"));
     assert!(fb.need_recovery);
     assert_eq!(fb.acked_frame, 13);
+}
+
+// ---- The tests below use the API this change adds. ----
+
+#[test]
+fn a_frame_is_retried_and_given_up_two_rtt_plus_ten_ms_windows_after_its_nack() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = receiver();
+    r.set_path_rtt_us(Some(40_000));
+    assert_eq!(r.repair_window_us(), 50_000);
+    deliver(&mut r, &packets(&mut p, 1, flags::KEYFRAME, REF_NONE, 3000), 0);
+    assert_eq!(ready(&mut r), vec![1]);
+    assert!(r.feedback(0).is_some());
+    let second = packets(&mut p, 2, 0, 1, 3000);
+    deliver(&mut r, &second[1..], 1_000);
+    let fb = decode_feedback(&r.feedback(6_000).expect("the NACK after the reorder grace"));
+    assert_eq!(fb.nacks.len(), 1);
+    assert_eq!(fb.nacks[0].indexes, vec![0]);
+    // The request or its repair was lost: a retry a window later.
+    assert_eq!(r.next_deadline_us(), 56_000);
+    let retry = decode_feedback(&r.feedback(56_000).expect("retry"));
+    assert_eq!(retry.nacks[0].indexes, vec![0]);
+    // Given up two windows after the NACK, not at the 200 ms deadline.
+    assert_eq!(r.next_deadline_us(), 106_001);
+    r.tick(106_000);
+    assert!(!r.need_recovery());
+    r.tick(106_001);
+    assert!(r.need_recovery());
+    assert_eq!(r.stats().frames_lost, 1);
+    // No request at the give-up; the recovery request does not wait for the 50 ms interval.
+    assert_eq!(r.next_deadline_us(), 0);
+    let fb = decode_feedback(&r.feedback(106_001).expect("recovery at once"));
+    assert!(fb.need_recovery);
+    assert!(fb.nacks.is_empty());
+    assert_eq!(fb.acked_frame, 1);
+    assert!(r.feedback(106_002).is_none(), "one immediate request, then the interval");
+}
+
+/// With no round trip known the retry goes out after 50 ms, before an 80 ms
+/// path's repair can arrive. The repair is still timed from the first
+/// request, so the window settles a little over 90 ms instead of shrinking
+/// toward the retry interval (which would give up frames whose repair was on
+/// its way).
+#[test]
+fn a_retry_before_the_repair_does_not_shorten_the_measured_round_trip() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = receiver();
+    deliver(&mut r, &packets(&mut p, 1, flags::KEYFRAME, REF_NONE, 3000), 0);
+    assert_eq!(ready(&mut r), vec![1]);
+    assert!(r.feedback(0).is_some());
+    for f in 2..=13u32 {
+        let at = u64::from(f - 1) * 300_000;
+        let frame = packets(&mut p, f, 0, f - 1, 3000);
+        deliver(&mut r, &frame[1..], at);
+        assert!(!decode_feedback(&r.feedback(at + 5_000).expect("NACK")).nacks.is_empty());
+        let retry_at = r.next_deadline_us();
+        assert!(retry_at < at + 85_000, "retried before the repair arrives");
+        assert!(!decode_feedback(&r.feedback(retry_at).expect("retry")).nacks.is_empty());
+        deliver(&mut r, &frame[..1], at + 85_000);
+        assert_eq!(ready(&mut r), vec![f]);
+        assert!(r.feedback(at + 85_000).is_some());
+    }
+    let window = r.repair_window_us();
+    assert!(
+        (90_000..=100_000).contains(&window),
+        "80 ms from the first request, plus 10 ms: {window}"
+    );
+    assert_eq!(r.retry_us(), 50_000, "the retry stays capped on a long path");
+}
+
+#[test]
+fn a_repair_inside_the_window_releases_the_frame() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = receiver();
+    r.set_path_rtt_us(Some(20_000));
+    deliver(&mut r, &packets(&mut p, 1, flags::KEYFRAME, REF_NONE, 3000), 0);
+    let second = packets(&mut p, 2, 0, 1, 3000);
+    deliver(&mut r, &second[1..], 1_000);
+    assert!(!decode_feedback(&r.feedback(6_000).expect("NACK")).nacks.is_empty());
+    deliver(&mut r, &second[..1], 26_000);
+    assert_eq!(ready(&mut r), vec![1, 2]);
+    assert!(!r.need_recovery());
+    assert_eq!(r.stats().frames_lost, 0);
+}
+
+#[test]
+fn the_session_clock_sizes_every_streams_repair_window() {
+    let mut s = Session::new(Carrier::Datagram, 200_000, 5_000);
+    assert_eq!(s.repair_window_us(0), Ok(200_000), "the ceiling until an RTT is known");
+    s.enable_clock();
+    let ping = std::iter::from_fn(|| s.feedback(1_000))
+        .find_map(|d| {
+            let (h, payload) = DatagramHeader::decode(&d).ok()?;
+            (h.kind == DatagramKind::ClockPing).then(|| ClockPing::decode(payload).ok()).flatten()
+        })
+        .expect("a ping");
+    // A 40 ms round trip, nothing held on the host.
+    let rx = ping.t_viewer_us + 20_000;
+    let pong = ClockPong {
+        seq: ping.seq,
+        t_viewer_us: ping.t_viewer_us,
+        t_host_rx_us: rx,
+        t_host_tx_us: rx,
+    };
+    let mut d = DatagramHeader {
+        flags: 0,
+        kind: DatagramKind::ClockPong,
+        stream: 0,
+        frame: 0,
+        index: 0,
+        count: 0,
+        fec_count: 0,
+        transport_seq: 0,
+    }
+    .encode()
+    .to_vec();
+    d.extend_from_slice(&pong.encode());
+    s.push_datagram(&d, ping.t_viewer_us + 40_000).expect("pong");
+    assert_eq!(s.repair_window_us(0), Ok(50_000));
+    // A stream opened later starts from the same round trip.
+    s.open_stream(3).expect("open");
+    assert_eq!(s.repair_window_us(3), Ok(50_000));
 }
