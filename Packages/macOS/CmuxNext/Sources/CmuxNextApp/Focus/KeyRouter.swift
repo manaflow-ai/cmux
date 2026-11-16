@@ -55,7 +55,7 @@ final class KeyRouter: BrowserKeyRouting {
     init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(),
          heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }, center: NotificationCenter = .default) {
         (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in self?.cancelChord(); self?.inputDispatch.newTabHold.end() } // no key-up comes to an app that is not active
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in self?.cancelChord(); self?.inputDispatch.newTabHold.resigned() } // no key-up comes to an app that is not active
     }
     // MARK: Tiers
     /// Whether an action of `tier` may take a key from the current focus.

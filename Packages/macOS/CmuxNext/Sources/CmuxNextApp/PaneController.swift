@@ -367,7 +367,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
         if selectNew != nil {
             // A tab this window created: show it now (focus is the coordinator's expectation, not decided here). A New Tab page with no view yet goes by the frame rule (decision 2026-11-16): its view is made at the next frame, for the tab selected then, so a run of New Tab keys makes no page for a tab that no frame shows. A repeat of a held key begins the key's hold here (`NewTabKeyHold`): `showSelected` makes no page for such a tab until the hold's end, which queues this pane.
-            if let selectedID, services.agentTabs.isNewTabPage(selectedID.rawValue), !selectedContentIsAlive { services.inputDispatch.newTabHold.begin(at: services.inputDispatch.event) { [weak self] in if let self { services.presentation.setNeedsShowSelected(self) } }; presentSelection() } else { showSelected() }
+            if let selectedID, services.agentTabs.isNewTabPage(selectedID.rawValue), !selectedContentIsAlive { services.inputDispatch.newTabHold.begin(at: services.inputDispatch.event, for: self) { [weak self] in if let self { services.presentation.setNeedsShowSelected(self) } }; presentSelection() } else { showSelected() }
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
         } else {
@@ -446,7 +446,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     // MARK: Content
 
     func showSelected() {
-        guard !isSuspended, !(services.inputDispatch.newTabHold.isOn && stripModel.selectedID.map({ services.agentTabs.isNewTabPage($0.rawValue) }) == true && !selectedContentIsAlive) else { return } // suspended: `resume`'s apply shows the selection then; a held New Tab key (decision 2026-11-16): the tab of a repeat gets no page while the hold is on, and its end queues this pane again (`apply`)
+        guard !isSuspended, !(services.inputDispatch.newTabHold.isOn && stripModel.selectedID.map({ services.agentTabs.isNewTabPage($0.rawValue) }) == true && !selectedContentIsAlive && services.inputDispatch.newTabHold.holds(self, atEnd: { [weak self] in if let self { services.presentation.setNeedsShowSelected(self) } })) else { return } // suspended: `resume`'s apply shows the selection then; a held New Tab key (decision 2026-11-16): a New Tab page with no view gets no page while the hold is on, in each pane, and the hold's end queues this pane again, also when its tab was made with no key (`NewTabKeyHold.holds`)
         // A stale strip takes its record first, as `select` does: its selection can name a tab the record dropped (a new chat's provisional tab, just replaced), and showing that hid the chat until the strip's apply a turn later (SPLIT OPEN CHAT).
         if stripIsStale, workspace?.isApplying != true { syncStripFromStore(); services.presentation.cancel(self); if stripIsStale { return } } // this call shows it: a show that apply queued would stay in a draining scheduler; still stale: the layout removed this pane
         let key = stripModel.selectedID?.rawValue, shownBefore = currentTabKey

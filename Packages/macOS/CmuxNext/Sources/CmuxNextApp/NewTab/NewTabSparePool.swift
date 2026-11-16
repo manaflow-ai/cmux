@@ -270,7 +270,7 @@ final class NewTabSparePool {
         if refill != .idle { usedThisSession = true } // idle work (Cmd-N's reservation) served no open: a launch keeps one page
         observeWindows()
         if target == nil, let window { retarget(window) }
-        guard !services.inputDispatch.isKeyRepeat, let view = slot.take() else { return nil } // a repeat of a held key gets no page: its tab waits for the hold's end (`NewTabKeyHold`, decision 2026-11-16)
+        guard !services.inputDispatch.isKeyRepeat, let view = slot.take() else { return nil } // a repeat of a held key gets no page in its own turn: its tab waits for the hold's end, or for the next frame when the hold took no such repeat (`NewTabKeyHold`, decision 2026-11-16)
         // Hand the parked page out now; its replacement comes once this open settled (`still`), the quiet-input warm
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {

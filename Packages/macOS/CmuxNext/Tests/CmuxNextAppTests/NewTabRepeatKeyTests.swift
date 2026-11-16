@@ -24,7 +24,10 @@ import Testing
 /// The flags event is a usual end, not a corner: a person often lifts Command before the key, and then no key-up of
 /// the key with Command comes (`commandUpBeforeTheKeyMakesThePageAtTheNextFrame`).
 ///
-/// A single key is not a repeat: it starts no hold, and its page comes as before.
+/// A single key is not a repeat: it starts no hold, and its page comes as before. So does a repeat that the app
+/// gets again later than the system made it, when an end of its hold can be in the past: a repeat older than the
+/// newest key-up, flags event or key-down with no repeat flag (of any key), and a repeat that the app got before
+/// it resigned. The hold is one for all panes, and its end shows each pane that waited.
 ///
 /// The events here are made in the test and go through the app's input dispatch context, the one place that gets
 /// each event of `NSApplication.sendEvent`. That macOS hands the app each of these events for a real held Cmd-T is
@@ -43,14 +46,15 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabRepeatKeyTests {
-    /// Key code of T, and of A (another key).
-    private static let keyT: UInt16 = 17, keyA: UInt16 = 0
+    /// Key code of T, of A (another key) and of W (the close key).
+    private static let keyT: UInt16 = 17, keyA: UInt16 = 0, keyW: UInt16 = 13
 
     /// An event of the keyboard, as AppKit hands it to the application. Its time is the time when the test made
     /// it, or `time`: the time that the system gave it, for an event that the app gets again later.
     private static func event(_ type: NSEvent.EventType, code: UInt16 = keyT, repeats: Bool = false, flags: NSEvent.ModifierFlags = .command,
                               in window: NSWindow, at time: TimeInterval? = nil) throws -> NSEvent {
-        let text = type == .flagsChanged ? "" : (code == keyT ? "t" : "a")
+        let letter: String = code == keyT ? "t" : (code == keyW ? "w" : "a")
+        let text: String = type == .flagsChanged ? "" : letter
         let stamp: TimeInterval = time ?? ProcessInfo.processInfo.systemUptime
         return try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: stamp,
                                              windowNumber: window.windowNumber, context: nil, characters: text,
@@ -381,6 +385,82 @@ struct NewTabRepeatKeyTests {
             Self.send(try Self.event(.keyUp, in: window), services)
             #expect(built() == held + 1, "\(built() - held - 1) page views were made in the key-up's own turn, before a frame")
             await Self.expectOnePageForTheSelectedTab(after: held + 1, "the key-up, after a reservation with the key down", in: pane, services, built)
+        }
+    }
+
+    /// A person lets go of another key while the New Tab key is down (a key that was down before). That key-up is
+    /// no end of the hold, and each repeat after it is newer than it: the hold stays on, the repeats make no page,
+    /// and the end makes one page, as with no other key.
+    @Test func aKeyUpOfAnotherKeyInAHoldKeepsItForTheNextRepeats() async throws {
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-other-up") { services, window, pane, built in
+            let hold = services.inputDispatch.newTabHold
+            let held = try await Self.heldNewTabKey(repeats: 2, in: pane, window, services, built)
+            Self.send(try Self.event(.keyUp, code: Self.keyA, flags: .command, in: window), services)
+            #expect(hold.isOn, "the key-up of another key ended the hold")
+            for _ in 0..<2 {
+                try Self.newTabKey(repeats: true, in: pane, window, services)
+                #expect(hold.isOn, "the hold is off after a repeat that came after the key-up of another key")
+                await NewTabPageAtItsFrameTests.frame(services)
+            }
+            #expect(built() == held, "\(built() - held) page views were made for the repeats after the key-up of another key, with the key still down")
+            Self.send(try Self.event(.keyUp, in: window), services)
+            await Self.expectOnePageForTheSelectedTab(after: held, "the key-up, after the key-up of another key", in: pane, services, built)
+        }
+    }
+
+    /// A close key ends a hold. A person holds the New Tab key and presses the close key with it still down. That
+    /// key-down is no repeat: it ends the hold before its action runs. The close then runs on the tab that the pane
+    /// has selected, the tab of the last repeat. After it the pane shows the tab that it has selected then, with a
+    /// page view: no pane with an empty page, and one page view more at most.
+    ///
+    /// The test owns the order: the store answered the last open before the close key, and one frame ran between.
+    /// Which tab the close selects is the close rule's, and no claim of this test. The test runs the close action
+    /// in the key's dispatch, as the other tests here run the open: the key's way through the key router is not in
+    /// this test.
+    @Test func aCloseKeyEndsAHoldAndThePaneShowsThePageOfItsSelectedTab() async throws {
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-close") { services, window, pane, built in
+            let hold = services.inputDispatch.newTabHold
+            let tabs = services.agentTabs
+            let answer = StoreAnswer()
+            let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, lastAnswered: { answer.came($0) }, built)
+            let newest = await answer.value()
+            try #require(!ProvisionalTab.isProvisional(newest) && tabs.isNewTabPage(newest),
+                         "fixture: the store's answer \(newest) is no New Tab page with a key of the store")
+            await NewTabPageAtItsFrameTests.frame(services)
+            // The tab that the close key acts on: the pane's selected tab, the last tab of the strip. The strip can
+            // still name it by the key that it had before the store's answer.
+            let closing: String = try #require(pane.stripModel.selectedID?.rawValue, "fixture: the pane has no selected tab")
+            try #require(tabs.isNewTabPage(closing) && pane.orderedIDs.last?.rawValue == closing,
+                         "fixture: the pane's selected tab is not the tab of the last repeat: \(Self.state(of: pane, services))")
+            try #require(hold.isOn, "fixture: the 3 repeats began no hold")
+            #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+
+            // The close key: a key-down of W with Command, and no repeat.
+            var holdInTheCloseKeysTurn: Bool = true
+            var ran: Bool = false
+            Self.send(try Self.event(.keyDown, code: Self.keyW, in: window), services) {
+                holdInTheCloseKeysTurn = hold.isOn
+                ran = services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            }
+            #expect(!holdInTheCloseKeysTurn, "the hold was still on when the close key's action ran")
+            #expect(ran, "the close action did not run")
+            #expect(built() == held, "\(built() - held) page views were made in the close key's own turn, before a frame")
+
+            await NewTabPageAtItsFrameTests.frame(services)
+            let first: String = Self.state(of: pane, services)
+            let stripKeys: [String] = pane.orderedIDs.map(\.rawValue)
+            let gone: Bool = !stripKeys.contains(newest) && !stripKeys.contains(closing)
+            #expect(gone,
+                    "the tab of the last repeat (\(closing), the store's key \(newest)) is in the strip one frame after the close key; the pane: \(first)")
+            for _ in 0..<3 { await NewTabPageAtItsFrameTests.frame(services) }
+            let last: String = Self.state(of: pane, services)
+            let selected: String? = pane.stripModel.selectedID?.rawValue
+            let movedOn: Bool = selected != nil && selected != newest && selected != closing
+            #expect(movedOn, "the pane has no other selected tab after the close key; the pane: \(last)")
+            #expect(pane.currentTabKey == selected, "the pane does not show its selected tab after the close key; the pane: \(last)")
+            let selectedHasItsPage: Bool = selected.map { !tabs.isNewTabPage($0) || tabs.existingView($0) != nil } ?? false
+            #expect(selectedHasItsPage, "the selected tab is a New Tab page with no page view after the close key; the pane: \(last)")
+            #expect(built() <= held + 1, "\(built() - held) page views were made after the close key; one at most is right, for the selected tab")
         }
     }
 
