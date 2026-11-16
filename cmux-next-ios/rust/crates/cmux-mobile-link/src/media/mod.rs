@@ -436,17 +436,6 @@ impl VideoClaim {
         if ask {
             let _ = self.inner.keyframes.send(());
         }
-        tracing::info!(
-            keyframe,
-            ask,
-            ?switch,
-            decision = match &decision {
-                routes::Decision::Send { route, .. } => format!("send {route}"),
-                routes::Decision::Drop => "drop".into(),
-                routes::Decision::Closed => "closed".into(),
-            },
-            "DIAG claim.send"
-        );
         if let Some(switch) = switch {
             if switch.from.is_some() {
                 tracing::info!(
