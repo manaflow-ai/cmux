@@ -54,7 +54,8 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   it continues. `--stack-token-file PATH` (a file only this user can read, mode 0600, or `-`
   for stdin) passes a cmux access token instead. No token is stored. It creates this desktop's device keys in
   `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
-  it and turns sharing on. The anchor lets the host renew its own session with its device key
+  it, downloads Cisco's OpenH264 into the per-user data directory (the encoder, never bundled;
+  the file `cmux-rd openh264-install` writes) and turns sharing on. The anchor lets the host renew its own session with its device key
   for 30 days; after that, `share on` again (it signs in the same way).
 - Consent is the Mac's: a viewer the person allowed on the hub (View or Full Control) is
   served; anyone else's request waits for the person. `cmux-rd linux-host requests` lists

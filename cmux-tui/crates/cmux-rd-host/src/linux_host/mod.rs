@@ -6,8 +6,8 @@
 //!       Signs in once with a cmux (Stack Auth) access token (without a token file, through
 //!       a browser sign-in link: stack_login.rs), registers this desktop as a
 //!       `linux` device, anchors it (it renews its own host session for 30 days with its
-//!       device key, no token) and turns sharing on. Control (input) is off unless
-//!       `--allow-control`.
+//!       device key, no token), downloads Cisco's OpenH264 (the encoder; never bundled) and
+//!       turns sharing on. Control (input) is off unless `--allow-control`.
 //!   share on [--stack-token-file PATH|-] | share off
 //!   run [--display :0] [--xauthority PATH] [--capture x11|portal]
 //!       The host: holds the hub socket and serves approved sessions. Run it in the desktop
@@ -322,17 +322,34 @@ fn enable(args: &Args) -> Res<()> {
         Ok((hub, user_id))
     })?;
     let anchored_until = hub.anchor()?;
+    // The encoder before sharing turns on: a viewer must not reach a host that cannot encode.
+    let encoder = openh264_line();
     hub.set_shared(true)?;
     Account { hub: hub_url, user_id, anchored_until }.save(&dir)?;
     let consent = LocalConsent { view: true, full: args.flag("allow-control") };
     consent.save(&dir)?;
     println!(
-        "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
+        "This desktop is shared as \"{}\" ({}), {}. {encoder}. Start the host: systemctl --user enable --now cmux-screen-host.service",
         hub.device.name,
         hub.device.id,
         shares_line(&Ok(consent), host_applies_input())
     );
     Ok(())
+}
+
+/// Cisco's OpenH264 in the per-user data directory (downloaded from Cisco the first time), in
+/// one sentence. Without it every session ends with "openh264 is not installed".
+fn openh264_line() -> String {
+    #[cfg(feature = "openh264")]
+    return match crate::encoder::ensure_openh264() {
+        Ok(path) => format!("OpenH264 is at {}", path.display()),
+        Err(e) => format!(
+            "OpenH264 is not installed ({}): run cmux-rd openh264-install before a viewer connects",
+            printable(&e.to_string())
+        ),
+    };
+    #[cfg(not(feature = "openh264"))]
+    "This build has no OpenH264 download; pass --openh264-lib PATH to run".to_owned()
 }
 
 /// Whether the hub refused this device's identity itself: it never registers a removed id
