@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 import Testing
 
@@ -12,6 +13,20 @@ struct WindowListTitleTests {
         #expect(personal == "Personal — leo-workspace")
         #expect(work == "Work — leo-workspace")
         #expect(personal != work)
+    }
+
+    @Test @MainActor func appKitWindowsCarryThoseDistinctTitles() {
+        _ = NSApplication.shared
+        let personal = NSWindow()
+        personal.title = WindowListTitle(spaceName: "Personal", workspaceName: "leo-workspace", incognito: false,
+                                         fallbackName: "cmux", incognitoName: "Incognito").value
+        let work = NSWindow()
+        work.title = WindowListTitle(spaceName: "Work", workspaceName: "leo-workspace", incognito: false,
+                                     fallbackName: "cmux", incognitoName: "Incognito").value
+
+        #expect(personal.title == "Personal — leo-workspace")
+        #expect(work.title == "Work — leo-workspace")
+        #expect(personal.title != work.title)
     }
 
     @Test func incognitoTitlesIdentifyTheWindowKind() {

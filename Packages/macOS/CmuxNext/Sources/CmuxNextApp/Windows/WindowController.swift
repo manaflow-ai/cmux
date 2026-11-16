@@ -341,7 +341,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
     func parkContentForPage() {
-        titleObservation?.cancel()
         if let current = content { park(current) }
         content = nil
         arrangeOnScreen()
