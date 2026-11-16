@@ -32,8 +32,10 @@ public enum ChatSendMotion: String, CaseIterable, Sendable {
         return chosen
     }
 
-    /// The default, picked from the simulator recordings of all three.
-    public static let chosen: ChatSendMotion = .glide
+    /// The default, picked from the simulator recordings of all three: the bubble comes out of the
+    /// field as in Messages, and its fade keeps a solid bubble from showing through the see-through
+    /// composer on its way up (C slid it, opaque, under the placeholder).
+    public static let chosen: ChatSendMotion = .rise
 }
 
 /// The composer's spring as a function of time, so the transcript's rows (a UIKit scroll offset
