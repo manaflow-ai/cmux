@@ -4,9 +4,8 @@
 // that reported its reasoning levels and access modes, so the model menu's Effort submenu and the
 // access menu show. `?template=cards` draws the Cards page, the app's default, with Claude Code's
 // split (the mode and the one model button in the quiet row under the box); with no template it
-// draws Default, the stage layout. `?longSuggestions` gives the omnibar rows of every kind with long
-// titles (new-tab-row-truncation.test.ts),
-// (the composer at the foot of the page).
+// draws Default, the stage layout (the composer at the foot of the page). `?longSuggestions` gives the
+// omnibar rows of every kind with long titles (new-tab-row-truncation.test.ts).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { noChat } from "../../src/gallery/fixtures/acpmux";
