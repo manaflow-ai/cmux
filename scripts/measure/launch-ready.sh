@@ -114,7 +114,8 @@ PY
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
 # PROFILE 1 under an all-processes Time Profiler recording.
 probe() {
-  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line recorder="" trace="$out/$side-$label.trace"
+  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line recorder="" trace
+  trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   if [[ "$profile" == 1 ]]; then
