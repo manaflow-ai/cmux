@@ -97,7 +97,7 @@ extension SidebarViewComponents {
     /// `reloadsList` false: the caller reloads the list right after (one reload for the rows and the blocks).
     func updateBands(reloadsList: Bool = true) {
         let width = bounds.width
-        var hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
+        var hidden = SidebarItemInfo.hiddenItems(in: model.layout.sections, infos: model.resolvedItemInfo)
         // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
         if !design.sidebarSections.showProfileControl {
             for section in model.layout.sections { hidden.formUnion(section.items.filter { $0.ref == .builtIn(.account) }.map(\.id)) }
