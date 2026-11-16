@@ -19,7 +19,7 @@ use std::path::Path;
 
 use openh264_sys2::*;
 
-use crate::{EncCfg, H264Encoder, Res, I420};
+use crate::{EncCfg, H264Encoder, I420, Res};
 
 /// The OpenH264 entry points in use.
 pub struct OpenH264Api(DynamicAPI);
@@ -236,11 +236,7 @@ impl MotionGuard {
 unsafe impl Send for OpenH264 {}
 
 fn ok(rc: c_int, what: &str) -> Res<()> {
-    if rc == 0 {
-        Ok(())
-    } else {
-        Err(format!("openh264 {what} failed: {rc}").into())
-    }
+    if rc == 0 { Ok(()) } else { Err(format!("openh264 {what} failed: {rc}").into()) }
 }
 
 /// Settings past [`OpenH264::new`]'s, for measuring speed against sharpness. The default
