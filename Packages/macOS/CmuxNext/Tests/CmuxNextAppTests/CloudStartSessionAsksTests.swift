@@ -558,9 +558,9 @@ struct CloudStartSessionAsksTests {
             for await value in events { return value }
             return nil
         }
-        let first = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
+        let first = Task { @MainActor in try await runs.creatingWithOwnership("dev", account: Self.account, create()) }
         #expect(await next() == .entered(1))
-        let second = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
+        let second = Task { @MainActor in try await runs.creatingWithOwnership("dev", account: Self.account, create()) }
         #expect(await next() == .joined("dev"))
         let other = Task { @MainActor in try await runs.creating("dev", account: ["user-1", "team-2"], create()) }
         #expect(await next() == .entered(2), "another team's ask made its own machine while the first was being made")
@@ -569,7 +569,9 @@ struct CloudStartSessionAsksTests {
         let two = try await second.value
         _ = try await other.value
         #expect(creates.value == 2)
-        #expect(one === session && two === session)
+        #expect(one.machine === session && two.machine === session)
+        #expect(one.made && one.shared, "the creator knows a joined start shares its machine")
+        #expect(!two.made && two.shared, "a joined start never owns cleanup")
     }
 
     /// A creation that ignores cancellation and finishes after a sign-out or team switch hands its

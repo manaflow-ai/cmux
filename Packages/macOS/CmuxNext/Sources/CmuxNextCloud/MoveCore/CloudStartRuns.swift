@@ -49,7 +49,7 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     private var runs: [Key: Run] = [:]
     /// Creations of a machine by name and account, each with its own token: two asks for one new
     /// name create one machine.
-    private var creations: [Creation: (token: UUID, task: Task<Machine, any Error>)] = [:]
+    private var creations: [Creation: (token: UUID, task: Task<Machine, any Error>, joined: Bool)] = [:]
     /// Counts ``forgetAll()`` calls: a creation that ends after one is never handed out.
     private var forgets = 0
     /// Called when an ask joins a creation already going on (tests wait on it).
@@ -78,7 +78,23 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
         creations.keys.filter { $0.account == account }.map(\.name).sorted()
     }
 
+    public struct CreationResult: Sendable {
+        public var machine: Machine
+        /// True when this call owns the creation task; false for a caller that joined it.
+        public var made: Bool
+        /// True when another caller joined the same creation. The owner must not tear down a
+        /// machine that a joined start may still be using.
+        public var shared: Bool
+    }
+
     public func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> Machine {
+        try await creatingWithOwnership(name, account: account, create).machine
+    }
+
+    /// As ``creating`` but preserves whether this creation was shared by another start. A
+    /// caller that joins gets `made == false`; the creator gets `shared == true` if a joined
+    /// caller could still be using the machine after creation completes.
+    public func creatingWithOwnership(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> CreationResult {
         let key = Creation(name: name, account: account)
         let asked = forgets
         let unforgotten = { [self] (machine: Machine) throws -> Machine in
@@ -86,15 +102,17 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
             return machine
         }
         if let running = creations[key] {
+            creations[key]?.joined = true
             joinedCreation(name)
-            return try unforgotten(await running.task.value)
+            return CreationResult(machine: try unforgotten(await running.task.value), made: false, shared: true)
         }
         let token = UUID()
         // task-owner: one creation per name and account; removed when it ends or by forgetAll().
         let task = Task<Machine, any Error> { @MainActor in try await create() }
-        creations[key] = (token, task)
+        creations[key] = (token, task, false)
         defer { if creations[key]?.token == token { creations[key] = nil } }
-        return try unforgotten(await task.value)
+        let machine = try unforgotten(await task.value)
+        return CreationResult(machine: machine, made: true, shared: creations[key]?.joined == true)
     }
 
     /// The end of `key`'s run, or `pending` once `within` has passed (the run goes on): a kept
