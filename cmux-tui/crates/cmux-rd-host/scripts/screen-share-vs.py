@@ -47,6 +47,14 @@ Subcommands (each Mac gets this file and bin/ under ROOT, default ~/cmux-rd-test
   screen-share-vs.py run --host cmux20 --viewer cmux17 --host-ip 172.20.21.250 \
       --trials 10 --samples 30 --stacks cmux,apple --out results.jsonl
 
+`--source synthetic` needs no rig, marker app or grant, so any two Macs reached over ssh do:
+the shared Mac runs `cmux-rd serve --source synthetic-still` (key trials: viewer input bumps
+the generated marker) or `--source synthetic-tick` (fps trials: moving bars, the marker counts
+every frame) straight from the orchestrator; only the cmux leg runs.
+
+  screen-share-vs.py run --source synthetic --stacks cmux --via ssh --host A --viewer B \
+      --host-ip 10.0.0.5 --bin target/release/cmux-rd --trials 5 --samples 30
+
 The macOS Screen Sharing leg logs in with the shared Mac's account (security type 30): it reads
 the user from VNC_USERNAME and the password from VNC_PASSWORD_FILE (a 0600 file on the viewing
 Mac) and never from argv. Without them it is skipped and the table says so.
@@ -553,6 +561,7 @@ class Orchestrator:
         self.py = args.python
         self.me = f"{self.root}/screen-share-vs.py"
         self.out = open(args.out, "a") if args.out else None
+        self.synthetic = args.source == "synthetic"
 
     def log(self, rec):
         line = json.dumps(rec)
@@ -588,6 +597,11 @@ class Orchestrator:
                           timeout=600)
         if self.a.cua_vnc:
             self.viewer.put(self.a.cua_vnc, f"{self.root}/bin/cua-vnc")
+        if self.synthetic:
+            # No rig and no marker app: `cmux-rd serve --source synthetic-*` needs no grant.
+            state = shlex.quote(f"{self.root}/state")
+            self.host.run(f"mkdir -p {state} && chmod 700 {shlex.quote(self.root)} {state}")
+            return
         try:
             self.rig({"cmd": "ping"})
         except Exception:
@@ -637,10 +651,13 @@ class Orchestrator:
         try:
             line = readline(viewer, time.time() + 20)
             viewer_key = json.loads(line)["key"]
-            host = self.host.popen(f"{self.py} {self.me} rig-call --root {self.root} "
-                                   + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
-                                                             "flags": {"--profile": "high"},
-                                                             "link_bind": self.a.link_bind})))
+            if self.synthetic:
+                host = self.host.popen(self.synthetic_serve(mode))
+            else:
+                host = self.host.popen(f"{self.py} {self.me} rig-call --root {self.root} "
+                                       + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
+                                                                 "flags": {"--profile": "high"},
+                                                                 "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
@@ -801,15 +818,53 @@ class Orchestrator:
             })
         return rows
 
+    # --source synthetic: the host streams a generated picture (`cmux-rd serve --source
+    # synthetic-still|synthetic-tick`), its marker at 0,0, and viewer input bumps the marker.
+    # No rig, marker app or grant: any two Macs over ssh.
+
+    def synthetic_timing_path(self):
+        return shlex.quote(f"{self.root}/state/timing.jsonl")
+
+    def synthetic_serve(self, mode):
+        """The host command of one synthetic attempt: key trials show a still picture whose
+        marker counts key presses (the marker app alone); fps trials move the bars and count
+        every frame (the marker app's `--tick --motion`)."""
+        source = "synthetic-still" if mode == "key" else "synthetic-tick"
+        argv = [f"{self.root}/bin/cmux-rd", "serve", "--profile", "high", "--source", source]
+        if self.a.synthetic_size:
+            argv += ["--synthetic-size", self.a.synthetic_size]
+        if self.a.link_bind:
+            socket.inet_aton(self.a.link_bind)  # an IPv4 literal, or this attempt fails
+            argv += ["--link-bind", f"{self.a.link_bind}:0"]
+        timing = self.synthetic_timing_path()
+        env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} " if mode == "key" else ""
+        err = shlex.quote(f"{self.root}/state/serve.err")
+        return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
+
+    def marker(self, flags):
+        """The marker's origin for the next attempt: the marker app's (the rig), or 0,0."""
+        if self.synthetic:
+            return [0, 0]
+        origin = self.rig({"cmd": "marker", "flags": flags})["origin"]
+        time.sleep(0.5)
+        return origin
+
+    def host_timing(self):
+        """The host's CMUX_RD_TIMING_LOG lines of the last attempt (then cleared)."""
+        if not self.synthetic:
+            return self.rig({"cmd": "timing"}, timeout=60).get("lines", [])
+        timing = self.synthetic_timing_path()
+        out = self.host.run(f"cat {timing} 2>/dev/null; : > {timing}", timeout=60)
+        return [json.loads(x) for x in out.splitlines() if x.strip()]
+
     def run_cmux(self, clock):
         firsts, g2g, fps, rows = [], [], [], []
         # The first session after the rig starts can miss every key (the marker window is
         # not key yet), so warm-up attempts are logged but not counted.
         for n in range(1 - self.a.warmup, self.a.trials + 1):
-            origin = self.rig({"cmd": "marker", "flags": []})["origin"]
-            time.sleep(0.5)
+            origin = self.marker([])
             rec = self.cmux_attempt(origin, "key")
-            timing = self.rig({"cmd": "timing"}, timeout=60).get("lines", [])
+            timing = self.host_timing()
             if n < 1:
                 rec.pop("sample_times", None)
                 self.log(dict(rec, warmup=True))
@@ -827,15 +882,15 @@ class Orchestrator:
             rec.pop("sample_times", None)
             self.log(rec)
         for n in range(1, self.a.fps_trials + 1):
-            origin = self.rig({"cmd": "marker", "flags": ["--tick", "--motion"]})["origin"]
-            time.sleep(0.5)
+            origin = self.marker(["--tick", "--motion"])
             rec = self.cmux_attempt(origin, "fps")
             rec["trial"] = n
             if rec["ok"]:
                 fps.append(rec["marker_fps"])
                 self.motion_rows.append(rec)
             self.log(rec)
-        self.rig({"cmd": "stop"})
+        if not self.synthetic:
+            self.rig({"cmd": "stop"})
         return firsts, g2g, fps, rows
 
     # macOS Screen Sharing -----------------------------------------------------------------
@@ -889,8 +944,11 @@ class Orchestrator:
         rows = []
         if "cmux" in stacks:
             f, g, fps, rows = self.run_cmux(clock0)
-            results["cmux Mac Screen"] = (f, g, fps)
-        if "apple" in stacks:
+            results["cmux Mac Screen" + (" (synthetic)" if self.synthetic else "")] = (f, g, fps)
+        if "apple" in stacks and self.synthetic:
+            # Screen Sharing shows the real display; the synthetic picture is cmux's alone.
+            self.log({"skipped": "apple", "why": "--source synthetic streams no display"})
+        elif "apple" in stacks:
             r = self.run_apple()
             results["macOS Screen Sharing"] = r
         try:
@@ -981,6 +1039,11 @@ def main():
     r.add_argument("--cua-vnc", help="local cua-vnc/bin/cua-vnc to install on the viewing Mac")
     r.add_argument("--rig-launch", choices=["cmux-next"], help="start the rig in cmux NEXT")
     r.add_argument("--stacks", default="cmux,apple")
+    r.add_argument("--source", choices=["screen", "synthetic"], default="screen",
+                   help="synthetic: the host streams a generated picture with the marker "
+                   "(`cmux-rd serve --source synthetic-*`), input bumps the marker; no rig, "
+                   "marker app or Screen Recording/Accessibility grant (cmux leg only)")
+    r.add_argument("--synthetic-size", help="WxH of the synthetic picture (default 1920x1080)")
     r.add_argument("--trials", type=int, default=10)
     r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
     r.add_argument("--fps-trials", type=int, default=3)
