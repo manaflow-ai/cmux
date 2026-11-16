@@ -46,9 +46,14 @@ round() {  # mode n
   out=$(timeout 120 "$host" eval --socket "$sock" --session probe --timeout-ms 60000 'await page.goto("http://127.0.0.1:18080/"); console.log(await page.title())' 2>&1)
   rc=$?
   t1=$(date +%s%N)
-  local ok=false; case "$out" in *"cmux agent tools probe"*) ok=true;; esac
-  printf '{"mode":"%s","load":%s,"round":%d,"ok":%s,"rc":%d,"ms":%d,"out":%s}\n' "$mode" "${LOAD:-0}" "$n" "$ok" "$rc" $(( (t1 - t0) / 1000000 )) "$(printf '%s' "$out" | tail -c 300 | python3 -I -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
-  [ "$ok" = false ] && { echo "--- host log round $n"; tail -c 2000 "$work/host-$n.log"; }
+  local ok=false ms=$(( (t1 - t0) / 1000000 )); case "$out" in *"cmux agent tools probe"*) ok=true;; esac
+  echo "$ms" >> "$work/ms-$mode"
+  [ "$ok" = false ] && echo x >> "$work/fail-$mode"
+  # Only a red or slow round prints in full (CI keeps the output's tail).
+  if [ "$ok" = false ] || [ "$ms" -gt 5000 ]; then
+    printf '{"mode":"%s","load":%s,"round":%d,"ok":%s,"rc":%d,"ms":%d}\n%s\n' "$mode" "${LOAD:-0}" "$n" "$ok" "$rc" "$ms" "$(printf '%s' "$out" | tail -c 300)"
+    echo "--- host log round $n"; tail -c 1500 "$work/host-$n.log"
+  fi
   kill -TERM -- "-$hpid" 2>/dev/null; sleep 0.5; kill -KILL -- "-$hpid" 2>/dev/null
   cua_stop
   rm -f "$sock"
@@ -57,6 +62,13 @@ round() {  # mode n
 for mode in ${MODES:-plain cua both}; do
   echo "== $mode load=${LOAD:-0}"
   for n in $(seq "${ROUNDS:-40}"); do round "$mode" "$n"; done
+done
+for mode in ${MODES:-plain cua both}; do
+  sort -n "$work/ms-$mode" > "$work/sorted"
+  rows=$(wc -l < "$work/sorted")
+  printf 'SUMMARY mode=%s load=%s rounds=%d red=%d p50=%s p90=%s max=%s ms\n' "$mode" "${LOAD:-0}" "$rows" \
+    "$(cat "$work/fail-$mode" 2>/dev/null | wc -l)" "$(sed -n "$(( rows / 2 + 1 ))p" "$work/sorted")" \
+    "$(sed -n "$(( rows * 9 / 10 + 1 ))p" "$work/sorted")" "$(tail -1 "$work/sorted")"
 done
 for p in "${load_pids[@]}"; do kill -KILL "$p" 2>/dev/null; done
 kill "$xvfb" "$web" 2>/dev/null
