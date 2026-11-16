@@ -156,7 +156,7 @@ extension WorkspaceTabsSource {
         }
     }
 
-    /// A tap on face `to` of tab `tabID` (the control or the page menu's row).
+    /// A tap on face `to` of tab `tabID` (the page menu's Show Chat / Show Terminal row).
     // perf-hot: 100ms ios-terminal-chat-swap
     func swapTerminalChat(_ tabID: String, to: TabFace) {
         guard let workspace, let tab = workspaceTab(tabID) else { return }
