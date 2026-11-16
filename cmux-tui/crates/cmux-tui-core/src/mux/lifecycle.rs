@@ -17,8 +17,12 @@ const STORE_WRITE: &str = "a write of the session's store";
 /// How [`Mux::release_ownership`] ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnershipRelease {
-    /// The session is free for the next owner. This owner writes no store
-    /// of it from here.
+    /// The session is free for the next owner. From here each commit of
+    /// this owner fails in the registry, the conversation store and the
+    /// Chief registry. No other file of the session's folder has that guard
+    /// (the terminal output store, the app storage, the git checkpoint
+    /// store, the launch snapshot, the stores of unowned hosts, cloud runs,
+    /// shares and settings).
     Released,
     /// This owner keeps the session until its process ends, because a
     /// thread that can still write the session's stores did not end in the
@@ -222,8 +226,9 @@ impl Mux {
     /// owner binds the socket before it is removed here.
     ///
     /// The session's locks are the last thing this owner gives up, and from
-    /// that step on it writes no store of the session (decision of
-    /// 2026-11-16). The release first waits, with one deadline of
+    /// that step on no commit of it lands in the registry, the conversation
+    /// store or the Chief registry (decision of 2026-11-16). The other files
+    /// of the session's folder have no such guard. The release first waits, with one deadline of
     /// [`RELEASE_WAIT`], for the end of each thread that writes a store of
     /// the session and that `shutdown` can leave alive: the journal writer
     /// (its join gives up after a bound, with an admitted commit still the
@@ -232,7 +237,7 @@ impl Mux {
     /// connection's lock, so no registry transaction is open on another
     /// thread, and under that lock it sets the owner's release and drops the
     /// locks. Each later commit of this process fails in the one commit hook
-    /// that each store of the session has
+    /// that each of those 3 stores has
     /// (`workspace_registry::wal_durability`), whichever thread makes it.
     ///
     /// When one of them does not end in that wait, this owner keeps the
