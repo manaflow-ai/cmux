@@ -325,18 +325,14 @@ function inSight(scroller: HTMLElement | null, rows: readonly HTMLElement[]): bo
 
 type TranscriptRange = { anchorId: string; focusId: string };
 
-/// A committed render's scroll inputs and the key of what it drew from them (`scrollDrawsAt`), the
-/// key worked out on the first scroll frame that asks.
+/// A committed render's key of what it drew from the scroll offset (`scrollDrawsAt`), and how to
+/// work out another offset's.
 type ScrollDrawn = {
   at: (top: number, delta: number, followed: boolean, shownBefore: boolean) => string;
-  top: number;
-  delta: number;
-  followed: boolean;
-  jumpShown: boolean;
   /// React's `following` as rendered: a frame that changes it commits.
   following: boolean;
   layout: unknown;
-  key?: string;
+  key: string;
 };
 
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
@@ -1862,6 +1858,10 @@ function TranscriptView({
   /// What the last committed render drew from the scroll offset (`scrollDrawsAt` below): a scroll
   /// frame whose offset draws the same skips the transcript's render (`scrollUnchanged`).
   const scrollDrawn = useRef<ScrollDrawn | undefined>(undefined);
+  /// A render has started and not committed (a deferred render yields mid-way under load): until it
+  /// commits, `scrollDrawn` and the refs it set disagree, so every scroll frame commits.
+  const scrollRendering = useRef(false);
+  scrollRendering.current = true;
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1886,10 +1886,10 @@ function TranscriptView({
   /// placement pass has not placed, a fold, a flow, an older-history hold, another chat) renders.
   const scrollUnchanged = (followNow: boolean) => {
     const drawn = scrollDrawn.current;
-    if (!drawn || drawn.layout !== previousLayout.current || drawn.following !== followNow) return false;
+    if (!drawn || scrollRendering.current || drawn.layout !== previousLayout.current || drawn.following !== followNow)
+      return false;
     if (olderScrollTarget.current !== undefined || liveResize.current.flow !== undefined || turnFold.current)
       return false;
-    drawn.key ??= drawn.at(drawn.top, drawn.delta, drawn.followed, drawn.jumpShown);
     const { top, delta } = scrollRef.current;
     if (drawn.at(top, delta, followNow, jumpShown.current) !== drawn.key) return false;
     // A commit's effect keeps the reader's idle stretch (jumpUp.ts `keepSoon`); a skipped one keeps it here.
@@ -6833,15 +6833,14 @@ function TranscriptView({
       ? undefined
       : {
           at: scrollDrawsAt,
-          top: renderScroll.top,
-          delta: renderScroll.delta,
-          followed: renderFollowing,
-          jumpShown: jumpShownBefore,
           following,
           layout,
+          // Worked out from this render's own refs (the warm rows it held, a bottom fold), not a later frame's.
+          key: scrollDrawsAt(renderScroll.top, renderScroll.delta, renderFollowing, jumpShownBefore),
         };
   useLayoutEffect(() => {
     scrollDrawn.current = drawnScroll;
+    scrollRendering.current = false;
   });
   // What a press reads (`pressUp`), as of the last commit.
   const upTopRef = useRef({ top: upTop, place: upTarget });
