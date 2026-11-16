@@ -961,10 +961,6 @@ class GrammarTests(unittest.TestCase):
 
     def test_every_bench_call_parses(self):
         calls = all_calls(ROOT)
-        for rel, words in KNOWN_CALLS:
-            self.assertTrue(
-                any(c.file == rel and [w for w in c.words if w is not None][:len(words)] == list(words) for c in calls),
-                f"the detector no longer finds `{' '.join(words)}` in {rel}: it went blind, or the call moved")
         refused = []
         for call in calls:
             error = check_call(self.grammar, self.heads, call.kind, call.words)
@@ -973,6 +969,10 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(refused, [], "scripts run acpmux commands its grammar refuses (acpmux --help, "
                          "cmux acp --help; a binary from bundled_acpmux takes `new`, `cmux` takes `acp new`):\n"
                          + "\n".join(refused))
+        for rel, words in KNOWN_CALLS:
+            self.assertTrue(
+                any(c.file == rel and [w for w in c.words if w is not None][:len(words)] == list(words) for c in calls),
+                f"the detector no longer finds `{' '.join(words)}` in {rel}: it went blind, or the call moved")
 
 
 if __name__ == "__main__":
