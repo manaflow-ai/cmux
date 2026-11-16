@@ -205,8 +205,9 @@ impl MediaQueue {
         }
         if datagrams.droppable {
             if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
-                let old = self.frames.remove(index).expect("position came from the queue");
-                self.record_drop(old);
+                if let Some(old) = self.frames.remove(index) {
+                    self.record_drop(old);
+                }
             } else if self.frames.len() >= MAX_MEDIA_FRAMES {
                 // Protected frames are never evicted. The newest droppable
                 // frame is rejected until one of them leaves the queue.
@@ -214,8 +215,9 @@ impl MediaQueue {
                 return;
             }
         } else if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
-            let old = self.frames.remove(index).expect("position came from the queue");
-            self.record_drop(old);
+            if let Some(old) = self.frames.remove(index) {
+                self.record_drop(old);
+            }
         }
         self.frames.push_back(datagrams);
     }
