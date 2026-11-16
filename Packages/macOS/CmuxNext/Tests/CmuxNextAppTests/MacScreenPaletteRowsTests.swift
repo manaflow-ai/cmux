@@ -17,7 +17,7 @@ import Testing
         var ran: [ActionInvocation] = []
         let rows = MacScreenPages.paletteRows(devices: [mac, phone, unnamed], actionTitle: "Screen Sharing") { ran.append($0) }
         #expect(rows.map(\.title) == ["Screen Sharing: Studio", "Screen Sharing: iPhone"])
-        #expect(rows.map(\.symbol) == ["display", "iphone"])
+        #expect(rows.map(\.symbol) == ["desktopcomputer", "iphone"])
         let row = try #require(rows.first)
         #expect(row.keywords.contains("Studio"))
         #expect(row.keywords.contains("vnc"))

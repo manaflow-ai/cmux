@@ -251,7 +251,7 @@ public final class MacScreenDevicesSettings {
                         checking: checking.contains(relay.id), check: checks[relay.id])
         }
         return State(available: true, status: Self.status(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
-                     thisDevice: this, others: hub.otherDevices.map { device(for: $0, hub: hub, me: me) }, sharing: sharing,
+                     thisDevice: this, others: others(hub, me: me), sharing: sharing,
                      relays: relays, history: hub.audit.map { Self.historyRow($0, names: names, me: me) })
     }
 
@@ -268,6 +268,19 @@ public final class MacScreenDevicesSettings {
         case .connected: return .init(text: L.t("devices.status.connected", "Connected"), tone: "success")
         case .removed: return .init(text: L.t("devices.status.removed", "This Mac left your devices."), tone: "danger")
         default: return .init(text: L.t("devices.status.connecting", "Connecting…"), tone: "attention")
+        }
+    }
+
+    /// Every other record, each removable; this Mac's other builds (NIGHTLY, DEV, a renewed identity) say so,
+    /// since Screen Sharing lists them as This Mac, not as a device (``HubDeviceList``).
+    private func others(_ hub: DeviceHub, me: String) -> [State.Device] {
+        let thisMac = Set(hub.deviceList.thisDevice)
+        return hub.otherDevices.map { other in
+            var row = device(for: other, hub: hub, me: me)
+            if thisMac.contains(other.id) {
+                row.presence = L.t("devices.thisMacOtherBuild", "This Mac, another cmux build")
+            }
+            return row
         }
     }
 

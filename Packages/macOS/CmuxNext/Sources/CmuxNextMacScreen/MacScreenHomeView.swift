@@ -11,13 +11,32 @@ public struct MacScreenHomeActions {
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
     /// Sign In under Your Devices while this Mac is signed out of cmux.
     public var signIn: () -> Void = {}
+    /// Settings › Devices' per-machine switch, for a row's menu (nil: the menu offers no Off).
+    public var remoteAccess: MacScreenRemoteAccess?
 
     public init() {}
 }
 
+/// Whether one of the user's devices lets this Mac connect, and the switch that turns it off or on: the
+/// owned-machine consent (`RemoteControlConsent`: `state(for: machineID)`, `set(machineID:on:)`), which the App
+/// wires to a hub device by its id and name. Every device on the user's own account allows this Mac by default
+/// (the account-wide own-device grant); this narrows one device.
+@MainActor
+public struct MacScreenRemoteAccess {
+    /// The switch for the hub device (`id`, `name`): true on, false off, nil when it is not known for that device.
+    public var allows: (_ id: String, _ name: String) -> Bool?
+    /// Turns the device's switch on or off (a person's choice).
+    public var set: (_ id: String, _ name: String, _ on: Bool) -> Void
+
+    public init(allows: @escaping (String, String) -> Bool?, set: @escaping (String, String, Bool) -> Void) {
+        self.allows = allows
+        self.set = set
+    }
+}
+
 /// Mac Screen's home page (AppKit, plans/cmux-next/no-swiftui-DESIGN.md): the
-/// user's devices from the device hub, Allow Mac Screen on This Mac, and the
-/// keyboard setting. Mac Screen works only through the device hub (pairing
+/// user's devices from the device hub (one row per physical device, one Connect
+/// action each), This Mac's sharing switch, and the keyboard setting. Mac Screen works only through the device hub (pairing
 /// links are gone): without one, or signed out, the page says how to set it
 /// up. Drawn in the tab's theme (`MacScreenColors`, `MacScreenType`).
 ///
@@ -172,7 +191,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         if snapshot.sharing?.showFirstUse == true {
             MacScreenStack.addFullWidth(firstUseGuide(), to: column)
         }
-        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list), to: column) }
+        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook), to: column) }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
         if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
         paint(column)
@@ -193,8 +212,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     /// The first-use recipe stays above the device list so a person knows which
     /// Mac needs the permission and which buttons to press here.
     private func firstUseGuide() -> NSView {
-        MacScreenHomeParts.note(L.t("macScreen.home.firstUse",
-            "First time? 1. Turn on Allow Mac Screen on the other Mac. 2. Click View Only or Full Control here."))
+        MacScreenHomeParts.note(L.t("macScreen.home.firstUseConnect",
+            "First time? Open cmux on the other Mac, then click Connect here."))
     }
 
     /// This Mac's access to each host is that host's permission list: read it for the hosts shown, again when they change.

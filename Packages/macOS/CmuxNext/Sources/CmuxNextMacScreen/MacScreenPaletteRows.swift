@@ -10,9 +10,10 @@ extension MacScreenPages {
     static let paletteProviderID = "macScreen.devices"
     static let paletteAction: ActionID = "macScreen.open"
 
-    /// The devices Screen Sharing lists to view, as its home page lists them; empty while signed out.
+    /// The devices Screen Sharing lists to view, as its home page lists them (one per physical device, this
+    /// Mac's other builds left out: ``HubDeviceList``); empty while signed out.
     public var viewableDevices: [HubDevice] {
-        hub.map { MacScreenHomeSnapshot.listed($0.otherDevices) } ?? []
+        hub.map { MacScreenHomeSnapshot.listed($0.remoteDevices) } ?? []
     }
 
     /// The root provider: the signed-in hub's devices, read on each open; none for the empty query.
@@ -35,7 +36,7 @@ extension MacScreenPages {
             PaletteItem(
                 id: "\(paletteProviderID):\(device.id)",
                 title: "\(actionTitle): \(device.name)",
-                symbol: device.platform == .ios ? "iphone" : "display",
+                symbol: MacScreenHomeView.glyph(device.platform),
                 keywords: [device.name, "screen sharing", "screen share", "share screen", "remote desktop", "vnc", "view", "device", "machine"],
                 primary: PaletteCommand(id: "open", title: connect, symbol: "return", effect: .perform {
                     perform(ActionInvocation(arguments: ["device": .string(device.id)], origin: .user))
