@@ -176,9 +176,11 @@ public final class AgentPageDrawnParking: NSView {
         // task-owner: one picture of a chat leaving the drawn keep; it hides when the picture is in
         Task { @MainActor [weak self, weak entry, weak view] in
             guard let view else { return }
-            let image: NSImage? = if let snapshot { await snapshot(view) } else { await view.pageSnapshot() }
+            // The saved-frame picture (#43281): a Chromium page's clear areas over the color under the page; nil when
+            // no picture can stand in for it.
+            let image: NSImage? = if let snapshot { await snapshot(view) } else { await view.pageImage() }
             guard let self, let entry, entry.hidden, entry.view === view, view.superview === parking else { return }
-            entry.cover = view.snapshotKeepsClearAreas ? image : nil
+            entry.cover = image
             // Still away to the document: hidden now, it reads as hidden until a pane takes it back.
             view.isHidden = true
         }
