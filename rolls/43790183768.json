@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43790183768",
+  "recorded_at": "2026-11-16T02:21:53Z",
+  "reason": "cmux-tui 432e54bbba13 changes the image's cmux-tui (pinned c1a3cdb70118)",
+  "dry_run": false,
+  "cmux_tui": "432e54bbba1329e85419f60df851bb931de53252",
+  "fixes": [
+    {
+      "sha": "432e54bbba1329e85419f60df851bb931de53252",
+      "mergedAt": "2026-11-15T17:57:04-08:00",
+      "subject": "size_cap test: the first pass picks the smallest whatever order the disk lists (#44088)"
+    },
+    {
+      "sha": "7a5da74ee32f66bebf584fb5adacf3cf220797e1",
+      "mergedAt": "2026-11-16T01:48:19Z",
+      "subject": "chore(next): base autofix at 9e4bb71d8fd3"
+    },
+    {
+      "sha": "9e4bb71d8fd354300abda6a5de5ec7d556499216",
+      "mergedAt": "2026-11-15T17:45:04-08:00",
+      "subject": "cmux-rd-link: keep both Wi-Fi radios awake during a live session; mark the link socket interactive video (#44076)"
+    },
+    {
+      "sha": "78501e6260f28e6a482f715f941c14654b1263bc",
+      "mergedAt": "2026-11-16T01:44:20Z",
+      "subject": "Customization showcase: five whole-window setups (cockpit, tiling, right-handed, focus, ide), not colors (#44064)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T02:21:53Z",
+    "snapshot_id": "sh-f3ce81fcb51445acafd5714edeafac38",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43790183768): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b734c087f9d1bd4ff3f742d494657d472d6992a2",
+    "image": "cloud-native-auto-432e54bb-43790183768-1",
+    "revision": "ci-43790183768-1",
+    "at": "2026-11-16T02:21:53Z"
+  },
+  "rolled_back": false
+}
