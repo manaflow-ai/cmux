@@ -5,6 +5,7 @@
 // while asleep, and lists where the chat can go under Continue on.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
@@ -77,12 +78,9 @@ afterEach(async () => {
   (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTest([]);
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  // React settles first, then each global this file added is removed (test/support/domTeardown.ts).
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const SIZE = { cpu: 4, memoryMb: 16384, diskMb: 65536 };

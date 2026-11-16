@@ -272,127 +272,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "For each model, a thread runs on the first subscription or key below that serves it."
+            "value": "A thread uses the first connection below for its model."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لكل نموذج، تعمل المحادثة على أول اشتراك أو مفتاح أدناه يوفّره."
+            "value": "تستخدم المحادثة أول اتصال أدناه يوفّر نموذجها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Za svaki model nit radi na prvoj pretplati ili ključu ispod koji ga podržava."
+            "value": "Nit koristi prvu vezu ispod koja podržava njen model."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "For hver model kører en tråd på det første abonnement eller den første nøgle nedenfor, der understøtter den."
+            "value": "En tråd bruger første forbindelse nedenfor til sin model."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Für jedes Modell läuft ein Thread über das erste Abo oder den ersten Schlüssel unten, der es bereitstellt."
+            "value": "Ein Thread nutzt die erste Verbindung unten für sein Modell."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para cada modelo, un hilo se ejecuta en la primera suscripción o clave de abajo que lo ofrece."
+            "value": "Un hilo usa la primera conexión de abajo para su modelo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pour chaque modèle, un fil s’exécute sur le premier abonnement ou la première clé ci-dessous qui le fournit."
+            "value": "Un fil utilise la première connexion ci-dessous du modèle."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Per ogni modello, un thread usa il primo abbonamento o la prima chiave qui sotto che lo offre."
+            "value": "Un thread usa la prima connessione qui sotto del modello."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "各モデルについて、スレッドはそのモデルに対応する下記の最初のサブスクリプションまたはキーで実行されます。"
+            "value": "スレッドは、そのモデルに対応する下記の最初の接続を使います。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សម្រាប់ម៉ូដែលនីមួយៗ ខ្សែសន្ទនាដំណើរការលើការជាវ ឬសោដំបូងខាងក្រោមដែលផ្ដល់ម៉ូដែលនោះ។"
+            "value": "ខ្សែសន្ទនាប្រើការតភ្ជាប់ដំបូងខាងក្រោមសម្រាប់ម៉ូដែលរបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "각 모델에 대해 스레드는 아래에서 해당 모델을 제공하는 첫 번째 구독 또는 키로 실행됩니다."
+            "value": "스레드는 해당 모델을 제공하는 아래의 첫 번째 연결을 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "For hver modell kjører en tråd på det første abonnementet eller den første nøkkelen nedenfor som støtter den."
+            "value": "En tråd bruker første tilkobling nedenfor for modellen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dla każdego modelu wątek działa na pierwszej subskrypcji lub kluczu poniżej, który go obsługuje."
+            "value": "Wątek używa pierwszego połączenia poniżej dla modelu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para cada modelo, uma conversa usa a primeira assinatura ou chave abaixo que o oferece."
+            "value": "Uma conversa usa a primeira conexão abaixo para seu modelo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для каждой модели ветка работает на первой подписке или ключе ниже, которые её поддерживают."
+            "value": "Ветка использует первое подключение ниже для своей модели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สำหรับแต่ละโมเดล เธรดจะทำงานบนการสมัครสมาชิกหรือคีย์แรกด้านล่างที่รองรับโมเดลนั้น"
+            "value": "เธรดจะใช้การเชื่อมต่อแรกด้านล่างที่รองรับโมเดลของตน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Her model için bir sohbet, aşağıda o modeli sunan ilk abonelikte veya anahtarda çalışır."
+            "value": "Bir sohbet, modeli için aşağıdaki ilk bağlantıyı kullanır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для кожної моделі гілка працює на першій підписці або ключі нижче, які її підтримують."
+            "value": "Гілка використовує перше підключення нижче для своєї моделі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Với mỗi mô hình, một luồng chạy trên gói đăng ký hoặc khóa đầu tiên bên dưới hỗ trợ mô hình đó."
+            "value": "Một luồng dùng kết nối đầu tiên bên dưới cho mô hình của nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "对于每个模型，线程会使用下方第一个支持该模型的订阅或密钥运行。"
+            "value": "线程会使用下方第一个支持其模型的连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "對於每個模型，執行緒會使用下方第一個支援該模型的訂閱或金鑰執行。"
+            "value": "執行緒會使用下方第一個支援其模型的連線。"
           }
         }
       }
@@ -548,7 +548,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niti koje posjeduješ prvo koriste ove veze, ovim redoslijedom."
+            "value": "Tvoje niti prvo koriste ove veze, ovim redoslijedom."
           }
         },
         "da": {
@@ -560,25 +560,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Threads, die dir gehören, nutzen zuerst diese, in dieser Reihenfolge."
+            "value": "Deine Threads nutzen zuerst diese, in dieser Reihenfolge."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los hilos que te pertenecen usan primero estas, en este orden."
+            "value": "Tus hilos usan primero estas, en este orden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les fils qui vous appartiennent utilisent d’abord celles-ci, dans cet ordre."
+            "value": "Vos fils utilisent d’abord celles-ci, dans cet ordre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I thread di tua proprietà usano prima queste, in questo ordine."
+            "value": "I tuoi thread usano prima queste, in questo ordine."
           }
         },
         "ja": {
@@ -608,7 +608,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Twoje wątki najpierw używają tych połączeń, w tej kolejności."
+            "value": "Twoje wątki używają najpierw tych połączeń, po kolei."
           }
         },
         "pt-BR": {
@@ -620,7 +620,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваши ветки сначала используют эти подключения в этом порядке."
+            "value": "Ваши ветки сначала используют эти подключения по порядку."
           }
         },
         "th": {
@@ -638,13 +638,13 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваші гілки спершу використовують ці підключення в такому порядку."
+            "value": "Ваші гілки спершу використовують ці підключення по черзі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các luồng bạn sở hữu dùng những kết nối này trước, theo thứ tự này."
+            "value": "Luồng của bạn dùng các kết nối này trước, theo thứ tự này."
           }
         },
         "zh-Hans": {
@@ -1064,127 +1064,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Threads move between subscriptions that serve the same model, keeping each thread on one while its cache is warm."
+            "value": "A thread stays on one subscription while its cache is warm."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تنتقل المحادثات بين الاشتراكات التي توفّر النموذج نفسه، وتبقى كل محادثة على اشتراك واحد ما دامت ذاكرتها المؤقتة نشطة."
+            "value": "تبقى المحادثة على اشتراك واحد ما دامت ذاكرتها المؤقتة نشطة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niti prelaze između pretplata koje podržavaju isti model i ostaju na jednoj dok je njen keš aktivan."
+            "value": "Nit ostaje na jednoj pretplati dok je njen keš aktivan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tråde flytter mellem abonnementer, der understøtter samme model, og bliver på ét, så længe dets cache er varm."
+            "value": "En tråd bliver på ét abonnement, mens dets cache er varm."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Threads wechseln zwischen Abos, die dasselbe Modell bereitstellen, und bleiben bei einem, solange dessen Cache warm ist."
+            "value": "Mit warmem Cache bleibt ein Thread bei einem Abo."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los hilos pasan entre suscripciones que ofrecen el mismo modelo y se quedan en una mientras su caché está caliente."
+            "value": "Con la caché caliente, un hilo se queda en una suscripción."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les fils passent d’un abonnement à l’autre s’ils fournissent le même modèle, et restent sur un seul tant que son cache est chaud."
+            "value": "Un fil reste sur un abonnement tant que son cache est chaud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I thread passano tra abbonamenti che offrono lo stesso modello, restando su uno finché la sua cache è calda."
+            "value": "Con la cache calda, un thread resta su un abbonamento."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じモデルに対応するサブスクリプション間でスレッドを移動し、キャッシュが有効な間は各スレッドを同じサブスクリプションに留めます。"
+            "value": "キャッシュが有効な間、スレッドは同じサブスクリプションに留まります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ខ្សែសន្ទនាផ្លាស់ទីរវាងការជាវដែលផ្ដល់ម៉ូដែលដូចគ្នា ហើយនៅលើមួយ ខណៈឃ្លាំងសម្ងាត់របស់វានៅសកម្ម។"
+            "value": "ខ្សែសន្ទនានៅលើការជាវមួយ ខណៈឃ្លាំងសម្ងាត់របស់វានៅសកម្ម។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "같은 모델을 제공하는 구독 간에 스레드가 이동하며, 캐시가 유지되는 동안에는 각 스레드가 한 구독에 머뭅니다."
+            "value": "캐시가 유지되는 동안 스레드는 한 구독에 머뭅니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tråder flyttes mellom abonnementer som støtter samme modell, og blir på ett så lenge hurtigbufferen er varm."
+            "value": "Med varm hurtigbuffer blir en tråd på ett abonnement."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wątki przechodzą między subskrypcjami obsługującymi ten sam model i zostają na jednej, dopóki jej pamięć podręczna jest aktywna."
+            "value": "Wątek zostaje na subskrypcji, póki pamięć podręczna działa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As conversas alternam entre assinaturas que oferecem o mesmo modelo e ficam em uma enquanto o cache dela está quente."
+            "value": "Com o cache quente, a conversa fica em uma assinatura."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ветки переходят между подписками, поддерживающими одну модель, и остаются на одной, пока её кэш активен."
+            "value": "Ветка остаётся на одной подписке, пока её кэш активен."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เธรดจะย้ายระหว่างการสมัครสมาชิกที่รองรับโมเดลเดียวกัน และอยู่กับรายการเดียวขณะที่แคชยังใช้งานได้"
+            "value": "เธรดจะอยู่กับการสมัครสมาชิกเดียวขณะที่แคชยังใช้งานได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbetler aynı modeli sunan abonelikler arasında geçer ve önbelleği sıcakken her sohbet tek bir abonelikte kalır."
+            "value": "Önbelleği sıcakken bir sohbet tek bir abonelikte kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Гілки переходять між підписками, що підтримують одну модель, і лишаються на одній, поки її кеш активний."
+            "value": "Гілка лишається на одній підписці, поки її кеш активний."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các luồng chuyển giữa những gói đăng ký hỗ trợ cùng mô hình, và giữ mỗi luồng trên một gói khi bộ nhớ đệm còn hiệu lực."
+            "value": "Một luồng ở lại trên một gói khi bộ nhớ đệm còn hiệu lực."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "线程会在支持同一模型的订阅之间切换，并在缓存仍有效时让每个线程留在同一个订阅上。"
+            "value": "缓存仍有效时，线程会留在同一个订阅上。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "執行緒會在支援同一模型的訂閱之間切換，並在快取仍有效時讓每個執行緒留在同一個訂閱上。"
+            "value": "快取仍有效時，執行緒會留在同一個訂閱上。"
           }
         }
       }
@@ -4628,127 +4628,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every member's threads use these after their own, in this order."
+            "value": "Members' threads use these after their own, in this order."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تستخدم محادثات كل عضو هذه بعد اتصالاته الخاصة، بهذا الترتيب."
+            "value": "تستخدم محادثات الأعضاء هذه بعد اتصالاتهم، بهذا الترتيب."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niti svakog člana koriste ove veze nakon vlastitih, ovim redoslijedom."
+            "value": "Niti članova koriste ove veze nakon vlastitih, ovim redom."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvert medlems tråde bruger disse efter deres egne, i denne rækkefølge."
+            "value": "Medlemmernes tråde bruger disse efter egne, i denne orden."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Threads aller Mitglieder nutzen diese nach ihren eigenen, in dieser Reihenfolge."
+            "value": "Nach den eigenen nutzen Mitglieder diese, der Reihe nach."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los hilos de cada miembro usan estas después de las suyas, en este orden."
+            "value": "Los hilos de miembros usan estas tras las suyas, en orden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les fils de chaque membre utilisent celles-ci après les leurs, dans cet ordre."
+            "value": "Les membres les utilisent après les leurs, dans cet ordre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I thread di ogni membro usano queste dopo le proprie, in questo ordine."
+            "value": "I membri usano queste dopo le proprie, in quest’ordine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "各メンバーのスレッドは、自分の接続の後にこれらをこの順序で使います。"
+            "value": "メンバーのスレッドは、自分の接続の後にこれらを順に使います。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ខ្សែសន្ទនារបស់សមាជិកគ្រប់រូបប្រើទាំងនេះបន្ទាប់ពីរបស់ខ្លួន តាមលំដាប់នេះ។"
+            "value": "ខ្សែសន្ទនារបស់សមាជិកប្រើទាំងនេះបន្ទាប់ពីរបស់ខ្លួន តាមលំដាប់នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 멤버의 스레드는 자신의 연결 다음에 이 순서대로 이 연결을 사용합니다."
+            "value": "멤버의 스레드는 자신의 연결 다음에 이 연결을 순서대로 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trådene til hvert medlem bruker disse etter sine egne, i denne rekkefølgen."
+            "value": "Medlemmer bruker disse etter sine egne, i denne rekkefølgen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wątki każdego członka używają ich po własnych, w tej kolejności."
+            "value": "Wątki członków używają ich po własnych, w tej kolejności."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As conversas de cada membro usam estas depois das próprias, nesta ordem."
+            "value": "Os membros usam estas depois das próprias, nesta ordem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ветки каждого участника используют их после своих в этом порядке."
+            "value": "Ветки участников используют их после своих в этом порядке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เธรดของสมาชิกทุกคนจะใช้การเชื่อมต่อเหล่านี้ต่อจากของตนเองตามลำดับนี้"
+            "value": "เธรดของสมาชิกจะใช้การเชื่อมต่อเหล่านี้ต่อจากของตนเองตามลำดับนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Her üyenin sohbetleri bunları kendi bağlantılarından sonra bu sırayla kullanır."
+            "value": "Üyeler bunları kendilerinden sonra sırayla kullanır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Гілки кожного учасника використовують їх після власних у такому порядку."
+            "value": "Учасники використовують їх після власних у такому порядку."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luồng của mọi thành viên dùng những kết nối này sau kết nối riêng của họ, theo thứ tự này."
+            "value": "Thành viên dùng các kết nối này sau của họ, theo thứ tự."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位成员的线程会在其自己的连接之后按此顺序使用这些连接。"
+            "value": "成员的线程会在其自己的连接之后按此顺序使用这些连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位成員的執行緒會在其自己的連線之後依此順序使用這些連線。"
+            "value": "成員的執行緒會在其自己的連線之後依此順序使用這些連線。"
           }
         }
       }
@@ -6476,127 +6476,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Their own come first in threads they own, then the organization's."
+            "value": "Their own come first, then the organization's."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تأتي اتصالاتهم أولًا في المحادثات التي يملكونها، ثم اتصالات المؤسسة."
+            "value": "تأتي اتصالاتهم أولًا، ثم اتصالات المؤسسة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Njihove vlastite su prve u nitima koje posjeduju, zatim one organizacije."
+            "value": "Njihove vlastite su prve, zatim one organizacije."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deres egne kommer først i tråde, de ejer, derefter organisationens."
+            "value": "Deres egne kommer først, derefter organisationens."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ihre eigenen kommen in ihren Threads zuerst, dann die der Organisation."
+            "value": "Ihre eigenen kommen zuerst, dann die der Organisation."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las suyas van primero en sus hilos, luego las de la organización."
+            "value": "Las suyas van primero, luego las de la organización."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les leurs passent en premier dans leurs fils, puis celles de l’organisation."
+            "value": "Les leurs passent en premier, puis celles de l’organisation."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le proprie vengono prima nei loro thread, poi quelle dell’organizzazione."
+            "value": "Le proprie vengono prima, poi quelle dell’organizzazione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自分が所有するスレッドでは自分の接続が先に使われ、その後に組織の接続が使われます。"
+            "value": "自分の接続が先に使われ、その後に組織の接続が使われます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "របស់ពួកគេមកមុនក្នុងខ្សែសន្ទនាដែលពួកគេជាម្ចាស់ បន្ទាប់មករបស់ស្ថាប័ន។"
+            "value": "របស់ពួកគេមកមុន បន្ទាប់មករបស់ស្ថាប័ន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "자신이 소유한 스레드에서는 자신의 연결이 먼저, 그다음 조직의 연결이 사용됩니다."
+            "value": "자신의 연결이 먼저, 그다음 조직의 연결이 사용됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deres egne kommer først i tråder de eier, deretter organisasjonens."
+            "value": "Deres egne kommer først, deretter organisasjonens."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ich własne są pierwsze w ich wątkach, potem połączenia organizacji."
+            "value": "Ich własne są pierwsze, potem połączenia organizacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As deles vêm primeiro nas conversas deles, depois as da organização."
+            "value": "As deles vêm primeiro, depois as da organização."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Их собственные идут первыми в их ветках, затем подключения организации."
+            "value": "Сначала их собственные, затем подключения организации."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ในเธรดที่ตนเป็นเจ้าของ การเชื่อมต่อของตนเองจะมาก่อน แล้วจึงเป็นขององค์กร"
+            "value": "การเชื่อมต่อของตนเองจะมาก่อน แล้วจึงเป็นขององค์กร"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sahip oldukları sohbetlerde önce kendi bağlantıları, sonra kuruluşunkiler kullanılır."
+            "value": "Önce kendi bağlantıları, sonra kuruluşunkiler kullanılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Їхні власні йдуть першими в їхніх гілках, потім підключення організації."
+            "value": "Спершу їхні власні, потім підключення організації."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối riêng của họ được dùng trước trong luồng họ sở hữu, sau đó đến của tổ chức."
+            "value": "Kết nối riêng của họ dùng trước, sau đó đến của tổ chức."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在他们拥有的线程中先使用他们自己的连接，然后是组织的连接。"
+            "value": "先使用他们自己的连接，然后是组织的连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在他們擁有的執行緒中先使用他們自己的連線，然後是組織的連線。"
+            "value": "先使用他們自己的連線，然後是組織的連線。"
           }
         }
       }
@@ -84859,7 +84859,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ olarak kimlik doğrulandı · %@"
+            "value": "%@ olarak oturum açıldı · %@"
           }
         },
         "uk": {

@@ -139,6 +139,7 @@ public final class PersonalGateway {
     }
 
     private func handle(_ line: String) {
+        // main-actor-ok: one `--supervised` state line of the app's own gateway child ({"event","reason"}).
         guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
               let event = object["event"] as? String else { return }
         let reason = object["reason"] as? String

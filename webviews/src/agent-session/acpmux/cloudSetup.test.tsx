@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 import { CloudStartView } from "./CloudStartView";
 import { cloudStartEnded, cloudStartSignedIn, type CloudStartProgress } from "./cloudStartProgress";
 import { cloudPickExtras, makeCloudSignInRetry, startCloudChat, type CloudStartAnswer } from "./cloudRun";
@@ -24,7 +25,7 @@ import setupGallery from "./CloudSetup.gallery";
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
-const saved = new Map<string, unknown>();
+const saved = new Map<string, readonly [key: string, had: boolean, value: unknown]>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
@@ -38,7 +39,7 @@ function installDom(): HTMLElement {
     "MouseEvent",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    saved.set(key, [key, key in scope, scope[key]]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -55,12 +56,10 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
-  dom?.window.close();
+  const window = dom?.window;
   dom = undefined;
-  for (const [key, value] of saved) {
-    if (value === undefined) delete scope[key];
-    else scope[key] = value;
-  }
+  // React settles first, then each global this file added is removed (test/support/domTeardown.ts).
+  await teardownDom(saved.values(), { ...(window ? { window } : {}), scope });
   saved.clear();
 });
 

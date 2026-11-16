@@ -45,7 +45,8 @@ export interface FixtureStack {
   createSession(userId: string, expiresInMillis: number): Promise<{ access_token: string; refresh_token: string }>
   getUser(id: string): Promise<{ primary_email: string; server_metadata: Record<string, unknown> } | null>
   createTeam(displayName: string, creatorUserId: string, run: string): Promise<{ id: string }>
-  getTeam(id: string): Promise<{ server_metadata: Record<string, unknown> } | null>
+  /** A team's self-test mark only (server_metadata). Not StackServer.getTeam: it never feeds a grant, so it is not the shared-team read readStackTeam owns. */
+  teamMark(id: string): Promise<{ server_metadata: Record<string, unknown> } | null>
   addMember(team: string, user: string): Promise<void>
   grant(team: string, user: string, permission: string): Promise<void>
   revoke(team: string, user: string, permission: string): Promise<void>
@@ -83,7 +84,7 @@ export const fixtureStack = (env: Env, http: (r: Request) => Promise<Response> =
       return r ? { primary_email: r.primary_email ?? "", server_metadata: r.server_metadata ?? {} } : null
     },
     createTeam: async (displayName, creatorUserId, run) => (await call<{ id: string }>("POST", "/teams", { display_name: displayName, creator_user_id: creatorUserId, server_metadata: { cmuxSelftest: run } }))!,
-    getTeam: async (id) => {
+    teamMark: async (id) => {
       const r = await call<{ server_metadata?: Record<string, unknown> | null }>("GET", `/teams/${enc(id)}`, undefined, [200, 404])
       return r ? { server_metadata: r.server_metadata ?? {} } : null
     },
@@ -141,7 +142,7 @@ export const handleDevFixtures = async (request: Request, env: Env, deps: { stac
     if (!got || got.server_metadata.cmuxSelftest !== run || !got.primary_email.endsWith(`@${SELFTEST_DOMAIN}`)) throw new Refused("not a user of this run")
   }
   const ownTeam = async (t: string) => {
-    const got = await stack.getTeam(t)
+    const got = await stack.teamMark(t)
     if (!got || got.server_metadata.cmuxSelftest !== run) throw new Refused("not a team of this run")
   }
   /** The TeamDO sync a webhook delivery runs, now; its own delivery id so it is never taken for a duplicate. */
@@ -209,7 +210,7 @@ export const handleDevFixtures = async (request: Request, env: Env, deps: { stac
         for (const u of users) for (const t of await stack.userTeams(u)) teams.add(t)
         let teamCount = 0
         for (const t of teams) {
-          const got = await stack.getTeam(t)
+          const got = await stack.teamMark(t)
           if (got?.server_metadata.cmuxSelftest !== run) continue
           await stack.deleteTeam(t)
           await sync(t, "team.deleted").catch(() => undefined)

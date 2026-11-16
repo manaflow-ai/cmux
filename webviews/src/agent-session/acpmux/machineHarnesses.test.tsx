@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   type MachineHarnessCheck,
@@ -82,12 +83,12 @@ test("the model picker keeps an agent the machine lacks listed, its models greye
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
-const saved = new Map<string, unknown>();
+const saved = new Map<string, readonly [key: string, had: boolean, value: unknown]>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    saved.set(key, [key, key in scope, scope[key]]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -101,12 +102,10 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
-  dom?.window.close();
+  const window = dom?.window;
   dom = undefined;
-  for (const [key, value] of saved) {
-    if (value === undefined) delete scope[key];
-    else scope[key] = value;
-  }
+  // React settles first, then each global this file added is removed (test/support/domTeardown.ts).
+  await teardownDom(saved.values(), { ...(window ? { window } : {}), scope });
   saved.clear();
 });
 

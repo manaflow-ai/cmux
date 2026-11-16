@@ -1582,7 +1582,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openMachineCardMoves,
     },
     "started-move-to-cloud-only": {
-      note: "Preview, a chat that started on a Cloud machine: its one other machine is Move to…'s only row.",
+      note: "Preview, a chat that started on a Cloud machine: its machine card's Continue on lists its one other machine.",
       props: {
         ...baseProps,
         environments: true,
@@ -1597,7 +1597,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
           hostKind: "cloud",
         },
       },
-      play: openMoveTo,
+      play: openMachineCardMoves,
     },
     "started-move-to-refused": {
       note: "Preview, Move to… with one machine that cannot take the chat now: greyed, with why under its name.",

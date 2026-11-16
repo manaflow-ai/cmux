@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 import { isClaudeToken } from "../shared/claudeSetupToken";
 import { isClaudeToken as settingsCheck } from "../../pages/settings/components/ModelsCard";
 import {
@@ -22,7 +23,7 @@ import { ClaudeConnectRow, useClaudeConnectFlow } from "./ClaudeConnectRow";
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
-const saved = new Map<string, unknown>();
+const saved = new Map<string, readonly [key: string, had: boolean, value: unknown]>();
 const KEYS = [
   "window",
   "document",
@@ -40,12 +41,13 @@ const KEYS = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
-  dom?.window.close();
+  const window = dom?.window;
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  // React settles first, then each global this file added is removed (test/support/leakDetector.ts).
+  await teardownDom(saved.values(), { ...(window ? { window } : {}), scope });
   saved.clear();
 });
 
@@ -54,7 +56,7 @@ async function mount(node: React.ReactNode) {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  for (const key of KEYS) saved.set(key, scope[key]);
+  for (const key of KEYS) saved.set(key, [key, key in scope, scope[key]]);
   const w = dom.window as unknown as Record<string, unknown>;
   Object.assign(scope, {
     window: dom.window,

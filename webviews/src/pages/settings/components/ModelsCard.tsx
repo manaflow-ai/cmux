@@ -23,9 +23,10 @@ import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
 import { Icon } from "../icons";
-import type { ModelConnection, ModelProvider, ModelsRun, ModelsState } from "../ops";
+import { SETTINGS_SENTENCES, type ModelConnection, type ModelProvider, type ModelsRun, type ModelsState } from "../ops";
 import { sectionHref } from "../router";
 import { t } from "../strings";
+import { userMessage } from "../../shared/userMessage";
 
 /** The route focus that opens Add a Connection (cmux://settings/models/add). */
 export const MODELS_ADD_FOCUS = "models.add";
@@ -93,9 +94,12 @@ export function useModelsRun(): { busy: boolean; error: string | null; run: Run 
     return store
       .runModels(gesture)
       .then(
-        () => true,
+        (refusal) => {
+          setError(refusal);
+          return refusal === null;
+        },
         (failure: unknown) => {
-          setError(failure instanceof Error ? failure.message : String(failure));
+          setError(userMessage(failure, SETTINGS_SENTENCES));
           return false;
         },
       )

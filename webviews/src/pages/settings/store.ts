@@ -769,11 +769,12 @@ export class SettingsStore {
     await this.fetchNative(settingsKeys.models);
   }
 
-  /** One Settings > Models gesture, then a fresh read of the part; rejects with the host's refusal. */
-  async runModels(run: ModelsRun): Promise<void> {
+  /** One Settings > Models gesture, then a fresh read of the part; answers the host's refusal in plain
+   * words (userMessage), null when it took the gesture. */
+  async runModels(run: ModelsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.models.run", run);
     await this.refreshModels();
-    if (!reply.ok) throw new Error(reply.error.message);
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */

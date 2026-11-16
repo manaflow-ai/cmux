@@ -42,7 +42,7 @@ const fixtureStack = (w: World, onTeam: (stackTeam: string) => Promise<void>) =>
       w.perms.set(`${id}:${creator}`, ["$delete_team"])
       return { id }
     },
-    getTeam: async (id) => (teamMeta.has(id) ? { server_metadata: teamMeta.get(id)! } : null),
+    teamMark: async (id) => (teamMeta.has(id) ? { server_metadata: teamMeta.get(id)! } : null),
     addMember: async (t, u) => void w.members.set(`${t}:${u}`, "Member"),
     grant: async (t, u, perm) => void w.perms.set(`${t}:${u}`, [...(w.perms.get(`${t}:${u}`) ?? []).filter((p) => p !== perm), perm]),
     revoke: async (t, u, perm) => void w.perms.set(`${t}:${u}`, (w.perms.get(`${t}:${u}`) ?? []).filter((p) => p !== perm)),

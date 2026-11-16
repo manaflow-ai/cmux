@@ -32,7 +32,6 @@ struct CloudConnectRefusedStartTests {
                                           localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         defer { session.disconnect() }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: "tab-1"), origin: .user)
-        let clock = ContinuousClock(), began = clock.now
         do {
             _ = try await CloudMove.connected(session, invocation)
             Issue.record("a machine whose helper cannot start connected")
@@ -40,8 +39,8 @@ struct CloudConnectRefusedStartTests {
             #expect(failure.message == CloudMoveStrings.notConnected("Refused VM", because: "the Keychain refused the carrier key (-128)"))
             #expect(failure.retry == .move(machineID: id), "the card offers Retry")
         }
-        // Without the fix the wait connects again for its whole 180 s (the suite's time limit fails it first).
-        #expect(began.duration(to: clock.now) < .seconds(30))
+        // Without the fix the wait connects again for its whole 180 s: the count of tries shows it (and the
+        // suite's time limit fails the test first), so no assertion reads the elapsed time.
         #expect(await resolver.opens == 1, "a helper that cannot start is not started again by the wait")
         #expect(session.linkRefusal.refused)
 
