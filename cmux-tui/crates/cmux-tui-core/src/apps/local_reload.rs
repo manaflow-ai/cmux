@@ -113,23 +113,29 @@ impl Supervisor {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .local_prints
             .clone();
+        // A folder the watch never reported is not in the prints yet: it
+        // reads as new, so naming it loads it.
         match app {
-            Some(app) if prints.remove(app).is_none() => {
-                let mut known: Vec<&String> = prints.keys().collect();
-                known.sort();
-                let known = known.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", ");
-                return Err(ApiError::new(
-                    "apps.local.unknown",
-                    format!(
-                        "{app} is not an extension in a local folder (local: {})",
-                        if known.is_empty() { "none" } else { &known }
-                    ),
-                ));
+            Some(app) => {
+                prints.remove(app);
             }
-            Some(_) => {}
             None => prints.clear(),
         }
-        let (_, report) = self.reload_local_apps_reporting(&prints, catalog::load);
+        let (next, report) = self.reload_local_apps_reporting(&prints, catalog::load);
+        if let Some(app) = app
+            && !next.contains_key(app)
+        {
+            let mut known: Vec<&String> = next.keys().collect();
+            known.sort();
+            let known = known.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", ");
+            return Err(ApiError::new(
+                "apps.local.unknown",
+                format!(
+                    "{app} is not an extension in a local folder (local: {})",
+                    if known.is_empty() { "none" } else { &known }
+                ),
+            ));
+        }
         // A forced read of one app still applies the other saves the watch
         // has not read yet; the answer is about the app asked for.
         let asked = |id: &str| app.is_none_or(|app| app == id);

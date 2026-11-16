@@ -261,3 +261,15 @@ fn a_forced_reload_of_an_unknown_app_names_the_local_apps() {
     assert_eq!(error.code, "apps.local.unknown");
     assert!(error.message.contains("local/spy"), "{}", error.message);
 }
+
+/// A folder the watch never reported (written as cmux started, or on a
+/// volume with no events) loads when it is named.
+#[test]
+fn naming_a_folder_the_watch_never_reported_loads_it() {
+    let f = fixture();
+    f.supervisor.reload_local_apps(&Default::default());
+    write_app(&f.state.join("apps/local"), "unseen", "local/unseen", json!({}));
+    let answer = f.supervisor.reload_local_now(Some("local/unseen")).unwrap();
+    assert_eq!(answer["reloaded"], json!(["local/unseen"]), "{answer}");
+    assert_eq!(app_entry(&f.supervisor.list(), "local/unseen")["version"], "1.0.0");
+}
