@@ -44,7 +44,7 @@ A Linux desktop joins the person's devices and shows up on the Mac's Screen Shar
 like a shared Mac. On the desktop, as the user who is signed in to its graphical session:
 
 ```
-cmux-rd linux-host enable [--allow-control]
+cmux-rd linux-host enable [--view-only]
 install -Dm644 systemd/cmux-screen-host.service ~/.config/systemd/user/cmux-screen-host.service
 systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host.service
 ```
@@ -56,11 +56,13 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
   it and turns sharing on. The anchor lets the host renew its own session with its device key
   for 30 days; after that, `share on` again (it signs in the same way).
-- Consent is the Mac's: a viewer the person allowed on the hub (View or Full Control) is
-  served; anyone else's request waits for the person. `cmux-rd linux-host requests` lists
-  them (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
-  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself.
-  Control is off unless `enable --allow-control`; a View session applies no input.
+- Consent: this desktop joined your own account, so your devices view and control it with no
+  prompt here (the hub serves a device of the same account at once; `enable --view-only` keeps
+  control off). A viewer you set to Ask on the hub still asks: `cmux-rd linux-host requests` lists
+  those requests (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
+  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself. A View
+  session applies no input. On Wayland, `enable` asks the ScreenCast portal for its grant once and
+  keeps the restore token, so later sessions start with no portal dialog.
 - The unit is a user unit: it must run in the seat0 session's user manager, with that
   session's D-Bus and `DISPLAY`/`XAUTHORITY`/`XDG_SESSION_TYPE` (see the unit file).
 - Capture: X11 sessions stream the X screen (`--display`, else `$DISPLAY`, else `:0`;
@@ -70,7 +72,7 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   overrides.
 - Wayland grant: `enable` asks the portal once, while the person joining is at the screen
   (its dialog), and saves the restore token in `~/.config/cmux/screen-host/`; every later
-  share restores it with no dialog. With `--allow-control` it asks for a RemoteDesktop
+  share restores it with no dialog. Unless `--view-only`, it asks for a RemoteDesktop
   session (keyboard and pointer too) where the portal can keep that grant (RemoteDesktop
   version 2 or later), so control works on Wayland; otherwise the desktop is shared view
   only. A grant the person revoked makes the next share show the dialog once, then it is
