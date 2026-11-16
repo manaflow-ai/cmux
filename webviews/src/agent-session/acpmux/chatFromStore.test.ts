@@ -162,6 +162,14 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
     expect(rows.map((row) => row.id)).toEqual(Array.from({ length: 11 }, (_, n) => `row-${n + 1}`));
     expect(rows).not.toBe(kept);
 
+    // The rail starts at its full height on a store chat too, until every prompt is held (Leo,
+    // 2026-11-01: "i also want the left scroll rail to be starting off to its max height if there
+    // truly are that many prompts in the chat"): the summary's count while the store does not hold
+    // them all, none once it does.
+    direct.summary = { ...direct.summary, sessionId: a, turnCount: 40 };
+    expect(direct.promptCountField(false)).toEqual({ promptCount: 40 });
+    expect(direct.promptCountField(true)).toEqual({});
+
     // Left for no chat: its sub on the store is closed, not kept open behind the pane.
     direct.leave();
     await settle(() => asked.some((ask) => ask.method === "chat.rows.close" && ask.params.sid === sids.get(a)));

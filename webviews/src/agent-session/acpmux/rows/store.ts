@@ -118,7 +118,9 @@ const NO_HEADS: ChatHeads = Object.freeze({
 // The core keeps at most 64 queue entries in a head (wire.rs QueueHead).
 const QUEUE_HEAD_MAX = 64;
 
-const entryBytes = (entry: ChatRowEntry): number => (entry.row ? JSON.stringify(entry.row).length : 16);
+/// A row's size as the caps count it, for held rows and heads alike.
+const rowBytes = (row: ChatRow): number => JSON.stringify(row).length;
+const entryBytes = (entry: ChatRowEntry): number => (entry.row ? rowBytes(entry.row) : 16);
 const isOpen = (entry: ChatRowEntry | undefined): boolean => entry?.row?.open === true;
 
 function entryOf(row: ChatRow, bodyLen?: number): ChatRowEntry {
@@ -170,6 +172,8 @@ class SidRows {
   private edition: number | undefined;
   private heads: ChatHeads | null = null;
   private headBytes = 0;
+  /// Each head's place in `heads.rows` by its id, so a window's rows find theirs in O(1).
+  private headAt = new Map<number, number>();
   /// A resume's ops, applied in one step at its end.
   private replayed: ChatOp[] = [];
   private page: PageAsk | null = null;
@@ -261,6 +265,7 @@ class SidRows {
   private setHeads(heads: ChatHeads | null, bytes: number): void {
     this.heads = heads;
     this.headBytes = bytes;
+    this.headAt = new Map(heads?.rows.map((head, at) => [head.id, at]));
     this.changed = true;
   }
 
@@ -269,10 +274,10 @@ class SidRows {
   private mergeHeads(page: ChatPageResult): void {
     const rows = page.rows.filter((row) => row.kind === "group" && !row.open).sort((a, b) => a.id - b.id);
     let bytes = 0;
-    for (const row of rows) bytes += JSON.stringify(row).length;
+    for (const row of rows) bytes += rowBytes(row);
     let from = 0;
     while (rows.length - from > STORE_MAX_HEADS || (bytes > STORE_MAX_HEAD_BYTES && from < rows.length - 1))
-      bytes -= JSON.stringify(rows[from++]!).length;
+      bytes -= rowBytes(rows[from++]!);
     this.setHeads(
       { rows: from ? rows.slice(from) : rows, hasBefore: page.hasBefore || from > 0, hasAfter: page.hasAfter },
       bytes,
@@ -288,23 +293,20 @@ class SidRows {
     const list = heads.rows;
     const last = list[list.length - 1];
     if (last && row.id <= last.id) {
-      const at = list.findIndex((head) => head.id === row.id);
+      const at = this.headAt.get(row.id) ?? -1;
       const held = at >= 0 ? list[at]! : undefined;
       if (!held || held.rev >= row.rev) return;
       const next = list.slice();
       next[at] = row;
-      this.setHeads(
-        { ...heads, rows: next },
-        this.headBytes - JSON.stringify(held).length + JSON.stringify(row).length,
-      );
+      this.setHeads({ ...heads, rows: next }, this.headBytes - rowBytes(held) + rowBytes(row));
       return;
     }
     if (heads.hasAfter) return;
     const next = [...list, row];
-    let bytes = this.headBytes + JSON.stringify(row).length;
+    let bytes = this.headBytes + rowBytes(row);
     let from = 0;
     while (next.length - from > STORE_MAX_HEADS || (bytes > STORE_MAX_HEAD_BYTES && from < next.length - 1))
-      bytes -= JSON.stringify(next[from++]!).length;
+      bytes -= rowBytes(next[from++]!);
     this.setHeads(
       { rows: from ? next.slice(from) : next, hasBefore: heads.hasBefore || from > 0, hasAfter: false },
       bytes,

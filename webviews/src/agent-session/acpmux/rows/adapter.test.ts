@@ -112,3 +112,23 @@ test("the page of turns' heads older than the first row held are the earlier pro
   expect(adapter.adapt({ ...snapshot(), heads: null }).earlierPrompts).toBeUndefined();
   expect(adapter.adapt(snapshot()).earlierPrompts).toBeUndefined();
 });
+
+test("every prompt is held once the window holds the chat, or the page of turns' run has none before or after", async () => {
+  const { snapshot } = await chat([row(50, { turn: 50, kind: "user", body: { text: "now" } }), row(51)]);
+  const adapter = new ChatAdapter({ sessionId: "s1" });
+  const run = (extra: { hasBefore?: boolean; hasAfter?: boolean; unsupported?: boolean } = {}) => ({
+    rows: [],
+    hasBefore: false,
+    hasAfter: false,
+    ...extra,
+  });
+  // The window holds the whole chat.
+  expect(adapter.adapt(snapshot()).promptsHeld).toBe(true);
+  // History left: not until the page of turns answers with a whole run.
+  const older = { ...snapshot(), hasBefore: true };
+  expect(adapter.adapt({ ...older, heads: null }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run({ hasBefore: true }) }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run({ hasAfter: true }) }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run({ unsupported: true }) }).promptsHeld).toBe(false);
+  expect(adapter.adapt({ ...older, heads: run() }).promptsHeld).toBe(true);
+});

@@ -301,6 +301,7 @@ export class ChatSource {
   /// its read bodies, and no page above it until the store holds the chat again.
   private keep(chat: string, snapshot: ChatRowsSnapshot, adapter: ChatAdapter): void {
     const rows = snapshot.rows.filter((entry) => entry.row !== null && !entry.row.open && !entry.unconfirmed);
+    adapter.dropHeads();
     this.kept.delete(chat);
     this.kept.set(chat, {
       snapshot: {
