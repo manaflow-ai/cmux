@@ -905,6 +905,7 @@ pub(super) fn person_start(conn: &Conn, params: &Value) -> bool {
 
 /// A `session/new` this daemon forwards to machine `host`, made the one way for a linked peer and
 /// for a machine only the mesh hub reaches (`mesh_start.rs`), so the two cannot drift apart:
+/// a caller a remote device drives refused (`mesh_control_send::refuse_remote_driven_caller`),
 /// this daemon's own meta stripped, the mark of whom it is for (`remote_guard::mark_forwarded`),
 /// an approved no-prompt preset expanded or the refusal that asks for its approval
 /// (`unattended_presets.rs`), a full-access starter's policy or the person's start level
@@ -925,6 +926,11 @@ pub(super) async fn forwarded_start(
     host: &str,
     created_by: Value,
 ) -> Result<ForwardedStart, RpcError> {
+    // A proven caller a remote device drives starts for that device, yet over this machine's own
+    // socket the start would carry no Web mark and the machine would skip its folder-trust gate:
+    // refused, as its mesh controls are (review P2-F1 of #38377 at 60d15eda). A client with no
+    // proven caller is marked by `mark_forwarded` below.
+    super::mesh_control_send::refuse_remote_driven_caller(hub, conn)?;
     let mut p = params.clone();
     super::peer_forward::strip_new_meta(&mut p);
     super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);

@@ -64,12 +64,6 @@ pub(crate) async fn new_on(
         return None;
     }
     let mesh = hub.mesh.get()?;
-    // A proven caller a remote device drives starts for that device, yet over this machine's own
-    // socket the start would carry no Web mark and the machine would skip its folder-trust gate:
-    // refused, as its mesh controls are (review P2-F1 of #38377 at 60d15eda).
-    if let Err(refused) = super::super::mesh_control_send::refuse_remote_driven_caller(hub, conn) {
-        return Some(Err(refused));
-    }
     Some(start(hub, conn, mesh, params, host, created_by).await)
 }
 

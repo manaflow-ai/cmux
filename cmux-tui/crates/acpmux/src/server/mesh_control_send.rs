@@ -29,7 +29,7 @@ fn error(error: HubError) -> RpcError {
 /// Refuses `conn`'s proven caller while a remote device drives it (its turn, or its last one, is a
 /// Web turn): its unix socket is this machine's, but what it sends through the hub is that
 /// device's, and no Web mark would go with it (`mesh.local_only`). Mesh controls and hub starts
-/// (`mesh_relay::start::new_on`) both ask this.
+/// (`requests::forwarded_start`, for a linked peer and the mesh hub alike) both ask this.
 pub(super) fn refuse_remote_driven_caller(hub: &Arc<Hub>, conn: &Conn) -> Result<(), RpcError> {
     if let Some(caller) = conn.caller() {
         let caller = hub.resolve(caller)?;
