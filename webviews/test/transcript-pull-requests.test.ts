@@ -200,6 +200,67 @@ test("streaming prose leaves the PR cache key stable; reference, state and repos
   );
 });
 
+test("a long streamed reply costs each chunk its own length, not the reply's, to keep its pull request key", async () => {
+  const { OrderedRows } = await import("../src/agent-session/acpmux/direct");
+  const rows = new OrderedRows();
+  const reply = assistant("Opened acme/uploader#41 for the retry.", 1);
+  rows.set(reply.id, { ...reply, streaming: true });
+  const chunk = "The retry backs off twice, then gives the upload to the queue that owns it. ";
+  // Characters the reference patterns read while the reply grows (they run as RegExp replace/matchAll).
+  let scanned = 0;
+  const replace = RegExp.prototype[Symbol.replace];
+  const matchAll = RegExp.prototype[Symbol.matchAll];
+  RegExp.prototype[Symbol.replace] = function (this: RegExp, text: string, ...rest: unknown[]) {
+    scanned += String(text).length;
+    return (replace as (...args: unknown[]) => string).call(this, text, ...rest);
+  } as unknown as typeof replace;
+  RegExp.prototype[Symbol.matchAll] = function (this: RegExp, text: string) {
+    scanned += String(text).length;
+    return matchAll.call(this, text);
+  } as unknown as typeof matchAll;
+  let text = reply.text ?? "";
+  try {
+    for (let version = 2; version < 400; version++) {
+      text += chunk;
+      rows.set(reply.id, { ...reply, version, streaming: true, text });
+    }
+  } finally {
+    RegExp.prototype[Symbol.replace] = replace;
+    RegExp.prototype[Symbol.matchAll] = matchAll;
+  }
+  // The whole reply read once per chunk was about 200 times its final length; now only the first
+  // chunks near the mention are read whole.
+  expect(scanned).toBeLessThan(text.length * 10);
+});
+
+test("a streamed reply's key still moves for a mention split across chunks, a longer number and a fence", async () => {
+  const { pullRequestRowKey } = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
+  const filler = "word ".repeat(200);
+  const grow = (previous: ReturnType<typeof assistant>, more: string) => ({
+    ...previous,
+    version: (previous.version ?? 1) + 1,
+    streaming: true,
+    text: `${previous.text ?? ""}${more}`,
+  });
+  const start = { ...assistant(filler, 1), streaming: true };
+  const keyOf = (row: ReturnType<typeof assistant>, previous?: ReturnType<typeof assistant>) =>
+    pullRequestRowKey(row, true, previous);
+  expect(keyOf(start)).toBe("");
+  const split = grow(start, "See acme/uplo");
+  expect(keyOf(split, start)).toBe("");
+  const named = grow(split, "ader#4");
+  expect(keyOf(named, split)).toContain("acme/uploader");
+  const longer = grow(named, "2 next");
+  expect(keyOf(longer, named)).not.toBe(keyOf(named));
+  const plain = grow(longer, ` ${filler}`);
+  expect(keyOf(plain, longer)).toBe(keyOf(longer));
+  const fenced = { ...assistant(`${filler}\n\`\`\`\n`, 2), streaming: true };
+  const inFence = grow(fenced, "color #42 ");
+  expect(keyOf(inFence, fenced)).toBe("");
+  const closed = grow(inFence, "\n\`\`\`\n then #43");
+  expect(keyOf(closed, inFence)).not.toBe("");
+});
+
 test("live reply chunks do not visit historical rows to derive the PR activity revision", async () => {
   const { OrderedRows } = await import("../src/agent-session/acpmux/direct");
   const rows = new OrderedRows();
