@@ -18,7 +18,7 @@ use crate::terminal_host_runtime::shared::program_status_codec;
 
 use super::adopted_child::AdoptedChild;
 use super::pty_custody::PtyCustody;
-use super::pty_lock::PtyOwnershipLock;
+use super::pty_lock::{PtyFenceWait, PtyOwnershipLock};
 use super::*;
 
 /// The launch fields of `Launch` plus the PTY and session to adopt, the
@@ -278,6 +278,9 @@ pub struct TerminalHostAdoption<'a> {
     /// The terminal-host binary; `None` runs this executable (tests pass the
     /// daemon binary).
     pub host_binary: Option<PathBuf>,
+    /// The wait for the PTY fence of the dead host, with its cancel
+    /// ([`PtyFenceWait`]). The default has no observer.
+    pub fence_wait: PtyFenceWait,
 }
 
 fn spawn_adopting_host(
