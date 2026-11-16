@@ -119,13 +119,19 @@ while !done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow
 
 func rel(_ value: Double?) -> Any { guard let value, let start else { return NSNull() }; return (value - start * 1).rounded(toPlaces: 1) }
 extension Double { func rounded(toPlaces places: Int) -> Double { let p = pow(10, Double(places)); return (self * p).rounded() / p } }
-let keep = ["main_start", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start", "launch_snapshot_shown",
-            "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home"]
+let keep = ["main_start", "main.warmup_started", "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers",
+            "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start",
+            "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
+            "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home"]
 var row: [String: Any] = [
-    "label": label, "pid": app?.processIdentifier ?? 0,
+    "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
     "finished_launching": rel(finished), "window_on_screen": rel(window), "active": rel(active),
-    "marks": marks.filter { keep.contains($0.key) }, "all_marks": marks.count,
+    // The prime launch (a fresh home: no Home cache, no Chief yet) keeps every mark, so the steps of its
+    // wait for Home (home.chief_owner_ready, home.chief_create_replied, ...) can be named; every launch keeps
+    // the launch steps (dfl.*) and Home's (home.*), so a relaunch's cache read shows too.
+    "marks": marks.filter { label == "prime" || keep.contains($0.key) || $0.key.hasPrefix("dfl.") || $0.key.hasPrefix("home.") },
+    "all_marks": marks.count,
 ]
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])

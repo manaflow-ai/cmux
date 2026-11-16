@@ -12,6 +12,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -513,7 +514,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     // started-chat harness switch is enabled so this chat offers the harness rail and its action.
     // Cmd-Ctrl-M and the model button open this same compact picker.
     await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
-    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
+    await page.locator(MODEL_PICKER).waitFor();
     await page.keyboard.press("Meta+Control+m");
     // The rail makes it the columns menu; Add harness… ends its rail.
     const menu = page.locator(COMPACT_MODEL_MENU).first();

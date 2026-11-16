@@ -8,11 +8,17 @@ on a dark theme). This launches the tagged app and asks `debug.text_weight` for 
 both classes next to a stock NSTextField (same text, font, color; 4 inks x 3 fonts) in a dark
 and a light theme, as the window server shows them. Each value must be within 1% of stock.
 
+appearance.fontSmoothing (ProcessFontSmoothing), the way a person changes it: the app launches
+with no saved value and the default ("antialiased"); the settings file then changes to "system"
+while it runs (the app's saved AppleFontSmoothing must go), and the app quits and launches again.
+Both launches hold the 1% parity, and the stock label itself must draw thinner under the default
+than under "system", unless the Mac turned smoothing off for every app.
+
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   text-weight-e2e.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" [--tolerance 0.01]
 Stop the app afterwards with "$NX_APP_STOP". Exit 1 on any failed check.
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -64,9 +70,25 @@ def wait(predicate, seconds, step=0.5):
     return None
 
 
-try:
-    config, ghostty = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
-    open(config, "w").write("{}")
+CONFIG, GHOSTTY = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
+with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as handle:
+    BUNDLE_ID = plistlib.load(handle)["CFBundleIdentifier"]
+
+
+def write_config(mode):
+    """The settings file with appearance.fontSmoothing `mode` (None: unset)."""
+    open(CONFIG, "w").write(json.dumps({"appearance": {"fontSmoothing": mode}} if mode else {}))
+
+
+def saved_smoothing():
+    """The app's saved AppleFontSmoothing (None: none saved)."""
+    out = subprocess.run(["defaults", "read", BUNDLE_ID, "AppleFontSmoothing"], capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def launch(mode):
+    """Starts the tagged app on the settings file (`mode` names the launch); returns the process."""
+    config, ghostty = CONFIG, GHOSTTY
     open(ghostty, "w").write("")
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -77,39 +99,91 @@ try:
     log = open(os.path.join(opts.out, "app.log"), "a")
     app = subprocess.Popen([os.path.join(opts.app, "Contents/MacOS/cmux DEV")], env=env, stdout=log, stderr=log,
                            stdin=subprocess.DEVNULL)
-    print("launched pid", app.pid, flush=True)
+    print(f"launched pid {app.pid} (fontSmoothing {mode or 'unset'})", flush=True)
+
     def answers():
         reply = rpc("debug.themes") if os.path.exists(SOCKET) else None
         return reply is not None and not (isinstance(reply, dict) and "error" in reply)
 
     if not wait(answers, 180):
         sys.exit("the tagged app did not come up")
+    return app
+
+
+def stop(app):
+    app.terminate()
+    try:
+        app.wait(30)
+    except subprocess.TimeoutExpired:
+        app.kill()
+        app.wait(10)
+
+
+def weights(label):
+    """debug.text_weight in both themes; checks the 1% parity; returns {theme: values}."""
+    out = {}
     for theme, dark in (("dark", True), ("light", False)):
         values = rpc("debug.text_weight", {"dark": dark})
-        report[theme] = values
+        report[f"{label}.{theme}"] = values
         if not isinstance(values, dict) or "error" in values or len(values) < 2:
-            check(False, f"{theme}: debug.text_weight answered ({values})")
+            check(False, f"{label} {theme}: debug.text_weight answered ({values})")
             continue
-        print(f"{theme}: backing scale {values.get('scale')}", flush=True)
-        for key in sorted(k for k in values if k != "scale"):
+        out[theme] = values
+        print(f"{label} {theme}: backing scale {values.get('scale')}, smoothsStems {values.get('smoothsStems')}", flush=True)
+        for key in sorted(k for k in values if k not in ("scale", "smoothsStems") and not k.startswith("stock.")):
             ratio = values[key]
-            check(abs(ratio - 1) <= opts.tolerance, f"{theme} {key}: {ratio * 100 - 100:+.2f}% vs stock NSTextField")
-    # ChromeLabel is its own view (cx-8w027.26): it must lay out, draw (cacheDisplay and layer
-    # render, the drag image paths) and read to VoiceOver as the stock label it replaced.
-    parity = rpc("debug.label_parity", {"dir": opts.out}, timeout=300)
-    report["label_parity"] = parity
-    if not isinstance(parity, dict) or "error" in parity:
-        check(False, f"debug.label_parity answered ({parity})")
-    else:
-        mismatches = parity.get("mismatches", [])
-        for line in mismatches:
-            print("  mismatch:", line, flush=True)
-        count = parity.get("mismatch_count", 1)
-        check(parity.get("checked", 0) > 0 and count == 0,
-              f"label parity: {count} mismatch(es) in {parity.get('checked')} checks vs stock NSTextField")
-    # The real chrome (sidebar rows, tab titles) for a look: text upright and in place.
-    shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window.png")})
-    check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window.png ({shot})")
+            check(abs(ratio - 1) <= opts.tolerance, f"{label} {theme} {key}: {ratio * 100 - 100:+.2f}% vs stock NSTextField")
+    return out
+
+
+try:
+    # A first launch: nothing saved yet, so the launch read's write is what AppKit reads.
+    subprocess.run(["defaults", "delete", BUNDLE_ID, "AppleFontSmoothing"], capture_output=True)
+    write_config(None)
+    app = launch(None)
+    try:
+        thin = weights("antialiased")
+        # ChromeLabel is its own view (cx-8w027.26): it must lay out, draw (cacheDisplay and layer
+        # render, the drag image paths) and read to VoiceOver as the stock label it replaced.
+        parity = rpc("debug.label_parity", {"dir": opts.out}, timeout=300)
+        report["label_parity"] = parity
+        if not isinstance(parity, dict) or "error" in parity:
+            check(False, f"debug.label_parity answered ({parity})")
+        else:
+            mismatches = parity.get("mismatches", [])
+            for line in mismatches:
+                print("  mismatch:", line, flush=True)
+            count = parity.get("mismatch_count", 1)
+            check(parity.get("checked", 0) > 0 and count == 0,
+                  f"label parity: {count} mismatch(es) in {parity.get('checked')} checks vs stock NSTextField")
+        # The real chrome (sidebar rows, tab titles) for a look: text upright and in place.
+        shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window.png")})
+        check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window.png ({shot})")
+        check(saved_smoothing() == "0", f"the default launch saved AppleFontSmoothing 0 ({saved_smoothing()})")
+        # Settings writes the file; the running app saves the new value for its next launch.
+        write_config("system")
+        check(wait(lambda: saved_smoothing() is None, 30) is not None,
+              f"after the change to system the saved AppleFontSmoothing is gone ({saved_smoothing()})")
+    finally:
+        stop(app)
+    app = launch("system")
+    try:
+        system = weights("system")
+        shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window-system.png")})
+        check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window-system.png ({shot})")
+    finally:
+        stop(app)
+    for theme in ("dark", "light"):
+        if theme not in thin or theme not in system:
+            continue
+        check(thin[theme].get("smoothsStems") == 0, f"{theme}: the default (antialiased) launch draws without smoothing")
+        if system[theme].get("smoothsStems") != 1:
+            print(f"{theme}: this Mac turned font smoothing off for every app; system draws thin too", flush=True)
+            continue
+        keys = sorted(k for k in thin[theme] if k.startswith("stock."))
+        a, b = sum(thin[theme][k] for k in keys), sum(system[theme][k] for k in keys)
+        report[f"stock_ratio.{theme}"] = a / b if b else None
+        check(b > 0 and a < b * 0.97, f"{theme}: stock NSTextField ink, antialiased over system: {a / b * 100 if b else 0:.1f}%")
 finally:
     with open(os.path.join(opts.out, "text-weight.json"), "w") as f:
         json.dump({"failures": failures, **report}, f, indent=1)
