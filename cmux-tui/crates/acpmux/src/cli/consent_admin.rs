@@ -33,9 +33,15 @@ fn sudo_account() -> Result<Option<(libc::uid_t, libc::gid_t)>> {
 #[cfg(unix)]
 pub(crate) fn set_if_admin(surface: &str, granted: bool) -> Result<Option<Consent>> {
     let Some((uid, gid)) = sudo_account()? else { return Ok(None) };
+    // ACPMUX_HOME outranks the override below, so the join (for `signedInMachines`) would be
+    // read from another home than the consent is written to: refuse it.
+    anyhow::ensure!(
+        std::env::var_os("ACPMUX_HOME").is_none(),
+        "unset ACPMUX_HOME: as this Mac's admin, consent is set in the account's own acpmux home"
+    );
     let home = super::machine_consent::home_of_uid(uid)?;
     // The account's own acpmux home: its join (for `signedInMachines`) and legacy consent live there.
-    crate::config::set_home_override(home.join(".acpmux"));
+    crate::config::set_home_override(crate::config::default_home_in(&home));
     drop_to(uid, gid)?;
     let consent = super::cloud_join::set_consent_for_person(surface, granted)?;
     tracing::info!(surface, granted, uid, "machine consent set by this Mac's admin (sudo)");
