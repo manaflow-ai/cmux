@@ -77,6 +77,18 @@ class StarvedDetectionTests(unittest.TestCase):
 
     def test_only_fleet_labels_are_in_scope(self) -> None:
         self.assertEqual(starved(job(label="blacksmith-6vcpu-macos-15", created=60)), [])
+        self.assertEqual(starved(job(label="blacksmith-16vcpu-ubuntu-2404", created=60)), [])
+
+    def test_the_owned_gcp_linux_label_is_in_scope(self) -> None:
+        # cmux run 43807536777 (PR #44167): `web / react-doctor` sat queued on cmux-fleet-linux-x64 from
+        # 05:05:41Z on 2026-11-16 for 13 h with no alert. That pool's reconciler had booted no VM since
+        # 2026-11-01 (its GCP sign-in failed: credential_provider_broken), and only glaeda-* labels were judged.
+        queued = job(label="cmux-fleet-linux-x64", created=780, name="web / react-doctor")
+        found = starved(queued)
+        self.assertEqual([entry["label"] for entry in found], ["cmux-fleet-linux-x64"])
+        self.assertEqual(found[0]["job_url"], queued["html_url"])
+        self.assertEqual(starved(queued, job(label="cmux-fleet-linux-x64", status="in_progress", created=30,
+                                             started=20, runner="cmux-gha-runner-1116-1")), [])
 
     def test_a_cancelled_job_that_never_got_a_runner_is_no_start(self) -> None:
         found = starved(job(created=60), job(status="completed", created=8, started=8, runner=None))
