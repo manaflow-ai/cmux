@@ -109,12 +109,14 @@ impl Supervisor {
 
     /// Reads the catalog again and applies what changed in local apps since
     /// `prints`; returns the new fingerprints.
+    #[cfg(test)]
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
         self.reload_local_apps_from(prints, catalog::load)
     }
 
     /// `reload_local_apps` with the catalog read given: a test lands a save
     /// right after the read.
+    #[cfg(test)]
     pub(super) fn reload_local_apps_from(
         &self,
         prints: &Prints,
@@ -227,7 +229,7 @@ impl Supervisor {
         catalog: &catalog::Catalog,
     ) -> Vec<(String, String)> {
         let trials: Vec<(Package, super::grants::Grant)> = {
-            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             changed
                 .iter()
                 .filter_map(|app| {
