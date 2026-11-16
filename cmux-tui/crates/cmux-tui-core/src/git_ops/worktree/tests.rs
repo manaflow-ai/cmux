@@ -431,16 +431,17 @@ fn own_tree_a_locked_work_tree_is_not_a_made_work_tree() {
     assert_eq!((locked, unlocked), (false, true), "a locked work tree is a made work tree");
 }
 
-/// A create gives a work tree only when the repository of the create keeps it, also when
-/// `git worktree add` ends with a success. The repository of the test has a `post-checkout`
-/// hook that ends with a success, so git does too. The hook writes, in the new work tree, a
-/// `.git` file that names the git folder of a work tree of a second repository. The create is
-/// refused with `git_failed`.
+/// What a create gives in a repository whose `post-checkout` hook writes, in the new work tree,
+/// a `.git` file that names the git folder of a work tree of a second repository, and then ends
+/// with the code `end`: the path of the new work tree, whether the hook wrote the file, and the
+/// details of the error of the create.
 #[cfg(unix)]
-#[test]
-fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
+fn create_with_a_hook_that_writes_the_git_entry(
+    name: &str,
+    end: u8,
+) -> (PathBuf, bool, Option<Value>) {
     use std::os::unix::fs::PermissionsExt as _;
-    let top = new_folder("create-kept");
+    let top = new_folder(name);
     let (main, other) = (top.join("main"), top.join("other"));
     let (root, of_other) = (top.join("root"), top.join("of-other"));
     for repository in [&main, &other] {
@@ -452,7 +453,9 @@ fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
     let entry = format!("gitdir: {}", other.join(".git/worktrees/of-other").display());
     let hooks = top.join("hooks");
     std::fs::create_dir_all(&hooks).unwrap();
-    let hook = format!("#!/bin/sh\nprintf '%s\\n' '{entry}' > '{}'\n", root.join(".git").display());
+    let git_entry = root.join(".git");
+    let hook =
+        format!("#!/bin/sh\nprintf '%s\\n' '{entry}' > '{}'\nexit {end}\n", git_entry.display());
     std::fs::write(hooks.join("post-checkout"), hook).unwrap();
     let mode = std::fs::Permissions::from_mode(0o755);
     std::fs::set_permissions(hooks.join("post-checkout"), mode).unwrap();
@@ -465,19 +468,48 @@ fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
 
     let created = create(&repository, &user_git, &attempt, &main.join(".git"));
 
-    let written = std::fs::read_to_string(root.join(".git")).unwrap_or_default();
+    let written = std::fs::read_to_string(git_entry).unwrap_or_default();
     std::fs::remove_dir_all(top).unwrap();
-    assert_eq!(written.trim_end(), entry, "the hook of the test did not write the `.git` file");
-    let details = created.err().map(|error| error.details);
+    (root, written.trim_end() == entry, created.err().map(|error| error.details))
+}
+
+/// A create gives a work tree only when the repository of the create keeps it, also when
+/// `git worktree add` ends with a success. The hook of the test ends with a success, so git
+/// does too. The create is refused with `git_failed`, and the whole message is compared: it
+/// names the folder and the branch that git made, each in its place.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
+    let (root, written, details) = create_with_a_hook_that_writes_the_git_entry("create-kept", 0);
+
+    assert!(written, "the hook of the test did not write the `.git` file");
     let reason = details.as_ref().map(|details| details["reason"].clone());
     let message = "the create gave a work tree that its repository does not keep";
     assert_eq!(reason, Some(json!("git_failed")), "{message}");
-    // A failure of `git worktree add` has the same reason: the message says which refusal it is.
-    let text = details.map(|details| details["extra"]["message"].to_string()).unwrap_or_default();
-    assert!(text.contains("is not a worktree that this repository keeps"), "{text}");
-    // The folder and the branch that git made stay: the message names them.
-    let named = text.contains(&*root.to_string_lossy()) && text.contains("cmux/new");
-    assert!(named, "the message does not name the folder and the branch that stay: {text}");
+    // A failure of `git worktree add` has the same reason: the message says which refusal it
+    // is. The folder and the branch that git made stay: the message names them.
+    let text = details.as_ref().and_then(|details| details["extra"]["message"].as_str());
+    let wanted = format!(
+        "git worktree add ended, and {} is not a worktree that this repository keeps; the \
+         folder and the branch cmux/new stay",
+        root.to_string_lossy()
+    );
+    assert_eq!(text, Some(wanted.as_str()));
+}
+
+/// The same hook, which now ends with a failure: `git worktree add` fails after the hook wrote
+/// the `.git` file. The create is refused with `git_failed` here too. Its message is the one
+/// of a failure of git, not the one of a work tree that the repository does not keep.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_create_whose_git_fails_gives_the_message_of_that_failure() {
+    let (_, written, details) = create_with_a_hook_that_writes_the_git_entry("create-failed", 1);
+
+    assert!(written, "the hook of the test did not write the `.git` file");
+    let reason = details.as_ref().map(|details| details["reason"].clone());
+    assert_eq!(reason, Some(json!("git_failed")), "the create gave a work tree");
+    let text = details.as_ref().and_then(|details| details["extra"]["message"].as_str());
+    assert_eq!(text, Some("git worktree add failed"));
 }
 
 /// No setup starts in a folder that is not directly in the `worktrees` folder of the
