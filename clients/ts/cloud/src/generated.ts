@@ -13,6 +13,18 @@ export type AddressId = string
 
 export type AgentId = string
 
+export type AppKvApp = string
+
+export type AppKvKey = string
+
+export type AppKvRow = {
+  readonly app: string
+  readonly key: string
+  readonly value: unknown
+  readonly revision: number | "Infinity" | "-Infinity" | "NaN"
+  readonly updated_ms: number | "Infinity" | "-Infinity" | "NaN"
+}
+
 export type Automation = {
   readonly id: AutomationId
   readonly owner: TeamId
@@ -1602,6 +1614,39 @@ export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
+  /** Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds. */
+  readonly "appkv.delete": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+    }
+    readonly result: {
+      readonly app: string
+      readonly key: string
+      readonly existed: boolean
+    }
+  }
+  /** Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000). */
+  readonly "appkv.list": {
+    readonly params: {
+      readonly after_revision?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly rows: ReadonlyArray<AppKvRow>
+      readonly next_after_revision: number | "Infinity" | "-Infinity" | "NaN" | null
+      readonly revision: string
+    }
+  }
+  /** Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins. */
+  readonly "appkv.set": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+      readonly value: unknown
+    }
+    readonly result: AppKvRow
+  }
   /** The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
   readonly "automation.audit.list": {
     readonly params: {
@@ -4180,6 +4225,9 @@ export type CloudOpName = keyof CloudOps
 
 /** Routing metadata: mutations go to /v1/ops (keyed unless idempotency is none), reads to /v1/read. */
 export const cloudOpMeta = {
+  "appkv.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "appkv.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "appkv.set": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "automation.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.create": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },

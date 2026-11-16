@@ -4,6 +4,116 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    CloudMachineLinkTokenResultServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+        Desktop = "desktop",
+    }
+}
+
+wire_enum! {
+    CloudMachineLinkTokenResultVmKind {
+        Owner = "owner",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineLinkTokenResult {
+    pub token: String,
+    pub expires_at: i64,
+    pub host: HostId,
+    pub epoch: i64,
+    pub services: Vec<CloudMachineLinkTokenResultServicesItem>,
+    pub vm_kind: CloudMachineLinkTokenResultVmKind,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.link_token declares.
+    CloudMachineLinkTokenError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudLinkInstallRefused = "cloud.link.install_refused",
+        CloudMachineNotBound = "cloud.machine.not_bound",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachinePaused = "cloud.machine.paused",
+        CloudRateLimited = "cloud.rate_limited",
+        OwnerUnreachable = "owner.unreachable",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read.
+    CloudMachineListOp {
+        name: "cloud.machine.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineListParams,
+        result: CloudMachineListResult,
+        error: CloudMachineListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineListResult {
+    pub machines: Vec<CloudMachine>,
+    pub next_cursor: Option<String>,
+    pub revision: Revision,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.list declares.
+    CloudMachineListError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    CloudMachinePauseOp {
+        name: "cloud.machine.pause",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachinePauseParams,
+        result: CloudMachinePauseResult,
+        error: CloudMachinePauseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachinePauseParams {
+    pub machine: MachineId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachinePauseResult {
+    pub machine: CloudMachine,
+}
+
 wire_errors! {
     /// The error codes cloud.machine.pause declares.
     CloudMachinePauseError {
@@ -789,114 +899,4 @@ pub struct CloudVmReceiverLifecycleParams {
     pub expected: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attempt: Option<String>,
-}
-
-wire_enum! {
-    CloudVmReceiverLifecycleResultPhase {
-        Idle = "idle",
-        Starting = "starting",
-        Ready = "ready",
-        Stopped = "stopped",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmReceiverLifecycleResult {
-    pub machine: MachineId,
-    pub generation: String,
-    pub phase: CloudVmReceiverLifecycleResultPhase,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.receiver.lifecycle declares.
-    CloudVmReceiverLifecycleError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmSelfGetOp {
-        name: "cloud.vm.self.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Install],
-        params: CloudVmSelfGetParams,
-        result: CloudVmSelfGetResult,
-        error: CloudVmSelfGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetResult {
-    pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.self.get declares.
-    CloudVmSelfGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmStatusReportOp {
-        name: "cloud.vm.status.report",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmStatusReportParams,
-        result: CloudVmStatusReportResult,
-        error: CloudVmStatusReportError,
-    }
-}
-
-wire_enum! {
-    CloudVmStatusReportParamsState {
-        Running = "running",
-        Degraded = "degraded",
-        Stopping = "stopping",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsDaemon {
-    pub version: String,
-    pub capabilities: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsHealth {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disk_free_mb: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub load: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsActivity {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_user_input_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_agent_action_at: Option<i64>,
-    pub active_sessions: i64,
 }
