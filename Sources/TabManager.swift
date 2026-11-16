@@ -2991,7 +2991,10 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
+    /// - Parameter closesLastSurface: The close comes from closing the
+    ///   workspace's last surface, so that tab's own running-process prompt
+    ///   still applies when the workspace warning is off.
+    func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace, closesLastSurface: Bool = false) -> Bool {
         guard !workspace.isChiefHome else { return false }
         if workspace.isPinned {
             let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .tabClose)
@@ -3002,11 +3005,14 @@ class TabManager: ObservableObject {
                 closeAlreadyConfirmed: pinnedConfirmation == .confirmed
             )
         }
-        return closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
+        return closeWorkspaceIfRunningProcess(workspace, source: .tabClose, closesLastSurface: closesLastSurface)
     }
 
     @discardableResult
-    func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
+    /// - Parameter closesLastSurface: The close comes from closing the
+    ///   workspace's last surface, so that tab's own running-process prompt
+    ///   still applies when the workspace warning is off.
+    func closeWorkspaceFromTabCloseButton(_ workspace: Workspace, closesLastSurface: Bool = false) -> Bool {
         guard !workspace.isChiefHome else { return false }
         if workspace.isPinned {
             let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .tabCloseButton)
@@ -3017,7 +3023,7 @@ class TabManager: ObservableObject {
                 closeAlreadyConfirmed: pinnedConfirmation == .confirmed
             )
         }
-        return closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
+        return closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton, closesLastSurface: closesLastSurface)
     }
 
     @discardableResult
@@ -3370,7 +3376,8 @@ class TabManager: ObservableObject {
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace,
-        closeAlreadyConfirmed: Bool = false
+        closeAlreadyConfirmed: Bool = false,
+        closesLastSurface: Bool = false
     ) -> Bool {
         guard !workspace.isChiefHome else { return false }
         // Closing a group's anchor is non-destructive to the group: its next
@@ -3386,16 +3393,24 @@ class TabManager: ObservableObject {
         // `app.warnBeforeClosingWorkspace` gates the running-process prompt
         // too (#44785): with it off, a workspace closes at once, as its
         // setting says. Pinning and Always Confirm keep their own prompts.
-        let warnsWithoutAlwaysConfirm = warnsBeforeClosingWorkspace
+        // Closing a workspace's last surface is still a tab close: that tab's
+        // running-process prompt applies whatever the workspace setting says,
+        // as it does when the workspace has more surfaces.
+        let workspaceWarns = warnsBeforeClosingWorkspace
             && (needsCloseConfirmation
                 || shouldConfirmConfiguredClose(
                     requiresConfirmation: needsCloseConfirmation,
                     source: source
                 ))
+        let lastSurfaceTabKinds = closesLastSurface
+            ? lastSurfaceTabWarningKinds(requiresConfirmation: needsCloseConfirmation, source: source)
+            : []
+        let warnsWithoutAlwaysConfirm = workspaceWarns || !lastSurfaceTabKinds.isEmpty
         let showsCloseConfirmation = requiresConfirmation
             && (warnsWithoutAlwaysConfirm || alwaysConfirm)
         let dontAskAgain = Self.workspaceCloseDontAskAgain(
-            ordinary: needsCloseConfirmation ? [.workspace, .safety] : .workspace,
+            ordinary: !workspaceWarns ? lastSurfaceTabKinds
+                : needsCloseConfirmation ? [.workspace, .safety] : .workspace,
             ordinaryWarns: warnsWithoutAlwaysConfirm,
             alwaysConfirm: alwaysConfirm
         )
@@ -3442,6 +3457,25 @@ class TabManager: ObservableObject {
                 source: .tabCloseButton
             )
         }
+    }
+
+    /// The tab warnings that ask before a workspace's last surface closes:
+    /// the same kinds closing that surface would ask with if the workspace
+    /// had more. Empty for a workspace-level source.
+    private func lastSurfaceTabWarningKinds(
+        requiresConfirmation: Bool,
+        source: CloseConfirmationSource
+    ) -> CloseWarningKinds {
+        let tabSource: CloseTabCloseSource
+        switch source {
+        case .workspace: return []
+        case .tabClose: tabSource = .shortcut
+        case .tabCloseButton: tabSource = .tabCloseButton
+        }
+        return CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
+            requiresConfirmation: requiresConfirmation,
+            source: tabSource
+        )
     }
 
     /// `app.warnBeforeClosingWorkspace`, the gate of every "Close workspace?"

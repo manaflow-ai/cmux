@@ -1755,6 +1755,45 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 1)
     }
 
+    /// Closing a busy workspace's last surface is a tab close: its tab prompt
+    /// still asks with the workspace warning off, as it would if the
+    /// workspace had more surfaces, and "Don't ask again" offers tab kinds.
+    func testLastSurfaceCloseKeepsTabPromptWhenWorkspaceSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        let workspace = manager.tabs[1]
+        markRunningProcess(workspace)
+
+        var promptCount = 0
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return false
+        }
+
+        XCTAssertFalse(manager.closeWorkspaceFromCloseTabGesture(workspace, closesLastSurface: true))
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(offered, [[.tab, .safety]])
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
+    func testIdleLastSurfaceClosesWithoutPromptWhenWorkspaceSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        let workspace = manager.tabs[1]
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceFromCloseTabGesture(workspace, closesLastSurface: true))
+        XCTAssertEqual(promptCount, 0)
+    }
+
     /// #44785: closing several workspaces (not the whole window) with a
     /// running process in one of them does not ask with the setting off.
     func testMultiWorkspaceCloseWithRunningProcessSkipsPromptWhenSettingDisabled() {

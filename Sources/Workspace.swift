@@ -14748,9 +14748,9 @@ extension Workspace: BonsplitDelegate {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
             if tabCloseButtonClose == true {
-                owningTabManager?.closeWorkspaceFromTabCloseButton(self)
+                owningTabManager?.closeWorkspaceFromTabCloseButton(self, closesLastSurface: true)
             } else {
-                owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
+                owningTabManager?.closeWorkspaceFromCloseTabGesture(self, closesLastSurface: true)
             }
             return false
         }
