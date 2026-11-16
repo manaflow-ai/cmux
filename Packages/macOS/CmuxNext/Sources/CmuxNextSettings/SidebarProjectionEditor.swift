@@ -32,7 +32,7 @@ public struct SidebarProjectionEditRefused: Error, CustomStringConvertible {
     public let description: String
 }
 
-public nonisolated enum SidebarProjectionEditor {
+extension SidebarProjectionEdit {
     static let sectionsPath = ["sidebar", "sections"]
     static let workspacesPath = ["sidebar", "workspaces"]
     /// The flat `"sidebar.workspaces"` key the resolver also reads (it wins over the nested one).
@@ -45,17 +45,17 @@ public nonisolated enum SidebarProjectionEditor {
         var refused: String?
     }
 
-    /// The file edits `edit` makes to `root` (cmux-next.json as written): a
+    /// The file edits this makes to `root` (cmux-next.json as written): a
     /// value sets its path, nil removes it. Empty when nothing changes.
-    public static func edits(_ edit: SidebarProjectionEdit, in root: JSONValue) throws -> [(path: [String], value: JSONValue?)] {
-        let flat = root[flatWorkspacesPath[0]]
-        let workspacesPath = flat == nil ? workspacesPath : flatWorkspacesPath
-        let request = JSONValue.object([
-            "sections": root.value(at: sectionsPath) ?? .null,
+    public func edits(in root: JSONValue) throws -> [(path: [String], value: JSONValue?)] {
+        let flat = root[Self.flatWorkspacesPath[0]]
+        let workspacesPath = flat == nil ? Self.workspacesPath : Self.flatWorkspacesPath
+        let body = JSONValue.object([
+            "sections": root.value(at: Self.sectionsPath) ?? .null,
             "workspaces": flat ?? root.value(at: Self.workspacesPath) ?? .null,
-            "edit": edit.request,
+            "edit": request,
         ])
-        guard let data = try? JSONEncoder().encode(request),
+        guard let data = try? JSONEncoder().encode(body),
               let reply: Reply = SidebarProjectionCustomizationResolver.call("sidebar_projection_edit", data) else {
             throw SidebarProjectionEditRefused(description: "the sidebar projection edit could not be planned")
         }
@@ -65,7 +65,7 @@ public nonisolated enum SidebarProjectionEditor {
             if case .null? = value { return nil }
             return value
         }
-        var edits: [(path: [String], value: JSONValue?)] = [(path: sectionsPath, value: value(reply.sections)),
+        var edits: [(path: [String], value: JSONValue?)] = [(path: Self.sectionsPath, value: value(reply.sections)),
                                                             (path: workspacesPath, value: value(reply.workspaces))]
         // The flat key hides the nested one; once the flat key is removed the nested one would apply,
         // so a reset removes both.
@@ -82,7 +82,7 @@ extension SettingsController {
     /// when the file changed.
     @discardableResult
     public func editSidebarProjection(_ edit: SidebarProjectionEdit) async throws -> Bool {
-        let edits = try SidebarProjectionEditor.edits(edit, in: try file.document())
+        let edits = try edit.edits(in: try await file.document())
         guard !edits.isEmpty else { return false }
         try await file.apply(edits)
         _ = try await pruneEmpty(["sidebar"])
