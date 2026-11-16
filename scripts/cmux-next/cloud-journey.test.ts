@@ -10,7 +10,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -90,10 +90,51 @@ describe("cloud journey", () => {
       staging_sha: null, staging_sha_unavailable: "platform: not read; api: not read",
       deploy_overlap: null, deploy_overlap_unavailable: "no service's /v1/health named a deploy commit both before and after the claim",
       reply_not_judged: null,
+      spare_wait_ms: null,
+      cold_after_wait: false,
       claimed_behind: null,
       spare_skips: null,
       spare_fallback: null,
     });
+  });
+
+  test("a bounded wait for a ready spare retries until the warm names one, and reports the wait", async () => {
+    let t = 0;
+    const answers = [null, null, "vm_spare"];
+    const sleeps: number[] = [];
+    const out = await waitForReadySpare(async () => ({ spare: answers.shift() ?? null }), 120_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { sleeps.push(ms); t += ms; } });
+    expect(out.prepared.spare).toBe("vm_spare");
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false });
+    expect(sleeps).toEqual([15_000, 15_000]);
+  });
+
+  test("a wait that runs out claims anyway and marks the claim cold after the wait; no wait asks once", async () => {
+    let t = 0;
+    let calls = 0;
+    const out = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 40_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { t += ms; } });
+    expect(out.prepared.spare).toBeNull();
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true });
+    expect(calls).toBe(3);
+    calls = 0;
+    const once = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 0);
+    expect(once.wait).toBeNull();
+    expect(calls).toBe(1);
+  });
+
+  test("cold creates after a ready spare was reported count apart from claims made after the wait ran out", () => {
+    const rows = [
+      preclaimClaimRecord({ claim: 0, leaseHit: true, spareWait: { waited_ms: 15_000, attempts: 2, cold_after_wait: false } }),
+      preclaimClaimRecord({ claim: 1, leaseHit: false, spareWait: { waited_ms: 300_000, attempts: 21, cold_after_wait: true } }),
+      preclaimClaimRecord({ claim: 2, leaseHit: false, spare: "vm_spare", spareWait: { waited_ms: 0, attempts: 1, cold_after_wait: false } }),
+    ];
+    expect(rows[0].spare_wait_ms).toBe(15_000);
+    expect(rows[1].cold_after_wait).toBe(true);
+    expect(preclaimSummary(rows)).toMatchObject({ lease_misses: 2, cold_creates: 1, cold_after_wait: 1, spare_wait_p90_ms: 300_000 });
+    const md = preclaimSummaryMarkdown(rows);
+    expect(md).toContain("- cold creates: 1");
+    expect(md).toContain("- cold after the ready-spare wait ran out: 1");
+    expect(md).toContain("| spare wait |");
+    expect(md).toContain("| 300000 (ran out) |");
   });
 
   test("preclaim records name a claim served one image roll behind (held across a roll) and the claim's skips", () => {
@@ -2532,5 +2573,27 @@ describe("preclaim MET table fields", () => {
       (globalThis as any).WebSocket = realWebSocket;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("a preclaim agent start that fails says why", () => {
+  // Run 43873927808's claim 4 recorded only "agent start refused": acp ensure's exit, output and time were dropped, and
+  // the guest facts kept the journal's tail, which pushed out the own-login and acp tail sections.
+  test("the refusal names acp ensure's exit, its output and how long it ran", async () => {
+    const refused = runPreclaimChat(async () => ({ code: 0, stdout: "acp: harness claude did not start: spawn failed\n@@exit 1\n", stderr: "" }), "s", "Reply once", 1000);
+    await expect(refused).rejects.toThrow(/^preclaim s: agent start refused \(exit 1 after \d+ s\): acp: harness claude did not start: spawn failed$/);
+  });
+
+  test("an ensure the exec cut off reads as a timeout, with what it printed so far", async () => {
+    const cut = runPreclaimChat(async () => ({ code: 124, stdout: "starting claude", stderr: "" }), "s", "Reply once", 1000);
+    await expect(cut).rejects.toThrow(/^preclaim s: agent start refused \(no exit within the 120 s exec, code 124, after \d+ s\): starting claude$/);
+  });
+
+  test("a long journal never pushes the own-login and acp sections out of a failure's guest facts", () => {
+    const guest = `== own login\nyes\n== acp tail s\n{"kind":"turn_error"}\n== acp list\ns ready\n== journal\n${"x".repeat(120)}\n`.repeat(1) + "j\n".repeat(20_000);
+    const record = preclaimFailureRecord(4, new Error("agent start refused"), [], null, guest);
+    expect(record.guest).toContain("== own login\nyes");
+    expect(record.guest).toContain("== acp tail s");
+    expect(record.guest!.length).toBeLessThanOrEqual(12_000);
   });
 });
