@@ -318,6 +318,18 @@ pub(crate) fn authority() -> Result<crate::machine_consent::Authority> {
 /// nonblocking take would fail as if another holder were still at work.
 pub(crate) struct HeldLock(pub(crate) std::fs::File);
 
+impl HeldLock {
+    /// Takes `file`'s exclusive lock without waiting (`flock` on Unix, `LockFileEx` on Windows);
+    /// `busy` is the error when another holder has it.
+    pub(crate) fn take(file: std::fs::File, busy: &'static str) -> Result<Self> {
+        match file.try_lock() {
+            Ok(()) => Ok(HeldLock(file)),
+            Err(std::fs::TryLockError::WouldBlock) => Err(anyhow::anyhow!(busy)),
+            Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+        }
+    }
+}
+
 impl Drop for HeldLock {
     fn drop(&mut self) {
         let _ = self.0.unlock();
