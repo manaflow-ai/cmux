@@ -175,7 +175,7 @@ impl CatalogService {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take()
-            .map_or_else(|| Arc::new(bundled()), |catalog| catalog);
+            .unwrap_or_else(|| Arc::new(bundled()));
         let mut state = State {
             catalog: bundled.clone(),
             source: Source::Bundled,

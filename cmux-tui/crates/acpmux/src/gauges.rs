@@ -153,10 +153,10 @@ fn thread_stats() -> ThreadStats {
     let value = |value: libc::c_long| u64::try_from(value).unwrap_or(0);
     ThreadStats {
         cpu_us,
-        major_faults: usage_ok.then(|| value(usage.ru_majflt)).unwrap_or(0),
-        minor_faults: usage_ok.then(|| value(usage.ru_minflt)).unwrap_or(0),
-        voluntary_switches: usage_ok.then(|| value(usage.ru_nvcsw)).unwrap_or(0),
-        involuntary_switches: usage_ok.then(|| value(usage.ru_nivcsw)).unwrap_or(0),
+        major_faults: if usage_ok { value(usage.ru_majflt) } else { 0 },
+        minor_faults: if usage_ok { value(usage.ru_minflt) } else { 0 },
+        voluntary_switches: if usage_ok { value(usage.ru_nvcsw) } else { 0 },
+        involuntary_switches: if usage_ok { value(usage.ru_nivcsw) } else { 0 },
     }
 }
 
