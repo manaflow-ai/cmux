@@ -186,7 +186,11 @@ fn floating_pane_records_keep_one_tiled_pane_at_load() {
     );
 
     let stored = panes_of(stored_list(&root, &session));
-    assert_eq!(stored, [right.clone()], "the front pane stays tiled, the pane behind floats");
+    assert_eq!(
+        stored,
+        std::slice::from_ref(&right),
+        "the front pane stays tiled, the pane behind floats"
+    );
 
     let mux = open_restart_mux(&root, &session);
     assert_eq!(panes_of(live_list(&mux)), [right]);
@@ -214,9 +218,17 @@ fn floating_pane_record_of_a_pane_that_never_floats_is_dropped_at_load() {
     let (root, session) = seed("never-stack", |screen| {
         screen.floating = records(&[&one, &right]);
     });
-    assert_eq!(panes_of(stored_list(&root, &session)), [right.clone()], "a member of a stack");
+    assert_eq!(
+        panes_of(stored_list(&root, &session)),
+        std::slice::from_ref(&right),
+        "a member of a stack"
+    );
     let mux = open_restart_mux(&root, &session);
-    assert_eq!(panes_of(live_list(&mux)), [right.clone()], "a member of a stack, live");
+    assert_eq!(
+        panes_of(live_list(&mux)),
+        std::slice::from_ref(&right),
+        "a member of a stack, live"
+    );
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
@@ -230,7 +242,11 @@ fn floating_pane_record_of_a_pane_that_never_floats_is_dropped_at_load() {
         ];
         screen.floating = records(&[&low, &right]);
     });
-    assert_eq!(panes_of(stored_list(&root, &session)), [right.clone()], "a column with rows");
+    assert_eq!(
+        panes_of(stored_list(&root, &session)),
+        std::slice::from_ref(&right),
+        "a column with rows"
+    );
     let mux = open_restart_mux(&root, &session);
     assert_eq!(panes_of(live_list(&mux)), [right], "a column with rows, live");
     mux.shutdown();
@@ -257,7 +273,7 @@ fn floating_pane_record_of_the_zoomed_pane_ends_the_zoom_at_load() {
         .into_iter()
         .find(|stored| stored.public_id == restore_screen_id(1))
         .unwrap();
-    assert_eq!(panes_of(stored.floating), [low.clone()], "the pane floats");
+    assert_eq!(panes_of(stored.floating), std::slice::from_ref(&low), "the pane floats");
     assert_eq!(stored.zoomed_pane, None, "the load ends the zoom");
 
     let mux = open_restart_mux(&root, &session);
@@ -479,7 +495,7 @@ fn floating_pane_load_of_no_screen_reads_no_side_table() {
     mux.new_workspace(None, Some((80, 22))).unwrap();
     let registry = mux.workspace_registry.lock().unwrap();
 
-    let read = Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::<String>::new()));
+    let read = Arc::new(Mutex::new(BTreeSet::<String>::new()));
     let (sink, caller) = (read.clone(), std::thread::current().id());
     mux.registry_connection
         .get()
