@@ -13,8 +13,11 @@ interface CallContext {
   userId: string;
   origin: string;
   stackToken: string | null;
-  /** `host`: a device-key renewal session, which may only serve this device as a host. */
-  scope: "full" | "host";
+  /**
+   * `host`: a device-key renewal session, which may only serve this device as a host. `machine`:
+   * a joined machine's sign-in (index.ts authMachine), which may also register, anchor and share it.
+   */
+  scope: "full" | "host" | "machine";
   /** A host session's cmux relay entitlement, as recorded at its last anchor. */
   hostRelay: boolean;
 }
@@ -351,13 +354,14 @@ export class UserDO extends DurableObject<Env> {
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
-      const scope = request.headers.get(SCOPE_HEADER) === "host" ? "host" : "full";
+      const header = request.headers.get(SCOPE_HEADER);
+      const scope = header === "host" || header === "machine" ? header : "full";
       const hostRelay = request.headers.get(HOST_RELAY_HEADER) === "1";
       const body = new Uint8Array(await request.arrayBuffer());
       const now = Date.now();
       const h = readDeviceHeaders(request.headers, now);
-      // A host session is one device's: every request it carries is signed by that device.
-      if (scope === "host" && request.headers.get(SESSION_DEVICE_HEADER) !== h.id) {
+      // A host or machine session is one device's: every request it carries is signed by that device.
+      if (scope !== "full" && request.headers.get(SESSION_DEVICE_HEADER) !== h.id) {
         throw new ApiError(403, "host_scope", "this session belongs to another device");
       }
       if (request.method === "POST" && url.pathname === "/v1/devices") {
@@ -447,6 +451,9 @@ export class UserDO extends DurableObject<Env> {
     const n = parts.length;
     if (c.scope === "host" && !this.hostAllowed(m, parts, me, raw)) {
       throw new ApiError(403, "host_scope", "a host session can only serve this Mac; open cmux for this change");
+    }
+    if (c.scope === "machine" && !this.machineAllowed(m, parts, me, raw)) {
+      throw new ApiError(403, "machine_scope", "a joined machine's session can only set up and serve this machine; open cmux for this change");
     }
     if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return this.anchor(me, c);
 
@@ -1119,6 +1126,20 @@ export class UserDO extends DurableObject<Env> {
     return false;
   }
 
+  /**
+   * What a machine session may do: what a host session may, and set this
+   * machine up as a host (anchor it, turn its sharing on). Its registration
+   * passed before dispatch. Not: another device, permissions above the saved
+   * ones, relay writes, a session as viewer.
+   */
+  private machineAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
+    const [a, b, d] = parts;
+    const n = parts.length;
+    if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return true;
+    if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) return true;
+    return this.hostAllowed(m, parts, me, raw);
+  }
+
   /** The signed-in app lets its Mac renew its own host session for 30 days. */
   private async anchor(me: DeviceRow, c: CallContext): Promise<Response> {
     if (!HOST_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_host", "only a Mac or a Linux desktop is anchored");
@@ -1155,8 +1176,25 @@ export class UserDO extends DurableObject<Env> {
     }
   }
 
+  /**
+   * The hub user a cmux-platform user id is (machine.ts). This instance is the
+   * alias `machine-alias:<project>:<platform id>`, never a user's own.
+   */
+  private async machineAlias(request: Request): Promise<Response> {
+    this.sql.exec("CREATE TABLE IF NOT EXISTS machine_alias(k INTEGER PRIMARY KEY CHECK (k = 1), user_id TEXT NOT NULL)");
+    if (request.method === "PUT") {
+      const { userId } = (await request.json()) as { userId?: unknown };
+      if (typeof userId !== "string" || !userId) return json({ ok: false }, 400);
+      this.sql.exec("INSERT INTO machine_alias(k, user_id) VALUES (1, ?) ON CONFLICT(k) DO UPDATE SET user_id = excluded.user_id", userId);
+      return json({ ok: true });
+    }
+    const row = this.sql.exec("SELECT user_id FROM machine_alias WHERE k = 1").toArray()[0];
+    return json({ userId: (row?.user_id as string | undefined) ?? null });
+  }
+
   private async internal(path: string, request: Request): Promise<Response> {
     if (path === "/internal/renew-device") return this.renewDevice(request);
+    if (path === "/internal/machine-alias") return this.machineAlias(request);
     const body = (await request.json()) as { sid?: string; reason?: string; path?: string };
     const s = body.sid ? this.session(body.sid) : null;
     if (!s) return json({ ok: false }, 404);
