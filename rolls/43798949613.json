@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43798949613",
+  "recorded_at": "2026-11-16T03:39:30Z",
+  "reason": "cmux-tui 5c8ff4120857 changes the image's cmux-tui (pinned 69400ff148b2)",
+  "dry_run": false,
+  "cmux_tui": "5c8ff4120857fd69df9d6e923adf6d63ce608ab4",
+  "fixes": [
+    {
+      "sha": "5c8ff4120857fd69df9d6e923adf6d63ce608ab4",
+      "mergedAt": "2026-11-15T19:23:44-08:00",
+      "subject": "screen share: pre-create a decoder session at connect so the first frame skips the cold create (#44094)"
+    },
+    {
+      "sha": "df2f4cdc95ce8cd5874b3bc6fc1fb578d661a74f",
+      "mergedAt": "2026-11-16T03:23:34Z",
+      "subject": "rd host: encode off the input loop thread (#44083)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T03:39:30Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
