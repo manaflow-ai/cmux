@@ -2027,6 +2027,10 @@ impl HubWriter {
         self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Summary(event.clone()));
         self.publish(event.clone());
+        #[cfg(test)]
+        if source == Source::Local {
+            self.turn_measure.local_published = Some(std::time::Instant::now());
+        }
         Ok(event)
     }
 

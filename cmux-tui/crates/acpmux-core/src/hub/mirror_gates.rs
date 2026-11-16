@@ -282,16 +282,20 @@ fn pr08_mirror_local_row() {
     );
 }
 
-const ORIGINS: usize = 30;
+/// The origins each queueing a unit: 30, or `V2_THIRTY_ORIGINS`.
+fn origins() -> usize {
+    std::env::var("V2_THIRTY_ORIGINS").ok().and_then(|value| value.parse().ok()).unwrap_or(30)
+}
 
 /// One sample: a unit of [`MAX_UNIT_CHANGES`] changes queued for each of the
-/// 30 origins, then a local row; the time from the local row's submit to the
-/// end of the writer turn that publishes it. The turns after it, which write
-/// the units the cap left, are not timed.
-fn thirty_sample(fixture: &mut Fixture) -> u128 {
+/// origins, then a local row. Two clocks start at the local row's submit: one
+/// stops at the end of the writer turn that publishes it, the other when that
+/// turn publishes it. The turns after it, which write the units the cap left,
+/// are not timed.
+fn thirty_sample(fixture: &mut Fixture) -> (u128, u128) {
     let cursor = fixture.next;
     fixture.next += 1;
-    for origin in 0..ORIGINS {
+    for origin in 0..origins() {
         let name = format!("peer-{origin:02}");
         let changes = (0..MAX_UNIT_CHANGES)
             .map(|n| UnitChange::Summary(Box::new(row(&name, format!("big-{n:05}"), cursor))))
@@ -313,34 +317,43 @@ fn thirty_sample(fixture: &mut Fixture) -> u128 {
         fixture.writer.process_batch();
     }
     let elapsed = started.elapsed().as_nanos().max(1);
-    while (0..ORIGINS).any(|origin| {
+    let publish = fixture
+        .writer
+        .turn_measure
+        .local_published
+        .map_or(elapsed, |at| at.duration_since(started).as_nanos().max(1));
+    while (0..origins()).any(|origin| {
         fixture.hub.mirror_mark(&format!("peer-{origin:02}")).map(|mark| mark.cursor)
             != Some(cursor)
     }) {
         fixture.writer.process_batch();
     }
-    elapsed
+    (elapsed, publish)
 }
 
-/// A local row's submit-to-publish while 30 origins each queue the largest
+/// A local row's submit-to-publish while 30 origins (or `V2_THIRTY_ORIGINS`) each queue the largest
 /// unit in one turn, under [`MAX_TURN_UNIT_CHANGES`] and with the cap lifted.
 #[test]
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn pr08_mirror_local_row_thirty() {
-    let mut god = fixture(11_000, ORIGINS, 16_000);
+    let mut god = fixture(11_000, origins(), 16_000);
     thirty_sample(&mut god);
     let mut capped_rounds = Vec::new();
     let mut lifted_rounds = Vec::new();
     let (mut capped_kept, mut lifted_kept) = (Vec::new(), Vec::new());
     let mut pooled = Vec::new();
+    let mut publish_rounds = Vec::new();
     for _ in 0..LOCAL_ROUNDS {
         god.writer.mirror.turn_changes = MAX_TURN_UNIT_CHANGES;
-        let mut samples: Vec<u128> = (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).collect();
+        let (mut samples, mut published): (Vec<u128>, Vec<u128>) =
+            (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).unzip();
+        publish_rounds.push(p95(&mut published));
         pooled.extend_from_slice(&samples);
         capped_kept.push(samples.clone());
         capped_rounds.push(p95(&mut samples));
         god.writer.mirror.turn_changes = usize::MAX;
-        let mut samples: Vec<u128> = (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).collect();
+        let mut samples: Vec<u128> =
+            (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god).0).collect();
         lifted_kept.push(samples.clone());
         lifted_rounds.push(p95(&mut samples));
     }
@@ -351,10 +364,12 @@ fn pr08_mirror_local_row_thirty() {
     let capped_p95 = capped_rounds.into_iter().min().unwrap_or(1);
     let capped_all = p95(&mut pooled);
     let lifted_p95 = lifted_rounds.into_iter().min().unwrap_or(1);
+    let publish_p95 = publish_rounds.into_iter().min().unwrap_or(1);
     let counts = god.hub.mirror_counts();
     assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
-        "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"small_p95\":0,\"god_p95\":{capped_p95},\"god_p95_all\":{capped_all},\"capped_p95\":{capped_p95},\"capped_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{ORIGINS},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}"
+        "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"publish_p95\":{publish_p95},\"small_p95\":0,\"god_p95\":{capped_p95},\"god_p95_all\":{capped_all},\"capped_p95\":{capped_p95},\"capped_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}",
+        origins()
     );
     eprintln!("{line}");
     if let Ok(path) = std::env::var("V2_GATE_OUT")
@@ -371,7 +386,7 @@ fn drain_sample(fixture: &mut Fixture) -> u128 {
     let cursor = fixture.next;
     fixture.next += 1;
     let mut submitted = Instant::now();
-    for origin in 0..ORIGINS {
+    for origin in 0..origins() {
         let name = format!("peer-{origin:02}");
         let changes = (0..MAX_UNIT_CHANGES)
             .map(|n| UnitChange::Summary(Box::new(row(&name, format!("big-{n:05}"), cursor))))
@@ -385,7 +400,7 @@ fn drain_sample(fixture: &mut Fixture) -> u128 {
         fixture.hub.submit_unit(Source::Mirror, unit).expect("unit");
         submitted = Instant::now();
     }
-    while (0..ORIGINS).any(|origin| {
+    while (0..origins()).any(|origin| {
         fixture.hub.mirror_mark(&format!("peer-{origin:02}")).map(|mark| mark.cursor)
             != Some(cursor)
     }) {
@@ -400,7 +415,7 @@ fn drain_sample(fixture: &mut Fixture) -> u128 {
 #[test]
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn turn_cap_compare() {
-    let mut god = fixture(11_000, ORIGINS, 16_000);
+    let mut god = fixture(11_000, origins(), 16_000);
     thirty_sample(&mut god);
     let caps = [4 * MAX_UNIT_CHANGES, MAX_TURN_UNIT_CHANGES];
     let mut capped: [Vec<u128>; 2] = Default::default();

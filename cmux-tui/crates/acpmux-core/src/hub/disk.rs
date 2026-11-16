@@ -17,6 +17,8 @@ pub(super) struct TurnMeasure {
     pub completed_log_bytes: Option<u64>,
     /// A mirror unit's turn: building records, the append, the index apply, publishing.
     pub unit_ns: [u128; 4],
+    /// When the turn published a local row: the thirty line's publish clock.
+    pub local_published: Option<std::time::Instant>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
