@@ -17359,6 +17359,16 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("expected_terminal_id", std::move(encoded).value());
     }
+    if (!value.hybrid_frame.is_absent()) {
+        auto encoded = encode_value(value.hybrid_frame);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("hybrid_frame", std::move(encoded).value());
+    }
+    if (!value.hybrid_stream.is_absent()) {
+        auto encoded = encode_value(value.hybrid_stream);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("hybrid_stream", std::move(encoded).value());
+    }
     if (!value.mode.is_absent()) {
         auto encoded = encode_value(value.mode);
         if (!encoded) return std::move(encoded).error();
@@ -17449,6 +17459,26 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<std::string>(*field_expected_terminal_id);
             if (!decoded) return std::move(decoded).error();
             result.expected_terminal_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_hybrid_frame = value.find("hybrid_frame");
+    if (field_hybrid_frame) {
+        if (field_hybrid_frame->is_null()) {
+            result.hybrid_frame = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_hybrid_frame);
+            if (!decoded) return std::move(decoded).error();
+            result.hybrid_frame = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_hybrid_stream = value.find("hybrid_stream");
+    if (field_hybrid_stream) {
+        if (field_hybrid_stream->is_null()) {
+            result.hybrid_stream = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_hybrid_stream);
+            if (!decoded) return std::move(decoded).error();
+            result.hybrid_stream = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_mode = value.find("mode");
@@ -37505,6 +37535,204 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<AgentCliFrameEvent>::encode(const AgentCliFrameEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("agent-cli-frame")));
+    if (value.base) {
+        auto encoded = encode_value(*value.base);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("base", std::move(encoded).value());
+    } else {
+        object.emplace("base", Json(nullptr));
+    }
+    auto encoded_cols = encode_value(value.cols);
+    if (!encoded_cols) return std::move(encoded_cols).error();
+    object.emplace("cols", std::move(encoded_cols).value());
+    auto encoded_cursor_visible = encode_value(value.cursor_visible);
+    if (!encoded_cursor_visible) return std::move(encoded_cursor_visible).error();
+    object.emplace("cursor_visible", std::move(encoded_cursor_visible).value());
+    auto encoded_cursor_x = encode_value(value.cursor_x);
+    if (!encoded_cursor_x) return std::move(encoded_cursor_x).error();
+    object.emplace("cursor_x", std::move(encoded_cursor_x).value());
+    auto encoded_cursor_y = encode_value(value.cursor_y);
+    if (!encoded_cursor_y) return std::move(encoded_cursor_y).error();
+    object.emplace("cursor_y", std::move(encoded_cursor_y).value());
+    auto encoded_data = encode_value(value.data);
+    if (!encoded_data) return std::move(encoded_data).error();
+    object.emplace("data", std::move(encoded_data).value());
+    auto encoded_frame = encode_value(value.frame);
+    if (!encoded_frame) return std::move(encoded_frame).error();
+    object.emplace("frame", std::move(encoded_frame).value());
+    auto encoded_rows = encode_value(value.rows);
+    if (!encoded_rows) return std::move(encoded_rows).error();
+    object.emplace("rows", std::move(encoded_rows).value());
+    auto encoded_stream = encode_value(value.stream);
+    if (!encoded_stream) return std::move(encoded_stream).error();
+    object.emplace("stream", std::move(encoded_stream).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<AgentCliFrameEvent> Codec<AgentCliFrameEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AgentCliFrameEvent result{};
+    const Json* field_base = value.find("base");
+    if (!field_base) {
+        return make_error(ErrorCode::decode, "missing required field 'base'");
+    }
+    if (field_base) {
+        if (field_base->is_null()) {
+            result.base.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_base);
+            if (!decoded) return std::move(decoded).error();
+            result.base = std::move(decoded).value();
+        }
+    }
+    const Json* field_cols = value.find("cols");
+    if (!field_cols) {
+        return make_error(ErrorCode::decode, "missing required field 'cols'");
+    }
+    if (field_cols) {
+        auto decoded = decode_value<std::uint16_t>(*field_cols);
+        if (!decoded) return std::move(decoded).error();
+        result.cols = std::move(decoded).value();
+    }
+    const Json* field_cursor_visible = value.find("cursor_visible");
+    if (!field_cursor_visible) {
+        return make_error(ErrorCode::decode, "missing required field 'cursor_visible'");
+    }
+    if (field_cursor_visible) {
+        auto decoded = decode_value<bool>(*field_cursor_visible);
+        if (!decoded) return std::move(decoded).error();
+        result.cursor_visible = std::move(decoded).value();
+    }
+    const Json* field_cursor_x = value.find("cursor_x");
+    if (!field_cursor_x) {
+        return make_error(ErrorCode::decode, "missing required field 'cursor_x'");
+    }
+    if (field_cursor_x) {
+        auto decoded = decode_value<std::uint16_t>(*field_cursor_x);
+        if (!decoded) return std::move(decoded).error();
+        result.cursor_x = std::move(decoded).value();
+    }
+    const Json* field_cursor_y = value.find("cursor_y");
+    if (!field_cursor_y) {
+        return make_error(ErrorCode::decode, "missing required field 'cursor_y'");
+    }
+    if (field_cursor_y) {
+        auto decoded = decode_value<std::uint16_t>(*field_cursor_y);
+        if (!decoded) return std::move(decoded).error();
+        result.cursor_y = std::move(decoded).value();
+    }
+    const Json* field_data = value.find("data");
+    if (!field_data) {
+        return make_error(ErrorCode::decode, "missing required field 'data'");
+    }
+    if (field_data) {
+        auto decoded = decode_value<Base64>(*field_data);
+        if (!decoded) return std::move(decoded).error();
+        result.data = std::move(decoded).value();
+    }
+    const Json* field_frame = value.find("frame");
+    if (!field_frame) {
+        return make_error(ErrorCode::decode, "missing required field 'frame'");
+    }
+    if (field_frame) {
+        auto decoded = decode_value<std::uint64_t>(*field_frame);
+        if (!decoded) return std::move(decoded).error();
+        result.frame = std::move(decoded).value();
+    }
+    const Json* field_rows = value.find("rows");
+    if (!field_rows) {
+        return make_error(ErrorCode::decode, "missing required field 'rows'");
+    }
+    if (field_rows) {
+        auto decoded = decode_value<std::uint16_t>(*field_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.rows = std::move(decoded).value();
+    }
+    const Json* field_stream = value.find("stream");
+    if (!field_stream) {
+        return make_error(ErrorCode::decode, "missing required field 'stream'");
+    }
+    if (field_stream) {
+        auto decoded = decode_value<std::string>(*field_stream);
+        if (!decoded) return std::move(decoded).error();
+        result.stream = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("agent-cli-frame"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<AgentCliLeanEvent>::encode(const AgentCliLeanEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("agent-cli-lean")));
+    auto encoded_f = encode_value(value.f);
+    if (!encoded_f) return std::move(encoded_f).error();
+    object.emplace("f", std::move(encoded_f).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<AgentCliLeanEvent> Codec<AgentCliLeanEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AgentCliLeanEvent result{};
+    const Json* field_f = value.find("f");
+    if (!field_f) {
+        return make_error(ErrorCode::decode, "missing required field 'f'");
+    }
+    if (field_f) {
+        auto decoded = decode_value<Base64>(*field_f);
+        if (!decoded) return std::move(decoded).error();
+        result.f = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("agent-cli-lean"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<AgentInventoryChangedEvent>::encode(const AgentInventoryChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -45899,6 +46127,16 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "agent-cli-frame") {
+        auto decoded = decode_value<AgentCliFrameEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "agent-cli-lean") {
+        auto decoded = decode_value<AgentCliLeanEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "agent-inventory-changed") {
         auto decoded = decode_value<AgentInventoryChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -46364,10 +46602,12 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 13> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 15> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
+    {"hybrid_frame", 0U, "agent-cli-hybrid-v1"},
+    {"hybrid_stream", 0U, "agent-cli-hybrid-v1"},
     {"mode", 7U, ""},
     {"output_coalesce_ms", 0U, "attach-output-coalesce-v1"},
     {"replay_history_rows", 0U, "attach-replay-history-rows-v1"},
@@ -46920,9 +47160,11 @@ constexpr std::array<CommandMetadata, 302> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 94> kEvents{{
+constexpr std::array<EventMetadata, 96> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
+    {"agent-cli-frame", 12U, "agent-cli-hybrid-v1", "attach-byte", "emitted"},
+    {"agent-cli-lean", 12U, "agent-cli-hybrid-v2", "attach-byte", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-inventory-watch-ended", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},

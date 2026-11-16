@@ -10,6 +10,9 @@ public import AppKit
 /// 12114: "do not have extra bg").
 /// Pages read `pageValue`, the setting itself: WebKit draws legacy bars for
 /// "Always", which the shared web rules (webviews/src/scrollers.ts) thin.
+/// The app pins the setting to "When scrolling" at launch (``ScrollerStylePin``), so AppKit makes
+/// every scroll view overlay, a view that never calls `follow(_:)` included, also with a mouse
+/// attached; `follow(_:)` stays for the thin scroller and for a process without the pin (tests).
 /// The setting is tracked live through
 /// `NSScroller.preferredScrollerStyleDidChangeNotification` (one observer,
 /// no polling).

@@ -14,6 +14,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { followMotion } from "../src/agent-session/acpmux/conversation/followMotion.experiment";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 /// One frame after the send: the sent bubble's top on screen (px) and whether the thinking row is drawn.
 type Frame = { at: number; top: number; thinking: boolean };
@@ -49,7 +50,7 @@ await requireBrowserLane("agent-pane-send-one-rise.test.ts", async () => {
   });
 
   const send = async (page: Page, line: string) => {
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').click();
+    await page.locator(COMPOSER_EDITOR).click();
     await page.keyboard.type(line);
     await page.keyboard.press("Enter");
   };
@@ -66,7 +67,7 @@ await requireBrowserLane("agent-pane-send-one-rise.test.ts", async () => {
     }, arm);
     const port = (pane!.httpServer!.address() as { port: number }).port;
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').waitFor();
+    await page.locator(COMPOSER_EDITOR).waitFor();
     for (const line of ["first question", "second question", "third question", "fourth question"]) {
       await send(page, line);
       await page.locator(".cv-user__bubble", { hasText: line }).waitFor();
