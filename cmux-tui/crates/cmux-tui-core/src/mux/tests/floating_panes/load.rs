@@ -112,8 +112,10 @@ fn floating_pane_records_keep_one_tiled_pane_at_load() {
 fn floating_panes_of_two_screens_load_each_on_its_own_screen() {
     let [columns, selected] = [1, 2].map(restore_screen_id);
     let (root, session) = seed_screens("two-screens", |screens| {
-        for screen in screens.iter_mut() {
-            screen.position = if screen.public_id == columns { 1 } else { 0 };
+        // The patch of the fixture also gives the screens their positions from the order of this list.
+        screens.sort_by_key(|screen| screen.public_id == columns);
+        for (position, screen) in screens.iter_mut().enumerate() {
+            screen.position = position;
         }
     });
     let moved = FloatFrame { x: 100_000, y: 200_000, w: 400_000, h: 500_000 };
