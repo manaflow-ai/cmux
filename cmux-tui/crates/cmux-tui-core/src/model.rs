@@ -15,6 +15,7 @@ mod floating_panes;
 mod layout_columns;
 mod layout_fit;
 mod layout_rows;
+mod one_pane_screen;
 mod split_around;
 
 pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
