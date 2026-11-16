@@ -163,6 +163,33 @@ describe("POST /v1/auth/machine", () => {
     expect((await machineSignIn(lapsing, crypto.randomUUID())).status).toBe(401);
   });
 
+  it("drops an anchor the desktop kept from a person's sign-in once a machine session speaks for it", async () => {
+    // The person enabled this desktop interactively: anchored, it renews by its device key.
+    const person = await signIn();
+    const desktop = await Device.create(person, "Desktop", "linux");
+    await desktop.register();
+    expect((await desktop.call("POST", "/v1/auth/device/anchor", {})).status).toBe(200);
+    expect((await renew(desktop)).status).toBe(200);
+    // The machine is joined and signs the same desktop in with its credential.
+    const credential = await joinedMachine(person.sub);
+    const res = await machineSignIn(credential, desktop.id);
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const machine = await Device.create({ userId: person.userId, session: res.json.session }, "Desktop", "linux");
+    Object.assign(machine, { id: desktop.id, signing: desktop.signing, signingKey: desktop.signingKey, agreementKey: desktop.agreementKey });
+    await machine.register();
+    // The old anchor is gone: a revoked credential cannot be outlived by device-key renewal.
+    expect((await renew(desktop)).status).toBe(403);
+    // A machine call on an already-registered desktop drops one too.
+    const again = await Device.create(person, "Desktop 2", "linux");
+    await again.register();
+    expect((await again.call("POST", "/v1/auth/device/anchor", {})).status).toBe(200);
+    const second = await machineSignIn(await joinedMachine(person.sub), again.id);
+    const host = await Device.create({ userId: person.userId, session: second.json.session }, "Desktop 2", "linux");
+    Object.assign(host, { id: again.id, signing: again.signing, signingKey: again.signingKey, agreementKey: again.agreementKey });
+    expect((await host.call("PUT", `/v1/devices/${again.id}/mac-screen`, { shared: true })).status).toBe(200);
+    expect((await renew(again)).status).toBe(403);
+  });
+
   it("never makes one team's machine read as another team's person", async () => {
     // Two people on two teams; A joined a machine to team A.
     const a = await signIn();

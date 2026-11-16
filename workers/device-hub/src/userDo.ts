@@ -368,7 +368,9 @@ export class UserDO extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/v1/devices") {
         // A host session updates its own registration, never makes a device.
         if (scope === "host" && !this.device(h.id)) throw new ApiError(403, "host_scope", "a host session cannot register a new device");
-        return await this.register(request, url, body, h, now);
+        const registered = await this.register(request, url, body, h, now);
+        if (scope === "machine") this.dropMachineAnchor(h.id);
+        return registered;
       }
       const existing = this.device(h.id);
       if (!existing) throw new ApiError(401, "bad_signature", "unknown device");
@@ -376,6 +378,7 @@ export class UserDO extends DurableObject<Env> {
       await checkDeviceSignature(existing.signing_key, request.method, url, body, h);
       this.burnSignature(h.id, h.ts, h.sig, now);
       this.sql.exec("UPDATE devices SET last_seen_at = ? WHERE id = ?", now, h.id);
+      if (scope === "machine") this.dropMachineAnchor(h.id);
       const me = { ...existing, last_seen_at: now };
       return await this.dispatch(request, url, body, me, { userId, origin, stackToken, scope, hostRelay });
     } catch (err) {
@@ -1134,6 +1137,15 @@ export class UserDO extends DurableObject<Env> {
    * as viewer, or an anchor: device-key renewal would outlive the credential,
    * so a revoked machine would keep its host session for 30 days.
    */
+  /**
+   * A device a machine session speaks for renews only by signing in again: an anchor it
+   * kept from an earlier person's sign-in would let device-key renewal outlive a revoked
+   * credential for the rest of its 30 days, so the machine's first signed call drops it.
+   */
+  private dropMachineAnchor(deviceId: string) {
+    this.sql.exec("DELETE FROM anchors WHERE device_id = ?", deviceId);
+  }
+
   private machineAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
     const [a, b, d] = parts;
     const n = parts.length;
