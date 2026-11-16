@@ -158,6 +158,11 @@ work="$root/.build/screen-stream-eval"
 case "$prebuilt/" in
   "$out"/* | "$work"/*) echo "screen-stream-eval.sh: prebuilt= may not be inside $out or $work (the run removes both)" >&2; exit 2 ;;
 esac
+# A viewer that opens windows or posts input fights the person at a Mac they use (person_guard.py):
+# refuse before anything is removed or started. A tools-only build opens nothing.
+if [[ "$tools_only" != 1 ]]; then
+  python3 -I "$here/person_guard.py" check "$targets" || exit 2
+fi
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
@@ -520,7 +525,7 @@ PY
     go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
     rm -f "$go" "$stop" "$dir/host-$rep.png"
     unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY EVAL_SCENE_READY_FILE EVAL_VIDEO_METADATA
-    if [[ "$scene_marker" == 1 || "$name" == apple-high || "$name" == apple-standard || -n "$video_path" ]]; then
+    if [[ "$scene_marker" == 1 || "$name" == apple-* || -n "$video_path" ]]; then
       nonce=$(python3 -I -c 'import secrets; print(secrets.token_hex(16))') || {
         err "window $rep: could not create fresh source nonce"
         continue
@@ -578,6 +583,35 @@ PY
       [[ -s "$dir/source-scene-$rep.json" ]] && crop_args+=(--source-geometry "$dir/source-scene-$rep.json")
       [[ -s "$raw.readiness.json" ]] && crop_args+=(--readiness "$raw.readiness.json")
       "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" "${crop_args[@]}" >"$dir/ocr-$rep.json" || err "ocr $rep: invalid calibrated crop"
+    elif [[ "$name" == apple-rfb && -s "$dir/source-scene-$rep.json" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]] &&
+      crop=$(python3 -I - "$dir/source-scene-$rep.json" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" <<'PY'
+import json, struct, sys
+# rfb-viewer's frame is the host's framebuffer: the same display in the same pixels as the host's
+# screenshot, so one crop, the text below the marker strip, fits both. Refuse when sizes differ.
+def size(path):
+    head = open(path, "rb").read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(1)
+    return struct.unpack("!II", head[16:24])
+scene = json.load(open(sys.argv[1]))
+host, viewer = size(sys.argv[2]), size(sys.argv[3])
+if host != viewer:
+    raise SystemExit(1)
+scale = host[0] / scene["display_size_points"][0]
+x, y, w, h = (round(v * scale) for v in scene["content_rect_points"])
+print(f"{y} {x} {min(h, host[1] - y)} {min(w, host[0] - x)}")
+PY
+      ); then
+      # Same pixels on both sides, so no calibration: crop both to the text and compare them whole.
+      read -r cy cx ch cw <<<"$crop"
+      for side in host viewer; do
+        src="$dir/host-$rep.png"
+        [[ "$side" == viewer ]] && src="$dir/viewer-frame-$rep"
+        sips --cropOffset "$cy" "$cx" --cropToHeightWidth "$ch" "$cw" "$src" --out "$EVAL_STATE/ocr-$side-$rep.png" >/dev/null 2>&1 ||
+          err "ocr $rep: could not crop the $side image"
+      done
+      "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.png" "$dir/truth.txt" \
+        >"$dir/ocr-$rep.json" || err "ocr $rep failed"
     elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
       # The common marker reserves a region above the text. Full-window OCR
       # would include it and Apple chrome; calibrated pixel crops are required.
