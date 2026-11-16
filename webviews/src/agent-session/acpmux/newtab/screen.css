@@ -149,13 +149,11 @@
    spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
-/* The composer and create row are zoomed flex children with the same column width. */
+/* The composer and create row share the density-scaled column width. */
 .nt-screen .nt-composer,
 .nt-screen[data-minimal] .nt-create {
-  /* WebKit applies two zoom factors to both children's specified widths. C * t / t / t
-     therefore draws C * t for both. Neither needs the portal's single division:
-     its width starts with an already drawn anchor instead of the column token. */
-  width: min(100%, calc(var(--cmux-composer-column, calc(var(--cv-column, 800px) * var(--cmux-composer-zoom, 1))) / var(--cmux-composer-zoom, 1) / var(--cmux-composer-zoom, 1)));
+  /* The column is a drawn width. Convert it to CSS pixels once; zoom restores its density. */
+  width: min(100%, calc(var(--cmux-composer-column, calc(var(--cv-column, 800px) * var(--cmux-composer-zoom, 1))) / var(--cmux-composer-zoom, 1)));
   align-self: center;
   margin-inline: auto;
 }

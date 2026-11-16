@@ -89,7 +89,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     override func layout() {
         super.layout()
         // The bar's height can change live (density, `browser.omnibar.height`): the corner follows it.
-        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: min(bounds.width, bounds.height))
         let side = bounds.height
         let iconSize = icon.intrinsicContentSize
         icon.frame = NSRect(x: (side - iconSize.width) / 2, y: (side - iconSize.height) / 2, width: iconSize.width, height: iconSize.height)

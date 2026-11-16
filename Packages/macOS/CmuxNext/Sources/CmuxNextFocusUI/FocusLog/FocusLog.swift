@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextActions
-import CmuxNextDesign
+public import CmuxNextDesign
 import WebKit
 
 /// The focus log (`tunable.diagnostics.focusLog`, plans/cmux-next/focus-loss-AUDIT.md): while it
@@ -12,7 +12,12 @@ import WebKit
 /// (``keyChanged(_:becameKey:)``), and each key-down (``noteInput(_:)``), which also catches a
 /// first responder that changed with no `makeFirstResponder` (a focused view removed from its
 /// window). A cmux page reports its text input losing the keyboard inside the page
-/// (``pageInputBlurred(window:detail:)``). Off, each hook is one tunable read; one log per app.
+/// (``pageInputBlurred(window:detail:)``). Each line names the ``FocusRoute`` the move came
+/// through (`unrouted` for a direct call).
+///
+/// The newest 200 changes are kept in memory whether the log is on or not, without stacks, for
+/// `cmux app call debug.focus` (``recent(limit:)``); the file and the stacks are written only while
+/// the log is on. One log per app.
 ///
 /// ```swift
 /// let log = FocusLog(writer: FocusLogWriter(directory: temporaryFolder, symbolicate: { $0.map { "\($0)" } }),
@@ -58,6 +63,12 @@ public final class FocusLog {
     private var lastResponder: [ObjectIdentifier: (responder: ObjectIdentifier?, description: String)] = [:]
     /// The uptime of the person's last key or click.
     private var lastInput: TimeInterval?
+    /// The responder the person's last plain key-down (no Command or Control) went to, and when.
+    private var lastTyped: (responder: ObjectIdentifier, uptime: TimeInterval)?
+    /// The newest changes, oldest first (at most ``recentLimit``), for ``recent(limit:)``.
+    private var ring: [FocusLogEntry] = []
+    /// How many changes ``recent(limit:)`` keeps.
+    public static let recentLimit = 200
 
     /// - Parameters:
     ///   - writer: Where lines go (the app's log folder; a temporary one in tests).
@@ -86,6 +97,17 @@ public final class FocusLog {
     /// Whether lines are written now.
     public var isEnabled: Bool { enabled() }
 
+    /// The newest changes, oldest first, at most `limit` (kept while the log is off too, without
+    /// stacks).
+    public func recent(limit: Int = FocusLog.recentLimit) -> [FocusLogEntry] { Array(ring.suffix(max(0, limit))) }
+
+    /// Whether the person typed into `responder` (a key-down with no Command or Control) in the
+    /// last `seconds`: ``ResponderMoveGate`` refuses a ``FocusRoute/Origin/system`` move away from it.
+    public func typed(into responder: NSResponder?, within seconds: TimeInterval) -> Bool {
+        guard let responder, let lastTyped, lastTyped.responder == ObjectIdentifier(responder) else { return false }
+        return ProcessInfo.processInfo.systemUptime - lastTyped.uptime <= seconds
+    }
+
     /// The file lines go to.
     public nonisolated var url: URL? { writer.url }
 
@@ -96,7 +118,7 @@ public final class FocusLog {
 
     // MARK: Hooks
 
-    /// `window` moved its first responder from `from` to `to`, or refused the move.
+    /// `window` moved its first responder from `from` to `to` (through `route`), or refused the move.
     ///
     /// - Parameters:
     ///   - window: The window whose `makeFirstResponder` ran.
@@ -104,35 +126,45 @@ public final class FocusLog {
     ///   - to: The first responder after it (the asked-for one when refused).
     ///   - refused: The window refused the move.
     ///   - byFocusModel: The window's focus model applied it.
-    public func responderChanged(in window: NSWindow, from: NSResponder?, to: NSResponder?, refused: Bool, byFocusModel: Bool) {
-        guard isEnabled else { return }
+    ///   - route: The route it came through (nil: a direct call).
+    public func responderChanged(in window: NSWindow, from: NSResponder?, to: NSResponder?, refused: Bool, byFocusModel: Bool,
+                                 route: FocusRoute? = nil) {
         if !refused, from === to { return }
         let fromText = describe(from, in: window)
         let toText = describe(to, in: window)
         if !refused { remember(to, toText, in: window) }
         record(kind: refused ? .refused : .responder, window: window, from: fromText, to: toText, byFocusModel: byFocusModel,
-               takesFromTyping: !refused && Self.isTypingTarget(from) && !Self.isTypingTarget(to), detail: nil)
+               route: route, takesFromTyping: !refused && Self.isTypingTarget(from) && !Self.isTypingTarget(to), detail: nil)
     }
 
     /// `window` became or resigned key. A resign's stack names the code that made another window
     /// key (a Chromium page window, a panel); the other window is named when it is known.
-    public func keyChanged(_ window: NSWindow, becameKey: Bool) {
-        guard isEnabled else { return }
+    public func keyChanged(_ window: NSWindow, becameKey: Bool, route: FocusRoute? = nil) {
         let other = becameKey ? nil : NSApp.keyWindow.flatMap { $0 === window ? nil : $0 }
         record(kind: .key, window: window, from: becameKey ? other.map(describeWindow) : describeWindow(window),
                to: becameKey ? describeWindow(window) : other.map(describeWindow) ?? "another window",
-               byFocusModel: false, takesFromTyping: !becameKey && Self.isTypingTarget(window.firstResponder),
+               byFocusModel: false, route: route, takesFromTyping: !becameKey && Self.isTypingTarget(window.firstResponder),
                detail: becameKey ? "became key" : "resigned key")
     }
 
     /// Every input event the app dispatches. A key-down checks that the key window's first
     /// responder is the one last reported: a change no `makeFirstResponder` reported (a focused
     /// view removed from its window) shows here, before the key goes nowhere.
-    public func noteInput(_ event: NSEvent) {
+    ///
+    /// - Parameters:
+    ///   - event: The event.
+    ///   - window: The window it goes to; nil takes the event's window, else the key window.
+    ///     A test passes its window: an event made for a window that is not on screen has none.
+    public func noteInput(_ event: NSEvent, in window: NSWindow? = nil) {
         switch event.type {
         case .keyDown:
-            lastInput = ProcessInfo.processInfo.systemUptime
-            guard isEnabled, let window = event.window ?? NSApp.keyWindow, let known = lastResponder[ObjectIdentifier(window)] else { return }
+            let uptime = ProcessInfo.processInfo.systemUptime
+            lastInput = uptime
+            let target = window ?? event.window ?? NSApp.keyWindow
+            if event.modifierFlags.isDisjoint(with: [.command, .control]), let responder = target?.firstResponder {
+                lastTyped = (ObjectIdentifier(responder), uptime)
+            }
+            guard let window = target, let known = lastResponder[ObjectIdentifier(window)] else { return }
             let now = window.firstResponder
             guard known.responder != now.map(ObjectIdentifier.init) else { return }
             let toText = describe(now, in: window)
@@ -149,7 +181,6 @@ public final class FocusLog {
     /// A cmux page's text input lost the keyboard with no key or click, while its page kept or
     /// lost it (the page's own report, `detail` its words).
     public func pageInputBlurred(window: NSWindow?, detail: String) {
-        guard isEnabled else { return }
         record(kind: .pageBlur, window: window, from: "page text input", to: nil, byFocusModel: false, takesFromTyping: true,
                detail: detail, unprompted: true, stack: false)
     }
@@ -161,7 +192,7 @@ public final class FocusLog {
     }
 
     private func record(kind: FocusLogEntry.Kind, window: NSWindow?, from: String?, to: String?, byFocusModel: Bool,
-                        takesFromTyping: Bool, detail: String?, unprompted known: Bool? = nil, stack: Bool = true) {
+                        route: FocusRoute? = nil, takesFromTyping: Bool, detail: String?, unprompted known: Bool? = nil, stack: Bool = true) {
         let input = context.currentInput()
         let now = ProcessInfo.processInfo.systemUptime
         let since = lastInput.map { Int((now - $0) * 1000) }
@@ -171,7 +202,11 @@ public final class FocusLog {
             time: Date().formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)), uptime: now, kind: kind,
             window: window.map(windowID), from: from, to: to, input: input, sinceInputMs: since,
             by: byFocusModel ? "focus-model" : "direct", run: ActionRunScope.current.map { String(describing: $0.origin) },
+            route: route?.description ?? "unrouted",
             suspect: unprompted && takesFromTyping, detail: detail, stack: [])
+        ring.append(entry)
+        if ring.count > Self.recentLimit { ring.removeFirst(ring.count - Self.recentLimit) }
+        guard isEnabled else { return }
         // The stack of this change, innermost first, without this log's own two frames.
         let addresses = stack ? Array(Thread.callStackReturnAddresses.dropFirst(2).prefix(40).map(\.uintValue)) : []
         pending.yield(.line(entry, addresses))
@@ -203,7 +238,7 @@ public final class FocusLog {
     }
 
     /// Keys typed into it reach a text input, a terminal or a page.
-    private static func isTypingTarget(_ responder: NSResponder?) -> Bool {
+    static func isTypingTarget(_ responder: NSResponder?) -> Bool {
         guard let view = responder as? NSView else { return false }
         return view is NSText || view is NSTextField || view is WKWebView || view is any NSTextInputClient
     }

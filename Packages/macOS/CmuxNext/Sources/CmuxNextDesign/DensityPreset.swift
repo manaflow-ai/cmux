@@ -91,8 +91,9 @@ public extension DensityTokens {
     /// An exact font token (`tabTitleSize`, `sidebarTitleSize`, `omnibarFontSize`) at this density's body size. A
     /// built-in's tokens are exact at its own body size; a custom density made from one scales them with its own
     /// `fontSize`, so a larger body size grows the titles and the URL text with it.
-    func fontToken(_ key: String) -> CGFloat? {
-        guard let exact = tokens[key].map({ CGFloat($0) }) else { return nil }
+    nonisolated func fontToken(_ key: String) -> CGFloat? {
+        guard let raw = tokens[key] else { return nil }
+        let exact = CGFloat(raw)
         guard let basedOn, let preset = DensityPreset(rawValue: basedOn) else { return exact }
         let presetBody = preset.tokens.bodySize
         return presetBody > 0 ? exact * bodySize / presetBody : exact

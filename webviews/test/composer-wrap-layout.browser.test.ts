@@ -7,6 +7,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { installPaintedFrames } from "./support/paintedFrames";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { UI_ANCHOR_GAP } from "../src/ui/anchor";
 
 await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer wrap", "chromium", chromium))) return;
@@ -36,46 +37,63 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   });
 
   const measure = (page: Page, newTab: boolean) =>
-    page.evaluate((newTab) => {
-      const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
-      const bounds = box.getBoundingClientRect();
-      const paragraph = box.querySelector(".ProseMirror > p")!;
-      const text = paragraph.getBoundingClientRect();
-      const field = box.querySelector<MarkdownFieldElement>(".acpmux-md-field")!;
-      // Read the first glyph without moving the typing caret or changing scroll state.
-      const first = document.createRange();
-      first.setStart(paragraph.firstChild!, 0);
-      first.setEnd(paragraph.firstChild!, 1);
-      const glyph = first.getBoundingClientRect();
-      const line = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
-      const strip = document.querySelector(newTab ? ".nt-above" : ".acpmux-composer-strip");
-      const suggestions = document.querySelector(".nt-popover");
-      return {
-        width: text.width,
-        lines: Math.round((paragraph as HTMLElement).offsetHeight / line),
-        line,
-        top: bounds.top,
-        height: bounds.height,
-        firstLineTop: text.top - bounds.top,
-        glyphTop: glyph.top - bounds.top,
-        scrollTop: field.scrollTop,
-        editorScrollTop: box.querySelector<HTMLElement>(".ProseMirror")!.scrollTop,
-        moving: field.getAnimations().length > 0,
-        strip: strip?.getBoundingClientRect().top,
-        foot: document.querySelector(".nt-foot")?.getBoundingClientRect().top,
-        suggestions: suggestions ? suggestions.getBoundingClientRect().top - bounds.bottom : undefined,
-        controls: [
-          ...box.querySelectorAll(
-            ".acpmux-newtab-plus button, .acpmux-composer-plus button, .acpmux-mic, .acpmux-send",
-          ),
-        ]
-          .filter((control) => control.getBoundingClientRect().width > 0)
-          .map((control) => {
-            const rect = control.getBoundingClientRect();
-            return { left: rect.left - bounds.left, top: rect.top - bounds.top, bottom: bounds.bottom - rect.bottom };
-          }),
-      };
-    }, newTab);
+    page.evaluate(
+      ({ newTab, gap }) => {
+        const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
+        const bounds = box.getBoundingClientRect();
+        const paragraph = box.querySelector(".ProseMirror > p")!;
+        const text = paragraph.getBoundingClientRect();
+        const field = box.querySelector<MarkdownFieldElement>(".acpmux-md-field")!;
+        // Read the first glyph without moving the typing caret or changing scroll state.
+        const first = document.createRange();
+        first.setStart(paragraph.firstChild!, 0);
+        first.setEnd(paragraph.firstChild!, 1);
+        const glyph = first.getBoundingClientRect();
+        const line = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
+        const strip = document.querySelector(newTab ? ".nt-above" : ".acpmux-composer-strip");
+        const suggestions = document.querySelector(".nt-popover");
+        const anchor = box.querySelector(".nt-input[data-split]") ? box.closest(".nt-composer")! : box;
+        let anchorBottom = anchor.getBoundingClientRect().bottom;
+        if (anchor !== box) {
+          const labels = anchor.querySelectorAll(
+            ".nt-foot .acpmux-mode-text, .nt-foot .acpmux-model-name, .nt-foot .acpmux-model-short",
+          );
+          for (const label of labels) {
+            const rect = label.getBoundingClientRect();
+            if (rect.height === 0 || getComputedStyle(label).visibility !== "visible") continue;
+            anchorBottom = rect.top + rect.bottom - bounds.bottom - gap;
+            break;
+          }
+        }
+        return {
+          width: text.width,
+          lines: Math.round((paragraph as HTMLElement).offsetHeight / line),
+          line,
+          top: bounds.top,
+          height: bounds.height,
+          firstLineTop: text.top - bounds.top,
+          glyphTop: glyph.top - bounds.top,
+          scrollTop: field.scrollTop,
+          editorScrollTop: box.querySelector<HTMLElement>(".ProseMirror")!.scrollTop,
+          moving: field.getAnimations().length > 0,
+          strip: strip?.getBoundingClientRect().top,
+          foot: document.querySelector(".nt-foot")?.getBoundingClientRect().top,
+          suggestions: suggestions ? suggestions.getBoundingClientRect().top - anchorBottom : undefined,
+          devicePixelRatio: window.devicePixelRatio,
+          controls: [
+            ...box.querySelectorAll(
+              ".acpmux-newtab-plus button, .acpmux-composer-plus button, .acpmux-mic, .acpmux-send",
+            ),
+          ]
+            .filter((control) => control.getBoundingClientRect().width > 0)
+            .map((control) => {
+              const rect = control.getBoundingClientRect();
+              return { left: rect.left - bounds.left, top: rect.top - bounds.top, bottom: bounds.bottom - rect.bottom };
+            }),
+        };
+      },
+      { newTab, gap: UI_ANCHOR_GAP },
+    );
 
   const frame = (page: Page) => page.evaluate(() => window.cmuxPaintFrame());
   type Measurement = Awaited<ReturnType<typeof measure>>;
@@ -96,7 +114,6 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             await installPaintedFrames(page);
             const cdp = await page.context().newCDPSession(page);
             await cdp.send("Animation.enable");
-            await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.1 });
             if (motion === "off")
               await page.evaluate(() => document.documentElement.setAttribute("data-cmux-motion", "off"));
             await page.evaluate((density) => {
@@ -141,6 +158,8 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               else high = middle;
             }
             const before = await fill(low);
+            // Slow the actual wrap transitions, rather than every binary-search probe.
+            await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.5 });
             const growing: Measurement[] = [];
             const after = await fill(high, growing);
             expect(before.lines).toBe(1);
@@ -166,7 +185,12 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               expect(Math.abs(after.foot! - before.foot! - (after.height - before.height))).toBeLessThan(0.5);
               expect(before.suggestions).toBeDefined();
               expect(after.suggestions).toBeDefined();
-              expect(Math.abs(after.suggestions! - before.suggestions!)).toBeLessThan(0.5);
+              // Floating UI rounds each placement to a device pixel. Comparing two rounded gaps
+              // doubles that error; instead every placement must meet the actual anchor contract.
+              for (const placed of [before, after])
+                expect(Math.abs(placed.suggestions! - UI_ANCHOR_GAP)).toBeLessThanOrEqual(
+                  0.5 / placed.devicePixelRatio + 1 / 64,
+                );
             }
             const stable = (current: Measurement, previous: Measurement, shrinking = false) => {
               expect(current.scrollTop).toBe(0);
@@ -177,7 +201,9 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
                 expect(Math.abs(current.top - before.top)).toBeLessThan(0.5);
                 expect(current.strip).toBe(before.strip);
                 expect(Math.abs(current.foot! - before.foot! - (current.height - before.height))).toBeLessThan(0.5);
-                expect(Math.abs(current.suggestions! - before.suggestions!)).toBeLessThan(0.5);
+                expect(Math.abs(current.suggestions! - UI_ANCHOR_GAP)).toBeLessThanOrEqual(
+                  0.5 / current.devicePixelRatio + 1 / 64,
+                );
                 expect(current.height).toBeGreaterThanOrEqual(before.height - 0.5);
                 expect(current.height).toBeLessThanOrEqual(after.height + 0.5);
                 expect((current.height - previous.height) * (shrinking ? -1 : 1)).toBeGreaterThanOrEqual(-0.5);
@@ -201,7 +227,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             for (const wrap of [true, false, true, false]) {
               const previous = await measure(page, layout.newTab);
               await editor.press("Control+End");
-              await page.evaluate((newTab) => {
+              await page.evaluate(({ newTab, gap }) => {
                 const samples: { first: number; scroll: number; editorScroll: number; height: number }[] = [];
                 const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
                 const field = box.querySelector<HTMLElement>(".acpmux-md-field")!;
@@ -264,6 +290,11 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             expect(
               await page.locator(".acpmux-md-field").evaluate((field) => field.scrollHeight > field.clientHeight),
             ).toBe(true);
+            if (!layout.newTab && !layout.bottom) {
+              const capped = await measure(page, false);
+              for (let index = 0; index < before.controls.length; index++)
+                expect(Math.abs(capped.controls[index]!.bottom - before.controls[index]!.bottom)).toBeLessThan(0.5);
+            }
             await page.keyboard.type("x");
             await frame(page);
             expect(await page.locator(".acpmux-md-field").evaluate((field) => field.scrollTop)).toBeGreaterThan(0);

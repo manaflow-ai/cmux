@@ -664,7 +664,7 @@ mod tests {
         .into_iter()
         .collect();
         let policy = crate::linux_sandbox::rules::WritePolicy::from_profile(
-            crate::hub::remote_sandbox::PROFILE,
+            crate::remote_chain_profile::PROFILE,
             &params,
         )
         .unwrap();
