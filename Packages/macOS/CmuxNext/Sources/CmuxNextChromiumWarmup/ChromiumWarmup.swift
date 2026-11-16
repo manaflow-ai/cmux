@@ -128,7 +128,7 @@ public final class ChromiumWarmup {
     /// - Parameter memoryPressure: the app's memory pressure events (`AppServices.memoryPressure`): a
     ///   warning or critical level closes the spare Chromium page and makes none until normal again
     ///   (`CEFEngine.holdSparePages`). Nil (tests): no such hold.
-    public init(
+    public convenience init(
         engine: CEFEngine,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
