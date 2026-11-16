@@ -21,7 +21,7 @@ final class RemoteTerminalPlaceholderView: NSView {
     private let status = ChromeLabel(labelWithString: "")
     private let connect = ThemedBezelButton()
     private let snapshotView = NSTextView()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private(set) var state: State = .reconnecting
     private(set) var machine = ""
     var onConnect: (() -> Void)?
