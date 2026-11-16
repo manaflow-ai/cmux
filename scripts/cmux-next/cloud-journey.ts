@@ -2982,7 +2982,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // The platform's own split of this create (a spare claim's budget, plan_read, ..., adopt, spare_claim; a cold
       // create's driver, edge, ...), which no client sees otherwise: GET /v1/machines/{id}?include=trace. cloud-api does
       // not forward /v1/machines (backend/apps/api/src/platform-forward.ts), so it goes to client-config's
-      // platform_origin with the same bearer, as the preclaim warm does. Read here, after the reply, so the read is
+      // platform_origin, as the preclaim warm does, with the install token: the platform's machine routes take only a
+      // cmux access token with a team claim (cmux-platform machines/Auth.ts) and answered the Stack session 401
+      // (run 43829279269). Read here, after the reply, so the read is
       // outside the first-text window; the record's trace is written after the create answers, so an absent one is
       // read again twice. Never fails the journey.
       const traceAt = Date.now();
@@ -2990,7 +2992,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
         let trace: CreateTrace | null = null;
         for (let read = 1; ; read++) {
-          const r = await api.rawAt(platform, "GET", `/v1/machines/${encodeURIComponent(created.id)}?include=trace`, undefined, 30_000);
+          const r = await installApi.rawAt(platform, "GET", `/v1/machines/${encodeURIComponent(created.id)}?include=trace`, undefined, 30_000);
           if (r.status !== 200) throw new Error(`GET /v1/machines/${created.id}?include=trace: HTTP ${r.status} ${short(r.body?.error ?? r.body).slice(0, 200)}`);
           trace = createTraceFields(r.body);
           if (trace || read >= 3) break;
