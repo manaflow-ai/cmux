@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
-import { pasteIsOnlyFileNames } from "./attachments";
+import { pastedPlainText, pasteIsOnlyFileNames } from "./attachments";
 import { isPasteAsPlainTextKey, PLAIN_PASTE_MS } from "./composer/pastedChips";
 import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
@@ -1154,9 +1154,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // Text past what a prompt carries goes to the surface whole, before anything reads
                   // or parses it (ProseMirror would lay out every line of it first): the composer
                   // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
-                  const whole = data.getData("text/plain");
+                  // With file URLs on the clipboard WebKit hides the plain text: the words are the HTML's (#44801).
+                  const whole = pastedPlainText(data);
+                  const onlyNames = pasteIsOnlyFileNames(data, whole);
                   // A surface without a file intake (Home Channels) takes it as before.
-                  if (whole.length > PASTE_FILE_CHARS && !data.files.length && beforeInput(editorView, whole, true)) {
+                  if (whole.length > PASTE_FILE_CHARS && !onlyNames && beforeInput(editorView, whole, true)) {
                     event.preventDefault();
                     return true;
                   }
@@ -1169,11 +1171,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   const carriesImage =
                     [...data.files].some((file) => file.type.startsWith("image/")) ||
                     htmlHasDataImage(data.getData("text/html"));
-                  const plain = pasteIsOnlyFileNames(data)
-                    ? ""
-                    : carriesImage
-                      ? withoutMarkdownImages(lifted.text)
-                      : lifted.text;
+                  const plain = onlyNames ? "" : carriesImage ? withoutMarkdownImages(lifted.text) : lifted.text;
                   if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                   insertPasted(editorView, plain);
                   showPastedEnd(editorView.state);

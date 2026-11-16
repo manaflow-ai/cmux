@@ -4,6 +4,7 @@
 import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
 import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
+import { htmlMarkdown } from "./richClipboard";
 import { liftInlineImages } from "./inlineImages";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
@@ -830,14 +831,28 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+/// A paste's plain text. WebKit hides it from the page whenever the clipboard holds file URLs (so
+/// the page can't read their paths), even when words come with them: a composer's copy of a prompt
+/// with a screenshot (composerCopy.ts) is the words, the screenshot's file and HTML of the words
+/// (#44801). WebKit still gives the HTML: then the words are its text as the copy shows them (line
+/// ends, links and lists kept, pictures left out). A file manager's copy has no HTML, so none.
+export function pastedPlainText(transfer: DataTransfer): string {
+  const text = transfer.getData("text/plain");
+  if (text || transfer.files.length === 0) return text;
+  const html = transfer.getData("text/html");
+  return html ? htmlMarkdown(html) : "";
+}
+
 /// Whether a paste of files carries no text but their own names: files copied in a file manager
 /// also put each one's name (or path, or a file: URL list) on the clipboard as text, which the
 /// field must not take as a prompt. As the Home channel's composer decides (home-channels/Composer.tsx).
-export function pasteIsOnlyFileNames(transfer: DataTransfer): boolean {
+/// `text` is the paste's (`pastedPlainText`), given when the caller already read it.
+export function pasteIsOnlyFileNames(transfer: DataTransfer, text = pastedPlainText(transfer)): boolean {
   if (transfer.files.length === 0) return false;
-  const text = transfer.getData("text/plain");
   const names = [...transfer.files].map((file) => file.name);
-  return !text || [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
+  // Words read from the HTML beside hidden plain text are the person's, unless they only name the files.
+  if (!transfer.getData("text/plain")) return !names.reduce((rest, name) => rest.split(name).join(""), text).trim();
+  return [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
 }
 
 /// Smaller than this is a page's spacer or icon, not an image someone copied.
