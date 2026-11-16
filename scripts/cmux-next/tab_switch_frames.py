@@ -53,11 +53,18 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import bench_memory as bm  # noqa: E402
-import idle_cost_load as icl  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
 sys.path.append(os.path.join(HERE, "..", "ci"))
 from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
+
+
+def mac_helpers():
+    """bench_memory and idle_cost_load, imported on use: bench_memory loads macOS's libproc at import, and this module
+    imports on any host (its tests run on Linux)."""
+    import bench_memory
+    import idle_cost_load
+    return bench_memory, idle_cost_load
+
 
 TURNS_AGENT = ("tab-switch-turns", os.path.join(HERE, "chat_open_agent.py"))
 STREAM_AGENT = ("tab-switch-stream", os.path.join(HERE, "idle_cost_agent.py"))
@@ -111,8 +118,10 @@ class Control:
             return {"error": answer["error"]}
         return answer.get("result") if answer.get("result") is not None else {}
 
-    def action(self, name, focus=True, **args):
-        params = {"action": name, "args": args, "wait": True, "origin": "script",
+    def action(self, action_id, /, focus=True, **args):
+        """`action.run` of `action_id` with `args` (positional-only, so an action's own `name` or `action` argument
+        is one of its args, as agent.harness.add's `name`)."""
+        params = {"action": action_id, "args": args, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
@@ -177,7 +186,7 @@ class App:
                 self.process.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 pass
-            bm.end_bundle(self.bundle)  # this run's copy: every process of it is this run's
+            mac_helpers()[0].end_bundle(self.bundle)  # this run's copy: every process of it is this run's
         if self.aside is not None:
             self.aside.__exit__(None, None, None)
 
@@ -272,6 +281,7 @@ class Agents:
 
     def __init__(self, app, bundle):
         self.app, self.bundle = app, bundle
+        bm, icl = mac_helpers()
         self.cli = icl.bundled_acpmux(bundle)
         for agent_id, script in (TURNS_AGENT, STREAM_AGENT):
             for _ in range(6):
@@ -310,7 +320,7 @@ class Agents:
 
     def start(self, sessions, seconds, rate):
         for session in sessions:
-            icl.stream([self.cli], self.env, session, seconds, rate)
+            mac_helpers()[1].stream([self.cli], self.env, session, seconds, rate)
         self.streaming = sessions
 
     def stop(self):
@@ -333,6 +343,7 @@ class Harness:
         self.c = app.control
         self.refs = {}
         self.index = {}
+        self.chat_note = None  # why the chat scenario is unmeasured, when it is
         self.seq = 0
 
     def segment(self):
@@ -369,22 +380,28 @@ class Harness:
             raise Unmeasurable(f"workspace new: {reply['error']}")
         self.wait_tabs(1)
         time.sleep(1.5)  # test script: the terminal attaches
-        reply = self.c.action("agent.openSessionTab", session=chat_session)
-        if reply.get("error"):
-            raise Unmeasurable(f"agent.openSessionTab: {reply['error']}")
-        self.wait_tabs(2)
-        time.sleep(4)  # test script: the long transcript loads
+        # The chat is optional: without it the terminal and page scenarios still run, the chat's reported unmeasured.
+        order = ["terminal"]
+        if chat_session:
+            reply = self.c.action("agent.openSessionTab", session=chat_session)
+            if reply.get("error"):
+                self.chat_note = f"agent.openSessionTab: {reply['error']}"
+            else:
+                self.wait_tabs(2)
+                order.append("chat")
+                time.sleep(4)  # test script: the long transcript loads
         page = os.path.join(self.root, "page.html")
         with open(page, "w") as handle:
             handle.write(page_html())
         reply = self.c.action("openBrowser.chromium", url="file://" + page)
         if reply.get("error"):
             raise Unmeasurable(f"openBrowser.chromium: {reply['error']}")
-        tabs = self.wait_tabs(3)
+        order.append("chromium")
+        tabs = self.wait_tabs(len(order))
         self.tabs_at_build = tabs
-        if len(tabs) != 3:
-            raise Unmeasurable(f"the workspace's pane has {len(tabs)} tabs, want 3 (terminal, chat, page): {json.dumps(tabs)[:600]}")
-        self.index = {"terminal": 1, "chat": 2, "chromium": 3}
+        if len(tabs) != len(order):
+            raise Unmeasurable(f"the workspace's pane has {len(tabs)} tabs, want {len(order)} ({', '.join(order)}): {json.dumps(tabs)[:600]}")
+        self.index = {name: i + 1 for i, name in enumerate(order)}
         time.sleep(2)  # test script: the page loads
         # The content area: pane_chrome on a build with debug commands, else the pixels of two tabs.
         self.select("terminal")
@@ -393,18 +410,22 @@ class Harness:
         self.select("chromium")
         time.sleep(1)
         page_frame = self.grab()
-        self.select("chat")
-        time.sleep(1.5)
-        chat = self.grab()
         self.content = self.chrome_rect() or judge.content_rect(terminal, page_frame, self.rec.w, self.rec.h)
         if self.content is None:
             raise Unmeasurable("the capture shows no difference between a terminal and a Chromium page (no page pixels: "
                                "Screen Recording grant?)")
         self.strip = judge.strip_rect(self.content, self.rec.scale, self.rec.h)
-        cterm, cchat = (judge.crop(f, self.rec.w, self.content) for f in (terminal, chat))
-        if judge.diff_share(cterm, cchat) <= judge.TOLERANCE:
-            raise Unmeasurable("the chat tab shows the same pixels as the terminal (its page not in the capture?)")
-        self.refs = {"terminal": terminal, "chromium": page_frame, "chat": chat}
+        self.refs = {"terminal": terminal, "chromium": page_frame}
+        if "chat" in self.index:
+            self.select("chat")
+            time.sleep(1.5)
+            chat = self.grab()
+            cterm, cchat = (judge.crop(f, self.rec.w, self.content) for f in (terminal, chat))
+            if judge.diff_share(cterm, cchat) <= judge.TOLERANCE:
+                # Its tab stays in the pane (the indexes hold); its scenario is reported unmeasured.
+                self.chat_note = "the chat tab shows the same pixels as the terminal (its page not in the capture?)"
+            else:
+                self.refs["chat"] = chat
 
     def chrome_rect(self):
         chrome = self.c.call("debug.pane_chrome", timeout=10)
@@ -497,19 +518,29 @@ class Harness:
             return out, {"error": f"closeTab: {reply['error']}"}
         tabs, pane = self.c.focused_tabs()
         selected = next((i + 1 for i, t in enumerate(tabs) if t.get("selected") or (pane and t.get("id") == pane.get("selected_tab"))), None)
-        neighbor = {1: "terminal", 2: "chat", 3: "chromium"}.get(selected)
+        neighbor = {i: name for name, i in self.index.items()}.get(selected)
         reference = self.refs.get(neighbor) if neighbor else None
-        if len(tabs) != 3:
-            close = {"error": f"the pane has {len(tabs)} tabs after the close, want 3"}
+        if len(tabs) != len(self.index):
+            close = {"error": f"the pane has {len(tabs)} tabs after the close, want {len(self.index)}"}
         else:
             close = self.judge(frames, marks.get("close", 0), reference=reference, strip=self.strip)
             close["neighbor"] = neighbor
             self.keep_sheet(close, frames, marks.get("close", 0), label_close, reference)
         return out, close
 
-    def run(self, loads, rounds, scenarios, agents, sessions):
-        rows = {}
-        for load in loads:
+    def run(self, loads, rounds, scenarios, agents, sessions, load_notes=None):
+        """The scenario rows. A load in `load_notes` (its setup failed) and the chat scenario without a measurable chat
+        are rows with no switch and the reason, so the rest still measures."""
+        rows, notes = {}, {}
+        load_notes = load_notes or {}
+        if "chat-long-return" in scenarios and "chat" not in self.refs:
+            scenarios = [s for s in scenarios if s != "chat-long-return"]
+            for load in loads:
+                notes[("chat-long-return", load)] = self.chat_note or "no chat"
+        for load in [x for x in loads if x in load_notes]:
+            for name in scenarios:
+                notes[(name, load)] = load_notes[load]
+        for load in [x for x in loads if x not in load_notes]:
             say(f"load {load}")
             if load == "cpu":
                 agents_cpu = CpuLoad(self.root)
@@ -536,7 +567,8 @@ class Harness:
                     agents_cpu.stop()
                 elif load == "agents":
                     agents.stop()
-        return [judge.scenario_row(name, load, switches) for (name, load), switches in rows.items()]
+        out = [judge.scenario_row(name, load, switches) for (name, load), switches in rows.items()]
+        return out + [judge.scenario_row(name, load, [], notes=note) for (name, load), note in notes.items()]
 
 
 def main(argv=None):
@@ -580,20 +612,37 @@ def main(argv=None):
                                                  capture_output=True, text=True).stdout.strip()
         app = App(bundle, root, smoke)
         app.launch()
-        agents = Agents(app, bundle)
-        session, seed_s = agents.long_chat(args.chat_turns)
-        say(f"long chat {session}: {args.chat_turns} turns in {seed_s} s")
-        extra["seed_s"] = seed_s
-        sessions = agents.stream_chats(args.agents) if "agents" in loads else []
+        # The chat and the agents load are optional: a setup fault in either leaves the terminal and page scenarios,
+        # idle and under CPU load, measured, and names the fault on the rows it cost.
+        agents, session, sessions, setup = None, None, [], {}
+        try:
+            agents = Agents(app, bundle)
+            session, seed_s = agents.long_chat(args.chat_turns)
+            say(f"long chat {session}: {args.chat_turns} turns in {seed_s} s")
+            extra["seed_s"] = seed_s
+        except Exception as error:  # noqa: BLE001 - reported on the chat's rows
+            setup["chat"] = f"chat setup: {type(error).__name__}: {error}"[:600]
+            say(setup["chat"])
+        load_notes = {}
+        if "agents" in loads:
+            try:
+                if agents is None:
+                    raise Unmeasurable("no agent harness")
+                sessions = agents.stream_chats(args.agents)
+            except Exception as error:  # noqa: BLE001 - reported on the agents load's rows
+                load_notes["agents"] = f"agents setup: {type(error).__name__}: {error}"[:600]
+                say(load_notes["agents"])
+        extra["setup_errors"] = {**setup, **load_notes}
         recorder = Recorder(args.recorder, app.process.pid, args.width)
         hz = recorder.hz
         extra["capture"] = recorder.ready
         say(f"capture {json.dumps(recorder.ready)}")
         harness = Harness(args, app, recorder, root)
+        harness.chat_note = setup.get("chat")
         harness.build(session)
         extra["content_rect_px"], extra["strip_rect_px"] = harness.content, harness.strip
         extra["tabs_at_build"] = harness.tabs_at_build
-        rows = harness.run(loads, args.rounds, scenarios, agents, sessions)
+        rows = harness.run(loads, args.rounds, scenarios, agents, sessions, load_notes)
         status = 0
     except Unmeasurable as error:
         say(f"cannot measure: {error}")
