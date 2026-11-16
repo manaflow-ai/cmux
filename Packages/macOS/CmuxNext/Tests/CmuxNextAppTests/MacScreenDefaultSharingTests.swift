@@ -149,9 +149,9 @@ struct MacScreenDefaultSharingTests {
         let (written, sink) = AsyncStream.makeStream(of: Bool.self)
         pages.hubHost.writeSharing = { _, on in sink.yield(on) }
         pages.hub = hub
-        let first = await Task {
+        let first = await Task { () -> Bool? in
             for await on in written { return on }
-            return nil as Bool?
+            return nil
         }.value
         #expect(first == true)
         pages.hub = nil
