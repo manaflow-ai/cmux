@@ -1,9 +1,12 @@
+{"type":"system","subtype":"init","uuid":"system-1"}
 {"type":"user","uuid":"prompt-1","timestamp":"2026-11-16T10:00:00Z","message":{"content":"Inspect the deploy"}}
-{"type":"assistant","uuid":"record-1","timestamp":"2026-11-16T10:00:01Z","message":{"id":"message-1","content":[{"type":"text","text":"Working"},{"type":"tool_use","id":"tool-1","name":"Read","input":{"path":"deploy.log"}}],"stop_reason":null}}
-{"type":"user","uuid":"tool-result-1","timestamp":"2026-11-16T10:00:02Z","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"deploy output"}]}}
-{"type":"assistant","uuid":"record-1","timestamp":"2026-11-16T10:00:03Z","message":{"id":"message-1","content":[{"type":"text","text":" now"}],"stop_reason":"end_turn"}}
-{"type":"user","uuid":"prompt-2","timestamp":"2026-11-16T10:00:04Z","message":{"content":[{"type":"text","text":"Check the second job"}]}}
-{"type":"assistant","uuid":"record-2","timestamp":"2026-11-16T10:00:05Z","message":{"content":[{"type":"text","text":"Second answer"}],"stop_reason":"end_turn"}}
-{"type":"assistant","uuid":"record-3","timestamp":"2026-11-16T10:00:06Z","message":{"content":[{"type":"text","text":"Third answer"}],"stop_reason":"end_turn"}}
+{"type":"assistant","uuid":"record-1","timestamp":"2026-11-16T10:00:01Z","message":{"id":"message-1","content":[{"type":"thinking","thinking":"Planning"}],"stop_reason":"end_turn"}}
+{"type":"assistant","uuid":"record-1","timestamp":"2026-11-16T10:00:02Z","message":{"id":"message-1","content":[{"type":"text","text":"Working"},{"type":"tool_use","id":"tool-1","name":"Read","input":{"path":"deploy.log"}}],"stop_reason":"tool_use"}}
+{"type":"user","uuid":"tool-result-1","timestamp":"2026-11-16T10:00:03Z","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"deploy output"}]}}
+{"type":"assistant","uuid":"record-1","timestamp":"2026-11-16T10:00:04Z","message":{"id":"message-1","content":[{"type":"text","text":" now"}],"stop_reason":"end_turn"}}
+{"type":"user","uuid":"prompt-2","timestamp":"2026-11-16T10:00:05Z","message":{"content":[{"type":"text","text":"Check the second job"}]}}
+{"type":"assistant","uuid":"record-2","timestamp":"2026-11-16T10:00:06Z","message":{"content":[{"type":"text","text":"Second answer"}],"stop_reason":"end_turn"}}
+{"type":"assistant","uuid":"record-3","timestamp":"2026-11-16T10:00:07Z","message":{"content":[{"type":"text","text":"Third answer"}],"stop_reason":"end_turn"}}
+{"type":"attachment","uuid":"prompt-attach","attachment":{"type":"queued_command","command":"Check the deploy now","commandMode":"prompt"}}
+{"type":"attachment","uuid":"notice-1","attachment":{"type":"queued_command","command":"A background task finished","commandMode":"task-notification"}}
 {"type":"user","uuid":"side-1","isSidechain":true,"message":{"content":"sidechain prompt"}}
-{"type":"result","subtype":"success","timestamp":"2026-11-16T10:00:07Z"}

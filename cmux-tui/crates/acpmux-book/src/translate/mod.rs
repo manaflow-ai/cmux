@@ -458,6 +458,8 @@ struct ClaudeTurn {
     /// The newest call's usage: each of its lines repeats it, the last one whole.
     call: Tokens,
     message: String,
+    /// A thinking record can carry an end reason before Claude emits its text continuation.
+    pending_end: Option<String>,
 }
 const MAX_UNKNOWN_KINDS: usize = 32;
 const UNKNOWN_OTHER: &str = "other";
@@ -971,6 +973,18 @@ impl State {
             self.claude.message = message.into();
         }
         self.claude.call = Tokens { calls: 1, ..call };
+    }
+    pub(super) fn claude_pending_end(&self) -> Option<&str> {
+        self.claude.pending_end.as_deref()
+    }
+    pub(super) fn set_claude_pending_end(&mut self, message: &str) {
+        self.claude.pending_end = Some(message.to_owned());
+    }
+    pub(super) fn clear_claude_pending_end(&mut self) {
+        self.claude.pending_end = None;
+    }
+    pub(super) fn unknown_record(&mut self) {
+        self.unknown_records = self.unknown_records.saturating_add(1);
     }
     /// The Claude turn's split so far: its calls added up, and the newest call's context.
     fn claude_tokens(&mut self) -> Tokens {

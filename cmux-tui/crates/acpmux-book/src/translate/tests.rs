@@ -1187,6 +1187,30 @@ fn claude_null_stop_reason_keeps_the_reply_open() {
 }
 
 #[test]
+fn claude_thinking_stop_waits_for_same_message_text() {
+    let mut state = State::default();
+    let mut view = Mirror::default();
+    view.line(
+        &mut state,
+        Harness::Claude,
+        r#"{"type":"user","uuid":"p","message":{"content":"q"}}"#,
+    );
+    view.line(
+        &mut state,
+        Harness::Claude,
+        r#"{"type":"assistant","uuid":"r","message":{"id":"m","content":[{"type":"thinking","thinking":"plan"}],"stop_reason":"end_turn"}}"#,
+    );
+    assert!(state.in_turn());
+    view.line(
+        &mut state,
+        Harness::Claude,
+        r#"{"type":"assistant","uuid":"r","message":{"id":"m","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn"}}"#,
+    );
+    assert!(!state.in_turn());
+    assert!(!view.reply("done").open);
+}
+
+#[test]
 fn claude_follow_fixture_replays_identically_from_every_checkpoint() {
     let lines: Vec<_> = CLAUDE_FOLLOW.lines().collect();
     let mut whole_state = State::default();
@@ -1196,6 +1220,7 @@ fn claude_follow_fixture_replays_identically_from_every_checkpoint() {
         whole_view.line_at(&mut whole_state, Harness::Claude, place, line.len() as u64, line);
         place = place.saturating_add(line.len() as u64 + 1);
     }
+    assert_eq!(whole_state.unknown_records(), 0, "fixture covers every non-dropped Claude kind");
 
     for cut in 0..=lines.len() {
         let mut state = State::default();
@@ -1229,17 +1254,54 @@ fn claude_follow_uses_record_uuid_when_message_id_is_missing() {
 
 #[test]
 fn claude_follow_prompt_identity_filters_effects_and_preserves_uuid() {
-    let mut lines = CLAUDE_FOLLOW.lines();
-    let prompt = lines.next().unwrap();
+    let lines: Vec<_> = CLAUDE_FOLLOW.lines().collect();
+    let prompt = lines.iter().find(|line| line.contains("Inspect the deploy")).unwrap();
     assert_eq!(
         prompt_identity(Harness::Claude, prompt.as_bytes()).unwrap(),
         Some(PromptIdentity { id: "prompt-1".into(), text: "Inspect the deploy".into() })
     );
-    let _ = lines.next();
-    let tool_result = lines.next().unwrap();
+    let tool_result = lines.iter().find(|line| line.contains("tool_result")).unwrap();
     assert_eq!(prompt_identity(Harness::Claude, tool_result.as_bytes()).unwrap(), None);
-    let _ = lines.next();
+    let attachment = lines.iter().find(|line| line.contains("prompt-attach")).unwrap();
+    assert_eq!(
+        prompt_identity(Harness::Claude, attachment.as_bytes()).unwrap(),
+        Some(PromptIdentity { id: "prompt-attach".into(), text: "Check the deploy now".into() })
+    );
+    let notice = lines.iter().find(|line| line.contains("notice-1")).unwrap();
+    assert_eq!(prompt_identity(Harness::Claude, notice.as_bytes()).unwrap(), None);
     assert_eq!(prompt_identity(Harness::V1, prompt.as_bytes()).unwrap(), None);
+}
+
+#[test]
+fn claude_follow_recorded_shape_fixture_has_expected_kinds_and_no_unknowns() {
+    let kinds: BTreeSet<_> = CLAUDE_FOLLOW
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap()["type"].clone())
+        .collect();
+    assert_eq!(
+        kinds,
+        ["assistant", "attachment", "system", "user"]
+            .into_iter()
+            .map(serde_json::Value::from)
+            .collect()
+    );
+    let mut state = State::default();
+    for line in CLAUDE_FOLLOW.lines() {
+        let _ = t(&mut state, Harness::Claude, line.as_bytes());
+    }
+    assert_eq!(state.unknown_records(), 0);
+}
+
+#[test]
+fn claude_unknown_record_and_block_kinds_are_counted() {
+    let mut state = State::default();
+    let _ = t(&mut state, Harness::Claude, br#"{"type":"future_record","uuid":"u"}"#);
+    let _ = t(
+        &mut state,
+        Harness::Claude,
+        br#"{"type":"assistant","uuid":"u","message":{"id":"m","content":[{"type":"future_block","text":"x"}]}}"#,
+    );
+    assert_eq!(state.unknown_records(), 2);
 }
 
 fn split_text_rows(parts: &[&str]) -> Vec<(String, Option<String>, Option<String>)> {

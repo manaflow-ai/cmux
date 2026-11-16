@@ -7,6 +7,11 @@ use crate::row::RowKind;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
+
+const DROPPED_RECORD_KINDS: &[&str] = &["system"];
+const DROPPED_BLOCK_KINDS: &[&str] = &["redacted_thinking", "document"];
+const KNOWN_USER_BLOCK_KINDS: &[&str] = &["document", "image", "text", "tool_result"];
+
 #[derive(Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 struct Record<'a> {
@@ -28,6 +33,18 @@ struct Record<'a> {
     message: Option<Message<'a>>,
     #[serde(borrow)]
     origin: Origin<'a>,
+    #[serde(borrow)]
+    attachment: Option<Attachment<'a>>,
+}
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct Attachment<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Cow<'a, str>,
+    #[serde(borrow)]
+    command: Option<&'a RawValue>,
+    #[serde(borrow)]
+    command_mode: Cow<'a, str>,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -82,6 +99,21 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     if rec.kind.is_empty() {
         return Err(Error::InvalidRecord("Claude type"));
     }
+    if let Some(pending) = state.claude_pending_end().map(str::to_owned) {
+        let message_id = rec
+            .message
+            .as_ref()
+            .map(|message| message.id.as_ref())
+            .filter(|id| !id.is_empty())
+            .or_else(|| (!rec.uuid.is_empty()).then_some(rec.uuid.as_ref()));
+        let carries_on = rec.kind == "assistant" && message_id == Some(pending.as_str());
+        if !carries_on {
+            state.clear_claude_pending_end();
+            end(state, "completed", out)?;
+        } else {
+            state.clear_claude_pending_end();
+        }
+    }
     if rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
         return Ok(());
     }
@@ -92,6 +124,48 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     if rec.kind == "result" {
         let failed = rec.is_error || rec.subtype.starts_with("error");
         return end(state, if failed { "failed" } else { "completed" }, out);
+    }
+    if rec.kind == "attachment" {
+        let Some(attachment) = rec.attachment else {
+            state.unknown_record();
+            return Ok(());
+        };
+        if attachment.kind != "queued_command" {
+            state.unknown_record();
+            return Ok(());
+        }
+        let Some(command) = attachment.command else {
+            state.unknown_record();
+            return Ok(());
+        };
+        match attachment.command_mode.as_ref() {
+            "prompt" | "task-notification" => {
+                state.prompt(
+                    super::PromptEvent {
+                        key: &rec.uuid,
+                        prompt_key: "",
+                        steer: attachment.command_mode == "prompt",
+                        notice: attachment.command_mode == "task-notification",
+                        body: Some(command),
+                        images: None,
+                        sender: super::user::Sender::default(),
+                        inline_parts: None,
+                        pasted: None,
+                        place: 0,
+                        span: 0,
+                    },
+                    out,
+                )?;
+            }
+            _ => state.unknown_record(),
+        }
+        return Ok(());
+    }
+    if !matches!(rec.kind.as_ref(), "assistant" | "user" | "result") {
+        if !DROPPED_RECORD_KINDS.contains(&rec.kind.as_ref()) {
+            state.unknown_record();
+        }
+        return Ok(());
     }
     let Some(message) = rec.message else { return Ok(()) };
     let Some(body) = message.content else { return Ok(()) };
@@ -104,6 +178,9 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
             if body.get().starts_with('[') {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
+                    if !KNOWN_USER_BLOCK_KINDS.contains(&block.kind.as_ref()) {
+                        state.unknown_record();
+                    }
                     if block.kind == "tool_result" {
                         results = true;
                     }
@@ -180,6 +257,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                     },
                 );
             }
+            let mut has_thinking = false;
             if body.get().starts_with('"') {
                 state.text(&input::text(body)?, message_id, message_id, false, out)?;
             } else {
@@ -188,6 +266,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                     match block.kind.as_ref() {
                         "text" | "thinking" => {
                             let thinking = block.kind == "thinking";
+                            has_thinking |= thinking;
                             if let Some(raw) = if thinking { block.thinking } else { block.text } {
                                 state.text(
                                     &input::text(raw)?,
@@ -218,16 +297,22 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                             row.open = false;
                             out.row(&row);
                         }
-                        _ => {}
+                        kind if DROPPED_BLOCK_KINDS.contains(&kind) => {}
+                        _ => state.unknown_record(),
                     }
                     Ok(())
                 })?;
             }
             if matches!(message.stop_reason.as_deref(), Some("end_turn" | "stop_sequence")) {
-                end(state, "completed", out)?;
+                if has_thinking {
+                    state.set_claude_pending_end(message_id);
+                } else {
+                    end(state, "completed", out)?;
+                }
             }
         }
-        _ => {}
+        kind if DROPPED_RECORD_KINDS.contains(&kind) => {}
+        _ => state.unknown_record(),
     }
     Ok(())
 }
@@ -238,6 +323,16 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
 /// prompts.
 pub(super) fn prompt_identity(bytes: &[u8]) -> Result<Option<super::PromptIdentity>, Error> {
     let rec: Record<'_> = input::parse(bytes)?;
+    if rec.kind == "attachment"
+        && rec.attachment.as_ref().is_some_and(|attachment| {
+            attachment.kind == "queued_command" && attachment.command_mode == "prompt"
+        })
+    {
+        let Some(attachment) = rec.attachment else { return Ok(None) };
+        let Some(command) = attachment.command else { return Ok(None) };
+        let text = input::text(command)?.into_owned();
+        return Ok(Some(super::PromptIdentity { id: rec.uuid.into_owned(), text }));
+    }
     if rec.kind != "user" || rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
         return Ok(None);
     }
@@ -279,6 +374,13 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
         return Err(Error::InvalidRecord("Claude type"));
     }
     super::bounded(&rec.uuid)?;
+    if let Some(attachment) = rec.attachment {
+        super::bounded(&attachment.kind)?;
+        super::bounded(&attachment.command_mode)?;
+        if let Some(command) = attachment.command {
+            let _ = input::text(command)?;
+        }
+    }
     if let Some(message) = rec.message {
         super::bounded(&message.id)?;
         if let Some(body) = message.content {
