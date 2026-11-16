@@ -16,7 +16,6 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXAuthCore"),
-        .package(path: "../CmuxRetryAfter"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
@@ -24,7 +23,6 @@ let package = Package(
             name: "CmuxAuthRuntime",
             dependencies: [
                 "CMUXAuthCore",
-                "CmuxRetryAfter",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [

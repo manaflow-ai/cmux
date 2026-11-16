@@ -15,8 +15,8 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
 
 public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static let currentFormat = "cmux.render-grid.v1"
-    /// Largest column or row count a frame may carry: the same 4096 the
-    /// daemon's PTYs are capped at.
+    /// Largest column or row count a frame may carry: the Mac producer clamps
+    /// to the same 4096 (`DaemonRenderGridState.maxDimension`).
     public static let maximumDimension = 4_096
     /// Largest scrollback row count a frame may carry: Macs clamp requested
     /// scrollback to `MobileTerminalScrollbackPreference.maximumRows`, and a
