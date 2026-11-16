@@ -19,8 +19,13 @@
   gap: var(--ds-space-2);
   box-sizing: border-box;
   min-width: 0;
-  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--transient-surface-radius);
+  /* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+     inside"): one padding on the top, the bottom and the trailing side, the corner the button corner plus it,
+     the text the corner's radius in. */
+  --concentric-padding: var(--ds-space-2);
+  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding)
+    calc(var(--ds-radius-control) + var(--concentric-padding));
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   color: var(--ui-notice-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -49,9 +54,10 @@
 /* An inline notice is a card on the grid (leo-workspace design/grid.md 5.6): padding 12, radius 12,
    its action row 8 under the text, all scaled by the interface scale. */
 .ui-notice[data-placement="inline"] {
+  --concentric-padding: var(--grid-cards-padding, var(--ds-space-3));
   gap: var(--grid-gap, var(--ds-space-2));
-  padding: var(--grid-cards-padding, var(--ds-space-3));
-  border-radius: var(--grid-cards-radius, var(--ds-radius-xl));
+  padding: var(--concentric-padding);
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
 }
 
 /* A toast over the surface lifts off it; an inline or banner notice sits on its surface. */
