@@ -3,7 +3,7 @@ use crate::index::{ForkOf, RowKey, Summary};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 const TEST_PAGE_BYTES: usize = 4096;
@@ -431,10 +431,10 @@ fn version_one_table_is_rejected_and_left_for_the_pager() {
     let (_directory, path) = write_table(&rows, 13, TEST_HEAD_CRC);
     let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
     let mut header = [0; TEST_PAGE_BYTES];
-    std::io::Read::read_exact(&mut file, &mut header).unwrap();
+    file.read_exact(&mut header).unwrap();
     header[8..12].copy_from_slice(&1_u32.to_le_bytes());
-    header[TEST_PAGE_BYTES - 4..]
-        .copy_from_slice(&crc32fast::hash(&header[..TEST_PAGE_BYTES - 4]).to_le_bytes());
+    let crc = crc32fast::hash(&header[..TEST_PAGE_BYTES - 4]).to_le_bytes();
+    header[TEST_PAGE_BYTES - 4..].copy_from_slice(&crc);
     file.seek(SeekFrom::Start(0)).unwrap();
     file.write_all(&header).unwrap();
     assert!(Table::open(&path, binding(13, rows.len() as u64, TEST_HEAD_CRC)).unwrap().is_none());
