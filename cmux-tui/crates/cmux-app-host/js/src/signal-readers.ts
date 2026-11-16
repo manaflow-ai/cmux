@@ -134,7 +134,7 @@ const PUBLIC_ROWS = 5
 const NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"])
 
 /** An unverified app installs sandboxed: the host refuses its network ops whatever it was granted. */
-const SANDBOXED = "This extension runs sandboxed, with no network. Turn on network access for it in the App Store: Installed, Permissions."
+const SANDBOXED = "This extension runs sandboxed, with no network. To let it read GitHub, turn off Run sandboxed in the App Store: Installed, Permissions."
 function isSandboxed(e: unknown): boolean {
   return e instanceof CmuxError && e.code === "scope.missing" && /sandboxed/i.test(e.message)
 }

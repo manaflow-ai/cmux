@@ -38,7 +38,7 @@ Settings > Apps > Changes > Show:
   minutes. Set the GitHub login setting so "My open pull requests" knows who you are. When a
   network's public limit is used up, the section says so and when it resets.
 - Loaded from a folder (`cmux ext dev`), it installs unverified and sandboxed: no network, so no
-  GitHub reads either way, until you turn on network access in the App Store (Installed,
+  GitHub reads either way, until you turn off Run sandboxed in the App Store (Installed,
   Changes, Permissions). The section says this instead of asking you to sign in.
 
 ## Looks

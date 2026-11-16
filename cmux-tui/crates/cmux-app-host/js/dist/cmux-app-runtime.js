@@ -1559,7 +1559,7 @@
   var PUBLIC_DETAIL_AGE_MS = 900000;
   var PUBLIC_ROWS = 5;
   var NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"]);
-  var SANDBOXED = "This extension runs sandboxed, with no network. Turn on network access for it in the App Store: Installed, Permissions.";
+  var SANDBOXED = "This extension runs sandboxed, with no network. To let it read GitHub, turn off Run sandboxed in the App Store: Installed, Permissions.";
   function isSandboxed(e) {
     return e instanceof CmuxError && e.code === "scope.missing" && /sandboxed/i.test(e.message);
   }
