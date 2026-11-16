@@ -152,7 +152,10 @@ pub(super) fn lookup(folder: &OwnFolder, root: &Path) -> Option<u16> {
 /// repositories rarely start at the same one.
 ///
 /// No port is given, and the file stays, when the ports file is above
-/// the size limit.
+/// the size limit. No port is given either when `folder` is not open
+/// ([`OwnFolder::not_opened`]): the blocks that the other worktrees have
+/// are not known then, and a line on stderr says why the folder is not
+/// open.
 pub(super) fn allocate(folder: &OwnFolder, root: &Path) -> Result<Option<u16>, TooLarge> {
     allocate_within(folder, root, WAIT)
 }
@@ -163,6 +166,17 @@ pub(super) fn allocate_within(
     root: &Path,
     wait: Duration,
 ) -> Result<Option<u16>, TooLarge> {
+    if let Some(kind) = folder.not_opened() {
+        // No list is read: a block of a list that starts empty can be the
+        // block of another worktree.
+        eprintln!(
+            "cmux-tui: {}: the repository's git folder is not open ({kind}); the worktree {} \
+             gets no ports",
+            folder.path().display(),
+            root.display()
+        );
+        return Ok(None);
+    }
     let _guard = lock(folder, wait);
     let mut ports = load(folder)?;
     Ok(free_block(folder, &mut ports, root))

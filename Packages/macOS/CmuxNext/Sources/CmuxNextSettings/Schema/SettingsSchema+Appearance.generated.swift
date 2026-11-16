@@ -156,6 +156,12 @@ extension InterfaceSizeSetting {
     public nonisolated static let placeholder: Double = 12
 }
 
+extension FontSmoothingSetting {
+    /// `appearance.fontSmoothing`: Stem darkening of cmux's native text (AppleFontSmoothing in the app's domain, written at launch: ProcessFontSmoothing). Ghostty's font-thicken and web pages are not affected.
+    public nonisolated static let configPath = ["appearance", "fontSmoothing"]
+    public nonisolated static let fallback: FontSmoothing = .antialiased
+}
+
 extension InterfaceScaleSetting {
     /// `appearance.interfaceScale`.
     public nonisolated static let configPath = ["appearance", "interfaceScale"]

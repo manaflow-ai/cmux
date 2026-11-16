@@ -8,7 +8,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
     private let center: CmuxToastCenter
     private(set) var rows: [CmuxToastPlaygroundRow] = []
     private let pickedLabel = ThemedLabel(labelWithString: "")
-    let scrollView = NSScrollView()
+    let scrollView = OverlayScrollView()
 
     /// - Parameters:
     ///   - center: The toasts' center: its pick, and where Fire it shows toasts.
