@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43856972858",
+  "recorded_at": "2026-11-16T11:27:39Z",
+  "reason": "cmux-tui 57a1104560be changes the image's cmux-tui (pinned f3f5654adf3b)",
+  "dry_run": false,
+  "cmux_tui": "57a1104560bec0fa40fdb8745b24549c1dbf8be7",
+  "fixes": [
+    {
+      "sha": "57a1104560bec0fa40fdb8745b24549c1dbf8be7",
+      "mergedAt": "2026-11-16T03:03:32-08:00",
+      "subject": "perf(cmux-tui): daemon client sockets get a 256 KiB send buffer on macOS, no more 8 KiB attach hand-offs (CMUX-571) (#44055)"
+    },
+    {
+      "sha": "354ac70ce252f74ac76845c87a0ca1e3f6758ca4",
+      "mergedAt": "2026-11-16T02:38:16-08:00",
+      "subject": "Extension SDK: page.read, page.hints, page.follow; reader mode and link hints as example extensions (#44229)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T11:27:39Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
