@@ -315,7 +315,11 @@ async fn move_steps(
             info.get("peer").unwrap_or(&Value::Null)
         );
     }
-    if let Some(why) = plan::refusal(&info, args.interrupt) {
+    // Let transfer_begin arbitrate a moving chat. It can safely reclaim a dead driver's
+    // incomplete bundle; refusing here strands the mark until the background lease watcher.
+    if info.get("moving").and_then(Value::as_bool) != Some(true)
+        && let Some(why) = plan::refusal(&info, args.interrupt)
+    {
         bail!("{why}");
     }
     let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
