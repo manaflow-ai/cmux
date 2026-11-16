@@ -281,13 +281,13 @@ mod system {
     const NEW_FILE_MODE: libc::c_uint = 0o666;
 
     /// Flushes `file` with the sync that the record files of the terminal
-    /// host have before their rename
-    /// ([`barrier_sync`](crate::terminal_host_runtime::barrier_sync)): it
-    /// puts the bytes of the file before the writes that come after it. On
-    /// macOS that is `F_BARRIERFSYNC`, which does not empty the cache of
+    /// host have before their rename, `barrier_sync`
+    /// ([`sync_before_rename`](crate::terminal_host_runtime::sync_before_rename)):
+    /// it puts the bytes of the file before the writes that come after it.
+    /// On macOS that is `F_BARRIERFSYNC`, which does not empty the cache of
     /// the drive.
     pub(super) fn flush(file: &File) -> io::Result<()> {
-        crate::terminal_host_runtime::barrier_sync(file)
+        crate::terminal_host_runtime::sync_before_rename(file)
     }
 
     /// The open folder, or why there is none.
