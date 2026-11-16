@@ -217,7 +217,13 @@ import { callNative } from "./callNative";
 import { StreamReveal } from "./streamReveal";
 import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
-import { mountsOffscreen, OFFSCREEN_ROW_CLASS, skippedRow, skipsOffscreenRows } from "./conversation/offscreenRows";
+import {
+  mountsOffscreen,
+  OFFSCREEN_ROW_CLASS,
+  onceRendered,
+  skippedRow,
+  skipsOffscreenRows,
+} from "./conversation/offscreenRows";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
 import {
   NO_ROWS,
@@ -558,7 +564,15 @@ const RowFrame = React.memo(function RowFrame({
   const [loadFading] = useState(loadFade);
   // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
   // its rendered height instead (`auto`), which the row's observer has measured by then.
-  const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
+  const [skipHeight, setSkipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
+  // Once the page renders it (still a window or more from the view), the row draws like any other:
+  // the paint containment content-visibility brings snaps its contents to whole pixels, a pixel off
+  // the subpixel place (`marginTop`) an unmarked row draws its text at.
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!skipHeight || !node) return undefined;
+    return onceRendered(node, () => setSkipHeight(undefined));
+  }, [skipHeight]);
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
   // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
   useLayoutEffect(() => {
