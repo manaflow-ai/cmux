@@ -48,8 +48,7 @@ impl Daemon {
         let init = json!({"mcp_servers": [{"name": "github", "status": "connected"}]});
         let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]},
                                           "fakem": {"argv": ["python3", fake, "--model", "${model}"]},
-                                          "fakep": {"argv": ["python3", fake],
-                                                    "env": {"FAKE_PICKER": "1", "FAKE_MODELS": "m-a,m-b"}},
+                                          "fakep": {"argv": ["python3", fake, "--fake", "FAKE_PICKER", "1", "--fake", "FAKE_MODELS", "m-a,m-b"]},
                                           "fakeclaude": {"argv": ["python3", claude], "kind": "claude-stdio",
                                                          "env": {"FAKE_CLAUDE_INIT": init.to_string()}}},
                             "defaultHarness": "fake", "permissionPolicy": "ask",

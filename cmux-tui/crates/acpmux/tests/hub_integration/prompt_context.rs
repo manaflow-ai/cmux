@@ -18,7 +18,7 @@ const CONTEXT: &str = "<cmux-workspace-context>CTX-MARK</cmux-workspace-context>
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex", "env": {"FAKE_ECHO_GUIDANCE": "1"}}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE, "--fake", "FAKE_ECHO_GUIDANCE", "1"], "family": "codex"}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
     }))

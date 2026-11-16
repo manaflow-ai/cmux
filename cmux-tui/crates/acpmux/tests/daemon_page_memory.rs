@@ -338,8 +338,7 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
             private_dir(&home);
             let config = json!({
                 "harnesses": {"noload": {
-                    "argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")],
-                    "env": {"FAKE_NO_LOAD": "1"}
+                    "argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py"), "--fake", "FAKE_NO_LOAD", "1"]
                 }},
                 "defaultHarness": "noload", "permissionPolicy": "approve-all"
             });

@@ -35,11 +35,7 @@ struct Daemon {
 }
 
 fn profile(tag: &str) -> Value {
-    json!({"argv": ["python3", FAKE], "env": {
-        "FAKE_INIT_DELAY_MS": INIT_MS.to_string(),
-        "FAKE_NEW_DELAY_MS": NEW_MS.to_string(),
-        "FAKE_TAG": tag,
-    }})
+    json!({"argv": ["python3", FAKE, "--fake", "FAKE_INIT_DELAY_MS", INIT_MS.to_string(), "--fake", "FAKE_NEW_DELAY_MS", NEW_MS.to_string(), "--fake", "FAKE_TAG", tag]})
 }
 
 impl Daemon {

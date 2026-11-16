@@ -27,12 +27,16 @@ async fn model_probes_start_agents_in_an_empty_acpmux_folder_never_in_home() {
     let log = root.join("cwd.log");
 
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut env = BTreeMap::new();
-    env.insert("FAKE_CWD_LOG".to_owned(), log.to_string_lossy().into_owned());
     let profile = HarnessProfile {
         kind: Default::default(),
-        argv: vec!["python3".into(), fake.into()],
-        env,
+        argv: vec![
+            "python3".into(),
+            fake.into(),
+            "--fake".into(),
+            "FAKE_CWD_LOG".into(),
+            log.to_string_lossy().into_owned(),
+        ],
+        env: BTreeMap::new(),
         description: None,
         fallback: None,
         family: None,

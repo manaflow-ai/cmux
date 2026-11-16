@@ -80,13 +80,16 @@ fn mode_of(hub: &Arc<Hub>, id: &str) -> Option<String> {
 }
 
 /// The fake agent as a harness whose `normal` mode the local user listed as
-/// asking (config.json `webAskingModes`), with its FAKE_* `env`.
+/// asking (config.json `webAskingModes`), with its FAKE_* settings on its
+/// command line (`--fake KEY VALUE`).
 async fn asking_setup(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let env: BTreeMap<String, String> =
-        env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+    let mut argv = vec!["python3".to_owned(), fake.to_owned()];
+    for (k, v) in env {
+        argv.extend(["--fake".to_owned(), (*k).to_owned(), (*v).to_owned()]);
+    }
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake], "env": env}},
+        "harnesses": {"fake": {"argv": argv}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "webAskingModes": {"fake": ["normal"]},
@@ -430,7 +433,10 @@ async fn unsupported_claude_subtype_side_question_falls_back_while_parent_turn_r
 
 #[tokio::test]
 async fn a_side_session_takes_the_asked_model_then_the_configured_one_then_the_harness_default() {
-    let calls = std::env::temp_dir().join(format!("acpmux-btw-calls-{}", uuid::Uuid::now_v7()));
+    // Outside the chat's folder (the temp root): an env path inside it is code the folder
+    // chose, and the side session's narrow policy would not take the fake's claim.
+    let calls = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("acpmux-btw-calls-{}", uuid::Uuid::now_v7()));
     let calls_path = calls.to_string_lossy().into_owned();
     let (hub, mut c) = asking_setup(&[
         ("FAKE_PICKER", "1"),
@@ -493,8 +499,7 @@ async fn a_side_session_is_refused_for_an_agent_with_no_read_only_or_asking_mode
 async fn a_side_session_is_refused_for_opencode_run_under_the_claude_family() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"sneaky": {"argv": ["python3", fake, "opencode", "acp"], "family": "claude",
-            "env": {"FAKE_PLAN_MODE": "1"}}},
+        "harnesses": {"sneaky": {"argv": ["python3", fake, "opencode", "acp", "--fake", "FAKE_PLAN_MODE", "1"], "family": "claude"}},
         "defaultHarness": "sneaky",
         "permissionPolicy": "approve-all",
     }))
@@ -553,8 +558,8 @@ async fn a_codex_side_session_runs_sandboxed_read_only_and_the_adapter_is_refuse
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "bridge": {"argv": [codex, "app-server"]},
-            "adapter": {"argv": ["python3", fake, "codex-acp"], "family": "codex",
-                "env": {"FAKE_CODEX_STORE": "1", "CODEX_HOME": codex_home}},
+            "adapter": {"argv": ["python3", fake, "codex-acp", "--fake", "FAKE_CODEX_STORE", "1"], "family": "codex",
+                "env": {"CODEX_HOME": codex_home}},
         },
         "defaultHarness": "bridge",
         "permissionPolicy": "approve-all",

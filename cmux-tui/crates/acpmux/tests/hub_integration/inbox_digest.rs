@@ -390,8 +390,7 @@ fn durable_hub(dir: &std::path::Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         // A restart's continuation of a cut "until-cancel" turn quotes it, and runs as long.
         "harnesses": {"fake": {
-            "argv": ["python3", fake],
-            "env": {"FAKE_UNTIL_CANCEL_IN": "until-cancel"}
+            "argv": ["python3", fake, "--fake", "FAKE_UNTIL_CANCEL_IN", "until-cancel"]
         }},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
@@ -828,8 +827,11 @@ async fn a_digest_whose_agent_cannot_start_puts_its_messages_back_unheld() {
     // From now on the agent cannot start at all, and takes a moment to say so.
     let mut config = hub.config.write().await;
     let fake = config.harnesses.get_mut("fake").unwrap();
-    fake.env.insert("FAKE_DIE_AT_START".to_owned(), "cannot start".to_owned());
-    fake.env.insert("FAKE_INIT_DELAY_MS".to_owned(), "1000".to_owned());
+    for word in
+        ["--fake", "FAKE_DIE_AT_START", "cannot start", "--fake", "FAKE_INIT_DELAY_MS", "1000"]
+    {
+        fake.argv.push(word.to_owned());
+    }
     drop(config);
 
     // The person's prompt starts the agent; the messages wait behind it and go into a digest.
@@ -907,8 +909,11 @@ async fn held_messages_a_failed_digest_puts_back_still_get_their_retry() {
     // From now on the agent cannot start, and takes longer to say so than the retry waits.
     let mut config = hub.config.write().await;
     let fake = config.harnesses.get_mut("fake").unwrap();
-    fake.env.insert("FAKE_DIE_AT_START".to_owned(), "cannot start".to_owned());
-    fake.env.insert("FAKE_INIT_DELAY_MS".to_owned(), "1500".to_owned());
+    for word in
+        ["--fake", "FAKE_DIE_AT_START", "cannot start", "--fake", "FAKE_INIT_DELAY_MS", "1500"]
+    {
+        fake.argv.push(word.to_owned());
+    }
     drop(config);
 
     let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();

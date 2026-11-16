@@ -31,7 +31,7 @@ fn scratch(tag: &str) -> PathBuf {
     std::fs::write(
         home.join("config.json"),
         json!({
-            "harnesses": {"fake": {"argv": ["python3", FAKE], "env": {"FAKE_SETSID_CHILD": helper}}},
+            "harnesses": {"fake": {"argv": ["python3", FAKE, "--fake", "FAKE_SETSID_CHILD", helper]}},
             "defaultHarness": "fake",
             "permissionPolicy": "approve-all",
         })

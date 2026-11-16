@@ -168,6 +168,8 @@ impl Hub {
         // (`policy_mode.rs` `claim_distrust`). Its next start here records both again.
         meta.agent_capabilities = None;
         meta.launch_digest = None;
+        meta.claim_basis = None;
+        meta.claim_unbelieved = None;
         super::bookmarks::capped(&mut meta.bookmarks);
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {

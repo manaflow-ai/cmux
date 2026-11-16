@@ -91,50 +91,39 @@ fn home(name: &str) -> PathBuf {
             "pinned-asks": {"argv": ["python3", FAKE_AGENT, "--permission-mode", "default"]},
             // Harnesses that move themselves into full access: one that declares no modes (and
             // reports one anyway), one through a config option other than its mode.
-            "self-moder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1"}},
+            "self-moder": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_NO_MODES", "1"]},
             "self-optioner": {"argv": ["python3", FAKE_AGENT]},
             "pinned-marked": {"argv": [marked_acp, "--yolo"]},
             "claude-pinned": {"kind": "claude-stdio",
                               "argv": [marked_claude, "--dangerously-skip-permissions"]},
             // A profile that pins nothing whose harness's own settings start it in full access.
-            "self-full": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1",
-                          "FAKE_NEW_MODE": "full-access"}},
+            "self-full": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_FULL_ACCESS", "1", "--fake", "FAKE_NEW_MODE", "full-access"]},
             // A harness that declares no modes and reports bypassPermissions while its session
             // starts (a `current_mode_update` before it answers `session/new`).
-            "self-reporter": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
-                              "FAKE_STARTUP_MODE": "bypassPermissions"}},
+            "self-reporter": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_STARTUP_MODE", "bypassPermissions"]},
             // One that reports an asking mode while its session starts, then answers
             // `session/new` in full access.
-            "self-masked": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1",
-                            "FAKE_NEW_MODE": "full-access", "FAKE_STARTUP_MODE": "normal"}},
+            "self-masked": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_FULL_ACCESS", "1", "--fake", "FAKE_NEW_MODE", "full-access", "--fake", "FAKE_STARTUP_MODE", "normal"]},
             // `self-reporter` whose report comes after 300 other updates.
-            "self-busy": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
-                          "FAKE_STARTUP_NOISE": "300", "FAKE_STARTUP_MODE": "bypassPermissions"}},
+            "self-busy": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_STARTUP_NOISE", "300", "--fake", "FAKE_STARTUP_MODE", "bypassPermissions"]},
             // `self-reporter` whose `session/new` answer names an empty session id (review 74).
-            "self-blank-new": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
-                               "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_RESULT_SID": ""}},
+            "self-blank-new": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_STARTUP_MODE", "bypassPermissions", "--fake", "FAKE_NEW_RESULT_SID", ""]},
             // `self-reporter` whose report names an empty session id (review 70).
-            "self-blank": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
-                           "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_STARTUP_SID": ""}},
+            "self-blank": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_STARTUP_MODE", "bypassPermissions", "--fake", "FAKE_STARTUP_SID", ""]},
             // `self-reporter` that then holds its `session/new` answer while `hold` exists.
-            "self-holder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
-                            "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_HOLD": dir.join("hold")}},
+            "self-holder": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_STARTUP_MODE", "bypassPermissions", "--fake", "FAKE_NEW_HOLD", dir.join("hold")]},
             // `self-holder` that first waits while `gate` exists, then reports and holds its
             // answer while `gate-hold` exists.
-            "self-gated": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
-                           "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_GATE": dir.join("gate"),
-                           "FAKE_NEW_HOLD": dir.join("gate-hold")}},
+            "self-gated": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_STARTUP_MODE", "bypassPermissions", "--fake", "FAKE_NEW_GATE", dir.join("gate"), "--fake", "FAKE_NEW_HOLD", dir.join("gate-hold")]},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
-            "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
-                              "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
+            "slow-switcher": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_PLAN_MODE", "1", "--fake", "FAKE_FULL_ACCESS", "1", "--fake", "FAKE_SET_MODE_DELAY_MS", "1500"]},
             // Claude Code pinned to bypassPermissions, whose start takes 1.5 s to answer.
             "claude-pinned-slow": {"argv": ["python3", FAKE_CLAUDE, "--permission-mode=bypassPermissions"],
                                    "kind": "claude-stdio", "env": {"FAKE_CLAUDE_INIT_DELAY_MS": "1500"}},
             // A profile a config reload pins to full access after its chat started (review 36).
             "swapper": {"argv": ["python3", FAKE_AGENT]},
             // Pinned to full access, and ignores SIGTERM: ending it takes the whole grace.
-            "pinned-stubborn": {"argv": ["python3", FAKE_AGENT, "--yolo"],
-                                "env": {"FAKE_IGNORE_TERM": "1"}},
+            "pinned-stubborn": {"argv": ["python3", FAKE_AGENT, "--yolo", "--fake", "FAKE_IGNORE_TERM", "1"]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",

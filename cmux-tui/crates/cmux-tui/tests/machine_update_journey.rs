@@ -237,8 +237,8 @@ impl SupervisedVm {
         }
         use std::os::unix::fs::PermissionsExt as _;
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
-        let fake = json!({"argv": ["python3", FAKE_AGENT], "family": "fake",
-                          "env": {"FAKE_SESSION_PREFIX": "fake-session-"}});
+        let fake = json!({"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_SESSION_PREFIX",
+                                   "fake-session-"], "family": "fake"});
         let config = json!({"harnesses": {"fake": fake}, "defaultHarness": "fake",
                             "webAskingModes": {"fake": ["normal"]}});
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();

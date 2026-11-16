@@ -60,8 +60,8 @@ fn scratch() -> PathBuf {
 
 fn hub(root: &Path) -> Arc<Hub> {
     let fake = |family: &str| {
-        json!({"argv": ["python3", FAKE], "family": family,
-               "env": {"CODEX_HOME": root.join("codex"), "FAKE_ASK_MODE": "1"}})
+        json!({"argv": ["python3", FAKE, "--fake", "FAKE_ASK_MODE", "1"], "family": family,
+               "env": {"CODEX_HOME": root.join("codex")}})
     };
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake-codex": fake("codex"), "fake-pi": fake("pi")},

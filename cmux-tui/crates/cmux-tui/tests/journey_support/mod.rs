@@ -64,8 +64,8 @@ impl Machine {
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
         // Agent session ids as long as a real agent's: a guarded receive
         // refuses a short one.
-        let fake = json!({"argv": ["python3", FAKE_AGENT], "family": "fake",
-                          "env": {"FAKE_SESSION_PREFIX": "fake-session-"}});
+        let fake = json!({"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_SESSION_PREFIX",
+                                   "fake-session-"], "family": "fake"});
         // The fake agent's `normal` mode asks: a chat moved back under the
         // Web's control must be in an asking mode.
         // `fake-approve` is the same agent under a profile that approves

@@ -193,8 +193,11 @@ async fn agent_messages_joined_to_a_send_whose_agent_cannot_start_are_not_held()
     // From now on the agent cannot start at all.
     let mut config = hub.config.write().await;
     let fake = config.harnesses.get_mut("fake").unwrap();
-    fake.env.insert("FAKE_DIE_AT_START".to_owned(), "cannot start".to_owned());
-    fake.env.insert("FAKE_INIT_DELAY_MS".to_owned(), "500".to_owned());
+    for word in
+        ["--fake", "FAKE_DIE_AT_START", "cannot start", "--fake", "FAKE_INIT_DELAY_MS", "500"]
+    {
+        fake.argv.push(word.to_owned());
+    }
     drop(config);
 
     // `a-1` starts the agent and fails; `a-2` and `a-3` wait behind it, so `a-3` joins `a-2`'s

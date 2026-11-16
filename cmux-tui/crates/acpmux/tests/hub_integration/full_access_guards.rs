@@ -34,9 +34,14 @@ async fn claude_hub() -> (Arc<Hub>, TestClient) {
 /// the start level Full access (a new chat starts in the harness's full-access mode, set by cmux).
 async fn hub_with(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let env: BTreeMap<&str, &str> = env.iter().copied().collect();
+    let mut argv = vec!["python3", fake];
+    for (k, v) in env {
+        argv.extend(["--fake", *k, *v]);
+    }
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake], "env": env}},
+        // The family it had with its settings in `env`: a setting value such as
+        // `FAKE_PICKER_MODES claude` on the command line must not make it Claude Code.
+        "harnesses": {"fake": {"argv": argv, "family": "fake"}},
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "defaultPermissionMode": "fullAccess",
