@@ -78,9 +78,11 @@ import Testing
         let root: LayoutRootView
         let window: NSWindow
 
-        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false) {
+        /// `configure`: sets the model up before the view reads it.
+        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false, configure: (LayoutModel) -> Void = { _ in }) {
             provider = Panes(holds: holds, surfaces: surfaces)
             model = LayoutModel(screens: screens, activeScreenID: "s", focusedPane: focused)
+            configure(model)
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
             // The test steps the frames: no display link runs beside it.
@@ -142,6 +144,13 @@ import Testing
             guard panes.allSatisfy({ pane, rect in frame.panes[pane].map { PaneLayoutCommitTests.near($0, rect) } ?? false }) else { return false }
             return dividers.allSatisfy { rect in frame.dividers.contains { PaneLayoutCommitTests.near($0, rect) } }
         }
+    }
+
+    /// Whether two frames show the same panes and dividers at the same places.
+    static func same(_ a: Frame, _ b: Frame) -> Bool {
+        guard Set(a.panes.keys) == Set(b.panes.keys), a.dividers.count == b.dividers.count else { return false }
+        guard a.panes.allSatisfy({ pane, rect in b.panes[pane].map { near($0, rect) } ?? false }) else { return false }
+        return a.dividers.allSatisfy { rect in b.dividers.contains { near($0, rect) } }
     }
 
     /// Equal on the device-pixel grid: the screen puts each edge on the nearest pixel.
@@ -444,5 +453,71 @@ import Testing
         afterCommit = []
         for item in work { item() }
         #expect(harness.provider.released == [PaneID("p1-0")] && closed.superview == nil, "the closed pane was not torn down after that turn's commit")
+    }
+
+    // MARK: A close that moves a camera
+
+    /// One full-width column of rows (`heights` in permille of the column), as the daemon sends it: the rows, and the
+    /// chain of vertical splits that holds every pane. Rows of more than 1000 in all overflow, and the column scrolls.
+    static func rows(_ heights: [Int]) -> [LayoutScreen] {
+        let rows = heights.enumerated().map { index, height in
+            LayoutRow(id: RowID("r\(index + 1)"), height: height, root: .leaf(PaneID("p\(index + 1)")))
+        }
+        func chain(_ rest: ArraySlice<LayoutRow>) -> SplitNode {
+            guard rest.count > 1, let first = rest.first else { return rest.first?.root ?? .leaf("p1") }
+            return .split(SplitID("v\(first.id.rawValue)"), axis: .vertical, ratio: 1 / Double(rest.count), a: first.root, b: chain(rest.dropFirst()))
+        }
+        return [LayoutScreen(id: "s", name: "s", layout: .columns([LayoutColumn(id: "c1", width: 1, root: chain(rows[...]), rows: rows)]))]
+    }
+
+    /// A strip of `count` columns, each half the screen wide: more than two scroll.
+    static func strip(_ count: Int) -> [LayoutScreen] {
+        [LayoutScreen(id: "s", name: "s", layout: .columns((1...count).map { LayoutColumn(id: ColumnID("c\($0)"), width: 0.5, root: .leaf(PaneID("p\($0)"))) }))]
+    }
+
+    struct CameraClose: CustomTestStringConvertible, Sendable {
+        let name: String
+        var testDescription: String { name }
+    }
+
+    nonisolated static let cameraCloses = [CameraClose(name: "the last row, and the rest fit their column"), CameraClose(name: "the last column of a scrolled strip")]
+
+    /// A close that leaves a scrolled camera with less to show (the last row of a column whose rows overflowed, the last
+    /// column of a scrolled strip): the camera's new place is part of the close. Each frame shows what the screen showed
+    /// before the close, or the layout after it at rest, with nothing between: no frame shows the panes that stay on
+    /// their way to their places, beside the ground of the pane that left.
+    @Test(arguments: cameraCloses)
+    func aCloseThatMovesACameraShowsInOneFrame(_ close: CameraClose) throws {
+        let rows = close.name.hasPrefix("the last row")
+        let harness = Harness(rows ? Self.rows([500, 500, 500]) : Self.strip(3), focused: "p3", holds: false) { $0.rowsEnabledOverride = true }
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let camera = rows ? screen.rowScrolls["c1"]?.state.spring.value ?? 0 : screen.scroll.value
+        try #require(camera > 100, "set-up: the camera is not scrolled to the pane that closes (\(camera))")
+        let before = Self.shown(screen)
+
+        // The app's order for a close: the daemon's tree, then the focus its topology lands.
+        harness.model.apply(screens: rows ? Self.rows([500, 500]) : Self.strip(2))
+        let after = Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.root.syncWithModel()
+        harness.model.focus("p2", notify: false)
+        harness.root.syncWithModel()
+        var shown = [Self.shown(screen)]
+        for _ in 0..<Self.frames {
+            _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+            shown.append(Self.shown(screen))
+        }
+
+        var reached = false
+        for (index, frame) in shown.enumerated() {
+            if after.isShown(by: frame) {
+                reached = true
+            } else {
+                #expect(!reached, "frame \(index) leaves the layout after the close: \(frame.panes)")
+                #expect(Self.same(frame, before), "frame \(index) shows neither what showed before the close nor the layout after it: \(frame.panes); after \(after.panes)")
+            }
+        }
+        #expect(after.isShown(by: shown[1]), "the first display frame after the close does not show its layout at rest: \(shown[1].panes)")
     }
 }
