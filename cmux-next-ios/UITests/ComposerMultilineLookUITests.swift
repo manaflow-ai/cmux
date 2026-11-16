@@ -32,7 +32,9 @@ final class ComposerMultilineLookUITests: XCTestCase {
                                 "-cmuxMobile.settings.appearance", look]
         app.launch()
         defer { app.terminate() }
-        let field = app.textViews["chat.composer.field"]
+        // In a workspace tab the field carries the workspace's identifier: find it by its placeholder there.
+        let field = app.textViews.matching(NSPredicate(
+            format: "identifier == 'chat.composer.field' OR label BEGINSWITH 'Reply to' OR label BEGINSWITH 'Ask '")).firstMatch
         if !field.waitForExistence(timeout: 30) {
             // The collapsed capsule ("Reply to Claude", "Ask Claude") opens the field.
             let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to' OR label BEGINSWITH 'Ask '")).firstMatch
