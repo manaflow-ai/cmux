@@ -13,7 +13,8 @@ git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # Only the fixture's own config: a global core.hooksPath (a shared hooks folder on this machine) would answer the
 # "no core.hooksPath" case below. HOME too, for the `~/...` case.
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 HOME="$tmp/home"
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 HOME="$tmp/home" \
+  GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$HOME"
 
 # The function under test, exactly as the host runs it.
