@@ -248,3 +248,11 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# The fleet-only VideoToolbox ultra-profile measurements (cmux-encode/tests/vt_ultra.rs) encode
+# and decode a few hundred 1080p and 4K frames on the Mac media engine and print one table; a
+# step shows it only when a passing test's output is kept. It runs only when a step names it.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-encode::vt_ultra)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 25, grace-period = "5s" }
