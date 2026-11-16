@@ -2256,7 +2256,6 @@
             "customize",
             "tokens"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2330,7 +2329,6 @@
             "agent",
             "browser"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2401,7 +2399,6 @@
             "claude",
             "codex"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
