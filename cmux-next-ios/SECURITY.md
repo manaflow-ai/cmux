@@ -1200,7 +1200,10 @@ A DEBUG launch with `CMUX_DOGFOOD_READINESS_NONCE` writes
 (`DogfoodReadiness.swift`): the launch's nonce, the account's email and user id, how the session
 started, and the focused Mac's device id, name and whether its link is paired and connected. No
 token, password or key; the checker refuses a receipt with a secret-like field. Release builds
-compile none of it.
+compile none of it. A launch that resolves signed out writes a signed-out receipt (no account, no
+Mac), which `--no-auth` uses; that mode's session clear is the existing DEBUG-only
+`CMUX_MOBILE_CLEAR_AUTH=1` (`CmuxMobileAuthModel.live` reads it only when `DEBUG`), so no clear path
+ships. `--manual-pairing` hands the phone no code at all.
 
 ## Notification replies: the mailbox, sealed pushes and terminal input (`feat-cmux-next-ios-push-fallback`)
 

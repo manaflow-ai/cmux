@@ -18,8 +18,26 @@ command and report its output beside them. It leaves the task's build on every c
 signed in and paired with the same-tag Mac build, from one command at the pushed head:
 
 ```bash
-cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>]
+cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>] [--manual-pairing | --no-auth]
 ```
+
+The default is the rule for every dev build on a phone: signed in with the `personal` account and
+paired with the same-tag Mac at once, and still both after the person relaunches the app or the
+Mac. Those relaunches run the app's production persistence path: a launch with no
+`CMUX_MOBILE_STACK_*` has no auto-login credentials, so the session comes back from the Keychain
+token store the same way it does in Release, and the pairing state is the app's own. The two
+flags are for checking the other paths, and are never the hand-off:
+
+| Flag | The phone | The proof | Its report line |
+| --- | --- | --- | --- |
+| (none) | signed in, paired by the Mac's code | signed in, paired, linked; again after a credential-free relaunch and after the Mac app restarts | `installed, signed in (auto_login), paired and linked with <Mac>; ...` |
+| `--manual-pairing` | signed in; no code handed over or marked used, so the person pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
+| `--no-auth` | no credentials, no code; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
+
+`--no-auth` implies no pairing; given both, `--no-auth` wins. The classic app's
+`ios/scripts/reload.sh --review` accepts the same flags: `--no-auth` is its explicit
+unauthenticated install (local builds only: hq's fleet installer always signs in), and
+`--manual-pairing` is ignored with a note, since the classic app does not pair by a code.
 
 It does, in order, and exits non-zero if any phone fails a check or none is connected:
 

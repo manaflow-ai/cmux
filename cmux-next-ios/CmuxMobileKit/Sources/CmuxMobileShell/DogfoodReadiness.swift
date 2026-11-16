@@ -21,6 +21,13 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "dogfood-readin
 /// earlier launch is deleted first, so it never answers this one. The same keys as the
 /// classic app's receipt (`ios/CmuxiOS/Sources/CmuxiOSAuth/DogfoodReadinessReceipt.swift`), plus
 /// the phone's own device ids (`phone_device_ids`), which the Mac lists it by.
+///
+/// A launch that resolves signed out writes a signed-out receipt instead (`signed_in: false`,
+/// `session_source: "signed_out"`, no account): the hand-off's `--no-auth` proof that the app sits
+/// at the welcome screen. A launch that then signs in replaces it with the signed-in one.
+///
+/// It only observes: sign-in and its persistence are the app's own (`CmuxMobileAuthModel.live`,
+/// the Keychain token store and `AuthCoordinator`'s restore), the same code a Release build runs.
 struct DogfoodReadiness {
     static let relativePath = "Library/Application Support/cmux-dogfood/readiness.json"
     /// How long a launch keeps writing (pairing a fresh code can take a minute on a slow network).
@@ -43,6 +50,7 @@ struct DogfoodReadiness {
         let api_base_url: String
         let account_email: String
         let user_id: String
+        let signed_in: Bool
         let session_source: String
         let phone_device_ids: [String]
         let paired_macs: [PairedMac]
@@ -104,9 +112,29 @@ struct DogfoodReadiness {
             api_base_url: apiBase.absoluteString,
             account_email: email.lowercased(),
             user_id: userID,
+            signed_in: true,
             session_source: sessionSource,
             phone_device_ids: phoneDeviceIDs,
             paired_macs: paired,
+            written_at: ISO8601DateFormatter().string(from: now)
+        )
+    }
+
+    /// The receipt of a launch that resolved signed out: no account, no Macs.
+    func signedOutBody(nonce: String, apiBase: URL?, now: Date) -> Body {
+        Body(
+            nonce: nonce,
+            client_id: environment["CMUX_DOGFOOD_CLIENT_ID"] ?? "",
+            bundle_id: bundleID,
+            dev_tag: devTag,
+            git_sha: info["CmuxMobileSourceCommit"] as? String ?? "",
+            api_base_url: apiBase?.absoluteString ?? "",
+            account_email: "",
+            user_id: "",
+            signed_in: false,
+            session_source: "signed_out",
+            phone_device_ids: [],
+            paired_macs: [],
             written_at: ISO8601DateFormatter().string(from: now)
         )
     }
@@ -159,6 +187,17 @@ struct DogfoodReadiness {
                 }
                 try? await Task.sleep(for: .seconds(1))
             }
+        }
+    }
+
+    /// The launch resolved signed out: writes the signed-out receipt when the launcher asked for one.
+    @MainActor
+    func writeSignedOut(apiBase: URL?) {
+        guard let nonce else { return }
+        let body = signedOutBody(nonce: nonce, apiBase: apiBase, now: Date())
+        Task { @MainActor in
+            await Self.write(body, to: Self.url)
+            log.info("readiness receipt: signed out")
         }
     }
 

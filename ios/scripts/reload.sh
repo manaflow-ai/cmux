@@ -7,7 +7,7 @@ Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <i
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --simulator-only
-       ios/scripts/reload.sh --tag <tag> --review [--device-id <id>] [--workspace <pr-url>]
+       ios/scripts/reload.sh --tag <tag> --review [--device-id <id>] [--workspace <pr-url>] [--no-auth] [--manual-pairing]
 
 Build, install, and launch the cmux iOS app with an isolated tag.
 
@@ -27,6 +27,15 @@ phone, or a phone that fails its install or auth gate, fails the command (exit
 non-zero): it is a blocker to report, never something to skip. A fleet-built
 dev app talks to hq's tailnet-only dev backend, so a phone off the tailnet
 installs it but fails the auth gate; the app itself does not need Tailscale.
+
+--review --no-auth installs and launches with no sign-in, clearing the tag's stored
+session on the phone first (the app's CMUX_UITEST_CLEAR_AUTH), to check the
+never-signed-in experience. The flag itself is the explicit opt-out the
+unauthenticated-install gate asks for; nothing else turns it on. hq's fleet
+installer has no unauthenticated install, so it builds locally only (no cmux-ci);
+with the fleet it stops and says so. --review --manual-pairing is accepted and
+ignored: the classic app does not pair with a Mac by a code (it is for
+cmux-next-ios/scripts/review.sh).
 
 Verification default is simulator + iPhone: when a default iPhone is configured
 (CMUX_IPHONE_DEVICE_ID or ~/.config/cmux/iphone-device-id), the device leg is
@@ -194,6 +203,9 @@ PROD_AUTH=0
 # fleet simulator check; nothing runs in a simulator on this Mac (see usage).
 REVIEW=0
 REVIEW_WORKSPACE=""
+# --review --no-auth: the explicit, per-run unauthenticated install (see usage).
+REVIEW_NO_AUTH=0
+REVIEW_MANUAL_PAIRING=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -280,6 +292,14 @@ while [[ $# -gt 0 ]]; do
       REVIEW=1
       shift
       ;;
+    --no-auth)
+      REVIEW_NO_AUTH=1
+      shift
+      ;;
+    --manual-pairing)
+      REVIEW_MANUAL_PAIRING=1
+      shift
+      ;;
     --workspace)
       require_option_value "$1" "${2:-}"
       REVIEW_WORKSPACE="${2:-}"
@@ -326,8 +346,15 @@ if [[ "$REVIEW" -eq 1 ]]; then
       || "$NO_SIGN_IN" -eq 1 || "$NO_ATTACH" -eq 1 || "$NO_SETUP" -eq 1 \
       || "$PROD_AUTH" -eq 1 || "$SIMULATOR_EXPLICIT" -eq 1 || -n "$DEVICE_NAME" ]]; then
     echo "error: --review always installs on every connected iPhone (authenticated) and checks the simulator on the fleet;" >&2
-    echo "error: it takes only --tag, --device-id, --team and --workspace" >&2
+    echo "error: it takes only --tag, --device-id, --team, --workspace, --no-auth and --manual-pairing" >&2
     exit 2
+  fi
+  if [[ "$REVIEW_MANUAL_PAIRING" -eq 1 ]]; then
+    echo "==> --manual-pairing: ignored; the classic app does not pair with a Mac by a code (cmux-next-ios/scripts/review.sh uses it)"
+  fi
+  if [[ "$REVIEW_NO_AUTH" -eq 1 ]]; then
+    # Set after the check above, which refuses a plain --no-sign-in on --review.
+    NO_SIGN_IN=1
   fi
   RELOAD_DEVICE=1
   # Nothing boots or installs in a simulator on this Mac: the simulator check runs on the fleet.
@@ -339,6 +366,9 @@ if [[ "$REVIEW" -eq 1 ]]; then
   fi
 elif [[ -n "$REVIEW_WORKSPACE" ]]; then
   echo "error: --workspace applies only to --review" >&2
+  exit 2
+elif [[ "$REVIEW_NO_AUTH" -eq 1 || "$REVIEW_MANUAL_PAIRING" -eq 1 ]]; then
+  echo "error: --no-auth and --manual-pairing apply only to --review" >&2
   exit 2
 fi
 
@@ -515,7 +545,7 @@ fi
 # sign-in is inherently manual and announced above.
 if [[ "$RELOAD_DEVICE" -eq 1 && "$PROD_AUTH" -eq 0 ]] \
     && [[ "$NO_SIGN_IN" -eq 1 || "$NO_SETUP" -eq 1 || "$NO_ATTACH" -eq 1 ]] \
-    && [[ "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" ]]; then
+    && [[ "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" && "$REVIEW_NO_AUTH" -ne 1 ]]; then
   echo "error: refusing an unauthenticated iPhone install: --no-sign-in/--no-setup/--no-attach skip the signed-in+paired auth gate" >&2
   echo "error: retry without the opt-out flag(s): ios/scripts/reload.sh --tag $TAG --device${DEVICE_ID:+ --device-id $DEVICE_ID}  (humans only: CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 to skip)" >&2
   exit 2
@@ -705,6 +735,12 @@ review_finish() {
 if [[ "$REVIEW" -eq 1 ]]; then
   review_resolve_phones || exit 1
   echo "==> --review: installing on ${#REVIEW_TARGETS[@]} connected iPhone(s)"
+  if [[ "$REVIEW_NO_AUTH" -eq 1 ]] && review_resolve_fleet_tools; then
+    # ios-reload.py always signs the phone in (its install ends in verify-iphone-auth.sh).
+    echo "error: --review --no-auth: hq's fleet iOS installer (${REVIEW_IOS_RELOAD[*]}) has no unauthenticated install," >&2
+    echo "error: and agents never build on this Mac; the classic app's --no-auth runs only where cmux-ci is not installed" >&2
+    exit 2
+  fi
   if review_resolve_fleet_tools; then
     echo "==> --review: building on the fleet through ${REVIEW_IOS_RELOAD[*]}"
     # The first phone's run waits for the fleet jobs; later runs reuse the
@@ -1392,7 +1428,10 @@ reload_device() {
       # Plain launch (no sign-in / no pair); reachable only via --prod-auth or
       # the human-only CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1. A launch failure
       # (most commonly a LOCKED device) must not fail the whole reload here.
-      if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
+      # --review --no-auth: the first launch also drops the tag's stored session (CMUX_UITEST_CLEAR_AUTH).
+      local clear_auth=()
+      [[ "$REVIEW_NO_AUTH" -eq 1 ]] && clear_auth=(env DEVICECTL_CHILD_CMUX_UITEST_CLEAR_AUTH=1)
+      if ! ${clear_auth[@]+"${clear_auth[@]}"} xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
         echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
       fi
       if [[ "$PROD_AUTH" -eq 1 ]]; then
@@ -1495,7 +1534,11 @@ if [[ "$REVIEW" -eq 1 ]]; then
     set -e
     if [[ "$device_rc" -eq 0 ]]; then
       REVIEW_INSTALLED+=("$target")
-      review_phone_result "${target#*$'\t'}: installed, signed in (iPhone auth gate PASS)"
+      if [[ "$REVIEW_NO_AUTH" -eq 1 ]]; then
+        review_phone_result "${target#*$'\t'}: installed, not signed in (--no-auth)"
+      else
+        review_phone_result "${target#*$'\t'}: installed, signed in (iPhone auth gate PASS)"
+      fi
     else
       review_phone_result "${target#*$'\t'}: BLOCKED, install or auth gate failed (exit $device_rc)"
       REVIEW_FAILED=1

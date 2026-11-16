@@ -237,6 +237,8 @@ public struct RootView: View {
                 open(opened)
             }
             if options.setupPairDemo { await runSetupPairDemo() }
+            // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
+            if !auth.isSignedIn, !auth.isMock { DogfoodReadiness().writeSignedOut(apiBase: auth.apiBaseURL) }
             #endif
         }
         // Signed in (or out): live data and the team list follow the account.

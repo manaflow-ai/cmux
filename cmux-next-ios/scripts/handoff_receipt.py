@@ -11,7 +11,9 @@ the receipt must also list that Mac as paired and linked, which a phone that is 
 never paired, or cannot reach the Mac never writes.
 
   handoff_receipt.py check RECEIPT --nonce N --client-id ID --bundle-id B --account EMAIL
-                    --session auto_login|restored [--mac-id ID] [--git-sha SHA] [--dev-tag TAG]
+                    --session auto_login|restored|signed_out [--mac-id ID] [--git-sha SHA] [--dev-tag TAG]
+      signed_out (--no-auth): the receipt says signed out and names no account or Mac; for the
+      other sessions a signed-out receipt means "not yet" (exit 1)
       --git-sha / --dev-tag: the receipt must come from the build of this run's head and tag
       (Info.plist CmuxMobileSourceCommit, CmuxMobileTag), not an older install of the bundle.
       exit 0: valid (prints one line); 1: not this launch's yet (keep waiting);
@@ -68,21 +70,36 @@ def check(a):
             reject(f"the receipt carries a secret-like field: {key}")
     if receipt.get("schema") != 1 or isinstance(receipt.get("schema"), bool):
         reject("the receipt has an unsupported schema")
-    for key in ("client_id", "bundle_id", "account_email", "user_id", "session_source", "written_at"):
+    for key in ("client_id", "bundle_id", "session_source", "written_at"):
         if not isinstance(receipt.get(key), str) or not receipt[key]:
             reject(f"the receipt has no {key}")
     if receipt["client_id"] != a.client_id:
         reject("the receipt names another client id (another phone or simulator)")
     if receipt["bundle_id"] != a.bundle_id:
         reject(f"the receipt is from {receipt['bundle_id']}, not {a.bundle_id}")
+    for key, want in (("git_sha", a.git_sha), ("dev_tag", a.dev_tag)):
+        if want and receipt.get(key) != want:
+            reject(f"the installed app is another build: its {key} is {receipt.get(key)!r}, this run's is {want!r}")
+    signed_out = receipt.get("signed_in") is False or receipt["session_source"] == "signed_out"
+    if a.session == "signed_out":
+        # --no-auth: the app must sit at the welcome screen, signed in to no account.
+        if not signed_out:
+            reject(f"the app is signed in ({receipt['session_source']}), expected signed out")
+        if receipt.get("account_email") or receipt.get("user_id") or receipt.get("paired_macs"):
+            reject("a signed-out receipt names an account or a Mac")
+        print("signed out (at the welcome screen)")
+        return 0
+    if signed_out:
+        # A launch resolves signed out before an auto-login or restore finishes: keep waiting.
+        retry("the app is signed out (so far)")
+    for key in ("account_email", "user_id"):
+        if not isinstance(receipt.get(key), str) or not receipt[key]:
+            reject(f"the receipt has no {key}")
     if receipt["account_email"].strip().lower() != a.account.strip().lower():
         reject("the app is signed in to another account than the selected profile")
     if receipt["session_source"] != a.session:
         reject(f"the session is {receipt['session_source']}, expected {a.session}"
                + (" (a credential-free relaunch signed in again instead of restoring)" if a.session == "restored" else ""))
-    for key, want in (("git_sha", a.git_sha), ("dev_tag", a.dev_tag)):
-        if want and receipt.get(key) != want:
-            reject(f"the installed app is another build: its {key} is {receipt.get(key)!r}, this run's is {want!r}")
     line = f"signed in ({a.session})"
     if a.mac_id:
         macs = receipt.get("paired_macs")
@@ -193,9 +210,10 @@ def main(argv=None):
     sub = p.add_subparsers(dest="op", required=True)
     c = sub.add_parser("check")
     c.add_argument("receipt")
-    for flag in ("--nonce", "--client-id", "--bundle-id", "--account"):
+    for flag in ("--nonce", "--client-id", "--bundle-id"):
         c.add_argument(flag, required=True)
-    c.add_argument("--session", required=True, choices=["auto_login", "restored"])
+    c.add_argument("--account", default="")
+    c.add_argument("--session", required=True, choices=["auto_login", "restored", "signed_out"])
     c.add_argument("--mac-id", default="")
     c.add_argument("--git-sha", default="")
     c.add_argument("--dev-tag", default="")

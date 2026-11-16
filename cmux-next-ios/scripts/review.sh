@@ -6,6 +6,19 @@
 #
 #   cmux-next-ios/scripts/review.sh --tag <task-slug> [--device-id <udid>] [--target-worker <worker>]
 #       [--workspace <PR URL>]   (default: the branch's PR, else cmux-next-ios-review/<task-slug>)
+#       [--manual-pairing | --no-auth]
+#
+# The default is the hand-off every dev build must reach: signed in (personal account) and paired
+# with the same-tag Mac at once, and still both after the person relaunches the app or the Mac.
+#   --manual-pairing  signed in as usual, but the Mac's pairing code is not handed to the phone
+#                     (and not marked used): the person pairs by hand, to dogfood pairing. The
+#                     proof keeps the sign-in checks (and the credential-free relaunch) and drops
+#                     the paired ones and the Mac relaunch. "pairing left to you (--manual-pairing)".
+#   --no-auth         no credentials and no code; the first launch carries the DEBUG-only
+#                     CMUX_MOBILE_CLEAR_AUTH=1, which drops the tag's stored session, so the app
+#                     opens at the welcome screen as on a fresh install. The proof: the receipt
+#                     says signed out, and a plain relaunch is still signed out. Implies no
+#                     pairing. "installed, not signed in (--no-auth)".
 #
 # In order (each phone's failure is its own blocker; the others go on):
 #  1. Fleet, at the pushed HEAD: the tagged Mac dev build (`cmux-ci build cmux`, then
@@ -46,18 +59,29 @@
 #  5. Prints the report (AGENTS.md format). Exit 0 only when every phone passed every check;
 #     no connected phone is a failure too.
 #
+# The credential-free relaunches run the app's production persistence path: with no
+# CMUX_MOBILE_STACK_* in the launch there are no auto-login credentials, so AuthCoordinator restores
+# from the Keychain token store (KeychainStackTokenStore, the same code in Release), and the
+# pairing keys, device ids and Mac pins are the app's own Keychain and Application Support state.
+# The DEBUG receipt only observes that state.
+#
 # Never builds, boots a simulator or compiles on this Mac. Credentials stay in
 # ~/.secrets/cmuxterm-dev.env (personal profile) and are never printed.
 #
 # Tests: python3 ios/tests/test_cnx_review.py
 set -euo pipefail
 
-usage() { sed -n '2,51p' "$0"; }
+usage() { sed -n '2,70p' "$0"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEAM=7WLXT3NR37
 TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
+# What the phone gets (default `paired`, the hand-off every dev build must reach):
+#   paired   signed in with the personal account and paired with the same-tag Mac by its code
+#   manual   --manual-pairing: signed in, no pairing code; the person pairs by hand
+#   none     --no-auth: no credentials, no code, and the tag's stored session cleared first
+PHONE_MODE=paired
 
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$REPO_ROOT/scripts/lib/mobile-attach.sh"
@@ -112,6 +136,7 @@ review_report() {
 retry_command() {
   printf 'cmux-next-ios/scripts/review.sh --tag %s' "$SLUG"
   [[ -z "$REQUESTED_DEVICE_ID" ]] || printf ' --device-id %s' "$REQUESTED_DEVICE_ID"
+  case "$PHONE_MODE" in manual) printf ' --manual-pairing' ;; none) printf ' --no-auth' ;; esac
   [[ -z "$TARGET_WORKER" ]] || printf ' --target-worker %s' "$TARGET_WORKER"
 }
 
@@ -311,6 +336,8 @@ mac_start() {
     REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is signed in as $account, not the personal account $PERSONAL_ACCOUNT"
     return 1
   fi
+  # --manual-pairing / --no-auth: no code is handed to a phone, so none is required here.
+  [[ "$PHONE_MODE" == paired ]] || return 0
   local why
   # The id phones pair with, from the Mac's own pairing link: also shows the page can offer a code.
   MAC_DEVICE_ID="$(mac_py mac-id "$MAC_SOCKET" --timeout 90 2>&1)" ||
@@ -333,22 +360,34 @@ mac_restart() {
 }
 
 # --- the phones ---------------------------------------------------------------
-# One launch of the app on PHONE and its receipt. Args: udid client session(auto_login|restored) [pair-url].
-# Credentials go in the environment of this one call only; a restored launch carries none.
+# One launch of the app on PHONE and its receipt. Args: udid client launch [pair-url], where launch is
+#   auto_login   the personal account's credentials (and the pairing code, when given)
+#   restored     nothing: the app's own stored session, as the person's own cold launch
+#   clear        CMUX_MOBILE_CLEAR_AUTH=1 (DEBUG only: drops the tag's stored session), then signed out
+#   signed_out   nothing, and the app must still be signed out
+# Credentials go in the environment of this one call only; every other launch carries none, and
+# the ambient DEVICECTL_CHILD_ credential, code and clear variables are dropped first.
 phone_launch_and_check() {
-  local udid="$1" client="$2" session="$3" pair_url="${4:-}" nonce rc=0
+  local udid="$1" client="$2" launch="$3" pair_url="${4:-}" nonce rc=0 session mac_id=""
+  session="$launch"
+  [[ "$launch" != clear ]] || session=signed_out
+  # Only the paired hand-off checks the Mac; --manual-pairing and --no-auth prove sign-in state only.
+  [[ "$PHONE_MODE" != paired ]] || mac_id="$MAC_DEVICE_ID"
   nonce="$(cmux_attach_readiness_nonce)"
   # In a subshell's environment, never on a command line (ps would show it).
   if ! (
-    unset DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL
+    unset DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL \
+      DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH
     export DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client"
-    if [[ "$session" == auto_login ]]; then
+    if [[ "$launch" == auto_login ]]; then
       export DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL="$PERSONAL_EMAIL" DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD="$PERSONAL_PASSWORD"
       [[ -z "$pair_url" ]] || export DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL="$pair_url"
+    elif [[ "$launch" == clear ]]; then
+      export DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH=1
     fi
     exec xcrun devicectl device process launch --terminate-existing --device "$udid" "$BUNDLE_ID" >/dev/null 2>&1
   ); then
-    PHONE_REASON="could not launch the app ($session; is the phone locked? unlock it)"
+    PHONE_REASON="could not launch the app ($launch; is the phone locked? unlock it)"
     return 1
   fi
   local deadline=$((SECONDS + ${CNX_REVIEW_RECEIPT_TIMEOUT:-180})) verdict="" receipt
@@ -359,7 +398,7 @@ phone_launch_and_check() {
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
-        --mac-id "$MAC_DEVICE_ID" --git-sha "$SHA" --dev-tag "$SLUG")" || rc=$?
+        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG")" || rc=$?
       [[ $rc -eq 1 ]] || break
     else
       rc=1 verdict="no readiness receipt yet"
@@ -371,7 +410,7 @@ phone_launch_and_check() {
   mkdir -p "$STATE/phone-$udid"
   if [[ -f "$receipt" ]]; then mv "$receipt" "$STATE/phone-$udid/receipt.json"; else rm -f "$receipt"; fi
   if [[ $rc -ne 0 ]]; then
-    PHONE_REASON="$session launch: $verdict (after ${CNX_REVIEW_RECEIPT_TIMEOUT:-180} s)"
+    PHONE_REASON="$launch launch: $verdict (after ${CNX_REVIEW_RECEIPT_TIMEOUT:-180} s)"
     return 1
   fi
   PHONE_VERDICT="$verdict"
@@ -423,6 +462,20 @@ phone_review() {
     PHONE_REASON="install failed ($(tail -n 1 "$STATE/phone-$udid/install.log"); locked, or Developer Mode off?)"
     return 1
   fi
+  case "$PHONE_MODE" in
+    manual)
+      # Signed in like every dev build; the Mac's code is never fetched, so it stays unused.
+      phone_launch_and_check "$udid" "$client" auto_login || return 1
+      local signed_in="$PHONE_VERDICT"
+      phone_launch_and_check "$udid" "$client" restored || return 1
+      PHONE_LINE="$label: installed, $signed_in; credential-free relaunch: $PHONE_VERDICT; pairing left to you (--manual-pairing)"
+      return 0 ;;
+    none)
+      phone_launch_and_check "$udid" "$client" clear || return 1
+      phone_launch_and_check "$udid" "$client" signed_out || return 1
+      PHONE_LINE="$label: installed, not signed in (--no-auth): the tag's stored session cleared, at the welcome screen; relaunch: still signed out"
+      return 0 ;;
+  esac
   local pair_err="$STATE/phone-$udid/pair-url.err"
   # A code is recorded as used only once a phone paired with it (its receipt says so), so a launch
   # that failed, or a rerun, takes the same live code again instead of waiting for the next one.
@@ -473,6 +526,9 @@ main() {
       --device-id) REQUESTED_DEVICE_ID="${2:-}"; shift 2 ;;
       --target-worker) TARGET_WORKER="${2:-}"; shift 2 ;;
       --workspace) WORKSPACE="${2:-}"; shift 2 ;;
+      --manual-pairing) [[ "$PHONE_MODE" == none ]] || PHONE_MODE=manual; shift ;;
+      # --no-auth implies no pairing, whatever order the flags come in.
+      --no-auth) PHONE_MODE=none; shift ;;
       -h|--help) usage; exit 0 ;;
       *) echo "review.sh: unknown argument $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -555,15 +611,16 @@ review_run() {
   done
 
   # The person's own Mac relaunch: quit the tagged app and start it again; every phone links again.
+  # Only the paired hand-off has a link to prove across it.
   local restarted=1
-  if [[ "$PASSED_PHONES" != " " ]]; then
+  if [[ "$PASSED_PHONES" != " " && "$PHONE_MODE" == paired ]]; then
     echo "==> relaunching the tagged Mac app (quit as the person quits it, then open -g)"
     mac_restart || restarted=0
   fi
   local line
   for line in ${lines[@]+"${lines[@]}"}; do
     udid="${line%%$'\t'*}" line="${line#*$'\t'}"
-    if passed "$udid"; then
+    if passed "$udid" && [[ "$PHONE_MODE" == paired ]]; then
       if [[ $restarted -eq 0 ]]; then
         REVIEW_FAILED=1
         line="$line; BLOCKED: the tagged Mac app did not quit and start again; retry: $(retry_command)"

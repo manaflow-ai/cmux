@@ -227,11 +227,11 @@ class FleetToolDiscoveryTests(unittest.TestCase):
 class LocalInstallLoopTests(unittest.TestCase):
     """The local --review loop must see a failed install as a failure (set -e inside the subshell)."""
 
-    def run_loop(self, reload_device_body):
+    def run_loop(self, reload_device_body, no_auth=0):
         text = RELOAD.read_text()
         start = text.index('  for target in "${REVIEW_TARGETS[@]}"; do\n    DEVICE_ID=')
         loop = text[start:text.index('  done\n', start) + len('  done\n')]
-        script = ('set -euo pipefail\nREVIEW_TARGETS=("UDID1\tPhone (Model, UDID1)")\nREVIEW_INSTALLED=()\nREVIEW_FAILED=0\n'
+        script = (f'set -euo pipefail\nREVIEW_NO_AUTH={no_auth}\nREVIEW_TARGETS=("UDID1\tPhone (Model, UDID1)")\nREVIEW_INSTALLED=()\nREVIEW_FAILED=0\n'
                   'REVIEW_PHONE_STATUS=""\nreview_phone_result() { REVIEW_PHONE_STATUS+="$1;"; }\n'
                   'reload_device() {\n' + reload_device_body + '\n}\n' + loop +
                   'echo "FAILED=$REVIEW_FAILED STATUS=$REVIEW_PHONE_STATUS"\n')
@@ -248,6 +248,48 @@ class LocalInstallLoopTests(unittest.TestCase):
         result = self.run_loop('  true')
         self.assertIn('FAILED=0', result.stdout)
         self.assertIn('installed, signed in', result.stdout)
+
+    def test_a_no_auth_install_says_not_signed_in(self):
+        result = self.run_loop('  true', no_auth=1)
+        self.assertIn('FAILED=0', result.stdout)
+        self.assertIn('installed, not signed in (--no-auth)', result.stdout)
+        self.assertNotIn('signed in (iPhone auth gate PASS)', result.stdout)
+
+
+class ReviewModeFlagTests(unittest.TestCase):
+    """--review --no-auth is the explicit unauthenticated install; --manual-pairing is accepted and ignored."""
+
+    def test_flags_need_review(self):
+        for flag in ('--no-auth', '--manual-pairing'):
+            with self.subTest(flag=flag):
+                result = reload('--tag', 'review-test', flag)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('apply only to --review', result.stderr)
+
+    def test_help_documents_both(self):
+        out = reload('--help').stdout
+        self.assertIn('--review --no-auth', out)
+        self.assertIn('--manual-pairing is accepted and', out)
+
+    def test_no_auth_passes_the_gate_only_when_passed(self):
+        text = RELOAD.read_text()
+        gate = text[text.index('# iPhone auth gate: installed-but-signed-out'):text.index('# Isolated per-tag simulator')]
+        self.assertIn('"$REVIEW_NO_AUTH" -ne 1', gate)
+        self.assertIn('CMUX_ALLOW_UNAUTHENTICATED_INSTALL', gate)
+        review = text[text.index('if [[ "$REVIEW" -eq 1 ]]; then\n  # The review hand-off'):]
+        review = review[:review.index('elif [[ -n "$REVIEW_WORKSPACE" ]]')]
+        # Only the explicit flag sets NO_SIGN_IN on --review, and only after --no-sign-in itself is refused.
+        self.assertLess(review.index('--review always installs'), review.index('NO_SIGN_IN=1'))
+        self.assertIn('if [[ "$REVIEW_NO_AUTH" -eq 1 ]]; then', review)
+
+    def test_no_auth_refuses_the_fleet_installer(self):
+        text = RELOAD.read_text()
+        self.assertIn('if [[ "$REVIEW_NO_AUTH" -eq 1 ]] && review_resolve_fleet_tools; then', text)
+        self.assertIn('has no unauthenticated install', text)
+
+    def test_no_auth_clears_the_tags_session_on_its_launch(self):
+        text = RELOAD.read_text()
+        self.assertIn('[[ "$REVIEW_NO_AUTH" -eq 1 ]] && clear_auth=(env DEVICECTL_CHILD_CMUX_UITEST_CLEAR_AUTH=1)', text)
 
 
 if __name__ == '__main__':

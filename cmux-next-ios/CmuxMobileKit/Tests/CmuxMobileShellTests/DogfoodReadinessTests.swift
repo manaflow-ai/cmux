@@ -40,6 +40,25 @@ import Testing
         #expect(json["phone_device_ids"] as? [String] == ["link-1", "presence-1"])
     }
 
+    @Test func signedOutReceiptNamesNoAccount() throws {
+        let r = DogfoodReadiness(environment: ["CMUX_DOGFOOD_CLIENT_ID": "client"], bundleID: "dev.cmux.mobile.t",
+                                 info: ["CmuxMobileTag": ".t", "CmuxMobileSourceCommit": "abc"])
+        let json = try #require(try JSONSerialization.jsonObject(
+            with: DogfoodReadiness.encode(r.signedOutBody(nonce: "n", apiBase: nil, now: Date(timeIntervalSince1970: 0)))) as? [String: Any])
+        #expect(json["signed_in"] as? Bool == false)
+        #expect(json["session_source"] as? String == "signed_out")
+        #expect(json["account_email"] as? String == "")
+        #expect(json["dev_tag"] as? String == "t")
+        #expect(json["git_sha"] as? String == "abc")
+        #expect(json["client_id"] as? String == "client")
+    }
+
+    @Test func signedInReceiptSaysSignedIn() throws {
+        let body = readiness([:]).body(nonce: "n", apiBase: base, email: "a@b.c", userID: "u", macs: macs, focus: nil,
+                                       now: Date(timeIntervalSince1970: 0))
+        #expect(body.signed_in)
+    }
+
     @Test func linkedOnlyWhenPairedAndConnected() {
         let r = readiness(["CMUX_DOGFOOD_CLIENT_ID": "client"])
         func linked(_ focus: DogfoodReadiness.Focus?) -> [DogfoodReadiness.PairedMac] {

@@ -288,6 +288,17 @@ class ReceiptCheckTests(unittest.TestCase):
         self.assertIn('another build', r.stdout)
         self.assertEqual(self.check(receipt, '--session', 'restored', '--dev-tag', 'other').returncode, 3)
 
+    def test_signed_out_session(self):
+        out = {**self.base, 'session_source': 'signed_out', 'signed_in': False, 'account_email': '', 'user_id': ''}
+        r = self.check(out, '--session', 'signed_out')
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'signed out (at the welcome screen)'))
+        # Signed in when --no-auth expects signed out: refused at once.
+        self.assertEqual(self.check(self.base, '--session', 'signed_out').returncode, 3)
+        # A signed-out receipt while sign-in is expected: not yet (the launch may still sign in).
+        self.assertEqual(self.check(out, '--session', 'restored').returncode, 1)
+        # A signed-out receipt that still names an account is refused.
+        self.assertEqual(self.check({**out, 'account_email': 'me@example.com'}, '--session', 'signed_out').returncode, 3)
+
     def test_phone_ids(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'r.json'
@@ -748,6 +759,179 @@ class HeadPushedTests(unittest.TestCase):
         body = ('case "$*" in *"branch --show-current"*) echo feat;; *ls-remote*) printf "%s\\trefs/heads/feat\\n" '
                 + 'b' * 40 + ';; *"branch -r --contains"*) ;; esac\n')
         self.assertIn('rc=1', self.run_head_pushed(body).stdout)
+
+
+class PhoneModeTests(unittest.TestCase):
+    """phone_review in each mode against a stand-in phone that keeps a stored session across launches,
+    as the app's Keychain does: auto-login stores one, CMUX_MOBILE_CLEAR_AUTH drops it, a plain
+    launch restores it or stays signed out. Every launch's environment is recorded."""
+
+    PHONE_PY = r"""#!/usr/bin/env python3
+import json, os, sys
+root = sys.argv[0].rsplit('/bin/', 1)[0]
+args = sys.argv[1:]
+store = os.path.join(root, 'stored-session')
+if args[:3] == ['devicectl', 'device', 'install']:
+    sys.exit(0)
+if args[:3] == ['devicectl', 'device', 'process']:
+    env = {k: v for k, v in os.environ.items() if k.startswith('DEVICECTL_CHILD_')}
+    with open(os.path.join(root, 'launches'), 'a') as f:
+        f.write(json.dumps({'argv': args, 'env': env}) + '\n')
+    if env.get('DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH') == '1' and os.path.exists(store):
+        os.remove(store)
+    if env.get('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL') and env.get('DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH') != '1':
+        open(store, 'w').write('session')
+        source = 'auto_login'
+    elif os.path.exists(store):
+        source = 'restored'
+    else:
+        source = 'signed_out'
+    signed_in = source != 'signed_out'
+    paired = signed_in and (bool(env.get('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL')) or os.path.exists(os.path.join(root, 'paired')))
+    if paired:
+        open(os.path.join(root, 'paired'), 'w').write('1')
+    receipt = dict(schema=1, nonce=env.get('DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE'),
+                   client_id=env.get('DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID'), bundle_id='dev.cmux.mobile.TAGX',
+                   written_at='now', git_sha='SHAX', dev_tag='TAGX', signed_in=signed_in, session_source=source,
+                   account_email='me@example.com' if signed_in else '', user_id='u1' if signed_in else '',
+                   phone_device_ids=['link-1', 'presence-1'] if signed_in else [],
+                   paired_macs=[{'id': 'mac-tagged', 'name': 'cmux DEV x', 'linked': True}] if paired else [])
+    open(os.path.join(root, 'receipt.json'), 'w').write(json.dumps(receipt))
+    sys.exit(0)
+if args[:3] == ['devicectl', 'device', 'copy']:
+    dest = args[args.index('--destination') + 1]
+    open(dest, 'w').write(open(os.path.join(root, 'receipt.json')).read())
+    sys.exit(0)
+sys.exit(1)
+"""
+
+    def review(self, mode, stored=False):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'bin').mkdir()
+            (root / 'bin/xcrun').write_text(self.PHONE_PY.replace('TAGX', TAG).replace('SHAX', SHA))
+            (root / 'bin/xcrun').chmod(0o755)
+            (root / 'device/CmuxMobileApp.app').mkdir(parents=True)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ios-device-process.sh').write_text('#!/bin/sh\nexit 0\n')
+            (root / 'scripts/ios-device-process.sh').chmod(0o755)
+            if stored:
+                (root / 'stored-session').write_text('session')
+            script = f"""
+set -euo pipefail
+source "{REVIEW}"
+PHONE_MODE={mode} BUNDLE_ID=dev.cmux.mobile.{TAG} SHA={SHA} SLUG={TAG} STATE="{root}" TAG_STATE="{root}"
+REPO_ROOT="{root}" MAC_SOCKET=/x MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2
+PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
+sign_app() {{ echo '{{}}'; }}
+mac_py() {{
+  case "$1" in
+    pair-url) echo "PAIR_URL_FETCHED" >> "{root}/calls"; echo "cmux-next://pair?mac=mac-tagged&t=tok" ;;
+    mark-used) echo "MARK_USED" >> "{root}/calls"; cat >/dev/null ;;
+    phones) echo '{{"phones": [{{"id": "link-1", "paired": true, "connected": true}}]}}' ;;
+  esac
+}}
+if phone_review {PHONE} "iPhone (iPhone 16 Plus, {PHONE})"; then echo "LINE: $PHONE_LINE"; else echo "FAIL: $PHONE_REASON"; fi
+"""
+            r = bash(script, {'PATH': f"{root / 'bin'}:{os.environ['PATH']}"})
+            launches = [json.loads(l) for l in (root / 'launches').read_text().splitlines()] if (root / 'launches').exists() else []
+            calls = (root / 'calls').read_text() if (root / 'calls').exists() else ''
+            still_stored = (root / 'stored-session').exists()
+            return r, launches, calls, still_stored
+
+    def test_default_signs_in_pairs_and_restores(self):
+        r, launches, calls, stored = self.review('paired')
+        self.assertIn('LINE: iPhone (iPhone 16 Plus, ', r.stdout, r.stderr)
+        self.assertIn('signed in (auto_login), paired and linked with cmux DEV x', r.stdout)
+        self.assertIn('credential-free relaunch: signed in (restored), paired and linked', r.stdout)
+        self.assertIn('PAIR_URL_FETCHED', calls)
+        self.assertIn('MARK_USED', calls)
+        self.assertTrue(stored)
+        self.assertEqual(len(launches), 2)
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL', launches[1]['env'])
+
+    def test_manual_pairing_signs_in_and_never_hands_over_the_code(self):
+        r, launches, calls, stored = self.review('manual')
+        self.assertIn('LINE: ', r.stdout, r.stderr)
+        self.assertIn('installed, signed in (auto_login); credential-free relaunch: signed in (restored); '
+                      'pairing left to you (--manual-pairing)', r.stdout)
+        self.assertNotIn('paired and linked', r.stdout)
+        self.assertNotIn('PAIR_URL_FETCHED', calls)
+        self.assertNotIn('MARK_USED', calls)
+        self.assertTrue(stored)
+        for launch in launches:
+            self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL', launch['env'])
+        self.assertEqual(launches[0]['env']['DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD'], 'pw-secret')
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD', launches[1]['env'])
+
+    def test_no_auth_clears_a_stored_session_and_stays_signed_out(self):
+        r, launches, calls, stored = self.review('none', stored=True)
+        self.assertIn('LINE: iPhone (iPhone 16 Plus, ', r.stdout, r.stderr)
+        self.assertIn('installed, not signed in (--no-auth)', r.stdout)
+        self.assertIn('relaunch: still signed out', r.stdout)
+        self.assertFalse(stored)  # the tag's stored session is gone
+        self.assertEqual(launches[0]['env'].get('DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH'), '1')
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH', launches[1]['env'])
+        for launch in launches:
+            for key in ('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL', 'DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD',
+                        'DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL'):
+                self.assertNotIn(key, launch['env'])
+        self.assertNotIn('PAIR_URL_FETCHED', calls)
+
+    def test_no_auth_fails_when_the_app_is_still_signed_in(self):
+        # A build without the clear hook keeps the stored session: --no-auth must not pass.
+        r, launches, _, _ = self.review_without_clear()
+        self.assertIn('FAIL: clear launch: the app is signed in (restored), expected signed out', r.stdout, r.stderr)
+
+    def test_manual_pairing_fails_when_sign_in_does_not_persist(self):
+        saved = self.PHONE_PY
+        self.PHONE_PY = saved.replace("open(store, 'w').write('session')", "pass")
+        try:
+            r, *_ = self.review('manual')
+        finally:
+            self.PHONE_PY = saved
+        self.assertIn('FAIL: restored launch: the app is signed out (so far)', r.stdout, r.stderr)
+
+    def review_without_clear(self):
+        saved = self.PHONE_PY
+        self.PHONE_PY = saved.replace("if env.get('DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH') == '1' and os.path.exists(store):\n        os.remove(store)",
+                                      "pass")
+        try:
+            return self.review('none', stored=True)
+        finally:
+            self.PHONE_PY = saved
+
+
+class ModeFlagTests(unittest.TestCase):
+    def mode(self, *flags):
+        r = bash(f"""source "{REVIEW}"; set +e
+die() {{ echo "DIE $*"; exit 0; }}
+cmux_attach_validate_dev_tag() {{ echo "MODE=$PHONE_MODE RETRY=$(SLUG=t; retry_command)"; exit 0; }}
+main --tag t {' '.join(flags)}""")
+        return r.stdout.strip()
+
+    def test_flags_set_the_mode_and_the_retry_keeps_it(self):
+        self.assertIn('MODE=paired RETRY=cmux-next-ios/scripts/review.sh --tag t', self.mode())
+        self.assertIn('MODE=manual RETRY=cmux-next-ios/scripts/review.sh --tag t --manual-pairing', self.mode('--manual-pairing'))
+        self.assertIn('MODE=none RETRY=cmux-next-ios/scripts/review.sh --tag t --no-auth', self.mode('--no-auth'))
+        # --no-auth implies no pairing, in either order.
+        self.assertIn('MODE=none', self.mode('--no-auth', '--manual-pairing'))
+        self.assertIn('MODE=none', self.mode('--manual-pairing', '--no-auth'))
+
+    def test_only_the_paired_mode_relaunches_the_mac(self):
+        text = REVIEW.read_text()
+        self.assertIn('if [[ "$PASSED_PHONES" != " " && "$PHONE_MODE" == paired ]]; then', text)
+
+    def test_the_clear_hook_is_debug_only(self):
+        auth = (ROOT / 'cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/CmuxMobileAuthModel.swift').read_text()
+        self.assertIn('clearAuthRequested: isDebug && environment["CMUX_MOBILE_CLEAR_AUTH"] == "1"', auth)
+        self.assertIn('let isDebug = false', auth[auth.index('#else'):])
+        root_view = (ROOT / 'cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RootView.swift').read_text()
+        at = root_view.index('DogfoodReadiness().writeSignedOut(')
+        self.assertGreater(at, root_view.rindex('#if DEBUG', 0, at))
+        self.assertGreater(root_view.index('#endif', at), at)
+        receipt = (ROOT / 'cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DogfoodReadiness.swift').read_text()
+        self.assertTrue(receipt.startswith('#if DEBUG'))
 
 
 if __name__ == '__main__':
