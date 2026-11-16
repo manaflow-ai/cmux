@@ -44,6 +44,19 @@ import Testing
         #expect(body["platform"] as? String == "macos")
         #expect(body["signingKey"] as? String == identity.signingKey)
         #expect(body["agreementKey"] as? String == identity.agreementKey)
+        // One machine id for every build on this Mac: a hash, never the IOPlatformUUID itself.
+        #if os(macOS)
+        let machineId = try #require(body["machineId"] as? String)
+        #expect(machineId == DeviceMachineID.current && machineId.count == 64)
+        #expect(machineId != DeviceMachineID.platformUUID())
+        #endif
+    }
+
+    @Test func machineIDIsOneHashPerMachineWhateverItsCase() {
+        let id = DeviceMachineID.hash("3F2504E0-4F89-11D3-9A0C-0305E82C3301")
+        #expect(id.count == 64 && id.allSatisfy(\.isHexDigit))
+        #expect(id == DeviceMachineID.hash("3f2504e0-4f89-11d3-9a0c-0305e82c3301"))
+        #expect(id != DeviceMachineID.hash("3F2504E0-4F89-11D3-9A0C-0305E82C3302"))
     }
 
     /// Sign-out ends this device's sessions on the hub (reason `signed_out`) before the account session goes.

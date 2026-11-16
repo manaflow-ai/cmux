@@ -93,3 +93,59 @@ fn a_renamed_or_blank_own_record_still_marks_this_macs_builds_by_its_registered_
     };
     assert_eq!(listing(&mine, &devices).this_device, ["nightly", "dev"]);
 }
+
+fn on(machine: &str, d: Device) -> Device {
+    Device { machine: Some(machine.into()), ..d }
+}
+
+#[test]
+fn two_macs_with_one_name_are_two_devices_by_machine_key() {
+    // hq#11700: the name rule alone folded two Macs called "Studio" into one row.
+    let devices = [
+        on("m-me", device("me", "Laptop")),
+        on("m-a", Device { online: true, ..device("a", "Studio") }),
+        on("m-b", device("b", "Studio")),
+    ];
+    let listing = listing(&this("me"), &devices);
+    assert_eq!(
+        listing.others,
+        [
+            Machine { id: "a".into(), ids: vec!["a".into()] },
+            Machine { id: "b".into(), ids: vec!["b".into()] }
+        ]
+    );
+}
+
+#[test]
+fn this_macs_machine_key_marks_its_builds_and_another_macs_same_name_stays_remote() {
+    let devices = [
+        on("m-desk", device("nightly", "Desk Mac")),
+        on("m-desk", device("dev", "Renamed in DEV")),
+        on("m-other", device("twin", "Desk Mac")),
+        // A record from a build before machine ids, with this Mac's name: this Mac.
+        device("legacy", "Desk Mac"),
+    ];
+    let listing = listing(&this("nightly"), &devices);
+    assert_eq!(listing.this_device, ["nightly", "dev", "legacy"]);
+    assert_eq!(listing.others, [Machine { id: "twin".into(), ids: vec!["twin".into()] }]);
+}
+
+#[test]
+fn a_legacy_record_joins_the_machine_that_carries_its_name() {
+    let devices = [
+        device("me", "Laptop"),
+        Device { last_seen_at: Some(5.0), ..device("old", "Studio") },
+        on("m-studio", Device { online: true, ..device("new", "Studio") }),
+    ];
+    let listing = listing(&this("me"), &devices);
+    assert_eq!(
+        listing.others,
+        [Machine { id: "new".into(), ids: vec!["new".into(), "old".into()] }]
+    );
+}
+
+#[test]
+fn a_build_without_a_machine_id_still_goes_by_name() {
+    let devices = [device("old-build", "Desk Mac"), on("m-desk", device("new-build", "Desk Mac"))];
+    assert_eq!(listing(&this("old-build"), &devices).this_device, ["old-build", "new-build"]);
+}
