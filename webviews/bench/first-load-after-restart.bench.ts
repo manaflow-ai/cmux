@@ -32,7 +32,8 @@
 //               reopen-no-copy  the same with no copy and no tail: a page built from nothing.
 //               reopen-spare    the prewarmed spare page (a connected New Tab page in the warm renderer) takes the
 //                               chat (AgentPaneView.adoptSession's `acpmux-session-adopt`, carrying the kept tail and
-//                               the place); timed from that event, not from the spare's own load.
+//                               the place), and draws the copy its hide wrote (`chat.snapshot.get`) while the chat
+//                               attaches; timed from that event, not from the spare's own load.
 //             Not in MODE=all: MODE=reopen (or reopen-no-copy, reopen-spare) runs one; MODE=reopen-both runs reopen
 //             and reopen-no-copy, MODE=reopen-all all three; the rounds' p50 and p95 are printed too.
 // Per round (bench/firstLoadFrames.ts): blank frames after the first content, shift frames (the composer
@@ -202,7 +203,17 @@ type BenchWindow = {
 /// place (`chat.scrollAnchor.get`: null, the chat opens at its newest message). The page assigns its own
 /// `window.cmuxAcpmuxActions` once its client is up (App.tsx); these stay beside its own, as the app's
 /// host keeps answering them. Runs in the page, so it closes over nothing.
-function installHost({ tail, readyDelayMs, bridge }: { tail: unknown; readyDelayMs: number; bridge: boolean }) {
+function installHost({
+  tail,
+  copy,
+  readyDelayMs,
+  bridge,
+}: {
+  tail: unknown;
+  copy: unknown;
+  readyDelayMs: number;
+  bridge: boolean;
+}) {
   /// `asks`: when the page asked for a socket to acpmux (ms from navigation): each `transport.open` over
   /// the bridge, each `new WebSocket` to it on the dev slot's transport.
   const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[] };
@@ -282,6 +293,8 @@ function installHost({ tail, readyDelayMs, bridge }: { tail: unknown; readyDelay
       return tail === null ? null : structuredClone(tail);
     },
     "chat.scrollAnchor.get": async () => null,
+    // The chat's copy the host keeps (`chat.snapshot.get`), which a spare that takes the chat asks for.
+    "chat.snapshot.get": async () => (copy === null ? null : structuredClone(copy)),
   };
   let current: Record<string, unknown> = { ...served };
   Object.defineProperty(window, "cmuxAcpmuxActions", {
@@ -751,10 +764,10 @@ try {
     });
   };
 
-  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0) => {
+  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0, copy: unknown = null) => {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
-    await page.addInitScript(installHost, { tail, readyDelayMs, bridge: BRIDGE });
+    await page.addInitScript(installHost, { tail, copy, readyDelayMs, bridge: BRIDGE });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -813,17 +826,17 @@ try {
   /// The load after the restart: a cold context, the copy and the kept tail served, acpmux unavailable
   /// for DOWN_MS from navigation in `mode`.
   const relaunch = async (mode: Mode, copy: ChatSnapshot): Promise<Round> =>
-    mode === "reopen-spare" ? adoptSpare() : openPage(mode, copy);
+    mode === "reopen-spare" ? adoptSpare(copy) : openPage(mode, copy);
 
   /// MODE=reopen-spare: a spare New Tab page loads and settles in the warm renderer (as the app keeps one
   /// prewarmed), then takes the chat with the event the host sends (AgentPaneView.adoptSession), carrying the
   /// kept tail and the place (none kept: the newest message). Every number is ms from that event.
-  const adoptSpare = async (): Promise<Round> => {
+  const adoptSpare = async (copy: ChatSnapshot): Promise<Round> => {
     if (!warmContext) throw new Error("reopen-spare needs the warm renderer");
     const page = await warmContext.newPage();
     servingSpare = true;
     try {
-      await prepare(page, null, 600_000);
+      await prepare(page, null, 600_000, 0, copy);
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
@@ -877,6 +890,9 @@ try {
           frames: w.__firstLoad.frames,
           layoutShift: w.__firstLoad.layoutShift,
           live: w.__firstLoad.liveLatestAt,
+          // The chat's copy the spare drew on its adopt event (chatSnapshot/live.ts `paintAdoptedSnapshot`).
+          shown: w.__cmuxChatSnapshotShown ?? null,
+          miss: w.__cmuxChatSnapshotMiss ?? null,
         };
       });
       if (cdp) {
@@ -906,9 +922,9 @@ try {
         frames,
         liveLatestMs: got.live > start.at ? got.live - start.at : null,
         layoutShift: got.layoutShift - start.shift,
-        copyShownMs: null,
-        swapMs: null,
-        copyMiss: "none: the spare draws the carried tail",
+        copyShownMs: got.shown && got.shown.at >= start.at ? got.shown.at - start.at : null,
+        swapMs: got.shown?.swappedAt !== undefined ? got.shown.swappedAt - start.at : null,
+        copyMiss: got.shown ? null : (got.miss ?? "none"),
         tailAskedMs: null,
         readyAnsweredMs: null,
         acpmuxUpMs: 0,

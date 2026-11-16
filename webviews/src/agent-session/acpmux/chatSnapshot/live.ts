@@ -2,12 +2,15 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureMiss, captureSnapshot } from "./capture";
+import { paintSnapshot } from "./paint";
 import {
+  isChatSnapshot,
   SNAPSHOT_GLOBAL,
   SNAPSHOT_HOST_TAG,
   SNAPSHOT_LIVE_GLOBAL,
   SNAPSHOT_MISS_GLOBAL,
   SNAPSHOT_SHOWN_GLOBAL,
+  SNAPSHOT_THEME_GLOBAL,
   type SnapshotLive,
 } from "./shared";
 
@@ -180,6 +183,49 @@ export function reportChatSnapshot(
   };
   if (showsChatSnapshot()) shows();
   else liveSide().painted = shows;
+}
+
+/// A prewarmed spare page that takes chat `sessionId` (newtab/adoption.ts, AgentPaneView.adoptSession) draws
+/// that chat's copy while the chat attaches, as a page built for the chat draws it at its load (boot.ts). A
+/// released chat that opened again in the spare showed nothing until its attach answered, later than a page
+/// built again showed its copy (first-load-after-restart.bench.ts MODE=reopen-spare against MODE=reopen).
+/// `ask` is the host call (`chat.snapshot.get`, AgentPaneChatSnapshots.swift); `current` says whether this
+/// adoption still stands. The live page takes over as at a load: at its next frame once it drew the chat
+/// (App.tsx `swapChatSnapshot`), and a copy answered after that draws nothing. Called in the adopt event's
+/// own turn, before the switch: from there the page has not drawn this chat yet.
+export async function paintAdoptedSnapshot(
+  sessionId: string,
+  ask: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  current: () => boolean = () => true,
+  doc: Document = document,
+): Promise<boolean> {
+  const view = doc.defaultView;
+  if (!view) return false;
+  const globals = view as unknown as Record<string, unknown>;
+  // The spare drew its New Tab page, which is not this chat: a copy may draw until the chat itself draws.
+  liveSide().drawn = false;
+  delete globals[SNAPSHOT_MISS_GLOBAL];
+  delete globals[SNAPSHOT_SHOWN_GLOBAL];
+  const copy = await ask("chat.snapshot.get", { sessionId }).catch(() => null);
+  const drawn = () => (globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined)?.drawn === true;
+  if (!current()) return false;
+  if (!isChatSnapshot(copy)) {
+    globals[SNAPSHOT_MISS_GLOBAL] =
+      copy === null || copy === undefined ? "none served" : "not a snapshot of this version";
+    return false;
+  }
+  if (drawn()) {
+    globals[SNAPSHOT_MISS_GLOBAL] = "late: the page drew the chat first";
+    return false;
+  }
+  // The theme the page draws in now (the host's `theme` event), not only the one the spare loaded under.
+  if (chatTheme) globals[SNAPSHOT_THEME_GLOBAL] = chatTheme;
+  const painted = paintSnapshot(doc, copy, {
+    wanted: () => current() && !drawn(),
+    shown: () => (globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined)?.painted?.(),
+  });
+  if (!painted && !(SNAPSHOT_MISS_GLOBAL in globals)) globals[SNAPSHOT_MISS_GLOBAL] = "does not fit this page";
+  return painted;
 }
 
 /// The key of the theme the page draws in now (the host's `theme` event, pageHost.ts): a copy is

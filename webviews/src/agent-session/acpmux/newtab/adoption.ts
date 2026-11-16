@@ -5,6 +5,8 @@
 // another context) gets every key.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
+import { callNative } from "../callNative";
+import { paintAdoptedSnapshot } from "../chatSnapshot/live";
 import { newTabHost, type NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
 import { revealedSubagent } from "../subagents/subagentPanes";
@@ -87,14 +89,73 @@ export function carriedAnchor(
   return adoption.scrollAnchor ? { sessionId: adoption.sessionId, ...adoption.scrollAnchor } : undefined;
 }
 
-/// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next
-/// frame never draws its New Tab screen again.
+/// How long an adopt waits for the chat's saved copy (`chat.snapshot.get`) before it switches without
+/// one, and for the frame that shows the copy: a busy host answers late, and the switch never waits longer.
+export const ADOPT_COPY_WAIT_MS = 50;
+
+/// How an adopt draws the chat's saved copy first. `draw` paints chat `sessionId`'s copy while `current()`
+/// holds (true when it drew); `afterFrame` runs once the frame now drawn is shown; `wait` is a timer.
+export type AdoptCopy = {
+  draw: (sessionId: string, current: () => boolean) => Promise<boolean>;
+  afterFrame: (run: () => void) => void;
+  wait: (run: () => void, ms: number) => void;
+};
+
+const pageCopy: AdoptCopy = {
+  draw: (sessionId, current) =>
+    paintAdoptedSnapshot(sessionId, (method, params) => callNative(method, params), current),
+  afterFrame: (run) => {
+    let ran = false;
+    const once = () => {
+      if (!ran) run();
+      ran = true;
+    };
+    // After the frame that shows the copy, not inside it: the switch's render would hold that frame back.
+    requestAnimationFrame(() => setTimeout(once, 0));
+    // A page drawing no frames (hidden, throttled) switches anyway.
+    setTimeout(once, ADOPT_COPY_WAIT_MS);
+  },
+  wait: (run, ms) => void setTimeout(run, ms),
+};
+
+/// The handler of the session adopt event. A released chat that a spare page takes shows its saved copy
+/// first: the switch that follows remounts the whole chat in one render (first-load-after-restart.bench.ts
+/// MODE=reopen-spare PROFILE=1: 68 ms at 10 turns, 97 ms at 100 on the Linux fleet), so a switch in the
+/// event's own turn left the pane on its cover that long. The copy is drawn (and the host told the page
+/// drew, `pane.painted`, so it moves the page back into the window), then the switch renders once that frame
+/// is shown and the chat takes over from the copy in one frame (App.tsx `swapChatSnapshot`). A chat with no
+/// copy, or one the host answers past ``ADOPT_COPY_WAIT_MS``, switches as soon as that is known; a copy
+/// answered after the switch draws nothing. A subagent's pane switches in the event's own turn: it shows the
+/// subagent from its first frame, not the chat's rows. The page never draws its New Tab screen in the
+/// chat's pane: the host holds the page outside the window until it reports it drew
+/// (AgentPaneView+SessionAdopt.swift).
+export function sessionAdoptHandler(
+  onAdopt: (adoption: SessionAdoption) => void,
+  copy: AdoptCopy = pageCopy,
+): (event: Event) => void {
+  let latest = 0;
+  return (event) => {
+    const adoption = sessionAdoption((event as CustomEvent).detail);
+    if (!adoption) return;
+    const ticket = ++latest;
+    let switched = false;
+    const adopt = () => {
+      if (switched || ticket !== latest) return;
+      switched = true;
+      flushSync(() => onAdopt(adoption));
+    };
+    if (adoptionPlan(adoption).revealsFirst) return adopt();
+    copy.wait(adopt, ADOPT_COPY_WAIT_MS);
+    copy
+      .draw(adoption.sessionId, () => ticket === latest && !switched)
+      .then((drew) => (drew ? copy.afterFrame(adopt) : adopt()), adopt);
+  };
+}
+
+/// Calls `onAdopt` with each session adopt event (``sessionAdoptHandler``).
 export function useSessionAdoption(onAdopt: (adoption: SessionAdoption) => void): void {
   useEffect(() => {
-    const handle = (event: Event) => {
-      const adoption = sessionAdoption((event as CustomEvent).detail);
-      if (adoption) flushSync(() => onAdopt(adoption));
-    };
+    const handle = sessionAdoptHandler(onAdopt);
     window.addEventListener(SESSION_ADOPT_EVENT, handle);
     return () => window.removeEventListener(SESSION_ADOPT_EVENT, handle);
   }, [onAdopt]);
