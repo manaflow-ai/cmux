@@ -25,13 +25,13 @@ struct SidebarPinnedRowEdgeReorderTests {
     }
 
     /// Presses pinned row `index` at its centre, moves the pointer `dy` points down the list (negative: up) in
-    /// small steps and lets go there.
+    /// 1 pt steps, holds it there for a few more moves and lets go.
     static func drag(_ h: Harness, pin index: Int, by dy: CGFloat) throws {
         let view = try h.item(Harness.pins[index].id)
         let start = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         view.mouseDown(with: try h.mouse(.leftMouseDown, at: start))
-        let steps = max(2, Int((abs(dy) / 3).rounded(.up)))
-        for step in 1...steps {
+        let steps = max(2, Int(abs(dy).rounded(.up)))
+        for step in Array(1...steps) + [steps, steps, steps] {
             let y = start.y - dy * CGFloat(step) / CGFloat(steps) // the window's y grows up
             view.mouseDragged(with: try h.mouse(.leftMouseDragged, at: NSPoint(x: start.x, y: y)))
         }
@@ -74,6 +74,35 @@ struct SidebarPinnedRowEdgeReorderTests {
         try Self.drag(h, pin: 0, by: third.midY + 2 - first.maxY)
         #expect(Self.place(h, moved: 0) == 2, "the row is not after the third pinned row: \(Self.sent(h))")
         h.expectEveryRowAtRest("after a pinned row dragged down past two rows")
+    }
+
+    /// The first list row's frame in the list (the row under the Pinned block).
+    static func firstListRow(_ h: Harness) throws -> CGRect {
+        let row = try #require(h.list.displayed.row(for: .workspace(Harness.loose[0])))
+        return CGRect(x: 0, y: row.y, width: h.list.bounds.width, height: row.height)
+    }
+
+    /// In the last pinned place and further down, its bottom 2 pt short of the first list row's middle: the row
+    /// stays pinned (the list rows are drawn where they were: the gap holds the dragged row's place in the block).
+    @Test func aPinnedRowStaysPinnedWhileItsBottomIsShortOfTheFirstListRowsMiddle() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness()
+        defer { h.close() }
+        let first = try Self.frame(h, 0), below = try Self.firstListRow(h)
+        try Self.drag(h, pin: 0, by: below.midY - 2 - first.maxY)
+        #expect(Self.place(h, moved: 0) == 2, "the row is not the last pinned row: \(Self.sent(h))")
+        h.expectEveryRowAtRest("after a pinned row held over the first list row's top half")
+    }
+
+    /// 5 pt further, its bottom is past the first list row's middle: it leaves Pinned for the list.
+    @Test func aPinnedRowLeavesPinnedWhenItsBottomPassesTheFirstListRowsMiddle() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness()
+        defer { h.close() }
+        let first = try Self.frame(h, 0), below = try Self.firstListRow(h)
+        try Self.drag(h, pin: 0, by: below.midY + 3 - first.maxY)
+        #expect(h.drops.count == 1 && h.drops.first?.1.section == Harness.machineSection, "the row did not go to the list: \(Self.sent(h))")
+        h.expectEveryRowAtRest("after a pinned row dragged into the list")
     }
 
     /// The third pinned row dragged up until its top is 2 pt past the second row's middle: it goes before the second row.
