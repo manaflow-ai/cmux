@@ -18,7 +18,8 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_engine::{Encoded, EngineConfig, IdrReason, MediaEngine, Output};
+use cmux_rd_proto::{DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -96,6 +97,14 @@ pub struct MediaSession {
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
 fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
+}
+
+/// A frame shard or parity datagram: what the engine resends on a NACK or a tail-loss
+/// probe. These go through the pacer; input acks and clock pongs (small, latency-bound)
+/// do not.
+fn is_media_datagram(datagram: &[u8]) -> bool {
+    DatagramHeader::decode(datagram)
+        .is_ok_and(|(header, _)| matches!(header.kind, DatagramKind::Video | DatagramKind::Fec))
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -488,6 +497,9 @@ impl MediaSession {
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
         }
+        // A stream's first keyframe follows no loss: the pacer lets it leave within a frame
+        // interval (bounded); a keyframe that answers loss leaves at the pacing rate.
+        let start_keyframe = frame.idr && req.idr_reason == Some(IdrReason::Start);
         let encoded = Encoded {
             access_unit: frame.access_unit,
             idr: frame.idr,
@@ -520,7 +532,12 @@ impl MediaSession {
         if let Some(line) = line {
             self.paced_logs.push_back((out.datagrams.len(), line));
         }
-        pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
+        let (target_bps, interval_us) = (self.engine.target_bps(), self.frame_interval_us);
+        if start_keyframe {
+            pacer.push_start_keyframe(out.datagrams, target_bps, interval_us, now_us());
+        } else {
+            pacer.push_frame(out.datagrams, target_bps, interval_us, now_us());
+        }
         Ok(self.send_paced(carrier)?)
     }
 
@@ -529,11 +546,12 @@ impl MediaSession {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
         let now = now_us();
         let due = pacer.due(now);
+        // Repairs left first; only the frame datagrams count toward a frame's send time.
+        let mut left = pacer.take_frame_datagrams_sent();
         for datagram in &due {
             carrier.send_datagram(datagram)?;
             self.engine.datagram_sent(datagram, now);
         }
-        let mut left = due.len();
         while left > 0 {
             let Some((remaining, _)) = self.paced_logs.front_mut() else { break };
             let take = left.min(*remaining);
@@ -555,14 +573,12 @@ impl MediaSession {
     fn apply(
         &mut self,
         carrier: &mut dyn Carrier,
-        out: Output,
+        mut out: Output,
         table: &SessionTable,
         session: SessionId,
         viewer: &Principal,
     ) {
-        for datagram in &out.datagrams {
-            let _ = carrier.send_datagram(datagram);
-        }
+        self.send_output(carrier, std::mem::take(&mut out.datagrams));
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
             let _ = self.desktop.release_all();
@@ -572,6 +588,29 @@ impl MediaSession {
         }
         if let Some(req) = out.encode {
             self.encoder.submit(req);
+        }
+    }
+
+    /// Sends an engine output's datagrams: resent frame shards (NACK answers, tail-loss
+    /// probes) through the pacer, ahead of queued frames, so a recovery never leaves as an
+    /// unpaced burst; everything else at once.
+    fn send_output(&mut self, carrier: &mut dyn Carrier, datagrams: Vec<Vec<u8>>) {
+        let Some(pacer) = self.pacer.as_mut() else {
+            for datagram in &datagrams {
+                let _ = carrier.send_datagram(datagram);
+            }
+            return;
+        };
+        let (repairs, direct): (Vec<_>, Vec<_>) =
+            datagrams.into_iter().partition(|d| is_media_datagram(d));
+        for datagram in &direct {
+            let _ = carrier.send_datagram(datagram);
+        }
+        if !repairs.is_empty() {
+            pacer.push_repair(repairs, self.engine.target_bps(), now_us());
+            if let Err(e) = self.send_paced(carrier) {
+                eprintln!("cmux-rd host: paced repair send failed: {e}");
+            }
         }
     }
 
