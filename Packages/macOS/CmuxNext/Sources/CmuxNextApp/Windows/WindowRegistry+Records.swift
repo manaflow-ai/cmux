@@ -42,7 +42,9 @@ extension WindowRegistry {
     func record(_ id: String, state: WindowState?, order: Int, isFullScreen: Bool = false,
                 selectedTabs: [String: String] = [:], machines: [String: String] = [:]) -> WindowRecord? {
         // Incognito windows are never restored: nothing of them is saved.
-        guard let window = window(id), !isIncognito(id) else { return nil }
+        // A window that owns nothing is only a view of other windows' workspaces (`openView`): they are saved with their
+        // owners, and a record that named one would take it from its owner at the next launch (`init(records:)`).
+        guard let window = window(id), !isIncognito(id), !window.ownedIDs.isEmpty else { return nil }
         let selected = state?.workspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil } ?? window.workspaceIDs.first
         var record = WindowRecord(
             id: id,

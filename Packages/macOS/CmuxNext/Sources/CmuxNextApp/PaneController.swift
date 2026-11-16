@@ -150,6 +150,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
         if guestTerminal != nil { view.detachContent(parks: false); dropGuestTerminal() }
+        if !isSuspended { isSuspended = true; stoppedDrawing(currentTabKey) } // it draws no more
         services.cache.hibernation?.paneDidGo(ObjectIdentifier(self))
         // Page tabs of panes the live tree no longer lists close now
         // rather than at the store's next observation; a workspace switch or
@@ -203,6 +204,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard !isSuspended else { return }
         isSuspended = true
         syncGuestTerminal()
+        stoppedDrawing(currentTabKey)
         observation?.cancel(); observation = nil
         tabItems.cancelAll() // a title or busy-dot change in a parked workspace maps no tab item
         services.presentation.cancel(self)
@@ -480,6 +482,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         dropGuestTerminal(keeping: key) // after its view left the pane
         syncGuestTerminal()
+        if shownBefore != key { stoppedDrawing(shownBefore) }
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last quit or kill (`TerminalLaunchFrames`, which takes over one
         // shown ahead and keeps it on disk); other content is ready once shown, and so is a pane with nothing selected: nothing is coming to it (#36274).
@@ -576,7 +579,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// True when showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool {
         guard let key = stripModel.selectedID?.rawValue else { return true }
-        return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
+        // A guest view's terminal is its own (`guestTerminal`): the owner window's surface is not this pane's content.
+        return (key == currentTabKey && view.hostsContent) || (isGuestView ? guestTerminal?.key == key : services.cache.hasContent(for: key))
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
             || services.newTabSpares.hasNativeAdoption(key)
     }

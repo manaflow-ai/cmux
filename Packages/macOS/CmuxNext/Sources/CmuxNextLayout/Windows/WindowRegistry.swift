@@ -313,7 +313,7 @@ public struct WindowRegistry: Equatable, Sendable {
     private mutating func merge(_ id: String, into heir: String) -> Changes {
         var changes = Changes()
         let orphans = window(id)?.ownedIDs ?? []
-        _ = detach(orphans) // `heir` may list them as guests: it owns them now
+        _ = detach(orphans, to: heir) // `heir` may list them as guests: it owns them now
         remove(id)
         if !orphans.isEmpty, let heirIndex = windows.firstIndex(where: { $0.id == heir }) {
             windows[heirIndex].workspaceIDs += orphans
@@ -372,7 +372,7 @@ public struct WindowRegistry: Equatable, Sendable {
     public mutating func move(_ workspaceIDs: [String], to id: String, before anchor: String? = nil) -> Changes {
         guard window(id) != nil, !workspaceIDs.isEmpty, !crossesIncognito(workspaceIDs, to: id) else { return Changes() }
         var changes = Changes()
-        let taken = detach(workspaceIDs)
+        let taken = detach(workspaceIDs, to: id)
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return changes }
         let slot = anchor.flatMap { windows[index].workspaceIDs.firstIndex(of: $0) } ?? windows[index].workspaceIDs.endIndex
         windows[index].workspaceIDs.insert(contentsOf: taken, at: slot)
@@ -438,16 +438,18 @@ public struct WindowRegistry: Equatable, Sendable {
 
     // MARK: Internals
 
-    /// Removes `ids` from every window; returns them in the given order,
-    /// without duplicates.
-    private mutating func detach(_ ids: [String]) -> [String] {
+    /// Takes `ids` from the windows that own them and from `destination` (which lists them as its own next); returns
+    /// them in the given order, without duplicates. Another window that lists one as a guest keeps it: only its owner
+    /// changes, so a window that is a view of a space does not close because a workspace it shows moved.
+    private mutating func detach(_ ids: [String], to destination: String? = nil) -> [String] {
         var unique: [String] = []
         var set = Set<String>()
         for id in ids where set.insert(id).inserted { unique.append(id) }
         var detached = windows
         for index in detached.indices {
-            detached[index].workspaceIDs.removeAll { set.contains($0) }
-            if !detached[index].guests.isEmpty { detached[index].guests.subtract(set) }
+            let kept = detached[index].id == destination ? [] : detached[index].guests
+            detached[index].workspaceIDs.removeAll { set.contains($0) && !kept.contains($0) }
+            if detached[index].id == destination { detached[index].guests.subtract(set) }
         }
         windows = detached
         return unique

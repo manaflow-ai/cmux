@@ -50,11 +50,12 @@ extension PaneController {
 
     /// The same pane of another window that draws tab `key` now, when the tab has one view.
     func paneShowingElsewhere(_ key: String) -> PaneController? {
+        // A terminal draws in each window; every other tab (a page tab of the pane too, which no record lists) has one view.
         guard let id = workspace?.workspace.id, let own = state?.id, services.windows.controllers.count > 1,
-              let tab = pane.tabs.first(where: { $0.id == key }), tab.kind != .pty else { return nil }
+              pane.tabs.first(where: { $0.id == key })?.kind != .pty else { return nil }
         for controller in services.windows.controllers where controller.state.id != own {
             guard let content = controller.content, content.workspace.id == id, let other = content.paneController(key: paneKey),
-                  other.currentTabKey == key, other.elsewhereNotice?.key != key, other.view.hostsContent else { continue }
+                  other.currentTabKey == key, other.elsewhereNotice?.key != key, !other.isSuspended, other.view.hostsContent else { continue }
             return other
         }
         return nil
@@ -66,6 +67,17 @@ extension PaneController {
         let view = TabShownElsewhereView { [weak self] in self?.showHere(key) }
         elsewhereNotice = (key, view)
         return .notice(view)
+    }
+
+    /// This pane stopped drawing tab `key` (it shows another tab, its workspace left the screen, or it goes): the same
+    /// pane of another window that shows the notice for `key` shows the tab itself now.
+    func stoppedDrawing(_ key: String?) {
+        guard let key, services.windows.controllers.count > 1, elsewhereNotice?.key != key, let id = workspace?.workspace.id else { return }
+        for controller in services.windows.controllers where controller.state.id != state?.id {
+            guard let content = controller.content, content.workspace.id == id,
+                  let other = content.paneController(key: paneKey), other !== self, other.elsewhereNotice?.key == key else { continue }
+            other.showSelected()
+        }
     }
 
     /// Show Here: this pane takes tab `key`'s view, and the pane that drew it says where it went.

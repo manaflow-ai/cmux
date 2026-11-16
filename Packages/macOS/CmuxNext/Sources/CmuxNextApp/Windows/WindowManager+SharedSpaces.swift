@@ -57,6 +57,19 @@ extension WindowManager {
         return controller(for: id)
     }
 
+    /// The window an action on `workspaceID` acts in: the one the person acts in when it lists the workspace (its own or
+    /// a guest), else the workspace's owner. Two windows can list one workspace, so "its window" alone names two.
+    func actingWindow(for workspaceID: String) -> String? {
+        if let acting = active?.state.id, registry.value.lists(workspaceID, in: acting) { return acting }
+        return registry.value.owner(of: workspaceID)
+    }
+
+    /// The controllers, the one the person acts in first: a pane or tab that two windows show resolves to theirs.
+    var controllersActingFirst: [WindowController] {
+        guard controllers.count > 1, let acting = active else { return controllers }
+        return [acting] + controllers.filter { $0 !== acting }
+    }
+
     /// A window entered a space (`WindowState.onProfileChange`: a space switch, a selection of another space's
     /// workspace, a selection repair): the guests are set again in this turn, so the window lists the space's shared
     /// workspaces before anything reads its list. Only lists change: no window opens or closes (`setGuests`), and the
