@@ -44,7 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
-    private var launchRecordWriter: LaunchRecordWriter?
     private let openedURLs = OpenedURLDelivery()
     private lazy var appCopyGuide = AppCopyGuide(open: { [weak self] urls in for url in urls { self?.routeOpenedURL(url) } },
                                                  relaunching: { [weak self] in self?.services?.updater.willRelaunch?() })
@@ -63,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let services = services() else { return }
             async let files: Void = services.stateFilesDrained()
             await services.home.flushCacheForQuit()
+            await services.launchRecord.flush()
             await files
         }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }
@@ -129,7 +129,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finishLaunching(_ launchSnapshot: LaunchSnapshot?) {
-        LaunchStageRegistry.validate()
         daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
             terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
             resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
@@ -181,23 +180,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
         self.services = services
-        if let bundleID = environment.launch.bundleID {
-            let file = LaunchTimesFile.supportDirectory(bundleID: bundleID).appending(path: "launch-record.bin")
-            let writer = LaunchRecordWriter(url: file, work: services.work) { [weak services] in
-                guard let services else { return LaunchRecordSnapshot() }
-                let windows = services.windows.controllers.map { controller -> LaunchRecordWindowSnapshot in
-                    let window = controller.window
-                    let display = (window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
-                    let color = window?.backgroundColor?.usingColorSpace(.deviceRGB)
-                    let rgba = color.map { [UInt8(($0.redComponent * 255).rounded()), UInt8(($0.greenComponent * 255).rounded()), UInt8(($0.blueComponent * 255).rounded()), UInt8(($0.alphaComponent * 255).rounded())] } ?? [0, 0, 0, 255]
-                    return LaunchRecordWindowSnapshot(id: controller.state.id, frame: window?.frame ?? .zero, displayID: display,
-                                                      backgroundRGBA: rgba, barRGBA: rgba, workspaceID: controller.state.workspaceID ?? "")
-                }
-                return LaunchRecordSnapshot(windows: windows)
-            }
-            launchRecordWriter = writer
-            LaunchRecordWriter.current = writer
-        }
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -317,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
+        firstFrame.whenOpen { [weak services] in services?.launchRecord.schedule() }
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
@@ -573,7 +556,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        launchRecordWriter?.flush()
         cloudBootstrap?.cancel()
         cloudBootstrap = nil
         services?.crashRecovery.applicationWillTerminate()

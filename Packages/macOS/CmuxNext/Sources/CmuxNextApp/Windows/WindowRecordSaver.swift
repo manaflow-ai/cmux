@@ -98,6 +98,7 @@ final class WindowRecordSaver {
     }
 
     private func requestSave() {
+        services.launchRecord.schedule()
         saves.requested = true
         if let ticket = services.daemon.openTicket() { saves.tickets.append(ticket) }
         scheduleDrain()
