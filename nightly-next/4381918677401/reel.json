@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4381918677401",
+  "notes": "notes/4381918677401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44142,
+      "title": "sidebar: a new window's band items have their values before the window is ordered in",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44169,
+      "title": "Screen Sharing: bind the viewer's palette rows to the toolbar's handlers (FFI step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44240,
+      "title": "Mac rd viewer: macOS's cursor shadow on the remote cursor overlay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44232,
+      "title": "scripts/measure/cursor-look: macOS pointer vs the screen-sharing viewer's drawing, side by side",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43033,
+      "title": "Extension web panes (render: web) on the shared page host, calls through the scoped page bridge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44227,
+      "title": "Agent chat: the pool's next page follows the chat's first paint, not quiet input",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44242,
+      "title": "cloud journey: the preclaim burst warms at client-config's platform_origin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44065,
+      "title": "Screen Sharing: a two-Mac harness against macOS Screen Sharing (first frame, key-to-frame, fps) with cmux's key-to-frame breakdown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43241,
+      "title": "cmux-tab-discard: hidden browser tab rules in Rust, discarded by default (row 4, step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44249,
+      "title": "test: require protected Windows journal DACL",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44212,
+      "title": "Keep a stand-in tab's opener and selection by the record of its creation",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44230,
+      "title": "cmux-bench: one entry point, row schema and results ledger for every measurement",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
