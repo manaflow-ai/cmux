@@ -268,7 +268,9 @@ let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 /// dlsym. The static executable linked with `-no_exported_symbols` exported
 /// nothing; dead code stripping keeps only what those reach and dyld binds one
 /// symbol. The frameworks and flags the app target's OTHER_LDFLAGS gave the
-/// static link come along.
+/// static link come along. Xcode passes these flags to the stub's link too, so
+/// its Release config no longer sets LD_EXPORT_SYMBOLS = NO (ld refuses
+/// -exported_symbol beside -no_exported_symbols); no stub symbol matches.
 let appFrameworkLinkerSettings: [LinkerSetting] = [
     .linkedLibrary("c++"),
     .linkedFramework("Metal"),
