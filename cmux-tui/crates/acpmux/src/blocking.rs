@@ -90,6 +90,41 @@ mod tests {
         }
     }
 
+    fn count_bare_sites(text: &str) -> usize {
+        let lines = text.lines().collect::<Vec<_>>();
+        let mut depth = 0i32;
+        let mut test_depth = None;
+        let mut pending_test = false;
+        let mut found = 0;
+        for (line, source) in lines.iter().enumerate() {
+            let delta = source.matches('{').count() as i32 - source.matches('}').count() as i32;
+            if source.contains("#[cfg(test)]") {
+                pending_test = true;
+            }
+            if pending_test && source.contains(';') && !source.contains('{') {
+                pending_test = false;
+            }
+            if pending_test && source.contains('{') {
+                test_depth = Some(depth + delta);
+                pending_test = false;
+            }
+            let in_test = test_depth.is_some_and(|start| depth >= start);
+            let trimmed = source.trim_start();
+            let is_site = source.contains("spawn_blocking") || source.contains("block_in_place");
+            let exempt = line > 0
+                && (lines[line - 1].trim_start().starts_with("// bare blocking (shutdown):")
+                    || lines[line - 1].trim_start().starts_with("// bare blocking (daemon):"));
+            if !in_test && !trimmed.starts_with("//") && is_site && !exempt {
+                found += 1;
+            }
+            depth += delta;
+            if test_depth.is_some_and(|start| depth < start) {
+                test_depth = None;
+            }
+        }
+        found
+    }
+
     #[test]
     fn bare_request_blockers_are_in_the_migration_allowlist() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -114,35 +149,37 @@ mod tests {
                 continue;
             }
             let Ok(text) = fs::read_to_string(&file) else { continue };
-            let mut depth = 0i32;
-            let mut test_depth = None;
-            let mut pending_test = false;
-            let lines = text.lines().collect::<Vec<_>>();
-            for (line, source) in lines.iter().enumerate() {
-                let delta = source.matches('{').count() as i32 - source.matches('}').count() as i32;
-                if source.contains("#[cfg(test)]") {
-                    pending_test = true;
-                }
-                if pending_test && source.contains('{') {
-                    test_depth = Some(depth + delta);
-                    pending_test = false;
-                }
-                let in_test = test_depth.is_some_and(|start| depth >= start);
-                let trimmed = source.trim_start();
-                let is_site =
-                    source.contains("spawn_blocking") || source.contains("block_in_place");
-                let exempt = line > 0
-                    && (lines[line - 1].trim_start().starts_with("// bare blocking (shutdown):")
-                        || lines[line - 1].trim_start().starts_with("// bare blocking (daemon):"));
-                if !in_test && !trimmed.starts_with("//") && is_site && !exempt {
-                    *found.entry(relative.clone()).or_default() += 1;
-                }
-                depth += delta;
-                if test_depth.is_some_and(|start| depth < start) {
-                    test_depth = None;
-                }
+            let count = count_bare_sites(&text);
+            if count > 0 {
+                found.insert(relative, count);
             }
         }
-        assert_eq!(found, allowlisted, "new bare blocking sites need a migration decision");
+        for (path, count) in &found {
+            assert!(
+                allowlisted.get(path).is_some_and(|expected| count <= expected),
+                "a new bare site needs a decision: {path} = {count}"
+            );
+        }
+        for (path, count) in &allowlisted {
+            assert!(
+                found.get(path).is_some_and(|actual| actual >= count),
+                "lower the number: {path} = {count}"
+            );
+        }
+        assert_eq!(found, allowlisted);
+    }
+
+    #[test]
+    fn cfg_test_module_declaration_does_not_hide_following_production_code() {
+        let source = r#"
+#[cfg(test)]
+mod tests;
+use crate::{one, two};
+
+fn production() {
+    let _ = tokio::task::spawn_blocking(|| 1);
+}
+"#;
+        assert_eq!(count_bare_sites(source), 1);
     }
 }

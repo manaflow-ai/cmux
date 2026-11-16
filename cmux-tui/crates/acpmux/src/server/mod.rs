@@ -1863,7 +1863,7 @@ async fn serve_connection_from(
                             return;
                         }
                         crate::request_cancel::WaitOutcome::Cancelled => {
-                            unreachable!("cancel cannot fire before the request ticket is taken")
+                            return;
                         }
                     };
                     let route = || {
@@ -1889,11 +1889,6 @@ async fn serve_connection_from(
                             let Some(result) =
                                 conn.in_flight.finish(&ticket).then_some((result, sent))
                             else {
-                                let cancelled = Err(crate::request_cancel::cancelled_error());
-                                conn.send_replying(
-                                    &dual_requests::reply(id.clone(), cancelled),
-                                    Some(&m),
-                                );
                                 tracing::debug!(
                                     target: crate::request_cancel::LOG_TARGET,
                                     conn = %conn.id,

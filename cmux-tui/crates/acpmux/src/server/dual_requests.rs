@@ -72,17 +72,12 @@ pub(super) struct First {
 
 impl Drop for First {
     fn drop(&mut self) {
+        if !self.fence.is_cancelled() {
+            return;
+        }
         let mut book = book();
         let Some(entry) = book.entries.get_mut(&self.key) else { return };
         if entry.generation != self.generation || entry.done_at.is_some() {
-            return;
-        }
-        if !self.fence.is_cancelled() {
-            entry.done_at = Some(Instant::now());
-            entry.stop = None;
-            let _ = self
-                .tx
-                .send_replace(Some(Outcome::Answer(Err(crate::request_cancel::cancelled_error()))));
             return;
         }
         // The repeat is fenced independently and must observe the stop, rather than receiving
@@ -375,6 +370,48 @@ mod tests {
         // A third copy, after the answer, gets it at once.
         let Some(Seen::Repeat(late)) = admit(seen(PEER_LINK, &id)) else { panic!("known") };
         assert_eq!(first_answer(late).await, Some(Ok(json!({"ran": 1}))));
+    }
+
+    #[tokio::test]
+    async fn a_waiting_repeat_at_stop_gets_no_answer() {
+        let id = format!("stop-repeat-{}", uuid::Uuid::now_v7());
+        let key = key(&id);
+        let stop = StopFence::new();
+        let Some(Seen::First(first)) = admit_with_fence((key.clone(), 0), stop.clone()) else {
+            panic!("the first copy runs")
+        };
+        let Some(Seen::Repeat(repeat)) = admit_with_fence((key.clone(), 0), stop.clone()) else {
+            panic!("the second copy waits")
+        };
+        let waiting = tokio::spawn(crate::request_cancel::until_stop(
+            stop.clone(),
+            before_run(Some(Seen::Repeat(repeat))),
+        ));
+        stop.cancel();
+        assert!(matches!(waiting.await.unwrap(), crate::request_cancel::WaitOutcome::Stopped));
+        drop(first);
+    }
+
+    #[tokio::test]
+    async fn a_peer_forwarded_request_at_stop_sends_the_peer_no_cancel() {
+        let id = format!("stop-peer-{}", uuid::Uuid::now_v7());
+        let key = key(&id);
+        let stop = StopFence::new();
+        let Some(Seen::First(mut first)) = admit_with_fence((key.clone(), 0), stop.clone()) else {
+            panic!("the peer copy runs")
+        };
+        let peer_stop = first.take_stop();
+        let (_client_cancel_tx, client_cancel_rx) = tokio::sync::oneshot::channel();
+        let waiting = tokio::spawn(crate::request_cancel::until_shutdown(
+            client_cancel_rx,
+            peer_stop,
+            stop.clone(),
+            std::future::pending::<()>(),
+        ));
+        stop.cancel();
+        assert!(matches!(waiting.await.unwrap(), crate::request_cancel::WaitOutcome::Stopped));
+        assert!(!cancel(&key), "daemon stop must not notify the peer copy");
+        drop(first);
     }
 
     #[test]
