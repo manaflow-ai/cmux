@@ -270,6 +270,29 @@ final class PaneHostView: NSView, RestingPlacement {
     /// FRAME OWNER S3c: the host shows only its pane's ground on its close spring (`PaneHostView+ClosingGround`).
     var showsClosingGround = false
 
+    /// The pane's layout change showed before a producer in its content had drawn at the pane's new size
+    /// (`ScreenContentView.presentHeldSnap`, `PaneCommitSurface`): the pane shows its content's own ground over its
+    /// content area, under its tabs, until that producer reports. It never shows the producer's old picture at the new
+    /// size. The one designed late state of a layout change.
+    var showsLateGround = false {
+        didSet { if showsLateGround != oldValue { applyChromeShape() } }
+    }
+
+    /// The opaque ground a late pane shows: its content's own (a terminal's background, a page's color), else the
+    /// window's ground (a see-through pane has none of its own, and a clear cover would show the old picture).
+    private var lateGroundColor: CGColor {
+        if let ground = content.paneGroundColor, ground.alpha >= 1 { return ground }
+        return performWithTheme { Palette.surfaceBackground.withAlphaComponent(1).cgColor }
+    }
+
+    /// The content's own area in the clip: the content less its tabs (a strip at its top or bottom edge, a list at
+    /// its leading edge), as ``applyChromeShape()`` measures them for held content.
+    private var lateGroundRect: CGRect {
+        let tabs = content.paneGroundInsets, area = content.frame
+        let top = tabs?.top ?? headerHeight, leading = tabs?.leading ?? 0
+        return CGRect(x: area.minX + leading, y: area.minY + top, width: area.width - leading, height: area.height - top - footerHeight)
+    }
+
     /// Height of the content's header (tab strip, toolbar); 0 without one.
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
     /// Height of the content's footer (a tab strip at the bottom); 0 without one.
@@ -409,6 +432,7 @@ final class PaneHostView: NSView, RestingPlacement {
             (superview as? ScreenContentView)?.paneFramingDidChange()
         }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
+        clipView.showLateGround(showsLateGround ? lateGroundColor : nil, over: lateGroundRect)
         // Content held at its rest size does not fill a pane still larger than that rest (the pane a split halves): the
         // pane shows that content's own ground where the content does not reach, in this same frame (SPLIT OPEN CHAT).
         // A key hold and a closing pane have their own rules.

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextTestSupport
 @testable import CmuxNextLayout
 import Testing
@@ -15,7 +16,7 @@ import Testing
 @MainActor
 @Suite(.closesItsWindows) struct PaneLayoutCommitTests {
     /// Pane content that records each size it takes (a size with no area is no size: a pane not placed yet has none).
-    final class Content: NSView {
+    class Content: NSView {
         private(set) var sizes: [CGSize] = []
 
         override func setFrameSize(_ newSize: NSSize) {
@@ -24,21 +25,51 @@ import Testing
         }
     }
 
+    /// Pane content whose pixels come from another thread or process, as a layout change reads it: it records the size
+    /// changes it hears and reports ready when the test says.
+    final class Surface: Content, PaneCommitSurface {
+        private(set) var asks: [CGSize] = []
+        private var ready: (@MainActor () -> Void)?
+
+        func commitWillResize(by change: CGSize, ready: @escaping @MainActor () -> Void) {
+            asks.append(change)
+            self.ready = ready
+        }
+
+        /// Its picture at the size it last heard shows from now on.
+        func report() {
+            let ready = self.ready
+            self.ready = nil
+            ready?()
+        }
+    }
+
     final class Panes: LayoutPaneContentProvider {
         /// Every pane's content is of the kind that kept one size while its pane moved on a layout spring.
         let holds: Bool
+        /// Every pane's content is a ``Surface``.
+        let surfaces: Bool
         private(set) var contents: [PaneID: Content] = [:]
+        /// The panes whose content the layout released, in order.
+        private(set) var released: [PaneID] = []
 
-        init(holds: Bool) { self.holds = holds }
+        init(holds: Bool, surfaces: Bool) {
+            self.holds = holds
+            self.surfaces = surfaces
+        }
 
         func makeContentView(for pane: PaneID) -> NSView {
-            let view = Content()
+            let view = surfaces ? Surface() : Content()
             view.wantsLayer = true
             contents[pane] = view
             return view
         }
 
         func holdsContentInMotion(for pane: PaneID) -> Bool { holds }
+
+        func releaseContentView(_ view: NSView, for pane: PaneID) { released.append(pane) }
+
+        func surface(_ pane: PaneID) -> Surface? { contents[pane] as? Surface }
     }
 
     final class Harness {
@@ -47,8 +78,8 @@ import Testing
         let root: LayoutRootView
         let window: NSWindow
 
-        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool) {
-            provider = Panes(holds: holds)
+        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false) {
+            provider = Panes(holds: holds, surfaces: surfaces)
             model = LayoutModel(screens: screens, activeScreenID: "s", focusedPane: focused)
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
@@ -263,5 +294,95 @@ import Testing
             #expect(frame.misfits.isEmpty, "frame \(index): a pane's content is not at the rect its pane gives it: \(frame.misfits)")
         }
         #expect(states[2].isShown(by: shown[shown.count - 1]), "the last frame is not the last layout")
+    }
+
+    // MARK: Surfaces
+
+    /// A producer on another thread or in another process hears its new size in the change's turn, and the change waits
+    /// for it: no frame shows the new layout before the producer reported, and the first frame tick after its report
+    /// shows it. A pane the change does not resize hears nothing.
+    @Test func aChangeWaitsForTheSurfacesItResizesAndShowsWhenTheyReport() throws {
+        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let old = Rest(harness.model.screens, in: screen, style: style)
+        let left = try #require(harness.provider.surface(Self.left)), right = try #require(harness.provider.surface(Self.right))
+
+        harness.model.apply(screens: Self.pairSplit(.horizontal))
+        let new = Rest(harness.model.screens, in: screen, style: style)
+        harness.root.syncWithModel()
+        #expect(left.asks.count == 1 && right.asks.isEmpty, "only the resized pane's surface hears a size: \(left.asks), \(right.asks)")
+        let change = try #require(left.asks.first), was = try #require(old.panes[Self.left]), will = try #require(new.panes[Self.left])
+        #expect(abs(change.width - (will.width - was.width)) <= 1.02 && abs(change.height - (will.height - was.height)) <= 1.02,
+                "the surface hears how much its pane's size changes: \(change), from \(was) to \(will)")
+        #expect(old.isShown(by: Self.shown(screen)), "the change's own turn shows the new layout")
+
+        #expect(harness.root.advanceFrame(PaneMotionBench.frameBudget), "a change that waits asks for no more frames")
+        #expect(old.isShown(by: Self.shown(screen)), "a frame tick showed the new layout before its surface reported")
+        left.report()
+        #expect(old.isShown(by: Self.shown(screen)), "the report showed the new layout outside a frame tick")
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "frames run on after the change showed")
+        #expect(new.isShown(by: Self.shown(screen)), "the first frame tick after the report does not show the new layout")
+        #expect(screen.lateSurfaceCommits == 0 && harness.root.context.hosts[Self.left]?.showsLateGround == false,
+                "a surface that reported in time counts as late")
+    }
+
+    /// A producer that does not report: the change shows at its bound, counted in frame ticks (the bound, then the tick
+    /// that shows it), never later. That pane shows its own ground, counted as late; every other pane is whole. No frame
+    /// tick runs after it. The ground goes when the producer reports, with no frame tick.
+    @Test func aSurfaceThatNeverReportsShowsItsPanesGroundAtTheBound() throws {
+        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let old = Rest(harness.model.screens, in: screen, style: style)
+        let left = try #require(harness.provider.surface(Self.left))
+
+        harness.model.apply(screens: Self.pairSplit(.horizontal))
+        let new = Rest(harness.model.screens, in: screen, style: style)
+        harness.root.syncWithModel()
+        for tick in 1...ScreenContentView.commitBound {
+            #expect(harness.root.advanceFrame(PaneMotionBench.frameBudget), "tick \(tick): the change stopped asking for frames inside its bound")
+            #expect(old.isShown(by: Self.shown(screen)), "tick \(tick): the new layout showed inside the bound with a surface not ready")
+        }
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a frame tick is asked for after the change showed at its bound")
+        #expect(new.isShown(by: Self.shown(screen)), "the change did not show at the tick after its bound")
+        let hosts = harness.root.context.hosts
+        #expect(hosts[Self.left]?.showsLateGround == true, "the late pane does not show its ground")
+        #expect(hosts[Self.right]?.showsLateGround == false && hosts[Self.added]?.showsLateGround == false, "a pane that is not late shows ground")
+        #expect(screen.lateSurfaceCommits == 1, "the late pane is not counted once: \(screen.lateSurfaceCommits)")
+        for _ in 0..<Self.frames {
+            #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a late surface keeps the frames running")
+        }
+        #expect(hosts[Self.left]?.showsLateGround == true, "the ground went before the surface reported")
+        left.report()
+        #expect(hosts[Self.left]?.showsLateGround == false, "the ground stays after the surface reported")
+    }
+
+    /// A pane a close takes out is shown until the close shows, hidden in the frame that shows it, and torn down only
+    /// after that frame's commit: the frame that shows the close carries no teardown.
+    @Test func aClosedPaneIsTornDownAfterTheFrameThatShowsTheClose() throws {
+        let harness = Harness(Self.pairSplit(.horizontal), focused: Self.left, holds: false)
+        defer { harness.window.closeAfterTest() }
+        var afterCommit: [@MainActor () -> Void] = []
+        harness.root.context.afterCommit = { afterCommit.append($0) }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let closed = try #require(harness.root.context.hosts[Self.added])
+
+        harness.model.apply(screens: Self.pair)
+        harness.root.syncWithModel()
+        #expect(!closed.isHidden && closed.superview === screen, "the closed pane left the screen before the close showed")
+        _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+        #expect(closed.isHidden, "the closed pane still shows in the frame that shows the close")
+        #expect(harness.provider.released.isEmpty, "the closed pane was torn down in the frame that shows the close")
+        let work = afterCommit
+        afterCommit = []
+        for item in work { item() }
+        #expect(harness.provider.released == [Self.added], "the closed pane was not torn down after that frame's commit: \(harness.provider.released)")
+        #expect(closed.superview == nil, "the closed pane's host is still in the screen")
     }
 }

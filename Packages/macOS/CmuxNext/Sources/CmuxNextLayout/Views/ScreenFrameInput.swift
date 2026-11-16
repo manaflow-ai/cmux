@@ -21,4 +21,17 @@ struct ScreenFrameInput {
     var snapRefreshesWaited = 0
     /// The panes that change took out, shown as they were until it shows.
     var snapDeparted: [PaneID] = []
+    /// The dividers that change took out, shown where they were until it shows.
+    var snapDepartedDividers: [DividerHandleView] = []
+    /// The panes that change brings back from a zoom's cover: hidden until it shows, then shown at their places.
+    var snapReturning: [PaneID] = []
+    /// The rings and dims the model asked for while that change waited: applied in the turn that shows it.
+    var heldChrome: (@MainActor () -> Void)?
+    /// The producers a change resized (``PaneCommitSurface``) that have not all reported ready, by pane: whether each
+    /// reported, and the change that asked them (a newer change of the pane makes an older report void). A pane stays
+    /// here from the change's turn until its last producer reports, which can be after the change showed (a late pane).
+    var commitSurfaces: [PaneID: (generation: UInt64, ready: [Bool])] = [:]
+    var commitGeneration: UInt64 = 0
+    /// The panes the held change resizes and waits for (``commitSurfaces``), at most `ScreenContentView.commitBound` ticks.
+    var commitAwaited: Set<PaneID> = []
 }

@@ -216,7 +216,7 @@ extension ScreenContentView {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
-        releaseSnapDeparted()
+        hideSnapDeparted()
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
@@ -287,6 +287,8 @@ extension ScreenContentView {
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
+        // The panes this change brought back from a zoom's cover show now, placed.
+        if showSnapReturning() { changed = true }
         // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
         let closing = presentClosingPanes(strip: strip, restStrip: restStrip, scale: scale)
         clips += closing.hosts
