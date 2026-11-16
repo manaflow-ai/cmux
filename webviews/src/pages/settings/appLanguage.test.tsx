@@ -12,10 +12,6 @@ afterAll(() => restore());
 const { changeValue, click, ops, renderPage, rowElement, settle } = await import("./testing");
 const { installAppLanguage, setAppLanguage } = await import("../shared/appLanguage");
 installAppLanguage();
-afterAll(() => {
-  delete globalThis.__cmuxSetAppLanguage;
-  delete globalThis.__cmuxAppLanguage;
-});
 const { menusNeedRelaunch, shippedLanguages } = await import("./components/LanguageRelaunchRow");
 const table = (await import("./generated/strings.json")).default as Record<string, Record<string, string>>;
 
@@ -28,7 +24,7 @@ afterEach(async () => {
 
 async function switchTo(code: string | null): Promise<void> {
   await act(async () => {
-    globalThis.__cmuxSetAppLanguage?.(code);
+    window.__cmuxSetAppLanguage?.(code);
     await Promise.resolve();
   });
   await settle();

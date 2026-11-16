@@ -50,8 +50,6 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await setAppLanguage(null);
-  delete globalThis.__cmuxSetAppLanguage;
-  delete globalThis.__cmuxAppLanguage;
   await act(async () => root.unmount());
   await settleReact();
   for (const [key, had, value] of saved)
@@ -64,7 +62,7 @@ const shown = (id: string) => dom.window.document.getElementById(id)?.textConten
 
 async function switchTo(code: string | null): Promise<void> {
   await act(async () => {
-    (globalThis.__cmuxSetAppLanguage ?? (() => undefined))(code);
+    (dom.window.__cmuxSetAppLanguage ?? (() => undefined))(code);
     await Promise.resolve();
   });
 }

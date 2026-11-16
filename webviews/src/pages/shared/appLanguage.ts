@@ -84,7 +84,8 @@ function announce(): void {
  */
 export function setAppLanguage(code: string | null | undefined): Promise<void> {
   const next = normalize(code);
-  globalThis.__cmuxAppLanguage = next;
+  const view = currentWindow() as (Window & typeof globalThis) | undefined;
+  if (view) view.__cmuxAppLanguage = next;
   if (next === override) return Promise.resolve();
   override = next;
   const mine = ++generation;
@@ -100,15 +101,18 @@ export function setAppLanguage(code: string | null | undefined): Promise<void> {
 }
 
 /**
- * Installs the host's hook, `window.__cmuxSetAppLanguage`, once per document: page entries call it
- * (createPageClient, the agent pane's mount), never a module load, so importing the strings stays
- * free of globals. A language the host set before the page ran may lack its tables (the head
- * loader ran first): once they are in, every surface resolves again.
+ * Installs the host's hook, `window.__cmuxSetAppLanguage`, once per page window: page entries call
+ * it (createPageClient, the agent pane's mount), never a module load, so importing the strings stays
+ * free of globals. It goes on the page's window, the way busyWatchdog.ts does: in WebKit that is
+ * the page's global, so the host's call reaches it; a test's jsdom window takes it away with it, so
+ * no test file leaves it behind (test/support/leakDetector.ts). No window: no host can call it.
+ * A language the host set before the page ran may lack its tables (the head loader ran first):
+ * once they are in, every surface resolves again.
  */
-export function installAppLanguage(): void {
-  if (globalThis.__cmuxSetAppLanguage) return;
-  globalThis.__cmuxSetAppLanguage = (code) => void setAppLanguage(code);
-  const pending = normalize(globalThis.__cmuxAppLanguage);
+export function installAppLanguage(win: (Window & typeof globalThis) | undefined = globalThis.window): void {
+  if (!win || win.__cmuxSetAppLanguage) return;
+  win.__cmuxSetAppLanguage = (code) => void setAppLanguage(code);
+  const pending = normalize(win.__cmuxAppLanguage);
   if (pending && pending !== override) {
     void setAppLanguage(pending);
   } else if (override) {
