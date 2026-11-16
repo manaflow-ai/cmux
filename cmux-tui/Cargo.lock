@@ -1912,6 +1912,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+ "cmux-remote-browser",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-rd-host"
 version = "0.2.3"
 dependencies = [
@@ -1920,6 +1930,7 @@ dependencies = [
  "cmux-process",
  "cmux-rd-core",
  "cmux-rd-engine",
+ "cmux-rd-ffi",
  "cmux-rd-link",
  "cmux-rd-proto",
  "libc",
