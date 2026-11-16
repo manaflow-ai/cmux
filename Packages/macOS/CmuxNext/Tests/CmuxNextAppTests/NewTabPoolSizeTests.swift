@@ -115,6 +115,14 @@ struct NewTabPoolSizeTests {
             try await PasswordManagerRouteTests.until({ fixture.rig.made.count == 1 && pool.spare != nil }, within: .seconds(5), report: {
                 "no page at the start; \(NewTabRapidPairTests.poolState(services, fixture.rig))"
             })
+            // A Mac in Low Power Mode or at a serious thermal state hands no page to a chat (AgentPaneSpareReadiness).
+            // The inert page is loaded, drawn and connected, so only the Mac's state can refuse it: the test stops
+            // here with that reason, and such a red is not read as a fault of the size rule.
+            let parked = try #require(pool.spare?.view)
+            try #require(parked.model.servesExistingChat, """
+                this Mac is in Low Power Mode or hot (thermal state \(ProcessInfo.processInfo.thermalState.rawValue)): \
+                the pool hands no page to a chat here, so this run says nothing about the size rule
+                """)
             pool.idleInput = .seconds(3600)
             pool.refills.clock = fixture.clock
             try await body(fixture)
