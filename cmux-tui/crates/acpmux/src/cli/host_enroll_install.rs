@@ -22,7 +22,12 @@ pub(super) fn bootstrap(r: &dyn Remote, bin: &str, target: &str) -> StepResult {
         let body = hosts::run(
             r,
             &format!(
-                "curl --proto '=https' --tlsv1.2 -fsS --max-time 30 --max-filesize 65536 {}",
+                r#"set -eu
+acpmux_manifest=$(mktemp)
+trap 'rm -f "$acpmux_manifest"' EXIT
+trap 'exit 130' HUP INT TERM
+(ulimit -f 128; curl --proto '=https' --tlsv1.2 -fsS --max-time 30 --max-filesize 65536 {} -o "$acpmux_manifest")
+cat "$acpmux_manifest""#,
                 shell_quote(&url)
             ),
         )?;
@@ -64,7 +69,9 @@ mkdir -p "$acpmux_dir"
 acpmux_tmp=$(mktemp -d "$acpmux_dir/.acpmux-install.XXXXXX")
 trap 'rm -rf "$acpmux_tmp"' EXIT
 trap 'exit 130' HUP INT TERM
-curl --proto '=https' --tlsv1.2 -fsS --max-time 600 --max-filesize 536870912 {url} -o "$acpmux_tmp/acpmux"
+# Also bound streamed responses on older curl versions (ulimit units are
+# 512 or 1024 bytes depending on the shell, so this caps at most 512 MiB).
+(ulimit -f 524288; curl --proto '=https' --tlsv1.2 -fsS --max-time 600 --max-filesize 536870912 {url} -o "$acpmux_tmp/acpmux")
 if command -v sha256sum >/dev/null 2>&1; then
     acpmux_sum=$(sha256sum "$acpmux_tmp/acpmux" | awk '{{print $1}}')
 else
