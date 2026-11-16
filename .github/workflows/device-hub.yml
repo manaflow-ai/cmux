@@ -45,10 +45,10 @@ permissions:
   contents: read
 
 concurrency:
-  # Pull requests get a group each; every deploy shares one, and a deploy is never cancelled
-  # halfway (a newer push queues behind it).
+  # A pull request gets a group of its own, and a new push cancels its older run. Every deploy
+  # shares one group and is never cancelled halfway (a newer push queues behind it).
   group: ${{ github.event_name == 'pull_request' && format('device-hub-pr-{0}', github.event.pull_request.number) || 'device-hub-deploy' }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
