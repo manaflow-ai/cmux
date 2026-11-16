@@ -5,9 +5,10 @@
 // key or file, the higher one wins. The engine owns the stack, the rule and every write; this card
 // lists `cmux customize library` and runs its verbs (on, off, order, remove) through the host's
 // bundled CLI, so the card and the CLI never differ. The list is read with the section
-// (sectionQueries) and answered again by each change; it does not poll.
+// (sectionQueries) and answered again by each change; it does not poll. Opened at this card by
+// `#/settings/personalization?focus=card.customizeLibrary`.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { beatenByEntry, beatenLine, entryDetail, sourceLabel, step, type Beaten } from "../customizeLibrary";
@@ -29,7 +30,7 @@ export type LibraryActions = {
   onRemove: (name: string) => void;
 };
 
-export function CustomizeLibraryCard() {
+export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
   const store = useStore();
   const queryClient = useQueryClient();
   const query = useQuery(libraryQuery(store));
@@ -37,21 +38,24 @@ export function CustomizeLibraryCard() {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const read = query.data ?? null;
-  // The store never rejects (a failed call answers a refusal), so the busy state always ends.
-  const run = (change: LibraryRun) => {
+  // The store never rejects (a failed call answers a refusal), so the busy state always ends. A list
+  // read still on its way (a revisit past the section's fresh time reads again in the background)
+  // saw the library before this change: it is dropped before the change runs and again before the
+  // change's answer draws, so a late, older listing never draws over the change.
+  const run = async (change: LibraryRun) => {
     setBusy(true);
     setRefusal(null);
-    return store
-      .customizeLibrary(change)
-      .then((answer) => {
-        if (answer.library)
-          queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
-        setRefusal(answer.refusal);
-      })
-      .finally(() => {
-        setBusy(false);
-        setRemoving(null);
-      });
+    try {
+      await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
+      const answer = await store.customizeLibrary(change);
+      await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
+      if (answer.library)
+        queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
+      setRefusal(answer.refusal);
+    } finally {
+      setBusy(false);
+      setRemoving(null);
+    }
   };
   // Opt-in (Leo, 2026-11-15: "these are opt-in settings"): nothing draws until the person has
   // applied something. An empty library, or a host with no CLI, shows no card; a CLI that answers
@@ -71,6 +75,7 @@ export function CustomizeLibraryCard() {
       refusal={refusal}
       busy={busy}
       removing={removing}
+      reveal={reveal}
       actions={actions}
       onConfirmRemove={(name) => void run({ verb: "remove", name })}
       onCancelRemove={() => setRemoving(null)}
@@ -86,6 +91,7 @@ export function CustomizeLibraryView({
   refusal = null,
   busy = false,
   removing = null,
+  reveal = false,
   layout = "layers",
   actions,
   onConfirmRemove,
@@ -97,6 +103,8 @@ export function CustomizeLibraryView({
   refusal?: string | null;
   busy?: boolean;
   removing?: string | null;
+  /** The route opens the page on this card: it scrolls to the card once drawn. */
+  reveal?: boolean;
   layout?: LibraryLayout;
   actions: LibraryActions;
   onConfirmRemove: (name: string) => void;
@@ -104,8 +112,26 @@ export function CustomizeLibraryView({
 }) {
   const entries = listing?.entries ?? [];
   const confirmTitle = removing ? t("settingsPage.customizeLibrary.removeTitle", removing) : "";
+  const card = useRef<HTMLElement>(null);
+  const confirm = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (reveal) card.current?.scrollIntoView?.({ block: "start" });
+  }, [reveal]);
+  // The confirmation draws under the whole list, so with many entries it opens screens below the row
+  // its Remove was on: it scrolls into view and takes focus on Cancel, the safe answer.
+  useLayoutEffect(() => {
+    if (!removing) return;
+    confirm.current?.scrollIntoView?.({ block: "nearest" });
+    confirm.current?.querySelector<HTMLButtonElement>('[data-library-action="cancel"]')?.focus();
+  }, [removing]);
   return (
-    <section className="group" data-card="customizeLibrary" data-library-layout={layout} id="customize-library">
+    <section
+      className="group"
+      data-card="customizeLibrary"
+      data-library-layout={layout}
+      id="customize-library"
+      ref={card}
+    >
       <h3 className="group-title">{t("settingsPage.customizeLibrary.title")}</h3>
       <div className="rows">
         {drawn && listing === null ? (
@@ -127,7 +153,7 @@ export function CustomizeLibraryView({
       </div>
       {removing && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className="accounts-form" data-library-confirm="" role="group" aria-label={confirmTitle}>
+        <div className="accounts-form" data-library-confirm="" role="group" aria-label={confirmTitle} ref={confirm}>
           <div className="row-title">{confirmTitle}</div>
           <div className="row-help">{t("settingsPage.customizeLibrary.removeBody")}</div>
           <div className="accounts-buttons">
