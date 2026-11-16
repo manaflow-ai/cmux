@@ -216,7 +216,7 @@ fn frame_budget(kbps: u32, fps: u32) -> (i32, f64) {
 /// less room now); a rise under 5% is skipped, since every change makes the encoder
 /// re-plan its rate control.
 fn bitrate_change_applies(current: u32, next: u32) -> bool {
-    next < current || (next - current) * 20 >= current
+    next < current || u64::from(next - current) * 20 >= u64::from(current)
 }
 
 fn dict(pairs: &[(CFStringRef, CFTypeRef)]) -> CFDictionaryRef {
