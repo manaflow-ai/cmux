@@ -1244,22 +1244,40 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RESOLVE => {
             let names_hosts = conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer;
-            if params.get("exactSessionId").and_then(Value::as_bool) == Some(true) {
-                hub.locate_exact(
-                    str_param(&params, "sessionId")
-                        .or_else(|| str_param(&params, "query"))
-                        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?,
-                    names_hosts,
-                )
+            let exact = params.get("exactSessionId").and_then(Value::as_bool) == Some(true);
+            let query = if exact {
+                str_param(&params, "sessionId")
+                    .or_else(|| str_param(&params, "query"))
+                    .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?
             } else {
-                hub.locate(
-                    str_param(&params, "query")
-                        .ok_or_else(|| RpcError::invalid_params("query is required"))?,
-                    params.get("bead").and_then(Value::as_bool) == Some(true),
-                    // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
-                    // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
-                    names_hosts,
-                )
+                str_param(&params, "query")
+                    .ok_or_else(|| RpcError::invalid_params("query is required"))?
+            };
+            let query = hub.validate_owner_selector(query)?;
+            let bead_only = params.get("bead").and_then(Value::as_bool) == Some(true);
+            // A peer request is always owner-only: it cannot ask this daemon to transit a
+            // selector to a third machine. Local callers use the owner index once a list-stream
+            // peer is present; without that feature the v1 mirrored-table resolver remains intact.
+            if conn.origin == Origin::Peer {
+                hub.locate_owner(query, bead_only, exact, names_hosts)
+            } else {
+                let peers = hub.connected_peers();
+                let owner_mode = !peers.is_empty()
+                    && peers.iter().all(|peer| peer.lists(crate::link_v2::FEATURE));
+                if !owner_mode {
+                    return if exact {
+                        hub.locate_exact(query, names_hosts)
+                    } else {
+                        hub.locate(query, bead_only, names_hosts)
+                    };
+                }
+                match hub.locate_owner(query, bead_only, exact, names_hosts) {
+                    Ok(reply) => Ok(reply),
+                    Err(error) if error.code == -32002 => {
+                        hub.locate_owner_peers(query, bead_only, exact, names_hosts).await
+                    }
+                    Err(error) => Err(error),
+                }
             }
         }
         method::INITIALIZE => {

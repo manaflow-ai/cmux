@@ -12,7 +12,190 @@ use super::*;
 
 use crate::agent_link::AgentLink;
 
+const OWNER_RESOLVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+const OWNER_QUERY_BYTES: usize = 1024;
+const OWNER_REPLY_BYTES: usize = 32 * 1024;
+const OWNER_COLLECTOR_BYTES: usize = 1024 * 1024;
+
 impl Hub {
+    /// Validates the selector on every `_acpmux/resolve` ingress, including legacy links.
+    pub(crate) fn validate_owner_selector(query: &str) -> Result<&str, RpcError> {
+        validate_owner_query(query)
+    }
+
+    /// Answers a selector from this daemon's own sessions only. A peer link uses this
+    /// owner-only form so a request cannot transit through a third machine.
+    pub fn locate_owner(
+        &self,
+        query: &str,
+        bead_only: bool,
+        exact: bool,
+        names_hosts: bool,
+    ) -> Result<Value, RpcError> {
+        let query = validate_owner_query(query)?;
+        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let shown = names_hosts.then_some(own.as_str());
+        if let Some(id) = crate::opaque_agent_id::find(query) {
+            return self.locate_opaque_owner(query, &id, &own, shown);
+        }
+        if bead_only && !crate::beads::is_bead_id(query) {
+            return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
+        }
+        let summaries: Vec<Value> = self
+            .live_session_summaries()
+            .into_iter()
+            .filter(|summary| summary.get("peer").and_then(Value::as_str).is_none())
+            .collect();
+        let found = if bead_only {
+            by_bead(&summaries, query)
+        } else if exact {
+            by_key_exact(&summaries, query, &own)
+        } else {
+            by_key(&summaries, query, &own)
+        };
+        if found.is_empty() {
+            return Err(RpcError::not_found(self.unfound(query, None, shown))
+                .with_data(json!({"owner": true, "state": "missing"})));
+        }
+        let reply = self.answer(found, false, &own, shown, None)?;
+        enforce_owner_reply(&reply)?;
+        Ok(reply)
+    }
+
+    /// Tries the local index first, then asks every connected owner concurrently under one
+    /// absolute deadline. Disconnected configured peers are unavailable immediately and keep a
+    /// bare miss unknown; they are never turned into a stored no-session result.
+    pub async fn locate_owner_peers(
+        &self,
+        query: &str,
+        bead_only: bool,
+        exact: bool,
+        names_hosts: bool,
+    ) -> Result<Value, RpcError> {
+        let query = validate_owner_query(query)?;
+        if crate::opaque_agent_id::find(query).is_some() {
+            return Err(RpcError::not_found(format!("no session matches {query:?}"))
+                .with_data(json!({"owner": true, "state": "missing"})));
+        }
+        let peers: Vec<_> = self
+            .connected_peers()
+            .into_iter()
+            .filter(|peer| peer.lists(crate::link_v2::FEATURE))
+            .collect();
+        let configured: Vec<String> = self
+            .peers()
+            .into_iter()
+            .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
+            .collect();
+        let unavailable: Vec<String> = configured
+            .iter()
+            .filter(|name| !peers.iter().any(|peer| peer.name == **name))
+            .cloned()
+            .collect();
+        let target_peer = query.split_once('/').and_then(|(host, _)| {
+            configured.iter().find(|name| name.eq_ignore_ascii_case(host)).cloned()
+        });
+        if peers.is_empty() {
+            if unavailable.is_empty() {
+                return Err(RpcError::not_found(format!("no session matches {query:?}"))
+                    .with_data(json!({"owner": true, "state": "missing", "answered": []})));
+            }
+            return Err(owner_unknown(unavailable));
+        }
+        let params = json!({
+            "query": query,
+            "bead": bead_only,
+            "exactSessionId": exact,
+            "_meta": {"acpmux": {"ownerQuery": true}},
+        });
+        let request = async {
+            futures::future::join_all(peers.iter().map(|peer| async {
+                let name = peer.name.clone();
+                let result = peer.request(crate::rpc::method::MUX_RESOLVE, params.clone()).await;
+                (name, result)
+            }))
+            .await
+        };
+        let results = match tokio::time::timeout(OWNER_RESOLVE_DEADLINE, request).await {
+            Ok(results) => results,
+            Err(_) => return Err(owner_unknown(peers.iter().map(|p| p.name.clone()).collect())),
+        };
+        let mut matches = Vec::new();
+        let mut missing = Vec::new();
+        let mut unknown = unavailable;
+        let mut collector_bytes = 0usize;
+        for (peer, result) in results {
+            match result {
+                Ok(reply) => {
+                    enforce_owner_reply(&reply)?;
+                    let Some(rows) = reply.get("matches").and_then(Value::as_array) else {
+                        unknown.push(peer);
+                        continue;
+                    };
+                    if rows.is_empty() {
+                        missing.push(peer);
+                    } else {
+                        for row in rows {
+                            let row_bytes = serde_json::to_vec(row)
+                                .map_err(|error| RpcError::internal(error.to_string()))?
+                                .len();
+                            collector_bytes = collector_bytes.saturating_add(row_bytes);
+                            if collector_bytes > OWNER_COLLECTOR_BYTES {
+                                return Err(RpcError::invalid_params(
+                                    "owner resolve result is too large",
+                                )
+                                .with_data(json!({
+                                    "owner": true,
+                                    "state": "ambiguous",
+                                    "count": matches.len() + 1,
+                                    "bytes": collector_bytes,
+                                    "limit": OWNER_COLLECTOR_BYTES,
+                                })));
+                            }
+                            let mut row = row.clone();
+                            if let Some(object) = row.as_object_mut() {
+                                object.insert("peer".into(), Value::String(peer.clone()));
+                                object.insert("host".into(), Value::String(peer.clone()));
+                                if let Some(id) = object.get("sessionId").and_then(Value::as_str) {
+                                    object.insert(
+                                        "qualifiedSessionId".into(),
+                                        Value::String(format!("{peer}/{id}")),
+                                    );
+                                }
+                            }
+                            matches.push(row);
+                        }
+                    }
+                }
+                Err(error) if error.code == -32002 => missing.push(peer),
+                Err(_) => unknown.push(peer),
+            }
+        }
+        if let Some(target) = target_peer
+            && missing.iter().any(|peer| peer.eq_ignore_ascii_case(&target))
+        {
+            return Err(RpcError::not_found(format!("no session matches {query:?}"))
+                .with_data(json!({"owner": true, "state": "missing", "peer": target})));
+        }
+        if !unknown.is_empty() {
+            return Err(owner_unknown(unknown));
+        }
+        if matches.is_empty() {
+            return Err(RpcError::not_found(format!("no session matches {query:?}"))
+                .with_data(json!({"owner": true, "state": "missing", "answered": missing})));
+        }
+        let mut reply = json!({"matches": matches});
+        if let Some(first) = reply.get("matches").and_then(Value::as_array).and_then(|v| v.first())
+        {
+            reply["session"] = first.clone();
+        }
+        if serde_json::to_vec(&reply).map_or(true, |bytes| bytes.len() > OWNER_COLLECTOR_BYTES) {
+            return Err(RpcError::invalid_params("owner resolve result is too large")
+                .with_data(json!({"owner": true, "state": "ambiguous", "count": reply["matches"].as_array().map_or(0, Vec::len), "limit": OWNER_COLLECTOR_BYTES})));
+        }
+        Ok(reply)
+    }
+
     /// The session `query` names, newest first when several do (`matches`), else a not-found
     /// error that says where it looked. With `bead_only`, `query` is a bead id and only the
     /// sessions carrying it match (a session named like it does not hide them). Without
@@ -226,6 +409,51 @@ impl Hub {
         Err(unfound())
     }
 
+    /// The keyed opaque selector checked on this daemon only. The key never leaves the machine
+    /// that owns it, and the owner request never consults mirrored rows.
+    fn locate_opaque_owner(
+        &self,
+        query: &str,
+        id: &str,
+        own: &str,
+        shown: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        let Some(key) = crate::opaque_agent_id::Key::load(&crate::config::home()) else {
+            return Err(RpcError::not_found(format!("no session matches {query:?}"))
+                .with_data(json!({"owner": true, "state": "missing"})));
+        };
+        let mut hosts = vec![crate::pairing::machine_name()];
+        if let Ok(host) = std::env::var("CMUX_AGENT_HOST")
+            && !host.is_empty()
+            && !hosts.iter().any(|known| known.eq_ignore_ascii_case(&host))
+        {
+            hosts.push(host);
+        }
+        let summaries = self
+            .live_session_summaries()
+            .into_iter()
+            .filter(|summary| summary.get("peer").and_then(Value::as_str).is_none())
+            .collect::<Vec<_>>();
+        let found: Vec<&Value> = summaries
+            .iter()
+            .filter(|summary| {
+                summary["agentSessionId"].as_str().is_some_and(|session| {
+                    hosts.iter().any(|host| {
+                        minted_harnesses(family_of(summary))
+                            .any(|harness| key.id(host, harness, session) == id)
+                    })
+                })
+            })
+            .collect();
+        if found.is_empty() {
+            return Err(RpcError::not_found(format!("no session matches {query:?}"))
+                .with_data(json!({"owner": true, "state": "missing"})));
+        }
+        let reply = self.answer(found, false, own, shown, None)?;
+        enforce_owner_reply(&reply)?;
+        Ok(reply)
+    }
+
     /// The sessions `locate` reads, newest first: this daemon's (with `closed`, its closed ones
     /// too) and the peers' rows `keep` takes, copying no other. The order is the full list's
     /// (`all_session_summaries`), restricted to them.
@@ -309,6 +537,38 @@ impl Hub {
         }
         text
     }
+}
+
+fn validate_owner_query(query: &str) -> Result<&str, RpcError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(RpcError::invalid_params("query is required"));
+    }
+    if query.len() > OWNER_QUERY_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "query is too large: {} bytes, the limit is {OWNER_QUERY_BYTES}",
+            query.len()
+        ))
+        .with_data(json!({"owner": true, "limit": OWNER_QUERY_BYTES, "bytes": query.len()})));
+    }
+    Ok(query)
+}
+
+fn enforce_owner_reply(reply: &Value) -> Result<(), RpcError> {
+    let bytes = serde_json::to_vec(reply).map_err(|error| RpcError::internal(error.to_string()))?;
+    if bytes.len() > OWNER_REPLY_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "owner resolve reply is too large: {} bytes, the limit is {OWNER_REPLY_BYTES}",
+            bytes.len()
+        ))
+        .with_data(json!({"owner": true, "state": "ambiguous", "bytes": bytes.len(), "limit": OWNER_REPLY_BYTES})));
+    }
+    Ok(())
+}
+
+fn owner_unknown(peers: Vec<String>) -> RpcError {
+    RpcError::new(-32000, "owner resolve is unknown; peer answers are incomplete")
+        .with_data(json!({"owner": true, "state": "unknown", "peers": peers}))
 }
 
 /// That nothing `query` names was found `looked` ("on … or its peers").
@@ -811,5 +1071,30 @@ mod tests {
 
     fn card_without_agent_id() -> Value {
         card(&json!({"sessionId": "m9", "name": "new one", "harness": "claude"}), Some("big-red"))
+    }
+
+    #[test]
+    fn owner_selector_bound_is_checked_in_bytes() {
+        assert!(validate_owner_query(&"a".repeat(OWNER_QUERY_BYTES)).is_ok());
+        let error = validate_owner_query(&"é".repeat(OWNER_QUERY_BYTES / 2 + 1)).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.data.unwrap()["limit"], OWNER_QUERY_BYTES);
+    }
+
+    #[test]
+    fn owner_reply_bound_reports_ambiguous_instead_of_missing() {
+        let error =
+            enforce_owner_reply(&json!({"matches": ["x".repeat(OWNER_REPLY_BYTES)]})).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.data.unwrap()["state"], "ambiguous");
+    }
+
+    #[test]
+    fn owner_unknown_names_peers_not_heard() {
+        let error = owner_unknown(vec!["alpha".into(), "beta".into()]);
+        assert_eq!(
+            error.data.unwrap(),
+            json!({"owner": true, "state": "unknown", "peers": ["alpha", "beta"]})
+        );
     }
 }
