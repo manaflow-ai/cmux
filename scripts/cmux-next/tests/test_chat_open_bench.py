@@ -267,6 +267,14 @@ class OpenTests(unittest.TestCase):
         bench = load_bench("--config", '{"workspaces": {"newPlacement": "top", "autoName": false}}')
         self.assertEqual(bench.CONFIG["workspaces"], {"newPlacement": "bottom", "autoName": False})
 
+    def test_spares_runs_each_condition_once_for_each_count(self):
+        # Each count of prewarmed pages is its own column; the load a column runs under is its condition's.
+        bench = load_bench("--conditions", "idle,load", "--spares", "1,2")
+        self.assertEqual(bench.CONDITIONS, ["idle_spares1", "idle_spares2", "load_spares1", "load_spares2"])
+        self.assertEqual(bench.ARMS["load_spares2"], ("load", 2))
+        # Without the option the columns are the conditions and the count is the app's own.
+        self.assertEqual(self.bench.ARMS[self.bench.CONDITIONS[0]], (self.bench.CONDITIONS[0], None))
+
     def test_why_names_the_marks_that_ran(self):
         # marks_ms names every mark (null when it did not run): only `order` says which ran.
         line = self.bench.why({"timed_out": True, "frames": [], "frame_count": 0, "order": ["action"],

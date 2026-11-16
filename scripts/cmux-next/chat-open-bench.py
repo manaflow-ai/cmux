@@ -32,6 +32,11 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click_again  a click back onto the row of a chat shown before and left (its page kept)
   click_hover  a click on the row of a chat never shown, after the pointer rested on that row for --hover-ms
              (`debug.pointer_hover`, the sidebar's hover path), as a person's pointer does before a click
+  click_next   two chats never shown, one directly after the other: the second is selected at the first content
+             of the first, so no idle time between the two lets the pool of prewarmed pages fill again. Its
+             numbers are the second open's (the trace's marks; `first` in the record has the first open's);
+             `spares_ready_before` is how many prewarmed pages had loaded before the pair. Both are selected by
+             the `goToWorkspace` action, not by a mouse click, and no pixels are judged
 Each click case also samples the app's footprint (every process of the bundle) before its first round and
 after its last: every round leaves its chat's page kept, so the difference over the rounds is the memory one
 kept chat costs (`memory` in the JSON, and the table's last lines).
@@ -68,6 +73,11 @@ chat once; every run still copies them into a fresh store under fresh ids. --no-
 Every number is from this app's own clock; the per-open record keeps each trace's marks, the
 surfaces it showed (`frames`: a flash is a return to an empty surface after content), the page's
 own timing and the new page's acpmux wire log (`acp_log`: which requests the open waited on).
+
+--spares 1,2 runs every condition once for each count of prewarmed pages the pool keeps (`debug.new_tab capacity`,
+set after every launch), as its own column `<condition>_spares<N>`: one build and one step compare a pool of one
+page with a pool of two. `spares` in the JSON has the pool's state before each column's first open. A launch
+loads one page whatever the count; the pool fills to its count after its first page is taken.
 
 Runs on a fleet mini through scripts/measure/chat-open.sh, never on an interactive Mac:
   chat-open-bench.py --app BUNDLE [--runs 3] [--turns 3000] [--sessions 1500]
@@ -120,6 +130,9 @@ parser.add_argument("--bloat", default="20 400 5", help="calls, updates per call
 parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
+parser.add_argument("--spares", default="",
+                    help="counts of prewarmed pages the pool keeps, for example 1,2: every condition runs once for each "
+                         "count, as its own column (default: the app's own count, one column per condition)")
 parser.add_argument("--hover-ms", type=float, default=300,
                     help="click_hover: how long the pointer rests on the row before the click")
 parser.add_argument("--trace-clicks", action="store_true",
@@ -158,6 +171,11 @@ if opts.capture_check:
                              *(["--json", opts.json] if opts.json else [])]).returncode)
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
+# A column is a condition, or with --spares a condition at one count of prewarmed pages: its name, the load it
+# runs under and the count (None: the app's own).
+ARMS = {f"{c}_spares{int(n)}": (c, int(n)) for c in CONDITIONS for n in opts.spares.split(",") if n.strip()} \
+    or {c: (c, None) for c in CONDITIONS}
+CONDITIONS = list(ARMS)
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 CLICK_CASES = ("click", "click_again", "click_hover")
 # The click cases go first in a condition: each makes a sidebar row, and a row below the sidebar's fold can't be clicked.
@@ -395,6 +413,8 @@ def seed(root):
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
             "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
+            "click_next": [copy_chat(home, small, f"Click next {condition} {i}") for i in range(2 * opts.runs)]
+            if "click_next" in CASES else [],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
             "subagent_column": [copy_chat(home, sub, f"Subagent column {condition} {i}") for i in range(opts.runs)]
             if "subagent_column" in CASES else [],
@@ -421,6 +441,7 @@ class Run:
         self.pid = None
         self.sock = None
         self.scratch = None
+        self.spares = None  # --spares: the count of prewarmed pages, set after every launch
 
     def launch(self, trace_launch=False, record=None):
         env = dict(self.env)
@@ -444,6 +465,8 @@ class Run:
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
             time.sleep(0.5)  # test script: the app's socket answers once it runs
+        if self.spares is not None:
+            self.rpc("debug.new_tab", {"action": "capacity", "count": self.spares})
 
     def rpc(self, method, params=None, timeout=40):
         try:
@@ -891,7 +914,7 @@ def measure_click(run, case, session, base, label, index=0):
     if armed is not None:
         trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 100,
                                                   "page_timing": True}, timeout=30) or {}
-        record["trace"] = {k: trace.get(k) for k in ("marks_ms", "order", "frames", "first_content_ms",
+        record["trace"] = {k: trace.get(k) for k in ("marks_ms", "order", "frames", "first_content_ms", "engine",
                                                       "longest_empty_ms", "timed_out", "page_timing")}
         record["trace"]["armed"] = armed if armed.get("error") else None
     # Back to the workspace with no chat, so the next click starts from the same picture.
@@ -900,7 +923,36 @@ def measure_click(run, case, session, base, label, index=0):
     return record
 
 
-def measure_case(run, case, sessions, index):
+def measure_next(run, pair, base):
+    """click_next: two chats never shown; the second is selected at the first content of the first."""
+    rows = [background_row(run, session) for session in pair]
+    error = next((e for _, _, e in rows if e), None)
+    if error or not base:
+        return {"error": error or "no shown workspace to start from"}
+    # The pool as the pair finds it: a bounded wait for each page the pool keeps to have loaded.
+    deadline = time.monotonic() + 10
+    while True:
+        pool = run.rpc("debug.new_tab", {"action": "state"}) or {}
+        ready = sum(1 for spare in pool.get("spares") or [] if spare.get("ready"))
+        if ready >= (pool.get("capacity") or 1) or time.monotonic() > deadline:
+            break
+        time.sleep(0.25)  # test script: the pool is not full yet
+    armed = run.rpc("debug.chat_open_trace", {"action": "arm"}) or {}
+    run.app.action("goToWorkspace", focus=True, workspace=rows[0][0])
+    first = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 0}, timeout=40) or {}
+    record = traced(run, lambda: run.app.action("goToWorkspace", focus=True, workspace=rows[1][0]))
+    record["spares_ready_before"] = ready
+    record["first"] = {k: first.get(k) for k in ("marks_ms", "order", "first_content_ms", "engine", "timed_out")}
+    record["first"]["arm_error"] = armed.get("error")
+    # Back to the workspace with no chat, so the next pair starts from the same picture.
+    run.app.action("goToWorkspace", focus=True, workspace=base)
+    time.sleep(0.5)  # test script: the switch back settles
+    return record
+
+
+def measure_case(run, case, sessions, index, base=None):
+    if case == "click_next":
+        return measure_next(run, sessions[case][2 * index:2 * index + 2], base)
     session = sessions[case][index] if case != "reopen" else sessions["reopen"][index]
     if case in ("sidebar", "big", "bloated"):
         return traced(run, lambda: open_workspace(run, session))
@@ -970,10 +1022,13 @@ def main():
                 run.end()
             wipe_state(APP)
             run = Run(root, home)
+            under, run.spares = ARMS[condition]
             run.launch()
             time.sleep(5)  # test script: let launch work end before the first measured open
-            if condition != "idle":
-                load.start(condition)
+            if run.spares is not None:
+                results.setdefault("spares", {})[condition] = run.rpc("debug.new_tab", {"action": "state"})
+            if under != "idle":
+                load.start(under)
                 time.sleep(opts.settle)  # test script: the load reaches steady state
             results.setdefault("load_avg", {})[condition] = load_average()
             base = shown_workspace(run)
@@ -995,7 +1050,7 @@ def main():
                             f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
                             f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
                         continue
-                    record = measure_case(run, case, sessions[condition], index)
+                    record = measure_case(run, case, sessions[condition], index, base)
                     record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
