@@ -214,6 +214,11 @@ request was not sent. A method rejected by an older peer is reported as
 `peer_version_skew` with `acpmux machine update NAME`; status adds the peer's
 target and `--binary-dir DIR` form when it differs from this build.
 
+SSH enrollment keeps a running daemon on another platform and checks its peer
+protocol instead of requiring the caller's exact build. A missing standalone
+binary is installed from the checked channel for the remote target. See
+[enrollment compatibility](docs/enrollment-compatibility.md).
+
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
 home from a shell that may be inside another agent, use
 `env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/example acpmux daemon status`; inspect

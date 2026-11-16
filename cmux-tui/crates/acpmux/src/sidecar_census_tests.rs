@@ -1,6 +1,7 @@
-//! Tests of `idle_census.rs`.
+//! Tests of `sidecar_census.rs`.
 use super::*;
 use crate::agent_host::tree::{Identity, Under};
+use serde_json::json;
 
 fn under(pid: u32, ppid: u32, args: &str) -> Under {
     Under { pid, ppid, args: args.into() }
