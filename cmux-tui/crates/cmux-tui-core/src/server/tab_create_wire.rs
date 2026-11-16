@@ -71,3 +71,15 @@ pub(super) fn create(
         mux.new_tab_with_options_as(&actor, pane, spawn, optional_surface_size(cols, rows))?;
     placed_terminal_result(mux, &surface, keep)
 }
+
+#[cfg(test)]
+#[path = "tab_create_place_tests.rs"]
+mod tab_create_place_tests;
+
+#[cfg(test)]
+#[path = "tab_create_place_chain_tests.rs"]
+mod tab_create_place_chain_tests;
+
+#[cfg(test)]
+#[path = "tab_create_place_fuzz_tests.rs"]
+mod tab_create_place_fuzz_tests;

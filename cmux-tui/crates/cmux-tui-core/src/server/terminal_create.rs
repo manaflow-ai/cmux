@@ -227,8 +227,10 @@ impl ConnectionSurfaceScheduler {
             crate::debug_spans::mark("prelaunch.done");
             let trace = crate::debug_spans::take();
             *slot.trace.lock().recover_poison() = trace;
+            job_mux.run_creation_launch_hook(seq, false);
             *slot.launched.lock().recover_poison() = Some(launched);
             scheduler.commit_ready_creations(&job_mux, client, &job_writer);
+            job_mux.run_creation_launch_hook(seq, true);
         });
         if let Err(job) = mux.submit_terminal_work(job) {
             // The pool is saturated: create inline, as before the pool.
