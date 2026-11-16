@@ -16,7 +16,7 @@ enum SnapshotCreations {
     /// and the two never show side by side.
     ///
     /// A page or a chat has no such id: nothing in a tree names its create, so its daemon tab
-    /// from a snapshot still shows beside the stand-in until the reply (decision 2026-11-16).
+    /// from a snapshot still shows beside the stand-in until the reply.
     @MainActor private static func noteDaemonTerminals(in store: DaemonStore) {
         guard !store.intentLog.isEmpty else { return }
         for entry in store.intentLog.entries where !entry.createdConfirmed {

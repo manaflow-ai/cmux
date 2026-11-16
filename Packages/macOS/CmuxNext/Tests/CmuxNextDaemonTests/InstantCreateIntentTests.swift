@@ -178,7 +178,13 @@ struct InstantCreateIntentTests {
     /// A resync can bring the tree that holds the created tab before the raw `tab-added` and before
     /// the reply: the tab with the terminal id that the stand-in named takes its place in that
     /// apply too, and the covered event then changes nothing.
-    @Test func daemonTerminalTabInASnapshotTakesTheStandInsPlaceBeforeTheReply() throws {
+    ///
+    /// The store applies a tree in one of 2 forms. `wholeTree` false: the store compares the tree
+    /// with the last one and applies only the workspaces that changed. `wholeTree` true: the store
+    /// cannot vouch for the last tree (after an overflow, or on a new connection) and applies the
+    /// tree in full.
+    @Test(arguments: [false, true])
+    func daemonTerminalTabInASnapshotTakesTheStandInsPlaceBeforeTheReply(wholeTree: Bool) throws {
         let store = Self.store()
         let provisional = ProvisionalTab(), terminal = TerminalID.generate()
         let transaction = ClientTransactionID.generate()
@@ -188,18 +194,83 @@ struct InstantCreateIntentTests {
         // The tree of a resync at sequence 1: it holds the daemon's tab, and no event named the create.
         var resynced = Self.base
         resynced.screens[0].panes[0].tabs.append(TabSnapshot(surface: daemon, terminalID: terminal, kind: .pty))
-        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [resynced]))
+        let tree = DaemonTree(workspaceRevision: 2, workspaces: [resynced])
+        if wholeTree { store.snapshotMemo.reset() }
+        #expect((store.incrementalDiff(tree, diff: nil) == nil) == wholeTree, "the form that the store takes for this tree")
+        store.apply(snapshot: tree)
         store.snapshotBarrier = 1
         store.advanceAppliedSequence(to: 1)
         #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemon], "after the tree: one new tab, the daemon's")
         // The raw `tab-added` that the tree covers: no transaction, not above the barrier.
         _ = store.apply(batch: [Self.tabAdded(daemon, terminal: terminal, sequence: 1)])
         #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemon], "after the covered event: one new tab, the daemon's")
-        // The reply names the same tab: nothing changes, the intent settles.
+        // The reply, in the order of the app: its sequence first, then the tab that it names. The
+        // reply names the same tab: nothing changes, and the intent settles when the store is at
+        // that sequence.
+        store.noteSettled(transaction, at: 2)
         ProvisionalTab.created(transaction, surface: daemon, in: store)
-        store.noteSettled(transaction, at: 1)
+        store.advanceAppliedSequence(to: 2)
         #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemon])
         #expect(store.pendingIntents.isEmpty)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// Two creates wait and one tree holds the tabs of the two: each stand-in gives way to the tab
+    /// with its own terminal id, in the tree's order.
+    @Test func daemonTerminalTabsOfTwoCreatesInASnapshotEachTakeTheirStandInsPlace() throws {
+        let store = Self.store()
+        let first = ProvisionalTab(), second = ProvisionalTab()
+        let terminalA = TerminalID.generate(), terminalB = TerminalID.generate()
+        let base = SurfaceID(rawValue: 4), daemonA = SurfaceID(rawValue: 7), daemonB = SurfaceID(rawValue: 8)
+        store.intend(.createTab(pane: Self.pane, provisional: first.terminal(terminalA, cwd: nil)), transaction: .generate())
+        store.intend(.createTab(pane: Self.pane, provisional: second.terminal(terminalB, cwd: nil)), transaction: .generate())
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, first.surface, second.surface])
+        var resynced = Self.base
+        resynced.screens[0].panes[0].tabs.append(TabSnapshot(surface: daemonA, terminalID: terminalA, kind: .pty))
+        resynced.screens[0].panes[0].tabs.append(TabSnapshot(surface: daemonB, terminalID: terminalB, kind: .pty))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [resynced]))
+        store.snapshotBarrier = 1
+        store.advanceAppliedSequence(to: 1)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemonA, daemonB], "after the tree: two new tabs, the daemon's")
+        #expect(store.pendingIntents.count == 2, "no reply came: the two creates still wait")
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// The person closed the stand-in before the daemon made the tab, and a resync then brings the
+    /// tree that holds that tab: the tab never shows, and the store asks for its close one time, on
+    /// the tree's word. The covered event and the reply then ask for no second close.
+    @Test func daemonTerminalTabInASnapshotOfACancelledCreateIsHiddenAndClosedOnce() throws {
+        let store = Self.store()
+        var closed: [SurfaceID] = []
+        store.creations.onClose { _, surface in closed.append(surface) }
+        let terminal = TerminalID.generate()
+        let standIn = ProvisionalTab().terminal(terminal, cwd: nil)
+        let transaction = ClientTransactionID.generate()
+        let base = SurfaceID(rawValue: 4), daemon = SurfaceID(rawValue: 7)
+        store.intend(.createTab(pane: Self.pane, provisional: standIn), transaction: transaction)
+        #expect(store.creations.cancel(tab: try #require(standIn.tabResourceID?.rawValue)))
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base], "the closed stand-in is gone")
+        #expect(closed.isEmpty, "nothing names the daemon's tab yet")
+        // The tree of a resync at sequence 1: it holds the daemon's tab, and no event named the create.
+        var resynced = Self.base
+        resynced.screens[0].panes[0].tabs.append(TabSnapshot(surface: daemon, terminalID: terminal, kind: .pty))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [resynced]))
+        store.snapshotBarrier = 1
+        store.advanceAppliedSequence(to: 1)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base], "after the tree: the closed tab does not show")
+        #expect(closed == [daemon], "after the tree: one close, of the daemon's tab")
+        // The raw `tab-added` that the tree covers: no transaction, not above the barrier.
+        _ = store.apply(batch: [Self.tabAdded(daemon, terminal: terminal, sequence: 1)])
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base], "after the covered event: the closed tab does not show")
+        #expect(closed == [daemon], "after the covered event: no second close")
+        // The reply, in the order of the app. The records still hold the daemon's tab (no event
+        // closed it), so the create stays in the log and keeps the tab hidden.
+        store.noteSettled(transaction, at: 2)
+        ProvisionalTab.created(transaction, surface: daemon, in: store)
+        store.advanceAppliedSequence(to: 2)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [base], "after the reply: the closed tab does not show")
+        #expect(closed == [daemon], "after the reply: no second close")
+        #expect(store.pendingIntents.count == 1, "the create stays until the records lose its tab")
         #expect(store.mirrorViolations.isEmpty)
     }
 
