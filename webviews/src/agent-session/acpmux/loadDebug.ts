@@ -127,6 +127,7 @@ export async function loadRun(
   const nominal = Math.min(1000 / 60, Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index]!))));
   acpmuxPerf.resetFrames();
   acpmuxPerf.resetRenders();
+  const streamStarted = performance.timeOrigin + performance.now();
   const streaming = mock.streamLoadTurn(session, {
     seconds,
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
@@ -188,6 +189,8 @@ export async function loadRun(
   return {
     rows: host.rowCount(),
     ...streamed,
+    stream_started_epoch_ms: streamStarted,
+    stream_finished_epoch_ms: performance.timeOrigin + performance.now(),
     seconds,
     scroll_speed: speed,
     display: frameStats(timestamps, nominal),
@@ -488,7 +491,12 @@ function stillWatch(parts: Record<string, string>, started: number, seconds: num
         }
         if (!part.watch) {
           const watch = new MutationObserver((records) => tally(part, records));
-          watch.observe(node, { subtree: true, childList: true, attributes: true, characterData: true });
+          watch.observe(node, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true,
+          });
           part.watch = watch;
         }
         part.nodes.add(node);

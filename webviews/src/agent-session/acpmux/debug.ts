@@ -334,7 +334,15 @@ export function createAcpmuxDebug(
     typingStats() {
       acpmuxPerf.enable();
       // With what the keys asked of the app since the reset (native.ts).
-      return { ...typingSummary(acpmuxPerf.typing), native_posts: takeNativePosts() };
+      const prompt = document.querySelector<HTMLElement>(
+        '.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]',
+      );
+      return {
+        ...typingSummary(acpmuxPerf.typing),
+        composer_text: prompt?.textContent ?? null,
+        epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()),
+        native_posts: takeNativePosts(),
+      };
     },
 
     resetTyping() {
@@ -372,7 +380,11 @@ export function createAcpmuxDebug(
       // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
       await nextFrame();
       await nextFrame();
-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
+      return {
+        opened: label,
+        open: button?.getAttribute("aria-expanded") === "true",
+        menu: openMenuRows(),
+      };
     },
 
     acpLog(options = {}) {

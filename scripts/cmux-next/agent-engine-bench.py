@@ -35,6 +35,8 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--modes", default="own,page,chromium")
 parser.add_argument("--chats", type=int, default=10)
 parser.add_argument("--keys", type=int, default=40)
+parser.add_argument("--typing-loads", help="comma-separated idle,streaming-3,background-wake,cpu,100k; typing-only run")
+parser.add_argument("--key-gap-ms", type=float, default=20, help="typing-loads: scheduled interval between keys")
 parser.add_argument("--flings", type=int, default=3)
 parser.add_argument("--rows", type=int, default=5000, help="seeded transcript rows")
 parser.add_argument("--fling-seconds", type=float, default=3, help="duration of each measured bottom-to-top fling")
@@ -391,6 +393,11 @@ def run_mode(mode):
     time.sleep(opts.settle)  # test harness: the chat settles before it is measured
     result["one_chat"] = memory("one chat", 1)
     result["session"] = open_session()
+    if opts.typing_loads:
+        from typing_load_bench import run_loads
+        loads = run_loads(rpc, pane, open_chat, wait, opts.typing_loads.split(","), opts.keys, opts.key_gap_ms)
+        return {**result, "typing_loads": loads, "summary": {"engine": first.get("engine")},
+                "measurement_complete": all(row.get("complete") is True for row in loads)}
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
     result["typing"] = typing()
