@@ -766,6 +766,9 @@ class Orchestrator:
                     rec.update(motion_link(rep.get("series") or []))
                     if rep.get("marker_log") is not None:
                         rec["marker_log"] = rep["marker_log"]
+                        # Each second's end (viewer wall ms) and the host's newest stats then.
+                        rec["series_stats"] = [[b.get("unix_ms"), (b.get("host_stats") or {}).get("kbps")]
+                                               for b in rep.get("series") or []]
             else:
                 rec["error"] = (viewer.stderr.read() if viewer.poll() is not None else "timeout")[-400:]
         except Exception as e:  # noqa: BLE001 - a broken attempt is a failed attempt
