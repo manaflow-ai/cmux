@@ -81,7 +81,7 @@ nonisolated extension PageAppOps {
       const push = (block) => {
         if (blocks.length >= MAX_BLOCKS || total >= MAX_TOTAL_TEXT) return false;
         block.text = cap(block.text, Math.min(MAX_BLOCK_TEXT, MAX_TOTAL_TEXT - total));
-        total += block.text.length;
+        total += block.text.length + (block.src ? block.src.length : 0);
         blocks.push(block);
         return true;
       };
@@ -120,7 +120,7 @@ nonisolated extension PageAppOps {
         if (tag === 'IMG') {
           const src = httpURL(el.currentSrc || el.getAttribute('src') || '');
           const width = Number(el.getAttribute('width') || el.naturalWidth || 0);
-          if (src && !(width > 0 && width < 48)) {
+          if (src && src.length <= MAX_HREF && !(width > 0 && width < 48)) {
             const caption = el.closest('figure')?.querySelector('figcaption');
             push({ kind: 'image', text: clean(el.getAttribute('alt') || caption?.textContent || ''), src });
           }
@@ -162,7 +162,7 @@ nonisolated extension PageAppOps {
         seen.add(href);
         links.push({ text: cap(clean(a.getAttribute('aria-label') || a.textContent || a.title), MAX_LINK_TEXT), href });
       }
-      return JSON.stringify({ url: location.href, title: cap(clean(document.title), 500),
+      return JSON.stringify({ url: cap(location.href, MAX_HREF), title: cap(clean(document.title), 500),
         article: { title, byline, site, blocks }, links });
     })()
     """#

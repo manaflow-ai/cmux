@@ -24,12 +24,20 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
     /// Runs one control method in process (`ControlRouter.appControl`).
     public typealias Control = @Sendable (_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue
 
+    /// Runs one control method in process for an app (`ControlRouter.appControl(_:_:callerApp:)`), so an
+    /// action it runs is the app's, not the person's own run.
+    public typealias AppControl = @Sendable (_ method: String, _ params: [String: JSONValue], _ app: String) async throws(AppHostCapabilityError) -> JSONValue
+
     let control: Control
+    let appControl: AppControl?
     let board: PageHintBoard
 
-    /// - Parameter control: Runs `browser.page.eval` and `action.run` in process.
-    public init(control: @escaping Control) {
+    /// - Parameters:
+    ///   - control: Runs `browser.page.eval` in process (and `action.run` when `appControl` is nil).
+    ///   - appControl: Runs `action.run` for the calling app.
+    public init(control: @escaping Control, appControl: AppControl? = nil) {
         self.control = control
+        self.appControl = appControl
         board = PageHintBoard()
     }
 
@@ -115,7 +123,11 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
                 "origin": .string(request.origin),
             ]
             if let key = request.idempotencyKey { params["idempotency_key"] = .string(key) }
-            _ = try await control("action.run", params)
+            if let appControl {
+                _ = try await appControl("action.run", params, request.app)
+            } else {
+                _ = try await control("action.run", params)
+            }
             return ["tab": .string(id), "followed": true, "href": href]
         }
         let clicked = try await eval(LinkHintSession.clickScript(target), tab: id).value
