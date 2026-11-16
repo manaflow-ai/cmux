@@ -15,7 +15,9 @@ real key waits in the event queue) into:
              shows the edit (`typing_stats` to_paint; the app's typing probe `commit_ms` and the key's round trip
              beside it). The typed chat is in a workspace with a `zsh -f` terminal beside it (with agentpane, the
              terminal surface types there); in the load phase half of --chats stream in panes split beside the typed
-             chat (visible) and half in panes on a second screen of that workspace (hidden). Not in the default list
+             chat (visible) and half in panes on a second screen of that workspace (hidden). Not in the default list.
+             With --chat-agent real every chat is a session of the tag's own acpmux with the test agent (`--agent`),
+             and the load streams through the app's transport
 
 each in two phases:
 
@@ -37,8 +39,58 @@ Fleet (an owned mini with a console; the step builds the app):
     --artifact artifacts/split-spring/report.json --arg=--suite=typing-frame [--arg=--stress] [--arg=--sample] \\
     [--arg=--gate-p95-ms=8]
 """
-import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import argparse, csv, glob, json, os, re, shlex, socket, statistics, subprocess, sys, tempfile, threading, time
+HERE = os.path.dirname(os.path.abspath(__file__))
+FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
+
+
+def run_agent():
+    """`--agent`: acpmux's test agent (`--chat-agent real`'s harness) with one more prompt, `stream: SECONDS CHUNK_MS
+    CHARS`: prose in CHARS-character chunks every CHUNK_MS ms and a tool call updated every 0.5 s, for SECONDS, then
+    end_turn. Every other prompt goes to fake_agent.py."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fake_agent", FAKE_AGENT)
+    fake = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fake)
+    inner = fake.handle_prompt
+    words = ("the chief streams a reply into the transcript while you type in the composer token by token and a "
+             "tool runs beside it printing its test lines").split()
+
+    def handle_prompt(rid, params):
+        text = fake.prompt_text(params)
+        if "stream:" not in text:
+            return inner(rid, params)
+        sid = params["sessionId"]
+        seconds, chunk_ms, chars = (text[text.index("stream:") + 7:].split() + ["6", "10", "24"])[:3]
+        end, i, block = time.monotonic() + float(seconds), 0, 0
+        next_tool = time.monotonic()
+        while time.monotonic() < end:
+            piece = ""
+            while len(piece) < int(chars):
+                piece += words[i % len(words)] + " "
+                i += 1
+            fake.update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": piece}})
+            if time.monotonic() >= next_tool:
+                out = "".join(f"test hub::case_{block}_{n} ... ok\n" for n in range(8))
+                fake.update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"t{block}", "title": f"cargo test {block}",
+                                  "kind": "execute", "status": "completed", "rawInput": {"command": "cargo test"},
+                                  "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+                block += 1
+                next_tool += 0.5
+            time.sleep(float(chunk_ms) / 1000)  # probe agent: the model's token pace
+        fake.update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\n\n"}})
+        fake.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+    fake.handle_prompt = handle_prompt
+    fake.main()
+
+
+if __name__ == "__main__" and "--agent" in sys.argv[1:]:
+    sys.argv = [a for a in sys.argv if a != "--agent"]
+    run_agent()
+    sys.exit(0)
+
+sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -60,12 +112,18 @@ parser.add_argument("--sessions", help="comma list of light,stress: one app laun
 parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--chat-agent", choices=("mock", "real"), default="mock",
+                    help="mock: the page's in-memory chats, streamed in the page (debug.agent_pane stream; no app transport). "
+                         "real: the tag's own acpmux with the test agent above (--agent) as harness `fake`; every chat is a "
+                         "real session and streams through the app's transport (AcpmuxPaneSocket, AgentPaneTransport)")
+parser.add_argument("--stream", default="6 10 24", help="real: the agent's stream per turn, SECONDS CHUNK_MS CHARS")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"typing-{TAG}-")
+WORK = os.path.realpath(tempfile.mkdtemp(prefix=f"typing-work-{TAG}-"))  # the real chats' folder
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 PROBE = os.path.join(OUT, "typing.csv")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
@@ -224,6 +282,17 @@ def chat_streams():
     """One stream loop per chat, so every chat streams at once (one loop for all ran them one after another: each
     stream request answers when its 3 s stream ends)."""
     replies = LOAD.setdefault("stream_replies", [])
+    if opts.chat_agent == "real":
+        # One turn of the agent's stream at a time per chat, sent through the chat's composer path.
+        def stepper(pane):
+            def step(_):
+                reply = rpc("debug.agent_pane", {"action": "send_prompt", "pane": pane, "text": f"stream: {opts.stream}"},
+                            timeout=20)
+                if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
+                    replies.append(json.dumps(reply)[:200])
+            return step
+        period = float(opts.stream.split()[0]) + 0.5
+        return [Streamer(stepper(pane), period) for pane in LOAD["chat_panes"] if pane]
 
     def stepper(pane):
         def step(_):
@@ -243,7 +312,14 @@ def open_chat():
         rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 30, step=0.5)
     engine = rpc("debug.agent_pane", {"action": "engine"}) or {}
     pane = engine.get("pane")
-    if pane:
+    if pane and opts.chat_agent == "real":
+        made = rpc("debug.agent_pane", {"action": "new_chat", "pane": pane, "harness": "fake", "cwd": WORK}, timeout=90)
+        attached = wait(lambda: (lambda s: s.get("connection") == "attached" and s.get("sessionId"))(
+            rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}), 40, step=0.5)
+        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached {bool(attached)}")
+        wait(lambda: (lambda r: r if r.get("composer_visible") else None)(
+            rpc("debug.agent_pane", {"action": "readiness", "pane": pane}, timeout=5) or {}), 20, step=0.25)
+    elif pane:
         rpc("debug.agent_pane", {"action": "select_session", "pane": pane, "session": "mock-session"})
         wait(lambda: (lambda r: r if r.get("composer_visible") else None)(
             rpc("debug.agent_pane", {"action": "readiness", "pane": pane}, timeout=5) or {}), 20, step=0.25)
@@ -479,6 +555,8 @@ def measure(surface, phase, params, column, pid, streams=()):
     results["runs"].append(entry)
     if opts.json:
         json.dump(results, open(opts.json, "w"), indent=1)
+    if streams and opts.chat_agent == "real":
+        time.sleep(float(opts.stream.split()[0]) + 1)  # the agent's last turns end before the next phase
     return entry
 
 
@@ -628,9 +706,11 @@ def run_session(session):
     SESSION = session
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
+    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.chat_agent == "real":
+        env.update(CMUX_NEXT_AGENT_PANE_MOCK=None, ACPMUX_AGENT_LAUNCH=None)  # the tag's own acpmux, agents allowed
     bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=WINDOW,
-                     log_name=f"app-{session}.log",
-                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
+                     log_name=f"app-{session}.log", env=env)
     try:
         try:
             bench.launch(timeout=180)
@@ -640,6 +720,12 @@ def run_session(session):
                                                               "detail": error.report.get("detail")})
             return
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
+        if opts.chat_agent == "real":
+            added = action("agent.harness.add", {"id": "fake", "name": "Fake", "command": sys.executable,
+                                                 "args": f"{shlex.quote(os.path.abspath(__file__))} --agent", "protocol": "acp",
+                                                 "replace": "true"})
+            note(f"harness add: {json.dumps(added)[:300]}")
+            results["harness_add"] = added
         if session == "stress":
             LOAD["terminal_ws"] = build_stress()
             time.sleep(5)  # the grid settles
