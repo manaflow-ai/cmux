@@ -109,7 +109,8 @@ import Testing
         for (button, expected) in [("always", true), ("continue", false), ("cancel", false)] {
             let answer = Task { await CmuxRemoteSharingSetup.overviewAnswer(in: window, center: center, personPressed: pressed) }
             for _ in 0..<100 where opened.isEmpty { await Task.yield() }
-            let id = try #require(opened.popLast())
+            let last = opened.popLast()
+            let id = try #require(last)
             dispatching = true
             #expect(center.press(id, button: button))
             dispatching = false
