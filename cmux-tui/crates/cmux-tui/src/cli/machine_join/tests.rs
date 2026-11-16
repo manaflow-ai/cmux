@@ -304,15 +304,21 @@ fn add_json_prints_the_env_form_line_and_the_token_only_in_line_and_token() {
     assert_eq!(value["teamId"], "team_1");
     assert_eq!(value["name"], "lane-vm-3");
     assert_eq!(value["scriptUrl"], format!("{origin}/v1/machines/join.sh"));
+    assert_eq!(
+        value["windowsLine"],
+        format!(" $env:CMUX_JOIN='{TOKEN}'; irm {origin}/v1/machines/join.ps1 | iex")
+    );
+    assert_eq!(value["windowsScriptUrl"], format!("{origin}/v1/machines/join.ps1"));
     assert_eq!(value["joined"], Value::Null, "json does not wait unless asked");
-    let holding: Vec<&String> = value
+    let mut holding: Vec<&String> = value
         .as_object()
         .unwrap()
         .iter()
         .filter(|(_, v)| v.to_string().contains(TOKEN))
         .map(|(k, _)| k)
         .collect();
-    assert_eq!(holding, vec!["line", "token"]);
+    holding.sort();
+    assert_eq!(holding, vec!["line", "token", "windowsLine"]);
     let mint = requests.recv().unwrap();
     let (head, body) = mint.split_once("\r\n\r\n").unwrap();
     assert!(head.starts_with("POST /v1/machines/join-tokens HTTP/1.1"), "{head}");
@@ -343,6 +349,13 @@ fn add_human_prints_the_line_and_waits_on_a_terminal_until_it_joins() {
     assert_eq!(
         lines.next().unwrap(),
         format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh")
+    );
+    assert_eq!(lines.next(), Some(""));
+    assert_eq!(lines.next(), Some("On a Windows PC, in PowerShell:"));
+    assert_eq!(lines.next(), Some(""));
+    assert_eq!(
+        lines.next().unwrap(),
+        format!(" $env:CMUX_JOIN='{TOKEN}'; irm {origin}/v1/machines/join.ps1 | iex")
     );
     assert!(ran.out.contains("Waiting for it to join…"), "{}", ran.out);
     assert!(
