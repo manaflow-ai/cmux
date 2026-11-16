@@ -760,7 +760,7 @@ impl WindowIds {
     }
 
     /// The ids the window still has: current, or carried.
-    pub fn live_ids(&self) -> std::collections::HashSet<u32> {
+    pub fn live_ids(&self) -> HashSet<u32> {
         self.entries.keys().copied().collect()
     }
 
