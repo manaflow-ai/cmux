@@ -300,6 +300,10 @@ struct OutageWatch {
     min_rtt_us: Option<u64>,
     /// When the oldest datagram sent since the last feedback left.
     unanswered_since_us: Option<u64>,
+    /// When the previous feedback arrived. Silence counts from the later of this
+    /// and the oldest unanswered send, so a long but flowing path (a growing
+    /// queue) is never silence: its feedback keeps arriving.
+    last_feedback_us: Option<u64>,
     /// The newest timed sample: (send time, raw viewer arrival time).
     last_sample: Option<(u64, u32)>,
     /// Datagrams sent before this host time crossed the outage: their delay and
@@ -703,8 +707,8 @@ impl CongestionController {
     }
 
     /// Detects an outage and returns the arrivals and loss the controller may act
-    /// on. An outage is something we sent going unanswered, or a datagram's one-way
-    /// delay jumping, by more than max(100 ms, 4 round trips): no queue grows that
+    /// on. An outage is feedback going silent while something we sent is
+    /// unanswered, or a datagram's one-way delay jumping, by more than max(100 ms, 4 round trips): no queue grows that
     /// fast between two datagrams, a radio that went away does. Its burst (every
     /// datagram sent before the outage was seen) is never timed or counted as
     /// throughput, and until a datagram sent after it arrives nothing cuts or grows.
@@ -715,7 +719,12 @@ impl CongestionController {
         now_us: u64,
     ) -> (Vec<Arrival>, f64) {
         let threshold = self.outage.threshold_us();
-        let silent = self.outage.unanswered_since_us.take().map_or(0, |t| now_us.saturating_sub(t));
+        let last_feedback = self.outage.last_feedback_us.replace(now_us).unwrap_or(0);
+        let silent = self
+            .outage
+            .unanswered_since_us
+            .take()
+            .map_or(0, |t| now_us.saturating_sub(t.max(last_feedback)));
         let mut timed: Vec<(u64, u32)> = arrivals
             .iter()
             .filter_map(|a| self.sent.get(&a.transport_seq).map(|s| (s.at_us, a.arrival_us)))
