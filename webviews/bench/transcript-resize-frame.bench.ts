@@ -277,6 +277,31 @@ try {
           console.log(
             `transcript-resize-frame${MODE} turns=${turns} case=${shape.name} profile self_ms=${ms.toFixed(1)} ${key}`,
           );
+        // Inclusive time by named function (a function on the stack twice counts once): which of the
+        // pane's own passes the self times above sit under.
+        const nodes = profile.nodes as ((typeof profile.nodes)[number] & { parent?: number; children?: number[] })[];
+        const nodeById = new Map(nodes.map((node) => [node.id, node]));
+        for (const node of nodes) for (const child of node.children ?? []) nodeById.get(child)!.parent = node.id;
+        const total = new Map<string, number>();
+        profile.samples.forEach((id, index) => {
+          const seen = new Set<string>();
+          for (
+            let node = nodeById.get(id);
+            node;
+            node = node.parent === undefined ? undefined : nodeById.get(node.parent)
+          ) {
+            const name = node.callFrame.functionName;
+            if (!name || !node.callFrame.url.includes("/src/")) continue;
+            const key = `${name} ${node.callFrame.url.split("/").slice(-2).join("/").split("?")[0]}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            total.set(key, (total.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+          }
+        });
+        for (const [key, ms] of [...total].sort((a, b) => b[1] - a[1]).slice(0, 30))
+          console.log(
+            `transcript-resize-frame${MODE} turns=${turns} case=${shape.name} profile total_ms=${ms.toFixed(1)} ${key}`,
+          );
       }
       drags.forEach((run, round) => {
         const budget = 1000 / 60;
