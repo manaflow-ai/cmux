@@ -15,6 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+# path_route's route step runs this script (it moved out of the workflow for the 500 KB file limit).
+ROUTE_STEP = (ROOT / "scripts/ci/cmux-next-route-step.sh").read_text()
 
 
 def job(name: str) -> str:
@@ -24,10 +26,11 @@ def job(name: str) -> str:
 
 
 def tip_branch() -> str:
-    route = job("path_route")
+    self_check = "bash scripts/ci/cmux-next-route-step.sh"
+    assert "bash scripts/ci/cmux-next-route-step.sh" in job("path_route"), "path_route's route step does not run cmux-next-route-step.sh"
     # Up to the next branch: the tip daemon suite's elif, or the router's else.
-    match = re.search(r'elif \[\[ "\$EVENT_NAME" == workflow_dispatch && "\$TIP_SWIFT_SUITE" == true \]\]; then\n(.*?)\n          el(?:se|if)\b',
-                      route, re.DOTALL)
+    match = re.search(r'elif \[\[ "\$EVENT_NAME" == workflow_dispatch && "\$TIP_SWIFT_SUITE" == true \]\]; then\n(.*?)\nel(?:se|if)\b',
+                      ROUTE_STEP, re.DOTALL)
     assert match, "path_route has no tip_swift_suite branch"
     return match.group(1)
 
@@ -62,9 +65,8 @@ class TipSwiftSuite(unittest.TestCase):
 
 
 def tip_daemon_branch() -> str:
-    route = job("path_route")
-    match = re.search(r'elif \[\[ "\$EVENT_NAME" == workflow_dispatch && "\$TIP_DAEMON_SUITE" == true \]\]; then\n(.*?)\n          else\n',
-                      route, re.DOTALL)
+    match = re.search(r'elif \[\[ "\$EVENT_NAME" == workflow_dispatch && "\$TIP_DAEMON_SUITE" == true \]\]; then\n(.*?)\nelse\n',
+                      ROUTE_STEP, re.DOTALL)
     assert match, "path_route has no tip_daemon_suite branch"
     return match.group(1)
 
