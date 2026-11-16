@@ -470,7 +470,7 @@ fn a_read_touches_only_the_buckets_in_its_range() {
     for s in 0..3 {
         turn(&l, &format!("new-{s}"), D0 + 10, 0, cost.clone(), "claude", "claude");
     }
-    let state = l.lock();
+    let state = l.lock().unwrap();
     let (reply, visited) = query::fold(&state, &all(D0, D0 + DAY - 1), "leo@test");
     assert_eq!(visited, 3);
     assert_eq!(reply.rows.len(), 3);

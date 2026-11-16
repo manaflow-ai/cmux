@@ -427,6 +427,7 @@ pub(crate) fn spawn_writer(
 #[cfg(test)]
 mod tests {
     use super::super::{Ledger, LedgerQuery, Line, Totals};
+    use super::FILE;
 
     #[test]
     fn an_immediate_query_waits_for_the_writer_thread_fold() {
