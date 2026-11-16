@@ -534,9 +534,12 @@ extension SettingsWideningSwitchPersonGateTests {
     }
 
     /// "Refresh trusted Macs" pins the account's keys, so it takes the person's own click (spent once), but no
-    /// confirm; a posted click is refused. Back to the switch for all devices (`on: null`) only narrows.
-    @Test func refreshNeedsThePersonsClickAndDefaultTakesAnyInput() async throws {
+    /// confirm; a posted click is refused. Back to the switch for all devices (`on: null`) can turn the machine
+    /// on (when the account is on), so it widens: a posted click is refused, the person's click asks Touch ID
+    /// (review of #44003, B2; before, a posted click sent it).
+    @Test func refreshNeedsThePersonsClickAndDefaultWidens() async throws {
         let owner = FakeOwner()
+        owner.answer = true
         let h = try await make(owner: owner)
         defer { h.cleanUp() }
         wire(h)
@@ -546,9 +549,13 @@ extension SettingsWideningSwitchPersonGateTests {
         let click = try h.click(0)
         #expect(try await !refused(h, refresh, .object([:]), click))
         #expect(try await refused(h, refresh, .object([:]), click), "the same click again")
-        #expect(try await !refused(h, ConsentOp.remoteControl.rawValue, .object(["id": .string("m1"), "on": .null]), h.posted()))
+        #expect(owner.reasons.isEmpty, "refresh asks no Touch ID")
+        let toDefault: JSONValue = .object(["id": .string("m1"), "on": .null])
+        #expect(try await refused(h, ConsentOp.remoteControl.rawValue, toDefault, h.posted()))
+        #expect(h.recorder.sets == ["refresh"], "a posted click sends no default")
+        #expect(try await !refused(h, ConsentOp.remoteControl.rawValue, toDefault, try h.click(1)))
         #expect(h.recorder.sets == ["refresh", "control default"])
-        #expect(owner.reasons.isEmpty, "neither asks Touch ID")
+        #expect(owner.reasons == [RemoteControlStrings.confirmReason], "the default asks Touch ID as an on does")
     }
 
     /// The page's call for `op` with `value` on `event`; true when it was refused as not the person's.

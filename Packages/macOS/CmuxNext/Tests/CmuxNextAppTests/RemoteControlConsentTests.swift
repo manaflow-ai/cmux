@@ -165,6 +165,34 @@ import Testing
         #expect((on["log"] as? [[String: Any]])?.count == 1)
     }
 
+    /// SECURITY (review of #44003, B1): the words the owner Mac shows for the target's ask are this Mac's own key's,
+    /// from this Mac's acpmux (`self.words`), never what the far machine answered: whoever answered the dial could
+    /// name another key's words, and the person's comparison on the target is the only check of the key.
+    @Test func theAskShowsThisMacsOwnWordsNeverTheFarAnswers() async throws {
+        let fake = Fake()
+        let store = RemoteControlConsent(services: fake.services())
+        fake.status = Fake.answer(control: false, pinned: false)
+        fake.setAnswer = ["ok": false, "reason": "grant.unpinned", "error": "not trusted yet", "words": ["zebra", "yacht", "xenon", "wharf"]]
+        #expect(await store.set(Self.mini, on: true) == nil)
+        let row = try #require(Self.rows(try Self.page(store, [Self.mini])).first)
+        #expect(row["words"] as? [String] == ["amber", "birch", "cedar", "delta"])
+        #expect((row["detail"] as? String)?.contains("zebra") == false)
+    }
+
+    /// A failure on this Mac of an account set (`self.ok` false, though the answer's `ok` is true) is shown.
+    @Test func anAccountSetRefusedOnThisMacShowsItsError() async throws {
+        let fake = Fake()
+        var services = fake.services()
+        services.shown = { true }
+        var record = JoinConsentRecord()
+        record.account = "user_abc"
+        services.record = { record }
+        let store = RemoteControlConsent(services: services)
+        fake.accountAnswer = ["ok": true, "self": ["ok": false, "reason": "grant.unpinned", "error": "this Mac's key is not trusted here yet"],
+                              "applied": [] as [Any]]
+        #expect(await store.setAccount(on: true) == "this Mac's key is not trusted here yet")
+    }
+
     /// An unreachable machine shows Offline; a refusal other than the ask shows the target's own line; no key, no grant.
     @Test func offlineRefusedAndKeylessRows() async throws {
         let fake = Fake()

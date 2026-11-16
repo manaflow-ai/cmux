@@ -121,6 +121,18 @@ import Testing
         func close() {}
     }
 
+    /// With the Labs switch off this Mac shows no joined consent, so no request skips the panel and acpmux is not asked.
+    @Test func screenAutoIsOffWithTheLabsSwitchOff() async {
+        var opened = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: { nil }, openLine: {
+                opened += 1
+                return AutoLine(person: true, answer: .success(["allowed": true]))
+            }, enabled: { false }, askShown: { true }, markAskShown: {}))
+        #expect(await !model.screenAuto(control: false, viewerId: "d-phone", viewerName: "Phone"))
+        #expect(opened == 0)
+    }
+
     @Test func screenAutoAllowsOnlyOnAcpmuxsYesOverThePersonsLine() async {
         var lines: [AutoLine] = []
         var person = true
