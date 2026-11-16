@@ -149,6 +149,8 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+#[cfg(unix)]
+pub(crate) use remote_host::confirm_allow_agents;
 
 /// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
 /// hosting, every platform), on the `cmux` surface only, like the other
