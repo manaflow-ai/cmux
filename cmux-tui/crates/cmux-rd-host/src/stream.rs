@@ -18,7 +18,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_engine::{Encoded, EngineConfig, IdrReason, MediaEngine, Output};
 use cmux_rd_proto::{DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
@@ -497,6 +497,9 @@ impl MediaSession {
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
         }
+        // A stream's first keyframe follows no loss: the pacer lets it leave within a frame
+        // interval (bounded); a keyframe that answers loss leaves at the pacing rate.
+        let start_keyframe = frame.idr && req.idr_reason == Some(IdrReason::Start);
         let encoded = Encoded {
             access_unit: frame.access_unit,
             idr: frame.idr,
@@ -529,7 +532,12 @@ impl MediaSession {
         if let Some(line) = line {
             self.paced_logs.push_back((out.datagrams.len(), line));
         }
-        pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
+        let (target_bps, interval_us) = (self.engine.target_bps(), self.frame_interval_us);
+        if start_keyframe {
+            pacer.push_start_keyframe(out.datagrams, target_bps, interval_us, now_us());
+        } else {
+            pacer.push_frame(out.datagrams, target_bps, interval_us, now_us());
+        }
         Ok(self.send_paced(carrier)?)
     }
 
