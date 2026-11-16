@@ -55,7 +55,7 @@ fn draw_typed(pic: &mut I420, i: usize) -> (usize, usize, usize, usize) {
     let w = pic.width;
     let (cols, rows) = (w / 8, pic.y.len() / w / 16);
     let (x, y) = ((i % cols) * 8, ((i / cols) % rows) * 16);
-    let v = if (i / (cols * rows)) % 2 == 0 { 30 } else { 230 };
+    let v = if (i / (cols * rows)).is_multiple_of(2) { 30 } else { 230 };
     for row in y + 2..y + 14 {
         pic.y[row * w + x..row * w + x + 8].fill(v);
     }

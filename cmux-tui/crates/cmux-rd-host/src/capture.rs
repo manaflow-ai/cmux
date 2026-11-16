@@ -112,11 +112,6 @@ impl Capturer {
         })
     }
 
-    /// How this connection reads pixels back, once it has grabbed (else `None`).
-    pub fn readback(&self) -> Option<Readback> {
-        self.readback
-    }
-
     pub fn fd(&self) -> RawFd {
         self.conn.stream().as_raw_fd()
     }
