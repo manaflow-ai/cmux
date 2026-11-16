@@ -138,4 +138,32 @@ struct TabStandInOpenerTests {
         #expect(pane.remove(Self.first) == "b")
         #expect(pane.memory.closeRule.isEmpty)
     }
+
+    /// The tabs of both stand-ins are in the records, and the strip lists neither yet: it holds back a pane's new
+    /// tabs while another open of the pane has no answer. No tab closed, so the selection stays on the stand-in, and
+    /// its tab is selected when the strip lists it.
+    @Test func aSelectedStandInWhoseTabIsNotListedYetKeepsTheSelection() {
+        let pane = Self.heldNewTab()
+        pane.fates = [Self.first: .became("t1"), Self.second: .became("t2")]
+        pane.tabs = ["a", "b", "c"]
+        #expect(pane.sync() == Self.second)
+        #expect(pane.selected == Self.second)
+        // The strip lists both tabs now, each in its stand-in's place.
+        pane.tabs = ["a", "b", "t1", "t2", "c"]
+        #expect(pane.sync() == "t2")
+        #expect(pane.remove("t2") == "t1")
+        #expect(pane.remove("t1") == "b")
+    }
+
+    /// That wait has an end too: the tab leaves the records before the strip lists it (closed, or moved away). The
+    /// stand-in is a closed tab then, and the pick is a close's pick from the place that the stand-in had.
+    @Test func aSelectedStandInWhoseTabLeavesBeforeItIsListedIsAClosedTab() {
+        let pane = Pane(["a", "b", "c"], selected: "b")
+        pane.newTab(Self.first)
+        pane.fates[Self.first] = .became("t1")
+        #expect(pane.remove(Self.first) == Self.first)
+        pane.fates[Self.first] = .ended
+        #expect(pane.sync() == "b")
+        #expect(pane.memory.closeRule.isEmpty)
+    }
 }
