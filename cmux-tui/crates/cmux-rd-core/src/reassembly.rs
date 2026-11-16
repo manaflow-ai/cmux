@@ -405,7 +405,7 @@ impl Reassembler {
     /// last. A large frame may still be arriving after the grace.
     fn first_request_at(p: &Pending, after_us: u64) -> Option<u64> {
         let observed = Self::observed_data(p);
-        let unrequested = |i: usize| p.shards[i].is_none() && p.requested[i] == 0;
+        let unrequested = |i: usize| Self::missing_requests(p, i) == Some(0);
         if (0..observed).any(unrequested) {
             Some(p.first_seen_us.saturating_add(after_us))
         } else if (observed..usize::from(p.count)).any(unrequested) {
@@ -419,7 +419,7 @@ impl Reassembler {
     /// while a requested shard is missing and the frame not yet given up.
     fn retry_at(p: &Pending, t: &Timing) -> Option<u64> {
         let missing_requested =
-            (0..usize::from(p.count)).any(|i| p.shards[i].is_none() && p.requested[i] > 0);
+            (0..usize::from(p.count)).any(|i| Self::missing_requests(p, i).is_some_and(|n| n > 0));
         p.last_nack_us
             .filter(|_| missing_requested)
             .map(|at| at.saturating_add(t.retry_us))
@@ -431,6 +431,15 @@ impl Reassembler {
             .into_iter()
             .flatten()
             .min()
+    }
+
+    /// How often data shard `i` was requested while it is missing; `None`
+    /// once it arrived (or past the frame's data shards).
+    fn missing_requests(p: &Pending, i: usize) -> Option<u8> {
+        match (p.shards.get(i), p.requested.get(i)) {
+            (Some(None), Some(&n)) => Some(n),
+            _ => None,
+        }
     }
 
     fn observed_data(p: &Pending) -> usize {
@@ -456,12 +465,10 @@ impl Reassembler {
                 };
                 let retry_due = Self::retry_at(p, &t).is_some_and(|at| now_us >= at);
                 let indexes: Vec<u16> = (0..usize::from(p.count))
-                    .filter(|&i| {
-                        p.shards[i].is_none()
-                            && match p.requested[i] {
-                                0 => i < end,
-                                _ => retry_due,
-                            }
+                    .filter(|&i| match Self::missing_requests(p, i) {
+                        Some(0) => i < end,
+                        Some(_) => retry_due,
+                        None => false,
                     })
                     .take(MAX_NACK_INDEXES)
                     .map(|i| i as u16)
@@ -470,8 +477,13 @@ impl Reassembler {
                     return None;
                 }
                 for &i in &indexes {
-                    p.requested[usize::from(i)] = p.requested[usize::from(i)].saturating_add(1);
-                    p.first_requested_us[usize::from(i)].get_or_insert(now_us);
+                    let i = usize::from(i);
+                    if let Some(n) = p.requested.get_mut(i) {
+                        *n = n.saturating_add(1);
+                    }
+                    if let Some(at) = p.first_requested_us.get_mut(i) {
+                        at.get_or_insert(now_us);
+                    }
                 }
                 p.last_nack_us = Some(now_us);
                 Some(Nack { frame, indexes })
@@ -499,8 +511,8 @@ impl Reassembler {
     fn give_up_at(p: &Pending, t: &Timing) -> u64 {
         let tail_nack = p.last_seen_us.saturating_add(t.nack_after_us);
         let newest_first_request = (0..usize::from(p.count))
-            .filter(|&i| p.shards[i].is_none())
-            .filter_map(|i| p.first_requested_us[i])
+            .filter(|&i| Self::missing_requests(p, i).is_some())
+            .filter_map(|i| p.first_requested_us.get(i).copied().flatten())
             .max();
         let from =
             [Some(tail_nack), newest_first_request, Self::first_request_at(p, t.nack_after_us)]
