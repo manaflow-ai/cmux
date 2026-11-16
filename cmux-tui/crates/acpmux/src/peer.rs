@@ -919,23 +919,7 @@ pub fn read_config_argv(destination: &str, connect_secs: u64) -> Vec<String> {
     .collect()
 }
 
-/// Whether a direct (not ssh) peer URL may carry the peer token: `wss://`,
-/// or `ws://` to a loopback host. Over plain `ws://` to any other host the
-/// token would cross a network in clear, and the peer serves it as Web
-/// anyway (`server/peer_auth.rs`). An `ssh://` peer connects through a
-/// tunnel to the remote's loopback, so it always may.
-pub fn carries_peer_token(url: &str) -> bool {
-    let Ok(uri) = url.parse::<tokio_tungstenite::tungstenite::http::Uri>() else { return false };
-    let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
-    match uri.scheme_str() {
-        Some("wss") => true,
-        Some("ws") => {
-            host.eq_ignore_ascii_case("localhost")
-                || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.to_canonical().is_loopback())
-        }
-        _ => false,
-    }
-}
+pub use crate::ws_auth::carries_peer_token;
 
 /// The output of `read_config_argv`: the config bytes and the peer token
 /// (None when absent or not a 64-digit hex token).
