@@ -334,6 +334,11 @@ CI_ONLY = (
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
+    # Tooling the checks job's tests read (the same cover test): the iOS acknowledgements a notices test pins, the
+    # debug CLI, the gallery runner, a git hook, and the measure and perf-bench scripts. No Mac app build reads one.
+    "ios/cmux/Settings.bundle/Acknowledgements.plist", "scripts/cmux-debug-cli.sh", "scripts/gallery-matrix/runner.ts",
+    "scripts/git-hooks/refresh_checks.py", "scripts/measure/bench-ab/bench_ab.py", "scripts/measure/perf-idle-ab.sh",
+    "scripts/measure/require-chromium.sh", "scripts/perf-bench/*",
 )
 # Files the app build or its packaging reads that the patterns above would route by their name to a Linux
 # tier: an app resource (THIRD_PARTY_LICENSES.md, *.md), a build phase's input list or helper

@@ -678,7 +678,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #43932 registered it as linux-guard without a ci-guards.yml step, which reddened Validate every workflow guard is wired on feat-cmux-next. Pins the owned-Mac SwiftPM shared-cache seed (swiftpm_prefetch_binary_artifacts.py: checksum store, host lock, atomic renames) and that the keep-builds steps call it; run python3 tests/test_ci_swiftpm_prefetch_shared_cache.py yourself after changing either (about 3 s, no build)."
 
 [[test]]
 path = "tests/test_ci_take_canonical_root.py"
