@@ -581,12 +581,16 @@ impl Supervisor {
         }
         let host = inner.hosts.get_mut(key).expect("host");
         let inventory = stream == super::subscriptions::INVENTORY_STREAM;
+        let liveness = Out::StreamLiveness { key: key.clone(), sub, stream: stream.clone() };
         host.subs.insert(sub, stream);
-        if inventory || inner.events_started {
+        if inventory {
             return vec![];
         }
+        if inner.events_started {
+            return vec![liveness];
+        }
         inner.events_started = true;
-        vec![Out::StartEvents]
+        vec![Out::StartEvents, liveness]
     }
 
     pub(super) fn on_host_exit(&self, key: &HostKey, generation: u64, exit: Exit) {
@@ -706,6 +710,20 @@ impl Supervisor {
         };
         inner.good_tried.insert(key.app.clone(), print);
         vec![out]
+    }
+
+    /// The answer to `OpRouter::stream_live` for one new subscription, if it is still current.
+    pub(super) fn send_liveness(&self, key: &HostKey, sub: u64, stream: &str, live: bool) {
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(host) = inner.hosts.get(key) else { return };
+        if host.subs.get(&sub).map(String::as_str) != Some(stream)
+            || !Self::stream_readable(&inner, key, host, stream)
+        {
+            return;
+        }
+        if let Some(process) = &host.process {
+            process.send(&ToHost::Event { sub, body: json!({ "live": live }) });
+        }
     }
 
     /// Delivers a daemon change event to every subscribed host.
