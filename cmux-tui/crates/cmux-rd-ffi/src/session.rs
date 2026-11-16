@@ -283,12 +283,11 @@ impl Session {
     pub fn pop_frame(&mut self) -> Option<(u16, CompleteFrame)> {
         self.last_release_us = None;
         while let Some(stream) = self.ready.pop_front() {
-            if let Some(local) = self.local.get_mut(&stream) {
-                if let Some(f) = local.frames.pop_front() {
-                    self.last_release_us = Some(f.release_us);
-                    let frame = CompleteFrame { frame: f.frame, flags: f.flags, body: f.body };
-                    return Some((stream, frame));
-                }
+            if let Some(f) = self.local.get_mut(&stream).and_then(|local| local.frames.pop_front())
+            {
+                self.last_release_us = Some(f.release_us);
+                let frame = CompleteFrame { frame: f.frame, flags: f.flags, body: f.body };
+                return Some((stream, frame));
             }
             if let Some(frame) = self.streams.get_mut(&stream).and_then(Receiver::pop_frame) {
                 return Some((stream, frame));
