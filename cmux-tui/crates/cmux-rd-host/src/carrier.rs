@@ -66,9 +66,11 @@ impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
 pub trait Carrier {
     /// Append a bounded batch of successful transport writes, never enqueue times.
     /// Each adapter must preserve the underlying transport's observations.
-    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>);
+    fn drain_departures(&mut self, _out: &mut Vec<DatagramDeparture>) {}
     /// Lost observations (not lost media). Consumers must mark affected timings incomplete.
-    fn departure_overflows(&self) -> u64;
+    fn departure_overflows(&self) -> u64 {
+        0
+    }
 
     /// Readable when [`Carrier::receive`] may have something.
     fn fds(&self) -> Vec<RawFd>;
@@ -181,7 +183,14 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
         let header = DatagramHeader::decode(datagram).ok().map(|(header, _)| header);
         if let Some(wire_bytes) = self.out.send_observed(self.stream, datagram)? {
             let departed_us = crate::clock::now_ns() / 1000;
-            if let Some(header) = header {
+            if let Some(header) = header.filter(|header| {
+                matches!(
+                    header.kind,
+                    cmux_rd_proto::DatagramKind::Video
+                        | cmux_rd_proto::DatagramKind::Fec
+                        | cmux_rd_proto::DatagramKind::UpMedia
+                )
+            }) {
                 if self.departures.len() < MAX_DEPARTURE_RECEIPTS {
                     self.departures.push_back(DatagramDeparture {
                         header,
