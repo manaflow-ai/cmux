@@ -68,10 +68,9 @@ export function checkoutScript(c: Change, root: string | null): string | null {
 
 // The selected workspace's repository and branch, for show: branch. Re-read when the selection or
 // the workspace list changes (workspace.changed); git.status with github: true is one git run more.
-const spaces = workspaces()
 const [here, setHere] = signal<{ workspace: string; root: string; repo: string | null; branch: string | null } | null>(null)
 let hereFor = ""
-function follow() {
+function follow(spaces: () => Array<{ id: string; focused: boolean }> | undefined) {
   const focused = (spaces() ?? []).find((w) => w.focused)
   if (!focused || focused.id === hereFor) return
   hereFor = focused.id
@@ -217,8 +216,9 @@ export function renderChanges(): View {
   const settings = () => cmux.app.settings() as Record<string, unknown>
   const look = computed<Look>(() => (["rail", "compact", "panel"].includes(String(settings().look)) ? (settings().look as Look) : "rail"))
   // Follow the selected workspace only while the list shows its branch.
+  const spaces = workspaces()
   effect(() => {
-    if (settings().show === "branch") follow()
+    if (settings().show === "branch") follow(spaces)
   })
   const wanted = computed(() => params(settings(), here()))
   const on = computed(() => (wanted() ? "on" : "off"))
