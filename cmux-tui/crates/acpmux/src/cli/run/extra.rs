@@ -941,12 +941,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 )
                 .await
                 .inspect_err(|error| {
-                    // Only the person check's refusal: say how this Mac's admin does it instead.
+                    // Only the person check's refusal, and only in text mode (--json keeps stderr
+                    // to the one error envelope): say how this Mac's admin does it instead.
                     let person = error.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| {
                         e.0.data.as_ref().and_then(|d| d["reason"].as_str())
                             == Some(crate::hub::person::REASON)
                     });
-                    if person && cfg!(unix) {
+                    if person && cfg!(unix) && !json_out {
                         eprintln!(
                             "as this Mac's admin, run it with sudo instead: sudo acpmux machine consent {} --{}",
                             if granted { "grant" } else { "revoke" },
