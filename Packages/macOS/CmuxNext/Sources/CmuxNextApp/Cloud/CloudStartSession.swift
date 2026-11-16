@@ -421,6 +421,7 @@ struct CloudStartSession {
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return MachineResult(session: named, made: false) }
         if let refused = await cloud.agentCheck.newMachineRefusal(harness: request.agent, model: request.model, login: request.login, userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled) { if case .limit(let limit) = refused { throw limit.failure }; throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refused.loginReason ?? .ffiFailed), request.asked(machine: name))) } // a new machine: the login rules' refusal or a used-up Claude limit before it is made
+        var didMake = false
         let selected: CloudMachineSession
         do {
             selected = try await cloud.startSessionRuns.creating(name, account: account) { [machines] in
@@ -429,6 +430,7 @@ struct CloudStartSession {
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
                 let made = try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
+                didMake = true
                 if request.login.allowsEarlyCopy(harness: request.agent) { CloudStartChat.warmSpare(services, claimed: made.machineID) } // the login copy beside the connect, as a start-chat claim's
                 return made
             }
@@ -440,7 +442,8 @@ struct CloudStartSession {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
             try Self.failed(account, now: cloud.account, request.asked(machine: name),
                             CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: CloudStartCore.reason(detail)))
-        return MachineResult(session: selected, made: true)
+        }
+        return MachineResult(session: selected, made: didMake)
     }
 
     /// The workspace and pane the run's tab opens in, found again once on a relink, and the link epoch it was found on; a run whose account changed creates none.
