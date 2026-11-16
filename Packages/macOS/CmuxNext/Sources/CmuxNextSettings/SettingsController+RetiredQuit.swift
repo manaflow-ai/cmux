@@ -17,7 +17,9 @@ extension SettingsController {
             removed = true
         }
         guard removed else { return false }
-        try await pruneEmpty(["app"])
+        // Remove the parent only if the two retired keys left it empty. The settings
+        // edit is conditional so a concurrent app setting is preserved.
+        _ = try await file.edit([.resetUnchanged(["app"], .object([:]))])
         await reloadAfterWrite()
         return true
     }
