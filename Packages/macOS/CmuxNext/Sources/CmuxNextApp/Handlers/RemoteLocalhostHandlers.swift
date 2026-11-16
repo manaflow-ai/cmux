@@ -30,12 +30,12 @@ extension MachineRegistry: RemoteLocalhostMachines {
         WindowProfiles.qualified(id, machines: self).map { ($0.session, $0.key) }
     }
 
-    func cloudMachineBadge(machine machineID: String) -> String? {
-        cloudSession(machineID)?.machine.title
-    }
+    func cloudMachineBadge(machine machineID: String) -> String? { cloudSession(machineID)?.machine.title }
     func cloudMachineConnectionTarget(machine machineID: String, requiresConfirmation: Bool = true) -> RemoteConnectionTarget? {
         guard let machine = cloudSession(machineID)?.machine else { return nil }
-        return .desktop(name: machine.title, status: machine.shownStatus.rawValue.capitalized, region: machine.region, requiresConfirmation: requiresConfirmation)
+        // No human name (a start-chat `chat-<hex>`, or only the id): empty, and the card says "Cloud machine".
+        return .desktop(name: machine.facts.humanName ?? "", status: machine.shownStatus.rawValue.capitalized, region: machine.region,
+                        requiresConfirmation: requiresConfirmation, isLive: machine.shownStatus.isLive)
     }
     /// Open Desktop's URL carries the id lowercased (a DNS label).
     private func cloudSession(_ machineID: String) -> CloudMachineSession? {

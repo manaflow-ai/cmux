@@ -279,6 +279,7 @@ mod tests {
             frame: 1,
             damage,
             force_idr: true,
+            idr_reason: None,
             target_kbps,
             force_ltr_refresh: false,
             acknowledged_ltr_tokens: Vec::new(),

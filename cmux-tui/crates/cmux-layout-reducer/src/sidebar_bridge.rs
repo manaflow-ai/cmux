@@ -542,6 +542,21 @@ pub fn dismiss_notice(card: &str) -> DismissNotice {
 
 // MARK: Sidebar items (SidebarBridge+Sections)
 
+/// The action that shows a first-party app whose `cmux.pane/1` cmux draws
+/// itself (`native`): such a pane has no scene or web page, so `app.open`
+/// alone has nothing to show for it. The sidebar item, the App Store's Open
+/// and the palette's Open all run this action for it; `None` for any other app.
+pub fn native_pane_show_action(app: &str) -> Option<&'static str> {
+    match app {
+        "cmux/home" => Some("home.show"),
+        "cmux/app-store" => Some("appStore.show"),
+        // Leo, 2026-11-16: "if i click install it means it works": Cloud is on
+        // the store shelf, so its Open opens its page.
+        "cmux/cloud" => Some("palette.openCloudPane"),
+        _ => None,
+    }
+}
+
 /// One action an app item's click may run, and whether it takes the app's id as `app`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppAction {
@@ -554,11 +569,7 @@ pub struct AppAction {
 /// is registered; INTERIM until then Home and the App Store keep their show
 /// actions, and every other app opens its page (`app.open {app}`).
 pub fn app_activation(app: &str) -> Vec<AppAction> {
-    let interim = match app {
-        "cmux/home" => Some("home.show"),
-        "cmux/app-store" => Some("appStore.show"),
-        _ => None,
-    };
+    let interim = native_pane_show_action(app);
     let open = |action: &str| AppAction { action: action.to_owned(), app_argument: true };
     let mut actions = vec![open("cmux.apps.open")];
     actions

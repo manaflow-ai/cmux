@@ -504,6 +504,54 @@ fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
     assert_eq!(syncs.get(), 0);
 }
 
+/// fseventsd keeps every path it is told of until it restarts: a peer snapshot rewritten every
+/// few seconds through a `.tmp-<pid>-<n>` copy minted a new name each time, about 400 a minute on
+/// a Mac with a few dozen peer chats streaming. Every write of a file in one process uses one
+/// name, and writers of it on several threads still each put a whole copy in place.
+#[cfg(unix)]
+#[test]
+fn atomic_writes_of_a_file_reuse_one_temporary_name() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("copy.json");
+    let names = std::rc::Rc::new(std::cell::RefCell::new(std::collections::BTreeSet::new()));
+    let seen = names.clone();
+    let dir = home.path().to_path_buf();
+    let guard = seams::on_before_rename(move |_| {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+            if name.contains(".tmp-") {
+                seen.borrow_mut().insert(name);
+            }
+        }
+    });
+    for n in 0..5 {
+        write_atomic(&path, format!("{n}").as_bytes()).unwrap();
+        write_atomic_unsynced(&path, format!("u{n}").as_bytes()).unwrap();
+    }
+    drop(guard);
+    let want = format!("copy.tmp-{}", std::process::id());
+    assert_eq!(*names.borrow(), std::collections::BTreeSet::from([want]));
+
+    let whole: Vec<Vec<u8>> = (0..8u8).map(|n| vec![b'a' + n; 64 << 10]).collect();
+    std::thread::scope(|scope| {
+        for bytes in &whole {
+            let path = &path;
+            scope.spawn(move || {
+                for _ in 0..20 {
+                    write_atomic_unsynced(path, bytes).unwrap();
+                }
+            });
+        }
+    });
+    let left = std::fs::read(&path).unwrap();
+    assert!(whole.contains(&left), "a copy two writers filled together was put in place");
+    let temps = std::fs::read_dir(home.path())
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".tmp-"))
+        .count();
+    assert_eq!(temps, 0, "a temporary copy stayed");
+}
+
 /// A joined Mac's `machine-consent/` held `refusal.json` and 8 `refusal.tmp-<pid>-<n>` files: the
 /// daemon writing the refusal was stopped between the temporary copy's open and its rename, and
 /// nothing removed the copy after. The next write to the same file removes the copies of
