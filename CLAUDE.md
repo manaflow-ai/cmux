@@ -20,6 +20,9 @@ Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md)
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
 | Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
 
+`scripts/cmux-next/hot-verify.py plan --source dir:.` says whether a build is needed; `look --source dir:.|pr:N
+--app APP --out DIR` puts the change into a side copy and writes the screenshots, video and receipt to post on the PR.
+
 Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a Developer ID NIGHTLY is held back.
 
 ## Verification and isolation
