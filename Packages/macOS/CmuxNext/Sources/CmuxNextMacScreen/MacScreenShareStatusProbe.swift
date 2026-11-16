@@ -20,7 +20,7 @@ nonisolated struct MacScreenShareStatusProbe: Sendable {
 
     /// The most stdout kept from one probe.
     private static let outputCap = 65_536
-    private static let logger =Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-share-status")
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-share-status")
 
     /// The status for a session of `scope` (`view` or `control`); with `frame`, one picture is looked
     /// at too. Nil when the probe could not run or answer (an older cmux without the command): the

@@ -50,6 +50,8 @@ pub struct ShareStatus {
 
 /// Which kind of host gathered the facts: the sentences name its own settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Each host OS builds only its own variants (the rule and its tests cover all of them).
+#[allow(dead_code)]
 pub enum HostOs {
     Mac,
     LinuxX11,
@@ -59,6 +61,8 @@ pub enum HostOs {
 
 /// What one look at the display gave.
 #[derive(Clone, Debug, PartialEq, Eq)]
+// Each host OS probe makes only some of these (NoFrame is the Mac first-frame wait).
+#[allow(dead_code)]
 pub enum FrameProbe {
     /// Not looked at (`--frame no`, or the grant is already known missing).
     NotTried,
