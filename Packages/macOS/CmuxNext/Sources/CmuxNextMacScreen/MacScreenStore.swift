@@ -43,7 +43,7 @@ public final class MacScreenStore {
             hasViewedBefore = (try? c.decodeIfPresent(Bool.self, forKey: .hasViewedBefore)) ?? false
             // A file from before this field: a Mac that shared once was turned off by its person if it is off
             // now (the first time the hub shows it on, MacScreenPages clears this).
-            sharingTurnedOff = (try? c.decodeIfPresent(Bool.self, forKey: .sharingTurnedOff)) ?? false
+            sharingTurnedOff = (try? c.decodeIfPresent(Bool.self, forKey: .sharingTurnedOff)) ?? hasSharedBefore
             linkPairingsRemoved = (try? c.decodeIfPresent(Bool.self, forKey: .linkPairingsRemoved)) ?? false
         }
 

@@ -345,6 +345,8 @@ public final class DeviceHubService {
     /// Sign-out turns this Mac's sharing bit off when the hub has it on (one write; it fails only with
     /// the hub unreachable, and then no device can reach this Mac through it either).
     static func clearSharing(_ hub: DeviceHub) async {
+        guard hub.thisDevice?.macScreenShared == true else { return }
+        try? await hub.setMacScreenShared(false)
     }
 
     private func trackLoading(_ task: Task<Void, Never>) {

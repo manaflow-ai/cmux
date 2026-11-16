@@ -27,7 +27,10 @@ extension MacScreenHubHost {
     /// store is read, and `grantKnown` is false until a permission read answers: each of those waits.
     nonisolated static func defaultSharingStep(shared: Bool?, grantKnown: Bool, screenRecording: Bool,
                                                turnedOff: Bool?) -> DefaultSharingStep {
-        .none
+        guard let shared, grantKnown, let turnedOff else { return .none }
+        if shared && !screenRecording { return .turnOff }
+        if !shared && screenRecording && !turnedOff { return .turnOn }
+        return .none
     }
 
     nonisolated static func sharingState(shared: Bool, grantKnown: Bool, screenRecording: Bool, turnedOff: Bool) -> SharingState {
