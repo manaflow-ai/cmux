@@ -15,7 +15,7 @@ use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::pacer::Pacer;
+use cmux_rd_core::pacer::{Pacer, StrictWireBudget};
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
@@ -255,6 +255,12 @@ impl MediaSession {
             now_us(),
         );
         engine.set_profile(cfg.encode_profile);
+        let pacer = pacing_enabled().then(|| match cfg.encode_profile {
+            cmux_rd_core::profile::EncodeProfile::Ultra => {
+                Pacer::strict(StrictWireBudget::new(engine.target_bps()))
+            }
+            cmux_rd_core::profile::EncodeProfile::Standard => Pacer::new(),
+        });
         Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
@@ -269,7 +275,7 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
-            pacer: pacing_enabled().then(Pacer::new),
+            pacer,
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
         })
