@@ -1,5 +1,5 @@
 {
-  "about": "Every wire protocol two codebases must agree on: its owner, spec, version and the shared vectors each side's tests read. cmux-tui/crates/cmux-protocol-index checks this file against the tree and renders README.md from it (`UPDATE_PROTOCOL_INDEX=1 cargo test -p cmux-protocol-index` rewrites the README).",
+  "about": "Every wire protocol two codebases must agree on: its owner, spec, version and the shared vectors each side's tests read. Entries marked classic only belong to the frozen classic app and its iOS app (the iroh-v2 Worker, CmuxIrxTransport); they stay while classic ships and get no new work. cmux-tui/crates/cmux-protocol-index checks this file against the tree and renders README.md from it (`UPDATE_PROTOCOL_INDEX=1 cargo test -p cmux-protocol-index` rewrites the README).",
   "protocols": [
     {
       "name": "Overlay relay frame",
@@ -113,7 +113,7 @@
       ]
     },
     {
-      "name": "Classic irx control plane",
+      "name": "irx control plane (classic only)",
       "owner": "workers/presence",
       "spec": "schemas/control-plane/hello.schema.json",
       "version": { "value": "1", "source": "schemas/control-plane/ack.schema.json", "contains": "control-plane protocol version, 1" },
@@ -124,7 +124,7 @@
       ]
     },
     {
-      "name": "Classic iroh-v2 device signing",
+      "name": "iroh-v2 device signing (classic only)",
       "owner": "workers/iroh-v2",
       "spec": "docs/iroh-v2/IMPLEMENTATION.md",
       "version": { "value": "unversioned", "note": "canonical JSON signed with Ed25519" },
@@ -132,7 +132,7 @@
       "sides": [
         { "lang": "typescript", "test": "workers/iroh-v2/test/crypto.test.ts", "reads": "signing.json", "run": "cd workers/iroh-v2 && bun test test/crypto.test.ts" }
       ],
-      "gap": "only the Worker reads the vectors; the Swift signer (V2WireSigningCodec) has no test that reads signing.json"
+      "gap": "classic only (frozen; it stays while classic and its iOS app ship): only the Worker reads the vectors, and the Swift signer (V2WireSigningCodec) has no test that reads signing.json"
     },
     {
       "name": "rd datagram, input and feedback",
