@@ -197,3 +197,21 @@ test("the chat a spare took shows what the same chat opened directly shows", asy
   expect(dockText()).toBe(direct.dock);
   expect(composerText()).toBe(direct.composer);
 }, 60_000);
+
+test("a chat view that goes under a New Tab page (Cmd-T in the page) is built again, not kept", async () => {
+  await mount("direct");
+  await until(() => rows() > 0 && host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null, "the chat");
+  const typed = host.querySelector(".acpmux-composer-prompt") as {
+    acpmuxMarkdownField?: { type(text: string): unknown };
+  };
+  await act(async () => void typed.acpmuxMarkdownField!.type("the first chat's draft"));
+  await until(() => composerText() === "the first chat's draft", "the chat's draft");
+  const chatDock = dock()!;
+  const { NEW_TAB_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
+  await act(async () => dom.window.dispatchEvent(new dom.window.CustomEvent(NEW_TAB_ADOPT_EVENT, { detail: newTab })));
+  await until(() => host.querySelector(".nt-field") !== null, "the New Tab page");
+  // The hidden view under it is a new one: the chat's dock (its composer and draft) went with the chat.
+  await until(() => dock() !== null, "the page built a chat view under it");
+  expect(dock()).not.toBe(chatDock);
+  expect(shown(dock())).toBe(false);
+}, 60_000);
