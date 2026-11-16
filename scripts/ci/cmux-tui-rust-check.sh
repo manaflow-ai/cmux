@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # cmux-tui's Rust checks on a fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
-#     --os linux|macos --arg MODE [--arg TEST_FILTER]
+#     --os linux|macos --arg MODE [--arg TEST_FILTER [--arg SCOPE]]
 # --os: fmt, clippy, test, all, terminal, api-compat and panic go to Blacksmith Linux first (as
 # cmux-tui.yml gates them) unless the step asks for macOS; a test behind cfg(target_os = "macos")
 # needs --os macos, or it runs nothing on Linux. The other modes run on macOS only.
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
+# test FILTER SCOPE: SCOPE names where the filter's tests are, so cargo builds only those test
+# binaries: crate names with commas (cmux-tui-core,cmux-git) or one CRATE:TARGET (see crate_scope);
 # panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
 # (cargo clippy --lib --bins with rust_panic_ratchet.py --flags, then rust_panic_ratchet.py
 # --clippy-json; plans/cmux-next/rust-panic-free.md), so a merge batch or train can judge its tree
@@ -129,6 +131,36 @@ if [[ -n "$shard" ]]; then
   # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
   [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
   echo "gate-notice: shard $shard (nextest --partition count:$shard)"
+fi
+# test FILTER SCOPE (a third argument) names where the filter's tests are: crate names with commas
+# (-p for each), or one CRATE:TARGET for one integration test target (cmux-tui:startup_timings is
+# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings). cargo
+# then builds the test binaries of that scope only; a filtered run of the whole workspace builds
+# every test binary of every crate to run a few tests. A filter that matches no test of the scope
+# is red (--no-tests=fail). No third argument: the whole workspace, as before. (2026-11-16)
+crate_scope="${3:-}"
+if [[ -n "$crate_scope" ]]; then
+  # 2 crates as 2 arguments would test the first crate only, with no word on the second one.
+  if [[ $# -gt 3 ]]; then
+    echo "error: the crate scope is one argument (2 crates are CRATE,CRATE), not $(( $# - 2 )) arguments" >&2
+    exit 2
+  fi
+  if [[ "$mode" != test || -z "$filter" || -n "$shard" ]]; then
+    echo "error: a crate scope takes the test mode with a TEST_FILTER (no @affected scope, no shard)" >&2
+    exit 2
+  fi
+  scope_name='[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
+  if [[ "$crate_scope" =~ ^($scope_name):($scope_name)$ ]]; then
+    test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+  elif [[ "$crate_scope" =~ ^$scope_name(,$scope_name){0,7}$ ]]; then
+    test_scope=()
+    IFS=, read -r -a scope_crates <<<"$crate_scope"
+    for crate in "${scope_crates[@]}"; do test_scope+=(-p "$crate"); done
+  else
+    echo "error: the crate scope must be crate names (letters, digits, - _) with commas, at most 8, or one CRATE:TARGET" >&2
+    exit 2
+  fi
+  echo "gate-notice: crate scope: ${test_scope[*]}"
 fi
 umask 022
 root="$(pwd -P)"
@@ -1022,8 +1054,14 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   fi
   # A Testbox or another host without a step reaper keeps what the run left.
   reap_leaked "at the end of the step"
-  # Only after a build that cargo finished: a failed build lists no artifacts.
-  step "prune target" prune_target
+  # Only after a build that cargo finished: a failed build lists no artifacts. Not after a run
+  # with a crate scope: the prune keeps only the units that its own build lists, so it would
+  # delete the units of every crate out of the scope from a target that other steps use.
+  if [[ -z "$crate_scope" ]]; then
+    step "prune target" prune_target
+  else
+    echo "prune: skipped (a crate scope builds a part of the workspace)"
+  fi
 fi
 if [[ "$mode" == terminal ]]; then
   step "base-red list" load_base_red

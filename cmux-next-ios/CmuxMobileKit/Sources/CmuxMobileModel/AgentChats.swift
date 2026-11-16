@@ -136,6 +136,23 @@ public protocol TerminalChatBackend: AnyObject {
     /// `session/new` with `_meta.acpmux.adopt {harness, agentSessionId, watch: true}`, as the
     /// Mac's Toggle Terminal and Chat sends it, in the folder of terminal tab `terminalTabID`.
     func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen
+
+    // What this phone keeps of a pairing on disk, per account and Mac, so a relaunch with the
+    // Mac out of reach opens a terminal on its chat's kept turns (sign-out deletes it).
+
+    /// Every chat of the Mac is in `terminalChatListings` (its whole list was read on this
+    /// connection): a kept chat missing from it is gone.
+    func terminalChatListedWhole(on macID: String) -> Bool
+    /// The chat this phone kept as terminal `harness` `session`'s on `macID`.
+    func keptTerminalChat(harness: String, session: String, on macID: String) -> String?
+    /// Keeps `chat` as the session's chat; nil forgets it.
+    func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String)
+}
+
+extension TerminalChatBackend {
+    public func terminalChatListedWhole(on macID: String) -> Bool { false }
+    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? { nil }
+    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {}
 }
 
 extension AgentChatsBackend {

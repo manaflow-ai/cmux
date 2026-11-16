@@ -13,6 +13,33 @@ extension CEFEngine {
         return CEFRuntime.shared.spareWindow.prepare(runtime: .shared)
     }
 
+    /// The one off-the-record profile every cmux page shares (the App's page host), begun at the first
+    /// ask: a page keeps nothing on disk, and no profile of the person's touches it. From then on its
+    /// store keeps a spare Chromium window of its own (`CEFSpareWindow`), so each page after the first
+    /// joins a window made at an idle moment (`preparePageSpareWindow`) instead of building one.
+    public func cmuxPageProfile() -> BrowserProfileID {
+        let runtime = CEFRuntime.shared
+        if let pages = runtime.pageSpareWindow { return pages.profile }
+        let profile = stores.offTheRecord.begin()
+        runtime.usePageSpareWindow(profile: profile)
+        return profile
+    }
+
+    /// True when the cmux pages' store has no spare window and one may be made now (Chromium runs).
+    public var wantsPageSpareWindow: Bool {
+        let runtime = CEFRuntime.shared
+        guard let pages = runtime.pageSpareWindow else { return false }
+        return pages.host == nil && runtime.state == .ready && runtime.acceptsNewBrowsers
+    }
+
+    /// Builds the cmux pages' spare window (`wantsPageSpareWindow`), unless another Chromium window is
+    /// being built. Call at an idle moment: it holds the main thread. True when it started.
+    @discardableResult
+    public func preparePageSpareWindow() -> Bool {
+        adoptStores()
+        return CEFRuntime.shared.pageSpareWindow?.prepare(runtime: .shared) ?? false
+    }
+
     /// Closes the untaken spare Chromium window and its waiting page, if up (`debug.cef drop_spare`: what
     /// the spare costs). The next take-free idle moment does not make another; a warm start or a take does.
     public func dropSpareWindow() {

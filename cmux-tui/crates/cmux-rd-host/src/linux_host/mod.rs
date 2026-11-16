@@ -2,32 +2,48 @@
 //! a Mac exactly like a shared Mac (docs/device-hub/PROTOCOL.md). The Mac app holds a Mac's
 //! device key and hub link and drives `cmux-rd serve`; on Linux this command does that job.
 //!
-//!   enable --stack-token-file PATH|- [--hub URL] [--name NAME] [--allow-control]
-//!       Signs in once with a cmux (Stack Auth) access token, registers this desktop as a
+//!   enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--view-only] [--non-interactive]
+//!       Signs in once with a cmux (Stack Auth) access token (without a token file, through
+//!       a browser sign-in link: stack_login.rs), registers this desktop as a
 //!       `linux` device, anchors it (it renews its own host session for 30 days with its
-//!       device key, no token) and turns sharing on. Control (input) is off unless
-//!       `--allow-control`.
-//!   share on --stack-token-file PATH|- | share off
+//!       device key, no token) and turns sharing on. The person's own devices view and control
+//!       it with no prompt here (`--view-only` keeps control off); on Wayland it asks the portal
+//!       once, now (`grant`), so no viewer's session asks again.
+//!       `--non-interactive` (the machine join, often over ssh): takes no account token and opens
+//!       no browser, finds the desktop through logind, waits a minute at most on the portal
+//!       dialog, starts a virtual X display when there is no graphical session, installs the host
+//!       unit on a desktop still enabled, else prints one `not_installed:` line (setup.rs).
+//!   grant [--control]
+//!       Wayland: asks the xdg-desktop-portal once (its dialog, on this screen) for the screen
+//!       and, with `--control`, keyboard and pointer, and saves the restore token in
+//!       `~/.config/cmux/screen-host/`, so no share asks again (portal.rs). Enable runs it.
+//!   share on [--stack-token-file PATH|-] | share off
 //!   run [--display :0] [--xauthority PATH] [--capture x11|portal]
 //!       The host: holds the hub socket and serves approved sessions. Run it in the desktop
 //!       user's graphical session (the user systemd unit `systemd/cmux-screen-host.service`).
 //!   requests                       viewers asking for access, waiting for the person
 //!   approve SESSION [--always] [--scope view|full]
 //!   deny SESSION
-//!   status
+//!   status [--json]                `--json`: the cmux.screen-share.status/1 document cmux
+//!                                  reads from every share host (status_json.rs)
 //!
-//! Consent: a viewer the person already allowed (the hub's `view`/`full` permission) is
-//! served; any other request waits for `approve` and is never answered by the host itself
+//! Consent: the hub serves the account's own devices at once (a viewer with no saved permission
+//! reads `full`) and a viewer the person allowed; a request under a saved Ask waits for `approve` and is
+//! never answered by the host itself
 //! (consent.rs). A `view` session applies no input, and so does every session of a host that
-//! captures through the Wayland portal (it applies no input): there it is served view only.
+//! captures through the Wayland portal without a RemoteDesktop grant: there it is served view
+//! only.
 
-mod b64;
+pub(crate) mod b64;
 mod consent;
-mod hub;
-mod identity;
-mod net;
-mod rd_doc;
-mod session;
+pub(crate) mod hub;
+pub(crate) mod identity;
+pub(crate) mod net;
+pub(crate) mod rd_doc;
+pub(crate) mod session;
+mod setup;
+pub(crate) mod stack_login;
+mod status_json;
 
 use crate::capture_backend::CaptureBackend;
 use crate::Res;
@@ -42,13 +58,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The production device hub (the Mac app's default).
-const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
+pub(crate) const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
 const PING_EVERY: Duration = Duration::from_secs(30);
 
-const USAGE: &str = "usage: cmux-rd linux-host enable --stack-token-file PATH|- [--hub URL] [--name NAME] [--allow-control]
-       cmux-rd linux-host share on --stack-token-file PATH|- | share off
+const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--view-only] [--non-interactive]
+       cmux-rd linux-host grant [--control]
+       cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
-       cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status";
+       cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
 
 /// The exit code when the host cannot go on until the person acts (the hub removed this
 /// desktop, its device key no longer matches, or its 30-day anchor ended). The user unit lists
@@ -69,8 +86,8 @@ impl std::fmt::Display for Fatal {
 impl std::error::Error for Fatal {}
 
 impl Fatal {
-    const ENABLE: &'static str = "cmux-rd linux-host enable --stack-token-file PATH|-";
-    const SHARE_ON: &'static str = "cmux-rd linux-host share on --stack-token-file PATH|-";
+    const ENABLE: &'static str = "cmux-rd linux-host enable";
+    const SHARE_ON: &'static str = "cmux-rd linux-host share on";
 
     fn needs(what: &str, command: &str) -> Self {
         Self(format!(
@@ -184,7 +201,8 @@ fn ask_line(r: &consent::Request) -> String {
 }
 
 /// Flags that take no value.
-const FLAGS: &[&str] = &["always", "allow-control"];
+const FLAGS: &[&str] =
+    &["always", "allow-control", "control", "view-only", "json", "non-interactive"];
 
 struct Args {
     positional: Vec<String>,
@@ -236,9 +254,20 @@ pub fn run_cli(args: &[String]) -> i32 {
     let words: Vec<&str> = parsed.positional.iter().map(String::as_str).collect();
     let result = match words.as_slice() {
         ["enable"] => parsed
-            .only(&["stack-token-file", "hub", "name", "allow-control"])
+            .only(&[
+                "stack-token-file",
+                "hub",
+                "name",
+                "allow-control",
+                "view-only",
+                "non-interactive",
+            ])
             .map_err(Into::into)
             .and_then(|()| enable(&parsed)),
+        ["grant"] => parsed
+            .only(&["control"])
+            .map_err(Into::into)
+            .and_then(|()| grant(parsed.flag("control"))),
         ["share", "on"] => {
             parsed.only(&["stack-token-file"]).map_err(Into::into).and_then(|()| share_on(&parsed))
         }
@@ -253,7 +282,14 @@ pub fn run_cli(args: &[String]) -> i32 {
             .map_err(Into::into)
             .and_then(|()| approve(id, &parsed)),
         ["deny", id] => parsed.only(&[]).map_err(Into::into).and_then(|()| deny(id)),
-        ["status"] => parsed.only(&[]).map_err(Into::into).and_then(|()| status()),
+        ["status"] => parsed.only(&["json"]).map_err(Into::into).and_then(|()| {
+            if parsed.flag("json") {
+                print_status_json();
+                Ok(())
+            } else {
+                status()
+            }
+        }),
         _ => {
             eprintln!("{USAGE}");
             return 2;
@@ -268,25 +304,9 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
 }
 
-/// The access token from `--stack-token-file` (this user's 0600 file, or `-` for stdin).
+/// The access token: `--stack-token-file`, or a browser sign-in (stack_login.rs).
 fn stack_token(args: &Args) -> Res<String> {
-    let path = args
-        .get("stack-token-file")
-        .ok_or("needs --stack-token-file PATH (or - for stdin): a cmux sign-in access token")?;
-    let text = if path == "-" {
-        let mut text = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)?;
-        text
-    } else {
-        let bytes = identity::read_private(std::path::Path::new(path))?
-            .ok_or_else(|| format!("{path} does not exist"))?;
-        String::from_utf8(bytes).map_err(|_| format!("{path} is not text"))?
-    };
-    let token = text.trim().to_owned();
-    if token.is_empty() || token.contains(char::is_whitespace) {
-        return Err("the access token file must hold one token".into());
-    }
-    Ok(token)
+    stack_login::access_token(args.get("stack-token-file"))
 }
 
 /// The enabled host: its device, account and hub.
@@ -299,16 +319,92 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
     Ok((dir, hub, account))
 }
 
+/// The line `enable --non-interactive` prints on a machine it could not sign in: the hub has no
+/// sign-in yet for the credential the join keeps, and no person's token ever lands on a joined
+/// machine (hq docs/design/remote-spin-up.md section 5), so nothing else is asked for.
+const NOT_INSTALLED: &str = "not_installed: screen sharing is set up on this machine but not signed in: the device hub cannot sign a joined machine in with its machine credential yet";
+
+/// How long `enable --non-interactive` leaves the portal's dialog up for someone at the screen;
+/// past it the join goes on and the first share asks once.
+const JOIN_GRANT_WAIT: Duration = Duration::from_secs(60);
+
 fn enable(args: &Args) -> Res<()> {
-    let token = stack_token(args)?;
+    if args.flag("non-interactive") {
+        return enable_for_join(args);
+    }
     let dir = identity::config_dir()?;
     identity::private_dir(&dir)?;
-    let hub_url = match (args.get("hub"), Account::load(&dir)?) {
+    let device = sign_in_and_register(args, &dir)?;
+    let consent = enable_consent(args);
+    consent.save(&dir)?;
+    grant_capture_now(consent.full, &setup::detect_desktop(), None);
+    println!(
+        "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
+        device.name,
+        device.id,
+        shares_line(&Ok(consent), host_applies_input())
+    );
+    Ok(())
+}
+
+/// `enable --non-interactive`, the one command the machine join runs (often over ssh, with no
+/// display): sets up capture for the desktop this machine has, the portal grant or a virtual
+/// display, and installs the host when this machine is still signed in. It takes no account
+/// token and opens no browser, and never fails the join: what it could not do is one line.
+fn enable_for_join(args: &Args) -> Res<()> {
+    if args.get("stack-token-file").is_some() {
+        return Err(
+            "--non-interactive takes no account token: no person's credential is kept on a joined machine"
+                .into(),
+        );
+    }
+    if let Err(e) = set_up_for_join(args) {
+        println!("not_installed: {e}");
+    }
+    Ok(())
+}
+
+fn set_up_for_join(args: &Args) -> Res<()> {
+    let dir = identity::config_dir()?;
+    identity::private_dir(&dir)?;
+    let consent = enable_consent(args);
+    consent.save(&dir)?;
+    let desktop = setup::detect_desktop();
+    grant_capture_now(consent.full, &desktop, Some(JOIN_GRANT_WAIT));
+    let virtual_display = desktop == setup::Desktop::None;
+    if virtual_display {
+        let display = setup::start_virtual_display()?;
+        println!("{}", setup::virtual_display_line(display));
+    }
+    // Signed in by an earlier `enable` and still anchored: the host renews by its device key.
+    let device = match (Account::load(&dir)?, Device::load(&dir)?) {
+        (Some(account), Some(device)) if account.anchored_until > now_ms() => device,
+        _ => {
+            println!("{NOT_INSTALLED}");
+            return Ok(());
+        }
+    };
+    setup::install_host(virtual_display)?;
+    println!(
+        "This desktop is shared as \"{}\" ({}), {}; the host runs as {}.",
+        device.name,
+        device.id,
+        shares_line(&Ok(consent), host_applies_input()),
+        setup::HOST_UNIT
+    );
+    Ok(())
+}
+
+/// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
+/// it and turns sharing on; the device.
+fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
+    let token = stack_token(args)?;
+    let hub_url = match (args.get("hub"), Account::load(dir)?) {
         (Some(url), _) => url.to_owned(),
         (None, Some(account)) => account.hub,
         (None, None) => DEFAULT_HUB.to_owned(),
     };
-    let device = match Device::load(&dir)? {
+    let device = match Device::load(dir)? {
         Some(mut device) => {
             if let Some(name) = args.get("name") {
                 device.name = name.to_owned();
@@ -320,7 +416,7 @@ fn enable(args: &Args) -> Res<()> {
         )?,
     };
     let (_, (hub, user_id)) = with_fresh_identity(device, |device| {
-        device.save(&dir)?;
+        device.save(dir)?;
         let hub = Hub::new(&hub_url, device.clone(), None)?;
         let user_id = hub.sign_in_with_stack(&token)?;
         hub.register()?;
@@ -328,16 +424,100 @@ fn enable(args: &Args) -> Res<()> {
     })?;
     let anchored_until = hub.anchor()?;
     hub.set_shared(true)?;
-    Account { hub: hub_url, user_id, anchored_until }.save(&dir)?;
-    let consent = LocalConsent { view: true, full: args.flag("allow-control") };
-    consent.save(&dir)?;
-    println!(
-        "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
-        hub.device.name,
-        hub.device.id,
-        shares_line(&Ok(consent), host_applies_input())
-    );
+    Account { hub: hub_url, user_id, anchored_until }.save(dir)?;
+    Ok(hub.device)
+}
+
+/// `grant [--control]`: the Wayland portal's grant, made now so no share asks.
+fn grant(control: bool) -> Res<()> {
+    if CaptureBackend::from_env(None)? != CaptureBackend::Portal {
+        println!("This is not a Wayland session: sharing it needs no portal grant.");
+        return Ok(());
+    }
+    println!("{}", portal_grant(control, None)?);
+    if identity::runtime_dir().is_ok_and(|dir| dir.join("capture").exists()) {
+        println!("Restart the host to use it: systemctl --user restart cmux-screen-host.service");
+    }
     Ok(())
+}
+
+/// Asks the portal once for the screen (and, with `control`, keyboard and pointer) and saves
+/// its restore token (portal.rs); what it granted. Prints the join's notes on what this portal
+/// cannot keep (setup.rs). `within` bounds the wait on the dialog: past it nothing is saved and
+/// the first share asks. A build that cannot capture through the portal asks nothing: a grant
+/// would show a dialog for shares it cannot serve.
+#[cfg(feature = "portal-dbus")]
+fn portal_grant(control: bool, within: Option<Duration>) -> Res<String> {
+    use crate::portal::{PortalState, SessionKind};
+    CaptureBackend::Portal.available()?;
+    let (done, result) = std::sync::mpsc::channel();
+    // On its own thread, so a dialog nobody answers cannot hold the join past `within`. Not
+    // joined: past `within` it is left to the process, which ends with `enable`.
+    std::thread::Builder::new().name("linux-host-grant".into()).spawn(move || {
+        let granted = crate::portal::grant(
+            control,
+            &mut |screen_cast, remote_desktop| {
+                let versions = setup::PortalVersions { screen_cast, remote_desktop };
+                for note in setup::portal_notes(versions, control) {
+                    println!("{note}");
+                }
+            },
+            &mut |state| {
+                if state == PortalState::WaitingForConsent {
+                    eprintln!("linux-host: allow screen sharing in the dialog on this screen; cmux asks only this once");
+                }
+            },
+        );
+        let _ = done.send(granted);
+    })?;
+    let granted = match within {
+        None => result.recv().map_err(|_| "the portal grant stopped")?,
+        Some(wait) => result.recv_timeout(wait).map_err(|_| {
+            format!("nobody allowed the dialog on this screen within {} seconds", wait.as_secs())
+        })?,
+    }?;
+    let what = match granted.kind {
+        SessionKind::RemoteDesktop => "view and control this desktop",
+        SessionKind::ScreenCast if control => {
+            "view this desktop (this portal cannot keep a grant for keyboard and pointer, so it is shared view only)"
+        }
+        SessionKind::ScreenCast => "view this desktop",
+    };
+    Ok(format!(
+        "The screen sharing portal lets cmux {what}; shares start with no prompt on this screen."
+    ))
+}
+
+#[cfg(not(feature = "portal-dbus"))]
+fn portal_grant(_control: bool, _within: Option<Duration>) -> Res<String> {
+    CaptureBackend::Portal.available()?;
+    Err("this cmux-rd is built without the Wayland portal".into())
+}
+
+/// The consent `enable` writes: view and control, since the person joined this desktop to their own
+/// account and their devices view and control it with no prompt here; `--view-only` keeps control off.
+/// `--allow-control`, the flag control used to need, is still accepted.
+fn enable_consent(args: &Args) -> LocalConsent {
+    LocalConsent { view: true, full: !args.flag("view-only") }
+}
+
+/// On a Wayland desktop, asks the portal for its grant now, while the person who ran `enable` is
+/// at the screen (with `control`, the RemoteDesktop grant: keyboard and pointer too), and keeps
+/// the restore token it returns: later sessions start from that token with no dialog, so no
+/// viewer's session waits on an Allow here. An X11 desktop or a virtual display needs no grant.
+/// A refusal, a missing portal or no answer `within` only says so: the host still serves, and
+/// its first session asks.
+fn grant_capture_now(control: bool, desktop: &setup::Desktop, within: Option<Duration>) {
+    if *desktop != setup::Desktop::Wayland {
+        return;
+    }
+    match portal_grant(control, within) {
+        Ok(line) => println!("{line}"),
+        Err(e) => eprintln!(
+            "cmux-rd linux-host: the screen capture grant was not saved ({e}); the first session asks for it on this desktop, or run: cmux-rd linux-host grant{}",
+            if control { " --control" } else { "" }
+        ),
+    }
 }
 
 /// Whether the hub refused this device's identity itself: it never registers a removed id
@@ -350,7 +530,7 @@ fn refuses_identity(e: &(dyn std::error::Error + Send + Sync + 'static)) -> bool
 /// Runs `attempt` (sign in and register) with `device`; the device it succeeded with. When
 /// the hub refuses that identity (`device_removed`, `device_key_mismatch`), once more with a
 /// new device of the same name, as the Mac app does.
-fn with_fresh_identity<T>(
+pub(crate) fn with_fresh_identity<T>(
     device: Device,
     mut attempt: impl FnMut(&Device) -> Res<T>,
 ) -> Res<(Device, T)> {
@@ -461,9 +641,14 @@ fn status() -> Res<()> {
     Ok(())
 }
 
+/// `status --json`: never fails; a missing piece is a state (status_json.rs).
+fn print_status_json() {
+    let facts = status_json::gather(now_ms());
+    println!("{}", status_json::status_json(&facts, env!("CARGO_PKG_VERSION")));
+}
+
 /// Why a host whose capture applies no input shares view only.
-const NO_INPUT_NOTE: &str =
-    " (view only: this desktop is captured through the Wayland portal, which applies no input)";
+const NO_INPUT_NOTE: &str = " (view only: this desktop is captured through the Wayland portal, which has no keyboard and pointer grant; `cmux-rd linux-host grant --control` asks for it once)";
 
 /// What `status` says this desktop shares, under `consent` and a capture that does or does
 /// not apply input.
@@ -472,7 +657,7 @@ fn shares_line(consent: &Res<LocalConsent>, applies_input: bool) -> &'static str
     match consent {
         Ok(c) if c.full && applies_input => "view and control",
         Ok(c) if c.full => {
-            "view only (control is allowed, but this desktop is captured through the Wayland portal, which applies no input)"
+            "view only (control is allowed, but this desktop is captured through the Wayland portal, which has no keyboard and pointer grant; `cmux-rd linux-host grant --control` asks for it once)"
         }
         Ok(_) => "view only",
         Err(_) => "nothing shared (consent.json missing or unreadable)",
@@ -569,8 +754,9 @@ fn run(args: &Args) -> Res<()> {
     }
     // The capture choice is checked now, so a bad --capture fails at start, not per session.
     let capture = CaptureBackend::from_env(args.get("capture"))?;
-    // Every session is served with this capture: a portal one applies no input, so control
-    // tickets are served view only, and `approve` and `status` read this to say so.
+    // Every session is served with this capture: a portal one without the RemoteDesktop grant
+    // applies no input, so control tickets are served view only, and `approve` and `status`
+    // read this to say so. A grant made later takes a restart.
     let applies_input = capture.applies_input();
     identity::write_private(&runtime.join("capture"), capture.name().as_bytes())?;
     let serve_args = ServeArgs(serve_args);
@@ -626,7 +812,7 @@ fn hold_socket(
     let mut last_consent = Instant::now();
     loop {
         if last_consent.elapsed() >= CONSENT_EVERY {
-            // `enable` without --allow-control while this runs: a control session stops now.
+            // `enable --view-only` while this runs: a control session stops now.
             let consent = LocalConsent::load(dir);
             if let Some(id) = withdraw_unconsented(current, consent, applies_input) {
                 eprintln!(
@@ -836,6 +1022,55 @@ mod tests {
     }
 
     #[test]
+    fn enable_consents_to_control_unless_view_only() {
+        // A desktop joined to the person's own account: their devices control it with no prompt here.
+        let enable = |extra: &[&str]| {
+            let words: Vec<String> =
+                std::iter::once("enable").chain(extra.iter().copied()).map(String::from).collect();
+            let args = Args::parse(&words).unwrap();
+            assert!(args
+                .only(&[
+                    "stack-token-file",
+                    "hub",
+                    "name",
+                    "allow-control",
+                    "view-only",
+                    "non-interactive"
+                ])
+                .is_ok());
+            enable_consent(&args)
+        };
+        assert_eq!(enable(&[]), LocalConsent { view: true, full: true });
+        assert_eq!(enable(&["--allow-control"]), LocalConsent { view: true, full: true });
+        assert_eq!(enable(&["--view-only"]), LocalConsent { view: true, full: false });
+    }
+
+    #[test]
+    fn the_join_takes_no_account_token() {
+        // No person's credential lands on a joined machine: a token on any flag is refused before
+        // anything is read or written, and the join's command is otherwise never a failure.
+        for path in ["-", "/tmp/token"] {
+            let args = Args::parse(&[
+                "enable".into(),
+                "--non-interactive".into(),
+                "--stack-token-file".into(),
+                path.into(),
+            ])
+            .unwrap();
+            let Err(e) = enable_for_join(&args) else { panic!("took a token") };
+            assert!(e.to_string().contains("no account token"), "{e}");
+        }
+        assert!(NOT_INSTALLED.starts_with("not_installed: "));
+    }
+
+    #[test]
+    fn status_takes_json_and_never_fails() {
+        // Whatever this machine has set up, `status --json` maps it to a state.
+        assert_eq!(run_cli(&["status".into(), "--json".into()]), 0);
+        assert_eq!(run_cli(&["status".into(), "--always".into()]), 1);
+    }
+
+    #[test]
     fn unknown_commands_are_usage_errors() {
         assert_eq!(run_cli(&["frobnicate".into()]), 2);
         assert_eq!(run_cli(&[]), 2);
@@ -1004,7 +1239,7 @@ mod tests {
         let dir = consent_dir("admit");
         LocalConsent { view: true, full: true }.save(&dir).unwrap();
         assert_eq!(admit(&dir, "full", true), Some(false));
-        // `enable` without --allow-control, the host still running.
+        // `enable --view-only`, the host still running.
         LocalConsent { view: true, full: false }.save(&dir).unwrap();
         assert_eq!(admit(&dir, "full", true), None);
         assert_eq!(admit(&dir, "view", true), Some(true));
@@ -1167,7 +1402,7 @@ mod tests {
         identity::write_private(&dir.join("capture"), CaptureBackend::Portal.name().as_bytes())
             .unwrap();
         assert_eq!(host_capture(Some(&dir)), CaptureBackend::Portal);
-        assert!(!host_capture(Some(&dir)).applies_input());
+        assert!(!host_capture(Some(&dir)).applies_input_with(false));
         identity::write_private(&dir.join("capture"), b"x11").unwrap();
         assert_eq!(host_capture(Some(&dir)), CaptureBackend::X11);
         std::fs::remove_dir_all(&dir).unwrap();

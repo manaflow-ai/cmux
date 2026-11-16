@@ -7,6 +7,44 @@ import Testing
 @MainActor @Suite struct ShortcutRecorderAlternatesTests {
     typealias Harness = ShortcutRecorderReturnKeyTests.Harness
 
+    @Test func recordingAPrimaryKeyKeepsItsOtherBindings() throws {
+        let harness = Harness()
+        let primary = Shortcut("y", modifiers: [.control, .option, .command])
+        let alternate = [Shortcut("u", modifiers: [.control, .option, .command])]
+        let chord = [Shortcut("b", modifiers: [.control]), Shortcut("n", modifiers: [])]
+        let replacement = Shortcut("i", modifiers: [.control, .option, .command])
+        harness.registry.setConfiguredShortcuts([[primary], alternate, chord], for: "about")
+        #expect(harness.recorder.begin("about"))
+        harness.recorder.handle(replacement, keyCode: 34)
+        if harness.state?.pending != nil { harness.recorder.choose(.save) }
+        let expected = [[replacement], alternate, chord]
+        #expect(harness.registry.configuredShortcuts(for: "about") == expected)
+        #expect(harness.editor.saved.last == [ShortcutChange("about", keys: expected)])
+    }
+
+    @Test func removingThePrimaryKeyKeepsItsOtherBindings() {
+        let harness = Harness()
+        let primary = [Shortcut("y", modifiers: [.control, .option, .command])]
+        let alternate = [Shortcut("u", modifiers: [.control, .option, .command])]
+        harness.registry.setConfiguredShortcuts([primary, alternate], for: "about")
+        #expect(harness.recorder.begin("about"))
+        harness.recorder.choose(.remove)
+        #expect(harness.registry.configuredShortcuts(for: "about") == [alternate])
+        #expect(harness.editor.saved.last == [ShortcutChange("about", keys: [alternate])])
+    }
+
+    @Test func recordingAnExistingAlternateDoesNotDuplicateIt() {
+        let harness = Harness()
+        let primary = [Shortcut("y", modifiers: [.control, .option, .command])]
+        let alternate = Shortcut("u", modifiers: [.control, .option, .command])
+        harness.registry.setConfiguredShortcuts([primary, [alternate]], for: "about")
+        #expect(harness.recorder.begin("about"))
+        harness.recorder.handle(alternate, keyCode: 32)
+        if harness.state?.pending != nil { harness.recorder.choose(.save) }
+        #expect(harness.registry.configuredShortcuts(for: "about") == [[alternate]])
+        #expect(harness.editor.saved.last == [ShortcutChange("about", keys: [[alternate]])])
+    }
+
     @Test func replaceTakesOnlyTheSharedKeyFromTheOtherAction() throws {
         let harness = Harness()
         let ctrlTab = [Shortcut("\t", modifiers: [.control])], cmdBracket = Shortcut("]", modifiers: [.command])
