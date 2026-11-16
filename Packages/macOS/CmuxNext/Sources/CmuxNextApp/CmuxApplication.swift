@@ -96,7 +96,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     /// segfaulted there at random, minutes later (#44060, #44185). A dead record is cleared and
     /// logged (``SwiftExecutorFrames``), then the event goes on to the main actor.
     nonisolated override func sendEvent(_ event: NSEvent) {
-        SwiftExecutorFrames.recoverDeadRecord(in: "sendEvent")
+        if let dead = SwiftExecutorFrames.recoverDeadRecord(in: "sendEvent") { UncaughtExceptionRecorder.reportLostExecutor(dead) }
         nonisolated(unsafe) let event = event // crash-allow: AppKit calls sendEvent: on the main thread only; the event never leaves it
         MainActor.assumeIsolated { dispatchEvent(event) } // main-proof: AppKit calls sendEvent: on the main thread only
     }

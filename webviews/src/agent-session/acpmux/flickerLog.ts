@@ -54,6 +54,10 @@ export class FlickerLog {
   private held: FlickerEvent[] = [];
   private dropped = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /// A flush waits for the end of the recording task (`soon`).
+  private queued = false;
+  /// When the last batch went out (`now`'s clock).
+  private sentAt = -Infinity;
   private mounts = 0;
 
   constructor(
@@ -62,6 +66,7 @@ export class FlickerLog {
     // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
     private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
       setTimeout(run, ms),
+    private readonly soon: (run: () => void) => void = (run) => queueMicrotask(run),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {
@@ -69,8 +74,23 @@ export class FlickerLog {
       this.held.shift();
       this.dropped += 1;
     }
-    this.held.push({ ...fields, kind, at: this.now() });
-    this.timer ??= this.schedule(() => this.flush(), FLUSH_MS);
+    const at = this.now();
+    this.held.push({ ...fields, kind, at });
+    if (this.timer !== undefined || this.queued) return;
+    // A batch a second at most, sent at the end of the task that recorded it when the last one went out over a
+    // second ago: a page at rest arms no timer for the records a change left (a chat switch's mount and frames
+    // records woke the pane at rest a second later, bench/chat-switch.bench.ts idle_wakeups). Only a record
+    // within a second of the last batch waits, for the rest of that second.
+    const wait = this.sentAt + FLUSH_MS - at;
+    if (wait > 0) {
+      this.timer = this.schedule(() => this.flush(), wait);
+      return;
+    }
+    this.queued = true;
+    this.soon(() => {
+      this.queued = false;
+      this.flush();
+    });
   }
 
   /// The transcript's root mounted: the first is the page's own, any later one a remount.
@@ -87,6 +107,7 @@ export class FlickerLog {
     if (this.dropped) events[0] = { ...events[0]!, dropped: this.dropped };
     this.held = [];
     this.dropped = 0;
+    this.sentAt = this.now();
     this.send(events);
   }
 }
