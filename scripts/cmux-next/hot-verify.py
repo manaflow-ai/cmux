@@ -850,7 +850,9 @@ def window_box(frame: dict | None, display: tuple[float, float] | None) -> tuple
     x, y, w, h = frame["X"], frame["Y"], frame["Width"], frame["Height"]
     if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > dw + 0.5 or y + h > dh + 0.5:
         return None
-    return tuple(round(v, 6) for v in (x / dw, y / dh, min(w / dw, 1.0), min(h / dh, 1.0)))
+    fx, fy = round(x / dw, 6), round(y / dh, 6)
+    # A window flush with the right or bottom edge stays inside the video after rounding.
+    return fx, fy, round(min(w / dw, 1.0 - fx), 6), round(min(h / dh, 1.0 - fy), 6)
 
 
 def window_crop(frame: dict | None, display: tuple[float, float] | None) -> str | None:
@@ -927,7 +929,10 @@ def fit_video(mp4: Path, most: int = LOOK_VIDEO_MAX_BYTES) -> None:
             except (OSError, subprocess.SubprocessError):
                 made = False
         else:
-            made = crop_video(mp4, (0.0, 0.0, 1.0, 1.0), 1 / scale, small) is None
+            why = crop_video(mp4, (0.0, 0.0, 1.0, 1.0), 1 / scale, small)
+            if why is not None and "did not compile" in why:
+                break  # the next pass would only wait on the same compile again
+            made = why is None
         if made and small.is_file() and 0 < small.stat().st_size <= most:
             os.replace(small, mp4)
             return

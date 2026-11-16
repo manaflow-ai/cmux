@@ -19,7 +19,7 @@ guard arguments.count == 8 else { fail("usage: crop-video IN OUT FX FY FW FH SCA
 let numbers = arguments[3...7].map { Double($0) }
 guard numbers.allSatisfy({ $0 != nil && $0!.isFinite }) else { fail("FX FY FW FH SCALE are numbers") }
 let (fx, fy, fw, fh, scale) = (numbers[0]!, numbers[1]!, numbers[2]!, numbers[3]!, numbers[4]!)
-guard fx >= 0, fy >= 0, fw > 0, fh > 0, fx + fw <= 1.000001, fy + fh <= 1.000001, scale > 0, scale <= 1 else {
+guard fx >= 0, fy >= 0, fw > 0, fh > 0, fx + fw <= 1.001, fy + fh <= 1.001, scale > 0, scale <= 1 else {
     fail("the box \(fx) \(fy) \(fw) \(fh) is not inside the video, or the scale \(scale) is not in (0, 1]")
 }
 
@@ -51,7 +51,8 @@ let rate = track.nominalFrameRate > 0 ? track.nominalFrameRate : 30
 composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(min(max(rate.rounded(), 1), 60)))
 composition.instructions = [instruction]
 
-let preset = scale < 1 ? AVAssetExportPresetMediumQuality : AVAssetExportPresetHighestQuality
+// Highest quality at any scale: renderSize does the shrinking (the lower presets cap the size on their own).
+let preset = AVAssetExportPresetHighestQuality
 guard let export = AVAssetExportSession(asset: asset, presetName: preset) else { fail("no export session for \(preset)") }
 try? FileManager.default.removeItem(at: output)
 export.outputURL = output
