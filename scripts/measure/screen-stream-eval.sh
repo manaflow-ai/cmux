@@ -16,7 +16,7 @@
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0
+targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0 encode_profile="standard"
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
 ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
 video_path="" video_sha=""
@@ -34,6 +34,7 @@ for arg in "$@"; do
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
+    encode-profile=*) encode_profile="${arg#encode-profile=}" ;;
     netem-rtt-ms=*) netem_rtt_ms="${arg#netem-rtt-ms=}" ;;
     netem-loss-pct=*) netem_loss_pct="${arg#netem-loss-pct=}" ;;
     netem-seed=*) netem_seed="${arg#netem-seed=}" ;;
@@ -65,6 +66,7 @@ for arg in "$@"; do
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
 [[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
+[[ "$encode_profile" == standard || "$encode_profile" == ultra ]] || { echo "screen-stream-eval.sh: encode-profile= is standard or ultra" >&2; exit 2; }
 [[ -z "$netem_rtt_ms" || "$netem_rtt_ms" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-rtt-ms= is non-negative milliseconds" >&2; exit 2; }
 [[ "$netem_loss_pct" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-loss-pct= is a percentage" >&2; exit 2; }
 [[ "$netem_seed" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: netem-seed= is a non-negative integer" >&2; exit 2; }
@@ -78,6 +80,7 @@ then
   exit 2
 fi
 export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
+export EVAL_RD_ENCODE_PROFILE="$encode_profile"
 export EVAL_NETEM_RTT_MS="$netem_rtt_ms" EVAL_NETEM_LOSS_PCT="$netem_loss_pct" EVAL_NETEM_SEED="$netem_seed"
 if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
