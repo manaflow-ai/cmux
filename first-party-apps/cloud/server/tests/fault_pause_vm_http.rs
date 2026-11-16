@@ -11,8 +11,10 @@
 //!   recovers once the fault clears;
 //! - a 404 by label, or another final refusal, is asked once, answers at once
 //!   and says which step failed and why;
-//! - Reconnect (`cloud.machine.connect`, the op the machine header's Reconnect
-//!   sends) wakes a paused machine through the same faults.
+//! - Reconnect wakes a paused machine through the same faults: in the app,
+//!   Reconnect on a paused machine runs Resume Machine (`cloud.machine.start`,
+//!   the cases above); a connect (`cloud.machine.connect`) starts a paused
+//!   machine itself, which the reconnect cases below drive.
 //!
 //! The serve loop runs for real (`serve_with`); the platform API is the fake
 //! control plane with an `http` fault script, and the loop's timers run on a
@@ -88,14 +90,20 @@ struct Settled {
 /// each pause must hold exactly one timer (one parked op).
 fn settle(host: &mut Host, clock: &ManualClock, id: &str) -> Settled {
     let mut waits = Vec::new();
-    for _ in 0..64 {
-        while let Some(line) = host.next_within(Duration::from_millis(150)) {
+    // About 20 s in all on a loaded runner; a run that works takes milliseconds.
+    for _ in 0..400 {
+        if let Some(line) = host.next_within(Duration::from_millis(50)) {
             if line["type"] == "result" && line["id"] == id {
                 assert!(clock.pending_delays().is_empty(), "a timer outlived its op: {line}");
                 return Settled { result: line, waits };
             }
+            continue;
         }
         let pending = clock.pending_delays();
+        if pending.is_empty() {
+            // Quiet but no timer yet: the op is still on its way.
+            continue;
+        }
         assert_eq!(pending.len(), 1, "op {id} waits on one timer, not {pending:?}");
         waits.push(pending[0]);
         assert_eq!(clock.fire_all(), 1);
