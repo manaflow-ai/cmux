@@ -192,6 +192,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func teardown() {
+        if contentView.deferredPastPaintHold({ [self] in teardown() }) { return } // a closed workspace the window still shows: it goes with the swap
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
