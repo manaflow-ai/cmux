@@ -23,7 +23,6 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod queue;
-pub mod record;
 pub mod source;
 pub mod stream;
 

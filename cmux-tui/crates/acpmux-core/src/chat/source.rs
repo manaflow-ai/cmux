@@ -8,11 +8,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::record::Record;
-
 pub const CHUNK_BYTES: usize = 256 * 1024;
-/// A raw line is bounded before it reaches the per-chat writer.
-pub const MAX_RAW_LINE_BYTES: usize = CHUNK_BYTES;
+/// Torn-tail recovery reads backwards in fixed-size blocks.
+pub const REPAIR_BLOCK_BYTES: u64 = 256 * 1024;
 /// Sparse raw seq index spacing: one fixed-size mark per 256 KiB written.
 pub const RAW_INDEX_BYTES: u64 = 256 * 1024;
 /// Maps one whole line and its byte position to source places. A v1 source can obtain
@@ -150,30 +148,58 @@ pub trait RawSource: Send + 'static {
 /// record names the returned number.
 pub struct RawMap {
     file: File,
+    path: PathBuf,
     next: u32,
+    last: Option<(u32, String, String)>,
 }
 
 impl RawMap {
     pub fn open(path: &Path) -> io::Result<Self> {
-        let next =
-            if path.exists() { BufReader::new(File::open(path)?).lines().count() } else { 0 };
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(Self { file, next: u32::try_from(next).map_err(io::Error::other)? })
+        let mut file = OpenOptions::new().create(true).read(true).append(true).open(path)?;
+        repair_torn_tail(&mut file)?;
+        let last = read_last_map_entry(&mut file)?;
+        let next = match &last {
+            Some((number, _, _)) => {
+                number.checked_add(1).ok_or_else(|| io::Error::other("raw map is full"))?
+            }
+            None => count_map_lines(&mut file)?,
+        };
+        Ok(Self { file, path: path.to_path_buf(), next, last })
     }
 
     /// Append and sync one source description. The returned number is the zero-based map line.
     pub fn append_file(&mut self, path: &Path, identity: &[u8]) -> io::Result<u32> {
+        let identity = String::from_utf8_lossy(identity).into_owned();
+        let path_text = path.to_string_lossy().into_owned();
+        if let Some((number, existing_path, existing_identity)) = &self.last
+            && existing_path == &path_text
+            && existing_identity == &identity
+        {
+            return Ok(*number);
+        }
+        // A source may be reopened after another source was registered. Preserve the existing
+        // map number instead of registering the same file twice.
+        if let Some(number) = find_map_entry(&mut self.file, &path_text, &identity)? {
+            self.last = Some((number, path_text, identity));
+            return Ok(number);
+        }
         let number = self.next;
         let line = serde_json::json!({
+            "source": number,
             "kind": "file",
-            "path": path.to_string_lossy(),
-            "identity": String::from_utf8_lossy(identity),
+            "path": path_text,
+            "identity": identity,
         });
         let mut bytes = serde_json::to_vec(&line).map_err(io::Error::other)?;
         bytes.push(b'\n');
+        let first = self.file.metadata()?.len() == 0;
         self.file.write_all(&bytes)?;
         self.file.sync_all()?;
+        if first {
+            sync_parent_dir(&self.path)?;
+        }
         self.next = self.next.checked_add(1).ok_or_else(|| io::Error::other("raw map is full"))?;
+        self.last = Some((number, path_text, identity));
         Ok(number)
     }
 }
@@ -190,6 +216,9 @@ pub struct RawWriter {
     last_sync: Instant,
     unsynced: bool,
     last_index_offset: u64,
+    poisoned: bool,
+    #[cfg(test)]
+    fail_after: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,15 +254,24 @@ impl RawWriter {
         index_path: Option<&Path>,
         next_seq: u64,
     ) -> io::Result<Self> {
+        let new_file = !path.exists();
         let mut file = OpenOptions::new().create(true).read(true).append(true).open(path)?;
         repair_torn_tail(&mut file)?;
         let offset = file.metadata()?.len();
+        if new_file {
+            sync_parent_dir(path)?;
+        }
         let (index, last_index_offset) = if let Some(index_path) = index_path {
             let mut index =
                 OpenOptions::new().create(true).read(true).append(true).open(index_path)?;
             let length = index.metadata()?.len();
-            let last_index_offset = if length >= 16 {
-                index.seek(SeekFrom::Start(length - 8))?;
+            let valid_length = length - length % 16;
+            if valid_length != length {
+                index.set_len(valid_length)?;
+                index.sync_all()?;
+            }
+            let last_index_offset = if valid_length >= 16 {
+                index.seek(SeekFrom::Start(valid_length - 8))?;
                 let mut bytes = [0; 8];
                 index.read_exact(&mut bytes)?;
                 u64::from_le_bytes(bytes)
@@ -253,6 +291,9 @@ impl RawWriter {
             last_sync: Instant::now(),
             unsynced: false,
             last_index_offset,
+            poisoned: false,
+            #[cfg(test)]
+            fail_after: None,
         })
     }
 
@@ -262,30 +303,34 @@ impl RawWriter {
 
     /// Append one v1-shaped line. `sync_now` is true for acts and turn ends; unsynced writes are
     /// forced when the one-second durability window elapses.
-    pub fn append(
-        &mut self,
-        record: &Record,
-        at: u64,
-        host_seq: Option<u64>,
-        sync_now: bool,
-    ) -> io::Result<WriteReceipt> {
-        let seq = self.next_seq;
-        let mut line = record.line(seq, at, host_seq).map_err(io::Error::other)?;
-        line.push(b'\n');
-        if line.len() > MAX_RAW_LINE_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "raw line exceeds 256 KiB"));
+    pub fn append(&mut self, line: &[u8], sync_now: bool) -> io::Result<WriteReceipt> {
+        if self.poisoned {
+            return Err(io::Error::other("raw writer is poisoned; reopen it"));
         }
+        let seq = self.next_seq;
+        let mut line = line.to_vec();
+        line.push(b'\n');
         let start = self.offset;
-        self.file.write_all(&line)?;
+        let index_start =
+            self.index.as_ref().map(|index| index.metadata().map(|m| m.len())).transpose()?;
+        if let Err(error) = self.write_raw(&line) {
+            return Err(self.rollback(start, index_start, error));
+        }
         self.offset = self
             .offset
             .checked_add(line.len() as u64)
             .ok_or_else(|| io::Error::other("raw offset overflow"))?;
-        if self.offset.saturating_sub(self.last_index_offset) >= RAW_INDEX_BYTES {
+        if self.offset.saturating_sub(self.last_index_offset) >= RAW_INDEX_BYTES
+            || line.len() as u64 >= RAW_INDEX_BYTES
+        {
             if let Some(index) = &mut self.index {
-                index.write_all(&seq.to_le_bytes())?;
-                index.write_all(&start.to_le_bytes())?;
-                self.last_index_offset = self.offset;
+                if let Err(error) = index
+                    .write_all(&seq.to_le_bytes())
+                    .and_then(|_| index.write_all(&start.to_le_bytes()))
+                {
+                    return Err(self.rollback(start, index_start, error));
+                }
+                self.last_index_offset = start;
             }
         }
         self.next_seq =
@@ -293,14 +338,48 @@ impl RawWriter {
         self.unsynced = true;
         let due = sync_now || self.last_sync.elapsed() >= Duration::from_secs(1);
         if due {
-            self.file.sync_all()?;
-            if let Some(index) = &self.index {
-                index.sync_all()?;
+            let sync_result = self
+                .file
+                .sync_all()
+                .and_then(|_| self.index.as_ref().map_or(Ok(()), File::sync_all));
+            if let Err(error) = sync_result {
+                return Err(self.rollback(start, index_start, error));
             }
             self.last_sync = Instant::now();
             self.unsynced = false;
         }
         Ok(WriteReceipt { seq, start, end: self.offset, synced: !self.unsynced })
+    }
+
+    fn write_raw(&mut self, bytes: &[u8]) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(limit) = self.fail_after {
+            let count = limit.min(bytes.len());
+            self.file.write_all(&bytes[..count])?;
+            return Err(io::Error::other("injected raw write failure"));
+        }
+        self.file.write_all(bytes)
+    }
+
+    fn rollback(&mut self, start: u64, index_start: Option<u64>, error: io::Error) -> io::Error {
+        self.poisoned = true;
+        self.offset = start;
+        let raw = self.file.set_len(start);
+        let index = match (self.index.as_mut(), index_start) {
+            (Some(index), Some(length)) => index.set_len(length),
+            _ => Ok(()),
+        };
+        if let Err(repair) = raw.and(index) {
+            return io::Error::other(format!(
+                "raw write failed ({error}); rollback failed ({repair})"
+            ));
+        }
+        error
+    }
+
+    #[cfg(test)]
+    fn fail_after(&mut self, bytes: usize) {
+        self.fail_after = Some(bytes);
     }
 
     pub fn sync(&mut self) -> io::Result<()> {
@@ -327,15 +406,84 @@ fn repair_torn_tail(file: &mut File) -> io::Result<()> {
     if last[0] == b'\n' {
         return Ok(());
     }
-    let window = length.min(MAX_RAW_LINE_BYTES as u64);
-    file.seek(SeekFrom::Start(length - window))?;
-    let mut bytes = vec![0; usize::try_from(window).map_err(io::Error::other)?];
+    let mut end = length;
+    loop {
+        let start = end.saturating_sub(REPAIR_BLOCK_BYTES);
+        file.seek(SeekFrom::Start(start))?;
+        let mut bytes = vec![0; usize::try_from(end - start).map_err(io::Error::other)?];
+        file.read_exact(&mut bytes)?;
+        if let Some(newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
+            file.set_len(start + newline as u64 + 1)?;
+            return file.sync_all();
+        }
+        if start == 0 {
+            if length <= REPAIR_BLOCK_BYTES {
+                file.set_len(0)?;
+                return file.sync_all();
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "raw torn tail exceeds 256 KiB",
+            ));
+        }
+        end = start;
+    }
+}
+
+fn sync_parent_dir(path: &Path) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(|| io::Error::other("path has no parent"))?;
+    File::open(parent)?.sync_all()
+}
+
+fn parse_map_entry(bytes: &[u8], fallback: u32) -> Option<(u32, String, String)> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let number = value
+        .get("source")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|number| u32::try_from(number).ok())
+        .unwrap_or(fallback);
+    Some((
+        number,
+        value.get("path")?.as_str()?.to_owned(),
+        value.get("identity")?.as_str()?.to_owned(),
+    ))
+}
+
+fn read_last_map_entry(file: &mut File) -> io::Result<Option<(u32, String, String)>> {
+    let length = file.metadata()?.len();
+    if length == 0 {
+        return Ok(None);
+    }
+    let start = length.saturating_sub(REPAIR_BLOCK_BYTES);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = vec![0; usize::try_from(length - start).map_err(io::Error::other)?];
     file.read_exact(&mut bytes)?;
-    let Some(newline) = bytes.iter().rposition(|byte| *byte == b'\n') else {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "raw torn tail exceeds 256 KiB"));
-    };
-    file.set_len(length - window + newline as u64 + 1)?;
-    file.sync_all()
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+    }
+    let line = bytes.rsplit(|byte| *byte == b'\n').next().unwrap_or(&bytes);
+    Ok(parse_map_entry(line, 0))
+}
+
+fn count_map_lines(file: &mut File) -> io::Result<u32> {
+    file.seek(SeekFrom::Start(0))?;
+    let count = BufReader::new(file).lines().count();
+    u32::try_from(count).map_err(io::Error::other)
+}
+
+fn find_map_entry(file: &mut File, path: &str, identity: &str) -> io::Result<Option<u32>> {
+    file.seek(SeekFrom::Start(0))?;
+    for (fallback, line) in BufReader::new(file).lines().enumerate() {
+        let line = line?;
+        if let Some((number, existing_path, existing_identity)) =
+            parse_map_entry(line.as_bytes(), fallback as u32)
+            && existing_path == path
+            && existing_identity == identity
+        {
+            return Ok(Some(number));
+        }
+    }
+    Ok(None)
 }
 
 /// Part of one line, from [`RawSource::read_at`]. `bytes` holds no newline.
@@ -696,12 +844,10 @@ mod tests {
         let (source, mut writer) =
             RawWriter::open_mapped(&mut map, &raw_path, b"file:test", Some(&index_path), 41)?;
         assert_eq!(source, 0);
-        let record = Record {
-            dir: "in".into(),
-            kind: "message".into(),
-            msg: serde_json::json!({"text":"hi"}),
-        };
-        let receipt = writer.append(&record, 99, Some(7), true)?;
+        let receipt = writer.append(
+            br#"{"seq":41,"at":99,"dir":"in","kind":"message","msg":{"text":"hi"},"hostSeq":7}"#,
+            true,
+        )?;
         assert_eq!(receipt.seq, 41);
         assert!(receipt.synced);
         let map_line = std::fs::read_to_string(&map_path)?;
@@ -719,13 +865,89 @@ mod tests {
         let raw = dir.path().join("events.ndjson");
         std::fs::write(&raw, b"{\"seq\":1}\npartial")?;
         let mut writer = RawWriter::open(&raw, 2)?;
-        let record =
-            Record { dir: "mux".into(), kind: "notice".into(), msg: serde_json::json!({}) };
-        let receipt = writer.append(&record, 100, None, true)?;
+        let receipt =
+            writer.append(br#"{"seq":2,"at":100,"dir":"mux","kind":"notice","msg":{}}"#, true)?;
         assert_eq!(receipt.seq, 2);
         let bytes = std::fs::read(&raw)?;
         assert!(!bytes.windows(b"partial".len()).any(|window| window == b"partial"));
         assert!(bytes.ends_with(b"\n"));
+        Ok(())
+    }
+
+    #[test]
+    fn raw_writer_cuts_a_torn_first_line_to_zero() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = dir.path().join("events.ndjson");
+        std::fs::write(&raw, b"never-acked")?;
+        let mut writer = RawWriter::open(&raw, 0)?;
+        assert_eq!(std::fs::read(&raw)?, b"");
+        writer.append(br#"{"seq":0}"#, true)?;
+        assert!(std::fs::read(&raw)?.ends_with(b"\n"));
+        Ok(())
+    }
+
+    #[test]
+    fn raw_writer_allows_a_line_larger_than_one_repair_block() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = dir.path().join("events.ndjson");
+        let mut writer = RawWriter::open(&raw, 0)?;
+        let line = vec![b'x'; REPAIR_BLOCK_BYTES as usize * 2 + 17];
+        let receipt = writer.append(&line, true)?;
+        assert_eq!(receipt.end, line.len() as u64 + 1);
+        Ok(())
+    }
+
+    #[test]
+    fn failed_raw_write_rolls_back_and_poison_requires_reopen() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = dir.path().join("events.ndjson");
+        let mut writer = RawWriter::open(&raw, 9)?;
+        writer.fail_after(3);
+        let error = writer.append(br#"{"seq":9,"msg":"partial"}"#, true).unwrap_err();
+        assert!(error.to_string().contains("injected"));
+        assert!(std::fs::read(&raw)?.is_empty());
+        let poisoned = writer.append(br#"{"seq":9}"#, true).unwrap_err();
+        assert!(poisoned.to_string().contains("poisoned"));
+        drop(writer);
+        let mut reopened = RawWriter::open(&raw, 9)?;
+        assert_eq!(reopened.append(br#"{"seq":9}"#, true)?.seq, 9);
+        Ok(())
+    }
+
+    #[test]
+    fn index_repairs_torn_entry_and_reopen_keeps_mark_origin() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = dir.path().join("events.ndjson");
+        let index = dir.path().join("events.idx");
+        let mut writer = RawWriter::open_with_index(&raw, Some(&index), 0)?;
+        let line = vec![b'x'; REPAIR_BLOCK_BYTES as usize];
+        writer.append(&line, true)?;
+        let marked_at = std::fs::read(&index)?;
+        assert_eq!(marked_at.len(), 16);
+        drop(writer);
+        let mut torn = std::fs::OpenOptions::new().append(true).open(&index)?;
+        torn.write_all(&[1, 2, 3])?;
+        drop(torn);
+        let mut reopened = RawWriter::open_with_index(&raw, Some(&index), 1)?;
+        assert_eq!(std::fs::metadata(&index)?.len(), 16);
+        let next = reopened.append(b"small", true)?;
+        assert_eq!(next.seq, 1);
+        assert_eq!(std::fs::metadata(&index)?.len(), 32);
+        Ok(())
+    }
+
+    #[test]
+    fn raw_map_repairs_and_reuses_the_existing_last_source() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let map_path = dir.path().join("raw.map");
+        let raw_path = dir.path().join("events.ndjson");
+        let mut map = RawMap::open(&map_path)?;
+        assert_eq!(map.append_file(&raw_path, b"file:test")?, 0);
+        let length = std::fs::metadata(&map_path)?.len();
+        std::fs::OpenOptions::new().append(true).open(&map_path)?.write_all(b"torn")?;
+        let mut reopened = RawMap::open(&map_path)?;
+        assert_eq!(std::fs::metadata(&map_path)?.len(), length);
+        assert_eq!(reopened.append_file(&raw_path, b"file:test")?, 0);
         Ok(())
     }
 
