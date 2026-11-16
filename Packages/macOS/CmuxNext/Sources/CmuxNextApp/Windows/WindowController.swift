@@ -155,7 +155,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         startShortcutHints()
         observeWorkspace()
         observeRoom()
-        observeSidebarHidden(); observeWindowTitle()
+        observeSidebarHidden()
+        observeWindowTitle()
         followContentChanges()
     }
 
@@ -223,7 +224,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func observeWindowTitle() { let state = state, machines = services.machines, names = WorkspaceAutoNameWiring(services: services), selection = state.selection, store = machines.local.store, windows = services.windows, id = state.id; titleObservation = WindowListTitleObservation.start(values: { let workspace = state.workspaceID.flatMap { machines.workspace(id: $0)?.0 }; return (workspace.map { names.reader.titlebarName($0) { selection.selection(in: $0.id) } }, store.profile(state.profileID)?.name, windows.isIncognito(window: id), state.page == nil) }, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName) { [weak self] title, workspaceName, showsWorkspaceChrome in self?.window?.title = title; if showsWorkspaceChrome, let workspaceName { self?.root.titlebar.title = workspaceName } } }
+    /// Native titles follow window state even before content mounts or while a top page covers it.
+    private func observeWindowTitle() {
+        titleObservation?.cancel()
+        titleObservation = WindowListTitleObservation.start(values: { [weak self] in
+            guard let self else { return (nil, nil, false, false) }
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
+            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
+            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+                    workspaceName: title, incognito: self.services.windows.isIncognito(window: self.state.id),
+                    showsWorkspaceChrome: self.state.page == nil && self.content != nil)
+        }, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName) { [weak self] title, workspace, showsChrome in
+            self?.window?.title = title
+            if showsChrome, let workspace { self?.root.titlebar.title = workspace }
+        }
+    }
 
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
@@ -320,6 +336,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
+        observeWindowTitle()
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
         DebugWorkspaceSwitch.mark(self, "did_show")

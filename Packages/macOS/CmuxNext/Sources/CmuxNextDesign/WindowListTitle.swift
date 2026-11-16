@@ -1,5 +1,5 @@
-import Foundation
 import CmuxNextCompat
+import Foundation
 
 /// The title AppKit uses for the Dock, Window menu, Mission Control and Cmd-` lists.
 /// Keep the space first so two windows showing the same workspace name remain distinguishable.
@@ -21,6 +21,8 @@ public struct WindowListTitle: Equatable, Sendable {
 
 /// Shared observation loop for native window-list titles. AppKit owners provide the
 /// app-specific values and decide whether the visible titlebar should also change.
+/// Publishes once synchronously, then only on observed changes. The window owner
+/// cancels the returned task when replacing the binding or tearing the window down.
 public enum WindowListTitleObservation {
     public typealias Value = (spaceName: String?, workspaceName: String?, incognito: Bool, showsWorkspaceChrome: Bool)
 
@@ -31,16 +33,22 @@ public enum WindowListTitleObservation {
         incognitoName: String,
         apply: @escaping @MainActor @Sendable (_ title: String, _ workspaceName: String?, _ showsWorkspaceChrome: Bool) -> Void
     ) -> Task<Void, Never> {
-        Task {
-            for await value in ObservationStream(values) {
-                let title = WindowListTitle(
-                    spaceName: value.spaceName,
-                    workspaceName: value.workspaceName,
-                    incognito: value.incognito,
-                    fallbackName: fallbackName,
-                    incognitoName: incognitoName
-                ).value
-                apply(title, value.workspaceName, value.showsWorkspaceChrome)
+        let stream = ObservationStream<Value>.current(values)
+        let publish: @MainActor @Sendable (Value) -> Void = { value in
+            let title = WindowListTitle(
+                spaceName: value.spaceName,
+                workspaceName: value.workspaceName,
+                incognito: value.incognito,
+                fallbackName: fallbackName,
+                incognitoName: incognitoName
+            ).value
+            apply(title, value.workspaceName, value.showsWorkspaceChrome)
+        }
+        publish(stream.value)
+        return Task {
+            for await value in stream.later {
+                guard !Task.isCancelled else { return }
+                publish(value)
             }
         }
     }
