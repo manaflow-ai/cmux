@@ -253,7 +253,7 @@ extension AgentTabStore {
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
         tabs.openRightScoped = { [weak services] chat, session, host in
             guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
-            return services.linkOpener.open(from: source) { target, placed in
+            return services.linkOpener.open(from: source, opening: .tool) { target, placed in
                 guard target.daemon.isLocal else { return false }
                 return tabs.openTab(in: target, session: session, host: host, select: placed == nil) { [weak services, weak tabs] key in
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
@@ -275,7 +275,7 @@ extension AgentTabStore {
             // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
             // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
             let start = cwd ?? NewTerminalStart.uninherited(.split, services: services, daemon: source.daemon, besides: nil)
-            return services.linkOpener.open(from: source, besideChat: true, kind: kind, focusing: kind == .browser ? .addressBar : .content, split: kind == .browser ? services.linkOpener.browserSplit(nil) : nil) { target, placed in
+            return services.linkOpener.open(from: source, besideChat: true, kind: kind, opening: .tool, focusing: kind == .browser ? .addressBar : .content, split: kind == .browser ? services.linkOpener.browserSplit(nil) : nil) { target, placed in
                 guard kind == .browser else { guard target.daemon.connection != nil else { return false }; target.newTerminalTab(cwd: start, daemonResolvesCwd: true, placementOwner: placed != nil, then: placed); return true }
                 return target.newBrowserTab(placementOwner: placed != nil, then: placed)
             }
