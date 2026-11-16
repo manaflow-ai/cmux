@@ -26,15 +26,11 @@ fn error(error: HubError) -> RpcError {
     }))
 }
 
-pub(super) async fn handle(
-    hub: &Arc<Hub>,
-    conn: &Arc<Conn>,
-    params: &Value,
-) -> Result<Value, RpcError> {
-    if conn.origin != Origin::Local || conn.auth != ConnAuth::LocalSocket {
-        return Err(RpcError::new(-32003, "mesh controls require this daemon's local socket")
-            .with_data(json!({"reason": "mesh.local_only"})));
-    }
+/// Refuses `conn`'s proven caller while a remote device drives it (its turn, or its last one, is a
+/// Web turn): its unix socket is this machine's, but what it sends through the hub is that
+/// device's, and no Web mark would go with it (`mesh.local_only`). Mesh controls and hub starts
+/// (`mesh_relay::start::new_on`) both ask this.
+pub(super) fn refuse_remote_driven_caller(hub: &Arc<Hub>, conn: &Conn) -> Result<(), RpcError> {
     if let Some(caller) = conn.caller() {
         let caller = hub.resolve(caller)?;
         // This existing check detects both the current and last remote-controlled turn.
@@ -46,6 +42,19 @@ pub(super) async fn handle(
             .with_data(json!({"reason": "mesh.local_only"})));
         }
     }
+    Ok(())
+}
+
+pub(super) async fn handle(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    if conn.origin != Origin::Local || conn.auth != ConnAuth::LocalSocket {
+        return Err(RpcError::new(-32003, "mesh controls require this daemon's local socket")
+            .with_data(json!({"reason": "mesh.local_only"})));
+    }
+    refuse_remote_driven_caller(hub, conn)?;
     let mesh =
         hub.mesh.get().ok_or_else(|| RpcError::new(-32000, "mesh relay is not configured"))?;
     if let Some(id) = params.get("receipt").and_then(Value::as_str) {
