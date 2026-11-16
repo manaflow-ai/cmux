@@ -2352,6 +2352,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       turn = this.backgroundAt(this.order.get(id)!);
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
     }
+    if (!known && this.prepending && (this.order.get(id) ?? Infinity) < this.prepending.below)
+      this.prepending.made.push(id);
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     if (row.kind === "compaction") this.compactionIds.add(id);
     else if (previous?.kind === "compaction") this.compactionIds.delete(id);
@@ -2366,6 +2368,15 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private keepOrdered(id: string, row: AcpmuxRow, known: boolean): void {
     const ordered = this.ordered!;
     const index = this.orderedIndex.get(id);
+    // An older page's row while it folds (`beginPrepend`): it waits to be merged in, and the held
+    // rows' order stands.
+    const prepend = this.prepending;
+    if (prepend && index === undefined && (this.order.get(id) ?? Infinity) < prepend.below) {
+      if (!known) prepend.pending.push(id);
+      this.changedSlot = MANY_SLOTS;
+      this.firstChanged = MANY_SLOTS;
+      return;
+    }
     if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
       this.changedSlot = this.changedSlot === undefined || this.changedSlot === index ? index : MANY_SLOTS;
@@ -2594,6 +2605,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       return;
     }
     if (at === undefined) {
+      // An older page's row not merged in yet: the merge leaves out what is gone.
+      if (this.prepending && (this.order.get(id) ?? Infinity) < this.prepending.below) return;
       this.ordered = undefined;
       return;
     }
@@ -2729,7 +2742,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The rows in event order, as `sorted()` has them, without making a snapshot of them: a read of
   /// the newest rows walks back from the end, O(rows read), while the order is kept.
   inOrder(): readonly AcpmuxRow[] {
+    if (this.ordered && this.prepending?.pending.length) this.mergePrepended();
     if (!this.ordered) {
+      // A whole sort takes in a folding page's rows too: none waits to be merged again.
+      if (this.prepending) this.prepending.pending = [];
       OrderedRows.sorts += 1;
       this.changedSlot = MANY_SLOTS;
       this.firstChanged = MANY_SLOTS;
@@ -2739,6 +2755,69 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
     return this.ordered;
+  }
+
+  /// An older page folding in above every held row (`foldOlder`): the rows it makes, all ordered
+  /// before `below`, wait in `pending` and are merged into the kept order once (`mergePrepended`), so
+  /// the fold sorts the page's rows, not every row the chat holds. Each of the page's turn ends read
+  /// the order back to its prompt (`turnTotals`), and every row the page made before it had thrown
+  /// the kept order away: a page of 500 turns sorted the whole held chat 500 times, which on a 100k-row
+  /// chat was most of an older page's 0.2-1.8 s (bench/transcript-scroll-up.bench.ts, FIXTURE=flat).
+  /// `made` lists the page's rows in the order they were made (their records' order), for `turnTotals`.
+  private prepending: { below: number; pending: string[]; made: string[] } | undefined;
+
+  /// Starts an older page's fold above the rows ordered from `below` on (`prepending`).
+  beginPrepend(below: number): void {
+    this.inOrder();
+    this.prepending = { below, pending: [], made: [] };
+  }
+
+  /// Ends the fold `beginPrepend` started: its rows go into the kept order.
+  endPrepend(): void {
+    if (this.ordered && this.prepending?.pending.length) this.mergePrepended();
+    this.prepending = undefined;
+  }
+
+  /// The rows the folding page made, oldest first (`prepending`); undefined outside a fold.
+  prependedRows(): readonly string[] | undefined {
+    return this.prepending?.made;
+  }
+
+  /// Merges the folding page's rows into the kept order: a sort of the page's rows and one pass over
+  /// the held ones, O(held + page log page) once a page, never a sort of every row.
+  private mergePrepended(): void {
+    const prepend = this.prepending!;
+    const ordered = this.ordered!;
+    const key = (row: AcpmuxRow) => this.order.get(row.id) ?? 0;
+    const seen = new Set<string>();
+    const page: AcpmuxRow[] = [];
+    for (const id of prepend.pending) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const row = this.get(id);
+      if (row) page.push(row);
+    }
+    prepend.pending = [];
+    page.sort((a, b) => key(a) - key(b) || a.at - b.at);
+    const merged: AcpmuxRow[] = new Array(page.length + ordered.length);
+    let left = 0;
+    let right = 0;
+    let out = 0;
+    while (left < page.length && right < ordered.length) {
+      const a = page[left]!;
+      const b = ordered[right]!;
+      if (key(a) - key(b) < 0 || (key(a) === key(b) && a.at <= b.at)) merged[out++] = page[left++]!;
+      else merged[out++] = ordered[right++]!;
+    }
+    while (left < page.length) merged[out++] = page[left++]!;
+    while (right < ordered.length) merged[out++] = ordered[right++]!;
+    merged.length = out;
+    this.ordered = merged;
+    this.orderedIndex = new Map();
+    for (let index = 0; index < merged.length; index += 1) this.orderedIndex.set(merged[index]!.id, index);
+    this.changedSlot = MANY_SLOTS;
+    this.firstChanged = MANY_SLOTS;
+    this.snapshot = undefined;
   }
 
   /// The rows in event order (wall-clock time breaks a tie).
@@ -10268,6 +10347,30 @@ export class AcpmuxDirectClient {
   private turnTotals(endedAt: number, startedAt?: number): { durationMs?: number; toolCount: number } {
     // An older page's turn ends below the held rows: its own prompt is the last one before them.
     const below = this.foldingBelow;
+    // A folding older page (`OrderedRows.beginPrepend`): back over the rows it made, which are the
+    // only rows ordered before `below`, in their records' order, without merging them into the held
+    // order at every turn's end.
+    const made = below !== undefined ? this.rows.prependedRows() : undefined;
+    if (made) {
+      let user: AcpmuxRow | undefined;
+      let toolCount = 0;
+      // A row dropped and made again under its id is listed twice: it counts once.
+      const seen = new Set<string>();
+      for (let at = made.length; at > 0;) {
+        const id = made[(at -= 1)]!;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const row = this.rows.get(id);
+        if (!row || row.pending || row.failed) continue;
+        if (row.kind === "user" && !continuesTurn(row)) {
+          user = row;
+          break;
+        }
+        if (row.kind === "activity") toolCount += row.toolCount ?? 0;
+      }
+      const from = user?.at ?? startedAt;
+      return { durationMs: from === undefined ? undefined : Math.max(0, endedAt - from), toolCount };
+    }
     // Back from the newest row (or the newest above `below`) to the turn's prompt: O(turn), never a
     // copy and sort of every row the chat holds, which each turn's end paid (and each turn of a
     // rebuild), in proportion to the history held.
@@ -10301,11 +10404,15 @@ export class AcpmuxDirectClient {
   /// held (`turnTotals`). Once an older page brings its prompt, its time and calls are the whole
   /// turn's, counted the way `turnTotals` counts them. A summary that already has a time keeps it,
   /// and one whose numbers do not change is left as it is (no new version, nothing redrawn).
-  private timeTurnsOpenedAbove(): void {
+  /// `below`: the first held row's place before the page folded. Only the held turn the page brought
+  /// the prompt of can change, the first one ending at or after it: the walk stops there, so a page costs
+  /// its own rows, not every row the chat holds.
+  private timeTurnsOpenedAbove(below: number): void {
     let from: number | undefined;
     let calls = 0;
     for (const row of this.rows.inOrder()) {
       if (row.pending || row.failed) continue;
+      const pastHeld = row.kind === "turnSummary" && this.rows.orderOf(row.id) >= below;
       if (row.kind === "user" && !continuesTurn(row)) {
         from = row.at;
         calls = 0;
@@ -10317,6 +10424,7 @@ export class AcpmuxDirectClient {
           if (durationMs !== row.durationMs || calls !== row.toolCount)
             this.rows.set(row.id, { ...row, version: row.version + 1, durationMs, toolCount: calls });
         }
+        if (pastHeld) return;
         from = undefined;
         calls = 0;
       }
@@ -15409,12 +15517,18 @@ export class AcpmuxDirectClient {
     this.foldingBelow = this.firstSeq ?? Infinity;
     this.heldPromptRowKeys = live.promptRowKeys;
     this.presetApprovalRemoved.clear();
+    const below = this.foldingBelow;
+    let pageMade: readonly string[] | undefined;
+    this.rows.beginPrepend(below);
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
         this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
         this.reduce(event);
       }
     } finally {
+      // The rows the page made, read below instead of every row the chat holds.
+      pageMade = this.rows.prependedRows();
+      this.rows.endPrepend();
       this.foldingBelow = undefined;
       this.heldPromptRowKeys = undefined;
     }
@@ -15424,8 +15538,9 @@ export class AcpmuxDirectClient {
     // `toolRows` is keyed by call id and is intentionally reset at every prompt. Capture every
     // page row before restoring the live map; adapters may reuse an id in several turns.
     const pageToolRows: { callId: string; rowId: string; item: AcpmuxActivity; scope?: string }[] = [];
-    for (const [rowId, row] of this.rows) {
-      if (held.has(rowId) || row.kind !== "activity") continue;
+    for (const rowId of new Set(pageMade)) {
+      const row = this.rows.get(rowId);
+      if (!row || held.has(rowId) || row.kind !== "activity") continue;
       for (const item of row.items ?? []) {
         if (item.tool) pageToolRows.push({ callId: item.tool.id, rowId, item, scope: this.toolRowScopes.get(rowId) });
       }
@@ -15436,7 +15551,7 @@ export class AcpmuxDirectClient {
         messageId,
         rowIds.filter((rowId) => !held.has(rowId)),
       );
-    this.timeTurnsOpenedAbove();
+    this.timeTurnsOpenedAbove(below);
     this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
