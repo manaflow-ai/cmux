@@ -23,10 +23,10 @@ public import CmuxNextWakeups
 ///
 /// A refill's make never runs while another chat's page on screen has not drawn (``Counts/heldForOpen``): a second
 /// chat that found no page builds its own, and a make in that open would add its main-thread tasks to the wait
-/// for that chat's content. The make waits for the first of those pages to draw, then ``settle`` again, and asks
-/// again then. A page that does not draw (its tab was hidden, it closed, it never reports) is asked about again
-/// after ``AgentPaneShownChatsWait/deadline``: a page that left the screen holds nothing more. A New Tab page that
-/// loads holds nothing.
+/// for that chat's content. The make waits for those pages to draw: each paint starts ``settle`` again, and the
+/// make asks again when it ends. A page that does not draw (its tab was hidden, it closed, it never reports) is
+/// asked about again after ``AgentPaneShownChatsWait/deadline``: a page that left the screen holds nothing more.
+/// A New Tab page that loads holds nothing.
 ///
 /// The pool's own quiet-input warm is not a refill: it has neither hold, and it ends a refill that waits.
 ///
@@ -102,8 +102,8 @@ public final class AgentPaneSpareRefiller {
     private let loading: @MainActor () -> [AgentPaneShownChatsWait.WhenPainted]
     private let room: @MainActor () -> Int
     private let resize: @MainActor (Int) -> Void
-    /// The latest hold for a chat that loads: only its first paint starts the settle, and a paint that comes after
-    /// the make was asked again does nothing.
+    /// The latest hold for a chat that loads: each paint of its pages starts the settle again, and a paint that
+    /// comes after a make task ran again does nothing.
     private var hold = 0
     /// The latest settle's number. A make task that was queued before it does nothing: the settle asks again. So a
     /// chat that drew while a make waited for its frame gets no make in the frames that follow its paint, and the
@@ -295,7 +295,8 @@ public final class AgentPaneSpareRefiller {
         }
     }
 
-    /// The open `open`'s make is asked again ``settle`` after the first of `pages` drew (the others are asked about
+    /// The open `open`'s make is asked again ``settle`` after the latest paint of `pages` (each paint starts the
+    /// settle again, so the make lands in no page's first frames; the pages that still load then are asked about
     /// then), or ``AgentPaneShownChatsWait/deadline`` from now when none drew: a page whose tab was hidden, or that
     /// closed, draws nothing and is on screen no more. One timer serves both, so a page that never draws costs one
     /// wake-up for each deadline, and the pool's quiet-input warm ends that too.
@@ -305,7 +306,6 @@ public final class AgentPaneSpareRefiller {
         for whenPainted in pages {
             whenPainted { [weak self] in
                 guard let self, held == hold else { return }
-                hold &+= 1
                 scheduleMake(for: open)
             }
         }
