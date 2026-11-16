@@ -31,7 +31,8 @@ pub const ROWS: &[GateRow] = &[
         god_max: None,
     },
     // Measured by the pane host's Swift bench (CmuxNextDaemonTests AcpmuxChatRowsBench) in the
-    // hosted macOS jobs, which the Linux gate script does not run.
+    // fleet build's package test step (`scripts/ci/package-test-lane.sh suite
+    // Packages/macOS/CmuxNext AcpmuxChatRows`), which the Linux gate script does not run.
     GateRow {
         pr: "6b",
         name: "v2.pr06.host_chat_change",

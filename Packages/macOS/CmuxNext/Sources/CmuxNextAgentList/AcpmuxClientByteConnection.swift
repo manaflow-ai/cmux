@@ -50,6 +50,14 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         }
     }
 
+    /// Waits until all previously queued test input has run on the driver queue.
+    /// Production callers use socket callbacks instead of this synchronization seam.
+    internal func flushForTesting() async {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
+        }
+    }
+
     public func start(path: String, onChange: @escaping @Sendable (Data) -> Void,
                       onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in

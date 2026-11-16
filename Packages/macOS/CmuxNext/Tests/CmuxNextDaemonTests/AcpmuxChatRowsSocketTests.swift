@@ -98,7 +98,9 @@ struct AcpmuxChatRowsSocketTests {
         host = socketHost(daemon, handles: handles, receiver: again)
         #expect(await host?.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
         #expect(await eventually { again.rowIds.count == 10 })
-        try await Task.sleep(for: .milliseconds(200))
+        // A barrier, not a wait: the driver's turn on what it read, then the host's turn.
+        await host?.snapshotForTesting().driver?.flushForTesting()
+        _ = await host?.snapshotForTesting()
         #expect(daemon.connections == 2 && handles.count == 2)
         #expect(daemon.count("\"method\":\"sub\"", in: 1) == 1)
         #expect(again.kinds().filter { $0 == "chatWindow" }.count == 1)

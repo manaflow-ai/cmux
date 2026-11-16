@@ -142,7 +142,9 @@ struct AcpmuxChatRowsHostTests {
         fed.host.setHidden(true)
         let calls = await fed.host.snapshotForTesting().counters.bridgeCalls
         try await fed.feed(ChatWire.op(11) + ChatWire.op(12), chunk: 1 << 20)
-        try await Task.sleep(for: .milliseconds(300))
+        // A barrier, not a wait: the driver's turn on the bytes, then the host's turn on what it got.
+        await fed.driver()?.flushForTesting()
+        _ = await fed.host.snapshotForTesting()
         #expect(await fed.host.snapshotForTesting().counters.bridgeCalls == calls, "no call into a hidden page")
         fed.host.setHidden(false)
         #expect(await eventually { fed.receiver.rowIds == Array(1...12) })
@@ -156,7 +158,9 @@ struct AcpmuxChatRowsHostTests {
         fed.host.taken(batch: batch)
         fed.receiver.hold(false)
         try await fed.feed(ChatWire.op(14), chunk: 1 << 20)
-        try await Task.sleep(for: .milliseconds(300))
+        // A barrier, not a wait: the driver's turn on the bytes, then the host's turn on what it got.
+        await fed.driver()?.flushForTesting()
+        _ = await fed.host.snapshotForTesting()
         #expect(fed.receiver.rowIds.last == 13)
         fed.host.setHidden(false)
         #expect(await eventually { fed.receiver.rowIds == Array(1...14) })
