@@ -279,6 +279,13 @@ describe("the build gate", () => {
     // A subject pseudo-element other than one plain one at the end keeps the gate in place (valid CSS).
     expect(gateFocusVisible(".a:focus-visible + .b:before")).toBe(`.a:focus-visible${g} + .b:before`);
     expect(gateFocusVisible(".a:focus-visible ~ .b::after:hover")).toBe(`.a:focus-visible${g} ~ .b::after:hover`);
+    // Off an ancestor that can be the root it stays: there it would change what matches.
+    expect(gateFocusVisible(":root:has(:focus-visible) > head + body")).toBe(
+      `:root:has(:focus-visible)${g} > head + body`,
+    );
+    expect(gateFocusVisible(".a:focus-visible .b + .c")).toBe(`.a:focus-visible${g} .b + .c`);
+    // An escaped trailing space stays part of the subject.
+    expect(gateFocusVisible(".a:focus-visible + .b\\ ")).toBe(`.a:focus-visible + .b\\ ${g}`);
     // A `+` or `~` inside parentheses, brackets or a string is no combinator.
     expect(gateFocusVisible(".r:nth-child(2n+1):focus-visible")).toBe(`.r:nth-child(2n+1):focus-visible${g}`);
     expect(gateFocusVisible('[data-x~="y"]:focus-visible')).toBe(`[data-x~="y"]:focus-visible${g}`);
