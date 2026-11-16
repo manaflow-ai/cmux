@@ -379,7 +379,9 @@ impl Supervisor {
         };
         self.emit(outs);
         // Reload it as a save: its prints entry is dropped so it reads as changed.
-        self.reload_local_apps_now_with(|prints| drop(prints.remove(&p.app)));
+        self.reload_local_apps_now_with(|prints| {
+            prints.remove(&p.app);
+        });
         Ok(json!({ "app": p.app, "version": good.version, "restored": true }))
     }
 }
