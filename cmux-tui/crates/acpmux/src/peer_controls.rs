@@ -327,6 +327,7 @@ mod tests {
 
     #[tokio::test]
     async fn controls_resync_reopens_snapshot_and_retires_only_ask_keys_with_watch_kept() {
+        const WATCH_METHOD: &str = concat!("_acpmux/", "watch");
         let (tx, mut notices) = mpsc::channel(64);
         let peer = Peer::new("owner", "ws://127.0.0.1:9", None, None, tx);
         let links = Arc::new(crate::link_v2::Shared::default());
@@ -359,7 +360,7 @@ mod tests {
                 let result = match method {
                     method::INITIALIZE => json!({"_meta": {"acpmux": {
                         "origin": "peer", "personInstance": "owner-run", "features": [FEATURE]}}}),
-                    method::MUX_WATCH => {
+                    WATCH_METHOD => {
                         watch_count.fetch_add(1, Ordering::SeqCst);
                         json!({"sessions": []})
                     }
