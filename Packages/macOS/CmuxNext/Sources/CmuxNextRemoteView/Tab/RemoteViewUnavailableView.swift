@@ -6,9 +6,11 @@ import CmuxNextDesign
 /// confirmed, a Connect button that starts nothing until it is pressed.
 /// Every build has it, so a restored tab never opens as a blank web page.
 ///
-/// One card, one alignment: the machine's name (never an id) with its status as a chip, one line
-/// of text, and Connect as the theme's primary button (the dialogs' default button,
-/// ``CmuxDialogButtonView``). Leo, 2026-11-16, on the old card: "is is a weirdly styled thing :(".
+///
+/// One card, one alignment, leading: the machine's name (never an id) with its status as a chip at
+/// the end of the same row, one line of text, then Connect as the theme's primary button (the
+/// dialogs' default button, ``CmuxDialogButtonView``). The text wraps at the card's width, never past
+/// its inset. Leo, 2026-11-16, on the old card: "is is a weirdly styled thing :(".
 public final class RemoteViewUnavailableView: NSView {
     public enum Content: Sendable, Hashable {
         case unavailable(RemoteViewUnavailableReason)
@@ -16,16 +18,6 @@ public final class RemoteViewUnavailableView: NSView {
         case confirm(host: String)
         /// Ask before connecting with human-facing machine metadata.
         case confirmTarget(RemoteConnectionTarget)
-    }
-
-    /// The card's arrangement. Gallery-only while the variants are compared.
-    enum Layout: String, CaseIterable, Sendable {
-        /// Everything centered in one column: icon, title, status chip, text, button.
-        case centered
-        /// Leading-aligned: icon and title with the status chip on one header row, the text, then the button.
-        case leadingHeader
-        /// One row: icon, title over the text, the status chip beside the title, Connect trailing.
-        case compactRow
     }
 
     public let content: Content
@@ -39,16 +31,15 @@ public final class RemoteViewUnavailableView: NSView {
     private let surface = Glass.makeOverlayPanel(cornerRadius: 16)
     private var colors: RemotePaneColors?
 
-    public convenience init(content: Content) {
-        self.init(content: content, layout: .leadingHeader)
-    }
+    /// The card's width when the pane has room; a narrower pane narrows it and the text wraps.
+    static let cardWidth: CGFloat = 420
 
-    init(content: Content, layout: Layout) {
+    public init(content: Content) {
         self.content = content
         let text = Self.text(for: content)
         icon = RemoteChrome.symbol(text.symbol, size: TypeScale.title)
         title = RemoteChrome.label(text.title, size: TypeScale.title, weight: TypeScale.emphasis)
-        detail = RemoteChrome.wrapping(text.detail, size: TypeScale.body, width: 380)
+        detail = RemoteChrome.wrapping(text.detail, size: TypeScale.body, width: 0)
         status = text.status.map { RemoteStatusChip(text: $0, live: text.live) }
         switch content {
         case .confirm, .confirmTarget:
@@ -62,13 +53,14 @@ public final class RemoteViewUnavailableView: NSView {
         button?.target = self
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
-        let column = arrange(layout)
-        column.translatesAutoresizingMaskIntoConstraints = false
+        let column = arrange()
         surface.contentView.addSubview(column)
+        let preferred = surface.widthAnchor.constraint(equalToConstant: Self.cardWidth)
+        preferred.priority = .defaultHigh
         NSLayoutConstraint.activate([
             surface.centerXAnchor.constraint(equalTo: centerXAnchor),
             surface.centerYAnchor.constraint(equalTo: centerYAnchor),
-            surface.widthAnchor.constraint(lessThanOrEqualToConstant: 460),
+            preferred,
             surface.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 20),
             surface.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -20),
             surface.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 20),
@@ -86,45 +78,26 @@ public final class RemoteViewUnavailableView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    private func arrange(_ layout: Layout) -> NSStackView {
-        let inset = NSEdgeInsets(top: Metrics.space6 + Metrics.space4, left: Metrics.space6 + Metrics.space4,
-                                 bottom: Metrics.space6 + Metrics.space4, right: Metrics.space6 + Metrics.space4)
-        switch layout {
-        case .centered:
-            title.alignment = .center
-            detail.alignment = .center
-            let column = stack([icon, title, status, detail, button], vertical: true, spacing: Metrics.space4)
-            column.alignment = .centerX
-            column.edgeInsets = inset
-            column.setCustomSpacing(Metrics.space6, after: detail)
-            return column
-        case .leadingHeader:
-            detail.alignment = .natural
-            let spacer = NSView()
-            spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-            let heading = stack([icon, title, spacer, status], vertical: false, spacing: Metrics.space4)
-            heading.alignment = .centerY
-            let column = stack([heading, detail, button], vertical: true, spacing: Metrics.space4)
-            column.alignment = .leading
-            column.edgeInsets = inset
-            heading.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -(inset.left + inset.right)).isActive = true
-            column.setCustomSpacing(Metrics.space6, after: detail)
-            return column
-        case .compactRow:
-            detail.alignment = .natural
-            detail.preferredMaxLayoutWidth = 260
-            let heading = stack([title, status], vertical: false, spacing: Metrics.space3)
-            heading.alignment = .centerY
-            let words = stack([heading, detail], vertical: true, spacing: Metrics.space2)
-            words.alignment = .leading
-            let spacer = NSView()
-            spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-            let row = stack([icon, words, spacer, button], vertical: false, spacing: Metrics.space5)
-            row.alignment = .centerY
-            row.edgeInsets = NSEdgeInsets(top: Metrics.space6, left: Metrics.space6 + Metrics.space2,
-                                          bottom: Metrics.space6, right: Metrics.space6)
-            return row
-        }
+    /// Header row (icon, name, status chip at the end), the text at the row's width, then Connect.
+    private func arrange() -> NSStackView {
+        let inset = Metrics.space6 + Metrics.space4
+        detail.alignment = .natural
+        // The card's width decides where the text breaks, not the text's one-line width.
+        detail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let heading = stack([icon, title, spacer, status], vertical: false, spacing: Metrics.space4)
+        heading.alignment = .centerY
+        let column = stack([heading, detail, button], vertical: true, spacing: Metrics.space4)
+        column.alignment = .leading
+        column.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+        column.setCustomSpacing(Metrics.space6, after: detail)
+        NSLayoutConstraint.activate([
+            heading.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -2 * inset),
+            detail.widthAnchor.constraint(equalTo: heading.widthAnchor),
+        ])
+        return column
     }
 
     private func stack(_ views: [NSView?], vertical: Bool, spacing: CGFloat) -> NSStackView {

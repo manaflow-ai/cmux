@@ -17,10 +17,9 @@ import Testing
         ("named-paused", .desktop(name: "Build box", status: "Paused", region: "eu-central")),
     ]
 
-    static func render(_ target: RemoteConnectionTarget, layout: RemoteViewUnavailableView.Layout, theme: String,
-                       dark: Bool) throws -> CGImage {
+    static func render(_ target: RemoteConnectionTarget, theme: String, dark: Bool, width: CGFloat = 720) throws -> CGImage {
         _ = NSApplication.shared
-        let width: CGFloat = 720, height: CGFloat = 360
+        let height: CGFloat = 320
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -34,11 +33,14 @@ import Testing
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: input, animated: false)
         scope.root(root)
-        let card = RemoteViewUnavailableView(content: .confirmTarget(target), layout: layout)
+        root.layer?.backgroundColor = scope.perform { Palette.contentBackground.withAlphaComponent(1) }.cgColor
+        let card = RemoteViewUnavailableView(content: .confirmTarget(target))
         card.frame = root.bounds
         card.autoresizingMask = [.width, .height]
         root.addSubview(card)
         window.orderFrontRegardless()
+        // Twice: the text learns its width in the first pass and asks for its wrapped height in the second.
+        root.layoutSubtreeIfNeeded()
         root.layoutSubtreeIfNeeded()
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
         CATransaction.flush()
@@ -54,16 +56,20 @@ import Testing
         let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "remote-connect-card-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        for layout in RemoteViewUnavailableView.Layout.allCases {
-            for (name, target) in Self.targets {
-                for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
-                    let image = try Self.render(target, layout: layout, theme: theme, dark: dark)
-                    let url = out.appending(path: "\(layout.rawValue)-\(name)-\(mode).png")
-                    let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
-                    CGImageDestinationAddImage(dest, image, nil)
-                    #expect(CGImageDestinationFinalize(dest))
-                }
+        // Every target in light and dark at a roomy pane width, and the chat machine in a narrow pane (the text wraps).
+        var shots: [(String, RemoteConnectionTarget, String, Bool, CGFloat)] = []
+        for (name, target) in Self.targets {
+            for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
+                shots.append(("\(name)-\(mode)", target, theme, dark, 720))
             }
+        }
+        shots.append(("chat-machine-narrow-dark", Self.targets[0].1, "Soft Blue", true, 380))
+        for (file, target, theme, dark, width) in shots {
+            let image = try Self.render(target, theme: theme, dark: dark, width: width)
+            let url = out.appending(path: "connect-card-\(file).png")
+            let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+            CGImageDestinationAddImage(dest, image, nil)
+            #expect(CGImageDestinationFinalize(dest))
         }
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
