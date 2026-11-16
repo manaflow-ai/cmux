@@ -77,18 +77,19 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   version 2 or later), so control works on Wayland; otherwise the desktop is shared view
   only. A grant the person revoked makes the next share show the dialog once, then it is
   saved again. `cmux-rd linux-host grant [--control]` makes the grant again by itself.
-- Machine join: `cmux-rd linux-host enable --non-interactive --stack-token-file -` is the
-  one command the join runs after the acpmux join, often over ssh. It takes the access token
-  on stdin only (never a file, argv or the environment) and stores it nowhere. It never opens a browser
-  (with no token file it signs in nothing, and runs on a desktop that is still enabled), finds
-  the desktop through logind, leaves the portal dialog up for a minute at most, and installs,
-  enables and starts the host unit itself. A Wayland desktop gets the one grant above, and
-  "this desktop's screen-share portal can't remember a grant; each share will ask once on this
-  machine" or "view only: this desktop has no remote-input portal" when its portal cannot
-  keep one (neither is fatal). With no graphical session it starts an Xvfb display cmux owns
-  (`cmux-screen-display.service`, :99 or the next free one), says "no graphical session on this
-  machine; started a virtual display at :N for sharing", points the host at it and keeps the
-  user manager running (`loginctl enable-linger`).
+- Machine join: `cmux-rd linux-host enable --non-interactive` is the one command the join
+  runs after the acpmux join, often over ssh. It takes no account token and opens no
+  browser: no person's credential is kept on a joined machine. It finds the desktop
+  through logind and sets up capture. A Wayland desktop gets the one grant above (the
+  dialog stays up a minute at most), and "this desktop's screen-share portal can't
+  remember a grant; each share will ask once on this machine" or "view only: this desktop
+  has no remote-input portal" when its portal cannot keep one. With no graphical session
+  it starts an Xvfb display cmux owns (`cmux-screen-display.service`, :99 or the next free
+  one) and says "no graphical session on this machine; started a virtual display at :N for
+  sharing". A desktop still enabled (anchored) gets the host unit installed, enabled and
+  started, with lingering for a virtual display; any other prints one `not_installed:`
+  line until the device hub can sign a joined machine in with its machine credential. It
+  never fails the join.
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened

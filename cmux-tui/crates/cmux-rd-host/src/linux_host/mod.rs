@@ -9,10 +9,10 @@
 //!       device key, no token) and turns sharing on. The person's own devices view and control
 //!       it with no prompt here (`--view-only` keeps control off); on Wayland it asks the portal
 //!       once, now (`grant`), so no viewer's session asks again.
-//!       `--non-interactive` (the machine join, often over ssh): never opens a browser (it needs
-//!       `--stack-token-file`, or none when this desktop is still enabled), finds the desktop
-//!       through logind, waits a minute at most on the portal dialog, starts a virtual X display
-//!       when there is no graphical session, and installs and starts the host unit (setup.rs).
+//!       `--non-interactive` (the machine join, often over ssh): takes no account token and opens
+//!       no browser, finds the desktop through logind, waits a minute at most on the portal
+//!       dialog, starts a virtual X display when there is no graphical session, installs the host
+//!       unit on a desktop still enabled, else prints one `not_installed:` line (setup.rs).
 //!   grant [--control]
 //!       Wayland: asks the xdg-desktop-portal once (its dialog, on this screen) for the screen
 //!       and, with `--control`, keyboard and pointer, and saves the restore token in
@@ -319,52 +319,25 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
     Ok((dir, hub, account))
 }
 
-/// Why `enable --non-interactive` has no account to sign in with. The join hands the access token
-/// over on stdin only: a token file could be left behind, and argv and the environment can be read
-/// by other processes. The token signs in once and is stored nowhere (only the device key and the
-/// anchor are), so nothing remains to remove on unjoin.
-const NO_JOIN_TOKEN: &str = "--non-interactive signs in with a cmux access token on stdin only (--stack-token-file -): the join's machine identity cannot sign in to the device hub yet";
+/// The line `enable --non-interactive` prints on a machine it could not sign in: the hub has no
+/// sign-in yet for the credential the join keeps, and no person's token ever lands on a joined
+/// machine (hq docs/design/remote-spin-up.md section 5), so nothing else is asked for.
+const NOT_INSTALLED: &str = "not_installed: screen sharing is set up on this machine but not signed in: the device hub cannot sign a joined machine in with its machine credential yet";
 
 /// How long `enable --non-interactive` leaves the portal's dialog up for someone at the screen;
 /// past it the join goes on and the first share asks once.
 const JOIN_GRANT_WAIT: Duration = Duration::from_secs(60);
 
 fn enable(args: &Args) -> Res<()> {
-    let non_interactive = args.flag("non-interactive");
+    if args.flag("non-interactive") {
+        return enable_for_join(args);
+    }
     let dir = identity::config_dir()?;
     identity::private_dir(&dir)?;
-    // A join run again on a desktop that is still signed in needs no token: only its capture and
-    // units are set up again.
-    let still_signed_in = non_interactive
-        && args.get("stack-token-file").is_none()
-        && matches!(Account::load(&dir)?, Some(a) if a.anchored_until > now_ms())
-        && Device::load(&dir)?.is_some();
-    let device = if still_signed_in {
-        Device::load(&dir)?.ok_or("no device")?
-    } else {
-        sign_in_and_register(args, &dir, non_interactive)?
-    };
+    let device = sign_in_and_register(args, &dir)?;
     let consent = enable_consent(args);
     consent.save(&dir)?;
-    let desktop = setup::detect_desktop();
-    let within = non_interactive.then_some(JOIN_GRANT_WAIT);
-    grant_capture_now(consent.full, &desktop, within);
-    if non_interactive {
-        let virtual_display = desktop == setup::Desktop::None;
-        if virtual_display {
-            let display = setup::start_virtual_display()?;
-            println!("{}", setup::virtual_display_line(display));
-        }
-        setup::install_host(virtual_display)?;
-        println!(
-            "This desktop is shared as \"{}\" ({}), {}; the host runs as {}.",
-            device.name,
-            device.id,
-            shares_line(&Ok(consent), host_applies_input()),
-            setup::HOST_UNIT
-        );
-        return Ok(());
-    }
+    grant_capture_now(consent.full, &setup::detect_desktop(), None);
     println!(
         "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
         device.name,
@@ -374,14 +347,58 @@ fn enable(args: &Args) -> Res<()> {
     Ok(())
 }
 
-/// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
-/// it and turns sharing on; the device. `--non-interactive` never opens a browser sign-in.
-fn sign_in_and_register(args: &Args, dir: &std::path::Path, non_interactive: bool) -> Res<Device> {
-    let token = match args.get("stack-token-file") {
-        Some(path) if non_interactive && path != "-" => return Err(NO_JOIN_TOKEN.into()),
-        None if non_interactive => return Err(NO_JOIN_TOKEN.into()),
-        path => stack_login::access_token(path)?,
+/// `enable --non-interactive`, the one command the machine join runs (often over ssh, with no
+/// display): sets up capture for the desktop this machine has, the portal grant or a virtual
+/// display, and installs the host when this machine is still signed in. It takes no account
+/// token and opens no browser, and never fails the join: what it could not do is one line.
+fn enable_for_join(args: &Args) -> Res<()> {
+    if args.get("stack-token-file").is_some() {
+        return Err(
+            "--non-interactive takes no account token: no person's credential is kept on a joined machine"
+                .into(),
+        );
+    }
+    if let Err(e) = set_up_for_join(args) {
+        println!("not_installed: {e}");
+    }
+    Ok(())
+}
+
+fn set_up_for_join(args: &Args) -> Res<()> {
+    let dir = identity::config_dir()?;
+    identity::private_dir(&dir)?;
+    let consent = enable_consent(args);
+    consent.save(&dir)?;
+    let desktop = setup::detect_desktop();
+    grant_capture_now(consent.full, &desktop, Some(JOIN_GRANT_WAIT));
+    let virtual_display = desktop == setup::Desktop::None;
+    if virtual_display {
+        let display = setup::start_virtual_display()?;
+        println!("{}", setup::virtual_display_line(display));
+    }
+    // Signed in by an earlier `enable` and still anchored: the host renews by its device key.
+    let device = match (Account::load(&dir)?, Device::load(&dir)?) {
+        (Some(account), Some(device)) if account.anchored_until > now_ms() => device,
+        _ => {
+            println!("{NOT_INSTALLED}");
+            return Ok(());
+        }
     };
+    setup::install_host(virtual_display)?;
+    println!(
+        "This desktop is shared as \"{}\" ({}), {}; the host runs as {}.",
+        device.name,
+        device.id,
+        shares_line(&Ok(consent), host_applies_input()),
+        setup::HOST_UNIT
+    );
+    Ok(())
+}
+
+/// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
+/// it and turns sharing on; the device.
+fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
+    let token = stack_token(args)?;
     let hub_url = match (args.get("hub"), Account::load(dir)?) {
         (Some(url), _) => url.to_owned(),
         (None, Some(account)) => account.hub,
@@ -1029,24 +1046,21 @@ mod tests {
     }
 
     #[test]
-    fn the_join_never_opens_a_browser_sign_in() {
-        // Over ssh nobody could follow the link: with no token file, enable says what it needs.
-        let args = Args::parse(&["enable".into(), "--non-interactive".into()]).unwrap();
-        let dir = std::env::temp_dir().join(format!("cmux-rd-join-{}", std::process::id()));
-        let Err(e) = sign_in_and_register(&args, &dir, true) else { panic!("signed in") };
-        assert_eq!(e.to_string(), NO_JOIN_TOKEN);
-        assert!(!dir.exists(), "nothing is written before the sign-in");
-        // A token file could outlive the join: only stdin is taken.
-        let file = Args::parse(&[
-            "enable".into(),
-            "--non-interactive".into(),
-            "--stack-token-file".into(),
-            "/tmp/token".into(),
-        ])
-        .unwrap();
-        let Err(e) = sign_in_and_register(&file, &dir, true) else { panic!("signed in") };
-        assert_eq!(e.to_string(), NO_JOIN_TOKEN);
-        assert!(!dir.exists());
+    fn the_join_takes_no_account_token() {
+        // No person's credential lands on a joined machine: a token on any flag is refused before
+        // anything is read or written, and the join's command is otherwise never a failure.
+        for path in ["-", "/tmp/token"] {
+            let args = Args::parse(&[
+                "enable".into(),
+                "--non-interactive".into(),
+                "--stack-token-file".into(),
+                path.into(),
+            ])
+            .unwrap();
+            let Err(e) = enable_for_join(&args) else { panic!("took a token") };
+            assert!(e.to_string().contains("no account token"), "{e}");
+        }
+        assert!(NOT_INSTALLED.starts_with("not_installed: "));
     }
 
     #[test]
