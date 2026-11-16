@@ -157,6 +157,10 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.page.eval": {
+      "scope": "browser.page:control",
+      "class": "mutation"
+    },
     "browser.profile.create": {
       "scope": "browser:write",
       "class": "mutation"

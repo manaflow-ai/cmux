@@ -40,6 +40,7 @@
     "browser.input.wheel",
     "browser.list",
     "browser.navigate",
+    "browser.page.eval",
     "browser.profile.create",
     "browser.profile.list",
     "browser.profile.open",

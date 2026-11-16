@@ -70,6 +70,11 @@ pub const FAMILIES: &[&str] = &[
     "credential",
     // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
     "toast",
+    // `browser.page.eval` (`browserPage.eval` in cmux-extension-sdk): a script
+    // in the page of a browser tab the Mac app draws (Chromium or WebKit),
+    // which the daemon cannot reach. Scope `browser.page:control`, shown on
+    // the consent sheet when the person turns the extension on.
+    "browser.page",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
@@ -110,6 +115,11 @@ pub(super) enum Ending {
 pub fn family_of(op: &str) -> &str {
     if op.starts_with("app.settings.") {
         return "app.settings";
+    }
+    // The daemon owns `browser.*` (its own CDP tabs); only the page verbs of
+    // a tab the app draws go to the Mac app.
+    if op.starts_with("browser.page.") {
+        return "browser.page";
     }
     op.split('.').next().unwrap_or_default()
 }

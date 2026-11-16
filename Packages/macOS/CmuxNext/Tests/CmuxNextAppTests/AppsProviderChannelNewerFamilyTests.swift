@@ -50,6 +50,24 @@ struct AppsProviderChannelNewerFamilyTests {
         #expect(seen == [["coderouter", "memory", "toast"], ["coderouter", "memory"]])
     }
 
+    /// A daemon that predates `browser.page` (page scripts for extensions) keeps `toast`.
+    @Test func aDaemonWithToastButNoBrowserPageKeepsToast() async {
+        let (attempts, sink) = AsyncStream.makeStream(of: [String].self)
+        let connection = NSObject()
+        let link = AppsProviderLink(connection: { connection }, register: { _, families in
+            sink.yield(families)
+            if families.contains("browser.page") { return "bad-request" }
+            sink.finish()
+            return nil
+        }, answer: { _, _, _, _ in })
+        let channel = AppsProviderChannel(link: link)
+        channel.attach(AppHostCapabilities([Owner(families: ["toast"]), Owner(families: ["browser.page"])]))
+        channel.connectionChanged(epoch: 1)
+        var seen: [[String]] = []
+        for await families in attempts { seen.append(families) }
+        #expect(seen == [["browser.page", "toast"], ["toast"]])
+    }
+
     @Test func aCurrentDaemonRegistersEveryFamilyOnce() async {
         let (attempts, sink) = AsyncStream.makeStream(of: [String].self)
         let connection = NSObject()

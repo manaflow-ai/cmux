@@ -281,6 +281,11 @@ export function generate(): Record<string, string> {
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
     // non-network, so no grant: scope `none` is always held.
     "toast.show": { scope: "none", class: "mutation" },
+    // A script in the page of a browser tab the Mac app draws (BrowserPageAppOps in CmuxNextApp, over the
+    // provider channel; the same verb as the control socket's `browser.page.eval`). It can read and change
+    // any page, so the scope is sensitive: highlighted on the consent sheet the person answers when they
+    // turn the extension on, and revocable in Settings.
+    "browser.page.eval": { scope: "browser.page:control", class: "mutation" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
     // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },

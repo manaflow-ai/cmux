@@ -271,3 +271,32 @@ export function onChange<T>(live: Live<T>, fn: (value: T) => void, options: { in
     untrack(() => fn(value))
   })
 }
+
+// ---------------------------------------------------------------------------------------------
+// Browser pages. A script in the page of a browser tab cmux draws (bundled Chromium or WebKit),
+// for reader views, link hints, page cleaning and the like. Scope `browser.page:control`: the
+// person sees it highlighted on the consent sheet when they turn the extension on, and can take it
+// back in Settings.
+
+/** What `browserPage.eval` answers: the tab the script ran in and the script's JSON value. */
+export interface BrowserPageResult<T = unknown> {
+  tab: string
+  value: T
+}
+
+/** The page of a browser tab cmux draws. */
+export const browserPage = {
+  /**
+   * Runs `script` in the page of `options.tab` (a tab id, any unique prefix) or, without one, the
+   * focused browser tab, and answers its value as JSON. The script is an expression (or statements);
+   * a promise is not awaited. A throw rejects with `js_error`; no browser tab focused rejects with
+   * `not_found`. At most 60 000 bytes: keep big work in the page, send back only what you need.
+   *
+   *     const { value } = await browserPage.eval<string>("document.title")
+   */
+  eval<T = unknown>(script: string, options: { tab?: string } = {}): Promise<BrowserPageResult<T>> {
+    const params: { script: string; tab?: string } = { script }
+    if (options.tab) params.tab = options.tab
+    return cmux.call("browser.page.eval", params) as Promise<BrowserPageResult<T>>
+  },
+}

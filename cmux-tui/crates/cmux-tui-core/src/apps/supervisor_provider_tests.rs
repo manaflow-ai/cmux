@@ -181,6 +181,43 @@ fn a_toast_routes_to_the_provider_for_an_app_with_no_scopes() {
     assert_eq!(request["params"], params);
 }
 
+/// `browserPage.eval(...)` reaches the Mac app, which draws the browser tabs:
+/// `browser.page` is its own provider family (the daemon keeps every other
+/// `browser.*` op), and the call needs the `browser.page:control` grant.
+#[test]
+fn a_page_script_routes_to_the_browser_page_provider_only_with_its_grant() {
+    let script = json!({"script":"document.title"});
+    let root = temp_dir();
+    write_app(&root.0.join("bundled"), "demo", "cmux/demo", json!({"browser.page:control":"read"}));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["toast", "browser.page"]);
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"browser.page.eval", "params":script}),
+            false,
+        )
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(
+        (request["op"].clone(), request["params"].clone()),
+        (json!("browser.page.eval"), script.clone())
+    );
+    assert_eq!(super::super::provider::family_of("browser.page.eval"), "browser.page");
+    assert_eq!(super::super::provider::family_of("browser.navigate"), "browser");
+
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let _rx = provider(&f, &["browser.page"]);
+    assert_eq!(f.call("m1", "browser.page.eval", script, false)["body"]["code"], "scope.missing");
+}
+
 #[test]
 fn no_provider_fails_at_once_and_a_provider_leaving_fails_its_pending_calls() {
     let f = fixture();
