@@ -87,6 +87,7 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
   let boot = "";
   let capture = "";
   let live = "";
+  let adopt = "";
   beforeAll(async () => {
     boot = await bundle(path.join(source, "boot.ts"), "iife");
     const captureEntry = path.join(work, "capture-entry.ts");
@@ -153,6 +154,49 @@ requestAnimationFrame(() => {
 `,
     );
     live = await bundle(liveEntry, "esm");
+    // A prewarmed spare page (newtab/adoption.ts): it drew its New Tab page and reported it, as App.tsx
+    // does at its first paint; `adopt` is its adopt event's handler (App.tsx `adoptSession`), whose host
+    // answers `chat.snapshot.get` when the test says (`answer`), and `attach` is the chat's attach drawing
+    // the chat under the copy, which takes over at the next frame (App.tsx `swapChatSnapshot`).
+    const adoptEntry = path.join(work, "adopt-entry.ts");
+    writeFileSync(
+      adoptEntry,
+      `import { paintAdoptedSnapshot, reportChatSnapshot, swapChatSnapshot } from ${JSON.stringify(path.join(source, "live.ts"))};
+const w = window as any;
+w.reports = [];
+reportChatSnapshot(async (method, params) => {
+  w.reports.push({ method, params, shown: !!document.querySelector("cmux-chat-snapshot") });
+});
+const root = document.getElementById("root")!;
+root.innerHTML = '<div class="new-tab">New Tab</div>';
+swapChatSnapshot();
+const copyShows = () => {
+  const host = document.querySelector("cmux-chat-snapshot") as HTMLElement | null;
+  return !!host && host.style.visibility !== "hidden";
+};
+w.adopt = (copy: unknown) => {
+  w.asked = [];
+  w.frames = [];
+  let answer: (value: unknown) => void = () => {};
+  w.answer = () => answer(copy);
+  w.painted = paintAdoptedSnapshot("s-1", (method, params) => {
+    w.asked.push({ method, params });
+    return new Promise((resolve) => (answer = resolve));
+  });
+  const watch = () => {
+    w.frames.push({ copy: copyShows(), opacity: root.style.opacity, chat: !!root.querySelector(".acpmux-row") });
+    if (w.frames.length < 240) requestAnimationFrame(watch);
+  };
+  requestAnimationFrame(watch);
+};
+w.attach = () => {
+  root.innerHTML = w.liveMarkup;
+  w.attachedAt = w.frames.length;
+  swapChatSnapshot();
+};
+`,
+    );
+    adopt = await bundle(adoptEntry, "esm");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -570,6 +614,90 @@ requestAnimationFrame(() => {
     expect(afterSwap.header).toEqual(atBundle.header as number[]);
     await context.close();
     await shorter.close();
+  });
+
+  /// A prewarmed spare page: served no copy (it is no chat's page yet), it draws New Tab and reports it.
+  async function spare(page: Page): Promise<void> {
+    await page.route("http://chat.test/**", (route) => {
+      const url = new URL(route.request().url());
+      if (servesSheet(route)) return;
+      if (url.pathname === "/spare.html")
+        return route.fulfill({
+          contentType: "text/html",
+          body: htmlDocument(
+            `<main id="root"></main><script src="/fixture.js"></script><script async src="/__snapshot/chat.js"></script><script src="/chat-snapshot.js"></script><script type="module" src="/pane.js"></script>`,
+          ),
+        });
+      if (url.pathname === "/fixture.js")
+        return route.fulfill({ contentType: "text/javascript", body: `self.liveMarkup=${JSON.stringify(MARKUP())};` });
+      if (url.pathname === "/__snapshot/chat.js")
+        return route.fulfill({
+          contentType: "text/javascript",
+          body: `self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotTheme="theme-1";self.__cmuxChatSnapshotBoot?.();`,
+        });
+      if (url.pathname === "/chat-snapshot.js") return route.fulfill({ contentType: "text/javascript", body: boot });
+      if (url.pathname === "/pane.js") return route.fulfill({ contentType: "text/javascript", body: adopt });
+      return route.fulfill({ status: 404, body: "" });
+    });
+    await page.goto("http://chat.test/spare.html");
+    await page.waitForFunction(() => (window as any).adopt !== undefined && (window as any).__cmuxChatSnapshotMiss);
+  }
+
+  test("a spare page that takes a released chat shows the chat's copy before its attach, and the chat takes over in one frame", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await spare(page);
+    await page.evaluate((copy) => (window as any).adopt(copy), before.snapshot);
+    // The page asks the host for the chat's copy (AgentPaneChatSnapshots.swift `chat.snapshot.get`).
+    expect(await page.evaluate(() => (window as any).asked)).toEqual([
+      { method: "chat.snapshot.get", params: { sessionId: "s-1" } },
+    ]);
+    await page.evaluate(() => (window as any).answer());
+    expect(await page.evaluate(() => (window as any).painted)).toBe(true);
+    await page.waitForFunction(() => (window as any).__cmuxChatSnapshotShown !== undefined);
+    // The first content after the adoption is the copy, with the chat where it was, and the attach has not
+    // drawn the chat yet. The host is told the page drew (`pane.painted`), so it shows the page now.
+    const shown = await page.evaluate(() => {
+      const copy = document.querySelector("cmux-chat-snapshot")!.shadowRoot!;
+      const r = copy.querySelector('[data-row-id="r60"]')!.getBoundingClientRect();
+      return { row: [r.x, r.y, r.width, r.height], chat: !!document.querySelector("#root .acpmux-row") };
+    });
+    expect(shown.row).toEqual(before.row as number[]);
+    expect(shown.chat).toBe(false);
+    const reports = (await page.evaluate(() => (window as any).reports)) as { method: string; shown: boolean }[];
+    expect(reports.some((report) => report.method === "pane.painted" && report.shown)).toBe(true);
+    await page.waitForFunction(() => (window as any).frames.some((frame: { copy: boolean }) => frame.copy));
+    await page.evaluate(() => (window as any).attach());
+    await page.waitForFunction(() => (window as any).frames.length > (window as any).attachedAt + 4);
+    const frames = (await page.evaluate(() => (window as any).frames)) as {
+      copy: boolean;
+      opacity: string;
+      chat: boolean;
+    }[];
+    const first = frames.findIndex((frame) => frame.copy || frame.chat);
+    expect(frames[first]!.copy).toBe(true);
+    // Each frame shows the copy over a clear live root, or the live root alone: never both, never neither.
+    for (const frame of frames.slice(first))
+      expect(frame.copy ? frame.opacity === "0" : frame.opacity === "").toBe(true);
+    expect(frames.at(-1)).toEqual({ copy: false, opacity: "", chat: true });
+    await context.close();
+  });
+
+  test("a copy the host answers after the adopted chat drew draws nothing", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await spare(page);
+    await page.evaluate((copy) => (window as any).adopt(copy), before.snapshot);
+    await page.evaluate(() => (window as any).attach());
+    await page.evaluate(() => (window as any).answer());
+    expect(await page.evaluate(() => (window as any).painted)).toBe(false);
+    expect(await page.evaluate(() => (window as any).__cmuxChatSnapshotMiss)).toBe(
+      "late: the page drew the chat first",
+    );
+    expect(await page.evaluate(() => !!document.querySelector("cmux-chat-snapshot"))).toBe(false);
+    await context.close();
   });
 
   test("no field's text is written: a sign-in key in a controlled input, a password, a textarea, in shadow roots too", async () => {
