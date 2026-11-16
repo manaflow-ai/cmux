@@ -741,7 +741,7 @@ mod tests {
 #[cfg(test)]
 mod encode_off_loop_tests {
     use super::*;
-    use crate::carrier::{Carrier, Incoming};
+    use crate::carrier::{Carrier, Incoming, MediaQueueStats};
     use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
     use cmux_rd_core::session::StartRequest;
     use cmux_rd_proto::{DatagramHeader, DatagramKind, InputEvent, InputPacket};
