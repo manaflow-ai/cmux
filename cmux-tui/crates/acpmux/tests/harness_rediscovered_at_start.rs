@@ -98,6 +98,9 @@ async fn claude_installed_after_the_daemon_loaded_its_catalog_starts_the_next_ch
     // Before the install the start is refused, naming the harness.
     let refused = c.request(method::SESSION_NEW, new_claude()).await.unwrap_err();
     assert!(refused.contains("unknown harness \"claude\""), "{refused}");
+    // This hub reads no login shell: the refusal says the login PATH was not read, not only
+    // how to configure Claude.
+    assert!(refused.contains("the login shell PATH was not imported"), "{refused}");
 
     // Claude Code is installed after the daemon started.
     std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
