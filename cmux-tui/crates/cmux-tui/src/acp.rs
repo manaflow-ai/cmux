@@ -161,7 +161,7 @@ fn daemon_agent_asker() -> Option<cmux_tui_core::agent_ask::AgentAsker> {
 /// first, since a harness may read project config and hooks from its cwd),
 /// 0700, removed when the ask ends.
 #[cfg(unix)]
-struct AskFolder(std::path::PathBuf);
+struct AskFolder(PathBuf);
 
 #[cfg(unix)]
 impl AskFolder {
