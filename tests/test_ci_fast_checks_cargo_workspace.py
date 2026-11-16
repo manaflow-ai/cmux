@@ -14,8 +14,14 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -139,6 +145,49 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("'.fast-checks-cargo-tools', 'scripts', 'ci', 'cargo_package_workspace_check.py'", body)
         self.assertLess(body.index("cargo_package_workspace_check.py"), body.index("command = subprocess.Popen("))
         self.assertIn("refused='cargo-package-workspace'", body)
+
+    def run_step(self, command: str) -> tuple[subprocess.CompletedProcess[str], dict | None, bool]:
+        """The Run fast checks step's script, in a git checkout of the fixture, with a fake cargo on PATH (no real
+        cargo ever runs here): (its result, its receipt, whether the fake cargo ran)."""
+        body = WORKFLOW.read_text(encoding="utf-8").split("      - name: Run fast checks\n", 1)[1]
+        script = textwrap.dedent(body.split("          python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            checkout, workspace, bin_dir, runner = (temp_path / n for n in ("checkout", "ws", "bin", "runner"))
+            fixture(checkout)
+            tools = workspace / ".fast-checks-cargo-tools" / "scripts" / "ci"
+            tools.mkdir(parents=True)
+            shutil.copy(SCRIPT, tools / SCRIPT.name)
+            bin_dir.mkdir()
+            runner.mkdir()
+            ran = temp_path / "cargo-ran"
+            write(bin_dir / "cargo", f"#!/bin/sh\ntouch '{ran}'\n")
+            (bin_dir / "cargo").chmod(0o755)
+            git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+            subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+            subprocess.run([*git, "-C", str(checkout), "add", "-A"], check=True)
+            subprocess.run([*git, "-C", str(checkout), "commit", "-qm", "fixture"], check=True)
+            head = subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAST_CHECKS_COMMAND": command,
+                   "FAST_CHECKS_DIRECTORY": "tui", "FAST_CHECKS_SOURCE": head, "FAST_CHECKS_TIMEOUT": "30",
+                   "RUNNER_TEMP": str(runner), "GITHUB_RUN_ID": "test-run", "GITHUB_WORKSPACE": str(workspace)}
+            result = subprocess.run([sys.executable, "-c", script], cwd=checkout, env=env, capture_output=True,
+                                    text=True)
+            receipt_path = runner / "fast-checks.json"
+            receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
+            return result, receipt, ran.exists()
+
+    def test_the_step_refuses_an_excluded_crate_with_a_receipt_and_runs_a_member(self) -> None:
+        result, receipt, ran = self.run_step("cargo test -p rd-host")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse(ran)
+        self.assertEqual((receipt or {}).get("exit_code"), 2)
+        self.assertEqual((receipt or {}).get("refused"), "cargo-package-workspace")
+        self.assertIn("directory=tui/crates/rd-host, command: cargo test", result.stderr)
+        result, receipt, ran = self.run_step("cargo test -p tui-app")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(ran)
+        self.assertEqual((receipt or {}).get("exit_code"), 0)
 
 
 if __name__ == "__main__":
