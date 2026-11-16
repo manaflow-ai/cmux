@@ -116,7 +116,7 @@ async fn usage_updates_follow_close_context_replacement_and_purge_fence() {
 }
 
 #[tokio::test]
-async fn usage_peer_table_writes_are_atomic_and_status_only_changes_keep_cursor() {
+async fn usage_peer_table_writes_are_atomic_and_rank_cursor_survives_table_changes() {
     let hub = hub();
     for n in 0..25 {
         chat(&hub, &format!("local-{n}"), Some(1.0), Some(1));
@@ -141,10 +141,7 @@ async fn usage_peer_table_writes_are_atomic_and_status_only_changes_keep_cursor(
     hub.remote_sessions.write().remove(&key);
     assert_eq!(held.usage.len(), 1, "published snapshots retain their own usage index");
     assert_eq!(hub.usage_reply(&json!({})).unwrap()["count"], 25);
-    assert_eq!(
-        hub.usage_reply(&json!({"cursor": first["nextCursor"]})).unwrap_err().data.unwrap()["reason"],
-        "usage.cursor_stale"
-    );
+    assert!(hub.usage_reply(&json!({"cursor": first["nextCursor"]})).is_ok());
 }
 
 #[tokio::test]
@@ -242,8 +239,9 @@ async fn usage_wire_advertises_the_request_and_keeps_legacy_sessions() {
                 );
             } else if id == 2 {
                 assert!(line.len() <= MAX_BYTES);
-                assert_eq!(reply["result"]["ready"], false);
                 assert_eq!(reply["result"]["count"], 0);
+                assert!(reply["result"]["ready"].is_boolean());
+                assert!(reply["result"]["lastPassAt"].is_u64());
             } else {
                 assert!(reply["result"]["sessions"].is_array());
             }

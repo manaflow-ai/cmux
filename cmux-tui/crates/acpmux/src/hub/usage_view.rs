@@ -40,6 +40,8 @@ pub(crate) struct UsageCache {
     pub(super) order: StdMutex<super::usage_order::UsageOrder>,
     /// A complete background/legacy pass has seeded this run; never wait for it on usage reads.
     pub(super) ready: AtomicBool,
+    /// Unix ms at which the most recent whole pass completed; zero before the first pass.
+    pub(super) last_pass_at: AtomicU64,
     /// Held for a pass, with when the last one started: a read that comes
     /// meanwhile waits for it instead of reading the stats it is about to replace.
     pass: tokio::sync::Mutex<u64>,
@@ -243,6 +245,7 @@ impl Hub {
         }
         if whole {
             self.usage_stats.ready.store(true, Ordering::Release);
+            self.usage_stats.last_pass_at.store(crate::store::now_ms(), Ordering::Release);
         }
         for (id, stats) in announce {
             if let Some(session) = own.iter().find(|s| s.id == id) {

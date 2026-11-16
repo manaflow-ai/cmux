@@ -936,6 +936,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/usage",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_info",
       "params": true,
       "result": true

@@ -3,8 +3,11 @@
 //! over all indexed rows, local and mirrored. Totals expose `{value, known}` per measure;
 //! `ready` is false until the initial background pass completes; it never means zero usage.
 //! value is null when no row knows it. Unknown keys appear in `missing`, byte spill in `rest`.
-//! Cursors bind the daemon run, both table revisions and the sort; a changed table returns
-//! `usage.cursor_stale` with `resync: true`. No transcript, session map, row or log walk here.
+//! Cursors bind the daemon run and sort and carry the last rank. A row that moves while pages
+//! are being shown can therefore occur on either side of the cursor (and may be seen twice or
+//! not at all); a changed daemon run or sort returns `usage.cursor_stale` with `resync: true`.
+//! Rank requests start v1's throttled whole pass in the background and answer from this table;
+//! they never wait for that pass. No transcript, session map, row or log walk happens here.
 
 use super::Hub;
 use super::usage_order::{MAX_BYTES, MAX_KEYS, Rank, Sort, UsageOrder};
@@ -16,8 +19,6 @@ use serde_json::{Value, json};
 #[serde(deny_unknown_fields)]
 struct Cursor {
     epoch: String,
-    local: u64,
-    remote: u64,
     sort: Sort,
     after: Rank,
 }
@@ -56,6 +57,7 @@ impl Hub {
         let remote = &remote.usage;
         let mut reply = json!({"rows": [], "count": local.len() + remote.len(),
             "totals": local.totals_with(remote), "nextCursor": null,
+            "lastPassAt": self.usage_stats.last_pass_at.load(std::sync::atomic::Ordering::Acquire),
             "ready": self.usage_stats.ready.load(std::sync::atomic::Ordering::Acquire)});
         if let Some(ids) = params.get("sessionIds") {
             if params.contains_key("sort") || params.contains_key("cursor") {
@@ -107,14 +109,10 @@ impl Hub {
                 }
                 _ => return Err(invalid("usage cursor must be a string of at most 4096 bytes")),
             };
-            if let Some(c) = &cursor {
-                if c.epoch != self.events.list_epoch()
-                    || c.local != local.revision
-                    || c.remote != remote.revision
-                    || c.sort != sort
-                {
-                    return Err(stale());
-                }
+            if let Some(c) = &cursor
+                && (c.epoch != self.events.list_epoch() || c.sort != sort)
+            {
+                return Err(stale());
             }
             let limit = if cursor.is_some() { MAX_KEYS } else { 20 };
             let after = cursor.as_ref().map(|c| &c.after);
@@ -136,22 +134,14 @@ impl Hub {
                 rows.push(entry.row.clone());
             }
             reply["rows"] = json!(rows);
-            if more {
-                if let Some(after) = last {
-                    let cursor = Cursor {
-                        epoch: self.events.list_epoch().to_owned(),
-                        local: local.revision,
-                        remote: remote.revision,
-                        sort,
-                        after,
-                    };
-                    let text = serde_json::to_string(&cursor)
-                        .map_err(|e| RpcError::internal(e.to_string()))?;
-                    if text.len() > 4096 {
-                        return Err(row_too_large());
-                    }
-                    reply["nextCursor"] = Value::String(text);
+            if more && let Some(after) = last {
+                let cursor = Cursor { epoch: self.events.list_epoch().to_owned(), sort, after };
+                let text = serde_json::to_string(&cursor)
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+                if text.len() > 4096 {
+                    return Err(row_too_large());
                 }
+                reply["nextCursor"] = Value::String(text);
             }
         }
         // Hard bound, including missing/rest and totals. Never return a too-large first row.

@@ -2508,6 +2508,13 @@ async fn dispatch_request_with_identity(
                     "usage is read on this machine's socket or app only",
                 ));
             }
+            if !params.contains_key("sessionIds") {
+                // Rank requests keep v1's usage figures fresh without putting the whole pass on
+                // the request path. `refresh_usage_stats` serializes passes and applies its
+                // existing five-second/dirty throttle; this request reads the current table.
+                let later = hub.clone();
+                tokio::spawn(async move { later.refresh_usage_stats().await });
+            }
             hub.usage_reply(&params)
         }
         method::MUX_STATUS => Ok(hub.status().await),
