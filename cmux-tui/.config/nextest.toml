@@ -248,3 +248,11 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# The chat-open seed proof (tests/chat_open_seed_proof.rs) prints what a daemon stored for the bench's
+# subagent chat; the printed lines are its result, also when it passes. It starts a daemon and
+# an agent, so it gets more time than a unit test before it counts as a hang.
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::chat_open_seed_proof)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 10, grace-period = "5s" }
