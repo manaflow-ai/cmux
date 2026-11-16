@@ -892,6 +892,8 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
   const skips = view.viewHeight > 0 && skipsOffscreenRows();
+  // The screen's height bounds the window's, and reading it forces no layout (innerHeight may).
+  const windowHeight = skips ? (window.screen?.height ?? 0) : 0;
   cache.begin([
     view.frameKey,
     view.registry,
@@ -992,7 +994,8 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           // Read by the frame's first mount only, and not compared (sameRowFrame): no frame draws again
           // for them, and a kept frame's values are the ones it mounted with.
           offscreen={
-            skips && mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight)
+            skips &&
+            mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight, windowHeight)
           }
           placedHeight={geometry.heightAt(absoluteIndex)}
         >
