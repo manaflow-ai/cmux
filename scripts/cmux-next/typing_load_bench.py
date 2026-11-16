@@ -126,7 +126,7 @@ def run_loads(rpc, pane, open_chat, wait, modes, keys, gap_ms):
             # These are isolated benchmark panes. Clear the mock session's persisted draft,
             # then measure only fresh ordinary keys (the selection/deletion is outside the reset).
             checked(rpc("debug.key", {"target": "page", "pane": target, "key": "a", "modifiers": ["command"]}))
-            checked(rpc("debug.key", {"target": "page", "pane": target, "key": "backspace"}))
+            checked(rpc("debug.key", {"target": "page", "pane": target, "key": "delete"}))
             cleared = wait(lambda: (lambda r: r if r.get("composer_text") == "" and
                 r.get("keys", 0) >= before_clear + 2 else None)(pane("typing_stats", pane=target)), 5)
             if not cleared:
