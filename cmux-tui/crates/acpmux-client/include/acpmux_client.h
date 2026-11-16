@@ -12,10 +12,9 @@
 #include <stdint.h>
 
 /*
- ABI version. Bump this when a type or function changes. 3: chat subs, `blob`, and a handle
- that names its surfaces.
+ ABI version. Bump this when a type or function changes. 4: the page-list driver ABI.
  */
-#define ACPMUX_CLIENT_ABI_VERSION 3
+#define ACPMUX_CLIENT_ABI_VERSION 4
 
 /*
  The call succeeded.
@@ -201,6 +200,82 @@ int32_t acpmux_client_chat_page(void *handle, const uint8_t *request, size_t req
  `handle`, `out` and the input slice obey the pointer/length contract.
  */
 int32_t acpmux_client_chat_blob(void *handle, const uint8_t *request, size_t request_len, AcpmuxClientBytes *out);
+
+/*
+ Allocates the page session-list driver. It owns a list-surface client handle and emits only
+ page events; the existing `acpmux_client_*` ABI remains available for other list callers.
+ */
+void *acpmux_page_driver_new(void);
+
+/*
+ Frees a page session-list driver.
+ */
+void acpmux_page_driver_free(void *handle);
+
+/*
+ Marks the page-list transport connected.
+ */
+int32_t acpmux_page_driver_connected(void *handle);
+
+/*
+ Marks the page-list transport disconnected while retaining rows and wanted keys.
+ */
+int32_t acpmux_page_driver_disconnected(void *handle);
+
+/*
+ Sets whether the page is visible. A hidden page takes no changes from its handle.
+ */
+int32_t acpmux_page_driver_visible(void *handle, bool shown);
+
+/*
+ Feeds daemon bytes to the page-list driver and writes the consumed count.
+ */
+int32_t acpmux_page_driver_received(void *handle, const uint8_t *ptr, size_t len, size_t *consumed);
+
+/*
+ Takes one outbound daemon frame from the page-list driver.
+ */
+int32_t acpmux_page_driver_take_send(void *handle, AcpmuxClientBytes *out);
+
+/*
+ Takes one page event batch. The returned batch remains held until `acpmux_page_driver_taken`.
+ */
+int32_t acpmux_page_driver_next_event(void *handle, AcpmuxClientBytes *out);
+
+/*
+ Acknowledges one page event batch by its opaque number.
+ */
+int32_t acpmux_page_driver_taken(void *handle, uint64_t number);
+
+/*
+ Opens a list subscription from a JSON `Sub` and returns `{ "sid": ... }`.
+ */
+int32_t acpmux_page_driver_open(void *handle, const uint8_t *request, size_t request_len, AcpmuxClientBytes *out);
+
+/*
+ Closes a page list subscription from `{ "sid": ... }`.
+ */
+int32_t acpmux_page_driver_close(void *handle, const uint8_t *request, size_t request_len);
+
+/*
+ Adds wanted keys from `{ "sid": ..., "keys": [...] }`.
+ */
+int32_t acpmux_page_driver_want(void *handle, const uint8_t *request, size_t request_len);
+
+/*
+ Removes wanted keys from `{ "sid": ..., "keys": [...] }`.
+ */
+int32_t acpmux_page_driver_unwant(void *handle, const uint8_t *request, size_t request_len);
+
+/*
+ Starts a bounded page question from a `Page`, returning `{ "id": ... }`.
+ */
+int32_t acpmux_page_driver_page(void *handle, const uint8_t *request, size_t request_len, AcpmuxClientBytes *out);
+
+/*
+ Requests the next page of `{ "id": ... }`; continuation remains in Rust.
+ */
+int32_t acpmux_page_driver_next(void *handle, const uint8_t *request, size_t request_len);
 
 /*
  Frees a buffer previously returned by this ABI.
