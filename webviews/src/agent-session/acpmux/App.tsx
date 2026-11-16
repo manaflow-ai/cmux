@@ -185,6 +185,7 @@ import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, textOnlyRow } from "./streamingRow";
 import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { liveThought, thoughtOnly } from "./liveThought";
+import { pageLanes } from "./schedule";
 import { liveSummary, usageOnly } from "./liveSummary";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
@@ -8066,6 +8067,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// handed (`listInputOf`): a snapshot that keeps both runs neither.
     let observedSummary: AcpmuxSnapshot["summary"] | null = null;
     let publishedList: ListInput | undefined;
+    /// A switch's first summary waits in the idle lane: its observation names the start model.
+    let profileStarted = false;
+    const lanes = pageLanes();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
     /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
@@ -8349,28 +8353,47 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               };
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
             // Only when the summary changed: a streamed chunk keeps it, and each observation
-            // serializes and stores every harness's profile.
+            // serializes and stores every harness's profile. In the idle lane (schedule/), never in a
+            // key's or a frame's task; the latest summary wins, and a switch's start is kept until it
+            // is observed. Durable: a page that hides writes it then.
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.has(summary.sessionId);
             if (summary !== observedSummary || started) {
               observedSummary = summary;
               if (started) startedSessions.delete(summary!.sessionId);
-              harnessProfiles.observe(summary, started);
+              profileStarted ||= started;
+              lanes.idle(
+                "pane:harness-profiles",
+                () => {
+                  const first = profileStarted;
+                  profileStarted = false;
+                  harnessProfiles.observe(summary, first);
+                },
+                { durable: true },
+              );
             }
             // The next New Tab page names the project used last on its first frame
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's. Each reads the
-            // chat list alone, which a streamed chunk keeps: compared by object first.
+            // chat list alone, which a streamed chunk keeps: compared by object first, then run in
+            // the idle lane with the latest list.
             const listInput = listInputOf(next, showsNewTabRef.current);
             if (!mock && !sameListInput(publishedList, listInput)) {
               publishedList = listInput;
-              rememberRecentFolders(next);
-              // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-              publishSessions(next);
-              // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
-              publishWarmNewTab(
-                next,
-                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
-                showsNewTabRef.current,
+              const at = Date.now();
+              lanes.idle(
+                "pane:chat-list",
+                () => {
+                  rememberRecentFolders(next);
+                  // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+                  publishSessions(next, at);
+                  // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+                  publishWarmNewTab(
+                    next,
+                    (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                    listInput.showsNewTab,
+                  );
+                },
+                { durable: true },
               );
             }
             // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
