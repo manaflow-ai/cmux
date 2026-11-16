@@ -1,0 +1,122 @@
+import { describe, expect, it } from "vitest";
+import { Device, approvedSession, signIn } from "./helpers";
+
+/**
+ * An Always answer is about a Mac, not one identity of it. A Mac gets a new device id when a
+ * tagged build runs (its own bundle id, so its own Keychain items) or when its identity renews
+ * (the hub refused the old one), and the host's Always for that Mac used to stop applying: the
+ * approval panel asked again for a Mac it had been told to always allow. The app sends a
+ * `machine` at registration (a hash of the Mac's hardware UUID, the same for every build); the
+ * hub reads a permission across every live device of the same machine, the newest answer first.
+ */
+const MAC_A = "a".repeat(64);
+const MAC_B = "b".repeat(64);
+const HOST_MAC = "c".repeat(64);
+
+async function device(account: Awaited<ReturnType<typeof signIn>>, name: string, machine?: string, platform: "macos" | "ios" = "macos") {
+  const d = await Device.create(account, name, platform);
+  d.machine = machine;
+  await d.register();
+  await d.connect();
+  return d;
+}
+
+async function pair(hostMachine: string | undefined = HOST_MAC) {
+  const account = await signIn();
+  const host = await device(account, "Laptop", hostMachine);
+  await host.share(true);
+  const viewer = await device(account, "Desk Mac", MAC_A);
+  return { account, host, viewer };
+}
+
+/** The viewer asks; the host answers Always with `scope`. */
+async function alwaysAllow(host: Device, viewer: Device, scope: "view" | "full") {
+  const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope });
+  expect(res.json.session.state).toBe("pending");
+  const decided = await host.call("POST", `/v1/sessions/${res.json.session.id}/decision`, { decision: "always", scope });
+  expect(decided.status, JSON.stringify(decided.json)).toBe(200);
+}
+
+const ask = (viewer: Device, host: Device, scope: "view" | "full") => viewer.call("POST", "/v1/sessions", { hostId: host.id, scope });
+
+describe("an Always answer covers the same Mac", () => {
+  it("covers the Mac's next identity (a tagged build, a renewed identity) without asking again", async () => {
+    const { account, host, viewer } = await pair();
+    await alwaysAllow(host, viewer, "full");
+    const sameMac = await device(account, "Desk Mac", MAC_A);
+    const res = await ask(sameMac, host, "full");
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(res.json.session).toMatchObject({ state: "approved", scope: "full" });
+    expect(await host.user!.none((f) => f.type === "session.request" && f.session.viewerId === sameMac.id)).toBe(true);
+    // The Devices list shows the same access for it.
+    const listed = (await host.call("GET", `/v1/permissions?host=${host.id}`)).json.permissions;
+    expect(listed).toContainEqual({ viewerId: sameMac.id, scope: "full" });
+  });
+
+  it("survives the host's own new identity (an update that renewed it)", async () => {
+    const { account, host, viewer } = await pair();
+    await alwaysAllow(host, viewer, "full");
+    const renewedHost = await device(account, "Laptop", HOST_MAC);
+    await renewedHost.share(true);
+    expect((await ask(viewer, renewedHost, "full")).json.session).toMatchObject({ state: "approved", scope: "full" });
+  });
+
+  it("never crosses to another Mac, or to a device that names no machine", async () => {
+    const { account, host, viewer } = await pair();
+    await alwaysAllow(host, viewer, "full");
+    const otherMac = await device(account, "Desk Mac", MAC_B);
+    expect((await ask(otherMac, host, "full")).json.session.state).toBe("pending");
+    const unnamed = await device(account, "Desk Mac");
+    expect((await ask(unnamed, host, "full")).json.session.state).toBe("pending");
+    const phone = await device(account, "Desk Mac", MAC_A, "ios");
+    expect((await ask(phone, host, "full")).json.session.state).toBe("pending");
+  });
+
+  it("covers only what it includes: Always View Only still asks for Full Control", async () => {
+    const { account, host, viewer } = await pair();
+    await alwaysAllow(host, viewer, "view");
+    const sameMac = await device(account, "Desk Mac", MAC_A);
+    expect((await ask(sameMac, host, "view")).json.session.state).toBe("approved");
+    expect((await ask(sameMac, host, "full")).json.session.state).toBe("pending");
+  });
+
+  it("takes the newest answer about the Mac, and lowering it ends that Mac's sessions above it", async () => {
+    const { account, host, viewer } = await pair();
+    const sameMac = await device(account, "Desk Mac", MAC_A);
+    const { sid } = await approvedSession(host, viewer, "full");
+    // The host lowers the other identity's row: it is the same Mac, so the live Full Control session ends.
+    expect((await host.call("PUT", `/v1/permissions/${host.id}/${sameMac.id}`, { scope: "view" })).status).toBe(200);
+    expect(await viewer.user!.next((f) => f.type === "session.revoked" && f.sessionId === sid)).toMatchObject({ reason: "permission_revoked" });
+    expect((await ask(viewer, host, "full")).json.session.state).toBe("pending");
+    expect((await ask(viewer, host, "view")).json.session.state).toBe("approved");
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "none" });
+    expect((await ask(sameMac, host, "view")).json.error.code).toBe("permission_none");
+  });
+
+  it("keeps a device's first machine: a later registration cannot move it to another Mac", async () => {
+    const { account, host, viewer } = await pair();
+    await alwaysAllow(host, viewer, "full");
+    const other = await device(account, "Other Mac", MAC_B);
+    // `other` claims MAC_A on a later registration; it stays MAC_B and gets nothing.
+    other.machine = MAC_A;
+    await other.register();
+    expect((await ask(other, host, "full")).json.session.state).toBe("pending");
+  });
+
+  it("ends with the device: a removed identity's answer does not carry to the same Mac", async () => {
+    const { account, host, viewer } = await pair();
+    await alwaysAllow(host, viewer, "full");
+    expect((await host.call("DELETE", `/v1/devices/${viewer.id}`)).status).toBe(200);
+    const sameMac = await device(account, "Desk Mac", MAC_A);
+    expect((await ask(sameMac, host, "full")).json.session.state).toBe("pending");
+  });
+
+  it("refuses a machine that is not 64 lowercase hex digits", async () => {
+    const account = await signIn();
+    const d = await Device.create(account, "Desk Mac");
+    const res = await d.call("POST", "/v1/devices", {
+      id: d.id, name: d.name, platform: d.platform, signingKey: d.signingKey, agreementKey: d.agreementKey, machine: "not-a-hash",
+    });
+    expect(res.status).toBe(400);
+  });
+});
