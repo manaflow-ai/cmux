@@ -288,6 +288,39 @@ mod tests {
         assert!(repairs_done >= 20_000, "repairs left as a burst: {repairs_done} us");
     }
 
+    /// A first keyframe at the 8 Mbps start target: within one frame interval at no more
+    /// than 4 x 30 Mbps (not the 120 ms the pacing rate would take); the P-frame after it
+    /// goes at the pacing rate again.
+    #[test]
+    fn a_start_keyframe_leaves_within_a_frame_interval_at_a_bounded_rate() {
+        let mut p = Pacer::new();
+        // 261 datagrams (300 KB) at 8 Mbps and 60 fps.
+        p.push_start_keyframe(frame(261), 8_000_000, 16_667, 0);
+        let sent = drain(&mut p, 0);
+        assert_eq!(sent.len(), 261);
+        let span = sent.last().unwrap().0;
+        let cap = START_BURST_FACTOR * START_BURST_FLOOR_BPS as f64 / 8.0 / 1e6;
+        let fastest = ((300_672.0 - cap * BURST_US as f64 - 1152.0) / cap) as u64;
+        assert!(span <= 21_000, "start keyframe took {span} us");
+        assert!(span >= fastest, "start keyframe beat its bound: {span} us < {fastest}");
+        // A keyframe after loss at the same target: the pacing rate (2.5 x 8 Mbps).
+        p.push_frame(frame(261), 8_000_000, 16_667, 100_000);
+        let span = drain(&mut p, 100_000).last().unwrap().0 - 100_000;
+        assert!(span >= 100_000, "a loss keyframe left as a burst: {span} us");
+    }
+
+    #[test]
+    fn a_frame_queued_behind_a_start_keyframe_returns_to_the_pacing_rate() {
+        let mut p = Pacer::new();
+        p.push_start_keyframe(frame(100), 8_000_000, 16_667, 0);
+        p.push_frame(frame(50), 8_000_000, 16_667, 0);
+        let sent = drain(&mut p, 0);
+        assert_eq!(sent.len(), 150);
+        // 50 datagrams at 2.5 Mbps-bytes: 57.6 KB / 2.5 bytes/us = 23 ms after the keyframe.
+        let tail = sent[149].0 - sent[99].0;
+        assert!(tail >= 20_000, "the P-frame kept the start burst rate: {tail} us");
+    }
+
     #[test]
     fn a_repair_on_an_idle_pacer_goes_at_once() {
         let mut p = Pacer::new();
