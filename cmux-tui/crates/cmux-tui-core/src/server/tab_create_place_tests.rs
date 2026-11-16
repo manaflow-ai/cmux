@@ -324,6 +324,70 @@ fn a_place_that_is_not_one_position_is_refused() {
     mux.shutdown();
 }
 
+/// `request` of `kind`, for a new pane split from `pane` (`split`) or for
+/// the workspace of `pane` (no `split`) in place of the pane itself.
+fn elsewhere(mux: &Mux, kind: Kind, pane: PaneId, split: bool) -> Value {
+    let mut request = kind.request(pane);
+    if split {
+        request["split"] = json!({"direction": "right"});
+    } else {
+        let workspace = mux
+            .with_state(|state| state.screen_of(pane).map(|(index, _)| state.workspaces[index].id));
+        request["workspace"] = json!(workspace.expect("the workspace of the pane"));
+        request.as_object_mut().expect("a request object").remove("pane");
+    }
+    request
+}
+
+/// The count of the tabs of each pane, with the count of the panes.
+fn tab_counts(mux: &Mux) -> (usize, usize) {
+    mux.with_state(|state| {
+        (state.panes.len(), state.panes.values().map(|pane| pane.tabs.len()).sum())
+    })
+}
+
+/// `place` names a position in the strip of `pane`. A request for a new
+/// pane (`split`) or for a workspace names no such strip, so a
+/// conversation tab and a page refuse `place` there, before a tab is made.
+#[test]
+fn a_place_with_a_workspace_or_a_split_is_refused() {
+    let (mux, pane, [a, b, c]) = strip("refused-elsewhere");
+    let before = tab_counts(&mux);
+    for kind in [Kind::Conversation, Kind::Browser] {
+        for split in [true, false] {
+            let request = elsewhere(&mux, kind, pane, split);
+            let request = with(request, [("place", json!({"start": true}))]);
+            let refused = run(&mux, request).map(|reply| reply.to_string());
+            let error = refused.expect_err("a refusal").to_string();
+            let named = error.contains("bad request") && error.contains("workspace or split");
+            assert!(named, "{kind:?}, split {split}: {error}");
+        }
+    }
+    assert_eq!(tab_counts(&mux), before, "a refused request makes no tab and no pane");
+    assert_eq!(tabs(&mux, pane), [a, b, c]);
+    mux.shutdown();
+}
+
+/// The `tab-added` of a page in a new pane or in a workspace carries no
+/// `transaction`, so the request refuses `transaction` there: a client
+/// does not wait for a transaction that no event brings.
+#[test]
+fn a_page_transaction_with_a_workspace_or_a_split_is_refused() {
+    let (mux, pane, [a, b, c]) = strip("refused-transaction");
+    let before = tab_counts(&mux);
+    for split in [true, false] {
+        let request = elsewhere(&mux, Kind::Browser, pane, split);
+        let request = with(request, [("transaction", json!("t1"))]);
+        let refused = run(&mux, request).map(|reply| reply.to_string());
+        let error = refused.expect_err("a refusal").to_string();
+        let named = error.contains("bad request") && error.contains("workspace or split");
+        assert!(named, "split {split}: {error}");
+    }
+    assert_eq!(tab_counts(&mux), before, "a refused request makes no tab and no pane");
+    assert_eq!(tabs(&mux, pane), [a, b, c]);
+    mux.shutdown();
+}
+
 /// A tab that names the creation before it lands right after that
 /// creation's tab, for each kind of both; a transaction that the connection
 /// never used gives the end.
