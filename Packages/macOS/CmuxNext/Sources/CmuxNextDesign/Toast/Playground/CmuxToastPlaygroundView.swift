@@ -9,6 +9,9 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
     private(set) var rows: [CmuxToastPlaygroundRow] = []
     private let pickedLabel = ThemedLabel(labelWithString: "")
     private let cards: [CmuxToastPlaygroundCard]
+    private let openKeycaps: (@MainActor () -> Void)?
+    /// Opens the Keycap Playground (nil without ``openKeycaps``).
+    private(set) var keycapsButton: NSButton?
     let scrollView = OverlayScrollView()
 
     /// - Parameters:
@@ -17,10 +20,13 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
     ///   - fire: Shows `style`'s toasts as real toasts (in the window the person works in).
     ///   - focus: Which styles show (Debug Settings > Toasts > Playground shows).
     ///   - cards: Sidebar cards it shows for real, one Show button each (``CmuxToastPlaygroundCard``).
+    ///   - openKeycaps: Opens the Keycap Playground from a button at the top; nil shows none.
     init(center: CmuxToastCenter, themes: CmuxToastPlaygroundThemes, focus: CmuxToastPlaygroundFocus = .all,
-         cards: [CmuxToastPlaygroundCard] = [], fire: @escaping (CmuxToastStyle) -> Void) {
+         cards: [CmuxToastPlaygroundCard] = [], openKeycaps: (@MainActor () -> Void)? = nil,
+         fire: @escaping (CmuxToastStyle) -> Void) {
         self.center = center
         self.cards = cards
+        self.openKeycaps = openKeycaps
         super.init(frame: .zero)
         let tuning = center.tuning
         rows = focus.styles.map { style in
@@ -44,7 +50,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
             + "Pick makes it the style of every toast and prompt in the app, now and after a relaunch.")
         intro.font = Typography.body
         intro.themeColor = { Palette.textSecondary }
-        let column = NSStackView(views: [pickedLabel, intro] + cardsRow() + rows)
+        let column = NSStackView(views: [pickedLabel, intro] + keycapsRow() + cardsRow() + rows)
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 28
@@ -75,6 +81,27 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
         ]
         constraints += rows.map { $0.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -48) }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    /// "Dialog keycaps": opens the Keycap Playground, which works before the palette has its action (the pinned app
+    /// FFI's catalog gains `debug.keycapPlayground` only with the next re-pin).
+    private func keycapsRow() -> [NSView] {
+        guard openKeycaps != nil else { return [] }
+        let label = ThemedLabel(labelWithString: "Dialog keycaps")
+        label.font = Typography.system(size: TypeScale.body, weight: TypeScale.emphasis)
+        label.themeColor = { Palette.textPrimary }
+        let button = NSButton(title: "Open Keycap Playground", target: self, action: #selector(keycapsPressed(_:)))
+        button.bezelStyle = .push
+        button.setAccessibilityIdentifier("cmux.toastPlayground.keycaps")
+        keycapsButton = button
+        let row = NSStackView(views: [label, button])
+        row.orientation = .horizontal
+        row.spacing = 12
+        return [row]
+    }
+
+    @objc private func keycapsPressed(_ sender: Any?) {
+        openKeycaps?()
     }
 
     /// "Sidebar cards": one Show button per card, which shows it in the window the person works in.
