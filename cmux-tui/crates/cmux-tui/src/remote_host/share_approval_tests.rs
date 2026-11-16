@@ -193,3 +193,16 @@ fn delivery_before_same_account_control_says_what_is_missing() {
     assert_eq!(error["details"]["delivered"], false);
     assert!(error["message"].as_str().unwrap().contains("Studio"));
 }
+
+/// The app finds a device by name without case, Unicode included (Swift
+/// `caseInsensitiveCompare`); the CLI reads its approval the same way, so a click
+/// for "München" asked as `MÜNCHEN` is not refused after the person allowed it.
+#[test]
+fn asker_matches_a_device_name_without_case_as_the_app_does() {
+    let key = DeviceKey::new();
+    let approval = key.sign(ShareApproval { target_name: "München".into(), ..unsigned() });
+    let answer = json!({"ok": true, "approval": serde_json::to_value(&approval).unwrap()});
+    assert!(matches!(asker_outcome(&answer, "MÜNCHEN"), AskerOutcome::Confirmed(_)));
+    assert!(matches!(asker_outcome(&answer, "münchen"), AskerOutcome::Confirmed(_)));
+    assert!(matches!(asker_outcome(&answer, "Mini"), AskerOutcome::NotConfirmed(_)));
+}

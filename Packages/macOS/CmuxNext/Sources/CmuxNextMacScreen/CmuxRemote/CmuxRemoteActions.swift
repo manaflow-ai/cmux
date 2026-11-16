@@ -37,6 +37,12 @@ extension CmuxRemoteActionEnvironment {
     /// CLI or MCP call and is not cancelled at the old 130 s.
     nonisolated static let confirmationTimeout: Duration = .seconds(600)
 
+    /// The dialog for every `remote.confirm` change (Share This Mac, a device's access, sharing
+    /// another Mac, whose Allow signs an approval with this device's key). Only the person answers
+    /// it: the app's debug socket (`debug.dialog` press, key or dismiss) refuses it, or an agent
+    /// could ask and then approve its own request (`DebugDialog.userOnly`).
+    public nonisolated static let confirmIdentifier = "cmux.dialog.remote.confirm"
+
     public func bind(into registry: ActionRegistry) {
         let environment = self
         let remote = environment.remote
@@ -268,7 +274,7 @@ extension CmuxRemoteActionEnvironment {
         return await withCheckedContinuation { continuation in
             let spec = CmuxDialogSpec(title: title, lines: [body],
                                       buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)],
-                                      identifier: "cmux.dialog.remote.confirm")
+                                      identifier: Self.confirmIdentifier)
             CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
                 continuation.resume(returning: answer.button == "confirm")
             }

@@ -109,13 +109,19 @@ pub(crate) fn asker_outcome(answer: &Value, device: &str) -> AskerOutcome {
         return AskerOutcome::NotConfirmed("the approval is not signed".into());
     }
     let wanted = device.trim();
-    if approval.target != wanted && !approval.target_name.eq_ignore_ascii_case(wanted) {
+    if approval.target != wanted && !same_name(&approval.target_name, wanted) {
         return AskerOutcome::NotConfirmed(format!(
             "the app approved {}, not {wanted}",
             approval.display_target()
         ));
     }
     AskerOutcome::Confirmed(approval)
+}
+
+/// Whether `name` names the device `wanted` does, without case, as the app matches it
+/// (Swift `caseInsensitiveCompare`, Unicode-aware): `--device MÜNCHEN` finds "München" on both sides.
+fn same_name(name: &str, wanted: &str) -> bool {
+    !name.is_empty() && name.to_lowercase() == wanted.to_lowercase()
 }
 
 /// The params of `remote.confirm` for sharing `device`.
