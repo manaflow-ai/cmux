@@ -10,6 +10,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.language",
+            "rows" : [
+              "app.language"
+            ],
+            "title" : {
+              "key" : "settings.group.language",
+              "text" : "Language"
+            }
+          },
+          {
             "key" : "settings.group.window",
             "rows" : [
               "window.titlebar",
