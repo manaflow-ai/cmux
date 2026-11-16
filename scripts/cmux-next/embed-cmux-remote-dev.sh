@@ -8,12 +8,12 @@
 # (embed-cua-helper-dev.sh). The bytes are never re-signed (cmux Remote's code
 # identity, and so its macOS grants, must stay the same across builds).
 # The embedded worker is signed separately and is also used by NIGHTLY Release builds.
-# Release requires the pin file and embeds the asset when this Mac has it or can fetch it; a failed
-# download fails the build. A Release build on a Mac with no source for the asset (no cached zip,
-# none in the store, no read credentials) prints one NOT EMBEDDED warning line and embeds nothing,
-# as before the asset became required (decision of 2026-11-16); such a build has no cmux Remote
-# (docs/cmux-remote.md). CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 makes the missing asset an error for a
-# build that must have it.
+# Release requires the asset, so a published build cannot silently lose Screen Sharing.
+# CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1 is the opt-in of a Release build that may go out with no cmux
+# Remote (decision of 2026-11-16): on a Mac with no source for the asset (no cached zip, a store
+# that gives no URL for it, no read credentials) that build prints one NOT EMBEDDED warning line and
+# embeds nothing (docs/cmux-remote.md). With the opt-in a missing pin file, a failed download and a
+# sha256 mismatch still fail the build, and CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 is stronger than it.
 # DEV warns and embeds nothing unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1; a sha256 mismatch fails.
 # A bench build (reload.sh --config bench: a Release configuration with -DCMUX_BENCH_HOOKS in
 # OTHER_SWIFT_FLAGS, lib/bench-swift-defines.sh) is never published (check-no-bench-hooks.sh), so
@@ -39,18 +39,21 @@ pin="${CMUX_NEXT_CMUX_REMOTE_PIN:-$SCRIPT_DIR/cmux-remote-dev.pin.json}"
 required="${CMUX_NEXT_REQUIRE_CMUX_REMOTE:-0}"
 bench=0
 [[ " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]] && bench=1
-release=0
-[[ "${CONFIGURATION:-}" == "Release" && "$bench" == "0" ]] && release=1
+allow_no_source=0
+if [[ "${CONFIGURATION:-}" == "Release" && "$bench" == "0" ]]; then
+  [[ "$required" != "1" && "${CMUX_NEXT_ALLOW_NO_CMUX_REMOTE:-0}" == "1" ]] && allow_no_source=1
+  required=1
+fi
 if [[ ! -f "$pin" ]]; then
-  [[ "$required" == "1" || "$release" == "1" ]] && { echo "error: cmux Remote requires pin file $pin" >&2; exit 1; }
+  [[ "$required" == "1" ]] && { echo "error: cmux Remote requires pin file $pin" >&2; exit 1; }
   skip "no pin file $pin"
 fi
 args=(--optional)
-[[ "$release" == "1" ]] && args=(--allow-no-source)
 [[ "$required" == "1" ]] && args=()
+[[ "$allow_no_source" == "1" ]] && args=(--allow-no-source)
 fetch=0
 zip="$("$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$pin" ${args[@]+"${args[@]}"})" || fetch=$?
-if [[ "$fetch" == "3" && "$release" == "1" && "$required" != "1" ]]; then
+if [[ "$fetch" == "3" && "$allow_no_source" == "1" ]]; then
   echo "warning: cmux-remote-dev: NOT EMBEDDED (this Mac has no cached zip and no read credentials)" >&2
   rm -rf "$dest"
   rm -f "$stamp"
