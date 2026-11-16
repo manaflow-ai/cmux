@@ -14,6 +14,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-scroll-renders.test.ts", async () => {
   setDefaultTimeout(280_000);
@@ -46,15 +47,17 @@ await requireBrowserLane("session-info-scroll-renders.test.ts", async () => {
     expect(seeded.error).toBeUndefined();
     // Session Info on (Debug Settings `agent.sessionInfo`), as the header state carries it.
     await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
-    const toggle = page.locator("button.acpmux-session-info-toggle").first();
+    const toggle = page.locator(SESSION_INFO_TOGGLE).first();
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.waitForFunction(
-      () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+      ({ SESSION_INFO }) => document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown",
+      { SESSION_INFO },
     );
     // The enter slide ends before the count starts.
     await page.waitForFunction(
-      () => document.querySelector("aside.acpmux-session-info")!.getAnimations({ subtree: true }).length === 0,
+      ({ SESSION_INFO }) => document.querySelector(SESSION_INFO)!.getAnimations({ subtree: true }).length === 0,
+      { SESSION_INFO },
     );
     return page;
   }
