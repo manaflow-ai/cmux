@@ -42,17 +42,18 @@ import Testing
 
     /// The crash: both set, read the tab, the strip and the pane chrome.
     @Test func aSetStripAndCornerPaddingResolve() {
-        with(strip: 26, cornerPadding: 4) {
+        // Compact, where 26 - 2 * 4 leaves the pill above its icon floor.
+        DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) { with(strip: 26, cornerPadding: 4) {
             let strip = Metrics.tabStripHeight
             let tab = Metrics.tabHeight
             let pane = PaneChromeMetrics.current
             // The set bar keeps its height; the pill fills it inside the padding above and below.
             #expect(strip == MetricTunables.tabStripHeight.value)
-            #expect(tab == max(strip - 2 * Metrics.scale(4) - Metrics.stripTopOutset, 0))
+            #expect(tab == strip - 2 * Metrics.scale(4) - Metrics.stripTopOutset)
             #expect(pane.stripHeight == strip && pane.tabHeight == tab)
             #expect(tab > 0)
             #expect(Metrics.panelCornerRadius >= 0)
-        }
+        } }
     }
 
     /// Corner padding alone still derives the strip from the tab, and a set strip alone still sizes the pill.
@@ -64,6 +65,24 @@ import Testing
             #expect(Metrics.tabStripHeight == MetricTunables.tabStripHeight.value)
             #expect(Metrics.tabHeight > 0)
         }
+    }
+
+    /// A strip set in Debug Settings counts as set too: with a corner padding it keeps its height and
+    /// the pill fits inside it, and the tab and strip still resolve without reading each other.
+    @Test func aDebugSettingsStripWithCornerPaddingResolves() {
+        let store = TunableStore.shared
+        let key = MetricTunables.tabStripHeight.tunable.key
+        store.activate(file: nil)
+        store.register(MetricTunables.metrics.map(\.descriptor))
+        let before = store.override(key)
+        defer { store.set(key, before) }
+        store.set(key, .number(30))
+        DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) { with(strip: nil, cornerPadding: 4) {
+            #expect(Metrics.tabStripIsSet)
+            #expect(Metrics.tabStripHeight == MetricTunables.tabStripHeight.value)
+            #expect(Metrics.tabHeight == Metrics.tabStripHeight - 2 * Metrics.scale(4) - Metrics.stripTopOutset)
+            #expect(readEveryChromeMetric().allSatisfy(\.isFinite))
+        } }
     }
 
     /// The class: every density with every combination of the settings these getters branch on.
@@ -79,6 +98,11 @@ import Testing
                                     #expect(values.allSatisfy(\.isFinite),
                                             "\(preset) strip \(String(describing: strip)) corner \(String(describing: cornerPadding))")
                                     #expect(Metrics.tabHeight >= 0)
+                                    if strip != nil, cornerPadding != nil {
+                                        // The padding gives way before the pill shrinks under its icon.
+                                        #expect(Metrics.tabHeight >= min(Metrics.iconSize, Metrics.tabStripHeight - Metrics.stripTopOutset))
+                                        #expect(Metrics.tabHeight <= Metrics.tabStripHeight - Metrics.stripTopOutset)
+                                    }
                                 }
                             }
                         }

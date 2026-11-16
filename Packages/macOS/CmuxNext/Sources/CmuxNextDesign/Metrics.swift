@@ -127,8 +127,11 @@ public struct Metrics {
     /// density's own room around its pill, so a taller bar has taller tabs. With `layout.cornerPadding`
     /// set too, both settings hold: the bar keeps its set height and the pill takes what is left inside
     /// the padding above and below it (`strip - 2 * padding - stripTopOutset`, so
-    /// `PaneChromeMetrics.pillTop` is the padding). The Compact tabs pill is never taller than the row
-    /// it tightens: its 22 pt token predates Compact's 20 pt Helium rows.
+    /// `PaneChromeMetrics.pillTop` is the padding). A tab height set explicitly (Debug Settings or a
+    /// density's own `tabHeight` token) keeps its size there instead, and the padding gives way; so
+    /// does a pill that would come out smaller than its icon (``iconSize``), never past the strip.
+    /// The Compact tabs pill is never taller than the row it tightens: its 22 pt token predates
+    /// Compact's 20 pt Helium rows.
     ///
     /// Reads the set strip's own value (`MetricTunables.tabStripHeight.value`), never
     /// ``tabStripHeight``, which reads this under `layout.cornerPadding`.
@@ -139,7 +142,9 @@ public struct Metrics {
         if let padding = DesignSettings.shared.paneChrome.cornerPadding {
             // A set bar with the corner padding: the padding is the room around the pill.
             guard tabStripIsSet else { return tab }
-            return max(strip.value - 2 * scale(padding) - stripTopOutset, 0)
+            let room = max(strip.value - stripTopOutset, 0)
+            let fitted = metric.explicitValue ?? max(strip.value - 2 * scale(padding) - stripTopOutset, iconSize)
+            return min(fitted, room)
         }
         guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
         let densityStrip = scale(strip.tunable.resolve(tokens.resolve(compact: strip.compactValue, comfortable: strip.comfortable, token: strip.name)))
