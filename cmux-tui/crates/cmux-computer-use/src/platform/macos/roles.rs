@@ -491,15 +491,34 @@ pub enum Caret {
     Unread,
 }
 
-/// One step of the walk up to the menu bar: `Some(true)` at the menu bar,
-/// `Some(false)` at the window or the application (the element is not in
-/// the menu bar), `None` to keep walking.
+/// One step of the walk up to the menu bar: `Some(true)` at the menu bar;
+/// `None` (keep walking) at a menu, a menu item or a menu bar item, the only
+/// roles between an item and its menu bar; `Some(false)` at any other role
+/// (the element is not in the menu bar, however deep it is in a window).
 pub fn menu_bar_walk_step(role: &str) -> Option<bool> {
     match role {
         "AXMenuBar" => Some(true),
-        "AXWindow" | "AXApplication" => Some(false),
-        _ => None,
+        "AXMenu" | "AXMenuItem" | "AXMenuBarItem" => None,
+        _ => Some(false),
     }
+}
+
+/// How many menu levels the walk follows before it gives up (menus never
+/// nest this deep).
+pub const MENU_WALK_MAX: usize = 64;
+
+/// Whether an element is in the menu bar, from `role_at(n)`, the role of
+/// its `n`-th ancestor (0: the element itself; `None`: unreadable). `None`
+/// when a role along the menu chain could not be read (or the chain passed
+/// [`MENU_WALK_MAX`] menu levels).
+pub fn menu_bar_walk(mut role_at: impl FnMut(usize) -> Option<String>) -> Option<bool> {
+    for depth in 0..MENU_WALK_MAX {
+        let role = role_at(depth)?;
+        if let Some(answer) = menu_bar_walk_step(&role) {
+            return Some(answer);
+        }
+    }
+    None
 }
 
 /// The refusal when an element's place (in the menu bar or not) cannot be

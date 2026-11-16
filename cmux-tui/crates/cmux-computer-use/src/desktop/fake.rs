@@ -262,7 +262,6 @@ impl FakeDesktop {
         self.restores.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
-    /// The window's pop-ups as tree elements, an open one with its menu.
     /// A confirmed result whose read-back after the settle answers
     /// [`Self::confirms_on_reread`].
     fn confirmed(&self, route: &str) -> ActionOutcome {
@@ -322,6 +321,7 @@ impl FakeDesktop {
         })
     }
 
+    /// The window's pop-ups as tree elements, an open one with its menu.
     fn popup_elements(&self, window_id: &str) -> Vec<Element> {
         // As on macOS, every element has its identity, the same across walks.
         let node = |id: &str, role: &str, name: &str, children: Vec<Element>| Element {
