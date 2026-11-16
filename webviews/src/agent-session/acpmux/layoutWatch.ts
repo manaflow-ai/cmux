@@ -35,7 +35,7 @@ const MAX_ROWS = 40;
 /// page renders more above, so counting from the end keeps the names on screen the same in both.
 function rowNames(rows: Element[]): string[] {
   const seen = new Map<string, number>();
-  const named: string[] = new Array(rows.length);
+  const named = Array.from<string>({ length: rows.length });
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
     const kind = ROW_KINDS.find((name) => row.classList.contains(name)) ?? "row";
