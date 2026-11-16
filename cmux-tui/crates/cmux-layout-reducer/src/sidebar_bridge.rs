@@ -550,6 +550,9 @@ pub fn native_pane_show_action(app: &str) -> Option<&'static str> {
     match app {
         "cmux/home" => Some("home.show"),
         "cmux/app-store" => Some("appStore.show"),
+        // Leo, 2026-11-16: "if i click install it means it works": Cloud is on
+        // the store shelf, so its Open opens its page.
+        "cmux/cloud" => Some("palette.openCloudPane"),
         _ => None,
     }
 }
