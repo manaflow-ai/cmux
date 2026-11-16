@@ -59,6 +59,10 @@ export type AcpmuxDebug = {
   acpLogExport(): string;
   /** Shows `text` as a pane toast, as a refusal or a click's feedback does (captures drive the toasts with it). */
   toast(text: string): Record<string, unknown>;
+  /** Selects characters `from` to `to` of the text in the first element matching `selector` (across its lines and
+   * child elements), then ends it as a drag does (pointerup), so the selection and its Reply chip show as a
+   * person's would: captures of the chat's selection (no drag reaches a Chromium page in a capture slot). */
+  selectText(selector: string, from: number, to: number): Record<string, unknown>;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -379,6 +383,33 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    selectText(selector, from, to) {
+      const element = document.querySelector(selector);
+      if (!element) return { selected: false, error: `nothing matches ${selector}` };
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      let seen = 0;
+      let started = false;
+      for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+        const length = node.data.length;
+        if (!started && from <= seen + length) {
+          range.setStart(node, Math.max(0, from - seen));
+          started = true;
+        }
+        if (started && to <= seen + length) {
+          range.setEnd(node, Math.max(0, to - seen));
+          break;
+        }
+        seen += length;
+      }
+      if (!started) return { selected: false, error: "from is past the element's text" };
+      const selection = document.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      return { selected: true, text: selection?.toString() ?? "" };
     },
 
     toast(text) {
