@@ -14,7 +14,7 @@ The seven homes (decision 229):
 
 A page-made field is allowed only when it is a pure function of one row's own fields, of the open rows, or of homes d to g. A function of other settled rows is home b; if the group row lacks what it needs, the field is a gap.
 
-Builders: **built** (on the wire now), **2c** (the translator, decision 231), **2d** (the queue, decision 232), **A0**, **row 11** (only an answer's send).
+Builders: **built** (on the wire now), **2c** (the translator, decision 231), **2d** (the queue, decision 232), **6d** (the row store page, decision 416), **A0**, **row 11** (only an answer's send).
 
 Sources cited:
 
@@ -223,6 +223,7 @@ This section is the input for rows/notYet.ts.
 
 - `presence`, typing and the read mark (`_acpmux/view`): home f through the hold attach (decision 234). They leave this list once PR 3 sends the hold.
 - Untraced and marked b?: `frame`, `laneNoticeBatch`, `subagentReport`, `subagentReportFirst`.
+- A store chat's jumps by acpmux's turn id (decision 416). No store row carries that id. The timeline's jump (`timelineJump`, built by 6d) goes by the span's prompt id once acpmux's time spans carry one. Until then it answers false and reads no rows. A turn link or Needs you's Go to source (`revealTurn`) resolves nothing on a store chat; A0 decides it.
 
 ### row 11
 
