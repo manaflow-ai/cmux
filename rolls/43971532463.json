@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43971532463",
+  "recorded_at": "2026-11-16T22:55:58Z",
+  "reason": "cmux-tui 653eedcec4f7 changes the image's cmux-tui (pinned c2ccb8326c93)",
+  "dry_run": false,
+  "cmux_tui": "653eedcec4f7f743e1f7dc6eaa703d759c85945c",
+  "fixes": [
+    {
+      "sha": "653eedcec4f7f743e1f7dc6eaa703d759c85945c",
+      "mergedAt": "2026-11-16T12:39:56-08:00",
+      "subject": "Floating panes: the list of a screen in the daemon (cmux-tui-core) (#44235)"
+    },
+    {
+      "sha": "62dd8944ad9bdd675a74f6752683a3c803035493",
+      "mergedAt": "2026-11-16T12:24:40-08:00",
+      "subject": "acpmux: a new chat resolves a harness installed after the daemon started (hq#12175) (#44726)"
+    },
+    {
+      "sha": "28fca098795b8ed9d92e5fcd85fe0510f7180344",
+      "mergedAt": "2026-11-16T12:24:12-08:00",
+      "subject": "cmux-supervise-core: one supervisor contract for Remote and Cloud, adopted in acpmux and cmux-host (#44621)"
+    },
+    {
+      "sha": "2bd4478a3a0482da51bc513e2491f3a69efca372",
+      "mergedAt": "2026-11-16T12:11:52-08:00",
+      "subject": "v2.pr07d A: add bounded page session-list driver (#44563)"
+    },
+    {
+      "sha": "86d00115c82ada328eee5099ed9fb362cb6f9faf",
+      "mergedAt": "2026-11-16T11:42:24-08:00",
+      "subject": "acpmux v2 12b: preserve Claude follow identities (#44428)"
+    },
+    {
+      "sha": "5a71aa00f71d4ea67af0862f6ad0b2b511a964e9",
+      "mergedAt": "2026-11-16T11:39:27-08:00",
+      "subject": "acpmux v2 12a: follow transcript generations and bounded reads (#44559)"
+    },
+    {
+      "sha": "55a89d91b5f74d406e39000754bccadd7d0b44dd",
+      "mergedAt": "2026-11-16T11:20:24-08:00",
+      "subject": "sign-in: Rust owns the install token lease (renew at 2/3 of life, bounded mint, a named stall) (#44577)"
+    },
+    {
+      "sha": "74f0f65a2cdf60f8d397050121e8e5a57e9cbfe7",
+      "mergedAt": "2026-11-16T11:18:25-08:00",
+      "subject": "v2 row 11a: act wire and durable receipt ring (#44568)"
+    },
+    {
+      "sha": "03e5b034af0a8275e32839cca27ffd996dc4c2a6",
+      "mergedAt": "2026-11-16T11:16:30-08:00",
+      "subject": "agent pane: a v2 host for a chat's rows (#44353)"
+    },
+    {
+      "sha": "5cc5b32ec6f1f663d7aadba384cd4ae1364cb1f0",
+      "mergedAt": "2026-11-16T19:06:48Z",
+      "subject": "chore(next): base autofix at 0d1548863d8d"
+    },
+    {
+      "sha": "0d1548863d8d0799c4455e62436810b53456d2f6",
+      "mergedAt": "2026-11-16T11:03:39-08:00",
+      "subject": "fix(cmux NEXT): mark the three context-menu icon changes as awaiting the app FFI re-pin"
+    },
+    {
+      "sha": "466589340325a6c13d6e305421f9865df3363d35",
+      "mergedAt": "2026-11-16T10:59:10-08:00",
+      "subject": "8c A: owner-routed selector resolution (#44461)"
+    },
+    {
+      "sha": "5a586be13578ffafb85ed5512dc27665edff3986",
+      "mergedAt": "2026-11-16T10:53:03-08:00",
+      "subject": "cmux-rd view: view and control a Mac from Linux through the device hub (#44540)"
+    },
+    {
+      "sha": "47254fcf65a9b4498432fd9949a8b72db445636c",
+      "mergedAt": "2026-11-16T10:38:40-08:00",
+      "subject": "cmux device setup: agents install, start and keep cmux NIGHTLY running on your Macs (#43385)"
+    },
+    {
+      "sha": "9bbe07477705bcbd20cb61c852d494aec6749fd8",
+      "mergedAt": "2026-11-16T10:33:38-08:00",
+      "subject": "fix(cmux NEXT): no two rows of one context menu share an icon"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T22:55:58Z",
+    "snapshot_id": "sh-3902a3067fb04506aed66dc8e8b2f043",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43971532463): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "473b57aca4f4d26387be009605daa06b1b0bbe22",
+    "image": "cloud-native-auto-653eedce-43971532463-1",
+    "revision": "ci-43971532463-1",
+    "at": "2026-11-16T22:55:58Z"
+  },
+  "rolled_back": false
+}
