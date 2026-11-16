@@ -1,15 +1,15 @@
 //! cmux Remote's MCP tools (docs/cmux-remote.md, Settings and controls):
 //! the host's status and grants, worker restarts, and this Mac's Screen
-//! Sharing switch and device access. Reads and standalone controls go to the
-//! daemon; when the NEXT app is attached, share-off and stop-session first use
-//! its canonical actions. Turning sharing on and raising a device's access go
-//! to the cmux app, which asks the person first.
+//! Sharing switch and device access. Reads and lowering go to the daemon
+//! (they work with the app quit); turning sharing on and raising a device's
+//! access go to the cmux app, which asks the person first.
 
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
 use super::super::app::{ActionName, action_run_params, waiting_run_timeout};
+use super::super::remote_host::LowerChange;
 use super::transport::{CallFailure, FailureKind};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -128,13 +128,7 @@ impl RemoteTool {
             }
             "remote_share" => match arguments.get("on").and_then(Value::as_bool) {
                 Some(true) => return confirm(backend, json!({"action": "share", "on": true})),
-                Some(false) => {
-                    return app_action_or_daemon(
-                        backend,
-                        "macScreen.stopSharingThisMac",
-                        call("screen.share", json!({"on": false})),
-                    );
-                }
+                Some(false) => return lower(backend, LowerChange::ShareOff),
                 None => return invalid("on is required"),
             },
             "remote_set_access" => {
@@ -157,42 +151,41 @@ impl RemoteTool {
                     Err(failure) => return failure_result(failure),
                 }
             }
-            "remote_stop_session" => {
-                return app_action_or_daemon(
-                    backend,
-                    "macScreen.stopSharing",
-                    call("screen.stop_session", json!({})),
-                );
-            }
+            "remote_stop_session" => return lower(backend, LowerChange::StopSession),
             _ => return invalid("unknown cmux Remote tool"),
         };
         match backend.daemon(request) {
-            Ok(value) => success(value, self.name != "remote_status"),
+            Ok(mut value) if self.name == "remote_status" => {
+                if let Some(note) = super::super::remote_host::not_bundled_note(&value)
+                    && let Some(fields) = value.as_object_mut()
+                {
+                    fields.insert("note".into(), Value::String(note.into()));
+                }
+                success(value, false)
+            }
+            Ok(value) => success(value, true),
             Err(failure) => failure_result(failure),
         }
     }
 }
 
-/// The app owns NEXT screen sessions. Keep the worker path for a headless
-/// install, but only when the app transport is genuinely absent; refusals and
-/// action errors are returned unchanged.
-fn app_action_or_daemon(backend: &impl Backend, action: &str, fallback: Value) -> Value {
+/// Share-off and stop-session: cmux Remote's worker when this build has it,
+/// the cmux app's own action when the daemon says it has none (Release and
+/// NIGHTLY), the same routing as `cmux remote-host share off|stop`.
+fn lower(backend: &impl Backend, change: LowerChange) -> Value {
+    let status = backend.daemon(json!({"cmd": "remote-host-status"})).ok();
+    if !super::super::remote_host::routes_to_app(status.as_ref()) {
+        return match backend.daemon(change.worker_call()) {
+            Ok(value) => success(value, true),
+            Err(failure) => failure_result(failure),
+        };
+    }
+    let action = change.app_action();
     let params = Value::Object(action_run_params(action, ActionName::Any, "cli"));
     match backend.app("action.run", params, waiting_run_timeout(action), None, true) {
         Ok(value) => success(value, true),
-        Err(failure) if app_transport_absent(&failure) => match backend.daemon(fallback) {
-            Ok(value) => success(value, true),
-            Err(failure) => failure_result(failure),
-        },
         Err(failure) => failure_result(failure),
     }
-}
-
-fn app_transport_absent(failure: &CallFailure) -> bool {
-    matches!(
-        failure.error.get("code").and_then(Value::as_str),
-        Some("app.not_found" | "app.unreachable")
-    )
 }
 
 fn invalid(message: &str) -> Value {
