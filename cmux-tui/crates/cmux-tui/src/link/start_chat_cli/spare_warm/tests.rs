@@ -787,7 +787,7 @@ fn a_changed_scope_waits_for_the_existing_guest_writer() {
     }
 }
 
-/// Leo's NIGHTLY, cosmic-gray app-chat probe, 13 of 13 spare hits on 2026-11-15/16: the App names its
+/// Leo's NIGHTLY, hourly app-chat probe, 13 of 13 spare hits on 2026-11-15/16: the App names its
 /// active team (the shared company team) in the scope, while its install token, minted with no team,
 /// names the person's personal team, where the spare, its claim and its copy are. Every installed
 /// copy was refused as a receipt, so each claimed start read the machine's login again
