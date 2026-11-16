@@ -22,7 +22,7 @@ import CmuxNextWakeups
 final class NewTabSparePool {
     typealias Opening = AgentPaneSpareOpening
 
-    static let idleInput: Duration = .milliseconds(750)
+    var idleInput: Duration = .milliseconds(750) // quiet input before the pool's own warm (a test sets it: input that never goes quiet)
     /// A focus or selected-tab change settles this long before the parked spare draws the context a Cmd-T there gives.
     static let fitSettle: Duration = .milliseconds(120)
     static let maximumOpenings = 64
@@ -384,7 +384,7 @@ final class NewTabSparePool {
         let launch = !warmedOnce && !usedThisSession
         if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) }, then: { [weak self] in self?.armWarmTimer() }) { return }
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        warmTimer.schedule(after: launch ? Self.openSettle : idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
     private var wantsPage: Bool { slot.count < (usedThisSession ? slot.capacity : 1) } // a launch loads one page
