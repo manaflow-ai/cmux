@@ -14,6 +14,10 @@
  *     (an existing machine, kept: no create, pause or delete; the dev machine of scripts/cmux-next/cloud-devloop.ts.
  *     --keyed-start runs the app's keyed acpmux start (POST .../acpmux/keyed-start) and checks the keyed daemon still
  *     serves after acpmux.service's restart delay: the take-over race of cmux-platform#845)
+ *   bun scripts/cmux-next/cloud-journey.ts --backend staging --model stub --login-spare
+ *     (acpmux's login spare, staging only, cmux#44310: turns `pool.loginSpare` on in the machine's acpmux before the
+ *     login copy, waits for the Claude spare the copy starts and records its memory, then says whether `start agent`
+ *     took it. The same run without the flag is the "off" side of the start-step comparison)
  *
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
  * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file; or, in a GitHub Actions
@@ -2524,6 +2528,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
+  // --login-spare: acpmux's login spare on (pool.loginSpare, cmux#44310); see the header.
+  const loginSpare = argv.includes("--login-spare");
   // --preclaim-login PATH: the app's part on a warm spare before create (prepareSpareLogin, with the cmux-tui at PATH
   // for warm-spare); after the claim a login receipt for the machine makes the login step only the post-bind check.
   const preclaimLoginCmux = argValue("--preclaim-login", argv);
@@ -3148,6 +3154,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    // --login-spare: pool.loginSpare in the machine's acpmux config, read at daemon start, so the daemon restarts.
+    const spareOn = loginSpare && provider === "claude" && Boolean(login) && !only.has("chat") && !only.has("login") && !gatewayAny;
+    if (loginSpare && !spareOn) J.skip("login spare on", "--login-spare needs a Claude login copy (--agent claude, a login or --model stub)");
+    if (spareOn) {
+      await J.step("login spare on", async () => {
+        const r = await exec(
+          `${GUEST}d="$HOME/.cmux/acpmux"; [ -f "$d/config.json" ] || [ ! -f "$HOME/.acpmux/config.json" ] || d="$HOME/.acpmux"; mkdir -p "$d"; ` +
+            `python3 -I -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); c=json.loads(p.read_text()) if p.exists() else {}; c.setdefault("pool",{})["loginSpare"]=True; p.write_text(json.dumps(c, indent=2))' "$d/config.json" && ` +
+            `"$c" acp daemon restart >/dev/null 2>&1; "$c" acp --json daemon status 2>/dev/null | python3 -I -c 'import json,sys; s=json.loads(sys.stdin.read()); print("@@pool", json.dumps(s.get("pool")))'`,
+          120_000,
+        );
+        if (!r.stdout.includes("@@pool")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: "pool.loginSpare on; the daemon restarted" };
+      });
+    }
+
     J.firstText.mark("login");
     if (gatewayAny) {
       J.skip(loginStep, "--gateway: the chat machine gets no login; its model calls go to the team's gateway");
@@ -3330,6 +3352,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
+      if (spareOn) {
+        // The spare the login copy (and the stub's settings change after it) started: ready, its memory (the pool's
+        // rssBytes, every pooled host's tree; the spare is the pool's only entry on a new machine).
+        await J.step("login spare ready", async () => {
+          const t0 = Date.now();
+          let last = "";
+          while (Date.now() - t0 < 60_000) {
+            const r = await exec(`${GUEST}"$c" acp --json daemon status 2>/dev/null | python3 -I -c 'import json,sys; s=json.loads(sys.stdin.read()); print("@@pool", json.dumps(s.get("pool")))'`, 45_000);
+            const line = /@@pool (.*)/.exec(r.stdout)?.[1] ?? "null";
+            last = line;
+            let pool: any = null;
+            try { pool = JSON.parse(line); } catch { /* read again */ }
+            const spare = (pool?.entries ?? []).find((e: any) => e?.harness === "claude" && e?.state === "ready" && (e?.roles ?? []).includes("spare"));
+            if (spare) {
+              const mb = Math.round((Number(pool.rssBytes) || 0) / 1048576);
+              return { value: null, detail: `ready; pool rss ${mb} MB over ${pool.entries.length} entr${pool.entries.length === 1 ? "y" : "ies"}` };
+            }
+            await sleep(1_000);
+          }
+          throw new Error(`no ready Claude spare within 60 s; pool ${last.slice(0, 300)}`);
+        }).catch(() => undefined);
+      }
       J.firstText.mark("session_start");
       await J.step(`start agent (${agent})`, async () => {
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
@@ -3337,6 +3381,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.firstText.mark("session_ready");
         return { value: null, detail: `session ${session}` };
       });
+      if (spareOn) {
+        // The match: the start took the spare (its `pool_taken` record) or started cold.
+        await J.step("start took the login spare", async () => {
+          const r = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -c '"pool_taken"'`, 45_000);
+          const taken = Number(r.stdout.trim()) > 0;
+          if (!taken) throw new Error("the start did not take the login spare: it started cold (a key mismatch)");
+          return { value: null, detail: "taken (pool_taken)" };
+        }).catch(() => undefined);
+      }
       firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
         J.firstText.mark("send");
