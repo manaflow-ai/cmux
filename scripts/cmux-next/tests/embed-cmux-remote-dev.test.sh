@@ -70,7 +70,7 @@ run() { # <configuration> [NAME=VALUE ...] -> output, result
 warnings() { printf '%s\n' "$output" | grep -c '^warning: ' || true; }
 stamp="$scratch/temp/embed-cmux-remote-dev.stamp"
 not_embedded="warning: cmux-remote-dev: NOT EMBEDDED (this Mac has no cached zip and no read credentials)"
-# The opt-in of a build that can be published with no cmux Remote (the nightly-next app build).
+# The opt-in of a Release build that may go out with no cmux Remote. No track sets it.
 allow=(CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1)
 # The copy and the stamp of an earlier build: a build that embeds nothing removes both. Each case
 # that expects `gone` makes them first, so the check can fail.
@@ -125,6 +125,12 @@ if optional_without_asset; then pass "$name"; else fail "$name"; fi
 name="a bench build with no asset warns one time, embeds nothing and passes"
 stale
 run Release OTHER_SWIFT_FLAGS="$bench_flags"
+if optional_without_asset; then pass "$name"; else fail "$name"; fi
+# The opt-in is for a Release build with no bench define only: a bench build with it gets the
+# warning of an optional build, not the NOT EMBEDDED line.
+name="a bench build with the opt-in and no asset is a bench build: it warns one time, embeds nothing and passes"
+stale
+run Release OTHER_SWIFT_FLAGS="$bench_flags" "${allow[@]}"
 if optional_without_asset; then pass "$name"; else fail "$name"; fi
 # The embed script looks for the word -DCMUX_BENCH_HOOKS between spaces: also as the only flag and
 # as the last flag.
