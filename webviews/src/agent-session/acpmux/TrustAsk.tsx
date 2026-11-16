@@ -72,9 +72,6 @@ export function TrustAsk({
                   ? t("trust.notTrustedRepo", { agent, repo })
                   : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
             </span>
-            {answers && onContinueWithoutFolder && (
-              <span className="acpmux-trust-ask-detail">{t("trust.continueWithoutFolder")}</span>
-            )}
             {continueError && <span role="alert">{t("trust.failed")}</span>}
           </span>
           <span className="acpmux-trust-ask-actions">
@@ -181,11 +178,7 @@ export function TrustAsk({
                   : t("trust.askFolder", { folder })}
             </span>
             <span className="acpmux-trust-ask-detail">
-              {offersRepo
-                ? subject.atRoot
-                  ? t("trust.allowsRepo", { agent })
-                  : t("trust.allowsRepoFrom", { agent, folder })
-                : t("trust.allowsFolder", { agent })}
+              {offersRepo ? t("trust.allowsRepo", { agent }) : t("trust.allowsFolder", { agent })}
             </span>
             {failedReason && (
               <span className="acpmux-trust-ask-detail" role="alert">

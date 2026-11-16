@@ -227,9 +227,7 @@ test("a card with nothing draws no empty sections, one quiet line and Attach fil
   await render(container, <SummaryBody summary={emptySummary()} onAttach={() => (attached += 1)} />);
   expect(container.querySelectorAll("section")).toHaveLength(0);
   expect(container.textContent).not.toContain("None");
-  expect(container.querySelector(".acpmux-summary-empty")?.textContent).toBe(
-    "Nothing yet: outputs, subagents, sources and background tasks show here",
-  );
+  expect(container.querySelector(".acpmux-summary-empty")?.textContent).toBe("Nothing yet");
   const attach = container.querySelector<HTMLButtonElement>(".acpmux-summary-attach")!;
   expect(attach.textContent).toBe("Attach files or folders");
   await act(async () => attach.click());

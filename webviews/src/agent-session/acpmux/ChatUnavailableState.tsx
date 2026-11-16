@@ -111,7 +111,6 @@ export function ChatUnavailableState({
       };
   } else if (unavailable.reason === "machineDeleted") {
     title = t("unavailable.machineDeleted.title");
-    detail = t("unavailable.machineDeleted.detail", { machine: named ?? machine ?? "" });
   } else if (unavailable.reason === "deleted") {
     title = t("unavailable.deleted.title");
     detail = named ? t("unavailable.deleted.detailOn", { machine: named }) : t("unavailable.deleted.detail");
@@ -126,12 +125,10 @@ export function ChatUnavailableState({
     // A sender chip named a chat on a machine this Mac's acpmux has no connection to: no Reconnect,
     // since nothing here would reach it.
     title = t("unavailable.unreached.title", { machine: unavailable.machine });
-    detail = t("unavailable.unreached.detail", { machine: unavailable.machine });
   } else if (unavailable.reason === "notFound") {
     // Not listed here and never seen here: it may be deleted, or in an acpmux this tab is not routed
     // to (a Chief home's own), so the pane never says it was deleted.
     title = t("unavailable.notFound.title");
-    detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
     title = `${t("header.reconnecting")}…`;
     detail =
@@ -139,7 +136,7 @@ export function ChatUnavailableState({
         ? t("unavailable.offline.lastSeen", {
             time: relativeTime(unavailable.lastSeen, now, currentLanguage()),
           })
-        : t("unavailable.offline.detail");
+        : undefined;
     action = { label: t("unavailable.reconnect"), run: onReconnect, kind: "reconnect" };
   }
   // Remove from Sidebar closes a deleted chat's tab; every other case keeps MissingChat's Close Tab.

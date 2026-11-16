@@ -592,11 +592,7 @@ export function PermissionCard({
         {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {detail && <p className="acpmux-permission-request-description">{detail}</p>}
         {fullAccessMode && permission.pending && (
-          <p className="acpmux-permission-one-time">
-            {t(allowOnce ? "permission.fullAccessStillAsks" : "permission.fullAccessStillAsksNoOnce", {
-              mode: fullAccessMode,
-            })}
-          </p>
+          <p className="acpmux-permission-one-time">{t("permission.fullAccessStillAsks", { mode: fullAccessMode })}</p>
         )}
         {plan && (
           // Fences as plain code, scrolled inside the card when long.

@@ -100,9 +100,7 @@ test("a read prompt shows age, Copy, Edit and Fork, without receipt checks or st
   expect(tooltip('button[aria-label="Copy"]')).toBe("Copy");
   expect(tooltip('button[aria-label="Fork from here"]')).toBe("Fork from here");
   const forkButton = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
-  expect(forkButton.getAttribute("data-tooltip-detail")).toBe(
-    "Starts a new session from this point. This one stays as it is.",
-  );
+  expect(forkButton.getAttribute("data-tooltip-detail")).toBe("Starts a new session from this point.");
   act(() => forkButton.click());
   expect(forked).toEqual([5]);
   expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();

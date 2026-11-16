@@ -57,7 +57,7 @@ function PeerCopyBannerBody({
   const detail =
     copy.capturedAt !== undefined
       ? t("peerCopy.offline.savedAt", { time: relativeTime(copy.capturedAt, now, currentLanguage()) })
-      : t("peerCopy.offline.saved");
+      : undefined;
   const paused = machine === "paused" && onResume !== undefined;
   const arm = experimentArm(pausedMachineResume);
   const resume = (className: string) => (
@@ -72,7 +72,7 @@ function PeerCopyBannerBody({
           <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
           {t("peerCopy.starting.title", { machine: copy.peer })}
         </output>
-        <p className="acpmux-watch-hint">{detail}</p>
+        {detail && <p className="acpmux-watch-hint">{detail}</p>}
       </div>
     );
   }
@@ -84,7 +84,7 @@ function PeerCopyBannerBody({
           {arm === "inline" && resume("acpmux-folder-choice-button")}
           {arm === "button" && resume("acpmux-peer-copy-resume")}
         </p>
-        <p className="acpmux-watch-hint">{detail}</p>
+        {detail && <p className="acpmux-watch-hint">{detail}</p>}
         {arm === "actions" && <p className="acpmux-live-chat-actions">{resume("acpmux-folder-choice-button")}</p>}
       </div>
     );
@@ -122,7 +122,7 @@ function PeerCopyBannerBody({
         <span>{t("peerCopy.offline.title", { machine: copy.peer })}</span>
         {reconnectButton}
       </p>
-      <p className="acpmux-watch-hint">{detail}</p>
+      {detail && <p className="acpmux-watch-hint">{detail}</p>}
       {reconnect.state === "failed" && (
         <p className="acpmux-watch-hint" role="alert">
           {t("peerCopy.reconnectFailed")}

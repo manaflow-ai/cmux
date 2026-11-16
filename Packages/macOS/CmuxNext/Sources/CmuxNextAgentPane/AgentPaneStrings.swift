@@ -292,17 +292,17 @@ extension AgentPaneHostError {
                 String(localized: "agentPane.error.daemonFailed", defaultValue: "cmux couldn't start its agent service.", bundle: .module)
             }
         case .daemonRestarting:
-            String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .module)
+            String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update.", bundle: .module)
         case .daemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
         case .chiefStarting:
-            String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .module)
+            String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting.", bundle: .module)
         case .daemonRefused(let holder?, _, _, _, _):
             String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "%1$@ is using the agent service, so this cmux can't. Quit %1$@, then try again.", bundle: .module), holder)
         case .daemonRefused(_, _, _, _, _):
-            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service. This chat connects when it's free.", bundle: .module)
+            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service.", bundle: .module)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "The agent service didn't answer in time.", bundle: .module)
         }

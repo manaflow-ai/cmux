@@ -101,7 +101,6 @@ export function ContextScreen({
       <header className="acpmux-context-screen-head">
         <div className="acpmux-context-screen-heading">
           <h2>{t("contextScreen.title")}</h2>
-          <p>{t("contextScreen.subtitle")}</p>
         </div>
         <button
           type="button"
@@ -380,7 +379,6 @@ function TextEditor({
           </TabsList>
         </Tabs>
       </div>
-      <p className="acpmux-context-screen-muted">{t("contextScreen.editHint")}</p>
       <textarea
         className="acpmux-context-editor-text"
         aria-label={heading}

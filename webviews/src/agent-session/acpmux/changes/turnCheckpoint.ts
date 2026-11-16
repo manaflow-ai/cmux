@@ -213,7 +213,7 @@ export function turnDisplay(
     case "loading":
       return tools();
     case "missing":
-      return tools(t("turn.checkpoint.missing"));
+      return tools();
     case "error":
       return tools(t("turn.checkpoint.failed"));
     case "incomplete":
@@ -224,7 +224,7 @@ export function turnDisplay(
       // of the change, whichever view shows.
       const partial = (load.changeSet.filesOmitted ?? 0) > 0 || (load.changeSet.untrackedSkipped ?? 0) > 0;
       if (pending) {
-        const display = tools(t("turn.checkpoint.pending"));
+        const display = tools();
         return partial ? { ...display, partial: true } : display;
       }
       const changed = [...toolFiles, ...pathsOnly];
