@@ -193,8 +193,8 @@ public final class TabStripView: NSView {
     var rowPasses = TabStripRowPasses()
     /// The strip's scroll offset (its target; a reveal's spring is a Core Animation move).
     var scrollOffset: CGFloat = 0
-    /// The last strip move's generation (`TabStripMove`).
-    var moveGeneration = 0
+    /// Makes the strip's moves: their generations and their clock (`TabStripMoveSource`).
+    var moveSource = TabStripMoveSource()
     /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
     var goesAt: [TabID: CFTimeInterval] = [:]
     /// Takes the scroll part of every move (a reveal's spring, a relayout that keeps the selected tab

@@ -30,8 +30,9 @@ struct TabStripMove {
     /// A reveal's scroll spring: it moves every layer alike and carries no closing tab.
     var isScroll = false
     /// The media time every animation of the change starts at (set on each, so `MotionPath` sums the
-    /// moves in flight exactly; Core Animation would otherwise start them at the commit).
-    let begin = CACurrentMediaTime()
+    /// moves in flight exactly; Core Animation would otherwise start them at the commit). The strip's
+    /// `TabStripMoveSource` gives its clock's now.
+    var begin = CACurrentMediaTime()
 
     /// Key prefix of every animation a strip move adds (`cancel(_:)`).
     static let keyPrefix = "tab.move."
@@ -142,5 +143,19 @@ struct TabStripMove {
         for layer in layers {
             for key in layer.animationKeys() ?? [] where key.hasPrefix(keyPrefix) && key.hasSuffix(scrollSuffix) { layer.removeAnimation(forKey: key) }
         }
+    }
+}
+
+/// Makes a strip's moves (`TabStripView.moveSource`): each gets the next generation, and its start time from
+/// `now`. A test gives its own `now`, so the test is the clock of the strip under test.
+struct TabStripMoveSource {
+    /// The last strip move's generation (`TabStripMove`).
+    private(set) var generation = 0
+    /// The media time of now.
+    var now: () -> CFTimeInterval = { CACurrentMediaTime() }
+
+    mutating func next(_ motion: MotionMove, closing: MotionMove?, isScroll: Bool = false) -> TabStripMove {
+        generation += 1
+        return TabStripMove(generation: generation, motion: motion, closing: closing, isScroll: isScroll, begin: now())
     }
 }
