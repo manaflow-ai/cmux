@@ -4,7 +4,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { Journey, runPreclaimChat } from "./cloud-journey";
+import { Journey, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
@@ -2266,5 +2266,13 @@ describe("claudeTranscriptModelsProgram", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  test("a warm-spare refusal names the verb's own error_code and error, else stderr's last line", () => {
+    // The shape start_chat_cli.rs `refused` prints before it exits 1 (run 43804741509 recorded only "exit 1").
+    const stdout = `${JSON.stringify({ ok: false, error: "the install token names no team", error_code: "team_unresolved" })}\n`;
+    expect(warmSpareRefusal({ code: 1, stdout, stderr: "" })).toBe("warm-spare refused (exit 1): team_unresolved: the install token names no team");
+    expect(warmSpareRefusal({ code: 64, stdout: "", stderr: "usage: cmux link start-chat ...\nunknown flag --x\n" })).toBe("warm-spare refused (exit 64): unknown flag --x");
+    expect(warmSpareRefusal({ code: 1, stdout: "", stderr: "" })).toBe("warm-spare refused (exit 1)");
   });
 });

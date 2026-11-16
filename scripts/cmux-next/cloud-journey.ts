@@ -544,11 +544,30 @@ async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "
     child.on("close", (code: number | null) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
     child.stdin!.end(`${api.bearer}\n${installToken}\n`);
   });
-  if (result.code !== 0) throw new Error(`warm-spare refused (exit ${result.code})`);
-  for (const line of [result.stdout, ...result.stdout.split("\n").reverse()]) {
-    try { const value = JSON.parse(line); if (value && typeof value === "object") return value.value ?? value; } catch {}
-  }
+  if (result.code !== 0) throw new Error(warmSpareRefusal(result));
+  const answer = cliAnswer(result.stdout);
+  if (answer) return answer.value ?? answer;
   throw new Error("warm-spare returned no JSON answer");
+}
+
+/** The last JSON object a cmux CLI printed on stdout (the whole output first, then line by line from the end). */
+function cliAnswer(stdout: string): Record<string, any> | null {
+  for (const line of [stdout, ...stdout.split("\n").reverse()]) {
+    try { const value = JSON.parse(line); if (value && typeof value === "object") return value; } catch {}
+  }
+  return null;
+}
+
+/**
+ * Why warm-spare refused: the verb prints its refusal as `{"ok":false,"error_code","error"}` on stdout before it
+ * exits 1, so the error names that code and message, else stderr's last line (run 43804741509 recorded only "exit 1").
+ */
+export function warmSpareRefusal(result: { code: number; stdout: string; stderr: string }): string {
+  const answer = cliAnswer(result.stdout);
+  const said = answer && (answer.error_code || answer.error)
+    ? [answer.error_code, answer.error].filter((part) => typeof part === "string" && part).join(": ")
+    : result.stderr.trim().split("\n").pop() ?? "";
+  return `warm-spare refused (exit ${result.code})${said ? `: ${said.slice(0, 300)}` : ""}`;
 }
 
 export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
