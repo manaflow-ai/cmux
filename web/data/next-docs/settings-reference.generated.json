@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -2624,6 +2624,18 @@
             "tabs",
             "both",
             "none"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+          "kind": "choice",
+          "default": "antialiased",
+          "group": "Density and Motion",
+          "values": [
+            "antialiased",
+            "system"
           ]
         },
         {
@@ -5737,6 +5749,14 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "browser.verificationAutofill.accounts",
+          "title": "Email Accounts for Codes",
+          "help": "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Passwords"
         },
         {
           "key": "browser.verificationAutofill.enabled",
