@@ -4,7 +4,17 @@
 // stupid"). The composer, its focus and its input-ready report stay cmux's whatever the extension
 // does: a refused mount, a render that throws, a host that never answers or a scene that never
 // comes only empty this slot, and nothing else on the page or in the pane waits on it.
-import { Component, type ErrorInfo, type ReactNode, useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AppSceneMount } from "../../../apps/scene/appSceneMount";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
 import { SceneRenderer } from "../../../apps/scene/SceneRenderer";
@@ -34,8 +44,11 @@ type Props = {
  * under it never moves when the scene arrives or goes. */
 export function NewTabAppSlot(props: Props) {
   const [gone, setGone] = useState(false);
+  // Exact once: a deadline and a failed status in the same tick both read the last render's `gone`.
+  const gaveUp = useRef(false);
   const giveUp = useEffectEvent((reason: string) => {
-    if (gone) return;
+    if (gaveUp.current) return;
+    gaveUp.current = true;
     setGone(true);
     // The error journal (`cmux errors`) keeps the reason; the page shows none of it.
     console.warn(`New Tab: ${props.app} left its slot empty: ${reason}`);

@@ -2623,7 +2623,7 @@ export function NewTabScreen(props: Props) {
             {stageCards}
             {playerAndLists}
           </div>
-          {props.above && <div className="nt-above-room">{props.above}</div>}
+          {props.above !== undefined && <div className="nt-above-room">{props.above}</div>}
           {composerCard}
           {starters}
           {props.notice}
@@ -2633,8 +2633,8 @@ export function NewTabScreen(props: Props) {
         <>
           {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
                 where it always sat (screen.css .nt-composer-room). Something over the composer (an
-                extension's slot) takes that room instead. */}
-          {props.above ? (
+                extension's slot) takes that room instead, and keeps it after the slot gives up. */}
+          {props.above !== undefined ? (
             <div className="nt-above-room">{props.above}</div>
           ) : (
             minimal && <div className="nt-composer-room" />

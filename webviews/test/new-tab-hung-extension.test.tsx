@@ -162,6 +162,9 @@ for (const mode of ["hang", "throws"] as const)
       // The slot gives up (its deadline, or the throw); nothing else on the page changes.
       await act(async () => new Promise((resolve) => setTimeout(resolve, 80)));
       expect(gone).toHaveLength(1);
+      if (mode === "throws") expect(gone[0]).toContain("TypeError");
+      // The room over the composer stays: the composer does not move when the slot empties.
+      expect(host.querySelector(".nt-above-room")).not.toBeNull();
       expect(host.querySelector(".nt-app-slot")?.hasAttribute("data-gone")).toBe(true);
       expect(host.querySelector(".nt-field")).toBe(field);
       // The draft typed while the extension was out is still there, in the same field.
