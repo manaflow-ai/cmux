@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
@@ -230,7 +231,7 @@ extension AppServices {
     /// JoinConsent+App.swift finds acpmux's consent folder.
     func preferShareHostDevice() {
         guard let home = getpwuid(geteuid())?.pointee.pw_dir else { return }
-        let root = URL(fileURLWithPath: String(cString: home), isDirectory: true).appending(path: ".acpmux", directoryHint: .isDirectory)
+        let root = AcpmuxEnvironment.appHome(userHome: URL(fileURLWithPath: String(cString: home), isDirectory: true))
         let auth = cloud.auth
         ShareHostDevice.prefer(in: deviceHub, socketPath: ShareHostDevice.socketPath(acpmuxHome: environment.build.acpmuxHome(root: root)),
                                bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain,

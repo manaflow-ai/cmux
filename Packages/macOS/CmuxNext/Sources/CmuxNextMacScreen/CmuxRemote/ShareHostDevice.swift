@@ -41,9 +41,9 @@ public nonisolated enum ShareHostDevice {
     /// With it, the hub user the daemon signed in as (`user_id`), nil while it is not signed in.
     static func identity(_ devices: CmuxRemoteDevices, socketPath path: String) async -> (identity: DeviceIdentity, userID: String?)? {
         // task-owner: one bounded identity read off the main actor; the caller awaits it.
+        // No daemon: the connect fails at once (no socket at `path`), and so does the read.
         await Task.detached(priority: .userInitiated) { () -> (identity: DeviceIdentity, userID: String?)? in
-            guard FileManager.default.fileExists(atPath: path) else { return nil }
-            return try? devices.blockingIdentityAndUser()
+            try? devices.blockingIdentityAndUser()
         }.value
     }
 
@@ -97,10 +97,10 @@ public nonisolated enum ShareHostDevice {
             // Recorded by the daemon for `acpmux share-host status` (which account and hub the app runs).
             if link.running != nil, let user, let url {
                 // task-owner: one status line to the daemon; nothing waits on it.
-                Task.detached { await devices.anchored(userID: user, hubURL: url) }
+                Task.detached(priority: .utility) { await devices.anchored(userID: user, hubURL: url) }
             } else if wasDaemons {
                 // task-owner: one status line to the daemon; nothing waits on it.
-                Task.detached { await devices.signedOut() }
+                Task.detached(priority: .utility) { await devices.signedOut() }
             }
         }
     }
