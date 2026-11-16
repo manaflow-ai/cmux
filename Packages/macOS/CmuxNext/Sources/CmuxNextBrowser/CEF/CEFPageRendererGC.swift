@@ -93,6 +93,7 @@ final class CEFPageRendererGC {
     /// `usedSize` of a `Runtime.getHeapUsage` result.
     static func usedSize(_ json: String) -> Int? {
         guard let data = json.data(using: .utf8),
+              // main-actor-ok: one Runtime.getHeapUsage reply, a few numbers.
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let used = object["usedSize"] as? NSNumber else { return nil }
         return used.intValue
