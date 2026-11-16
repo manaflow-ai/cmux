@@ -978,6 +978,19 @@ export function markRanOnGuest(runs: ExecProbeRun[], nonces: string | null): Exe
 }
 
 /**
+ * The acpmux daemon a first ensure would reach: each acpmux or cmux-tui process with its parent and start, and its PATH,
+ * HOME, ACPMUX_* and CMUX_* (never a token, key or secret); the login-env cache; the binary `$c` runs; `acp status`;
+ * where `claude` is; and the store's bin directories.
+ */
+export const ENSURE_BENCH_DAEMON_FACTS = `${GUEST}` +
+  `for p in $(pgrep -f 'acpmux|cmux-tui' 2>/dev/null); do echo "== pid $p"; ps -o pid=,ppid=,lstart=,user=,args= -p "$p" 2>/dev/null | cut -c1-300; ` +
+  `pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$pp" ] && ps -o pid=,args= -p "$pp" 2>/dev/null | cut -c1-200; ` +
+  `tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -E '^(PATH|HOME|USER|ACPMUX_[A-Z_]+|CMUX_[A-Z_]+)=' | grep -viE 'TOKEN|KEY|SECRET|PASS' | cut -c1-300; done; ` +
+  `echo "== login-env"; ls -la "$HOME/.acpmux/login-env.json" 2>&1; echo "== binary"; readlink -f "$(command -v "$c")" 2>&1; "$c" --version 2>&1 | head -2; ` +
+  `echo "== status"; timeout 20 "$c" acp status --json 2>&1 | head -c 2000; echo; echo "== claude"; command -v claude 2>&1; ls -d /opt/cmux/store/*/bin 2>&1 | head -5; ` +
+  `systemctl list-units 'cmux*' --no-pager --plain 2>&1 | head -10; true`;
+
+/**
  * --ensure-bench N: one fresh machine created as a cold claim is, its Claude login installed as a cold claim's is, then N
  * timed ensures right after it runs (first-boot work still going), N once boot settles (systemctl is-system-running
  * --wait), and N with both cores busy. Public table to the out dir; outputs and slow-run journals to the private rows.
@@ -989,6 +1002,8 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
   const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
   const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
   if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+  // A create may take a spare (CloudDO.ts claim path): its daemon was started before this bench.
+  boot.create_answer = short({ spare: spareFields(answer), claimed: answer?.claimed ?? answer?.spare ?? answer?.lease ?? null, status: answer?.machine?.status ?? answer?.status ?? null });
   const write = () => {
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
     const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
@@ -1013,6 +1028,9 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     await sweep("boot");
     boot.jobs_at_running = (await exec("systemctl list-jobs --no-pager 2>&1 | head -20; systemctl is-system-running 2>&1", 60_000)).stdout;
     await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
+    // Run 43931369542: every ensure answered `unknown harness "claude"; families: chief, unii` in ~13 ms from a daemon
+    // already up, while the run before cold-started its own. Which daemon serves the first ensure, and with what PATH.
+    boot.daemon_before_ensure = (await exec(ENSURE_BENCH_DAEMON_FACTS, 60_000).catch((e) => ({ stdout: `read failed: ${String((e as Error)?.message ?? e)}` }))).stdout;
     const timed = async (condition: EnsureBenchCondition) => {
       for (let i = 0; i < args.n; i++) {
         const result = await exec(ensureBenchCommand(`bench-${args.tag}-${condition}-${i}`, condition === "loaded"), 300_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
