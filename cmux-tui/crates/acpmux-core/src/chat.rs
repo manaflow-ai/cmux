@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod act_ids;
 pub mod queue;
 pub mod source;
 pub mod stream;
@@ -248,6 +249,25 @@ pub enum ChatError {
     Failed,
     Response,
     SourceChanged,
+}
+
+/// Errors returned by the v2 daemon-line writer seam.
+#[derive(Debug, thiserror::Error)]
+pub enum ActWriteError {
+    #[error("daemon line writer I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("daemon line writer is unavailable")]
+    Unavailable,
+}
+
+/// The narrow seam used by the action path to append a daemon line.
+///
+/// Implementations must not return a place until the line and its terminating
+/// newline have been synced. The shared reference keeps the seam object-safe;
+/// hosted implementations can put their append-only file behind a mutex while
+/// test writers can provide a small in-memory implementation.
+pub trait DaemonLineWriter: Send + Sync {
+    fn append_daemon_line(&self, line: &[u8]) -> Result<u64, ActWriteError>;
 }
 
 impl std::fmt::Display for ChatError {
