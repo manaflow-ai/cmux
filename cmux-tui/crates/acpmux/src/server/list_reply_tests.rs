@@ -157,4 +157,5 @@ async fn a_closed_local_chat_resolves_through_the_request_with_a_connected_peer(
     assert!(reply.get("error").is_none(), "{reply}");
     assert_eq!(reply["result"]["session"]["sessionId"], OWN);
     assert_eq!(reply["result"]["session"]["name"], OWN);
+    assert_eq!(reply["result"]["session"]["host"], crate::pairing::machine_name());
 }
