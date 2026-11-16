@@ -322,7 +322,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
         // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
         titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
-            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
+            for await value in ObservationStream({ (names.reader.titlebarName(workspace) { selection.selection(in: $0.id) }, services.machines.local.store.profile(state.profileID)?.name, services.windows.isIncognito(window: state.id)) }) { self?.root.titlebar.title = value.0; self?.window?.title = WindowListTitle(spaceName: value.1, workspaceName: value.0, incognito: value.2, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName).value }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
