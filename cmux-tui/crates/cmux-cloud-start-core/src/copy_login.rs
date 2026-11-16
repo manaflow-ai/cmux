@@ -53,7 +53,7 @@ pub const STAGING_DIR: &str = "/home/cmux/.cmux/credential-transfer";
 pub const STAGING_MODE: u32 = 0o644;
 /// The Keychain service `cmux cloud secret set` stores the transfer cache under.
 pub const KEYCHAIN_SERVICE: &str = "cmux-cloud-secret";
-/// `security find-generic-password`'s exit status for no such item.
+/// The keychain tool's exit status for no such item (errSecItemNotFound, 44 as an exit code).
 pub const KEYCHAIN_ITEM_NOT_FOUND: i32 = 44;
 
 /// Whose login.
@@ -251,11 +251,11 @@ pub fn keychain_name(
 /// `security -w` prints it): `created` a positive number, `credential` strict base64. None for
 /// anything else.
 pub fn envelope(output: &[u8]) -> Option<Vec<u8>> {
-    let mut end = output.len();
-    while end > 0 && matches!(output[end - 1], b'\n' | b'\r') {
-        end -= 1;
+    let mut body = output;
+    while let Some((b'\n' | b'\r', rest)) = body.split_last() {
+        body = rest;
     }
-    let value: serde_json::Value = serde_json::from_slice(&output[..end]).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
     let object = value.as_object()?;
     if object.get("created")?.as_f64()? <= 0.0 {
         return None;
@@ -293,12 +293,12 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
             return None;
         }
         let mut word = 0u32;
-        for byte in &chunk[..4 - pad] {
+        for byte in chunk.iter().take(4 - pad) {
             word = (word << 6) | value(*byte)?;
         }
         word <<= 6 * pad as u32;
         let decoded = [(word >> 16) as u8, (word >> 8) as u8, word as u8];
-        out.extend_from_slice(&decoded[..3 - pad]);
+        out.extend(decoded.iter().take(3 - pad));
     }
     Some(out)
 }
@@ -345,16 +345,19 @@ pub fn claude_token(output: &[u8]) -> Option<Vec<u8>> {
     let word = |byte: &u8| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-';
     let mut tokens: Vec<&[u8]> = Vec::new();
     let mut at = 0;
-    while let Some(found) = output[at..].windows(PREFIX.len()).position(|w| w == PREFIX) {
+    while let Some(found) =
+        output.get(at..).and_then(|rest| rest.windows(PREFIX.len()).position(|w| w == PREFIX))
+    {
         let start = at + found;
-        let tail = &output[start + PREFIX.len()..];
-        let run = tail.iter().take_while(|byte| word(byte)).count();
+        let body = start + PREFIX.len();
+        let run = output.iter().skip(body).take_while(|byte| word(byte)).count();
         if run >= 20 {
-            let token = &output[start..start + PREFIX.len() + run];
-            if !tokens.contains(&token) {
+            if let Some(token) = output.get(start..body + run)
+                && !tokens.contains(&token)
+            {
                 tokens.push(token);
             }
-            at = start + PREFIX.len() + run;
+            at = body + run;
         } else {
             at = start + 1;
         }
