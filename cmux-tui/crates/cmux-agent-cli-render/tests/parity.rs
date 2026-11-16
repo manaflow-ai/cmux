@@ -680,7 +680,8 @@ fn the_daemons_stream_keeps_every_frame_at_parity_through_a_drop() {
 /// A session as the phone's in-app bench (`AgentCLIHybridBench`, cmux-next-ios) replays it:
 /// its PTY chunks, the daemon's `agent-cli-frame` events paced as the daemon paces them, what
 /// a viewer attaching at the `working` moment gets each way (the `vt-state` replay of the
-/// screen, or a keyframe), and the real screen's text at every moment. Written only when
+/// screen, or a keyframe), and at every moment the real screen's text (`text`) and the text a
+/// hybrid viewer shows then, as of the newest frame check (`shown`). Written only when
 /// `HYBRID_EXPORT_DIR` names a directory.
 fn export(session: &Session) -> Value {
     let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
@@ -704,21 +705,26 @@ fn export(session: &Session) -> Value {
     let mut moments = Vec::new();
     let mut next_moment = 0;
     let mut pty = Vec::new();
+    // After a frame check the viewer shows the screen as it was then.
+    let mut shown = String::new();
     let mut send = |now: u64, mac: &mut ghostty_vt::Terminal, frames: &mut Vec<Value>| {
         let (real, cursor) = live_screen(mac);
         if let Some(frame) = hybrid.update(&real, now - start) {
             frames.push(json!([now - start, event(&frame, cursor)]));
         }
+        mac.viewport_text().unwrap()
     };
     for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
         while let Some(due) = pacer.due().filter(|due| *due <= at(*t)) {
             let now = u64::try_from((due - origin).as_millis()).unwrap();
-            send(now, &mut mac, &mut frames);
+            shown = send(now, &mut mac, &mut frames);
             pacer.sent(due);
         }
         while let Some((name, moment)) = session.moments.get(next_moment).filter(|m| m.1 < *t) {
             let text = mac.viewport_text().unwrap();
-            moments.push(json!({"name": name, "t_ms": moment - start, "text": text}));
+            moments.push(json!({
+                "name": name, "t_ms": moment - start, "text": text, "shown": shown,
+            }));
             if attached.is_none() && *moment >= attach {
                 // A new viewer's stream: one keyframe of the screen now.
                 let (real, cursor) = live_screen(&mut mac);
@@ -742,11 +748,13 @@ fn export(session: &Session) -> Value {
     }
     if let Some(due) = pacer.due() {
         let now = u64::try_from((due - origin).as_millis()).unwrap();
-        send(now, &mut mac, &mut frames);
+        shown = send(now, &mut mac, &mut frames);
     }
     for (name, moment) in &session.moments[next_moment..] {
         let text = mac.viewport_text().unwrap();
-        moments.push(json!({"name": name, "t_ms": moment - start, "text": text}));
+        moments.push(json!({
+            "name": name, "t_ms": moment - start, "text": text, "shown": shown,
+        }));
     }
     json!({
         "cols": COLS, "rows": ROWS, "duration_ms": end - start, "pty": pty, "frames": frames,
