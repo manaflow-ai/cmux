@@ -82,7 +82,7 @@ pub(crate) struct Chat {
 /// Follow `chat` for `conn`, from after seq `after`: subscribes the connection to it as a remote
 /// chat and starts the follower, or nudges the one running.
 pub(crate) fn follow(hub: &Arc<Hub>, conn: &Arc<Conn>, chat: Chat, after: u64) {
-    let Some(mesh) = hub.mesh.get().cloned() else { return };
+    let Some(mesh) = hub.mesh.get() else { return };
     follow_with(hub, conn, chat, after, Arc::new(ReadFeed(mesh)));
 }
 
@@ -171,6 +171,8 @@ async fn run(
                                 summary: Value::Null,
                             }),
                             update_line: Default::default(),
+                            row: Default::default(),
+                            list_seq: 0,
                         },
                     );
                 }

@@ -62,7 +62,7 @@ pub(crate) async fn new_on(
     if !read::may_read(conn) || !hub.mesh_book_has_host(host) {
         return None;
     }
-    let mesh = hub.mesh.get()?.clone();
+    let mesh = hub.mesh.get()?;
     Some(start(hub, conn, mesh, params, host, created_by).await)
 }
 

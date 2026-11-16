@@ -364,6 +364,7 @@ fn gate(b: &Arc<Hub>, dir: &std::path::Path) -> crate::trust::Paths {
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     b.set_trust_gate(Some(paths.clone()));
     paths
