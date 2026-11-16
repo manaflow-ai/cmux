@@ -40,7 +40,7 @@ struct TabStandInOpenerTests {
             guard let current = selected, let index = tabs.firstIndex(of: current) else { return }
             memory.closeRule.expect(in: id, opener: current, listed: tabs, quick: false)
             tabs.insert(tab, at: index + 1)
-            memory.selectMade(tab, in: id, inPlaceOf: nil, tabs: tabs)
+            memory.selectMade(tab, in: id, inPlaceOf: nil, tabs: tabs, standIn: { self.fates[$0] ?? .ended })
             sync()
         }
 
@@ -78,7 +78,7 @@ struct TabStandInOpenerTests {
         // The reply of the newer creation came first: the pane selects its tab as it arrives.
         pane.tabs = ["a", "b", "t1", "t2", "c"]
         pane.fates = [Self.first: .became("t1"), Self.second: .became("t2")]
-        pane.memory.selectMade("t2", in: pane.id, inPlaceOf: nil, tabs: pane.tabs)
+        pane.memory.selectMade("t2", in: pane.id, inPlaceOf: nil, tabs: pane.tabs, standIn: { pane.fates[$0] ?? .ended })
         #expect(pane.sync() == "t2")
         // `t2` opened no tab and no other tab has its opener: its opener `t1` is next, then `t1`'s opener `b`.
         #expect(pane.remove("t2") == "t1")
@@ -97,6 +97,23 @@ struct TabStandInOpenerTests {
         let pane = Pane(["a", "b", "c"], selected: "b")
         pane.newTab(Self.first)
         #expect(pane.answer([Self.first: "t1"]) == "t1")
+        #expect(pane.remove("t1") == "b")
+    }
+
+    /// A second New Tab key between the store's record of the first creation's tab and the pane's apply of it. The
+    /// pane still selects the first stand-in, the records have its tab `t1`, and the new stand-in goes right after
+    /// `t1`. The selected stand-in became `t1`, not the tab that the pane selects now: `t1` keeps the opener of its
+    /// stand-in, and the opener of the second stand-in is `t1`.
+    @Test func aNewTabBeforeThePaneAppliesTheReplyOfTheSelectedStandInKeepsBothOpeners() {
+        let pane = Pane(["a", "b", "c"], selected: "b")
+        pane.newTab(Self.first)
+        pane.fates[Self.first] = .became("t1")
+        // The New Tab key reads the records: the pane's current tab is `t1`.
+        pane.memory.closeRule.expect(in: pane.id, opener: "t1", listed: ["a", "b", "t1", "c"], quick: false)
+        pane.tabs = ["a", "b", "t1", Self.second, "c"]
+        pane.memory.selectMade(Self.second, in: pane.id, inPlaceOf: nil, tabs: pane.tabs, standIn: { pane.fates[$0] ?? .ended })
+        #expect(pane.sync() == Self.second)
+        #expect(pane.remove(Self.second) == "t1")
         #expect(pane.remove("t1") == "b")
     }
 
