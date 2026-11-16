@@ -305,3 +305,36 @@ pub(super) fn first_seq(path: &Path) -> Result<Option<u64>> {
         }
     }
 }
+
+#[cfg(test)]
+mod shared_record_tests {
+    use super::*;
+
+    #[test]
+    fn shared_event_bytes_keep_all_v1_head_readers() {
+        for host_seq in [None, Some(17)] {
+            let shared = acpmux_core::chat::record::EventRecord {
+                seq: 42,
+                at: 1234,
+                dir: "in".into(),
+                kind: "tool_call".into(),
+                msg: serde_json::json!({"nested": {"kind": "ignored", "seq": 999}}),
+                host_seq,
+            };
+            let bytes = serde_json::to_vec(&shared).unwrap();
+            let expected = match host_seq {
+                None => br#"{"seq":42,"at":1234,"dir":"in","kind":"tool_call","msg":{"nested":{"kind":"ignored","seq":999}}}"#.as_slice(),
+                Some(_) => br#"{"seq":42,"at":1234,"dir":"in","kind":"tool_call","msg":{"nested":{"kind":"ignored","seq":999}},"hostSeq":17}"#.as_slice(),
+            };
+            assert_eq!(bytes, expected);
+            let v1: EventRecord = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(serde_json::to_vec(&v1).unwrap(), expected);
+            assert_eq!(record_seq(&bytes), Some(42));
+            assert_eq!(record_at(&bytes), Some(1234));
+            assert_eq!(record_kind(&bytes), Some(b"tool_call".as_slice()));
+            let head = RecordHead::read(&bytes).unwrap();
+            assert_eq!(head.host_seq, host_seq);
+            assert_eq!(head.record(), Some(shared));
+        }
+    }
+}

@@ -43,24 +43,7 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedValue};
 
-/// One line in the session event log.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct EventRecord {
-    pub seq: u64,
-    /// Unix milliseconds.
-    pub at: u64,
-    /// `in` = agent to acpmux, `out` = acpmux to agent, `mux` = acpmux internal.
-    pub dir: String,
-    /// JSON-RPC method, `sessionUpdate` value, or an acpmux kind such as `status`.
-    pub kind: String,
-    /// Raw JSON-RPC message, or the acpmux payload.
-    pub msg: Value,
-    /// The agent host entry this record logs (`hostSeq`), so a controller
-    /// that adopts the host resumes after it (agent hosts, durable sessions).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host_seq: Option<u64>,
-}
+pub use acpmux_core::chat::record::EventRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 #[serde(rename_all = "snake_case")]

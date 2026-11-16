@@ -27,12 +27,9 @@ use serde_json::{Value, json};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-/// The `tEXt` chunk every copy carries (keyword, NUL, text), by which [`scrub_logged`] knows
-/// its base64 in any shape a harness's line puts it.
-const MARK: &[u8] = b"acpmux\0model-copy";
-
-/// What a copy's base64 is replaced with in the log.
-const OMITTED: &str = "(acpmux model-sized copy, not logged)";
+use acpmux_core::chat::record::model_copy::MARK;
+#[cfg(test)]
+use acpmux_core::chat::record::model_copy::{OMITTED, is_copy};
 
 /// The most pixels a copy is made from (about 1.5 s of decoding): a PNG past it, which no screen
 /// makes, keeps only its link, so its decode never holds the prompt back. The file itself still
@@ -116,31 +113,7 @@ fn add_blocking(session: &str, limits: Limits, blocks: Vec<Value>) -> Vec<Value>
     out
 }
 
-/// `record` (what acpmux wrote to an agent, before it is logged) with the base64 of every
-/// model-sized copy in it, in the ACP prompt or a harness's own line, replaced by a note.
-pub fn scrub_logged(record: &mut Value) {
-    match record {
-        Value::String(s) if is_copy(s) => *s = OMITTED.to_owned(),
-        Value::Array(items) => items.iter_mut().for_each(scrub_logged),
-        Value::Object(map) => map.values_mut().for_each(scrub_logged),
-        _ => {}
-    }
-}
-
-/// Whether `s` is the base64 of a copy: a PNG whose first chunk after its header is [`MARK`].
-fn is_copy(s: &str) -> bool {
-    // The signature, IHDR (25 bytes) and the mark's chunk head, in whole base64 quanta.
-    const HEAD: usize = (8 + 25 + 8 + MARK.len()).div_ceil(3) * 4;
-    if s.len() < HEAD || !s.starts_with("iVBORw0KGgo") {
-        return false;
-    }
-    let Ok(head) = base64::engine::general_purpose::STANDARD
-        .decode(s.as_bytes().get(..HEAD).unwrap_or_default())
-    else {
-        return false;
-    };
-    head.get(33 + 4..33 + 8) == Some(b"tEXt") && head.get(41..41 + MARK.len()) == Some(MARK)
-}
+pub use acpmux_core::chat::record::model_copy::scrub_logged;
 
 /// The path of the PNG `block` links to, when it is a finished upload of chat `session` that
 /// `prompt_uploads::resolve` put as a link (not inline).
