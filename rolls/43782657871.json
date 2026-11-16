@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43782657871",
+  "recorded_at": "2026-11-16T00:58:14Z",
+  "reason": "cmux-tui c50bce76fbe0 changes the image's cmux-tui (pinned e798fef75fa2)",
+  "dry_run": false,
+  "cmux_tui": "c50bce76fbe077ca562e6e186f0526491ecffc73",
+  "fixes": [
+    {
+      "sha": "c50bce76fbe077ca562e6e186f0526491ecffc73",
+      "mergedAt": "2026-11-15T16:29:47-08:00",
+      "subject": "test(next): a launch never offers classic's workspaces while an idle classic runs (#44012)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T00:58:14Z",
+    "snapshot_id": "sh-af0520b939414a5899a3dd7ef2984fa5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43782657871): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "753e8b26afc303d787e71c83bbb1046d625c0a42",
+    "image": "cloud-native-auto-c50bce76-43782657871-1",
+    "revision": "ci-43782657871-1",
+    "at": "2026-11-16T00:58:14Z"
+  },
+  "rolled_back": false
+}
