@@ -36,6 +36,7 @@ impl Opts {
 
     /// A switch that is on by `default`: `--key 0` (or `false`, `off`) turns it off, any other
     /// value turns it on.
+    #[cfg_attr(not(feature = "link"), allow(dead_code))] // `cmux-rd serve` (feature `link`)
     pub fn flag_or(&self, key: &str, default: bool) -> bool {
         match self.map.get(key).map(String::as_str) {
             None => default,
