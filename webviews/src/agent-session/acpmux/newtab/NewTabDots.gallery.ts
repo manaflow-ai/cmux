@@ -23,8 +23,8 @@ const page = {
 const pick = (dot: NewTabDot) => async (ctx: PlayContext) => {
   setComposerLook(DOT_LOOKS[dot], { remember: false });
   await ctx.waitFor(() => ctx.document.querySelector(`.nt-look-dots input[value=${dot}]:checked`) !== null);
-  const pills = ctx.document.querySelectorAll(".nt-create [data-create]").length;
-  if (pills !== 0) throw new Error(`the ${dot} dot shows ${pills} pills`);
+  const buttons = ctx.document.querySelectorAll(".nt-create [data-create]").length;
+  if (buttons !== 3) throw new Error(`the ${dot} dot shows ${buttons} create buttons, not 3`);
   const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
   if (dots !== NEW_TAB_DOTS.length) throw new Error(`the page shows ${dots} dots, not ${NEW_TAB_DOTS.length}`);
 };

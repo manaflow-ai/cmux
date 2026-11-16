@@ -1498,9 +1498,9 @@
      and its ink centers on the box's middle, where the controls are. */
   --acpmux-text-drop: calc(var(--text-content, 14px) / 14);
 }
-/* The type steps the composer reads, at its density: only the composer's own subtree and New Tab's suggestions
-   under it (a portal), not the dock's toasts, asks and lists, which keep the transcript's sizes. */
-:is(.acpmux-composer, .nt-composer, .nt-popover) {
+/* The composer's type steps also cover New Tab's suggestions and create row.
+   Dock toasts, asks and lists keep the transcript's sizes. */
+:is(.acpmux-composer, .nt-composer, .nt-popover, .nt-create) {
   --text-caption: calc(11px * var(--acpmux-density-text));
   --text-caption--line-height: calc(14px * var(--acpmux-density-text));
   --text-detail: calc(12px * var(--acpmux-density-text));
@@ -1521,7 +1521,8 @@
    person's text and interface overrides remain relative to that reference. */
 .nt-composer,
 .nt-composer .acpmux-composer,
-.nt-popover {
+.nt-popover,
+.nt-create {
   --nt-base-size-scale: calc(var(--cmux-density-scale, var(--cmux-composer-zoom, 1)) / var(--cmux-composer-zoom, 1));
   --nt-base-text-scale: calc(var(--cmux-density-text-scale, var(--cmux-composer-zoom, 1)) / var(--cmux-composer-zoom, 1));
   --acpmux-density: var(--nt-base-size-scale);
