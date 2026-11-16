@@ -55,6 +55,9 @@ final class CEFRuntime {
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.
     private(set) lazy var spareWindow = CEFSpareWindow()
+    /// The cmux pages' spare window (`CEFSpareWindow`, the pages' off-the-record store), from the first
+    /// page on (`usePageSpareWindow`); nil before.
+    private(set) var pageSpareWindow: CEFSpareWindow?
     /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
     private(set) lazy var pageRendererGC = CEFPageRendererGC(
         pages: { [weak self] in
@@ -543,6 +546,8 @@ final class CEFRuntime {
 
     /// Off-the-record context keys the shim holds, by profile.
     func releaseOffTheRecordContexts(of profile: BrowserProfileID) {
+        // A spare window of that store would outlive its context: it closes first.
+        if let pages = pageSpareWindow, pages.profile == profile { pages.drop(runtime: self) }
         let keys = offTheRecordContexts.removeValue(forKey: profile) ?? []
         for key in keys { _ = key.withCString { shim?.releaseContext($0) } }
         hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
@@ -564,11 +569,33 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] ?? spareWindow.take(for: key, runtime: self) { return host }
+        if let host = hosts[key] ?? spareWindowServing(key)?.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host
         return host
+    }
+
+    /// From now on the cmux pages' store (`profile`, off the record) keeps a spare window
+    /// (`pageSpareWindow`), which asks for its next window as the web tabs' spare does (`onNeeded`).
+    /// A later call with another profile changes nothing.
+    func usePageSpareWindow(profile: BrowserProfileID) {
+        guard pageSpareWindow == nil else { return }
+        let pages = CEFSpareWindow(profile: profile, offTheRecord: true)
+        pages.onNeeded = { [weak self] in self?.spareWindow.onNeeded?() }
+        pageSpareWindow = pages
+    }
+
+    /// The spare window of `key`'s store, if it has one: the web tabs' or the cmux pages'.
+    func spareWindowServing(_ key: CEFPaneKey) -> CEFSpareWindow? {
+        if spareWindow.serves(key) { return spareWindow }
+        return pageSpareWindow.flatMap { $0.serves(key) ? $0 : nil }
+    }
+
+    /// The spare window whose untaken window `host` is, if any.
+    func spareWindowHolding(_ host: CEFPaneHost) -> CEFSpareWindow? {
+        if spareWindow.isSpare(host) { return spareWindow }
+        return pageSpareWindow.flatMap { $0.isSpare(host) ? $0 : nil }
     }
 
     func makeRequestToken() -> Int32 {
