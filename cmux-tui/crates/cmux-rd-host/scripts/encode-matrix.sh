@@ -10,7 +10,9 @@
 # FRAMES=200, VARIANTS (a space-separated list of NAME=OPTIONS; OPTIONS is
 # `--threads N --convert-threads N --openh264-options LIST` in any mix, commas inside
 # LIST, `+` for a space), CISCO=1 to also run Cisco's binary (downloaded from Cisco,
-# the one the product loads).
+# the one the product loads) or CISCO=only for that alone. The source build (`bench`)
+# compiles OpenH264 without its assembly when nasm is missing: about 3x slower than
+# Cisco's binary on the fleet pool, so only Cisco rows say what a host costs.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="${1:-${FAST_CHECKS_OUT:-/tmp}/encode-matrix.jsonl}"
@@ -28,14 +30,16 @@ cargo build --release --quiet --manifest-path "$here/Cargo.toml" --bin cmux-rd \
 bin="$(cargo metadata --format-version 1 --no-deps --manifest-path "$here/Cargo.toml" |
   python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/cmux-rd"
 
-libs=("source=")
-if [ "${CISCO:-0}" = 1 ]; then
+libs=()
+[ "${CISCO:-0}" = only ] || libs+=("source=")
+if [ "${CISCO:-0}" != 0 ]; then
   dir="$(mktemp -d)"
   libs+=("cisco=--openh264-lib+$("$bin" openh264-install --dir "$dir")")
 fi
 
 host_cores="$(nproc)"
-echo "host: $(nproc) cores, $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)" >&2
+echo "host: $(nproc) cores, $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)," \
+  "nasm: $(command -v nasm || echo none)" >&2
 for lib in "${libs[@]}"; do
   for cores in $cores_list; do
     [ "$cores" -le "$host_cores" ] || continue
