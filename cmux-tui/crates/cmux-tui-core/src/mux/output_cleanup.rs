@@ -195,10 +195,16 @@ impl Mux {
     }
 
     pub(super) fn stop_output_cleanup(&self) {
+        self.stop_output_cleanup_within(STOP_WAIT);
+    }
+
+    /// [`Self::stop_output_cleanup`], with `wait` as the longest wait for the
+    /// worker's end.
+    fn stop_output_cleanup_within(&self, wait: Duration) {
         let worker =
             self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(worker) = worker
-            && let Some(alive) = worker.stop(STOP_WAIT)
+            && let Some(alive) = worker.stop(wait)
         {
             self.output_cleanup
                 .left_alive
@@ -212,10 +218,12 @@ impl Mux {
     /// staged registry in the session's folder on a connection of its own,
     /// and the next owner's start acts on that file, so the owner's release
     /// keeps the session while one lives (decision of 2026-11-16). A worker
-    /// that no stop reached yet is stopped here; for one that lived past its
-    /// stop this waits at most until `deadline`.
+    /// that no stop reached yet is stopped here. The stop and the wait for a
+    /// worker that lived past its stop end at `deadline` at the latest.
     pub(super) fn output_cleanup_ended_by(&self, deadline: Instant) -> bool {
-        self.stop_output_cleanup();
+        self.stop_output_cleanup_within(
+            deadline.saturating_duration_since(Instant::now()).min(STOP_WAIT),
+        );
         let mut alive =
             self.output_cleanup.left_alive.lock().unwrap_or_else(PoisonError::into_inner);
         alive.retain(|exited| {
