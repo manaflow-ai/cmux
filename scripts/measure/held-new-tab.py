@@ -44,6 +44,16 @@ preflight. A second instance of the app after the open ends the run with exit 1:
 
 NOT in the measure in each form: the HID tap and the window server's delivery.
 
+PAGE ENGINE. Directly after each launch, and one more time after the rows, the script asks the app for its own
+word on the engine of its pages (`debug.cef`). The launch prints `PREFLIGHT page engine: engine=...
+default_engine=... chromium_state=... unavailable=... webkit_fallbacks=N`. The report's `page_engine` has both
+reads (`at_launch`, `after_the_rows`) and `engine`, the word of the read after the rows: `chromium` (the engine
+says `ready`, it is the default, no page fell back), `mixed` (as `chromium`, but N pages fell back to WebKit),
+`webkit` (the app says that Chromium is not available, or the default engine is WebKit), `chromium not ready`
+(the engine's state is not `ready`; at the launch that can be the state of an engine that the app starts later),
+`not read`. A word that is not `chromium` is no failure of the run: it says what the rows measured. See
+ENGINE_LIMIT. The entry script's build requires Chromium (held-new-tab.sh).
+
 PREFLIGHT. Directly after each launch and before the session is made, one of each act kind of a take runs in a
 workspace of its own and is read back, in PREFLIGHT_S seconds at most: `frames` (1 s of `debug.frames` gives a
 frame), `record` (with --film: 1 s of `debug.window_record` gives a frame), `new-tab` (one Cmd-T in the launch's
@@ -158,6 +168,10 @@ WIDE_LIMIT = ("one more `hold` take after the rounds, recorded with more signpos
               "slow key), and its parts have no name here. The recording of more categories can slow the app: compare "
               "this row's input to next commit with the `hold` rows")
 TAKE_KILL_S = 10.0  # the wait for a killed take's child to go
+ENGINE_LIMIT = ("the app's own word (`debug.cef`) at 2 times, not a read of each new tab's own view: `webkit_fallbacks` "
+                "is the app's count of pages that fell back since its launch, in each window and workspace, so `mixed` "
+                "does not say that a tab of the rows fell back; if the app counts a page that opened while the engine was "
+                "not `ready` is not known")
 FRAME_LIMIT = ("a frame is the app's Core Animation commit; `shown` is the pane's change of its shown tab, not that "
                "the tab's own view had its content; the window server's work is not in the count")
 SHOWN_LIMIT = ("`shown` counts a key only when the pane's `show` record is not after the end of the key's first commit. "
@@ -987,6 +1001,22 @@ def preflight(app, st, out, film, form, display):
     return link
 
 
+def page_engine(rpc):
+    """The app's own word on the engine of its pages (the docstring): {engine, default_engine, chromium_state,
+    unavailable, webkit_fallbacks}; {engine: `not read`, why} when `debug.cef` gave no state."""
+    try:
+        reply = rpc("debug.cef", None, 20)
+    except Exception as error:  # noqa: BLE001  a word for the report: its fault must not end a launch or lose the rows
+        return {"engine": "not read", "why": repr(error)[:200]}
+    if not isinstance(reply, dict) or reply.get("error") or "state" not in reply:
+        return {"engine": "not read", "why": str(reply)[:200]}
+    gone, fell, state, default = reply.get("unavailable"), reply.get("fallback"), reply.get("state"), reply.get("default_engine")
+    count = int(fell.get("count") or 0) if isinstance(fell, dict) else 0
+    engine = "webkit" if gone or default == "webkit" else "chromium not ready" if state != "ready" else "mixed" if count else "chromium"
+    return {"engine": engine, "default_engine": default, "chromium_state": state,
+            "unavailable": gone.get("code") if isinstance(gone, dict) else gone, "webkit_fallbacks": count}
+
+
 def launch(opts, form):
     """One launch of the app in the key form `form`, the act that makes it the active app (`activate`) and its
     preflight: (the app, what the report says of it). Raises PreflightFailed (the app is stopped then; a
@@ -994,6 +1024,10 @@ def launch(opts, form):
     app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out,
                                 env={**LAUNCH_ENV, **({"CMUX_NEXT_NO_ACTIVATE": None} if form == "activate" else {})})
     app.launch()
+    engine = page_engine(app.rpc)
+    print(f"PREFLIGHT page engine: engine={engine['engine']} " + (f"({engine['why']})" if "why" in engine else
+          f"default_engine={engine['default_engine']} chromium_state={engine['chromium_state']} "
+          f"unavailable={engine['unavailable'] or 'none'} webkit_fallbacks={engine['webkit_fallbacks']}"), flush=True)
     try:
         active = activate(app, form)
         window = place(app) if form == "activate" else "the launcher's"
@@ -1005,7 +1039,7 @@ def launch(opts, form):
         print(f"PREFLIGHT tool FAILED: {error!r}", flush=True)
         app.stop()
         raise PreflightFailed(f"tool: {error!r}") from error
-    return app, {"form": form, "activate": active, "window": window, "display": opts.display,
+    return app, {"form": form, "activate": active, "page_engine": engine, "window": window, "display": opts.display,
                  "no_activate": app.launched_env.get("CMUX_NEXT_NO_ACTIVATE") == "1",
                  "display_link": {k: link.get(k) for k in ("frames", "p50_ms", "refresh_ms")}}
 
@@ -1225,6 +1259,7 @@ def main():
                 print(f"held-new-tab: NOT RUN: the app did not launch: {why}", flush=True)
                 return 3
     if app:
+        engine = facts.pop("page_engine")
         report.update({"launch_form": forms[0], "key_source": f"{forms[0]}: {KEY_SOURCES[forms[0]]}"})
         report["launch"] = {"ready_s": app.ready_seconds, "limits": app.limits, "executable": os.path.basename(app.binary),
                             "agent_page_mock": "CMUX_NEXT_AGENT_PANE_MOCK" in app.launched_env, **facts,
@@ -1235,6 +1270,8 @@ def main():
             traceback.print_exc()
             report["failures"].append(f"the tool stopped: {error!r}")
         finally:
+            after = page_engine(app.rpc)
+            report["page_engine"] = {"engine": after["engine"], "at_launch": engine, "after_the_rows": after, "limit": ENGINE_LIMIT}
             app.stop()
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         json.dump(report, f, indent=1)
