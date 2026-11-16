@@ -129,6 +129,9 @@ public func terminalKeyboardCopyModeAction(
     }
 
     if normalized == [.control] {
+        if lowercasedChars == "c" || chars == "\u{03}" {
+            return .exit
+        }
         if lowercasedChars == "u" || chars == "\u{15}" {
             return hasSelection ? .adjustSelection(.pageUp) : .scrollHalfPage(-1)
         }
