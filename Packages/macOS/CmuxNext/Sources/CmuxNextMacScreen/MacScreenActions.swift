@@ -47,6 +47,7 @@ public struct MacScreenActions {
             _ = pages.hubHost.revokeViewer()
             return .done
         })
+        bindViewerControls(into: registry)
     }
 
     static func record(_ invocation: ActionInvocation, pages: MacScreenPages) throws -> MacScreenRecord {
@@ -107,7 +108,15 @@ public struct MacScreenActions {
         return String(format: L.t("macScreen.actions.missingDevice", "Pass a device name or id. Your devices: %@."), listed(devices))
     }
 
+    /// The targeted tab's viewer while it asks, waits or streams (Stop Viewing's tab).
     func viewer(_ invocation: ActionInvocation) -> MacScreenPane? {
+        guard let pane = screenTab(invocation), let phase = pane.model.hub?.phase,
+              phase.isPending || phase.streamingScope != nil else { return nil }
+        return pane
+    }
+
+    /// The targeted tab's Screen Sharing screen, else the selected tab's, in any phase.
+    func screenTab(_ invocation: ActionInvocation) -> MacScreenPane? {
         let id: String
         if let target = invocation.target ?? invocation["tab"]?.targetValue {
             guard target.kind == .tab else { return nil }
@@ -116,9 +125,8 @@ public struct MacScreenActions {
             guard let selected = selectedTab() else { return nil }
             id = selected
         }
-        guard let key = providerKey(id, invocation.targetMachineID), let pane = pages.tab(key)?.pane,
-              let phase = pane.model.hub?.phase, phase.isPending || phase.streamingScope != nil else { return nil }
-        return pane
+        guard let key = providerKey(id, invocation.targetMachineID) else { return nil }
+        return pages.tab(key)?.pane
     }
 
     private static func isPerson(_ invocation: ActionInvocation) -> Bool {
