@@ -98,7 +98,7 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
         self.fileSystem = fileSystem
     }
 
-    /// The legacy helper's copy: `.../cmux-cua/helper/next-<scope>/cmux Computer Use.app`,
+    /// The legacy helper's copy: `.../cmux-next/cmux-cua/helper/next-<scope>/cmux Computer Use.app`,
     /// checked against the release helper's Developer ID requirement.
     static func legacy(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
@@ -113,7 +113,7 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
                                         home: home, operations: operations)
     }
 
-    /// The helper v2's copy: `.../cmux-cua/helper/next-v2-<scope>/<its name>`, checked
+    /// The helper v2's copy: `.../cmux-next/cmux-cua/helper/next-v2-<scope>/<its name>`, checked
     /// against the source's own designated requirement.
     static func upstream(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                          home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
@@ -124,8 +124,8 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
                                         home: home, operations: operations)
     }
 
-    /// `<cmux-cua root>/helper`, where classic cmux keeps its copies too.
-    /// The `next-` names keep the classic installer away from these.
+    /// `<NEXT's cmux-cua root>/helper`, apart from classic cmux's own copies (in its `cmux/cmux-cua/helper`).
+    /// The `next-` names stay, so a copy moved from there keeps its name.
     static func root(home: URL) -> URL {
         ComputerUseHelperDaemon.cuaRoot(home: home).appending(path: "helper", directoryHint: .isDirectory)
     }
