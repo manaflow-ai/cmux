@@ -19,7 +19,7 @@ Rows (better = lower):
 The app is built at the commit under test (--build SHA, or a NIGHTLY's source commit), a tagged build of the
 same source rather than the signed NIGHTLY binary; the NIGHTLY's own idle numbers come from xbench's cmux-budget
 rows. Default args: counts=1,10 measure=60 (about 25 minutes with the build). Harness args pass through:
---arg counts=1,10,50 --arg agents=10 --arg attribute=1 --arg measure=150 --arg config=bench ...
+--arg counts=1,10,50 --arg agents=10 --arg attribute=1 --arg measure=150 --arg config=bench --arg vmmap=tui-daemon ...
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/perf-10x-idle.sh"
 PASS_THROUGH = ("counts", "measure", "agents", "purge", "release", "attribute", "infinite", "days",
-                "chat_renderer_crash")
+                "chat_renderer_crash", "vmmap")
 DEFAULTS = {"counts": "1,10", "measure": "60"}
 FIELD = re.compile(r"(\w+)=(\S+)")
 APP_LINE = re.compile(r"^PERF-IDLE (app|app-agents) (\S+) (.*)$")
