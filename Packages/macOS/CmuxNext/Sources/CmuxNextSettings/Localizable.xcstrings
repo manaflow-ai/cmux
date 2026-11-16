@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.choice.fontSmoothingAuto": {
+      "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
     "settings.choice.backgroundFollowAppearance": {
       "comment": "Settings choice: the background switches between a light and a dark picture with the appearance.",
       "extractionState": "manual",
@@ -217910,133 +218042,133 @@
       }
     },
     "settings.appearance.fontSmoothing.help": {
-      "comment": "Help under Text Smoothing. Thin and System are the choice names; translate them as in settings.choice.fontSmoothingThin and settings.choice.fontSmoothingSystem.",
+      "comment": "Help under Text Smoothing. Auto, Thin and Smooth are the choice names; translate them as in settings.choice.fontSmoothingAuto, settings.choice.fontSmoothingThin and settings.choice.fontSmoothingSmooth.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يرسم الخيار رفيع علامات التبويب والشريط الجانبي وعناصر التحكم الأخرى بخطوط أخف، مثل دردشة cmux وصفحات الويب. يستخدم الخيار النظام إعداد macOS الافتراضي الأثقل. يحتفظ نص الطرفية بإعداده الخاص. يسري بعد إعادة تشغيل cmux."
+            "value": "كيفية رسم النص. يحتفظ الخيار تلقائي بتنعيم Mac الخاص لعلامات التبويب والشريط الجانبي وعناصر التحكم الأخرى، وبنمط كل صفحة. يرسم الخيار رفيع خطوطًا أخف في كل مكان. يرسم الخيار ناعم تنعيم macOS الأثقل في كل مكان. تتغير الصفحات فورًا؛ ويتغير النص الآخر بعد إعادة تشغيل cmux. يحتفظ نص الطرفية بإعداده الخاص."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tanko crta kartice, bočnu traku i druge kontrole lakšim potezima, kao cmux chat i web stranice. Sistemski koristi teži macOS zadani izgled. Tekst terminala zadržava vlastitu postavku. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+            "value": "Kako se tekst crta. Automatski zadržava vlastito zaglađivanje Maca za kartice, bočnu traku i druge kontrole, te vlastiti stil svake stranice. Tanko svuda crta lakše poteze. Glatko svuda crta teže macOS zaglađivanje. Stranice se mijenjaju odmah; ostali tekst nakon ponovnog pokretanja cmuxa. Tekst terminala zadržava vlastitu postavku."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tynd tegner faner, sidepanelet og andre kontroller med lettere streger, som cmux' chat og websider. System bruger den tungere macOS-standard. Terminaltekst beholder sin egen indstilling. Træder i kraft, når cmux genstartes."
+            "value": "Hvordan tekst tegnes. Automatisk beholder Mac'ens egen udglatning for faner, sidepanelet og andre kontroller og hver sides egen stil. Tynd tegner lettere streger overalt. Udglattet tegner den kraftigere macOS-udglatning overalt. Sider skifter med det samme; anden tekst skifter, når cmux genstartes. Terminaltekst beholder sin egen indstilling."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dünn zeichnet Tabs, die Seitenleiste und andere Bedienelemente mit leichteren Strichen, wie der Chat von cmux und Webseiten. System verwendet die kräftigere macOS-Standarddarstellung. Terminaltext behält seine eigene Einstellung. Wirkt nach einem Neustart von cmux."
+            "value": "Wie Text gezeichnet wird. Automatisch behält die Glättung des Mac für Tabs, Seitenleiste und andere Bedienelemente und den eigenen Stil jeder Seite. Dünn zeichnet überall leichtere Striche. Geglättet zeichnet überall die kräftigere macOS-Glättung. Seiten ändern sich sofort, anderer Text nach einem Neustart von cmux. Terminaltext behält seine eigene Einstellung."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."
+            "value": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino dibuja las pestañas, la barra lateral y otros controles con trazos más ligeros, como el chat de cmux y las páginas web. Sistema usa el valor predeterminado de macOS, más grueso. El texto de la terminal conserva su propio ajuste. Se aplica al reiniciar cmux."
+            "value": "Cómo se dibuja el texto. Automático mantiene el suavizado propio del Mac en pestañas, barra lateral y otros controles, y el estilo propio de cada página. Fino dibuja trazos más ligeros en todas partes. Suavizado dibuja el suavizado de macOS, más grueso, en todas partes. Las páginas cambian al instante; el resto del texto, al reiniciar cmux. El texto de la terminal conserva su propio ajuste."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fin dessine les onglets, la barre latérale et les autres contrôles avec des traits plus légers, comme le chat de cmux et les pages web. Système utilise le rendu macOS par défaut, plus épais. Le texte du terminal garde son propre réglage. Prend effet au redémarrage de cmux."
+            "value": "Comment le texte est dessiné. Automatique garde le lissage du Mac pour les onglets, la barre latérale et les autres contrôles, et le style propre à chaque page. Fin dessine des traits plus légers partout. Lissé dessine partout le lissage macOS, plus épais. Les pages changent aussitôt ; le reste du texte au redémarrage de cmux. Le texte du terminal garde son propre réglage."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sottile disegna schede, barra laterale e altri controlli con tratti più leggeri, come la chat di cmux e le pagine web. Sistema usa il predefinito di macOS, più marcato. Il testo del terminale mantiene la propria impostazione. Ha effetto dopo il riavvio di cmux."
+            "value": "Come viene disegnato il testo. Automatico mantiene la smussatura del Mac per schede, barra laterale e altri controlli, e lo stile proprio di ogni pagina. Sottile disegna tratti più leggeri ovunque. Smussato disegna ovunque la smussatura di macOS, più marcata. Le pagine cambiano subito; il resto del testo dopo il riavvio di cmux. Il testo del terminale mantiene la propria impostazione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「細い」は、タブ、サイドバー、その他のコントロールを cmux のチャットや Web ページのように細い線で描きます。「システム」は macOS 標準の太めの描画を使います。ターミナルの文字は独自の設定のままです。cmux の再起動後に反映されます。"
+            "value": "文字の描画方法です。「自動」は、タブ、サイドバー、その他のコントロールで Mac 自体のスムージングを使い、各ページは独自のスタイルのままにします。「細い」はすべてを細い線で描きます。「滑らか」はすべてを macOS の太めのスムージングで描きます。ページはすぐに変わり、その他の文字は cmux の再起動後に変わります。ターミナルの文字は独自の設定のままです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្តើង គូរផ្ទាំង របារចំហៀង និងការគ្រប់គ្រងផ្សេងទៀតដោយខ្សែស្រាលជាង ដូចការជជែករបស់ cmux និងទំព័រវិប។ ប្រព័ន្ធ ប្រើលំនាំដើម macOS ដែលធ្ងន់ជាង។ អត្ថបទទែមីណាល់រក្សាការកំណត់ផ្ទាល់ខ្លួន។ មានប្រសិទ្ធភាពបន្ទាប់ពីចាប់ផ្តើម cmux ឡើងវិញ។"
+            "value": "របៀបគូរអក្សរ។ ស្វ័យប្រវត្តិ រក្សាការធ្វើឲ្យរលោងផ្ទាល់របស់ Mac សម្រាប់ផ្ទាំង របារចំហៀង និងការគ្រប់គ្រងផ្សេងទៀត ព្រមទាំងរចនាប័ទ្មផ្ទាល់របស់ទំព័រនីមួយៗ។ ស្តើង គូរខ្សែស្រាលជាងនៅគ្រប់ទីកន្លែង។ រលោង គូរការធ្វើឲ្យរលោងរបស់ macOS ដែលធ្ងន់ជាងនៅគ្រប់ទីកន្លែង។ ទំព័រផ្លាស់ប្តូរភ្លាមៗ អត្ថបទផ្សេងទៀតផ្លាស់ប្តូរបន្ទាប់ពីចាប់ផ្តើម cmux ឡើងវិញ។ អត្ថបទទែមីណាល់រក្សាការកំណត់ផ្ទាល់ខ្លួន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "얇게는 탭, 사이드바 및 기타 컨트롤을 cmux 채팅과 웹 페이지처럼 가는 획으로 그립니다. 시스템은 더 굵은 macOS 기본값을 사용합니다. 터미널 텍스트는 자체 설정을 유지합니다. cmux를 다시 시작하면 적용됩니다."
+            "value": "텍스트를 그리는 방식입니다. 자동은 탭, 사이드바 및 기타 컨트롤에 Mac 자체의 다듬기를, 각 페이지에는 페이지 고유의 스타일을 유지합니다. 얇게는 모든 곳을 가는 획으로 그립니다. 부드럽게는 모든 곳을 더 굵은 macOS 다듬기로 그립니다. 페이지는 즉시 바뀌고, 그 밖의 텍스트는 cmux를 다시 시작하면 바뀝니다. 터미널 텍스트는 자체 설정을 유지합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tynn tegner faner, sidepanelet og andre kontroller med lettere streker, som cmux-chatten og nettsider. System bruker den tyngre macOS-standarden. Terminaltekst beholder sin egen innstilling. Trer i kraft når cmux startes på nytt."
+            "value": "Hvordan tekst tegnes. Automatisk beholder Macens egen utjevning for faner, sidepanelet og andre kontroller, og hver sides egen stil. Tynn tegner lettere streker overalt. Utjevnet tegner den tyngre macOS-utjevningen overalt. Sider endres med en gang; annen tekst når cmux startes på nytt. Terminaltekst beholder sin egen innstilling."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cienkie rysuje karty, pasek boczny i inne kontrolki lżejszymi pociągnięciami, jak czat cmux i strony internetowe. Systemowe używa grubszego domyślnego wyglądu macOS. Tekst terminala zachowuje własne ustawienie. Działa po ponownym uruchomieniu cmux."
+            "value": "Sposób rysowania tekstu. Automatyczne zachowuje własne wygładzanie Maca dla kart, paska bocznego i innych kontrolek oraz własny styl każdej strony. Cienkie rysuje wszędzie lżejsze pociągnięcia. Wygładzone rysuje wszędzie grubsze wygładzanie macOS. Strony zmieniają się od razu; pozostały tekst po ponownym uruchomieniu cmux. Tekst terminala zachowuje własne ustawienie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino desenha abas, a barra lateral e outros controles com traços mais leves, como o chat do cmux e as páginas web. Sistema usa o padrão do macOS, mais grosso. O texto do terminal mantém sua própria configuração. Entra em vigor após reiniciar o cmux."
+            "value": "Como o texto é desenhado. Automático mantém a suavização do próprio Mac em abas, barra lateral e outros controles, e o estilo próprio de cada página. Fino desenha traços mais leves em todo lugar. Suavizado desenha a suavização do macOS, mais grossa, em todo lugar. As páginas mudam na hora; o restante do texto, após reiniciar o cmux. O texto do terminal mantém sua própria configuração."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Тонкое» рисует вкладки, боковую панель и другие элементы более тонкими штрихами, как чат cmux и веб-страницы. «Системное» использует более плотное отображение macOS по умолчанию. Текст терминала сохраняет собственную настройку. Вступает в силу после перезапуска cmux."
+            "value": "Как рисуется текст. «Авто» оставляет собственное сглаживание Mac для вкладок, боковой панели и других элементов и собственный стиль каждой страницы. «Тонкое» везде рисует более тонкие штрихи. «Сглаженное» везде рисует более плотное сглаживание macOS. Страницы меняются сразу, остальной текст — после перезапуска cmux. Текст терминала сохраняет собственную настройку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บาง จะวาดแท็บ แถบด้านข้าง และตัวควบคุมอื่นๆ ด้วยเส้นที่บางลง เหมือนแชตของ cmux และหน้าเว็บ ระบบ ใช้ค่าเริ่มต้นของ macOS ที่หนากว่า ข้อความในเทอร์มินัลใช้การตั้งค่าของตัวเอง มีผลหลังจากเริ่ม cmux ใหม่"
+            "value": "วิธีวาดข้อความ อัตโนมัติ ใช้การปรับให้เรียบของ Mac เองกับแท็บ แถบด้านข้าง และตัวควบคุมอื่นๆ และใช้สไตล์ของแต่ละหน้าเอง บาง วาดเส้นที่บางลงทุกที่ เรียบ วาดการปรับให้เรียบของ macOS ที่หนากว่าทุกที่ หน้าเว็บเปลี่ยนทันที ข้อความอื่นเปลี่ยนหลังจากเริ่ม cmux ใหม่ ข้อความในเทอร์มินัลใช้การตั้งค่าของตัวเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "İnce; sekmeleri, kenar çubuğunu ve diğer denetimleri cmux sohbeti ve web sayfaları gibi daha hafif çizgilerle çizer. Sistem, daha kalın macOS varsayılanını kullanır. Terminal metni kendi ayarını korur. cmux yeniden başlatıldıktan sonra geçerli olur."
+            "value": "Metnin nasıl çizileceği. Otomatik; sekmeler, kenar çubuğu ve diğer denetimler için Mac'in kendi yumuşatmasını ve her sayfanın kendi stilini korur. İnce her yerde daha hafif çizgiler çizer. Yumuşak her yerde daha kalın macOS yumuşatmasını çizer. Sayfalar hemen değişir; diğer metin cmux yeniden başlatıldıktan sonra değişir. Terminal metni kendi ayarını korur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Тонке» малює вкладки, бічну панель та інші елементи тоншими штрихами, як чат cmux і вебсторінки. «Системне» використовує щільніше стандартне відображення macOS. Текст термінала зберігає власне налаштування. Діє після перезапуску cmux."
+            "value": "Як малюється текст. «Авто» залишає власне згладжування Mac для вкладок, бічної панелі та інших елементів і власний стиль кожної сторінки. «Тонке» всюди малює тонші штрихи. «Згладжене» всюди малює щільніше згладжування macOS. Сторінки змінюються одразу, інший текст — після перезапуску cmux. Текст термінала зберігає власне налаштування."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mảnh vẽ thẻ, thanh bên và các điều khiển khác bằng nét nhẹ hơn, giống khung trò chuyện của cmux và các trang web. Hệ thống dùng mặc định đậm hơn của macOS. Chữ trong terminal giữ cài đặt riêng. Có hiệu lực sau khi khởi động lại cmux."
+            "value": "Cách vẽ chữ. Tự động giữ cách làm mượt riêng của Mac cho thẻ, thanh bên và các điều khiển khác, cùng kiểu riêng của từng trang. Mảnh vẽ nét nhẹ hơn ở mọi nơi. Mượt vẽ kiểu làm mượt đậm hơn của macOS ở mọi nơi. Trang thay đổi ngay; chữ khác thay đổi sau khi khởi động lại cmux. Chữ trong terminal giữ cài đặt riêng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“细”会以更细的笔画绘制标签页、边栏和其他控件，与 cmux 的聊天和网页一致。“系统”使用 macOS 默认的较粗效果。终端文字保留其自身设置。重新启动 cmux 后生效。"
+            "value": "文字的绘制方式。“自动”在标签页、边栏和其他控件上沿用 Mac 自身的平滑效果，并保留各页面自身的样式。“细”在所有地方以更细的笔画绘制。“平滑”在所有地方使用较粗的 macOS 平滑效果。页面会立即变化；其他文字在重新启动 cmux 后变化。终端文字保留其自身设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「細」會以更細的筆畫繪製分頁、側邊欄和其他控制項，與 cmux 的聊天和網頁一致。「系統」使用 macOS 預設的較粗效果。終端機文字保留其自身設定。重新啟動 cmux 後生效。"
+            "value": "文字的繪製方式。「自動」在分頁、側邊欄和其他控制項上沿用 Mac 本身的平滑效果，並保留各頁面本身的樣式。「細」在所有地方以更細的筆畫繪製。「平滑」在所有地方使用較粗的 macOS 平滑效果。頁面會立即變更；其他文字在重新啟動 cmux 後變更。終端機文字保留其本身設定。"
           }
         }
       }
@@ -218173,134 +218305,134 @@
         }
       }
     },
-    "settings.choice.fontSmoothingSystem": {
-      "comment": "Text Smoothing choice: the macOS default font smoothing.",
+    "settings.choice.fontSmoothingSmooth": {
+      "comment": "Text Smoothing choice: the macOS font smoothing turned on everywhere (CSS subpixel-antialiased).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "النظام"
+            "value": "ناعم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistemski"
+            "value": "Glatko"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Udglattet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Geglättet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Smooth"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema"
+            "value": "Suavizado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Système"
+            "value": "Lissé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema"
+            "value": "Smussato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム"
+            "value": "滑らか"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រព័ន្ធ"
+            "value": "រលោង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "시스템"
+            "value": "부드럽게"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Utjevnet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Systemowe"
+            "value": "Wygładzone"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema"
+            "value": "Suavizado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Системное"
+            "value": "Сглаженное"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ระบบ"
+            "value": "เรียบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistem"
+            "value": "Yumuşak"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Системне"
+            "value": "Згладжене"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hệ thống"
+            "value": "Mượt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "系统"
+            "value": "平滑"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "系統"
+            "value": "平滑"
           }
         }
       }
