@@ -118,6 +118,9 @@ impl Remote for FakeMac {
                 Some(p) if p == input => "file=same\n",
                 Some(_) => "file=differs\n",
             })
+        } else if script == READY {
+            mac.running = true;
+            ok("ready=1\n")
         } else if script == START {
             mac.running = true;
             ok("ready=1\n")
@@ -166,6 +169,8 @@ struct Asker {
     agents: RefCell<Option<bool>>,
     /// The app's answer to `remote.confirm {"action":"allow_agents","on":true}`.
     allow: Result<Value, Value>,
+    /// `cmux app launch --on`'s exit code and stdout (default 3: not reached, so ssh starts it).
+    launch: (Option<i32>, String),
     /// How many times the setter ran.
     allow_calls: RefCell<u32>,
 }
@@ -179,6 +184,7 @@ impl Default for Asker {
             agents: RefCell::new(Some(false)),
             allow: Ok(json!({"ok": true, "agents_may_share": true})),
             allow_calls: RefCell::new(0),
+            launch: (Some(3), String::new()),
         }
     }
 }
@@ -195,6 +201,9 @@ impl Asking for Asker {
     }
     fn agents_allowed(&self) -> Result<bool, AskError> {
         (*self.agents.borrow()).ok_or(AskError::Unsupported)
+    }
+    fn launch_nightly(&self, _: &str) -> (Option<i32>, String) {
+        self.launch.clone()
     }
     fn allow_agents(&self) -> Result<Value, Value> {
         *self.allow_calls.borrow_mut() += 1;
@@ -528,6 +537,46 @@ fn start_runs_reach_login_item_and_start_only() {
     assert_eq!(order, ["reach", "login-item", "start"]);
     assert!(mac.sent_script(INSTALL).is_empty(), "start never installs");
     assert_eq!(state(&run, "start"), StepState::Changed);
+}
+
+/// Exit 0 from `cmux app launch --on`: acpmux opened it, so ssh only waits; exit 3 (or 2, or no
+/// answer): the ssh START script; exit 1: the machine said no, reported and not retried.
+#[test]
+fn daemon_start_decides_the_path() {
+    assert_eq!(daemon_start(Some(0), "{\"ok\":true}"), DaemonStart::Opened);
+    for code in [Some(3), Some(2), None] {
+        assert_eq!(daemon_start(code, ""), DaemonStart::Fallback, "{code:?}");
+    }
+    let refusal = r#"{"ok":false,"reason":"app.not_found","error":"no app at that path","next":"`cmux app list --on studio-mac`"}"#;
+    assert_eq!(
+        daemon_start(Some(1), refusal),
+        DaemonStart::Refused {
+            error: "no app at that path".into(),
+            next: "`cmux app list --on studio-mac`".into()
+        }
+    );
+    assert!(matches!(daemon_start(Some(1), "garbage"), DaemonStart::Refused { .. }));
+}
+
+#[test]
+fn start_goes_through_acpmux_first_and_ssh_only_when_it_is_not_reached() {
+    let start = |launch: (Option<i32>, &str)| {
+        let mac = FakeMac::new(Mac { version: "1".into(), ..Mac::default() });
+        let asker = Asker { launch: (launch.0, launch.1.to_owned()), ..Asker::default() };
+        let run = run_device("studio-mac", &mac, &asker, Mode::Start, false, &mut |_| {});
+        (mac.sent_script(READY).len(), mac.sent_script(START).len(), run)
+    };
+    let (ready, ssh, run) = start((Some(0), "{\"ok\":true}"));
+    assert_eq!((ready, ssh), (1, 0), "opened by acpmux: only the wait runs over ssh");
+    assert_eq!(detail(&run, "start"), "started cmux NIGHTLY through acpmux; it answers");
+    let (ready, ssh, run) = start((Some(3), ""));
+    assert_eq!((ready, ssh), (0, 1), "not reached: ssh starts it");
+    assert_eq!(state(&run, "start"), StepState::Changed);
+    let (ready, ssh, run) =
+        start((Some(1), r#"{"ok":false,"error":"nobody is logged in","next":"log in"}"#));
+    assert_eq!((ready, ssh), (0, 0), "a refusal is not retried over ssh");
+    assert_eq!(state(&run, "start"), StepState::Fail);
+    assert!(detail(&run, "start").contains("nobody is logged in"), "{run:?}");
 }
 
 #[test]

@@ -78,17 +78,35 @@ if launchctl bootstrap "gui/$uid" "$f" >/dev/null 2>&1; then echo load=bootstrap
 pub(super) const KEEPALIVE_CHECK: &str = r#"f="$HOME/Library/LaunchAgents/com.cmuxterm.app.nightly.keepalive.plist"
 if [ ! -f "$f" ]; then echo file=missing; elif cmp -s - "$f"; then echo file=same; else echo file=differs; fi"#;
 
-/// Starts NIGHTLY in this user's GUI session, then waits up to 30 s for its control socket
-/// (the bundled CLI's `version --json` reads the app with no error).
-pub(super) const START: &str = r#"APP='/Applications/cmux NIGHTLY.app'; CLI="$APP/Contents/Resources/bin/cmux"
-[ -d "$APP" ] || { echo 'error=cmux NIGHTLY is not installed'; exit 1; }
-launchctl asuser "$(id -u)" open -g -j -a "$APP" >/dev/null 2>&1 || { echo 'error=open failed'; exit 1; }
-i=0
+/// Up to 30 s for the app's control socket: `ready=1` once the bundled CLI's `version --json`
+/// reads the app with no error, else `ready=0`.
+macro_rules! ready_wait {
+    () => {
+        r#"i=0
 while [ $i -lt 30 ]; do
   case "$("$CLI" version --json 2>/dev/null)" in *'"app_error":null'*) echo ready=1; exit 0 ;; esac
   i=$((i+1)); sleep 1
 done
-echo ready=0"#;
+echo ready=0"#
+    };
+}
+
+/// Starts NIGHTLY in this user's GUI session, then waits up to 30 s for its control socket
+/// (the bundled CLI's `version --json` reads the app with no error).
+pub(super) const START: &str = concat!(
+    r#"APP='/Applications/cmux NIGHTLY.app'; CLI="$APP/Contents/Resources/bin/cmux"
+[ -d "$APP" ] || { echo 'error=cmux NIGHTLY is not installed'; exit 1; }
+launchctl asuser "$(id -u)" open -g -j -a "$APP" >/dev/null 2>&1 || { echo 'error=open failed'; exit 1; }
+"#,
+    ready_wait!()
+);
+
+/// [`START`]'s wait alone, after the target's acpmux opened NIGHTLY (`cmux app launch --on`).
+pub(super) const READY: &str = concat!(
+    r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
+"#,
+    ready_wait!()
+);
 
 /// Whether the target's app is signed in: the exit code, then what `whoami --json` printed.
 pub(super) const WHOAMI: &str = r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'

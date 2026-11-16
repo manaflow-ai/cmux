@@ -320,7 +320,7 @@ pub(crate) const CREDENTIAL_ENV: &[&str] = &[
 
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).
-fn cmux() -> anyhow::Result<Command> {
+pub(crate) fn cmux() -> anyhow::Result<Command> {
     let mut command = Command::new(self_exe()?);
     // The credential was read once (`JoinAuth`) and a revoke step gets it on its stdin.
     for name in CREDENTIAL_ENV {

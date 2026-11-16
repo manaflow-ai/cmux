@@ -21,6 +21,7 @@ mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
+mod app_launch_tools;
 mod automation_tools;
 mod browser_tools;
 mod caller_scope;
@@ -1116,6 +1117,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = device_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = app_launch_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {

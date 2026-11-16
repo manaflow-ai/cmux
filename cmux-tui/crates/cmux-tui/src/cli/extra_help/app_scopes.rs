@@ -143,6 +143,9 @@ usage: cmux app ping | identify | capabilities
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
        cmux app launch-times [--limit <n>] [--file <path>]  (the last launches' times, from a file; no app needed)
+       cmux app launch [--on <machine>] [--activate] [--hidden] [--new] [--wait <secs>] <app> [-- <args>...]
+                                                (open an app here or on a connected machine; no app needed)
+       cmux app list [--on <machine>] [--all]   (what a machine can open and what runs there)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 
