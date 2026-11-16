@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import postcss from "postcss";
 import focusRingGate from "../scripts/postcss/focusRingGate.mjs";
+import subjectBuckets from "../scripts/postcss/subjectBuckets.mjs";
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 
 setDefaultTimeout(180_000);
@@ -30,10 +31,10 @@ const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-styles: ${page} is not built`);
 if (!built) console.warn("agent-pane-styles: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
-/** A source sheet as the page ships it: the build runs the focus-ring gate over the joined sheets
+/** A source sheet as the page ships it: the build runs the subject split and the focus-ring gate over the joined sheets
  * (scripts/postcss/gate-css.mjs), so each `:focus-visible` carries it. */
 const shipped = (file: string) =>
-  postcss([focusRingGate()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css;
+  postcss([subjectBuckets(), focusRingGate()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css;
 
 /** Trailing spaces are stripped from the page, and a sheet's own @import lines (the page inlines
  * the imported sheet before it), so compare without them. */

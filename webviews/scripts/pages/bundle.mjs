@@ -13,6 +13,7 @@ import { createJsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
 import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
 import { factorSharedCss } from "./factor-shared-css.mjs";
 import focusRingGate from "../postcss/focusRingGate.mjs";
+import subjectBuckets from "../postcss/subjectBuckets.mjs";
 
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
@@ -76,10 +77,13 @@ for (const page of pages) {
   const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
   // Apply the focus-ring transform before factoring so the shared prefix and every remainder
   // receive exactly one pass.
-  const gated = await postcss([focusRingGate()]).process(Buffer.from(css?.contents ?? "").toString("utf8"), {
-    from: path.join(outdir, page, "app.css"),
-    map: false,
-  });
+  const gated = await postcss([subjectBuckets(), focusRingGate()]).process(
+    Buffer.from(css?.contents ?? "").toString("utf8"),
+    {
+      from: path.join(outdir, page, "app.css"),
+      map: false,
+    },
+  );
   pageStyles.set(page, gated.css);
 }
 // Every page imports the same first-party chrome layer before its page rules. Factor only an
