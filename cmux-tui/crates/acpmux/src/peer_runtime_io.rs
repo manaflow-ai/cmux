@@ -830,7 +830,7 @@ impl Peer {
             let steps = async {
                 // The peer's list stream feeds the index from here, when it lists one.
                 me.start_mirror(link);
-                // Controls open beside the list and stay state-only while the watch remains active.
+                // The watch is asked before either starts; controls stay state-only until cut E.
                 me.start_controls(link);
                 // The path it is ready on is the one to dial first next time, also after a
                 // restart.
