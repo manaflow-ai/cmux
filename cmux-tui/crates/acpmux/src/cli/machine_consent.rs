@@ -379,16 +379,24 @@ fn exists(path: &Path) -> Result<bool> {
 
 #[cfg(unix)]
 fn account_home() -> Result<PathBuf> {
+    // The kernel uid, never HOME or a tag's env.
+    // SAFETY: geteuid has no preconditions.
+    home_of_uid(unsafe { libc::geteuid() })
+}
+
+/// The OS account home of `uid`, from the account database.
+#[cfg(unix)]
+pub(super) fn home_of_uid(uid: libc::uid_t) -> Result<PathBuf> {
     use std::ffi::{CStr, OsStr};
     use std::os::unix::ffi::OsStrExt;
     let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
     let mut result = std::ptr::null_mut();
     let mut buffer = vec![0u8; 64 * 1024];
     // SAFETY: all output pointers refer to live buffers; returned strings remain
-    // valid until buffer drops. Use the kernel uid, never HOME or a tag's env.
+    // valid until buffer drops.
     let code = unsafe {
         libc::getpwuid_r(
-            libc::geteuid(),
+            uid,
             entry.as_mut_ptr(),
             buffer.as_mut_ptr().cast(),
             buffer.len(),

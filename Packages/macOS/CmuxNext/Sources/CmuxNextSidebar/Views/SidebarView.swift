@@ -78,8 +78,8 @@ public final class SidebarView: NSView {
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
     let footerRegion = SidebarRegionView(region: .bottom)
-    let aboveScroll = NSScrollView()
-    let belowScroll = NSScrollView()
+    let aboveScroll = OverlayScrollView()
+    let belowScroll = OverlayScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
     // Built in the sections setup (no IUOs).
     lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)

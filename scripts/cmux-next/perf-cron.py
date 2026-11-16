@@ -173,9 +173,12 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
-    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
-    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
+    # bench configuration (Release optimization, split-spring.sh --config=bench), since Ghostty is its optimized
+    # release; the default Debug build made the ratio a Debug-against-Release one. Rows before this were Debug.
+    {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
+     "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.

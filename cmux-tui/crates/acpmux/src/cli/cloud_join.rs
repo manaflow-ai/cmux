@@ -1072,8 +1072,8 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-/// Only the person-proven local daemon RPC calls this writer. The ordinary
-/// CLI deliberately has no person key and cannot grant consent from a PTY.
+/// The person-proven local daemon RPC calls this writer, and so does the CLI run under sudo as
+/// this Mac's admin (`consent_admin.rs`). A plain shell has no person key and no admin proof.
 pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
     authority()?.set(surface, granted)
 }
