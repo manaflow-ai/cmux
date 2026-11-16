@@ -28,7 +28,10 @@ enum HomeThemePalette {
             background: color(Palette.windowBackground, opaque: true),
             foreground: color(Palette.textPrimary, opaque: true),
             accent: color(accent, opaque: true),
-            failure: color(Palette.danger, opaque: true))
+            // The failed-send badge and its "Not Delivered" label are a status mark: systemRed's hue,
+            // like the sidebar's error mark, not the theme's ANSI red (pink in Soft Blue; Leo
+            // 2026-11-16: "why is this icon pink lol").
+            failure: color(Palette.statusError, opaque: true))
         var palette: HomePalette
         switch style {
         case .iMessage:
