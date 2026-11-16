@@ -153,8 +153,10 @@
 /* The page inset reserves the drawn, density-scaled column. The zoomed child divides that
    width once for its CSS pixels; an unscaled page column would cap Spacious at Default's width. */
 .nt-screen .nt-composer {
-  /* The column is a drawn width. Convert it to CSS pixels once; zoom restores its density. */
-  width: min(100%, calc(var(--cmux-composer-column, calc(var(--cv-column, 800px) * var(--cmux-composer-zoom, 1))) / var(--cmux-composer-zoom, 1)));
+  /* Query the unzoomed screen's content width as a length. A percentage cap is applied before
+     zoom in WebKit and after zoom in Chromium; this length has the same meaning in both. */
+  width: calc(100cqw / var(--cmux-composer-zoom, 1));
+  max-width: none;
   align-self: center;
   margin-inline: auto;
 }
@@ -1021,7 +1023,6 @@
    the box, the chips, the mic and Send in it), only placed under the stage. */
 .nt-screen[data-layout="stage"] .nt-composer {
   flex: none;
-  width: 100%;
   /* The page scrolls as one (above), but the composer keeps its place at the foot: content that
      grows over it (a chat landing, a long list, a long draft, a live resize) scrolls under it,
      never pushes it below the fold (new-tab-composer-still, new-tab-live-resize). */
