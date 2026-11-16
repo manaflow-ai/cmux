@@ -108,6 +108,20 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
+- `apple-rfb`: Apple's Screen Sharing server measured headless, with no window on any Mac.
+  `rfb-viewer.py` runs from a shell on the viewer Mac, logs in to the host's screensharingd with
+  the host account (RFB security type 30, the login Screen Sharing.app uses), keeps one update
+  request outstanding and decodes only the marker rows, so its pure-Python decoder never throttles
+  the stream. Latency is an RFB key or click to the first decoded update whose marker counter
+  changed (it ends at decode, like rd's `bench`); kbps is the RFB bytes it read; fps is the
+  framebuffer updates that carried a rectangle; the OCR frame is one fully decoded framebuffer at
+  the end of the hold. Readiness is the same fresh nonce as below, read from the framebuffer.
+  The client offers ZRLE, zlib, CopyRect and raw (`encodings_seen` records what the server used),
+  so this is Apple's server with standard RFB encodings, not the picture Screen Sharing.app gets
+  over Apple's own encodings. The login is a file in the viewer account's real home,
+  `~/.config/screen-stream-eval/login` (mode 0600): the host account's password, for the account
+  with the viewer's name (the fleet Macs share one), or a user name line first. Never argv,
+  environment or logs. Each view runs under a hard time limit.
 - `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
   same host and sample the displayed connection for OCR and viewer CPU. They
   request Standard + Full Quality and Standard + Adaptive Quality respectively;
