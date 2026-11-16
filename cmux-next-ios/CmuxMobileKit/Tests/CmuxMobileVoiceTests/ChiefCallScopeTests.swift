@@ -64,7 +64,7 @@ import Testing
         let sent = await toolbox.sendToChief("Push the branch.")
         #expect(sent.output.contains("chief_closed"))
         #expect(!cloud.store.messages.contains { $0.text == "Push the branch." }, "a call to Atlas sent to Nova")
-        #expect(cloud.store.draft.isEmpty)
+        #expect(cloud.takeUnsentText() == nil)
         #expect(toolbox.readChiefMessages(count: 5).output.contains("chief_closed"))
         #expect(toolbox.chiefName == "Atlas")
     }
@@ -81,7 +81,7 @@ import Testing
         let sent = await toolbox.sendToChief("Run the tests again.")
         #expect(sent.output.contains("chief_closed"))
         #expect(mac.store.messages.isEmpty)
-        #expect(mac.store.draft.isEmpty)
+        #expect(mac.takeUnsentText() == nil)
     }
 
     /// No outbox: a call to a Chief that is offline says nothing was sent, never "queued".

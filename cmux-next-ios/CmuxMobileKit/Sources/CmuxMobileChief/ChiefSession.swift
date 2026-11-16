@@ -200,14 +200,14 @@ public final class ChiefSession {
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
     public func use(_ backend: any ConversationBackend, identity: ChiefIdentity? = nil) {
         // Sends the old store never confirmed (still sending, Not Delivered, or waiting for its first
-        // connection) live only in it: their text goes into the next store's composer as a draft,
-        // which the user sends again. Nothing is queued or resent on its own (no outbox).
-        let unconfirmed = store.messages.filter { message in
+        // connection) live only in it: their text goes back into Chief's composer, which the user
+        // sends again (``keepUnsent(_:)``). Nothing is queued or resent on its own (no outbox).
+        // Only text: a photo the store never confirmed is not kept. A send whose confirmation was
+        // lost may have reached Chief; sent again, Chief gets it twice (the user's choice).
+        keepUnsent(store.messages.filter { message in
             message.senderID == store.meID && message.seq == nil && !message.isScheduled
                 && (message.delivery == .sending || message.delivery?.isFailed == true)
-        }.map(\.text) + awaitingSender.map(\.text)
-        let carriedDraft = ([store.draft] + unconfirmed).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }.joined(separator: "\n")
+        }.map(\.text) + awaitingSender.map(\.text))
         awaitingSender = []
         // What the old store shows now is what a later store shows first.
         store.saveTranscript()
@@ -234,7 +234,6 @@ public final class ChiefSession {
         // The Chief's newest messages as this phone last saw them show at once (an offline
         // backend keeps the Chief that was open), until this backend reads the newest page.
         store.useTranscriptCache(transcripts, key: transcriptKey)
-        if !carriedDraft.isEmpty { store.setDraft(carriedDraft) }
         attach()
         syncHistory()
     }
@@ -351,6 +350,12 @@ public final class ChiefSession {
     public func takeCarriedComposer() -> CarriedComposer? {
         defer { carriedComposer = nil }
         return carriedComposer
+    }
+
+    /// Text that was not sent while no Chief screen was open (``keepUnsent(_:)``), once.
+    public func takeUnsentText() -> String? {
+        defer { unsentText = nil }
+        return unsentText
     }
 
     /// The coordinator's try ended (connected, refused or replaced): Try Again is offered again.
@@ -705,12 +710,12 @@ public final class ChiefSession {
         if isMuted != (listState?.muted ?? false) { isMuted = listState?.muted ?? false }
         if sendsReadReceipts != (listState?.sendReadReceipts ?? true) { sendsReadReceipts = listState?.sendReadReceipts ?? true }
         alertNewMessages()
-        // The store has its sender now: `sendWhenConnected` sent what waited for it.
-        if store.meID != nil, !awaitingSender.isEmpty { awaitingSender = [] }
+        // Connected now: `sendWhenConnected` sent what waited for it, on this same change.
+        if connected, !awaitingSender.isEmpty { awaitingSender = [] }
     }
 
-    /// Messages handed to a store still coming up (``send(_:asksForAlerts:)``), until it has a
-    /// sender. Memory only: a backend swap puts their text in the next store's draft (``use(_:identity:)``).
+    /// Messages handed to a store still coming up (``send(_:asksForAlerts:)``), until it
+    /// connects. Memory only: a backend swap puts their text in the next store's draft (``use(_:identity:)``).
     private var awaitingSender: [ConversationComposeMessage] = []
 
     /// A text message (Send Message… on a workspace or a tab, with its link at the start).
@@ -719,14 +724,32 @@ public final class ChiefSession {
         send(ConversationComposeMessage(text: text))
     }
 
-    /// ``send(_:asksForAlerts:)``, or, when Chief is offline, the text into its composer as a draft
-    /// (New Message, Message Chief, Ask Cloud Chief: what the user wrote stays on screen to send again).
+    /// ``send(_:asksForAlerts:)``, or, when Chief is offline, the text into Chief's composer
+    /// (``keepUnsent(_:)``): New Message, Message Chief, Ask Cloud Chief. What the user wrote
+    /// stays on screen to send again.
     public func sendKeepingDraft(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) {
         guard !send(message, asksForAlerts: asksForAlerts) else { return }
-        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        store.setDraft(store.draft.isEmpty ? text : store.draft + "\n" + text)
+        keepUnsent([message.text])
     }
+
+    /// Text that was not sent goes into Chief's composer: the open Chief screen's field now
+    /// (``unsentTextSink``), else the next Chief screen's, with what it carries
+    /// (``takeUnsentText()``). Memory only: there is no outbox.
+    func keepUnsent(_ texts: [String]) {
+        let kept = texts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !kept.isEmpty else { return }
+        let text = kept.joined(separator: "\n")
+        if let sink = unsentTextSink {
+            sink.showUnsent(text)
+        } else {
+            unsentText = unsentText.map { $0 + "\n" + text } ?? text
+        }
+    }
+
+    /// Text kept for the next Chief screen (``keepUnsent(_:)``).
+    private var unsentText: String?
+    /// The Chief screen on screen now, which takes unsent text into its field.
+    @ObservationIgnored public weak var unsentTextSink: (any ChiefUnsentTextSink)?
 
     /// ``sendKeepingDraft(_:asksForAlerts:)`` for a text message.
     public func sendKeepingDraft(text: String) {
@@ -743,9 +766,10 @@ public final class ChiefSession {
     @discardableResult
     public func send(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) -> Bool {
         guard !message.isEmpty else { return false }
-        guard store.meID != nil || !(backend is ChiefOfflineBackend) else { return false }
+        // Offline, also with a kept transcript (which gives the store a sender): nothing can send.
+        guard !(backend is ChiefOfflineBackend) else { return false }
         if asksForAlerts { ChiefAlerts.shared.requestPermissionIfUndetermined() }
-        if store.meID == nil { awaitingSender.append(message) }
+        if store.connection != .connected { awaitingSender.append(message) }
         store.sendWhenConnected(message)
         return true
     }
@@ -785,4 +809,11 @@ public final class ChiefSession {
         if message.text.isEmpty, !message.attachments.isEmpty { return String(localized: "Attachment") }
         return message.text
     }
+}
+
+/// A Chief screen's composer, for text that was not sent (``ChiefSession/keepUnsent(_:)``).
+@MainActor
+public protocol ChiefUnsentTextSink: AnyObject {
+    /// Puts `text` in the field after what is typed there.
+    func showUnsent(_ text: String)
 }

@@ -33,6 +33,29 @@ import UIKit
         #expect(field.text == "Draft kept across visits")
     }
 
+    /// No outbox (Aziz 2026-11-14): a message Chief could not send goes back into the open
+    /// screen's field, after what is typed, and into a screen that opens later.
+    @Test func aMessageThatWasNotSentIsBackInTheField() throws {
+        let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
+        defer { session.store.stop() }
+        // No screen yet (New Message to an offline Chief): the screen that opens shows it.
+        session.sendKeepingDraft(text: "Sent while offline")
+        let conversation = ConversationViewController(store: session.store, options: .chief)
+        let container = ChiefConversationContainer(conversation: conversation, session: session)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        defer { window.isHidden = true }
+        container.loadViewIfNeeded()
+        container.beginAppearanceTransition(true, animated: false)
+        window.rootViewController = container
+        container.endAppearanceTransition()
+        let field = try #require(container.composerTextView)
+        #expect(field.text == "Sent while offline")
+        // On screen with text typed: it goes after it.
+        session.sendKeepingDraft(text: "And this one")
+        #expect(field.text == "Sent while offline\nAnd this one")
+        #expect(session.takeUnsentText() == nil, "nothing left over for a later screen")
+    }
+
     /// Back from the background the link reconnects and Chief's screen is rebuilt
     /// on the new store: the field keeps its text and its keyboard.
     @Test func aScreenRebuiltOnANewStoreKeepsTheTextAndTheKeyboard() throws {

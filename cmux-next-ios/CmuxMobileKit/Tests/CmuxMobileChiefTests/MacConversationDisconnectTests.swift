@@ -100,8 +100,10 @@ import Testing
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})
-        // Offline: nothing is queued for the Mac's return (no outbox).
+        // Offline, with the kept conversation on screen (its store has a sender): nothing is queued
+        // for the Mac's return (no outbox), and no Not Delivered bubble is made.
         #expect(!open.send(ConversationComposeMessage(text: "Run the tests again"), asksForAlerts: false))
+        #expect(!open.store.messages.contains { $0.text == "Run the tests again" })
 
         let live = session()
         await loader.load { live }

@@ -33,7 +33,7 @@ import Testing
     }
 
     /// No outbox (Aziz 2026-11-14): with Chief offline a send is refused and nothing is kept, so
-    /// the caller can say "Not sent"; the composer keeps the text with ``ChiefSession/sendKeepingDraft(_:asksForAlerts:)``.
+    /// the caller can say "Not sent"; ``ChiefSession/sendKeepingDraft(_:asksForAlerts:)`` puts the text in Chief's composer.
     @Test func aSendWhileChiefIsOfflineIsRefusedAndKeptOnlyAsADraft() {
         let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         defer { session.store.stop() }
@@ -42,8 +42,10 @@ import Testing
         #expect(session.store.messages.isEmpty)
         #expect(!session.needsYou)
         session.sendKeepingDraft(text: "Hello Chief")
-        #expect(session.store.draft == "Hello Chief")
         #expect(session.store.messages.isEmpty)
+        // No Chief screen open: the next one puts it in its field.
+        #expect(session.takeUnsentText() == "Hello Chief")
+        #expect(session.takeUnsentText() == nil, "shown once")
     }
 
     @Test func withoutRefusalOrReconnectHookNoTryAgain() {

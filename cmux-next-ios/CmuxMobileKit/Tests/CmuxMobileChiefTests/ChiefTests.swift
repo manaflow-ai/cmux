@@ -670,16 +670,16 @@ private final class StalledSendBackend: ConversationBackend, @unchecked Sendable
 }
 
 /// No outbox (Aziz 2026-11-14), and nothing lost on a backend swap: a send the old store never
-/// confirmed (the link died mid-send) comes back as the next store's composer draft, to send again.
+/// confirmed (the link died mid-send) comes back into Chief's composer, to send again.
 @Suite @MainActor struct ChiefSwapKeepsUnsentTextTests {
-    @Test(.timeLimit(.minutes(1))) func anUnconfirmedSendBecomesTheNextStoresDraft() async throws {
+    @Test(.timeLimit(.minutes(1))) func anUnconfirmedSendComesBackToTheComposer() async throws {
         let session = ChiefSession(backend: StalledSendBackend())
         defer { session.store.stop() }
         try await waitUntil("Chief to connect") { session.store.meID != nil }
         #expect(session.send(ConversationComposeMessage(text: "in flight when the link died"), asksForAlerts: false))
         try await waitUntil("the send to show as sending") { session.store.messages.contains { $0.text == "in flight when the link died" } }
         session.use(ChiefOfflineBackend())
-        #expect(session.store.draft == "in flight when the link died")
+        #expect(session.takeUnsentText() == "in flight when the link died")
         // Not resent on its own: the offline store has no message for it.
         #expect(!session.store.messages.contains { $0.text == "in flight when the link died" && $0.seq == nil })
     }

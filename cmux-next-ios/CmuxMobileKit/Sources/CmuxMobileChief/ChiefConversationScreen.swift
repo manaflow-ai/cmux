@@ -588,6 +588,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         super.viewWillAppear(animated)
         isCovered = false
         restoreCarriedComposer()
+        session.unsentTextSink = self
     }
 
     // MARK: Composer across screens and app switches
@@ -611,12 +612,15 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// in the field before the screen shows, so a reopened Chief opens with it
     /// instead of filling it in after the push settles.
     private func restoreCarriedComposer() {
-        guard let carried = session.takeCarriedComposer() else { return }
-        if let text = carried.text, let field = composerTextView, field.text.isEmpty {
-            field.text = text
-            field.delegate?.textViewDidChange?(field)
+        if let carried = session.takeCarriedComposer() {
+            if let text = carried.text, let field = composerTextView, field.text.isEmpty {
+                field.text = text
+                field.delegate?.textViewDidChange?(field)
+            }
+            if carried.focused { focusesCarriedComposer = true }
         }
-        if carried.focused { focusesCarriedComposer = true }
+        // After it, a message Chief could not send while no Chief screen was open (no outbox).
+        if let unsent = session.takeUnsentText() { showUnsent(unsent) }
     }
 
     /// Back in the foreground the field gets its keyboard again if it had it
@@ -758,6 +762,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         isCovered = true
+        if session.unsentTextSink === self { session.unsentTextSink = nil }
         // Unsent text goes with the session to the next screen (it reads it
         // before appearing); a screen replaced in place already handed it off.
         if !handedOffComposer { session.carryComposerText(composerTextView?.text ?? "") }
@@ -882,5 +887,18 @@ extension ChiefSession {
     /// The conversation a Chief screen shows now, nil when none is on screen:
     /// a notification about it needs no banner.
     public static var conversationOnScreen: String? { ChiefConversationContainer.shownConversation }
+}
+
+extension ChiefConversationContainer: ChiefUnsentTextSink {
+    /// A message Chief could not send, back in the field (no outbox), after what is typed.
+    public func showUnsent(_ text: String) {
+        guard let field = composerTextView else {
+            session.carryComposerText(text)
+            return
+        }
+        field.text = field.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : field.text + "\n" + text
+        // The composer follows its field through the delegate (send button, height).
+        field.delegate?.textViewDidChange?(field)
+    }
 }
 #endif
