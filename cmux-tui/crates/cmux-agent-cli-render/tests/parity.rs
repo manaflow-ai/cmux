@@ -22,7 +22,8 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use cmux_agent_cli_render::claude::{self, Chrome};
 use cmux_agent_cli_render::hybrid::{Delta, Overlay};
-use cmux_agent_cli_render::{Cell, Color, Grid, Style};
+use cmux_agent_cli_render::stream::{FramePacer, HybridStream};
+use cmux_agent_cli_render::{Cell, Color, Grid, Style, UNDERLINE, vt};
 use serde_json::{Value, json};
 
 const COLS: u16 = 100;
@@ -530,4 +531,142 @@ fn codex_screen_deltas_with_no_renderer() {
     let (all, rate) = blank_rows.first().copied().unwrap();
     assert!(all >= 98.0, "parity {all:.1}%");
     assert!(rate < pty_rate, "{rate:.0} B/s against the PTY's {pty_rate:.0}");
+}
+
+/// The terminal's screen as the hybrid stream sends it (underline included) and its cursor.
+fn live_screen(term: &mut ghostty_vt::Terminal) -> (Grid, vt::Cursor) {
+    let mut state = ghostty_vt::RenderState::new().unwrap();
+    state.update(term).unwrap();
+    let frame = state.build_frame().unwrap();
+    let color = |c: ghostty_vt::ColorSpec| match c {
+        ghostty_vt::ColorSpec::Default => Color::Default,
+        ghostty_vt::ColorSpec::Palette(i) => Color::Palette(i),
+        ghostty_vt::ColorSpec::Rgb(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
+    };
+    let (cols, rows) = frame.size;
+    let mut grid = Grid::blank(cols, rows);
+    for (slot, row) in grid.cells.iter_mut().zip(frame.styled_rows()) {
+        *slot = row
+            .iter()
+            .map(|c| Cell {
+                text: c.text.clone(),
+                style: Style {
+                    fg: color(c.fg),
+                    bg: color(c.bg),
+                    attrs: c.attrs() | if c.underline { UNDERLINE } else { 0 },
+                },
+            })
+            .collect();
+        slot.resize(usize::from(cols), Cell::default());
+    }
+    let cursor = frame.cursor.map_or(vt::Cursor::default(), |c| vt::Cursor {
+        x: c.x,
+        y: c.y,
+        visible: true,
+    });
+    (grid, cursor)
+}
+
+struct Streamed {
+    /// Frame bytes the viewer read (each frame's `data`).
+    wire: usize,
+    frames: usize,
+    keyframe: usize,
+    resume: Option<(usize, usize)>,
+}
+
+/// The daemon's hybrid stream over `session`, paced as the daemon paces it, applied to a
+/// second terminal as the phone applies it (`vt::frame_bytes`). After every frame the
+/// viewer's screen must be the real one, cell for cell. With `drop`, the viewer misses the
+/// frames sent in that window (ms from the start) and then resumes from the last one it
+/// applied.
+fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
+    let origin = std::time::Instant::now();
+    let at = |ms: u64| origin + std::time::Duration::from_millis(ms);
+    let start = session.chunks.first().unwrap().0;
+    let end = session.moments.last().unwrap().1;
+    let mut mac = terminal();
+    let mut phone = terminal();
+    let mut hybrid = HybridStream::new(COLS, ROWS);
+    let mut pacer = FramePacer::default();
+    let key = hybrid.keyframe(0);
+    phone.vt_write(&vt::frame_bytes(&key, ROWS, vt::Cursor::default()).unwrap());
+    let mut out = Streamed { wire: key.data.len(), frames: 1, keyframe: 0, resume: None };
+    let mut applied = hybrid.frame();
+    let mut dropped = false;
+    let mut send = |now: u64,
+                    mac: &mut ghostty_vt::Terminal,
+                    phone: &mut ghostty_vt::Terminal,
+                    out: &mut Streamed| {
+        let (real, cursor) = live_screen(mac);
+        let Some(frame) = hybrid.update(&real, now - start) else { return };
+        let offline = drop.is_some_and(|(from, to)| now - start >= from && now - start < to);
+        if offline {
+            dropped = true;
+            return;
+        }
+        let frame = if dropped {
+            dropped = false;
+            let resumed = hybrid.resume(applied, now - start).expect("the stream holds it");
+            out.resume = Some((resumed.data.len(), hybrid.keyframe(now - start).data.len()));
+            resumed
+        } else {
+            frame
+        };
+        assert_eq!(frame.base, Some(applied));
+        phone.vt_write(&vt::frame_bytes(&frame, ROWS, cursor).unwrap());
+        applied = frame.frame;
+        out.wire += frame.data.len();
+        out.frames += 1;
+        let (shown, _) = live_screen(phone);
+        assert_eq!(real.parity(&shown), (3200, 3200), "{}", diff_rows(&real, &shown));
+    };
+    for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
+        while let Some(due) = pacer.due().filter(|due| *due <= at(*t)) {
+            let now = u64::try_from((due - origin).as_millis()).unwrap();
+            send(now, &mut mac, &mut phone, &mut out);
+            pacer.sent(due);
+        }
+        mac.vt_write(bytes);
+        pacer.wrote(at(*t));
+    }
+    if let Some(due) = pacer.due() {
+        let now = u64::try_from((due - origin).as_millis()).unwrap();
+        send(now, &mut mac, &mut phone, &mut out);
+    }
+    // A viewer attaching at the end gets one keyframe of the last screen.
+    let last = hybrid.keyframe(end - start);
+    let mut fresh = terminal();
+    let (real, cursor) = live_screen(&mut mac);
+    fresh.vt_write(&vt::frame_bytes(&last, ROWS, cursor).unwrap());
+    assert_eq!(real.parity(&live_screen(&mut fresh).0), (3200, 3200));
+    out.keyframe = last.data.len();
+    out
+}
+
+fn stream_table(name: &str, session: &Session) -> (f64, f64) {
+    let (_, pty_rate, _) = pty_row(session);
+    let start = session.chunks.first().unwrap().0;
+    let secs = (session.moments.last().unwrap().1 - start) as f64 / 1000.0;
+    let s = stream(session, None);
+    let rate = s.wire as f64 / secs;
+    let dropped = stream(session, Some((8_000, 12_000)));
+    let (resume, key) = dropped.resume.expect("a resume");
+    println!(
+        "\n{name}, 100x32, the daemon's stream (8 ms settle, 100 ms frames):\n\
+         | stream | bytes | frames | bytes/s | parity | keyframe at the end | resume after a 4 s drop |\n\
+         | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n\
+         | PTY | - | - | {pty_rate:.0} | 100% | - | - |\n\
+         | hybrid | {} | {} | {rate:.0} | 100% (every frame) | {} B | {resume} B (keyframe {key} B) |",
+        s.wire, s.frames, s.keyframe
+    );
+    (rate, pty_rate)
+}
+
+#[test]
+fn the_daemons_stream_keeps_every_frame_at_parity_through_a_drop() {
+    for (name, dir) in [("Claude Code 2.1.310", CLAUDE), ("Codex 0.164.0", CODEX)] {
+        let (rate, pty_rate) = stream_table(name, &load(dir));
+        assert!(rate < pty_rate, "{name}: {rate:.0} B/s against the PTY's {pty_rate:.0}");
+    }
 }
