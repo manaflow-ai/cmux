@@ -39,7 +39,16 @@ contains(' <key> ') matches whole keys only:
 - `linux_jobs`: the jobs that take it;
 - `mini_runner`: the side label the idle minis carry (NIGHTLY_ONLY_LABEL, the all-nightly reservation, first
   while it has idle runners), or empty;
-- `mini_jobs`: the jobs that take it.
+- `mini_jobs`: the jobs that take it;
+- `small_runner`: the small label (`glaeda-small-xcode-<version>`), or empty;
+- `small_jobs`: the jobs that take it.
+
+SMALL_ONLY: before the side route, a job in SMALL_JOBS (each grows a mini's disk by 5 GiB at most,
+measured 2026-11-16) takes an idle runner on the small label. Those runners carry no other label,
+and glaeda holds their listeners only under the small jobs' own disk peak (8 GiB), not the 20 GiB
+a heavy job needs, so they keep taking these jobs on a mini too full for a side runner. Only
+SMALL_JOBS ever get that label: glaeda's hook refuses any other job there, and
+tests/test_ci_portable_job_placement.py checks that no workflow names it.
 For early nightly controls, unread capacity keeps portable jobs on the configured
 owned-mini pool. Other callers write empty values and keep their Blacksmith route.
 
@@ -85,6 +94,11 @@ side = _load("side_lane_placement")
 # Labels that are not our own Linux fleet: Blacksmith, and GitHub's hosted images (never in the
 # routing order at all).
 NOT_FLEET_LINUX = ("blacksmith-", "ubuntu-", "macos-", "windows-", "glaeda-")
+# SMALL_ONLY: the jobs that may take the small label, keyed `<workflow file>/<job id>` as glaeda's
+# hook keys them (glaeda-cmux-runner-hook SMALL_JOBS, which also lists the DEV verify and hq's routes).
+SMALL_JOBS = frozenset({"pr-checks.yml/size", "pr-red-checks-comment.yml/comment", "ci-guards.yml/guard-status",
+                        "web-validation.yml/web-validation"})
+SMALL_PREFIX = "glaeda-small-xcode-"
 # Keep the step below its own timeout; early nightly controls retain their fleet fallback.
 DEADLINE_SECONDS = 60
 
@@ -100,6 +114,8 @@ class Placement:
     mini_runner: str = ""
     mini_jobs: tuple[str, ...] = ()
     why: str = ""
+    small_runner: str = ""
+    small_jobs: tuple[str, ...] = ()
 
 
 def fleet_linux(label: str) -> str:
@@ -117,6 +133,24 @@ def family(label: str) -> str:
         return ""
     parts = [part for part in label.split("-")[1:] if part not in pool.ROLE_NAMES and part != "fast"]
     return "-".join(parts)
+
+
+def workflow_file(env: Mapping[str, str]) -> str:
+    """This run's workflow file name, from GITHUB_WORKFLOW_REF (owner/repo/.github/workflows/<file>@ref)."""
+    ref = (env.get("GITHUB_WORKFLOW_REF") or "").split("@", 1)[0]
+    return ref.rsplit("/", 1)[-1] if "/.github/workflows/" in ref else ""
+
+
+def small_label(side_label: str) -> str:
+    """The small label for the side label's Xcode version, or "" when the side label names none."""
+    version = (side_label or "").strip().rpartition("-xcode-")[2]
+    return f"{SMALL_PREFIX}{version}" if "-xcode-" in (side_label or "") and version else ""
+
+
+def small_jobs(env: Mapping[str, str], jobs: Sequence[str]) -> tuple[str, ...]:
+    """The jobs of `jobs` that may take the small label: only SMALL_JOBS of this workflow file."""
+    workflow = workflow_file(env)
+    return tuple(job for job in jobs if workflow and f"{workflow}/{job}" in SMALL_JOBS)
 
 
 def nightly_waiting(snapshot: Mapping[str, Any] | None, label: str) -> int:
@@ -210,15 +244,33 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if not linux:
         notes.append("vars.LINUX_RUNNER names no fleet Linux runner")
 
+    small_runner, small_placed = "", ()
+
     def done(why: str, mini: str = "", mini_jobs: tuple[str, ...] = ()) -> Placement:
         left = [job for job in rest if job not in mini_jobs]
         tail = [why] if why else []
         if left:
             tail.append(f"{', '.join(left)} take Blacksmith")
-        return Placement(linux if linux_jobs else "", linux_jobs, mini, mini_jobs, "; ".join(notes + tail))
+        return Placement(linux if linux_jobs else "", linux_jobs, mini, mini_jobs, "; ".join(notes + tail),
+                         small_runner, small_placed)
 
     if not rest:
         return done("")
+    # SMALL_ONLY: the small jobs take idle small runners first, on the same terms as the side route below
+    # (an eligible attempt, a fresh snapshot, no nightly waiting on the family, one job per idle runner).
+    small = small_label(env.get("SIDE_LABEL", ""))
+    wanted = small_jobs(env, rest)
+    if small and wanted and runners is not None and not problem and not eligible(env) \
+            and env.get("MINI_ALL_OR_NONE") != "1" and not nightly_waiting(snapshot, env["SIDE_LABEL"].strip()):
+        idle = sum(runner.get("status") == "online" and runner.get("busy") is False
+                   and small in pool.runner_labels(runner) for runner in runners)
+        small_placed = wanted[:max(0, idle - queued_on(snapshot, small))]
+        if small_placed:
+            small_runner = small
+            notes.append(f"{', '.join(small_placed)} take idle small runner(s) on `{small}`")
+            rest = tuple(job for job in rest if job not in small_placed)
+            if not rest:
+                return done("")
     # The all-nightly reservation's light runners (glaeda-nightly-only-m4pro, not the warm builder) exist for
     # these jobs, but it is no side label, so side_route never offered it: every nightly-next run waited the
     # whole three minutes on busy side minis and then took Blacksmith (runs 41354494707, 41355147140 and
@@ -331,7 +383,8 @@ def write(placed: Placement, env: Mapping[str, str]) -> None:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"linux_runner={placed.linux_runner}\nlinux_jobs={delimited(placed.linux_jobs)}\n"
-                         f"mini_runner={placed.mini_runner}\nmini_jobs={delimited(placed.mini_jobs)}\n")
+                         f"mini_runner={placed.mini_runner}\nmini_jobs={delimited(placed.mini_jobs)}\n"
+                         f"small_runner={placed.small_runner}\nsmall_jobs={delimited(placed.small_jobs)}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
@@ -368,7 +421,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         wanted = set((env.get("JOBS") or "").split())
         if env.get("REQUIRE_LIVE_CAPACITY") != "1":
             wanted -= set((env.get("LINUX_ONLY") or "").split())
-        while wait_seconds and not wanted.issubset(set(placed.linux_jobs + placed.mini_jobs)):
+        while wait_seconds and not wanted.issubset(set(placed.linux_jobs + placed.mini_jobs + placed.small_jobs)):
             remaining = stop - time.monotonic()
             if remaining <= 0:
                 break

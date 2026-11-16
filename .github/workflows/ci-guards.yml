@@ -2385,6 +2385,8 @@ jobs:
       linux_jobs: ${{ steps.place.outputs.linux_jobs }}
       mini_runner: ${{ steps.place.outputs.mini_runner }}
       mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      small_runner: ${{ steps.place.outputs.small_runner }}
+      small_jobs: ${{ steps.place.outputs.small_jobs }}
       placed_attempt: ${{ github.run_attempt }}
     steps:
       - name: Check out the trusted placement script
@@ -2418,7 +2420,7 @@ jobs:
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
     # Refresh portable capacity after the guard jobs finish, immediately before the rollup.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.small_jobs, ' guard-status ') && needs.portable-placement.outputs.small_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

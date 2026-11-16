@@ -972,5 +972,78 @@ class SkippedPlacementKeepsRouting(unittest.TestCase):
         self.assertIn("always()", changes)
 
 
+SMALL = "glaeda-small-xcode-26.6"
+
+
+def small_runner(name: str, *, busy: bool = False) -> dict:
+    return {"name": name, "status": "online", "busy": busy,
+            "labels": [{"name": item} for item in ("self-hosted", "glaeda-mini", SMALL, f"glaeda-runner-{name}")]}
+
+
+def workflow_ref(name: str) -> str:
+    return f"manaflow-ai/cmux/.github/workflows/{name}@refs/heads/feat-cmux-next"
+
+
+class SmallOnly(unittest.TestCase):
+    """SMALL_ONLY: glaeda's small runners hold their listeners only under the small jobs' disk peak (8 GiB, not a
+    heavy job's 20), so only those jobs may ever take the small label."""
+
+    def test_a_small_job_takes_an_idle_small_runner_before_the_side_route(self):
+        config = env(JOBS="size ui-review split", GITHUB_WORKFLOW_REF=workflow_ref("pr-checks.yml"))
+        placed = placement.decide(config, [small_runner("cmux18-glaeda-14"), *idle(2)], snapshot(), NOW)
+        self.assertEqual((placed.small_runner, placed.small_jobs), (SMALL, ("size",)))
+        self.assertEqual((placed.mini_runner, placed.mini_jobs), (SIDE, ("ui-review", "split")))
+
+    def test_only_idle_small_runners_less_their_queue_and_a_busy_one_leaves_the_side_route(self):
+        config = env(JOBS="guard-status", GITHUB_WORKFLOW_REF=workflow_ref("ci-guards.yml"))
+        busy = placement.decide(config, [small_runner("s", busy=True), *idle(1)], snapshot(), NOW)
+        self.assertEqual((busy.small_runner, busy.small_jobs), ("", ()))
+        self.assertEqual(busy.mini_jobs, ("guard-status",))
+        queued = placement.decide(config, [small_runner("s"), *idle(1)], snapshot({SMALL: {"queued": 1}}), NOW)
+        self.assertEqual(queued.small_jobs, ())
+        stale = placement.decide(config, [small_runner("s")], snapshot(age_minutes=60), NOW)
+        self.assertEqual((stale.small_jobs, stale.mini_jobs), ((), ()))
+
+    def test_no_other_job_ever_takes_the_small_label(self):
+        """A fast tier, a compile or any job not in SMALL_JOBS, and a small job's name in another workflow, never
+        get the small label, however many small runners sit idle."""
+        runners = [small_runner(f"s{index}") for index in range(6)] + idle(6)
+        cases = (("cmux-next.yml", "fast-tier release-compile swift-canary"),
+                 ("pr-checks.yml", "ui-review split"),
+                 ("cmux-next.yml", "size comment guard-status web-validation"),
+                 ("", "size"))
+        for workflow, jobs in cases:
+            with self.subTest(workflow=workflow, jobs=jobs):
+                config = env(JOBS=jobs, GITHUB_WORKFLOW_REF=workflow_ref(workflow) if workflow else "")
+                placed = placement.decide(config, runners, snapshot(), NOW)
+                self.assertEqual((placed.small_runner, placed.small_jobs), ("", ()))
+                self.assertNotEqual(placed.mini_runner, SMALL)
+        for key in placement.SMALL_JOBS:
+            workflow, job = key.split("/")
+            config = env(JOBS=job, GITHUB_WORKFLOW_REF=workflow_ref(workflow))
+            self.assertEqual(placement.decide(config, runners, snapshot(), NOW).small_jobs, (job,))
+
+    def test_the_small_label_follows_the_side_labels_xcode(self):
+        self.assertEqual(placement.small_label("glaeda-side-std-xcode-26.4"), "glaeda-small-xcode-26.4")
+        self.assertEqual(placement.small_label("ubuntu-24.04"), "")
+
+    def test_only_the_small_jobs_runs_on_read_the_small_output_and_no_workflow_names_the_label(self):
+        """The workflow side of SMALL_ONLY: a runs-on may read small_runner only for a job in SMALL_JOBS, under its
+        own key, and no workflow or variable default names the small label itself."""
+        allowed = {tuple(key.split("/")) for key in placement.SMALL_JOBS}
+        seen = set()
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            text = path.read_text()
+            self.assertNotIn("glaeda-small-", text, f"{path.name} names the small label")
+            for name, job in (yaml.safe_load(text).get("jobs") or {}).items():
+                runs_on = str((job or {}).get("runs-on", ""))
+                if "outputs.small_runner" not in runs_on:
+                    continue
+                self.assertIn((path.name, name), allowed, f"{path.name}/{name} reads the small label")
+                self.assertEqual(re.findall(r"outputs\.small_jobs, ' ([^']+) '", runs_on), [name])
+                seen.add((path.name, name))
+        self.assertEqual(seen, allowed, "every small job reads its small placement")
+
+
 if __name__ == "__main__":
     unittest.main()
