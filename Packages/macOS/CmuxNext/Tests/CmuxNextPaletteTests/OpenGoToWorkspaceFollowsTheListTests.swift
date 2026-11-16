@@ -4,7 +4,7 @@ import CmuxNextActions
 import CmuxNextTestSupport
 import Testing
 
-/// An open Go to Workspace (Cmd-P) or command page (Cmd-Shift-P) lists a workspace that appears while it shows.
+/// An open Go to Workspace (Cmd-P) lists a workspace that appears while it shows (Cmd-Shift-P lists no workspace).
 /// The palette read the app's workspace list once, at open: a workspace whose sidebar row showed at the press
 /// (a pending row) reached the app's list a moment later, and Cmd-P never listed it until it opened again
 /// (CmdPSwitchMovesSidebarSelectionTests failed 2 runs in 3: "Cmd-P lists" two workspaces, not the new one).
@@ -30,7 +30,7 @@ struct OpenGoToWorkspaceFollowsTheListTests {
         }
     }
 
-    @Test(arguments: ["goToWorkspace", "commandPalette"])
+    @Test(arguments: ["goToWorkspace"])
     func aWorkspaceAddedWhileThePaletteShowsIsListed(action: String) async throws {
         _ = NSApplication.shared
         let store = Store()

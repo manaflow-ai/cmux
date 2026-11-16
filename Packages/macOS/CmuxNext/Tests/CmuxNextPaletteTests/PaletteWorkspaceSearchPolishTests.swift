@@ -5,7 +5,7 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// Cmd-Shift-P with "workspace" typed (Lawrence 2026-11-15: "search workspaces looks bad. the icon
+/// Cmd-Shift-P (then also Cmd-P) with "workspace" typed (Lawrence 2026-11-15: "search workspaces looks bad. the icon
 /// looks bad too."): the keyword hint ("Search Workspaces ⇥") right of the field, the Workspaces
 /// scope row with its `#` key, and the workspace rows with their "Workspace" kind label ended at
 /// three different right edges, the scope row repeated what its `#` key and the field's hint already
@@ -21,12 +21,14 @@ struct PaletteWorkspaceSearchPolishTests {
         func closeWorkspace(id: String) {}
     }
 
-    private static func open(_ query: String, store: Store) async -> PaletteController {
+    /// `action`: Cmd-Shift-P (`commandPalette`, the keyword hint and the scope row) or Cmd-P (`goToWorkspace`, the
+    /// workspace rows; Cmd-Shift-P lists no workspace since msg 34162).
+    private static func open(_ query: String, store: Store, action: ActionID = "commandPalette") async -> PaletteController {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         let palette = PaletteController(registry: registry, sources: PaletteSources(workspaces: store), frecencyPersistence: nil)
         palette.bindRegistryActions()
-        _ = registry.perform("commandPalette", invocation: ActionInvocation(arguments: [:], origin: .user))
+        _ = registry.perform(action, invocation: ActionInvocation(arguments: [:], origin: .user))
         await palette.model.settleDeferredLoads()
         palette.model.send(.setQuery(query))
         await palette.model.settle()
@@ -57,30 +59,47 @@ struct PaletteWorkspaceSearchPolishTests {
     func hintKeysAndKindLabelsShareOneRightEdge(appearance: NSAppearance.Name) async throws {
         let store = Store()
         let palette = await Self.open("workspace", store: store)
-        defer { palette.closeForTest() }
+        let goTo = await Self.open("workspace", store: store, action: "goToWorkspace")
+        defer {
+            palette.closeForTest()
+            goTo.closeForTest()
+        }
         #expect(palette.model.keywordHint?.scope == PaletteScopeID.workspaces, "the field shows the Search Workspaces hint")
+        var windows: [NSWindow] = []
+        defer { windows.forEach { $0.closeAfterTest() } }
+        func render(_ model: PaletteModel) -> PaletteContentView {
+            let view = PaletteContentView(model: model)
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: PaletteLayout.windowSize), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: appearance)
+            window.contentView = view
+            windows.append(window)
+            // As on a Mac with a mouse ("Show scroll bars: Automatic"), where AppKit gave the
+            // list a legacy scroller with a gray track that took 15 pt from every row.
+            for scrollView in Self.views(NSScrollView.self, in: view) { scrollView.scrollerStyle = .legacy }
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            return view
+        }
+        func cells(_ view: NSView) -> [PaletteRowCell] {
+            Self.views(PaletteRowCell.self, in: view).filter { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
+        }
         for preset in DensityPreset.allCases {
             try DensityTokens.$scoped.withValue(preset.tokens) {
-                let view = PaletteContentView(model: palette.model)
-                let window = NSWindow(contentRect: NSRect(origin: .zero, size: PaletteLayout.windowSize), styleMask: [.borderless],
-                                      backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
-                window.appearance = NSAppearance(named: appearance)
-                window.contentView = view
-                defer { window.closeAfterTest() }
-                // As on a Mac with a mouse ("Show scroll bars: Automatic"), where AppKit gave the
-                // list a legacy scroller with a gray track that took 15 pt from every row.
-                for scrollView in Self.views(NSScrollView.self, in: view) { scrollView.scrollerStyle = .legacy }
-                view.needsLayout = true
-                view.layoutSubtreeIfNeeded()
-                view.displayIfNeeded()
+                let view = render(palette.model), goToView = render(goTo.model)
                 let label = "\(preset.tokens.name), \(appearance.rawValue)"
                 let hint = try #require(try Self.inkMaxX(of: view.searchBar, in: view), "\(label): the hint draws")
-                let cells = Self.views(PaletteRowCell.self, in: view).filter { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
-                #expect(cells.count >= 4, "\(label): \(cells.count) rows")
-                let edges = try cells.compactMap { try Self.inkMaxX(of: $0, in: view) }
-                #expect(edges.count == cells.count, "\(label): every row draws a key or a kind label at its right")
-                for edge in edges {
+                // Cmd-P's workspace rows each end in their kind label.
+                let workspaceRows = cells(goToView)
+                #expect(workspaceRows.count >= 4, "\(label): \(workspaceRows.count) workspace rows")
+                let workspaceEdges = try workspaceRows.compactMap { try Self.inkMaxX(of: $0, in: goToView) }
+                #expect(workspaceEdges.count == workspaceRows.count, "\(label): every workspace row draws its kind label")
+                // Cmd-Shift-P's rows that draw at their right (the scope row's # key, a shortcut, a kind label).
+                let commandEdges = try cells(view).compactMap { try Self.inkMaxX(of: $0, in: view) }.filter { $0 > view.glass.frame.midX }
+                #expect(!commandEdges.isEmpty, "\(label): the scope row draws its key")
+                for edge in workspaceEdges + commandEdges {
                     #expect(abs(edge - hint) <= 1, "\(label): a row ends at \(edge), the field's hint at \(hint)")
                 }
                 // The panel's right inset mirrors its left one: where the field's magnifier glyph starts.
@@ -106,7 +125,7 @@ struct PaletteWorkspaceSearchPolishTests {
     /// A workspace row draws cmux's workspace glyph (window with sidebar), as the sidebar and menus
     /// do, not the system's stacked rectangles.
     @Test func aWorkspaceRowDrawsTheWorkspaceGlyph() async throws {
-        let palette = await Self.open("workspace", store: Store())
+        let palette = await Self.open("workspace", store: Store(), action: "goToWorkspace")
         defer { palette.closeForTest() }
         let row = try #require(palette.model.rows.first { $0.item.id.hasPrefix("workspace:") })
         let symbol = try #require(row.item.symbol)
