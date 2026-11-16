@@ -22,12 +22,44 @@ public nonisolated struct ContextMenuEditorMenu: Sendable, Hashable {
     /// The layout drawn now, normalized against the generated menu.
     public let layout: ContextMenuLayout
     public let isCustomized: Bool
+
+    /// The menus built for one set of inputs (``ActionRegistry/contextMenuEditorState()``).
+    struct Built {
+        /// What the rows and layouts come from: the person's layouts, and the registry's
+        /// descriptors, actions and aliases (titles and icons; the catalog's menus never change).
+        struct Inputs: Equatable {
+            let layouts: [ActionMenuContext: ContextMenuLayout]
+            let descriptors: Int, actions: Int, aliases: Int
+        }
+
+        let inputs: Inputs
+        let menus: [ContextMenuEditorMenu]
+        let generation: UInt64
+    }
 }
 
 extension ActionRegistry {
     /// Every menu Settings > Menus offers, in ``ActionMenuContext/editorOrder``: those the app
     /// generates rows for.
     public func contextMenuEditorMenus() -> [ContextMenuEditorMenu] {
+        contextMenuEditorState().menus
+    }
+
+    /// ``contextMenuEditorMenus()`` and the generation they were built at: built again only after
+    /// their inputs changed (2026-11-16: 35 menus built on every Settings open took 8-19 ms a
+    /// main-thread record on cmux-lawrence-2), so the same generation means the same menus. Reading
+    /// the inputs keeps an observer of this registry told when the menus change.
+    public func contextMenuEditorState() -> (menus: [ContextMenuEditorMenu], generation: UInt64) {
+        let inputs = ContextMenuEditorMenu.Built.Inputs(layouts: contextMenuLayouts, descriptors: descriptors.count,
+                                                        actions: actions.count, aliases: aliases.count)
+        if let built = editorMenus, built.inputs == inputs { return (built.menus, built.generation) }
+        let built = ContextMenuEditorMenu.Built(inputs: inputs, menus: buildEditorMenus(),
+                                                generation: (editorMenus?.generation ?? 0) &+ 1)
+        editorMenus = built
+        return (built.menus, built.generation)
+    }
+
+    private func buildEditorMenus() -> [ContextMenuEditorMenu] {
         ActionMenuContext.editorOrder.compactMap { context in
             let generated = ContextMenuCatalog.shared.entries(for: context)
             guard !generated.isEmpty else { return nil }
