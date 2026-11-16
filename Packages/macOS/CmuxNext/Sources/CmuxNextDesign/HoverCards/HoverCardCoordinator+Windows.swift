@@ -23,7 +23,11 @@ extension HoverCardCoordinator {
         }
         let number = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
             ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: cardWindowNumbers)
-        topWindowCache = (point, time, number)
+        // Stamped after the round trip, never before it: this cache exists to stop a slow window
+        // server from being asked again inside one frame, so timing the frame from before the ask
+        // means a slow ask expires its own answer (hq docs/handbook
+        // latency-gate-its-own-slowness-switches-off.md).
+        topWindowCache = (point, now(), number)
         return number
     }
 
