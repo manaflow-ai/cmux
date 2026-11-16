@@ -354,11 +354,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
-    // Construct the v2 handle before binding, but do no disk or chat work here.
-    // Its empty published index is filled by the list tee after the listener;
-    // startup never waits on this handle or on a chat book. This is the
-    // checkpoint-only start path: the expensive v1 store/session loads remain
-    // behind the ready boundary below.
+    // Construct the empty v2 handle before binding, but do no disk or chat work here.
+    // Its published index is filled by the list tee after the listener; the existing
+    // v1 store/session startup continues below this bind boundary.
     let mut v2_tasks = tokio::task::JoinSet::new();
     let v2 = v2_handle(&config);
 

@@ -369,6 +369,7 @@ pub struct ReadyDaemon {
     pub socket: PathBuf,
     pub ready: String,
     pub startup: Duration,
+    reaped: bool,
 }
 
 /// Extra command-line arguments and environment entries for a ready daemon. Row 10 reuses the
@@ -389,11 +390,18 @@ impl ReadyDaemon {
     /// Force-stop a child immediately. This is reserved for timeout/error cleanup and is separate
     /// from [`Self::stop`] so a gate can count unexpected hard kills.
     pub fn kill(mut self) {
+        if self.reaped {
+            return;
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.reaped = true;
     }
 
     fn stop_inner(&mut self) -> bool {
+        if self.reaped {
+            return false;
+        }
         #[cfg(unix)]
         {
             // SAFETY: this is the pid returned by the child we spawned.
@@ -406,13 +414,17 @@ impl ReadyDaemon {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             match self.child.try_wait() {
-                Ok(Some(_)) => return false,
+                Ok(Some(_)) => {
+                    self.reaped = true;
+                    return false;
+                }
                 Ok(None) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Ok(None) | Err(_) => {
                     let _ = self.child.kill();
                     let _ = self.child.wait();
+                    self.reaped = true;
                     return true;
                 }
             }
@@ -464,7 +476,7 @@ pub fn spawn_ready_daemon_with(scratch: &Path, options: &ReadyDaemonOptions) -> 
             std::panic::resume_unwind(panic);
         }
     };
-    ReadyDaemon { child, socket, ready, startup: started.elapsed() }
+    ReadyDaemon { child, socket, ready, startup: started.elapsed(), reaped: false }
 }
 
 /// `acpmux` with the hermetic environment; `tools` are host tools (by name,

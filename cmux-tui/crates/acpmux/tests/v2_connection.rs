@@ -68,6 +68,12 @@ fn start_fixture(mut shape: acpmux::god_fixture::Shape) -> tempfile::TempDir {
 }
 
 async fn daemon_hello(socket: &std::path::Path) {
+    tokio::time::timeout(Duration::from_secs(30), daemon_hello_inner(socket))
+        .await
+        .expect("daemon hello timed out");
+}
+
+async fn daemon_hello_inner(socket: &std::path::Path) {
     let mut client = tokio::time::timeout(Duration::from_secs(30), UnixStream::connect(socket))
         .await
         .expect("connect ready daemon timed out")

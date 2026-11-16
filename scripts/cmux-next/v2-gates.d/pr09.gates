@@ -1,2 +1,2 @@
-# Row 9a: checkpoint-only start must bind before durable store/session work.
+# Row 9a: v2 handle construction must not delay the existing listener bind.
 acpmux-v2-connection v2_pr09_listen_start
