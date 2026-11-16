@@ -217909,6 +217909,399 @@
         }
       }
     },
+    "settings.browser.verificationAutofill.accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email Accounts for Codes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حسابات البريد للرموز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mail računi za kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-mailkonti til koder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-Mail-Konten für Codes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuentas de correo para códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comptes e-mail pour les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Account email per i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードを読むメールアカウント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គណនីអ៊ីមែលសម្រាប់លេខកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드용 이메일 계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "E-postkontoer for koder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konta e-mail dla kodów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contas de e-mail para códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Почтовые ящики для кодов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บัญชีอีเมลสำหรับรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar için e-posta hesapları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поштові скриньки для кодів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tài khoản email cho mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用于验证码的邮箱账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用於驗證碼的郵件帳號"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تأتي الرموز من هذه العناوين فقط: حسابات Gmail التي سجّلت الدخول إليها في هذا المتصفح، والحسابات في تطبيق البريد. تُقرأ الرسائل على هذا الـ Mac ولا تُخزَّن ولا تُرسَل أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodovi dolaze samo s ovih adresa: Gmail računi na koje ste prijavljeni u ovom pregledniku i računi u aplikaciji Mail. Pošta se čita na ovom Macu i nikad se ne pohranjuje niti šalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer kun fra disse adresser: Gmail-konti, du er logget ind på i denne browser, og konti i Mail-appen. Mail læses på denne Mac og bliver aldrig gemt eller sendt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codes kommen nur von diesen Adressen: Gmail-Konten, bei denen du in diesem Browser angemeldet bist, und Konten in der Mail-App. Mails werden auf diesem Mac gelesen und nie gespeichert oder gesendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los códigos solo provienen de estas direcciones: cuentas de Gmail con sesión iniciada en este navegador y cuentas de la app Mail. El correo se lee en este Mac y nunca se guarda ni se envía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les codes viennent uniquement de ces adresses : les comptes Gmail connectés dans ce navigateur et les comptes de l'app Mail. Les e-mails sont lus sur ce Mac, jamais enregistrés ni envoyés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I codici arrivano solo da questi indirizzi: account Gmail con cui hai effettuato l'accesso in questo browser e account nell'app Mail. La posta viene letta su questo Mac e non viene mai salvata né inviata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードはこれらのアドレスからのみ読み取ります: このブラウザでサインインしている Gmail アカウントと、メールアプリのアカウントです。メールはこの Mac 上で読み取り、保存も送信もしません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លេខកូដមកពីអាសយដ្ឋានទាំងនេះតែប៉ុណ្ណោះ៖ គណនី Gmail ដែលអ្នកបានចូលក្នុងកម្មវិធីរុករកនេះ និងគណនីក្នុងកម្មវិធី Mail។ អ៊ីមែលត្រូវបានអាននៅលើ Mac នេះ ហើយមិនដែលរក្សាទុក ឬផ្ញើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드는 이 주소에서만 가져옵니다: 이 브라우저에 로그인한 Gmail 계정과 Mail 앱의 계정. 메일은 이 Mac에서 읽으며 저장하거나 전송하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koder kommer bare fra disse adressene: Gmail-kontoer du er logget på i denne nettleseren, og kontoer i Mail-appen. E-post leses på denne Macen og blir aldri lagret eller sendt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kody pochodzą tylko z tych adresów: kont Gmail, na które logujesz się w tej przeglądarce, i kont w aplikacji Mail. Poczta jest czytana na tym Macu i nigdy nie jest zapisywana ani wysyłana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os códigos vêm apenas destes endereços: contas do Gmail em que você está conectado neste navegador e contas do app Mail. Os e-mails são lidos neste Mac e nunca são guardados nem enviados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коды берутся только с этих адресов: аккаунты Gmail, в которые вы вошли в этом браузере, и ящики в приложении «Почта». Почта читается на этом Mac и никогда не сохраняется и не отправляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสมาจากที่อยู่เหล่านี้เท่านั้น: บัญชี Gmail ที่คุณลงชื่อเข้าใช้ในเบราว์เซอร์นี้ และบัญชีในแอป Mail อีเมลถูกอ่านบน Mac เครื่องนี้ และไม่ถูกเก็บหรือส่งไปที่ใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodlar yalnızca bu adreslerden gelir: bu tarayıcıda oturum açtığınız Gmail hesapları ve Mail uygulamasındaki hesaplar. E-postalar bu Mac'te okunur, asla saklanmaz veya gönderilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коди беруться лише з цих адрес: облікові записи Gmail, у які ви ввійшли в цьому браузері, і скриньки в програмі «Пошта». Пошта читається на цьому Mac і ніколи не зберігається й не надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã chỉ lấy từ các địa chỉ này: tài khoản Gmail bạn đã đăng nhập trong trình duyệt này và tài khoản trong ứng dụng Mail. Thư được đọc trên máy Mac này, không bao giờ được lưu hay gửi đi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "验证码只来自这些地址：在此浏览器中登录的 Gmail 账户，以及“邮件”App 中的账户。邮件只在这台 Mac 上读取，从不保存或发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "驗證碼只來自這些地址：在此瀏覽器中登入的 Gmail 帳號，以及「郵件」App 中的帳號。郵件只在這台 Mac 上讀取，從不儲存或傳送。"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.accounts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Addresses cmux may read codes from"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العناوين التي يمكن لـ cmux قراءة الرموز منها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adrese s kojih cmux smije čitati kodove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser, cmux må læse koder fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adressen, aus denen cmux Codes lesen darf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direcciones de las que cmux puede leer códigos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresses où cmux peut lire les codes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzi da cui cmux può leggere i codici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がコードを読み取れるアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានដែល cmux អាចអានលេខកូដបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 코드를 읽을 수 있는 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresser cmux kan lese koder fra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresy, z których cmux może czytać kody"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereços dos quais o cmux pode ler códigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса, из которых cmux может читать коды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่ที่ cmux อ่านรหัสได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kod okuyabileceği adresler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреси, з яких cmux може читати коди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các địa chỉ cmux được đọc mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可读取验证码的地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 可讀取驗證碼的地址"
+          }
+        }
+      }
+    },
     "settings.appearance.fontSmoothing": {
       "comment": "Settings row title: how heavy cmux's own text draws (font smoothing).",
       "extractionState": "manual",
