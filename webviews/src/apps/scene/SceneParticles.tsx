@@ -7,22 +7,30 @@ import type { SceneNode } from "./store";
 /** The longest step one frame advances the field (a frame after a stall does not jump). */
 const MAX_FRAME_SECONDS = 0.05;
 
-/** Resolves theme tokens (`accent`, `var(--...)`) to colors a canvas can paint, through the canvas's
- * own computed `color`. */
+/** Resolves theme tokens (`accent`, `var(--...)`) to colors a canvas can paint: every color is
+ * written to a hidden probe first and all are read after, so the style resolves once. */
 function canvasColors(canvas: HTMLCanvasElement, value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
-  const view = canvas.ownerDocument.defaultView;
+  const doc = canvas.ownerDocument;
+  const view = doc.defaultView;
   if (!view) return null;
-  const saved = canvas.style.color;
-  const out: string[] = [];
-  for (const item of value.slice(0, 16)) {
-    const color = sceneColor(item);
-    if (!color) continue;
-    canvas.style.color = color;
-    out.push(view.getComputedStyle(canvas).color || color);
-  }
-  canvas.style.color = saved;
-  return out.length ? out : null;
+  const colors = value
+    .slice(0, 16)
+    .map(sceneColor)
+    .filter((color): color is string => !!color);
+  if (colors.length === 0) return null;
+  const holder = doc.createElement("span");
+  holder.hidden = true;
+  const probes = colors.map((color) => {
+    const probe = doc.createElement("span");
+    probe.style.color = color;
+    return probe;
+  });
+  holder.append(...probes);
+  canvas.parentElement?.append(holder);
+  const resolved = probes.map((probe, index) => view.getComputedStyle(probe).color || colors[index]!);
+  holder.remove();
+  return resolved;
 }
 
 /**
@@ -83,7 +91,7 @@ export function SceneParticles({ node }: { node: SceneNode }) {
     };
     const start = () => {
       if (frame || !allowed()) return;
-      context ??= canvas.getContext("2d");
+      if (!context) context = canvas.getContext("2d");
       if (!context) return;
       if (!warmed) {
         warmed = true;

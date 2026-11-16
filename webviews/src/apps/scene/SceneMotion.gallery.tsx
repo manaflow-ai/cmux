@@ -113,13 +113,11 @@ function springs(): Fixture {
     tick: (store, step) => {
       const on = step % 2 === 1;
       store.apply([
-        ...nodes
-          .slice(0, SPRINGS.length)
-          .map((node): SceneOp => ({
-            op: "update",
-            id: node,
-            props: { offset: { x: on ? 24 : -24, y: 0 }, scale: on ? 1.25 : 1 },
-          })),
+        ...nodes.slice(0, SPRINGS.length).map((node): SceneOp => ({
+          op: "update",
+          id: node,
+          props: { offset: { x: on ? 24 : -24, y: 0 }, scale: on ? 1.25 : 1 },
+        })),
         {
           op: "update",
           id: glow,
@@ -135,7 +133,7 @@ function springs(): Fixture {
 function transitions(): Fixture {
   const ops: SceneOp[] = [];
   const slots = TRANSITIONS.map((transition) => {
-    const slot = create(ops, "ZStack", { frame: { width: 56, height: 44 } }, "slot");
+    const slot = create(ops, "ZStack", { frame: { width: 56, height: 44 }, clipped: true }, "slot");
     return { transition, slot };
   });
   grid(
@@ -197,7 +195,7 @@ function shapes(): Fixture {
   const panelText = create(ops, "Text", { text: "Glow", color: "#FFFFFF", weight: "semibold" });
   ops.push({ op: "children", id: panel, children: [panelText] });
   const glowText = create(ops, "Icon", {
-    symbol: "bolt.fill",
+    symbol: "star.fill",
     size: 28,
     color: GOLD,
     glow: { color: GOLD, radius: 10 },
@@ -265,9 +263,13 @@ function SceneMotion({ look = "loops" }: { look?: Look }) {
   useEffect(() => {
     const { tick, every, store } = fixture;
     if (!tick) return;
-    let step = 0;
-    tick(store, ++step);
-    const timer = window.setInterval(() => tick(store, ++step), every ?? 1000);
+    const counter = { step: 0 };
+    const next = () => {
+      counter.step += 1;
+      tick(store, counter.step);
+    };
+    next();
+    const timer = window.setInterval(next, every ?? 1000);
     return () => window.clearInterval(timer);
   }, [fixture]);
   return (

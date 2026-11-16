@@ -16,7 +16,8 @@ describe("motion modifiers", () => {
         .gradient({ colors: ["#FF0000", "accent"], angle: 45 })
         .trim({ from: 0, to: 0.75 })
         .loop({ effect: "pulse", period: 1.5, amount: 2 })
-        .transition("pop") }`))
+        .transition("pop")
+        .clipped() }`))
     host.mount("m1", "render")
     const id = host.findNode("m1", (n) => n.type === "Circle")!
     expect(host.tree("m1").nodes.get(id)!.props).toEqual({
@@ -31,6 +32,7 @@ describe("motion modifiers", () => {
       trim: { from: 0, to: 0.75 },
       loop: { effect: "pulse", period: 1.5, amount: 2 },
       transition: "pop",
+      clipped: true,
     })
   })
 

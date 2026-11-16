@@ -86,6 +86,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `.trim({from?, to})` | Draws that fraction of a stroked shape's outline (ring gauges; a circle starts at 12 o'clock, clockwise). |
 | `.loop({effect, period?, amount?})` | `pulse`, `breathe`, `spin`, `float`, `wiggle`, `bounce`, `shimmer`, run forever by cmux with no JS (`Loop`). |
 | `.transition(t)` | `fade`, `scale`, `slide`, `pop`: how the node enters when created and leaves when removed (`Transition`). |
+| `.clipped()` | Clip the node's content (children, a sliding transition) to its frame and corner radius. |
 | `Particles({preset, colors?, rate?, burst?})` | `confetti`, `sparkles`, `rain`, `snow`, `embers`, `stars`, filling its frame; each increase of `burst` fires one burst. Loops, particles and springs stop or go instant under Reduce Motion and `ui.animationSpeed: off`. |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |
 

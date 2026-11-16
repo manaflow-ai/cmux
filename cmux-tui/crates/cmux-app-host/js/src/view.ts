@@ -110,6 +110,8 @@ export class ViewNode {
   loop(v: Bindable<Loop | null>) { return this.set("loop", v) }
   /** How the node enters when created and leaves when removed (kept on screen until its exit ends). */
   transition(v: Bindable<Transition | null>) { return this.set("transition", v) }
+  /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
+  clipped(v: Bindable<boolean> = true) { return this.set("clipped", v) }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
   // Behavior

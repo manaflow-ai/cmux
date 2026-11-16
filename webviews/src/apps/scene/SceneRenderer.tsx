@@ -18,7 +18,7 @@ import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
 import { SceneParticles } from "./SceneParticles";
 import { loopStyle, trimRange } from "./motionProps";
-import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import { sceneColor, sceneNumber, sceneRecord, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
 import "./scene.css";
@@ -267,7 +267,8 @@ const trimmedOutline = (node: SceneNode): boolean =>
  * node's `animation` (the node's part, useSceneMotion). */
 function SceneShapeOutline({ node, partRef }: { node: SceneNode; partRef: RefObject<Element | null> }) {
   const props = node.props;
-  const size = Math.max(0, sceneNumber(props.size) ?? 16);
+  const [boxWidth, boxHeight] = shapeBox(props);
+  const size = Math.min(boxWidth, boxHeight);
   const width = Math.min(Math.max(0, sceneNumber(props.strokeWidth) ?? 1), size / 2);
   const [from, to] = trimRange(props.trim) ?? [0, 1];
   const outline = {
@@ -287,21 +288,33 @@ function SceneShapeOutline({ node, partRef }: { node: SceneNode; partRef: RefObj
       : node.type === "RoundedRectangle"
         ? Math.min(sceneNumber(props.cornerRadius) ?? 4, inner / 2)
         : 0;
+  const cx = boxWidth / 2;
+  const cy = boxHeight / 2;
   return (
-    <svg className="cmux-app-scene-shape-svg" viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+    <svg className="cmux-app-scene-shape-svg" viewBox={`0 0 ${boxWidth} ${boxHeight}`} aria-hidden="true">
       {node.type === "Circle" ? (
-        <circle
-          {...outline}
-          cx={size / 2}
-          cy={size / 2}
-          r={inner / 2}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
+        <circle {...outline} cx={cx} cy={cy} r={inner / 2} transform={`rotate(-90 ${cx} ${cy})`} />
       ) : (
-        <rect {...outline} x={width / 2} y={width / 2} width={inner} height={inner} rx={radius} />
+        <rect
+          {...outline}
+          x={width / 2}
+          y={width / 2}
+          width={Math.max(0, boxWidth - width)}
+          height={Math.max(0, boxHeight - width)}
+          rx={radius}
+        />
       )}
     </svg>
   );
+}
+
+/** A shape's box: `size` makes a square of that side; else its `frame` width and height (as the
+ * native renderer: a shape fills its frame), each 16 when neither names it. */
+function shapeBox(props: SceneNode["props"]): [number, number] {
+  const size = sceneNumber(props.size);
+  if (size !== undefined) return [Math.max(0, size), Math.max(0, size)];
+  const frame = sceneRecord(props.frame);
+  return [Math.max(0, sceneNumber(frame.width) ?? 16), Math.max(0, sceneNumber(frame.height) ?? 16)];
 }
 
 function contentOf(
@@ -371,6 +384,7 @@ function contentOf(
         return (
           <span
             className="cmux-app-scene-progress-track"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native <progress> cannot animate its value; this bar keeps its role and values
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={1}
@@ -461,7 +475,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
       props.alignment === "center" ? "center" : props.alignment === "trailing" ? "flex-end" : "stretch";
   }
   if (SHAPES.includes(node.type)) {
-    style.width = style.height = Math.max(0, sceneNumber(props.size) ?? 16);
+    [style.width, style.height] = shapeBox(props);
+    style.flexShrink = 0;
     style.backgroundColor =
       sceneColor(props.fill) ??
       (sceneColor(props.stroke) || style.backgroundImage ? "transparent" : sceneColor("secondary"));

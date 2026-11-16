@@ -153,31 +153,36 @@ export const resetMotionEnvCache = () => {
 /** A node's part that moves on its own element: a trimmed shape's outline, an animated progress fill. */
 export type MotionPart = { ref: RefObject<Element | null>; properties: readonly string[] };
 
+type MotionState = {
+  track: MotionTrack;
+  partTrack: MotionTrack;
+  entered: boolean;
+  exiting: boolean;
+  transition: Animation | null;
+  props: SceneProps | null;
+};
+
+const newMotionState = (): MotionState => ({
+  track: new MotionTrack(),
+  partTrack: new MotionTrack(),
+  entered: false,
+  exiting: false,
+  transition: null,
+  props: null,
+});
+
 export function useSceneMotion(
   ref: RefObject<HTMLElement | null>,
   node: SceneNode | undefined,
   store: SceneStore,
   part?: MotionPart,
 ): void {
-  const state = useRef<{
-    track: MotionTrack;
-    partTrack: MotionTrack;
-    entered: boolean;
-    exiting: boolean;
-    transition: Animation | null;
-    props: SceneProps | null;
-  } | null>(null);
-  state.current ??= {
-    track: new MotionTrack(),
-    partTrack: new MotionTrack(),
-    entered: false,
-    exiting: false,
-    transition: null,
-    props: null,
-  };
+  // One mutable record per mounted node, made in its first effect (nothing reads or writes it in render).
+  const state = useRef<MotionState | null>(null);
 
   useLayoutEffect(() => {
-    const s = state.current!;
+    if (!state.current) state.current = newMotionState();
+    const s = state.current;
     const element = ref.current;
     if (!node || !element) return;
     const doc = element.ownerDocument;
@@ -242,9 +247,8 @@ export function useSceneMotion(
 
   useLayoutEffect(
     () => () => {
-      const s = state.current;
-      s?.track.cancel();
-      s?.partTrack.cancel();
+      state.current?.track.cancel();
+      state.current?.partTrack.cancel();
     },
     [],
   );
