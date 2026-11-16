@@ -183,6 +183,7 @@
           "libthai-data": "0.1.29-2build1",
           "libthai0": "0.1.29-2build1",
           "libtiff6": "4.5.1+git230720-4ubuntu2.5",
+          "libutempter0": "1.2.1-3build1",
           "libwebp7": "1.3.2-0.4build3",
           "libwebpdemux2": "1.3.2-0.4build3",
           "libxcb-render0": "1.15-1ubuntu2",
@@ -193,8 +194,10 @@
           "libxinerama1": "2:1.1.4-3build1",
           "openbox": "3.6.1-12build5",
           "poppler-data": "0.4.12-1",
+          "xbitmaps": "1.1.1-2.2",
           "xfonts-encodings": "1:1.0.5-0ubuntu2",
-          "xfonts-utils": "1:7.7+6build3"
+          "xfonts-utils": "1:7.7+6build3",
+          "xterm": "390-1ubuntu3"
         },
         "cua-video": {
           "ffmpeg": "7:6.1.1-3ubuntu5",
@@ -543,6 +546,7 @@
         "libudfread0=1.1.2-1build1": { "path": "pool/universe/libu/libudfread/libudfread0_1.1.2-1build1_amd64.deb", "sha256": "9340c4bdb5954ed98a81eb7979c25187d0c4d95b633cac29eefe1f5b31c05162", "size": 18980 },
         "libunibreak5=5.1-2build1": { "path": "pool/universe/libu/libunibreak/libunibreak5_5.1-2build1_amd64.deb", "sha256": "62576c95652b6c0a02e3d0fe9e2da6d0666c375d71c43da9d884c77417956ae4", "size": 25012 },
         "libusb-1.0-0=2:1.0.27-1": { "path": "pool/main/libu/libusb-1.0/libusb-1.0-0_1.0.27-1_amd64.deb", "sha256": "d59e679a82ee2b724c556397e831e879936adbe8a007705872b65a5e1ec887b5", "size": 54008 },
+        "libutempter0=1.2.1-3build1": { "path": "pool/main/libu/libutempter/libutempter0_1.2.1-3build1_amd64.deb", "sha256": "46c0dfbfeca19ba0773398d654b7e7225b178f26b414f0e2f8250519551bfb32", "size": 9606 },
         "libva-drm2=2.20.0-2ubuntu0.2": { "path": "pool/universe/libv/libva/libva-drm2_2.20.0-2ubuntu0.2_amd64.deb", "sha256": "7919c889e0bc8221dcfb595bc0707959354a5404cc1d9b818f85fc43914ca0d4", "size": 7124 },
         "libva-x11-2=2.20.0-2ubuntu0.2": { "path": "pool/universe/libv/libva/libva-x11-2_2.20.0-2ubuntu0.2_amd64.deb", "sha256": "9b13aaf035c6b607885ffaa6688866cf3cb720637909c7c0c9d3bedcd1d723cf", "size": 12028 },
         "libva2=2.20.0-2ubuntu0.2": { "path": "pool/universe/libv/libva/libva2_2.20.0-2ubuntu0.2_amd64.deb", "sha256": "a8ff8d3d16dba715cd24d67c0f8787016194fcee0dee20344a92d057577c0b40", "size": 66362 },
@@ -613,9 +617,11 @@
         "x11-common=1:7.7+23ubuntu3": { "path": "pool/main/x/xorg/x11-common_7.7+23ubuntu3_all.deb", "sha256": "b545fa5196dd7467ba3770d6ce575abcd7941071961ea9f7535a319d9d20fd46", "size": 21748 },
         "x11-xkb-utils=7.7+8build2": { "path": "pool/main/x/x11-xkb-utils/x11-xkb-utils_7.7+8build2_amd64.deb", "sha256": "69df4191e165f8b89d067f6234fcce89a4923d27d1e66dd92e6d63d6da93cdb0", "size": 170314 },
         "xauth=1:1.1.2-1build1": { "path": "pool/main/x/xauth/xauth_1.1.2-1build1_amd64.deb", "sha256": "037e70571f39384e28c4ad0db07b44de11f0911ee6c02445560979b417012650", "size": 25594 },
+        "xbitmaps=1.1.1-2.2": { "path": "pool/main/x/xbitmaps/xbitmaps_1.1.1-2.2_all.deb", "sha256": "be00b7ea28e33a6e8342ddc0608dd32d9c255a329b57fb7589c650fecd5fe58c", "size": 22424 },
         "xfonts-encodings=1:1.0.5-0ubuntu2": { "path": "pool/main/x/xfonts-encodings/xfonts-encodings_1.0.5-0ubuntu2_all.deb", "sha256": "3bac5ff1cba3b001aee1652e3af45d200c415b68e9b27932cb51fe9c464feb40", "size": 578092 },
         "xfonts-utils=1:7.7+6build3": { "path": "pool/main/x/xfonts-utils/xfonts-utils_7.7+6build3_amd64.deb", "sha256": "8da5fccbc50005d50dd69ef558ae72673435026e1d3134d0c1cc836d22953c44", "size": 94438 },
         "xserver-common=2:21.1.12-1ubuntu1.9": { "path": "pool/main/x/xorg-server/xserver-common_21.1.12-1ubuntu1.9_all.deb", "sha256": "ceeac76b9c94973c71e4e6566fa9ff5d3caae9716775d840810a4e1ad749a737", "size": 35008 },
+        "xterm=390-1ubuntu3": { "path": "pool/universe/x/xterm/xterm_390-1ubuntu3_amd64.deb", "sha256": "3541b6956d6c4be71db7b66ec91985bd5eb128fb130e806f1c879f9d94a97c72", "size": 883484 },
         "xvfb=2:21.1.12-1ubuntu1.9": { "path": "pool/universe/x/xorg-server/xvfb_21.1.12-1ubuntu1.9_amd64.deb", "sha256": "2011271eabcc2eb460e99995c5ef26e46633e87d04f570e305b62f178f7b452c", "size": 877038 },
         "xz-utils=5.6.1+really5.4.5-1ubuntu0.4": { "path": "pool/main/x/xz-utils/xz-utils_5.6.1+really5.4.5-1ubuntu0.4_amd64.deb", "sha256": "18ef3c30308990626cfbda8b6336ef6ef5a412d1991bdad0cdaa226fd2041ffe", "size": 267426 }
       }
@@ -890,7 +896,7 @@
   "roles": {
     "fonts": { "default": "on", "apt": ["fonts-noto-cjk"] },
     "display": { "default": "off", "apt": ["xvfb", "xauth", "at-spi2-core", "libxtst6", "libxi6", "libxkbcommon0"] },
-    "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox"] },
+    "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox", "xterm"] },
     "cua-video": { "default": "off", "firstUse": true, "apt": ["ffmpeg"] },
     "browser": {
       "default": "off",

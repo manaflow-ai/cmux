@@ -96,6 +96,7 @@ import {
 } from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import {
+  AGENT_TOOLS_BAKED_ROLES,
   AGENT_TOOLS_PROFILE,
   agentToolsDaemonEnv,
   agentToolsFiles,
@@ -107,7 +108,6 @@ import {
   rdHostPath,
   rdSetupCommand,
 } from "./agent-tools";
-import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
@@ -715,12 +715,12 @@ async function configureSshd(ctx: Ctx): Promise<void> {
 }
 
 /**
- * The first-use packages roles-off refuses: every first-use closure, less the browser role's closure when
- * --agent-tools bakes that role (browserRoleBakePhases). A layered bake reruns roles-off in the agents layer, on a
- * system layer whose agent tools already installed the browser closure (fontconfig, which display-wm shares).
+ * The first-use packages roles-off refuses: every first-use closure, less the closures of the roles --agent-tools
+ * bakes (AGENT_TOOLS_BAKED_ROLES: browser, and display-wm for the desktop session; browserRoleBakePhases). A layered
+ * bake reruns roles-off in the agents layer, on a system layer whose agent tools already installed those closures.
  */
 export function refusedFirstUsePackages(lock: InputsLock, agentTools: boolean): string[] {
-  const baked = new Set(agentTools ? Object.keys(lock.apt.ubuntu.firstUse[BROWSER_ROLE] ?? {}) : []);
+  const baked = new Set(agentTools ? AGENT_TOOLS_BAKED_ROLES.flatMap((role) => Object.keys(lock.apt.ubuntu.firstUse[role] ?? {})) : []);
   return [...new Set(Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure)))].filter((p) => !baked.has(p)).sort();
 }
 

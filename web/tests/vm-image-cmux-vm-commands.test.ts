@@ -219,7 +219,8 @@ describe("cmux VM image apt index", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+    // curl retries each dead mirror (--retry 2), so three runs take several seconds.
+  }, 60_000);
 
   test("the image carries the agent sign-in files the Mac app's Cloud sign-in sources", async () => {
     expect(bake.AGENT_SIGN_IN_FILES.map((f) => f.path)).toEqual(["/etc/cmux/agent-auth.sh", "/etc/cmux/claude-onboarding.py"]);
