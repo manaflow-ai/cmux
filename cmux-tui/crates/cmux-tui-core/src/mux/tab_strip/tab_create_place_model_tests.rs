@@ -320,6 +320,6 @@ proptest! {
             let pick = if step < requests.len() { early[step] } else { late.next().copied() };
             pick.filter(|_| waiting > 0).map(|pick| pick.index(waiting))
         });
-        prop_assert_eq!(tabs, OneByOne::of(&requests), "the requests: {requests:?}");
+        prop_assert_eq!(tabs, OneByOne::of(&requests), "the requests: {:?}", requests);
     }
 }
