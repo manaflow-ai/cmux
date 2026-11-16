@@ -5,8 +5,8 @@
   rd-netem-linux.py --bin LABEL=PATH [--bin ...] --out DIR
   rd-netem-linux.py table RESULTS.jsonl
 
-For each cmux commit it builds `cmux-rd` (`cmux-tui/crates/cmux-rd-host`, default features,
-release) in a fresh sparse source tree, then runs the real host and viewer in two network
+For each cmux commit it builds `cmux-rd` (`cmux-tui/crates/cmux-rd-host`, release, features
+`bench,openh264,link`) in a fresh sparse source tree, then runs the real host and viewer in two network
 namespaces joined by a veth whose two ends each carry `tc netem`:
 
   host ns:   Xvfb, `cmux-rd testapp --workload motion`, `cmux-rd host --profile baseline`
@@ -50,7 +50,8 @@ from pathlib import Path
 SCHEMA = "cmux.rd-netem-linux/1"
 LEDGER_SCHEMA = "cmux.rd-stage-ledger/1"
 REPO_URL = "https://github.com/manaflow-ai/cmux.git"
-HOST_IP, VIEW_IP, PORT = "10.78.0.1", "10.78.0.2", 4103
+BUILD_FEATURES = "bench,openh264,link"
+HOST_IP, VIEW_IP, PORT ="10.78.0.1", "10.78.0.2", 4103
 
 # name -> netem arguments for each direction's egress (after `netem`).
 PROFILES = {
@@ -313,7 +314,10 @@ def build(commit: str, work: Path, repo_url: str) -> Path:
                         "--no-modify-path"], check=True)
     subprocess.run(["rustup", "toolchain", "install", toolchain, "--profile", "minimal"], check=True, env=env)
     t0 = time.time()
-    subprocess.run(["cargo", "build", "--release", "--locked", "--bin", "cmux-rd", "--manifest-path",
+    # The release build's features plus the bench viewer; `portal` (Wayland capture through PipeWire)
+    # is left out like cmux-rd-release.yml does: Xvfb needs none of it.
+    subprocess.run(["cargo", "build", "--release", "--locked", "--bin", "cmux-rd", "--no-default-features",
+                    "--features", BUILD_FEATURES, "--manifest-path",
                     str(src / "cmux-tui/crates/cmux-rd-host/Cargo.toml")], check=True, env=env)
     print(f"rd-netem-linux: built {full[:12]} in {time.time() - t0:.0f} s", file=sys.stderr, flush=True)
     out = work / "bin" / f"cmux-rd-{full}"
