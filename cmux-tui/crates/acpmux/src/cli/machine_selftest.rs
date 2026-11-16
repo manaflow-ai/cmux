@@ -68,6 +68,21 @@ fn parse_scenario(text: &str) -> Result<Vec<ScenarioStep>> {
                 line_no + 1
             ));
         }
+        let command_lower = command.to_ascii_lowercase();
+        if name == "door-a-cli"
+            && (!command_lower.contains("ssh") || !command_lower.contains("join"))
+        {
+            return Err(anyhow!(
+                "scenario line {} door-a-cli must run the join over ssh",
+                line_no + 1
+            ));
+        }
+        if name == "door-a-gui" && !command_lower.contains("cmux action run") {
+            return Err(anyhow!(
+                "scenario line {} door-a-gui must drive the app through `cmux action run`",
+                line_no + 1
+            ));
+        }
         steps.push(ScenarioStep { name: name.to_owned(), actions, command: command.to_owned() });
     }
     if steps.is_empty() {
@@ -185,7 +200,7 @@ mod tests {
     fn requires_both_door_a_paths() {
         assert!(parse_scenario("door-a-cli\t1\tssh vm true\n").is_err());
         assert!(
-            parse_scenario("door-a-cli\t1\tssh vm true\ndoor-a-gui\t1\tcmux action run gui\n")
+            parse_scenario("door-a-cli\t1\tssh vm join\ndoor-a-gui\t1\tcmux action run gui\n")
                 .is_ok()
         );
     }
