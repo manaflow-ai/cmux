@@ -775,6 +775,16 @@ class Harness:
         self.rec.flip(f"{label}:leave")
         self.rec.flip(f"{label}:mark")
 
+    def new_tabs(self, before, want, limit=5.0):
+        """The measured pane's tabs not in `before`, once `want` of them have daemon ids (a provisional
+        `pending_tab_` id names no tab), or as they are after `limit` seconds."""
+        deadline = time.monotonic() + limit
+        while True:
+            made = [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in before]
+            if (len(made) >= want and not any(str(m).startswith("pending_tab_") for m in made)) or time.monotonic() > deadline:
+                return [m for m in made if not str(m).startswith("pending_tab_")]
+            time.sleep(0.1)  # test script: waiting for the daemon's tab ids
+
     def returning(self, shown, via, label):
         self.select(shown)
         time.sleep(self.args.settle)
@@ -798,7 +808,7 @@ class Harness:
         new = {"label": label_new, "kind": "new", "error": f"newSurface: {reply['error']}" if reply.get("error") else None}
         if new["error"]:
             return new, None
-        made = [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in tabs0]
+        made = self.new_tabs(tabs0, 1)
         time.sleep(0.5)
         self.flip3(label_close)
         reply = self.c.action("closeTab", target=f"tab:{made[0]}") if made else self.c.action("closeTab")
@@ -876,7 +886,7 @@ class Harness:
         errors = [self.c.action("newSurface").get("error") for _ in range(5)]
         time.sleep(self.args.record + 0.5)
         self.rec.flip(f"{label}:end")
-        made = [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in tabs0]
+        made = self.new_tabs(tabs0, 5)
         error = next((f"newSurface: {e}" for e in errors if e), None) or (
             None if len(made) == 5 else f"{len(made)} new tabs, want 5")
         out.append(("rapid-open-5", {"label": label, "kind": "settled", "strip": "tab", "error": error}))
