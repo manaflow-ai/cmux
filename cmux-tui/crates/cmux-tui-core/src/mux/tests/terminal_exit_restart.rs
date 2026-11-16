@@ -193,6 +193,7 @@ fn restart_sidecar_restores_exact_wait_exit_and_emits_one_public_event() {
                             zoomed_pane: None,
                             auto_layout: None,
                             viewport: RegistryViewport::default(),
+                            floating: Vec::new(),
                         }),
                         ResourceChange::UpsertPane(RegistryPane {
                             public_id: pane.clone(),
@@ -394,6 +395,7 @@ fn restart_degrades_keep_policy_terminal_to_the_normal_detach() {
                             zoomed_pane: None,
                             auto_layout: None,
                             viewport: RegistryViewport::default(),
+                            floating: Vec::new(),
                         }),
                         ResourceChange::UpsertPane(RegistryPane {
                             public_id: pane.clone(),
