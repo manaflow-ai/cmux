@@ -1,4 +1,4 @@
-//! The device hub client of the Linux screen host (docs/device-hub/PROTOCOL.md): device-signed
+//! The device hub client of a desktop screen host (Linux, Windows) (docs/device-hub/PROTOCOL.md): device-signed
 //! requests, the account session (a Stack token exchanged once at `enable`, then device-key
 //! renewal of a host-scoped session), and the hub's two WebSockets.
 
@@ -51,7 +51,7 @@ impl std::error::Error for HubError {}
 /// The string a device signs: `"<METHOD>\n<path+query>\n<ts>\n<hex sha256 of body or empty>"`.
 pub fn signing_string(method: &str, target: &str, ts: u64, body: Option<&[u8]>) -> String {
     let digest = body
-        .map(|b| crate::serve::hex(ring::digest::digest(&ring::digest::SHA256, b).as_ref()))
+        .map(|b| super::hex(ring::digest::digest(&ring::digest::SHA256, b).as_ref()))
         .unwrap_or_default();
     format!("{method}\n{target}\n{ts}\n{digest}")
 }
@@ -154,7 +154,9 @@ impl Hub {
     /// `POST /v1/auth/device`: a host-scoped session from the device key alone (the anchor
     /// that `enable` recorded lets this device renew for 30 days).
     fn renew(&self) -> Res<(String, u64)> {
-        let user = self.user_id().ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
+        let user = self
+            .user_id()
+            .ok_or_else(|| format!("not enabled: run `{} enable` first", super::COMMAND))?;
         let answer =
             self.send("POST", "/v1/auth/device", Some(&json!({ "userId": user })), None, true)?;
         let session =
@@ -183,12 +185,12 @@ impl Hub {
         self.send(method, path, body, Some(&session), true)
     }
 
-    /// `POST /v1/devices`: registers this device as `linux`.
+    /// `POST /v1/devices`: registers this device as [`super::PLATFORM`].
     pub fn register(&self) -> Res<Value> {
         let body = json!({
             "id": self.device.id,
             "name": self.device.name,
-            "platform": "linux",
+            "platform": super::PLATFORM,
             "signingKey": self.signer.public_key(),
             "agreementKey": self.device.agreement_key()?,
         });

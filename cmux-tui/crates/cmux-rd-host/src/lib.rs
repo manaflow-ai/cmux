@@ -15,6 +15,9 @@
 //!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
 //!            device hub screen host a Mac views: its own device key, the hub link and
 //!            consent, driving `serve` per approved session (src/linux_host/)
+//!   windows-host enable|run|status|share off   (Windows) this PC on the device hub as a
+//!            `windows` device with the same hub client (src/screen_host/, src/windows_host.rs);
+//!            it lists and captures, and serves no session until `serve` has a Windows port
 //!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
@@ -74,6 +77,9 @@ mod pipewire_capture;
 mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
+// The device hub client of the desktop hosts (`linux-host`, `windows-host`).
+#[cfg(any(all(feature = "link", target_os = "linux"), windows))]
+mod screen_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
@@ -94,6 +100,8 @@ mod upstream;
 mod vtdecode;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
@@ -110,7 +118,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|permissions|linux-host|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|permissions|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -118,6 +126,10 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(feature = "link", target_os = "linux"))]
     if cmd == "linux-host" {
         return linux_host::run_cli(&args[1..]);
+    }
+    #[cfg(windows)]
+    if cmd == "windows-host" {
+        return windows_host::run_cli(&args[1..]);
     }
     if cmd == "permissions" && args.len() != 1 {
         eprintln!("cmux-rd permissions takes no arguments");

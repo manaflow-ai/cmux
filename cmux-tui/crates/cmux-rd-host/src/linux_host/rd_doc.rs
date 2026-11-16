@@ -169,7 +169,7 @@ pub fn is_relayed(kind: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::linux_host::identity::Device;
+    use crate::screen_host::identity::Device;
     use serde_json::json;
 
     const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";

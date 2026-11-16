@@ -21,11 +21,9 @@
 //! (consent.rs). A `view` session applies no input, and so does every session of a host that
 //! captures through the Wayland portal (it applies no input): there it is served view only.
 
-mod b64;
-mod consent;
-mod hub;
-mod identity;
-mod net;
+// The device hub client this host shares with `cmux-rd windows-host` (src/screen_host/).
+pub(crate) use crate::screen_host::printable;
+use crate::screen_host::{b64, consent, hub, identity, net};
 mod rd_doc;
 mod session;
 
@@ -107,55 +105,6 @@ fn exit_code(e: &(dyn std::error::Error + Send + Sync + 'static)) -> i32 {
     } else {
         1
     }
-}
-
-/// Bidi formatting characters: they reorder what a terminal shows (U+202E turns a name
-/// around) though `char::is_control` does not count them.
-fn is_bidi_control(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-    )
-}
-
-/// Text from the hub or a viewer, safe to print to a terminal or the journal: C0 and C1
-/// controls, whole ANSI escape sequences (CSI, OSC and the like) and bidi controls removed.
-pub(crate) fn printable(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\u{1b}' => match chars.next() {
-                // CSI: parameters and intermediates, then one final character in @..~.
-                Some('[') => {
-                    for c in chars.by_ref() {
-                        if ('@'..='~').contains(&c) {
-                            break;
-                        }
-                    }
-                }
-                // OSC, DCS, SOS, PM, APC: a string ended by BEL or ESC \.
-                Some(']' | 'P' | 'X' | '^' | '_') => {
-                    while let Some(c) = chars.next() {
-                        if c == '\u{7}' {
-                            break;
-                        }
-                        if c == '\u{1b}' {
-                            if chars.peek() == Some(&'\\') {
-                                chars.next();
-                            }
-                            break;
-                        }
-                    }
-                }
-                // A two-character escape (ESC c, ESC 7, ...).
-                _ => {}
-            },
-            c if c.is_control() || is_bidi_control(c) => {}
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// One `requests` line.
@@ -952,7 +901,10 @@ mod tests {
         assert_eq!(printable("\u{202e}cod.exe\u{202c}\u{2066}\u{200f}"), "cod.exe");
         let hostile = "\u{1b}[2J\u{202e}Mallory\nlinux-host: approved";
         for line in [request_line(&request(hostile, None)), ask_line(&request(hostile, None))] {
-            assert!(!line.chars().any(|c| c.is_control() || is_bidi_control(c)), "{line:?}");
+            assert!(
+                !line.chars().any(|c| c.is_control() || crate::screen_host::is_bidi_control(c)),
+                "{line:?}"
+            );
             assert!(line.contains("Mallorylinux-host: approved"), "{line:?}");
         }
     }

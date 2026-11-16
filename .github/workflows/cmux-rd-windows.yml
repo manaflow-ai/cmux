@@ -55,6 +55,12 @@ jobs:
           cargo build --release --locked --no-default-features --features bench
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --release --locked --no-default-features --features bench optional_4k_mode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # windows-host and its shared hub client (src/screen_host/): private files under the
+          # profile, a capture of this runner's desktop, sessions it cannot serve closed.
+          cargo test --release --locked --no-default-features --features bench -- windows_host screen_host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\target\release\cmux-rd.exe windows-host status
 
       - name: Capture and encode a real desktop sample
         shell: pwsh

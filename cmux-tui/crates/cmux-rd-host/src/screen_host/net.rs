@@ -187,9 +187,10 @@ pub fn request(
 ) -> Res<Response> {
     let mut conn = Conn::open(url)?;
     let mut head = format!(
-        "{method} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-linux-host\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
+        "{method} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-{}-host\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
         url.target,
-        host_header(url)
+        host_header(url),
+        super::PLATFORM
     );
     for (k, v) in headers {
         head.push_str(&format!("{k}: {v}\r\n"));
@@ -300,9 +301,10 @@ impl WebSocket {
             .map_err(|_| "no randomness")?;
         let key = b64::encode(&nonce);
         let mut head = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-linux-host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n",
+            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cmux-rd-{}-host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n",
             url.target,
-            host_header(url)
+            host_header(url),
+        super::PLATFORM
         );
         for (k, v) in headers {
             head.push_str(&format!("{k}: {v}\r\n"));
