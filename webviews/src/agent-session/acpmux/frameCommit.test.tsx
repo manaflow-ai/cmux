@@ -33,7 +33,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
-  scope.IS_REACT_ACT_ENVIRONMENT = true;
+  // Only a test that installed the page set it (and saved what was there); the restore below puts that back.
+  if (saved.has("IS_REACT_ACT_ENVIRONMENT")) scope.IS_REACT_ACT_ENVIRONMENT = true;
   if (root) await act(async () => root!.unmount());
   root = undefined;
   await settleReact();
