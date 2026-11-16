@@ -176,6 +176,7 @@ jobs:
             wait_s=$pause
             if grep -qi "rate limit" "$RUNNER_TEMP/dispatch.err"; then
               # Only a spent core bucket waits for its reset; a secondary rate limit keeps the short backoff.
+              remaining=1 reset=0
               read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null || echo "1 0")
               [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]] && (( reset > $(date +%s) )) && wait_s=$(( reset - $(date +%s) + 5 ))
             fi
