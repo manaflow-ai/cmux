@@ -267,3 +267,46 @@ fn videotoolbox_encodes_an_idr_on_request() {
     assert!(au.starts_with(&[0, 0, 0, 1]), "Annex-B");
     assert!(enc.name().starts_with("videotoolbox h264"), "{}", enc.name());
 }
+
+/// A big change after a still screen stays within one frame interval's share of the rate
+/// (videotoolbox.rs frame_budget: DataRateLimits), so it leaves a paced sender within one
+/// frame interval instead of queueing behind itself. Runs on a fleet Mac.
+#[cfg(target_os = "macos")]
+#[test]
+fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
+    use cmux_encode::H264Encoder;
+    use cmux_encode::videotoolbox::VideoToolbox;
+    const W: usize = 512;
+    const H: usize = 256;
+    const FPS: u32 = 30;
+    const KBPS: u32 = 2_000;
+    let mut enc =
+        VideoToolbox::new(W as u32, H as u32, FPS, KBPS, false).expect("hardware encoder");
+    let still = I420::new(W, H);
+    let mut au = Vec::new();
+    let mut pts = 0i64;
+    for i in 0..30 {
+        enc.encode(&still, i == 0, pts, &mut au).expect("encode");
+        pts += 1_000_000 / i64::from(FPS);
+    }
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut pic = I420::new(W, H);
+    let mut sizes = Vec::new();
+    for _ in 0..3 {
+        for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            *px = 16 + (seed % 220) as u8;
+        }
+        enc.encode(&pic, false, pts, &mut au).expect("encode");
+        pts += 1_000_000 / i64::from(FPS);
+        sizes.push(au.len());
+    }
+    let budget = (KBPS as usize * 1000 / 8) / FPS as usize;
+    eprintln!("changed frames {sizes:?} B, per-frame budget {budget} B");
+    // Some slack for headers and the encoder's own estimate; without the budget a change
+    // after a still screen spends the saved-up rate and comes out many budgets large.
+    let worst = sizes.iter().copied().max().unwrap_or(0);
+    assert!(worst <= budget * 3 / 2, "a changed frame of {worst} B is over the {budget} B budget");
+}
