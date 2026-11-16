@@ -13,6 +13,7 @@ mkdir -p \
   "$APP/Contents/Resources/bin" \
   "$APP/Contents/Frameworks" \
   "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS" \
+  "$APP/Contents/Library/cmux Remote (dev).app/Contents/MacOS" \
   "$FAKE_BIN"
 APP="$(cd "$APP" && pwd -P)"
 
@@ -20,6 +21,7 @@ for binary in \
   "$APP/Contents/MacOS/cmux" \
   "$APP/Contents/Resources/bin/cmux-cua" \
   "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" \
+  "$APP/Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote" \
   "$APP/Contents/Frameworks/nested-macho"; do
   : > "$binary"
 done
@@ -30,7 +32,7 @@ cat > "$FAKE_BIN/file" <<'EOF'
 set -euo pipefail
 target="$(printf '%s\n' "$@" | tail -n 1)"
 case "$target" in
-  */cmux|*/cmux-cua|*/nested-macho) echo 'Mach-O universal binary with 2 architectures' ;;
+  */cmux|*/cmux-cua|*/cmux-remote|*/nested-macho) echo 'Mach-O universal binary with 2 architectures' ;;
   *) echo 'ASCII text' ;;
 esac
 EOF
@@ -40,6 +42,26 @@ cat > "$FAKE_BIN/otool" <<EOF
 set -euo pipefail
 [[ "\$1" == '-arch' && "\$2" == all && "\$3" == '-l' ]] || exit 2
 target="\$4"
+# The guard reads a path with parentheses through a symlink alias.
+resolved="\$(readlink "\$target" || printf '%s' "\$target")"
+case "\${CMUX_FAKE_MODE:-}" in
+  remote-*) [[ "\$resolved" == */cmux-remote ]] && remote_rpath=1 ;;
+esac
+if [[ "\${remote_rpath:-0}" == 1 ]]; then
+  case "\$CMUX_FAKE_MODE" in
+    remote-toolchain-rpath) bad='/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx' ;;
+    remote-toolchain-traversal) bad='/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/../../../../../tmp/evil' ;;
+    remote-other-rpath) bad='/Users/runner/work/cmux/lib' ;;
+    remote-toolchain-load) bad='' ;;
+  esac
+  if [[ -n "\$bad" ]]; then
+    printf 'Load command 0\n      cmd LC_RPATH\n     path /usr/lib/swift (offset 12)\n'
+    printf 'Load command 1\n      cmd LC_RPATH\n     path %s (offset 12)\n' "\$bad"
+  else
+    printf 'Load command 0\n      cmd LC_LOAD_DYLIB\n     name /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx/libswiftCompatibilitySpan.dylib (offset 24)\n'
+  fi
+  exit 0
+fi
 if [[ "\${CMUX_FAKE_MODE:-}" == bad-rpath && "\$target" == */cmux-cua ]]; then
   cat <<'BAD_RPATH'
 Load command 0
@@ -160,5 +182,23 @@ if CMUX_FAKE_MODE=bad-executable-traversal run_guard > "$TMP_DIR/bad-executable-
   exit 1
 fi
 grep -Fq '@executable_path/../../../../tmp/libexample.dylib' "$TMP_DIR/bad-executable-traversal.log"
+
+# The pinned, team-signed cmux Remote (dev).app (scripts/cmux-next/cmux-remote-dev.pin.json)
+# carries the Xcode Swift toolchain rpath its link added (nightly run 43860904558). Only
+# that executable, only LC_RPATH and only under an Xcode toolchain is let through.
+CMUX_FAKE_MODE=remote-toolchain-rpath run_guard > "$TMP_DIR/remote-toolchain-rpath.log" 2>&1 || {
+  cat "$TMP_DIR/remote-toolchain-rpath.log" >&2
+  echo 'FAIL: the guard rejected the pinned cmux Remote toolchain rpath' >&2
+  exit 1
+}
+grep -Fq 'PASS: Mach-O load commands are distribution-safe' "$TMP_DIR/remote-toolchain-rpath.log"
+grep -Fq 'note: pinned cmux Remote (dev)' "$TMP_DIR/remote-toolchain-rpath.log"
+for mode in remote-toolchain-traversal remote-other-rpath remote-toolchain-load; do
+  if CMUX_FAKE_MODE="$mode" run_guard > "$TMP_DIR/$mode.log" 2>&1; then
+    echo "FAIL: the guard accepted $mode on cmux Remote" >&2
+    exit 1
+  fi
+  grep -Fq 'cmux-remote has' "$TMP_DIR/$mode.log"
+done
 
 echo 'PASS: bundle load-command guard rejects bad rpaths and load paths across nested Mach-O files'

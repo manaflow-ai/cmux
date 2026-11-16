@@ -34,6 +34,8 @@ def thin_with_uuid(uuid: bytes, tail: bytes = b"") -> bytes:
 
 
 RUSTC_1_95 = "59807616e1fa2540724bfbac14d7976d7e4a3860"
+# upstream Cua Driver's libs/cua-driver/rust/rust-toolchain.toml (cua-driver-sdk.pin.json rust_toolchain)
+RUSTC_1_97_1 = "8bab26f4f68e0e26f0bb7960be334d5b520ea452"
 GHOSTTY_REVISION = "b" * 40
 TREE = "Contents/Resources/ghostty-licenses"
 NEXT_TREE = "Contents/Resources/ghostty-next-licenses"
@@ -230,6 +232,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         # CCmuxAppFFI (cmux-app-ffi), a dynamic library (Xcode embeds it from the dynamic xcframework).
         # The app binary links no Rust since then, so it is not here.
         "Contents/Frameworks/libcmux_app_ffi.dylib",
+        "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib",
     )
     ZIG_BINARIES = (
         "Contents/MacOS/cmux",  # GhosttyNextKit (static)
@@ -437,6 +440,63 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertEqual(len(errors), 5, errors)
         for error in errors:
             self.assertIn("cannot tell whether it is a copy of", error)
+
+    # cmux Remote (dev).app, the pinned signed app embed-cmux-remote-dev.sh adds -------
+
+    REMOTE = "Contents/Library/cmux Remote (dev).app/Contents"
+    REMOTE_EXE = f"{REMOTE}/MacOS/cmux-remote"
+    REMOTE_WEBRTC = f"{REMOTE}/Frameworks/libWebRTC.dylib"
+    REMOTE_SDK = f"{REMOTE}/Frameworks/libcua_driver_sdk.dylib"
+    REMOTE_LICENSES = ("README.txt", "LICENSE-cua.md", "THIRD_PARTY_NOTICES-rust.md", "cargo-dependencies.txt")
+
+    def remote_app(self, sdk_rustc: str = RUSTC_1_97_1) -> dict:
+        """The fake bundle: cmux Remote's Swift executable, its libWebRTC.dylib
+        and the upstream Cua Driver dylib (Rust, rustc <sdk_rustc> std), the
+        Licenses folder build-cmux-remote-dev.sh writes, CEF's CREDITS.html,
+        the reviewed toolchain texts and the committed THIRD_PARTY_LICENSES.md."""
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        toolchain_notices.install(toolchain_notices.load(), self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").unlink()
+        (self.app / self.CEF_RESOURCES).mkdir(parents=True)
+        (self.app / self.CEF_RESOURCES / "CREDITS.html").write_text("<html></html>\n")
+        for rel, data in ((self.REMOTE_EXE, THIN), (self.REMOTE_WEBRTC, THIN),
+                          (self.REMOTE_SDK, THIN + f"/rustc/{sdk_rustc}/library/core/src/panicking.rs".encode())):
+            (self.app / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.app / rel).write_bytes(data)
+        licenses = self.app / self.REMOTE / "Resources/Licenses"
+        licenses.mkdir(parents=True)
+        for name in self.REMOTE_LICENSES:
+            (licenses / name).write_text(f"{name}\n")
+        (self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md").write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
+        return json.loads((HERE / "bundle-map.json").read_text())
+
+    def test_bundled_cmux_remote_passes_with_the_committed_map_and_notices(self) -> None:
+        # Nightly run 43860904558: since cmux#43516 Release embeds cmux Remote (dev).app,
+        # and its three Mach-O files had no bundle-map entry.
+        self.assertEqual(checker.check(self.app, self.remote_app()), [])
+
+    def test_bundled_cmux_remote_needs_its_licenses_and_sections(self) -> None:
+        bundle_map = self.remote_app()
+        for name in self.REMOTE_LICENSES:
+            (self.app / self.REMOTE / "Resources/Licenses" / name).unlink()
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        text = notices.read_text()
+        for section in ("manual-webrtc-mac-screen-streams", "manual-cmux-cua-engine"):
+            text = text.replace(f"<!-- notices-section: {section} -->\n", "")
+        notices.write_text(text)
+        errors = checker.check(self.app, bundle_map)
+        licenses = "Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses"
+        self.assertIn(f"{self.REMOTE_EXE}: missing notice file:{licenses}/README.txt", errors)
+        self.assertIn(f"{self.REMOTE_WEBRTC}: missing notice section:manual-webrtc-mac-screen-streams", errors)
+        self.assertIn(f"{self.REMOTE_SDK}: missing notice section:manual-cmux-cua-engine", errors)
+        for name in self.REMOTE_LICENSES[1:]:
+            self.assertIn(f"{self.REMOTE_SDK}: missing notice file:{licenses}/{name}", errors)
+
+    def test_bundled_cmux_remote_sdk_built_by_an_unreviewed_rustc_fails(self) -> None:
+        errors = checker.check(self.app, self.remote_app(sdk_rustc="c" * 40))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertTrue(errors[0].startswith(f"{self.REMOTE_SDK}: missing notice rust-std"), errors[0])
 
     def test_macho_uuids_reads_every_slice_of_a_universal_binary(self) -> None:
         arm, x86 = thin_with_uuid(b"A" * 16), thin_with_uuid(b"X" * 16)
