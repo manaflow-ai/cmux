@@ -263,48 +263,45 @@ impl Hub {
                             // show it (`subagent_retry.rs`).
                             tap_hub.observe_task_line(&tap_session, line);
                         }
-                        // Raw stream-json line; translated messages follow. Claude's echo of a
-                        // prompt (`--replay-user-messages`) carries its model-sized copies, and
-                        // its assistant and user lines the bodies those messages carry.
-                        let mut line = params.clone().unwrap_or(Value::Null);
-                        crate::model_copies::scrub_logged(&mut line);
-                        crate::claude_stdio::leave_out_bodies(&kind, &mut line);
-                        // Claude Code repeats its whole system/init each turn; the log keeps
-                        // the sections that changed (`logged_init.rs`).
-                        let init_sections = tap_session
-                            .logged_init
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .leave_out_repeats(&kind, &mut line);
-                        // Its answer to `initialize` repeats the lists the start before logged
-                        // (`update_repeats.rs`).
-                        let answer_sections = (method == RAW_CONTROL_RESPONSE).then(|| {
-                            tap_session
-                                .update_repeats
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .leave_out_repeats(&kind, &mut line)
-                        });
+                        // The pure table owns scrubbing, body leave-outs and
+                        // repeat-section normalization. The writer remains below
+                        // it, so failed writes never commit the hashes.
+                        let mut state = SessionRecordState {
+                            session: &tap_session,
+                            awaiting_first_delta: &awaiting_first_delta,
+                        };
+                        let before = acpmux_core::chat::stage::before(
+                            acpmux_core::chat::record::Entry::Notification {
+                                direction: acpmux_core::chat::record::Direction::In,
+                                method: method.as_str(),
+                                value: msg.to_value(),
+                            },
+                            &mut state,
+                            acpmux_core::chat::stage::Call {
+                                eligible_update: true,
+                                mask: crate::secret_scan::mask,
+                            },
+                        );
+                        let Some((record_dir, record_kind, record_value)) = before.record_parts()
+                        else {
+                            tap_hub.touch(&tap_session);
+                            let _ = acpmux_core::chat::stage::after(before, &mut state, None);
+                            return true;
+                        };
                         let retry = (!muted && method == "claude.system.api_retry")
-                            .then(|| super::turn_retry::claude_retry(&line));
-                        let logged =
-                            tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
-                        // Only a logged line's sections count as logged: a retried write is
-                        // compared with what the log holds.
-                        if logged {
-                            tap_session
-                                .logged_init
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .note_logged(init_sections);
-                            if let Some(sections) = answer_sections {
-                                tap_session
-                                    .update_repeats
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                    .note_logged(sections);
-                            }
-                        }
+                            .then(|| super::turn_retry::claude_retry(&record_value));
+                        let (written, logged) = tap_hub.append_logged(
+                            &tap_session,
+                            record_dir,
+                            &record_kind,
+                            record_value,
+                            host_seq,
+                        );
+                        let _ = acpmux_core::chat::stage::after(
+                            before,
+                            &mut state,
+                            logged.then_some(&written),
+                        );
                         // The model request failed and Claude Code tries again (`turn_retry.rs`).
                         if let Some(retry) = retry {
                             // A sign-in the model API refuses ends the turn at its second retry.
