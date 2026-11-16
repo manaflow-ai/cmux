@@ -2,7 +2,7 @@
 // The example extension examples/extensions/leo-gacha in each card style: its sidebar section
 // (left, sidebar width) and its pane (right), drawn by the web scene renderer from the exact op
 // batches its renderSection / renderPane exports emitted in the reference fake host
-// (scripts/apps/record-leo-gacha.ts writes fixtures/leo-gacha-traces.json). One recorded batch is
+// (scripts/apps/record-scene-traces.ts scripts/apps/specs/leo-gacha.json writes fixtures/leo-gacha-traces.json). One recorded batch is
 // applied per second: a pull is shake (1 s), reveal (1 s), rest (1 s). The wiggle, pop, glow,
 // shimmer and particles are the renderer's. Chief art resolves from the example's own assets/.
 import { useEffect, useState } from "react";

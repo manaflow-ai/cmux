@@ -488,6 +488,12 @@
   align-self: stretch;
   justify-self: stretch;
 }
+/* In a ZStack the grid area sizes the field: a percent height there resolves against an auto row
+   and collapses to 0, which put every burst on the stack's top edge. Stretch fills the area. */
+.cmux-app-scene-zstack > .cmux-app-scene-particles {
+  width: auto;
+  height: auto;
+}
 .cmux-app-scene-particles-canvas {
   position: absolute;
   inset: 0;
