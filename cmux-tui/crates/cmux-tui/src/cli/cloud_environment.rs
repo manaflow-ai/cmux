@@ -78,31 +78,7 @@ fn parse(words: &[String]) -> Result<Command, UsageError> {
     }
 }
 
-fn launch_backend(args: &[String]) -> Result<Option<String>, String> {
-    let mut found = None;
-    let mut index = 0;
-    while index < args.len() {
-        let arg = &args[index];
-        if let Some(value) = arg.strip_prefix("--cloud-backend=") {
-            if value.is_empty() || found.is_some() {
-                return Err("duplicate or empty --cloud-backend".into());
-            }
-            found = Some(value.to_owned());
-        } else if arg == "--cloud-backend" {
-            let value = args.get(index + 1).ok_or("--cloud-backend requires a value")?;
-            if value.is_empty() || value.starts_with('-') || found.is_some() {
-                return Err("duplicate or empty --cloud-backend".into());
-            }
-            found = Some(value.clone());
-            index += 1;
-        }
-        index += 1;
-    }
-    if let Some(value) = &found {
-        Environment::parse(value)?;
-    }
-    Ok(found)
-}
+use cmux_cloud_environment::launch::backend as launch_backend;
 
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;

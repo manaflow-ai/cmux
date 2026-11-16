@@ -282,6 +282,30 @@ fn key_value(key: Option<InstallKey>) -> Value {
 /// Runs one op.
 pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
     match op {
+        // Local I/O: the app invokes this on its blocking-work lane before building services.
+        "cloud_environment_local" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                bundle_id: String,
+                home: String,
+                arguments: Vec<String>,
+                environment: Env,
+            }
+            let r: Request = de(request)?;
+            Ok(
+                match cmux_cloud_environment::launch::local(
+                    &r.bundle_id,
+                    std::path::Path::new(&r.home),
+                    &r.arguments,
+                    &r.environment,
+                ) {
+                    Ok(Some(selection)) => json!({"selection": selection}),
+                    Ok(None) => json!({"needsFetch": true}),
+                    Err(error) => json!({"error": error}),
+                },
+            )
+        }
         // The version handoff.
         "version_decision" => {
             let r: Decide = de(request)?;

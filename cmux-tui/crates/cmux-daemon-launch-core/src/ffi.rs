@@ -22,7 +22,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op.
-pub const CMUX_DAEMON_LAUNCH_ABI_VERSION: u32 = 1;
+pub const CMUX_DAEMON_LAUNCH_ABI_VERSION: u32 = 2;
 pub const CMUX_DAEMON_LAUNCH_OK: i32 = 0;
 /// A null pointer where one is required.
 pub const CMUX_DAEMON_LAUNCH_ERR_NULL: i32 = -1;

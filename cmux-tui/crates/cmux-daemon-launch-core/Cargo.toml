@@ -11,6 +11,7 @@ description = "How the macOS app starts and keeps its cmux-tui daemon (the macOS
 workspace = true
 
 [dependencies]
+cmux-cloud-environment = { path = "../cmux-cloud-environment", default-features = false }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 # The install key's hello proof and install id rule (the daemon checks the same bytes).

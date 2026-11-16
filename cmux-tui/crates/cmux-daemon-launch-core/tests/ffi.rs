@@ -34,6 +34,51 @@ fn call(op: &str, request: &Value) -> Result<Value, i32> {
     if code == CMUX_DAEMON_LAUNCH_OK { Ok(take(&mut out)) } else { Err(code) }
 }
 
+/// A local Cloud read must not require starting the CLI or a network runtime.
+#[test]
+fn c_abi_cloud_launch_local_preserves_selection_and_fetch_boundary() {
+    let home = std::env::temp_dir().join(format!(
+        "cmux-cloud-launch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    std::fs::create_dir(&home).expect("unique test home");
+    let request = |args: Value, environment: Value| {
+        serde_json::json!({
+            "bundleId": "com.cmuxterm.app.debug.recovery", "home": home,
+            "arguments": args, "environment": environment,
+        })
+    };
+    let read = |args, environment| call("cloud_environment_local", &request(args, environment));
+    let known = read(serde_json::json!([]), serde_json::json!({})).expect("local FFI read");
+    assert_eq!(known["selection"]["name"], "dev");
+    assert_eq!(known["selection"]["bundle_id"], "com.cmuxterm.app.debug.recovery");
+    assert_eq!(known["selection"]["config_source"], "known_origin_fallback");
+    let selected = read(
+        serde_json::json!(["app", "--cloud-backend", "staging"]),
+        serde_json::json!({"CMUX_NEXT_CLOUD_BACKEND": "prod"}),
+    )
+    .unwrap();
+    assert_eq!(selected["selection"]["name"], "staging");
+    assert_ne!(known["selection"]["auth_namespace"], selected["selection"]["auth_namespace"]);
+    // An override belongs to this launch; it must not rewrite the persisted pick.
+    assert_eq!(read(serde_json::json!([]), serde_json::json!({})).unwrap(), known);
+    // A custom backend with no cache still needs the existing bounded CLI fetch.
+    assert_eq!(
+        read(serde_json::json!(["--cloud-backend=http://127.0.0.1:47653"]), serde_json::json!({}))
+            .unwrap(),
+        serde_json::json!({"needsFetch": true})
+    );
+    let invalid = read(
+        serde_json::json!(["--cloud-backend=prod", "--cloud-backend=staging"]),
+        serde_json::json!({}),
+    )
+    .unwrap();
+    assert!(invalid["error"].as_str().unwrap().contains("duplicate"));
+    // Only this test's create_dir-owned tree is removed.
+    std::fs::remove_dir_all(home).unwrap();
+}
+
 #[test]
 fn c_abi_every_vector_through_the_call() {
     for file in golden::OP_FILES {
