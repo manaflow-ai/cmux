@@ -31,6 +31,12 @@ public struct ScrollerStylePin {
     /// - Returns: The value `defaults` had before (nil: "Automatically").
     @discardableResult
     public func apply(to defaults: UserDefaults) -> String? {
-        nil
+        let system = defaults.string(forKey: Self.key)
+        var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments[Self.key] = Self.pinnedValue
+        // setVolatileDomain refuses a name that is already set: replace the domain whole.
+        defaults.removeVolatileDomain(forName: UserDefaults.argumentDomain)
+        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        return system
     }
 }
