@@ -101,6 +101,36 @@ class ParseTests(unittest.TestCase):
                       rdnl.stall_table([{'commit': 'd' * 40, 'stalls': [m]}]))
         self.assertEqual(rdnl.stall_table([{'commit': 'd' * 40}]), '')
 
+    def test_wifi_away_holds_file_is_the_seeded_schedule(self):
+        on_disk = json.loads(Path(__file__).with_name('wifi-away-holds.json').read_text())
+        self.assertEqual(on_disk, json.loads(json.dumps(rdnl.wifi_away_schedule(7, 120.0))))
+        self.assertTrue(all(0.05 <= d <= 0.10 for _, d in on_disk['short']))
+        self.assertTrue(all(0.30 <= d <= 0.58 for _, d in on_disk['long']))
+        starts = [a for a, _ in on_disk['short']]
+        self.assertTrue(all(abs((b - a) - 0.53) < 0.002 for a, b in zip(starts, starts[1:])))
+
+    def test_profile_holds_split_the_schedule(self):
+        sched = {'seconds': 10.0, 'loss_pct': 2.0, 'short': [[0.5, 0.25], [1.5, 0.125]], 'long': [[1.25, 0.5]]}
+        self.assertEqual(rdnl.profile_holds('wifi-away', sched), ([(0.5, 0.75), (1.25, 1.75)], 10.0, 2.0))
+        self.assertEqual(rdnl.profile_holds('wifi-away-short', sched)[0], [(0.5, 0.75), (1.5, 1.625)])
+        self.assertEqual(rdnl.profile_holds('wifi-away-long', sched)[2], 0.0)
+        self.assertEqual(rdnl.profile_holds('wifi-away-loss', sched), ([], 10.0, 2.0))
+        self.assertEqual(rdnl.profile_holds('stall'), ([(5.0, 5.6)], 5.0, 0.0))
+
+    def test_target_drawdown(self):
+        d = rdnl.target_drawdown([8000, 20000, 40000, 30000, 10000, 20000, 40000, 50000])
+        self.assertEqual((d['peak_kbps'], d['trough_kbps'], d['drop_pct'], d['fall_s'], d['recover_s'],
+                          d['seconds_falling']), (40000, 10000, 75.0, 2, 2, 2))
+        self.assertEqual(rdnl.target_drawdown([1000, 2000, None, 3000])['drop_pct'], 0.0)
+
+    def test_gate_wait_and_key_pct_over(self):
+        text = ''.join(json.dumps({'damage_us': 0, 'release_us': i * 1000}) + '\n' for i in range(1, 21))
+        self.assertEqual(rdnl.gate_wait(text), {'n': 20, 'p50_ms': 11.0, 'p95_ms': 20.0})
+        self.assertIsNone(rdnl.gate_wait('{"inject_us": 1}\n'))
+        times = [{'sent_ns': 0, 'decoded_ns': ms * 1_000_000} for ms in (10, 40, 60, 90)]
+        self.assertEqual(rdnl.pct_over(times, 50), 50.0)
+        self.assertIsNone(rdnl.pct_over(None, 50))
+
     def test_seconds_to_level(self):
         self.assertEqual(rdnl.seconds_to([None, 9, 15, 20], 15), 3)
         self.assertIsNone(rdnl.seconds_to([1, 2], 15))

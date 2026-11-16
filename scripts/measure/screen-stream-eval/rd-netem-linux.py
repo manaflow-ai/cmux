@@ -4,6 +4,7 @@
   rd-netem-linux.py --commit SHA [--commit SHA ...] --out DIR [--deps]
   rd-netem-linux.py --bin LABEL=PATH [--bin ...] --out DIR
   rd-netem-linux.py table RESULTS.jsonl
+  rd-netem-linux.py holds [SEED [SECONDS]]
 
 For each cmux commit it builds `cmux-rd` (`cmux-tui/crates/cmux-rd-host`, release, features
 `bench,openh264,link`) in a fresh sparse source tree, then runs the real host and viewer in two network
@@ -23,6 +24,12 @@ see it; jitter is netem's default distribution, which reorders packets):
                    leg). It runs host and viewer in the host namespace over its own `lo`, so the
                    bench's --eval-local decode records give, per stall, the first frame captured
                    after the release and when it decoded; it runs the passive session only.
+  wifi-away        Leo's radio away from the access point: delay 4ms, 2 % loss, short 50-100 ms holds
+                   every 0.53 s and long 300-580 ms holds at irregular gaps, from the seeded
+                   wifi-away-holds.json (`rd-netem-linux.py holds [SEED [SECONDS]]` prints it).
+                   Ablations: wifi-away-short, wifi-away-long, wifi-away-loss. Same `lo` topology;
+                   passive then key session; reports the target's largest fall and its recovery,
+                   gate wait, and the share of key samples over 50 ms. Opt-in (--profile).
 
 Each profile starts a fresh host and runs two viewer sessions against it:
   passive  `bench --input none --duration-s N`: received Mbps per second and the host's target
@@ -40,7 +47,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import random
 import re
 import shutil
 import signal
@@ -69,8 +78,20 @@ PROFILES = {
     # A Wi-Fi leg: 4 ms steady, then every STALL_PERIOD_S every packet is held for STALL_HOLD_S and
     # released as one burst (StallDriver). Runs on the host namespace's own `lo` (below).
     "stall": "delay 4ms",
+    # Leo's radio away from the access point (air-blue capture): 4 ms, short 50-100 ms holds every
+    # 0.53 s, long 300-580 ms holds at irregular gaps, 2 % loss. The holds come from
+    # wifi-away-holds.json (seeded, WIFI_AWAY_SEED); the three ablations split it.
+    "wifi-away": "delay 4ms loss random 2%",
+    "wifi-away-short": "delay 4ms",
+    "wifi-away-long": "delay 4ms",
+    "wifi-away-loss": "delay 4ms loss random 2%",
 }
 STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
+# Profiles that run host and viewer in the host namespace over its own `lo` (one qdisc, each
+# direction crosses it once), with HoldDriver applying their holds.
+LO_PROFILES = ("stall", "wifi-away", "wifi-away-short", "wifi-away-long", "wifi-away-loss")
+WIFI_AWAY_SEED, WIFI_AWAY_SECONDS = 7, 120.0
+HOLDS_FILE = Path(__file__).with_name("wifi-away-holds.json")
 # Extra `cmux-rd host` flags for every host this run starts (--host-arg, e.g. an encode profile).
 HOST_ARGS: list[str] = []
 PROFILE_LABELS = {
@@ -79,6 +100,10 @@ PROFILE_LABELS = {
     "jitter-15-burst": "15±15 ms, 1% burst loss",
     "jitter-30-loss2": "30±30 ms, 2% loss",
     "stall": "4 ms, 0.6 s hold every 5 s",
+    "wifi-away": "Wi-Fi away: short + long holds, 2% loss",
+    "wifi-away-short": "Wi-Fi away: short holds only",
+    "wifi-away-long": "Wi-Fi away: long holds only",
+    "wifi-away-loss": "Wi-Fi away: 2% loss only",
 }
 
 
@@ -153,6 +178,13 @@ def seconds_to(series: list, level: float):
     return next((i + 1 for i, v in enumerate(series) if v is not None and v >= level), None)
 
 
+def pct_over(sample_times, ms: float):
+    """Percent of shown key samples whose key-to-decoded time exceeded ms (bench `sample_times`)."""
+    g2g = [(t["decoded_ns"] - t["sent_ns"]) / 1e6 for t in sample_times or []
+           if _num(t.get("decoded_ns")) is not None and _num(t.get("sent_ns")) is not None]
+    return round(sum(v > ms for v in g2g) * 100 / len(g2g), 1) if g2g else None
+
+
 def summarize_key(report: dict | None) -> dict:
     """Key press to decoded marker from a `--input key` bench line."""
     if not report:
@@ -168,6 +200,7 @@ def summarize_key(report: dict | None) -> dict:
         "stalls_ms": report.get("stalls_ms"),
         "mbit_per_s": _num(report.get("mbit_per_s")),
         "frames_per_s": _num(report.get("frames_per_s")),
+        "pct_over_50ms": pct_over(report.get("sample_times"), 50),
         "target_kbps_last": _num(stats.get("kbps")),
         "host_loss_pct_last": _num(stats.get("loss_pct")),
         "ended": report.get("ended"),
@@ -189,6 +222,105 @@ def wire_summary(samples: list[tuple[float, int, int]]) -> dict:
             up.append(round((x1 - x0) * 8 / dt / 1e6, 3))
     return {"down_mbps_per_s": down, "up_mbps_per_s": up,
             "source": "viewer veth rx/tx bytes (all datagram kinds, with headers)"}
+
+
+def wifi_away_schedule(seed: int = WIFI_AWAY_SEED, seconds: float = WIFI_AWAY_SECONDS) -> dict:
+    """The wifi-away hold schedule: [start s, length s] pairs, the same for every run of a seed.
+
+    Short holds: every 0.53 s, 50-100 ms (uniform). Long holds: gaps lognormal with median 3.4 s
+    clipped to 0.5-11 s, lengths normal around 455 ms clipped to 300-580 ms."""
+    rng = random.Random(seed)
+    short, t = [], 0.53
+    while t < seconds:
+        short.append([round(t, 3), round(rng.uniform(0.05, 0.10), 3)])
+        t += 0.53
+    long, t = [], 0.0
+    while True:
+        t += min(11.0, max(0.5, rng.lognormvariate(math.log(3.4), 0.8)))
+        if t >= seconds:
+            break
+        length = min(0.58, max(0.30, rng.gauss(0.455, 0.07)))
+        long.append([round(t, 3), round(length, 3)])
+        t += length
+    return {"schema": "cmux.rd-netem-holds/1", "seed": seed, "seconds": seconds, "base_delay_ms": 4,
+            "loss_pct": 2.0, "short": short, "long": long}
+
+
+def merge_holds(pairs: list) -> list[tuple[float, float]]:
+    """[start, length] pairs as non-overlapping (start, end) intervals, in order."""
+    out: list[list[float]] = []
+    for start, end in sorted((a, a + b) for a, b in pairs):
+        if out and start <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], end)
+        else:
+            out.append([start, end])
+    return [(a, b) for a, b in out]
+
+
+def profile_holds(profile: str, schedule: dict | None = None) -> tuple[list[tuple[float, float]], float, float]:
+    """(holds as (start, end) s, schedule period s, loss %) for a LO_PROFILES profile."""
+    if profile == "stall":
+        return [(k * STALL_PERIOD_S, k * STALL_PERIOD_S + STALL_HOLD_S) for k in range(1, 2)], STALL_PERIOD_S, 0.0
+    schedule = schedule or json.loads(HOLDS_FILE.read_text())
+    pick = {"wifi-away": ("short", "long"), "wifi-away-short": ("short",), "wifi-away-long": ("long",),
+            "wifi-away-loss": ()}[profile]
+    loss = schedule["loss_pct"] if profile in ("wifi-away", "wifi-away-loss") else 0.0
+    return merge_holds([h for kind in pick for h in schedule[kind]]), schedule["seconds"], loss
+
+
+def target_drawdown(target: list) -> dict:
+    """The largest fall of a per-second target series: from its running peak to the lowest value
+    after it, how many seconds the fall took, and how many seconds until it was back at the peak."""
+    values = [v for v in target if v is not None]
+    best = {"peak_kbps": None, "trough_kbps": None, "drop_pct": 0.0, "fall_s": None, "recover_s": None,
+            "seconds_falling": sum(b < a for a, b in zip(values, values[1:]))}
+    peak_i = 0
+    for i, v in enumerate(values):
+        if v > values[peak_i]:
+            peak_i = i
+        drop = (values[peak_i] - v) / values[peak_i] * 100 if values[peak_i] else 0.0
+        if drop > best["drop_pct"]:
+            back = next((j for j in range(i + 1, len(values)) if values[j] >= values[peak_i]), None)
+            best.update(peak_kbps=values[peak_i], trough_kbps=v, drop_pct=round(drop, 1), fall_s=i - peak_i,
+                        recover_s=(back - i) if back is not None else None)
+    return best
+
+
+def gate_wait(timing_text: str) -> dict | None:
+    """Gate wait (damage seen until the gate released the encode), ms, from the host's timing log."""
+    waits = []
+    for line in timing_text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and _num(row.get("damage_us")) is not None and _num(row.get("release_us")) is not None:
+            waits.append((row["release_us"] - row["damage_us"]) / 1000)
+    waits.sort()
+    if not waits:
+        return None
+    return {"n": len(waits), "p50_ms": round(waits[len(waits) // 2], 2),
+            "p95_ms": round(waits[min(len(waits) - 1, int(len(waits) * 0.95))], 2)}
+
+
+def lo_table(rows: list[dict]) -> str:
+    out = ["| cmux-rd | profile | target: peak → trough kbps (drop %), fall s, back to peak s, seconds falling "
+           "| decoded fps median | gate wait p50 / p95 ms | key p50 / p95 ms | keys > 50 ms | holds |",
+           "|" + "---|" * 8]
+    for r in rows:
+        if not str(r.get("profile", "")).startswith("wifi-away") or r.get("error"):
+            continue
+        d, key, passive = r.get("drawdown") or {}, r.get("key") or {}, r.get("passive") or {}
+        fps = [v for v in passive.get("decoded_fps_per_s") or [] if v is not None]
+        gate = r.get("gate_wait") or {}
+        out.append(f"| `{r['commit'][:12]}` | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
+                   f"| {_fmt(d.get('peak_kbps'))} → {_fmt(d.get('trough_kbps'))} ({_fmt(d.get('drop_pct'))}%), "
+                   f"{_fmt(d.get('fall_s'))}, {_fmt(d.get('recover_s'))}, {_fmt(d.get('seconds_falling'))} "
+                   f"| {f'{statistics.median(fps):.1f}' if fps else '–'} "
+                   f"| {_fmt(gate.get('p50_ms'))} / {_fmt(gate.get('p95_ms'))} "
+                   f"| {_fmt(key.get('p50_ms'))} / {_fmt(key.get('p95_ms'))} | {_fmt(key.get('pct_over_50ms'))}% "
+                   f"| {_fmt(r.get('holds_applied'))} |")
+    return "\n".join(out) + "\n" if len(out) > 2 else ""
 
 
 def stall_metrics(report: dict | None, stalls: list[dict]) -> list[dict]:
@@ -358,7 +490,7 @@ class Rig:
 
     def shape(self, profile: str) -> list[str]:
         lines = []
-        links = (((self.host_ns, "lo"),) if profile == "stall"
+        links = (((self.host_ns, "lo"),) if profile in LO_PROFILES
                  else ((self.host_ns, self.host_dev), (self.view_ns, self.view_dev)))
         for ns, dev in links:
             run(priv(["ip", "netns", "exec", ns, "tc", "qdisc", "replace", "dev", dev, "root", *netem_args(profile)]))
@@ -383,34 +515,44 @@ class Rig:
                                 stdout=stdout, stderr=stderr, start_new_session=True)
 
 
-class StallDriver:
-    """Holds every packet on the host namespace's `lo` for STALL_HOLD_S every STALL_PERIOD_S, then
-    releases them at once, by toggling netem's delay: during a hold it lowers the delay every
-    10 ms to (hold end - now) + 4 ms, so each held packet is due at the hold's end. One
-    `tc -batch -` process takes the changes. Each hold's times land in `stalls`."""
+class HoldDriver:
+    """Holds every packet on the host namespace's `lo` during each (start, end) interval of
+    `holds` (seconds from start(), repeating every `period_s`), then releases them at once, by
+    toggling netem's delay: during a hold it lowers the delay every 10 ms to (hold end - now) +
+    4 ms, so each held packet is due at the hold's end. `loss_pct` stays on throughout. One
+    `tc -batch -` process takes the changes; each applied hold lands in `stalls`."""
 
-    def __init__(self, rig: "Rig"):
-        self.rig, self.stalls, self.done = rig, [], threading.Event()
+    def __init__(self, rig: "Rig", holds: list[tuple[float, float]], period_s: float, loss_pct: float = 0.0):
+        self.rig, self.holds, self.period_s, self.loss = rig, holds, period_s, loss_pct
+        self.stalls, self.done = [], threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.tc = None
 
     def set_delay(self, ms: float):
-        self.tc.stdin.write(f"qdisc change dev lo root netem delay {ms:.1f}ms limit 100000\n".encode())
+        loss = f" loss random {self.loss:g}%" if self.loss else ""
+        self.tc.stdin.write(f"qdisc change dev lo root netem delay {ms:.1f}ms{loss} limit 100000\n".encode())
         self.tc.stdin.flush()
 
     def run(self):
         self.tc = subprocess.Popen(priv(["ip", "netns", "exec", self.rig.host_ns, "tc", "-force", "-batch", "-"]),
                                    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        t0 = time.monotonic_ns()
         try:
-            while not self.done.wait(STALL_PERIOD_S):
-                start_ns, start_ms = time.monotonic_ns(), time.time() * 1000
-                end_ns = start_ns + int(STALL_HOLD_S * 1e9)
-                while (left := end_ns - time.monotonic_ns()) > 0:
-                    self.set_delay(4 + left / 1e6)
-                    time.sleep(0.01)
-                self.set_delay(4)
-                self.stalls.append({"start_us": start_ns // 1000, "end_us": end_ns // 1000,
-                                    "start_ms": start_ms, "end_ms": start_ms + STALL_HOLD_S * 1000})
+            for cycle in range(10_000):
+                for a, b in self.holds:
+                    start_ns = t0 + int((cycle * self.period_s + a) * 1e9)
+                    end_ns = t0 + int((cycle * self.period_s + b) * 1e9)
+                    if self.done.wait(max(0.0, (start_ns - time.monotonic_ns()) / 1e9)):
+                        return
+                    start_ms = time.time() * 1000 - (time.monotonic_ns() - start_ns) / 1e6
+                    while (left := end_ns - time.monotonic_ns()) > 0:
+                        self.set_delay(4 + left / 1e6)
+                        time.sleep(0.01)
+                    self.set_delay(4)
+                    self.stalls.append({"start_us": start_ns // 1000, "end_us": end_ns // 1000, "start_ms": start_ms,
+                                        "end_ms": start_ms + (end_ns - start_ns) / 1e6})
+                if not self.holds and self.done.wait(self.period_s):
+                    return
         finally:
             self.tc.stdin.close()
             self.tc.wait(timeout=10)
@@ -548,8 +690,8 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
     row = {"schema": SCHEMA, "commit": commit, "profile": profile, "netem_each_direction": PROFILES[profile],
            "workload": "motion", "carrier": "udp", "host_args": HOST_ARGS}
     row["qdisc"] = rig.shape(profile)
-    if profile == "stall":
-        return measure_stall(rig, binary, row, scratch, display, passive_s)
+    if profile in LO_PROFILES:
+        return measure_lo(rig, binary, row, scratch, display, passive_s, samples)
     # The token lives in the private 0700 scratch, never under --out (an uploaded artifact).
     token = scratch / "token"
     token.write_text(os.urandom(32).hex())
@@ -591,39 +733,58 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         time.sleep(0.5)  # the next host binds the same port
 
 
-def measure_stall(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int) -> dict:
-    """The stall profile: host and viewer in the host namespace over its own `lo` (netem there
-    delays each direction once, 4 ms), so the bench's `--eval-local` decode records share the
-    host's clock and the first fresh frame after each release is measured, not inferred."""
+def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int,
+               samples: int) -> dict:
+    """LO_PROFILES: host and viewer in the host namespace over its own `lo` (netem there delays each
+    direction once, 4 ms), so the bench's `--eval-local` decode records share the host's clock.
+    `stall` runs the passive session and times the first fresh frame after each release; the
+    wifi-away profiles run the passive and then the key session, both under the holds."""
+    profile = row["profile"]
     row["topology"] = "host namespace lo (one netem qdisc; each direction crosses it once)"
+    holds, period, loss = profile_holds(profile)
+    row["hold_method"] = "netem delay lowered every 10 ms to (hold end - now) + 4 ms: held, then one burst"
+    if profile != "stall":
+        row["holds_file"] = {"path": HOLDS_FILE.name, "seed": json.loads(HOLDS_FILE.read_text())["seed"]}
     token = scratch / "token"
     token.write_text(os.urandom(32).hex())
     token.chmod(0o600)
-    timing, host_log = scratch / "timing-stall.jsonl", scratch / "host-stall.log"
+    timing, host_log = scratch / f"timing-{profile}.jsonl", scratch / f"host-{profile}.log"
     timing.touch()
     with open(host_log, "wb") as log:
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", "127.0.0.1",
                                        "--display", display, "--port", str(PORT), "--profile", "baseline",
                                        "--token-fd", "3", *HOST_ARGS],
                          env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
-    driver = StallDriver(rig)
+    driver = HoldDriver(rig, holds, period, loss)
     try:
         if not wait_for(host_log, "listening", host, 20):
             row["error"] = "host did not listen: " + host_log.read_text(errors="replace")[-600:]
             return row
-        seconds = max(passive_s, 32)
+        seconds = max(passive_s, 32 if profile == "stall" else 40)
         driver.start()
         passive, perr = bench(rig, binary, token, ["--input", "none", "--duration-s", str(seconds)],
                               seconds + 60, loopback=True)
-        driver.stop()
+        mid = timing.stat().st_size
         row["passive"] = summarize_passive(passive)
         if not row["passive"]["ok"]:
             row["passive"]["stderr"] = perr
-        row["stall_period_s"], row["stall_hold_s"] = STALL_PERIOD_S, STALL_HOLD_S
-        row["stall_method"] = "netem delay lowered every 10 ms to (hold end - now) + 4 ms: held, then one burst"
-        row["stalls"] = stall_metrics(passive, driver.stalls)
-        row["idr_passive"] = count_idrs(timing.read_bytes().decode(errors="replace"))
-        row["key"] = {"skipped": "the stall profile measures the passive session only"}
+        if profile == "stall":
+            driver.stop()
+            row["stall_period_s"], row["stall_hold_s"] = STALL_PERIOD_S, STALL_HOLD_S
+            row["stalls"] = stall_metrics(passive, driver.stalls)
+            row["key"] = {"skipped": "the stall profile measures the passive session only"}
+        else:
+            key, kerr = bench(rig, binary, token, ["--input", "key", "--samples", str(samples)],
+                              samples * 3 + 90, loopback=True)
+            driver.stop()
+            row["key"] = summarize_key(key)
+            if not row["key"]["ok"]:
+                row["key"]["stderr"] = kerr
+            row["drawdown"] = target_drawdown(row["passive"].get("target_kbps_per_s") or [])
+            row["holds_applied"] = len(driver.stalls)
+        data = timing.read_bytes()
+        row["idr_passive"] = count_idrs(data[:mid].decode(errors="replace"))
+        row["gate_wait"] = gate_wait(data[:mid].decode(errors="replace"))
         return row
     finally:
         driver.stop()
@@ -682,16 +843,23 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
 
 
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["holds"]:
+        # holds [SEED [SECONDS]]: print the wifi-away schedule (wifi-away-holds.json is seed 7, 120 s).
+        seed = int(argv[1]) if len(argv) > 1 else WIFI_AWAY_SEED
+        seconds = float(argv[2]) if len(argv) > 2 else WIFI_AWAY_SECONDS
+        print(json.dumps(wifi_away_schedule(seed, seconds), indent=1))
+        return 0
     if argv[:1] == ["table"]:
         if len(argv) != 2:
             raise SystemExit("usage: rd-netem-linux.py table RESULTS.jsonl")
         rows = read_rows(Path(argv[1]))
-        sys.stdout.write(markdown_table(rows) + "\n" + stall_table(rows))
+        sys.stdout.write(markdown_table(rows) + "\n" + stall_table(rows) + "\n" + lo_table(rows))
         return 0
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--commit", action="append", default=[], help="full cmux commit to build and measure")
     ap.add_argument("--bin", action="append", default=[], metavar="COMMIT=PATH", help="a prebuilt cmux-rd")
-    ap.add_argument("--profile", action="append", choices=sorted(PROFILES), help="default: all five")
+    ap.add_argument("--profile", action="append", choices=sorted(PROFILES),
+                    help="default: clean, jitter-5, jitter-15-burst, jitter-30-loss2, stall")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--repo-url", default=REPO_URL)
     ap.add_argument("--host-arg", action="append", default=[], metavar="ARG",
@@ -708,7 +876,7 @@ def main(argv: list[str]) -> int:
     for c in args.commit:
         if not re.fullmatch(r"[0-9a-f]{40}", c):
             ap.error(f"--commit {c}: a full 40-hex sha")
-    profiles = args.profile or list(PROFILES)
+    profiles = args.profile or ["clean", "jitter-5", "jitter-15-burst", "jitter-30-loss2", "stall"]
     HOST_ARGS[:] = args.host_arg
     args.out.mkdir(parents=True, exist_ok=True)
     if args.deps:
@@ -737,10 +905,10 @@ def main(argv: list[str]) -> int:
                 continue
             rows += measure_binary(binary, commit, profiles, args.out, args)
             mine = [r for r in rows if r["commit"] == commit]
-            print(markdown_table(mine) + "\n" + stall_table(mine), file=sys.stderr, flush=True)
+            print(markdown_table(mine) + "\n" + stall_table(mine) + "\n" + lo_table(mine), file=sys.stderr, flush=True)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    table = markdown_table(rows) + "\n" + stall_table(rows)
+    table = markdown_table(rows) + "\n" + stall_table(rows) + "\n" + lo_table(rows)
     (args.out / "results.md").write_text(table)
     print(table)
     return 0 if rows and not any(r.get("error") for r in rows) else 1
