@@ -29,14 +29,16 @@ extension ScreenContentView {
 
     /// Feeds every row column the current rows and focus (called with each
     /// `syncScroll`). A column that stops overflowing drops its offset.
+    /// `glides`: its rows glide from where they show to their places (a row height changed so that they fit). False for
+    /// a structural change: a close that leaves the rest fitting the column is one commit, and its rows are at their
+    /// places in the frame that shows it, never on their way beside the ground of the row that left.
     /// Returns true if a spring needs frames.
     @discardableResult
-    func syncRows(focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool) -> Bool {
+    func syncRows(focused: PaneID?, source: ColumnFocusSource, animated: Bool, glides: Bool, reveals: Bool) -> Bool {
         var needsFrames = false
         let scrolling = baseGeometry.rowStacks.filter { $0.value.scrolls }
         for id in rowScrolls.keys where scrolling[id] == nil {
-            // A close that leaves the rest fitting the column: its frames glide from where they show.
-            if animated { carryRowOffset(of: id) }
+            if animated, glides { carryRowOffset(of: id) }
             rowScrolls[id] = nil
         }
         for (id, stack) in scrolling {
@@ -52,7 +54,7 @@ extension ScreenContentView {
     }
 
     /// A row column that stops scrolling drops its offset: its pane and divider springs start where
-    /// they show at that offset, so the change glides instead of jumping by it.
+    /// they show at that offset, so a change of row heights glides instead of jumping by it.
     private func carryRowOffset(of id: ColumnID) {
         guard let offset = rowScrolls[id]?.state.spring.value, abs(offset) > 0.25,
               let column = layout.columns.first(where: { $0.id == id }) else { return }

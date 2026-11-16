@@ -19,10 +19,13 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
+        // The first scroll sync after a structural change is that change's: its cameras take their places with it.
+        let structural = scrollSyncIsStructural
+        scrollSyncIsStructural = false
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
-        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals) || areasNeedFrames
+        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, glides: !structural, reveals: reveals) || areasNeedFrames
         guard let strip else {
             scrollState = ColumnScrollState()
             settleCarried()

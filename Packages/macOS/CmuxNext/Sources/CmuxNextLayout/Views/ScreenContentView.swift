@@ -33,6 +33,9 @@ final class ScreenContentView: NSView {
     /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
     /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame.
     var holdsContentForKeyResize = false { didSet { if oldValue, !holdsContentForKeyResize { releasePaneFrameNoticesIfSettled() } } }
+    /// The layout change that `update` just applied is structural, and its scroll sync has not run yet (`syncScroll`
+    /// follows every update): that sync puts each camera at its place with the change, in the same frame.
+    var scrollSyncIsStructural = false
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
     /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
@@ -218,6 +221,7 @@ final class ScreenContentView: NSView {
         }
         self.layout = layout
         self.zoomed = zoomed
+        scrollSyncIsStructural = structural
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, zooming: zooming, presents: false,
