@@ -5437,6 +5437,438 @@
         }
       }
     },
+    "settings.choice.backgroundFollowAppearance": {
+      "comment": "Settings choice: the background switches between a light and a dark picture with the appearance.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Light and Dark"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "فاتح وداكن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svijetlo i tamno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lys og mørk"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Hell und Dunkel"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Claro y oscuro"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Clair et sombre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Chiaro e scuro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダーク"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្លឺ និងងងឹត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 및 다크"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lys og mørk"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jasny i ciemny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Claro e escuro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Светлая и тёмная"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สว่างและมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve Koyu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Світла й темна"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Sáng và tối"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "浅色和深色"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "淺色和深色"}}
+      }
+    },
+    "settings.choice.backgroundTimeOfDay": {
+      "comment": "Settings choice: the background changes with the time of day.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Time of Day"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "وقت اليوم"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Doba dana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tidspunkt på dagen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tageszeit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Hora del día"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Moment de la journée"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ora del giorno"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "時間帯"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពេលវេលាក្នុងថ្ងៃ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시간대"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tid på døgnet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pora dnia"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Hora do dia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Время суток"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ช่วงเวลาของวัน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Günün Saati"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Час доби"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thời điểm trong ngày"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "一天中的时间"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "一天中的時間"}}
+      }
+    },
+    "settings.appearance.backgroundLight": {
+      "comment": "Settings row title: the background picture in the light appearance.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Light Picture"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صورة الوضع الفاتح"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svijetla slika"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lyst billede"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Helles Bild"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Imagen clara"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Image claire"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Immagine chiara"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライト用の画像"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពភ្លឺ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 사진"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lyst bilde"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz jasny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Imagem clara"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Светлое изображение"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพโหมดสว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık Resim"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Світле зображення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh sáng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "浅色图片"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "淺色圖片"}}
+      }
+    },
+    "settings.appearance.backgroundLight.help": {
+      "comment": "Settings row help for the light picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الصورة التي يعرضها خيار فاتح وداكن في المظهر الفاتح. إذا لم تُحدَّد، تظهر الصورة الداكنة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Slika koju Svijetlo i tamno prikazuje u svijetlom izgledu. Ako nije postavljena, prikazuje se tamna slika."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Billedet, Lys og mørk viser i det lyse udseende. Uden valg vises det mørke billede."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Das Bild, das Hell und Dunkel im hellen Erscheinungsbild zeigt. Ohne Auswahl wird das dunkle Bild gezeigt."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La imagen que Claro y oscuro muestra en el aspecto claro. Sin elegir, muestra la imagen oscura."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L’image que Clair et sombre affiche en apparence claire. Sans choix, l’image sombre s’affiche."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L’immagine che Chiaro e scuro mostra nell’aspetto chiaro. Se non impostata, mostra l’immagine scura."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダークがライトモードで表示する画像。未設定の場合はダーク用の画像を表示します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពដែល ភ្លឺ និងងងឹត បង្ហាញក្នុងរូបរាងភ្លឺ។ បើមិនកំណត់ វាបង្ហាញរូបភាពងងឹត។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 및 다크가 라이트 모드에서 보여 주는 사진입니다. 설정하지 않으면 다크 사진을 보여 줍니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bildet Lys og mørk viser i lyst utseende. Uten valg vises det mørke bildet."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz, który Jasny i ciemny pokazuje w jasnym wyglądzie. Bez ustawienia pokazuje obraz ciemny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A imagem que Claro e escuro mostra na aparência clara. Sem definir, mostra a imagem escura."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Изображение, которое «Светлая и тёмная» показывает в светлом оформлении. Если не задано, показывается тёмное."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพที่ สว่างและมืด แสดงในลักษณะสว่าง หากไม่ได้ตั้งค่า จะแสดงภาพโหมดมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve Koyu’nun açık görünümde gösterdiği resim. Ayarlanmazsa koyu resim gösterilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зображення, яке «Світла й темна» показує у світлому вигляді. Якщо не задано, показується темне."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh mà Sáng và tối hiển thị ở giao diện sáng. Nếu không đặt, ảnh tối sẽ hiển thị."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“浅色和深色”在浅色外观下显示的图片。未设置时显示深色图片。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「淺色和深色」在淺色外觀下顯示的圖片。未設定時顯示深色圖片。"}}
+      }
+    },
+    "settings.default.sameAsDark": {
+      "comment": "Settings default label: the light picture is unset and shows the dark one.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Same as Dark"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مثل الداكن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isto kao tamna"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Samme som mørk"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wie Dunkel"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Igual que oscuro"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Comme sombre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come scuro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ダークと同じ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដូចងងឹត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다크와 동일"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Samme som mørk"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak ciemny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Igual ao escuro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как тёмное"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เหมือนโหมดมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Koyu ile aynı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як темне"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giống ảnh tối"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "与深色相同"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "與深色相同"}}
+      }
+    },
+    "settings.appearance.backgroundDark": {
+      "comment": "Settings row title: the background picture in the dark appearance.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Dark Picture"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صورة الوضع الداكن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tamna slika"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mørkt billede"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dunkles Bild"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Imagen oscura"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Image sombre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Immagine scura"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ダーク用の画像"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពងងឹត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다크 사진"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mørkt bilde"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz ciemny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Imagem escura"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Тёмное изображение"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพโหมดมืด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Koyu Resim"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Темне зображення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh tối"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "深色图片"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "深色圖片"}}
+      }
+    },
+    "settings.appearance.backgroundDark.help": {
+      "comment": "Settings row help for the dark picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الصورة التي يعرضها خيار فاتح وداكن في المظهر الداكن. إذا لم تُحدَّد، تظهر الصورة الفاتحة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Slika koju Svijetlo i tamno prikazuje u tamnom izgledu. Ako nije postavljena, prikazuje se svijetla slika."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Billedet, Lys og mørk viser i det mørke udseende. Uden valg vises det lyse billede."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Das Bild, das Hell und Dunkel im dunklen Erscheinungsbild zeigt. Ohne Auswahl wird das helle Bild gezeigt."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La imagen que Claro y oscuro muestra en el aspecto oscuro. Sin elegir, muestra la imagen clara."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L’image que Clair et sombre affiche en apparence sombre. Sans choix, l’image claire s’affiche."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L’immagine che Chiaro e scuro mostra nell’aspetto scuro. Se non impostata, mostra l’immagine chiara."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダークがダークモードで表示する画像。未設定の場合はライト用の画像を表示します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពដែល ភ្លឺ និងងងឹត បង្ហាញក្នុងរូបរាងងងឹត។ បើមិនកំណត់ វាបង្ហាញរូបភាពភ្លឺ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트 및 다크가 다크 모드에서 보여 주는 사진입니다. 설정하지 않으면 라이트 사진을 보여 줍니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bildet Lys og mørk viser i mørkt utseende. Uten valg vises det lyse bildet."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obraz, który Jasny i ciemny pokazuje w ciemnym wyglądzie. Bez ustawienia pokazuje obraz jasny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A imagem que Claro e escuro mostra na aparência escura. Sem definir, mostra a imagem clara."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Изображение, которое «Светлая и тёмная» показывает в тёмном оформлении. Если не задано, показывается светлое."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพที่ สว่างและมืด แสดงในลักษณะมืด หากไม่ได้ตั้งค่า จะแสดงภาพโหมดสว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve Koyu’nun koyu görünümde gösterdiği resim. Ayarlanmazsa açık resim gösterilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зображення, яке «Світла й темна» показує у темному вигляді. Якщо не задано, показується світле."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh mà Sáng và tối hiển thị ở giao diện tối. Nếu không đặt, ảnh sáng sẽ hiển thị."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“浅色和深色”在深色外观下显示的图片。未设置时显示浅色图片。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「淺色和深色」在深色外觀下顯示的圖片。未設定時顯示淺色圖片。"}}
+      }
+    },
+    "settings.default.sameAsLight": {
+      "comment": "Settings default label: the dark picture is unset and shows the light one.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Same as Light"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مثل الفاتح"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isto kao svijetla"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Samme som lys"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wie Hell"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Igual que claro"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Comme clair"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come chiaro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトと同じ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដូចភ្លឺ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트와 동일"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Samme som lys"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak jasny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Igual ao claro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как светлое"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เหมือนโหมดสว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ile aynı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як світле"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giống ảnh sáng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "与浅色相同"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "與淺色相同"}}
+      }
+    },
+    "settings.appearance.backgroundSchedule": {
+      "comment": "Settings row title: background pictures by time of day.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Time of Day Pictures"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صور حسب وقت اليوم"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Slike po dobu dana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Billeder efter tidspunkt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bilder nach Tageszeit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Imágenes según la hora"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Images selon l’heure"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Immagini per ora del giorno"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "時間帯ごとの画像"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបភាពតាមពេលវេលា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시간대별 사진"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bilder etter tid på døgnet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obrazy według pory dnia"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Imagens por hora do dia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Изображения по времени суток"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพตามช่วงเวลา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Günün Saatine Göre Resimler"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зображення за часом доби"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Ảnh theo thời điểm"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "按时间显示的图片"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "依時間顯示的圖片"}}
+      }
+    },
+    "settings.appearance.backgroundSchedule.help": {
+      "comment": "Settings row help for the time-of-day schedule. Keep 07:00, sunrise, sunset, dawn, dusk, noon and sunset-30m as written: they are the values.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اربط وقتًا (07:00) أو حدثًا شمسيًا (sunrise وsunset وdawn وdusk وnoon، مع إزاحة مثل sunset-30m) بصورة. تظهر كل صورة من وقتها حتى التالية."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Povežite vrijeme (07:00) ili događaj sunca (sunrise, sunset, dawn, dusk, noon, uz pomak kao sunset-30m) sa slikom. Svaka se prikazuje od svog vremena do sljedećeg."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Knyt et klokkeslæt (07:00) eller en solbegivenhed (sunrise, sunset, dawn, dusk, noon, med en forskydning som sunset-30m) til et billede. Hvert vises fra sit tidspunkt til det næste."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ordne einer Uhrzeit (07:00) oder einem Sonnenereignis (sunrise, sunset, dawn, dusk, noon, mit Versatz wie sunset-30m) ein Bild zu. Jedes zeigt sich ab seiner Zeit bis zur nächsten."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Asocia una hora (07:00) o un evento solar (sunrise, sunset, dawn, dusk, noon, con un desfase como sunset-30m) a una imagen. Cada una se muestra desde su hora hasta la siguiente."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Associez une heure (07:00) ou un événement solaire (sunrise, sunset, dawn, dusk, noon, avec un décalage comme sunset-30m) à une image. Chacune s’affiche de son heure à la suivante."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Associa un orario (07:00) o un evento solare (sunrise, sunset, dawn, dusk, noon, con uno scarto come sunset-30m) a un’immagine. Ognuna appare dal suo orario fino al successivo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "時刻（07:00）または太陽のイベント（sunrise、sunset、dawn、dusk、noon、sunset-30m のようなずれ付き）に画像を割り当てます。各画像はその時刻から次の時刻まで表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្ជាប់ម៉ោង (07:00) ឬព្រឹត្តិការណ៍ព្រះអាទិត្យ (sunrise, sunset, dawn, dusk, noon ជាមួយគម្លាតដូចជា sunset-30m) ទៅរូបភាព។ រូបនីមួយៗបង្ហាញពីម៉ោងរបស់វាដល់ម៉ោងបន្ទាប់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시각(07:00)이나 해의 움직임(sunrise, sunset, dawn, dusk, noon, sunset-30m처럼 간격 포함)에 사진을 연결합니다. 각 사진은 그 시각부터 다음 시각까지 보입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Knytt et klokkeslett (07:00) eller en solhendelse (sunrise, sunset, dawn, dusk, noon, med forskyvning som sunset-30m) til et bilde. Hvert vises fra sitt tidspunkt til det neste."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przypisz godzinę (07:00) lub zdarzenie słoneczne (sunrise, sunset, dawn, dusk, noon, z przesunięciem jak sunset-30m) do obrazu. Każdy jest widoczny od swojej pory do następnej."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Associe um horário (07:00) ou um evento solar (sunrise, sunset, dawn, dusk, noon, com deslocamento como sunset-30m) a uma imagem. Cada uma aparece do seu horário até o próximo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сопоставьте время (07:00) или событие солнца (sunrise, sunset, dawn, dusk, noon, со сдвигом вроде sunset-30m) с изображением. Каждое показывается со своего времени до следующего."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จับคู่เวลา (07:00) หรือเหตุการณ์ดวงอาทิตย์ (sunrise, sunset, dawn, dusk, noon พร้อมค่าเลื่อนเช่น sunset-30m) กับภาพ แต่ละภาพแสดงตั้งแต่เวลาของตนจนถึงเวลาถัดไป"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir saati (07:00) veya güneş olayını (sunrise, sunset, dawn, dusk, noon, sunset-30m gibi kaydırmayla) bir resimle eşleyin. Her biri kendi saatinden bir sonrakine kadar gösterilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зіставте час (07:00) або подію сонця (sunrise, sunset, dawn, dusk, noon, зі зсувом на кшталт sunset-30m) із зображенням. Кожне показується від свого часу до наступного."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gán một giờ (07:00) hoặc sự kiện mặt trời (sunrise, sunset, dawn, dusk, noon, với độ lệch như sunset-30m) cho một ảnh. Mỗi ảnh hiển thị từ giờ của nó đến giờ kế tiếp."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将时间（07:00）或太阳事件（sunrise、sunset、dawn、dusk、noon，可带偏移如 sunset-30m）对应到一张图片。每张图片从其时间显示到下一个时间。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將時間（07:00）或太陽事件（sunrise、sunset、dawn、dusk、noon，可帶偏移如 sunset-30m）對應到一張圖片。每張圖片從其時間顯示到下一個時間。"}}
+      }
+    },
+    "settings.appearance.backgroundDynamic": {
+      "comment": "Settings row title: how a dynamic macOS wallpaper changes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Dynamic Wallpaper"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "خلفية ديناميكية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dinamička pozadina"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Dynamisk baggrund"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dynamischer Hintergrund"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Fondo dinámico"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Fond d’écran dynamique"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sfondo dinamico"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ダイナミック壁紙"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំងរូបភាពថាមវន្ត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다이내믹 배경화면"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Dynamisk bakgrunn"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tapeta dynamiczna"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Papel de parede dinâmico"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Динамические обои"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพพื้นหลังไดนามิก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Dinamik Duvar Kâğıdı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Динамічні шпалери"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hình nền động"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "动态墙纸"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "動態背景圖片"}}
+      }
+    },
+    "settings.appearance.backgroundDynamic.help": {
+      "comment": "Settings row help: a dynamic macOS wallpaper follows light and dark or the sun.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يمكن لخلفية macOS الديناميكية أن تتبع الوضعين الفاتح والداكن، أو تتغير خلال اليوم مع الشمس مثل إعداد Dynamic في macOS."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dinamička macOS pozadina može pratiti svijetlo i tamno ili se mijenjati tokom dana sa suncem, kao postavka Dynamic u macOS-u."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En dynamisk macOS-baggrund kan følge lys og mørk eller skifte gennem dagen med solen som macOS-indstillingen Dynamic."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein dynamischer macOS-Hintergrund folgt Hell und Dunkel oder ändert sich über den Tag mit der Sonne wie die macOS-Einstellung „Dynamisch“."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un fondo dinámico de macOS puede seguir el modo claro y oscuro, o cambiar a lo largo del día con el sol, como el ajuste Dinámico de macOS."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un fond d’écran dynamique macOS peut suivre le mode clair et sombre, ou changer au fil de la journée avec le soleil, comme le réglage Dynamique de macOS."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Uno sfondo dinamico di macOS può seguire chiaro e scuro, oppure cambiare durante il giorno con il sole come l’impostazione Dinamico di macOS."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "macOS のダイナミック壁紙は、ライトとダークに合わせることも、macOS の「ダイナミック」設定のように太陽に合わせて一日を通して変化させることもできます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំងរូបភាពថាមវន្តរបស់ macOS អាចតាមភ្លឺ និងងងឹត ឬប្ដូរពេញមួយថ្ងៃតាមព្រះអាទិត្យ ដូចការកំណត់ Dynamic របស់ macOS។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "macOS 다이내믹 배경화면은 라이트와 다크를 따르거나, macOS의 다이내믹 설정처럼 해에 따라 하루 동안 바뀔 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En dynamisk macOS-bakgrunn kan følge lys og mørk, eller endre seg gjennom dagen med solen som macOS-innstillingen Dynamisk."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dynamiczna tapeta macOS może podążać za trybem jasnym i ciemnym albo zmieniać się w ciągu dnia razem ze słońcem, jak ustawienie Dynamiczny w macOS."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um papel de parede dinâmico do macOS pode seguir claro e escuro, ou mudar ao longo do dia com o sol, como o ajuste Dinâmico do macOS."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Динамические обои macOS могут следовать светлому и тёмному оформлению или меняться в течение дня вместе с солнцем, как настройка «Динамические» в macOS."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ภาพพื้นหลังไดนามิกของ macOS สามารถตามโหมดสว่างและมืด หรือเปลี่ยนตลอดวันตามดวงอาทิตย์เหมือนการตั้งค่าไดนามิกของ macOS"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Dinamik bir macOS duvar kâğıdı açık ve koyuyu izleyebilir ya da macOS’in Dinamik ayarı gibi gün boyunca güneşle değişebilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Динамічні шпалери macOS можуть стежити за світлим і темним виглядом або змінюватися протягом дня разом із сонцем, як налаштування «Динамічні» в macOS."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hình nền động của macOS có thể theo sáng và tối, hoặc thay đổi trong ngày theo mặt trời như cài đặt Động của macOS."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "macOS 动态墙纸可以跟随浅色和深色，或像 macOS 的“动态”设置那样随太阳在一天中变化。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "macOS 動態背景圖片可以跟隨淺色和深色，或像 macOS 的「動態」設定那樣隨太陽在一天中變化。"}}
+      }
+    },
+    "settings.appearance.backgroundDynamic.summary": {
+      "comment": "Settings row summary for the dynamic wallpaper choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Follow light and dark, or the sun"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اتباع الفاتح والداكن أو الشمس"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prati svijetlo i tamno ili sunce"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Følg lys og mørk eller solen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Hell und Dunkel oder der Sonne folgen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Seguir claro y oscuro, o el sol"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Suivre clair et sombre, ou le soleil"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Segui chiaro e scuro, o il sole"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ライトとダーク、または太陽に合わせる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តាមភ្លឺ និងងងឹត ឬព្រះអាទិត្យ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "라이트와 다크 또는 해를 따르기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Følg lys og mørk, eller solen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Podążaj za jasnym i ciemnym lub słońcem"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Seguir claro e escuro, ou o sol"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Следовать светлому и тёмному или солнцу"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตามสว่างและมืด หรือดวงอาทิตย์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık ve koyuyu ya da güneşi izle"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Стежити за світлим і темним або сонцем"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Theo sáng và tối, hoặc mặt trời"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "跟随浅色和深色，或太阳"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "跟隨淺色和深色，或太陽"}}
+      }
+    },
+    "settings.appearance.backgroundLocation": {
+      "comment": "Settings row title: where sunrise and sunset are computed for.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sun Location"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "موقع الشمس"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Lokacija za sunce"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sted for solen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ort für die Sonne"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ubicación para el sol"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Lieu pour le soleil"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Posizione per il sole"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "太陽の位置の基準地"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទីតាំងសម្រាប់ព្រះអាទិត្យ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "해 위치 기준"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sted for solen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Lokalizacja dla słońca"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Local para o sol"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Местоположение для солнца"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตำแหน่งสำหรับดวงอาทิตย์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Güneş Konumu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розташування для сонця"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Vị trí tính mặt trời"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "太阳位置"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "太陽位置"}}
+      }
+    },
+    "settings.appearance.backgroundLocation.help": {
+      "comment": "Settings row help for the sun location. Keep 37.77,-122.42 as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "خط العرض وخط الطول لشروق الشمس وغروبها، مثل 37.77,-122.42. إذا لم يُحدَّد، يستخدم cmux مدينة منطقتك الزمنية ولا يطلب موقعك أبدًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Geografska širina i dužina za izlazak i zalazak sunca, npr. 37.77,-122.42. Ako nije postavljeno, cmux koristi grad vaše vremenske zone; nikad ne traži vašu lokaciju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Bredde- og længdegrad for solopgang og solnedgang, fx 37.77,-122.42. Uden valg bruger cmux byen for din tidszone; den spørger aldrig om din placering."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Breiten- und Längengrad für Sonnenauf- und -untergang, etwa 37.77,-122.42. Ohne Angabe nutzt cmux die Stadt deiner Zeitzone und fragt nie nach deinem Standort."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Latitud y longitud para el amanecer y el atardecer, como 37.77,-122.42. Sin definir, cmux usa la ciudad de tu zona horaria; nunca pide tu ubicación."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Latitude et longitude pour le lever et le coucher du soleil, par exemple 37.77,-122.42. Sans valeur, cmux utilise la ville de votre fuseau horaire et ne demande jamais votre position."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Latitudine e longitudine per alba e tramonto, ad esempio 37.77,-122.42. Se non impostate, cmux usa la città del tuo fuso orario e non chiede mai la tua posizione."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "日の出と日の入りに使う緯度と経度（例: 37.77,-122.42）。未設定の場合はタイムゾーンの都市を使い、位置情報を求めることはありません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រយៈទទឹង និងរយៈបណ្ដោយសម្រាប់ថ្ងៃរះ និងថ្ងៃលិច ដូចជា 37.77,-122.42។ បើមិនកំណត់ cmux ប្រើទីក្រុងនៃល្វែងម៉ោងរបស់អ្នក ហើយមិនដែលសុំទីតាំងរបស់អ្នកទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "일출과 일몰에 쓸 위도와 경도입니다(예: 37.77,-122.42). 설정하지 않으면 cmux는 시간대의 도시를 사용하며 위치를 묻지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bredde- og lengdegrad for soloppgang og solnedgang, for eksempel 37.77,-122.42. Uten verdi bruker cmux byen for tidssonen din og spør aldri om posisjonen din."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Szerokość i długość geograficzna dla wschodu i zachodu słońca, np. 37.77,-122.42. Bez ustawienia cmux używa miasta Twojej strefy czasowej i nigdy nie pyta o lokalizację."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Latitude e longitude para o nascer e o pôr do sol, como 37.77,-122.42. Sem definir, o cmux usa a cidade do seu fuso horário e nunca pede sua localização."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Широта и долгота для восхода и заката, например 37.77,-122.42. Если не задано, cmux берёт город вашего часового пояса и никогда не запрашивает местоположение."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ละติจูดและลองจิจูดสำหรับเวลาพระอาทิตย์ขึ้นและตก เช่น 37.77,-122.42 หากไม่ได้ตั้งค่า cmux จะใช้เมืองของเขตเวลาของคุณ และจะไม่ขอตำแหน่งของคุณ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gün doğumu ve batımı için enlem ve boylam, örneğin 37.77,-122.42. Ayarlanmazsa cmux saat diliminizin şehrini kullanır; konumunuzu asla sormaz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Широта й довгота для сходу та заходу сонця, наприклад 37.77,-122.42. Якщо не задано, cmux бере місто вашого часового поясу й ніколи не запитує розташування."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Vĩ độ và kinh độ cho giờ mặt trời mọc và lặn, ví dụ 37.77,-122.42. Nếu không đặt, cmux dùng thành phố của múi giờ bạn và không bao giờ hỏi vị trí của bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "用于日出和日落的纬度和经度，例如 37.77,-122.42。未设置时，cmux 使用你所在时区的城市，从不请求你的位置。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "用於日出和日落的緯度和經度，例如 37.77,-122.42。未設定時，cmux 使用你所在時區的城市，從不要求你的位置。"}}
+      }
+    },
+    "settings.default.fromTimeZone": {
+      "comment": "Settings default label: the sun location comes from the time zone.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "From Time Zone"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "من المنطقة الزمنية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Iz vremenske zone"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fra tidszone"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aus der Zeitzone"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Según la zona horaria"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Selon le fuseau horaire"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Dal fuso orario"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "タイムゾーンから"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពីល្វែងម៉ោង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시간대 기준"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Fra tidssone"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ze strefy czasowej"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pelo fuso horário"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "По часовому поясу"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จากเขตเวลา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Saat diliminden"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "За часовим поясом"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Theo múi giờ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自时区"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自時區"}}
+      }
+    },
     "settings.placeholder.wordOrPhrase": {
       "comment": "Placeholder of a free-text list of words (Settings > Chief > Subagents show and hide words).",
       "extractionState": "manual",
@@ -64362,126 +64794,126 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How often a shuffled background turns to its next picture."
+            "value": "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Wie oft ein gemischter Hintergrund zum nächsten Bild wechselt."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "La fréquence à laquelle un fond aléatoire passe à l’image suivante."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "عدد مرات انتقال الخلفية المخلوطة إلى صورتها التالية."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Con qué frecuencia un fondo aleatorio pasa a la siguiente imagen."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "隨機背景多久換到下一張圖片。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "随机背景多久换到下一张图片。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "섞인 배경이 다음 그림으로 바뀌는 간격입니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "シャッフルした背景が次の画像に切り替わる間隔。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Koliko često nasumična pozadina prelazi na sljedeću sliku."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Hvor ofte en blandet baggrund skifter til næste billede."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Ogni quanto uno sfondo casuale passa all’immagine successiva."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ញឹកញាប់ប៉ុណ្ណាដែលផ្ទៃខាងក្រោយចៃដន្យប្ដូរទៅរូបភាពបន្ទាប់។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Hvor ofte en blandet bakgrunn bytter til neste bilde."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Jak często losowe tło przechodzi do następnego obrazu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Com que frequência um fundo aleatório passa para a próxima imagem."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Как часто случайный фон переходит к следующему изображению."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ความถี่ที่พื้นหลังแบบสุ่มเปลี่ยนไปรูปถัดไป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Karıştırılan arka planın bir sonraki resme ne sıklıkla geçtiği."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Як часто випадковий фон переходить до наступного зображення."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Tần suất hình nền xáo trộn chuyển sang ảnh tiếp theo."
           }
         }
@@ -65410,54 +65842,54 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
+            "value": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Wähle ein gemeinfreies Gemälde, dein Schreibtischbild oder ein macOS-Systembild hinter dem Fenstermaterial."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Choisissez une peinture libre de droits, votre fond d’écran de bureau ou un fond d’écran macOS derrière le matériau de la fenêtre."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "اختر لوحة متاحة للملكية العامة، أو خلفية سطح مكتبك، أو خلفية نظام macOS خلف مادة النافذة."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Elige una pintura de dominio público, tu fondo de escritorio o un fondo de macOS detrás del material de la ventana."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "選擇公版畫作、你的桌面背景，或 macOS 系統桌布顯示在視窗材質後方。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "选择公版画作、你的桌面墙纸，或 macOS 系统墙纸显示在窗口材质后方。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "창 재질 뒤에 퍼블릭 도메인 그림, 데스크탑 배경화면 또는 macOS 시스템 배경화면을 선택합니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ウィンドウ素材の背後に、パブリックドメインの絵画、デスクトップ壁紙、または macOS システム壁紙を選びます。"
           }
         },

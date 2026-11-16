@@ -69,6 +69,26 @@ class ControlCalls(unittest.TestCase):
         self.assertEqual((sent["action"], sent["args"], sent["focus"]), ("x.y", {"action": "inner"}, True))
 
 
+class AgentsSetup(unittest.TestCase):
+    """Agents.__init__ as the NIGHTLY runs it: the real Control over a fake socket, only the Mac helpers (the bundle's
+    acpmux and its socket lookup) stubbed. A keyword that clashes with Control.action's own parameters fails here."""
+
+    def test_registers_both_test_agents_by_name(self):
+        app = FakeApp()
+        self.addCleanup(app.close)
+        bm = types.SimpleNamespace(FakeChats=types.SimpleNamespace(acpmux_socket=lambda bundle: "/tmp/acpmux.sock"))
+        icl = types.SimpleNamespace(bundled_acpmux=lambda bundle: "/bundle/acpmux")
+        real = tsf.mac_helpers
+        tsf.mac_helpers = lambda: (bm, icl)
+        self.addCleanup(setattr, tsf, "mac_helpers", real)
+        agents = tsf.Agents(types.SimpleNamespace(control=tsf.Control(app.path)), "/bundle")
+        added = [r["params"] for r in app.requests if r["params"].get("action") == "agent.harness.add"]
+        self.assertEqual([a["args"]["id"] for a in added], [tsf.TURNS_AGENT[0], tsf.STREAM_AGENT[0]])
+        self.assertEqual([a["args"]["name"] for a in added], [tsf.TURNS_AGENT[0], tsf.STREAM_AGENT[0]])
+        self.assertEqual(agents.env["ACPMUX_SOCKET"], "/tmp/acpmux.sock")
+        self.assertEqual(agents.cli, "/bundle/acpmux")
+
+
 class SetupFaultRows(unittest.TestCase):
     def harness(self):
         args = types.SimpleNamespace(out=tempfile.mkdtemp(prefix="tsw-out-"))

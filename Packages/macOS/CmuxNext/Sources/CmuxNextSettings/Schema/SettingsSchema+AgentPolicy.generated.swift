@@ -81,7 +81,8 @@ extension SettingsSchema {
         "appearance.machineColors",
         "appearance.backdropArt", "appearance.backgroundOpacity", "appearance.backgroundBlur",
         "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.background",
-        "appearance.backgroundRotation",
+        "appearance.backgroundRotation", "appearance.backgroundLight", "appearance.backgroundDark",
+        "appearance.backgroundSchedule", "appearance.backgroundDynamic", "appearance.backgroundLocation",
         // Per-display background and cadence (looks only)
         "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.paneBackgrounds", "ui.reducedBackgrounds", "appearance.experimentalControls", "app.uiScale",
