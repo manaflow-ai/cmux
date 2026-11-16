@@ -1,15 +1,17 @@
-import AppKit
-import CmuxNextDesign
+public import AppKit
 
 /// What a pane shows for a tab whose one view another window shows (two windows on one space,
 /// plans/cmux-next/spaces-overhaul-DESIGN.md rule 6): a page, a chat or a browser draws in one
 /// place, so this window says where it is and offers to take it.
-final class TabShownElsewhereView: NSView {
-    private let label = ChromeLabel(labelWithString: WindowStrings.tabShownElsewhere)
-    private let button = NSButton(title: WindowStrings.tabShowHere, target: nil, action: nil)
-    private let onShowHere: () -> Void
+public final class TabShownElsewhereView: NSView {
+    private let label: ChromeLabel
+    private let button: NSButton
+    private let onShowHere: @MainActor () -> Void
 
-    init(onShowHere: @escaping () -> Void) {
+    /// `message` says where the tab is; `action` names the button that takes it (the app's strings).
+    public init(message: String, action: String, onShowHere: @escaping @MainActor () -> Void) {
+        label = ChromeLabel(labelWithString: message)
+        button = NSButton(title: action, target: nil, action: nil)
         self.onShowHere = onShowHere
         super.init(frame: .zero)
         wantsLayer = true
@@ -36,20 +38,20 @@ final class TabShownElsewhereView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
+    public required init?(coder: NSCoder) { nil }
 
-    override func viewDidChangeEffectiveAppearance() {
+    public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }
 
-    override func viewDidMoveToWindow() {
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
     }
 
     /// Takes the tab's view into this window (the button; tests).
-    @objc func showHere() { onShowHere() }
+    @objc public func showHere() { onShowHere() }
 
     private func applyColors() {
         performWithTheme { label.textColor = Palette.textSecondary }

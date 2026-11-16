@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextDesign
 
 /// A pane of a workspace that two windows show (two windows on one space,
 /// plans/cmux-next/spaces-overhaul-DESIGN.md rule 6).
@@ -64,7 +65,7 @@ extension PaneController {
     /// The notice for tab `key`, whose view another window shows.
     func elsewhereContent(_ key: String) -> TabContent {
         if let notice = elsewhereNotice, notice.key == key { return .notice(notice.view) }
-        let view = TabShownElsewhereView { [weak self] in self?.showHere(key) }
+        let view = TabShownElsewhereView(message: WindowStrings.tabShownElsewhere, action: WindowStrings.tabShowHere) { [weak self] in self?.showHere(key) }
         elsewhereNotice = (key, view)
         return .notice(view)
     }
