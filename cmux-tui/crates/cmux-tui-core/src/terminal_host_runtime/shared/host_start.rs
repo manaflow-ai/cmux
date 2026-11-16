@@ -60,7 +60,9 @@ pub(crate) fn start_host_runtime(
     let killer = child.clone_killer();
     let pty_poll_fd = sys::pty_poll_handle(master.as_ref())?;
     let pty_reader = master.try_clone_reader()?;
-    let pty_writer = master.take_writer()?;
+    // The reader drains the master non-blocking (`read_pty_output`), and
+    // O_NONBLOCK is shared by every dup, so input waits for room itself.
+    let pty_writer = sys::pty_input_writer(master.take_writer()?, pty_poll_fd)?;
     let (pty_drain_waker, pty_drain_waiter) = HostStream::pair()?;
 
     let clipboard = ClipboardReads::new(Arc::new(SystemClock));
@@ -234,7 +236,12 @@ pub(crate) fn read_pty_output(
     mut pty_drain_waiter: HostStream,
 ) {
     reader_host.wait_for_launch_owner_stream_ready();
-    let mut buffer = [0u8; PTY_READ_BUFFER_BYTES];
+    // A master whose reads never wait is drained with back-to-back reads
+    // until `WouldBlock`: no poll before each 1 KiB macOS read (CMUX-571).
+    let drain = pty_drain_enabled();
+    let reads_never_wait = drain && sys::make_pty_reads_never_wait(pty_poll_fd);
+    // On the heap, at a quiet terminal's size until a flood fills it.
+    let mut buffer = vec![0u8; PTY_READ_BUFFER_BYTES];
     // File-medium Kitty images are read here, next to the program, so
     // every consumer of the stream gets in-band image data.
     let mut kitty_media = KittyMediaRewriter::new();
@@ -262,7 +269,13 @@ pub(crate) fn read_pty_output(
         // A flood: the bytes already waiting go into the same frame, so a
         // frame is up to the buffer, not one PTY read (1 KiB on macOS). Each
         // frame is a parser hand-off, a daemon frame and a mirror parse.
-        let ended = fill_waiting_pty_bytes(&mut *pty_reader, pty_poll_fd, &mut buffer, &mut count);
+        let ended = fill_waiting_pty_bytes(
+            &mut *pty_reader,
+            pty_poll_fd,
+            reads_never_wait,
+            &mut buffer,
+            &mut count,
+        );
         cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
         let read = buffer.get(..count).unwrap_or(&buffer);
         if !publish_pty_output(reader_host, kitty_media.rewrite_borrowed(read, &mut kitty_scratch))
@@ -271,6 +284,11 @@ pub(crate) fn read_pty_output(
         }
         if ended {
             break;
+        }
+        // A frame that filled the buffer is a flood: later frames carry up
+        // to a whole Output frame. Grows once; a key echo never fills it.
+        if drain && count == buffer.len() && buffer.len() < PTY_READ_BYTES {
+            buffer.resize(PTY_READ_BYTES, 0);
         }
     }
     // An unfinished command at end of stream goes out as it came.
@@ -283,19 +301,32 @@ pub(crate) fn read_pty_output(
     let _ = reader_host.parser_commands.send(ParserCommand::Drain);
 }
 
+/// `CMUX_TUI_PTY_DRAIN=0` keeps the reader's old path, a poll before each
+/// read into 16 KiB frames: the base arm of terminal-throughput-bench.py
+/// --next-arm (the app passes it on from `CMUX_NEXT_TUI_PTY_DRAIN`,
+/// DaemonDiagnosticKnobs).
+const PTY_DRAIN_ENV: &str = "CMUX_TUI_PTY_DRAIN";
+
+fn pty_drain_enabled() -> bool {
+    !matches!(std::env::var(PTY_DRAIN_ENV).as_deref().map(str::trim), Ok("0"))
+}
+
 /// Reads the bytes the PTY already holds into `buffer` after its first
 /// `count` bytes, until the buffer is full or a read would wait. True when
 /// the stream ended (end of file or a read error) after those bytes; the
-/// caller publishes them first. A lone key echo finds nothing more, so it
-/// costs one poll and goes out at once.
+/// caller publishes them first. When `reads_never_wait`, it reads until
+/// `WouldBlock` with no poll between reads; otherwise it polls before each
+/// read. Either way the buffer bounds the loop, and a lone key echo finds
+/// nothing more, so it costs one syscall and goes out at once.
 // perf-hot: 1us terminal-host-output (every PTY read)
 pub(crate) fn fill_waiting_pty_bytes(
     pty_reader: &mut dyn Read,
     pty_poll_fd: sys::PtyPollHandle,
+    reads_never_wait: bool,
     buffer: &mut [u8],
     count: &mut usize,
 ) -> bool {
-    while *count < buffer.len() && sys::pty_readable_now(pty_poll_fd) {
+    while *count < buffer.len() && (reads_never_wait || sys::pty_readable_now(pty_poll_fd)) {
         let Some(rest) = buffer.get_mut(*count..) else { return false };
         match pty_reader.read(rest) {
             Ok(0) => return true,
@@ -308,15 +339,14 @@ pub(crate) fn fill_waiting_pty_bytes(
     false
 }
 
-/// The most one Output frame carries; a rewritten Kitty image can be larger
-/// than the read it came from.
+/// The most one Output frame carries, and a flooding reader's buffer; a
+/// rewritten Kitty image can be larger than the read it came from.
 const PTY_READ_BYTES: usize = 64 * 1024;
 
-/// The PTY reader's buffer, zero-filled on its thread's stack. A PTY read
-/// returns at most 1 KiB on macOS and 4 KiB on Linux (the tty layer's read
-/// buffer), so 16 KiB holds every read; a 64 KiB buffer kept 48 KiB more of
-/// every host's stack dirty for no read. A ConPTY pipe read returns up to
-/// the buffer, so Windows keeps the frame size.
+/// The PTY reader's first buffer. A quiet terminal's reads are a few bytes,
+/// so a reader starts at 16 KiB and grows to [`PTY_READ_BYTES`] at its first
+/// full frame. A ConPTY pipe read returns up to the buffer, so Windows starts
+/// at the frame size.
 #[cfg(unix)]
 const PTY_READ_BUFFER_BYTES: usize = 16 * 1024;
 #[cfg(not(unix))]

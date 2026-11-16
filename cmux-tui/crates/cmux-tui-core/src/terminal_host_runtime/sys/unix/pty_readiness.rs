@@ -91,3 +91,34 @@ pub(crate) fn pty_readable_now(pty_fd: RawFd) -> bool {
     let ready = unsafe { libc::poll(&mut poll_fd, 1, 0) };
     ready > 0 && poll_fd.revents & libc::POLLIN != 0
 }
+
+/// Makes the PTY master's reads return `WouldBlock` rather than wait, so the
+/// reader drains a flood with back-to-back reads and no poll before each one
+/// (CMUX-571: a macOS PTY read returns about 1 KiB, and a poll per read was
+/// half the reader's syscalls). `O_NONBLOCK` belongs to the open file
+/// description every dup shares; the host's input writer waits for room
+/// itself ([`pty_input_writer`]). True when the master's reads never wait.
+pub(crate) fn make_pty_reads_never_wait(pty_fd: RawFd) -> bool {
+    // SAFETY: F_GETFL reads the flags of a descriptor the caller owns.
+    let flags = unsafe { libc::fcntl(pty_fd, libc::F_GETFL) };
+    if flags < 0 {
+        return false;
+    }
+    if flags & libc::O_NONBLOCK != 0 {
+        return true;
+    }
+    // SAFETY: F_SETFL on the same descriptor; only O_NONBLOCK is added.
+    unsafe { libc::fcntl(pty_fd, libc::F_SETFL, flags | libc::O_NONBLOCK) == 0 }
+}
+
+/// The host's input writer on its PTY master: a write the input queue cannot
+/// take now waits for room, as a write on a blocking master does, because
+/// the reader made the master non-blocking ([`make_pty_reads_never_wait`]).
+pub(crate) fn pty_input_writer(
+    writer: Box<dyn std::io::Write + Send>,
+    pty_fd: RawFd,
+) -> std::io::Result<Box<dyn std::io::Write + Send>> {
+    // SAFETY: the caller's master stays open for this call; the dup is owned.
+    let master = unsafe { std::os::fd::BorrowedFd::borrow_raw(pty_fd) }.try_clone_to_owned()?;
+    Ok(Box::new(crate::holder_runtime::WaitingWriter { inner: writer, master }))
+}

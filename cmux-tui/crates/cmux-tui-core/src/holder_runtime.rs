@@ -22,6 +22,7 @@ mod terminal;
 pub(crate) use service::prepare_in_background;
 pub(crate) use service::{HolderReach, HolderService};
 pub(crate) use sink::HolderSink;
+pub(crate) use terminal::WaitingWriter;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 
 /// New session-owned terminals run on the holder.

@@ -21,13 +21,15 @@ public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3). The R-LIFECYCLE keepers switch is deleted
     /// (PERF FLAGS): the keepers rule always runs, so `CMUX_NEXT_TUI_OWNER_KEEPERS` passes nothing. The client send
     /// buffer (CMUX-571, cmux-tui-platform transport.rs `CLIENT_SEND_BUFFER_BYTES`): `0` keeps the OS default on the
-    /// daemon's client sockets, the base arm of terminal-throughput-bench.py --next-arm.
+    /// daemon's client sockets, the base arm of terminal-throughput-bench.py --next-arm. The PTY drain (CMUX-571,
+    /// cmux-tui-core host_start.rs `read_pty_output`): `0` keeps the terminal host's poll before each PTY read.
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
         ("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL", "CMUX_TUI_TERMINAL_HOST_MODEL"),
         ("CMUX_NEXT_TUI_RDS_INPUT", inputLaneDaemonName),
         ("CMUX_NEXT_TUI_CLIENT_SEND_BUFFER", "CMUX_TUI_CLIENT_SEND_BUFFER"),
+        ("CMUX_NEXT_TUI_PTY_DRAIN", "CMUX_TUI_PTY_DRAIN"),
     ]
 
     /// The R-DAEMON-STATE stage S1 input lane switch under the daemon's name.

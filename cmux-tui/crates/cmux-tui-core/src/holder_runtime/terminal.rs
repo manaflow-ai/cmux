@@ -345,10 +345,10 @@ fn terminal_end(end: SinkEnd) -> TerminalEnd {
 /// KiB on macOS) cannot take returns `WouldBlock`. This writer then waits
 /// for room, as a write on a blocking master does: a paste or a burst of
 /// mouse reports is never cut.
-struct WaitingWriter {
-    inner: Box<dyn Write + Send>,
+pub(crate) struct WaitingWriter {
+    pub(crate) inner: Box<dyn Write + Send>,
     /// A dup of the master to wait on.
-    master: OwnedFd,
+    pub(crate) master: OwnedFd,
 }
 
 impl Write for WaitingWriter {

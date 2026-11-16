@@ -117,6 +117,19 @@ pub(crate) fn pty_readable_now(_pty: PtyPollHandle) -> bool {
     false
 }
 
+/// A ConPTY pipe read blocks; the reader reads once per frame.
+pub(crate) fn make_pty_reads_never_wait(_pty: PtyPollHandle) -> bool {
+    false
+}
+
+/// A ConPTY input pipe write blocks as it always did.
+pub(crate) fn pty_input_writer(
+    writer: Box<dyn io::Write + Send>,
+    _pty: PtyPollHandle,
+) -> io::Result<Box<dyn io::Write + Send>> {
+    Ok(writer)
+}
+
 /// Ok(true): read the PTY (the read blocks until bytes or end-of-file).
 /// Ok(false) once a forced drain's window has passed.
 pub(crate) fn wait_for_pty_readable_or_forced_drain(
