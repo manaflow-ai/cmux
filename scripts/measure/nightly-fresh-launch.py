@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import mmap
 import select
 import os
 import shutil
@@ -55,9 +56,15 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 #   prewarm-bins-moved  as prewarm-moved, and the bundled `cmux` and `cmux-tui` (Contents/Resources/bin) run once
 #                   with --version: the launch's other first execs (the CLI's cloud env read, the daemon)
 #   prewarm-helpers-moved  as prewarm-bins-moved, and each Chromium helper app's executable run once with --version
+#   prewarm-chromium-moved as prewarm-helpers-moved, and the copy's executable once with --cmux-prewarm-chromium (Chromium
+#                   starts for real in a throwaway profile, one hidden about:blank page, then shuts down; the update
+#                   path's pre-warm, StagedUpdatePrewarm.chromiumArgument)
+#   prewarm-pages-moved  as prewarm-helpers-moved, and every page of every file in Contents/Frameworks read once
+#                   through a read-only mapping (touch_pages): is what is left after a helper's --version the
+#                   framework's pages, which a helper with no --type never touches
 EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
 # --arms=prewarm: the pre-warms only (the update path's pre-warm and what it could add), beside the base arms.
-PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-home", "gktool-moved")
+PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved", "prewarm-home", "gktool-moved")
 # --arms=adhoc: whether an ad-hoc signed new copy (a tagged build's, dmg=build) pays the first-exec cost a Developer ID
 # signed one does, so a dmg=build A/B's fresh-copy result transfers to the published DMG:
 #   adhoc-copy      a new copy of the same DMG's app re-signed ad hoc from the inside out, as reload.sh signs a tagged
@@ -246,6 +253,25 @@ def prewarm_until_main(smoke, root: Path, app: Path, executable: str, home_root:
     return {"seconds": round(time.monotonic() - started, 3), "main_start_at": None if seen is None else round(seen, 3)}
 
 
+def touch_pages(root: Path) -> dict:
+    """Maps each regular file under ROOT read-only and reads one byte per 16 KiB page, so every page is resident (and,
+    for a signed Mach-O whose signature a process already attached, validated) before the launch that maps it."""
+    files = pages = 0
+    started = time.monotonic()
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        size = path.stat().st_size
+        if size == 0:
+            continue
+        with open(path, "rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+            for offset in range(0, size, 16384):
+                mapped[offset]
+                pages += 1
+        files += 1
+    return {"files": files, "pages": pages, "seconds": round(time.monotonic() - started, 3)}
+
+
 def adhoc_sign(app: Path) -> str:
     """Re-signs APP ad hoc from the inside out, as a tagged build is signed: each nested bundle, framework, dylib and
     executable, deepest first, then APP, with no flags and no entitlements, as scripts/reload.sh signs a tagged build
@@ -291,17 +317,18 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
         app = smoke.copy_app(mount_app, stage)
         before: dict = {}
         with smoke.DefaultsAside(bundle_id, root):
-            if arm in ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved"):
+            if arm in ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved",
+                       "prewarm-pages-moved", "prewarm-chromium-moved"):
                 (root / "w").mkdir()
                 before = prewarm_until_main(smoke, root, app, executable, root / "w")
-                if arm in ("prewarm-bins-moved", "prewarm-helpers-moved"):
+                if arm in ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved"):
                     for name in PREWARM_BINS:
                         binary = app / "Contents" / "Resources" / "bin" / name
                         if binary.exists():
                             started = time.monotonic()
                             run_text([str(binary), "--version"], timeout=60)
                             before[f"{name}_s"] = round(time.monotonic() - started, 3)
-                if arm == "prewarm-helpers-moved":
+                if arm in ("prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved"):
                     # Each Chromium helper with no --type: it loads the CEF framework (LoadInHelper), then
                     # CefExecuteProcess returns at once for a process that is no subprocess (helper_main.mm).
                     for helper in sorted((app / "Contents" / "Frameworks").glob("* Helper*.app")):
@@ -311,6 +338,20 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                             out = run_text([str(binary), "--version"], timeout=60)
                             before[f"{helper.stem}_s"] = round(time.monotonic() - started, 3)
                             before[f"{helper.stem}_out"] = out[-160:]
+                if arm == "prewarm-pages-moved":
+                    before["pages"] = touch_pages(app / "Contents" / "Frameworks")
+                if arm == "prewarm-chromium-moved":
+                    # The update path's last run (StagedUpdatePrewarm.chromiumArgument): Chromium's first real start
+                    # in this copy, in a throwaway profile; exit 0 when its hidden page loaded (CEFStagedPrewarm).
+                    started = time.monotonic()
+                    try:
+                        done = subprocess.run([str(app / "Contents" / "MacOS" / executable), "--cmux-prewarm-chromium"],
+                                              capture_output=True, text=True, timeout=60)
+                        before["chromium_exit"] = done.returncode
+                        before["chromium_out"] = (done.stdout + done.stderr).strip()[-300:]
+                    except (OSError, subprocess.SubprocessError) as error:
+                        before["chromium_exit"] = f"error: {error}"
+                    before["chromium_s"] = round(time.monotonic() - started, 3)
             elif arm == "prewarm-home":
                 (root / "w").mkdir()
                 started = time.monotonic()
@@ -327,7 +368,8 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 started = time.monotonic()
                 before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
                           "seconds": round(time.monotonic() - started, 3)}
-            if arm in ("prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-home", "gktool-moved"):
+            if arm in ("prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved",
+                       "prewarm-chromium-moved", "prewarm-home", "gktool-moved"):
                 placed = root / "placed"
                 placed.mkdir()
                 os.rename(app.parent, placed / "app")
