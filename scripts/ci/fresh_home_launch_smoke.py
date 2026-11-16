@@ -273,6 +273,7 @@ def copy_app_from_dmg(dmg: Path, root: Path) -> Path:
             raise CannotRun(f"no app in {dmg}")
         return copy_app(apps[0], root)
     finally:
+        forget_apps(mount)  # the mounted app's record, too, before the image goes
         detach(mount)
 
 
@@ -294,6 +295,8 @@ def forget_apps(root: Path) -> list[str]:
             if not name.endswith(".app"):
                 continue
             bundle = os.path.join(dirpath, name)
+            if os.path.islink(bundle):  # never take back, through a link, an app the run did not make
+                continue
             try:
                 if subprocess.run([LSREGISTER, "-u", bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                   timeout=60).returncode == 0:

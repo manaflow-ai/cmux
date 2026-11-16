@@ -450,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"NFL cannot run: {error}", flush=True)
         status = 3
     finally:
+        smoke.forget_apps(mount)
         smoke.detach(mount)
         shutil.rmtree(mount, ignore_errors=True)
     medians = {}

@@ -36,11 +36,21 @@ class ForgetApps(unittest.TestCase):
                 bundle.mkdir(parents=True)
             (root / "not-an-app").mkdir()
             with mock.patch.object(smoke.os.path, "exists", side_effect=lambda p: p == smoke.LSREGISTER or Path(p).exists()), \
-                    mock.patch.object(smoke.subprocess, "run") as run:
+                    mock.patch.object(smoke.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
                 forgotten = smoke.forget_apps(root)
         called = [c.args[0] for c in run.call_args_list]
         self.assertEqual(sorted(called), sorted([[smoke.LSREGISTER, "-u", str(p)] for p in (outer, nested, helper)]))
         self.assertEqual(sorted(forgotten), sorted(str(p) for p in (outer, nested, helper)))
+
+    def test_a_linked_app_is_never_unregistered_through_its_link(self) -> None:
+        with tempfile.TemporaryDirectory() as raw, tempfile.TemporaryDirectory() as elsewhere:
+            target = Path(elsewhere) / "Real.app"
+            target.mkdir()
+            (Path(raw) / "Link.app").symlink_to(target)
+            with mock.patch.object(smoke.os.path, "exists", side_effect=lambda p: p == smoke.LSREGISTER or Path(p).exists()), \
+                    mock.patch.object(smoke.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+                self.assertEqual(smoke.forget_apps(Path(raw)), [])
+        run.assert_not_called()
 
     def test_without_lsregister_or_a_root_it_does_nothing_and_never_raises(self) -> None:
         with mock.patch.object(smoke.subprocess, "run") as run:
@@ -72,6 +82,12 @@ class EveryRootIsForgottenBeforeItIsDeleted(unittest.TestCase):
     def test_the_smoke_forgets_its_root_before_removing_it(self) -> None:
         body = function_body(SMOKE.read_text(encoding="utf-8"), "main")
         self.assertLess(body.index("forget_apps(root)"), body.index("shutil.rmtree(root"))
+
+    def test_each_dmg_mount_is_forgotten_before_it_is_detached(self) -> None:
+        body = function_body(SMOKE.read_text(encoding="utf-8"), "copy_app_from_dmg")
+        self.assertLess(body.index("forget_apps(mount)"), body.index("detach(mount)"))
+        body = function_body(NFL.read_text(encoding="utf-8"), "main")
+        self.assertLess(body.index("smoke.forget_apps(mount)"), body.index("smoke.detach(mount)"))
 
     def test_nightly_fresh_launch_forgets_each_root_before_removing_it(self) -> None:
         text = NFL.read_text(encoding="utf-8")
