@@ -64,13 +64,20 @@ mod preview;
 #[path = "processes_preview_tests.rs"]
 mod process_preview_tests;
 
+#[derive(Clone, Debug)]
+pub(super) struct ProcessContext {
+    pub session_id: String,
+    pub harness: String,
+    pub cwd: String,
+}
+
 pub(super) trait ProcessTableMethods {
     fn insert(&mut self, process: Process) -> usize;
     fn find_tool(&self, tool: &str) -> Option<usize>;
     fn find_id(&self, id: &str) -> Option<&Process>;
     fn fold(
         &mut self,
-        session: &Session,
+        context: &ProcessContext,
         params: &Value,
         at: u64,
         output: Option<&str>,
@@ -78,6 +85,7 @@ pub(super) trait ProcessTableMethods {
     fn unused_id(&self, id: String) -> String;
     fn upsert(&mut self, process: Process);
     fn log(&mut self, i: usize) -> Process;
+    fn log_process(&mut self, id: &str) -> Option<Process>;
     fn snapshot(&self) -> Vec<Process>;
     fn page_snapshot(
         &self,
@@ -114,11 +122,11 @@ impl ProcessTableMethods for ProcessTable {
     /// `running` is ignored.
     fn fold(
         &mut self,
-        session: &Session,
+        context: &ProcessContext,
         params: &Value,
         at: u64,
         output: Option<&str>,
-    ) -> Option<usize> {
+    ) -> Option<Process> {
         let update = params.get("update")?;
         let text = |k: &str| update.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let tool = text("toolCallId")?;
@@ -136,20 +144,22 @@ impl ProcessTableMethods for ProcessTable {
         let i = match found {
             Some(i) => i,
             None => {
-                let id =
-                    self.unused_id(format!("{}/{}", session.id, text("taskId").unwrap_or(tool)));
-                let meta = session.meta();
+                let id = self.unused_id(format!(
+                    "{}/{}",
+                    context.session_id,
+                    text("taskId").unwrap_or(tool)
+                ));
                 let subagent = params.pointer("/_meta/acpmux/subagent").and_then(Value::as_str);
                 let process = Process {
                     id,
-                    session_id: session.id.clone(),
+                    session_id: context.session_id.clone(),
                     subagent_session_id: subagent.map(str::to_owned),
                     tool_call_id: tool.to_owned(),
                     task_id: text("taskId").unwrap_or("").to_owned(),
-                    harness: crate::web_modes::family_of(&meta),
+                    harness: context.harness.clone(),
                     command: text("command").unwrap_or("").to_owned(),
                     description: text("description").map(str::to_owned),
-                    cwd: meta.cwd.to_string_lossy().into_owned(),
+                    cwd: context.cwd.clone(),
                     started_at: at,
                     ended_at: None,
                     state: ProcessState::Running,
@@ -178,10 +188,10 @@ impl ProcessTableMethods for ProcessTable {
             _ => false,
         };
         if state == ProcessState::Running {
-            return (found.is_none() || named).then_some(i);
+            return (found.is_none() || named).then(|| self.processes[i].clone());
         }
         if p.state != ProcessState::Running {
-            return named.then_some(i);
+            return named.then(|| self.processes[i].clone());
         }
         let asked = self.stopping.remove(&p.id);
         p.state = state;
@@ -200,7 +210,13 @@ impl ProcessTableMethods for ProcessTable {
         }
         p.logged = false;
         self.running.remove(&i);
-        Some(i)
+        let process = self.processes[i].clone();
+        Some(process)
+    }
+
+    fn log_process(&mut self, id: &str) -> Option<Process> {
+        let i = self.by_id.get(id).copied()?;
+        Some(self.log(i))
     }
 
     /// `id`, or `id-2`, `id-3`, ... when a process already has it (a task id
@@ -498,11 +514,21 @@ impl Hub {
         table
     }
 
+    fn process_context(&self, session: &Session) -> ProcessContext {
+        let meta = session.meta();
+        ProcessContext {
+            session_id: session.id.clone(),
+            harness: crate::web_modes::family_of(&meta),
+            cwd: meta.cwd.to_string_lossy().into_owned(),
+        }
+    }
+
     /// The session's processes as its log says: each shell's updates, then
     /// the `process_update` records, which win. A harness that stopped or
     /// exited, or a new one, outlived none of the processes before it (a
     /// power loss logs no end).
     fn read_processes(&self, session: &Session) -> ProcessTable {
+        let context = self.process_context(session);
         let mut table = ProcessTable { loaded: true, ..ProcessTable::default() };
         // The log's last whole record, read from its end: a head alone could be a line a crash
         // cut short, which a whole-record read skips. Read first, so a record logged meanwhile
@@ -536,7 +562,7 @@ impl Hub {
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("in", "background_task_update") => {
                     let params = e.msg.get("params").unwrap_or(&Value::Null);
-                    table.fold(session, params, e.at, None);
+                    table.fold(&context, params, e.at, None);
                 }
                 ("mux", "process_update") => {
                     let process = e.msg.get("process").cloned().unwrap_or(Value::Null);
@@ -568,11 +594,12 @@ impl Hub {
     /// `process_update`.
     pub(super) fn note_process(&self, session: &Session, rec: &EventRecord, output: Option<&str>) {
         let params = rec.msg.get("params").unwrap_or(&Value::Null);
+        let context = self.process_context(session);
         let changed = {
             let mut table = self.process_table(session);
-            let i = if rec.seq > table.through {
+            let process = if rec.seq > table.through {
                 table.through = rec.seq;
-                table.fold(session, params, rec.at, output)
+                table.fold(&context, params, rec.at, output)
             } else {
                 // The first read of the log folded this record already: its
                 // change is logged here, once. The log has no output file,
@@ -587,8 +614,9 @@ impl Hub {
                     p.logged = false;
                 }
                 i.filter(|&i| !table.processes[i].logged)
+                    .and_then(|i| table.processes.get(i).cloned())
             };
-            i.map(|i| table.log(i))
+            process.and_then(|process| table.log_process(&process.id))
         };
         if let Some(process) = changed {
             self.append(session, "mux", "process_update", json!({"process": process}));
