@@ -378,6 +378,7 @@ export class ChatSource {
     const rows = snapshot.rows.filter(
       (entry) => entry.row !== null && !entry.row.open && !snapshot.unconfirmed.has(entry.id),
     );
+    adapter.dropHeads();
     this.kept.delete(chat);
     this.kept.set(chat, {
       snapshot: {

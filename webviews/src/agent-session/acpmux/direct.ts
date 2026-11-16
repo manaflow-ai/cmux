@@ -10934,8 +10934,7 @@ export class AcpmuxDirectClient {
       ...(fromStore
         ? fromStore.earlierPrompts && { earlierPrompts: fromStore.earlierPrompts }
         : this.shownEarlierPrompts().length > 0 && { earlierPrompts: this.shownEarlierPrompts() }),
-      // A chat on the store has no prompt count: its rail draws the page of turns it holds.
-      ...(!fromStore && this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
+      ...this.promptCountField(fromStore?.promptsHeld),
       historyFrom: fromStore ? fromStore.historyFrom : this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -14696,6 +14695,21 @@ export class AcpmuxDirectClient {
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const count = Number(summary?.turnCount ?? 0);
     return count > 0 ? count : undefined;
+  }
+
+  /// The snapshot's `promptCount`: v1's (`promptCountAwaited`), or for a chat on the store
+  /// (`promptsHeld` given) the same summary count while its heads and held rows do not name every
+  /// prompt (the page of turns has not answered, or its run has turns before or after it).
+  private promptCountField(promptsHeld?: boolean): { promptCount?: number } {
+    if (promptsHeld === undefined) {
+      const count = this.promptCountAwaited();
+      return count !== undefined ? { promptCount: count } : {};
+    }
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || promptsHeld) return {};
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const count = Number(summary?.turnCount ?? 0);
+    return count > 0 ? { promptCount: count } : {};
   }
 
   /// The rail's ask for the prompt index, from a hover or a click on a pending tick (ThreadMinimap

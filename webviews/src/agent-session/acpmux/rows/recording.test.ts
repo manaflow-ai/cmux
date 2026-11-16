@@ -53,9 +53,8 @@ const range = (from: number, to: number) => Array.from({ length: to - from + 1 }
 
 test("the chat recording, step by step", async () => {
   const recording = steps("chat");
-  // Steps recorded for a later piece: the page of turns' PR (6d) replays them and empties this.
-  // Any other new step fails here.
-  const NOT_YET = ["page-turns", "page-turns-unsupported"];
+  // Any new step fails here.
+  const NOT_YET: string[] = [];
   expect([...recording.keys()].filter((name) => !NOT_YET.includes(name))).toEqual([
     "upgrade",
     "not-ready",
@@ -70,6 +69,8 @@ test("the chat recording, step by step", async () => {
     "blob-open-first",
     "blob-open-rest",
     "dropped",
+    "page-turns",
+    "page-turns-unsupported",
     "sub-error",
     "after-end",
   ]);
@@ -163,6 +164,19 @@ test("the chat recording, step by step", async () => {
   expect(ids(snapshot())).toEqual(range(18, 30));
   expect(snapshot().rows.at(-1)!.row!.open).toBeFalsy();
   expect(snapshot().rows.some((entry) => entry.gapBefore)).toBe(false);
+
+  // The page of turns: its heads beside the rows, then a core with none says so once.
+  expect(host.page("rows.1", "before", { from: 13, turns: true })).toBe(true);
+  asked("page-turns");
+  step("page-turns");
+  expect(snapshot().heads!.rows.length).toBeGreaterThan(0);
+  expect(snapshot().heads!.rows.every((head) => head.kind === "group" && !head.open)).toBe(true);
+  expect(ids(snapshot())).toEqual(range(18, 30));
+  expect(host.page("rows.1", "before", { from: 13, turns: true })).toBe(true);
+  asked("page-turns-unsupported");
+  step("page-turns-unsupported");
+  expect(snapshot().heads!.unsupported).toBe(true);
+  expect(store.pageOut("rows.1")).toBe(false);
 
   expect(falls).toEqual([]);
   step("sub-error");

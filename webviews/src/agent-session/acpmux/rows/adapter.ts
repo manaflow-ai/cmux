@@ -35,7 +35,18 @@ export type AdaptedChat = {
   /// The page of turns' prompts older than the rows held (the snapshot's `earlierPrompts`), for
   /// the thread rail: absent until a page of turns came, and for a daemon with none.
   earlierPrompts?: readonly AcpmuxRow[];
+  /// Whether the heads and the rows held name every prompt of the chat: the window holds it all,
+  /// or the page of turns answered with none before or after its run. Until then the pane sends the
+  /// summary's `promptCount`, so the rail starts at its full height.
+  promptsHeld: boolean;
 };
+
+/// Every prompt is held: the window has no rows before or after it, or the heads' run has none.
+function promptsHeld(snapshot: ChatRowsSnapshot): boolean {
+  if (!snapshot.hasBefore && !snapshot.hasAfter) return true;
+  const heads = snapshot.heads;
+  return !!heads && !heads.unsupported && !heads.hasBefore && !heads.hasAfter;
+}
 
 const NO_EARLIER: readonly AcpmuxRow[] = Object.freeze([]);
 
@@ -98,6 +109,11 @@ export class ChatAdapter {
 
   constructor(readonly context: ChatRowsContext) {}
 
+  /// A kept chat keeps no heads (decision 378): its earlier prompts' memo goes with them.
+  dropHeads(): void {
+    this.#earlier = undefined;
+  }
+
   adapt(snapshot: ChatRowsSnapshot): AdaptedChat {
     const harness = this.context.harness;
     if (harness !== this.#harness) {
@@ -137,6 +153,7 @@ export class ChatAdapter {
       this.#earlier = earlier = { heads: snapshot.heads, first, list: earlierPrompts(snapshot) };
     return {
       ...(earlier.list.length ? { earlierPrompts: earlier.list } : {}),
+      promptsHeld: promptsHeld(snapshot),
       rows,
       // A cut entry's whole text is a `prompt:<id>` blob once read.
       queue: snapshot.queue.entries.map((entry) => {
