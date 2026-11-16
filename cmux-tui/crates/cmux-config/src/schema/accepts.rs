@@ -43,7 +43,8 @@ pub enum Accepted {
     /// wrong with this one (`{at, why, token?}` per problem, the shape's first
     /// mismatch or the sidebar row reducer's problems).
     Json {
-        schema: Value,
+        /// Boxed: a Refusal stays small enough to return by value.
+        schema: Box<Value>,
         problems: Vec<Value>,
     },
 }
@@ -111,7 +112,7 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         return Err(Refusal::InvalidValue {
             key: row.key.clone(),
             kind: row.kind.name(),
-            accepted: Accepted::Json { schema: shape.clone(), problems },
+            accepted: Accepted::Json { schema: Box::new(shape.clone()), problems },
             value: value.clone(),
         });
     }
@@ -431,7 +432,9 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
         Kind::SoundRules => Accepted::Shape(
             "an object of sound names or {\"sound\": name, \"volume\": 0...1, \"events\": {event: name}}",
         ),
-        Kind::Json(shape) => Accepted::Json { schema: shape.clone(), problems: Vec::new() },
+        Kind::Json(shape) => {
+            Accepted::Json { schema: Box::new(shape.clone()), problems: Vec::new() }
+        }
     }
 }
 
