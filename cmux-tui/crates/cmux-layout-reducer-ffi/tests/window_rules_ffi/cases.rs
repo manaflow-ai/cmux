@@ -857,3 +857,18 @@ fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
     let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &stale);
     assert_eq!(body, json!({"keys": null}));
 }
+
+#[test]
+fn restore_order_makes_the_front_window_now_and_the_others_later() {
+    let (code, body) = call_json(
+        c"window_restore_order",
+        &json!({"windows": [
+            {"id": "front", "open": true, "made": true},
+            {"id": "closed", "open": false, "made": false},
+            {"id": "second", "open": true, "made": false},
+            {"id": "third", "open": true, "made": false}
+        ], "adopted": "front"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"front": "front", "later": ["second", "third"]}));
+}
