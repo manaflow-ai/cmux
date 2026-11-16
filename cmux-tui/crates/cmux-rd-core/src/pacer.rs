@@ -415,7 +415,9 @@ impl Pacer {
             if self.strict_credit_bytes < len {
                 break;
             }
-            let datagram = self.queue.pop_front().expect("front checked");
+            let Some(datagram) = self.queue.pop_front() else {
+                break;
+            };
             self.strict_credit_bytes -= len;
             self.queued_bytes = self.queued_bytes.saturating_sub(len as usize);
             out.push(datagram.into_public());
