@@ -1445,9 +1445,19 @@ public final class DaemonTerminalSession: TerminalSession {
         defaults.object(forKey: agentCLIHybridDefaultsKey) as? Bool ?? true
     }
 
-    /// What `set-client-info` declares: the hybrid stream only with the setting on.
+    /// A plain shell's terminal as the same lean frames (its lines and cursor), PTY bytes only
+    /// while it runs a full-screen program (cmux-tui `terminal-shell-lines-v1`).
+    nonisolated static let shellLinesCapability = "terminal-shell-lines-v1"
+    /// `output` at most once per display frame for a terminal that stays on PTY bytes (cmux-tui
+    /// `attach-output-coalesce-v1`, #43373): fewer events, the first bytes after idle at once.
+    nonisolated static let outputCoalesceCapability = "attach-output-coalesce-v1"
+
+    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, coalesced PTY
+    /// bytes for everything else) only with the setting on.
     static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability] : clientCapabilities
+        agentCLIHybrid
+            ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
+            : clientCapabilities
     }
 
     /// While the size is claimed and the daemon leases it: the same size

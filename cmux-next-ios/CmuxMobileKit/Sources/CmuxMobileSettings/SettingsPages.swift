@@ -517,7 +517,7 @@ struct TransportPage: View {
                 }
                 .accessibilityIdentifier("settings.transport.agentCLIHybrid")
             } footer: {
-                Text("A terminal running an agent CLI such as Claude Code or Codex comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
+                Text("A terminal running an agent CLI such as Claude Code or Codex, or a plain shell, comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. Full-screen programs still come as they are. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
             }
             #if !DEBUG
             Section {
