@@ -104,6 +104,85 @@ fn floating_pane_records_keep_one_tiled_pane_at_load() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// A floating pane on each of the two screens of one workspace. The load reads the screens in the order of their
+/// positions, and the records in the order of the screen ids. Here the screen with the first id has the second
+/// position, so the first record that the load reads is a record of the second screen. A restart gives each
+/// screen its own list and its own rows.
+#[test]
+fn floating_panes_of_two_screens_load_each_on_its_own_screen() {
+    let [columns, selected] = [1, 2].map(restore_screen_id);
+    let (root, session) = seed_screens("two-screens", |screens| {
+        for screen in screens.iter_mut() {
+            screen.position = if screen.public_id == columns { 1 } else { 0 };
+        }
+    });
+    let moved = FloatFrame { x: 100_000, y: 200_000, w: 400_000, h: 500_000 };
+    let wide = FloatFrame { x: 300_000, y: 100_000, w: 500_000, h: 600_000 };
+    let on_columns = vec![Floating { pane: restore_pane_id(3), frame: moved }];
+    let on_selected = vec![Floating { pane: restore_pane_id(5), frame: wide }];
+
+    let mux = open_restart_mux(&root, &session);
+    // The screen `selected` has one pane in the fixture: the product gives it a second column with a new pane.
+    let five = live_pane(&mux, &restore_pane_id(5));
+    mux.new_pane_right(five, 0.5, Some((38, 10))).unwrap();
+    // The screen `columns` gets two rows in its second column from `new-row`.
+    let right = live_pane(&mux, &restore_pane_id(4));
+    mux.new_row_with_options(right, 500, Default::default(), Some((38, 10)), None).unwrap();
+    let low = live_pane(&mux, &restore_pane_id(3));
+    mux.float_pane_as(&Actor::Daemon, low, FloatMode::On, Some(moved), None).unwrap();
+    mux.float_pane_as(&Actor::Daemon, five, FloatMode::On, Some(wide), None).unwrap();
+
+    let (list, columns_rows) = live_screen(&mux, &columns);
+    assert_eq!(list, on_columns);
+    assert_eq!(columns_rows, [0, 2], "the rows of the two columns of the screen with rows");
+    let (list, selected_rows) = live_screen(&mux, &selected);
+    assert_eq!(list, on_selected);
+    assert!(selected_rows.iter().all(|rows| *rows == 0), "no rows: {selected_rows:?}");
+    mux.shutdown();
+    drop(mux);
+
+    let (first_record, stored) = {
+        let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+        let first_record = registry
+            .query_text_for_test(
+                "SELECT screen_id FROM resource_floating_panes ORDER BY screen_id, position LIMIT 1",
+            )
+            .unwrap();
+        let stored = registry.resource_topology_snapshot().unwrap().screens;
+        (first_record, stored)
+    };
+    let order = stored.iter().map(|screen| screen.public_id.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        order,
+        [selected.clone(), columns.clone()],
+        "the screens in the order of their positions"
+    );
+    assert_eq!(
+        first_record,
+        columns.to_string(),
+        "the first record is a record of the second screen"
+    );
+    for screen in stored {
+        let expected = if screen.public_id == columns { &on_columns } else { &on_selected };
+        assert_eq!(&screen.floating, expected, "the stored list of {}", screen.public_id);
+    }
+
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(
+        live_screen(&mux, &columns),
+        (on_columns, columns_rows),
+        "a restart keeps the list and the rows of the second screen"
+    );
+    assert_eq!(
+        live_screen(&mux, &selected),
+        (on_selected, selected_rows),
+        "a restart keeps the list and the rows of the first screen"
+    );
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// A change of the active workspace loads the active screen of the workspace that loses the focus and of the
 /// one that gets it. One statement reads the floating panes of the two screens: not one for each screen, and
 /// none for the empty list of the workspaces that close.

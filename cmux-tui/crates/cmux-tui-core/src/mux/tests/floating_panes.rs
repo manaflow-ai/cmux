@@ -24,16 +24,19 @@ fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
 
 /// Seeds the restore fixture with its first screen changed by `edit`.
 fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String) {
+    seed_screens(name, |screens| {
+        let first = restore_screen_id(1);
+        edit(screens.iter_mut().find(|screen| screen.public_id == first).unwrap());
+    })
+}
+
+/// Seeds the restore fixture with its screens changed by `edit`.
+fn seed_screens(name: &str, edit: impl FnOnce(&mut [RegistryScreen])) -> (PathBuf, String) {
     let root = std::env::temp_dir()
         .join(format!("cmux-floating-{name}-{}", WorkspacePublicId::random().unwrap()));
     let session = format!("floating-{name}");
     let (fixture_snapshot, mut fixture_topology) = resource_restore_fixture();
-    let screen = fixture_topology
-        .screens
-        .iter_mut()
-        .find(|screen| screen.public_id == restore_screen_id(1))
-        .unwrap();
-    edit(screen);
+    edit(fixture_topology.screens.as_mut_slice());
     let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
     registry
         .commit_resource_patch(
@@ -81,6 +84,28 @@ fn live_list(mux: &Mux) -> Vec<Floating<PanePublicId>> {
                 frame: entry.frame,
             })
             .collect()
+    })
+}
+
+/// The live list of the screen `screen`, by the public ids of its panes, and the rows of each of its columns.
+fn live_screen(mux: &Mux, screen: &ScreenPublicId) -> (Vec<Floating<PanePublicId>>, Vec<usize>) {
+    mux.with_state(|state| {
+        let screen = state
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .find(|item| item.public_id == *screen)
+            .unwrap();
+        let list = screen
+            .floating
+            .iter()
+            .map(|entry| Floating {
+                pane: state.panes[&entry.pane].public_id.clone(),
+                frame: entry.frame,
+            })
+            .collect::<Vec<_>>();
+        let rows = screen.layout_columns.iter().map(|column| column.rows.len()).collect::<Vec<_>>();
+        (list, rows)
     })
 }
 
