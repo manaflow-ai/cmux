@@ -297,6 +297,11 @@ mod spawn_tests {
         for fd in [0, 1, 2, 3] {
             assert!(fds.contains(&fd), "fd {fd} is open in the host: {listing}");
         }
+        // macOS: CLOEXEC_DEFAULT keeps even an inheritable descriptor out.
+        // Linux runs std's spawn, where descriptors are close-on-exec from
+        // birth (pipe2, SOCK_CLOEXEC, MSG_CMSG_CLOEXEC), as `cmux_process`
+        // documents, so only one made inheritable on purpose would pass.
+        #[cfg(target_vendor = "apple")]
         assert!(!fds.contains(&leaked), "fd {leaked} reached the host: {listing}");
     }
 }
