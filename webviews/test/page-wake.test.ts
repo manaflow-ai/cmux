@@ -16,7 +16,7 @@ import { expect, test } from "bun:test";
 import type { ComposerWake } from "../src/agent-session/acpmux/Composer";
 import { applyWake, readWake, type WakeTargets } from "../src/agent-session/acpmux/pageWake";
 
-const chip = { id: "a1", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "iVBO" };
+const chip = { id: "a1", kind: "image" as const, name: "shot.png", mimeType: "image/png", size: 4, data: "iVBO" };
 
 /// The page's places for a woken state, with what each got. `mounted`: the chat's composer is there.
 function page(mounted: boolean) {
