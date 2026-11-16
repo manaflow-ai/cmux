@@ -10,10 +10,12 @@ difference, does not run a take whose pane is gone or did not get the focus, say
 packs one file for the step to bring back.
 
 No app, no socket, no build: `run()` and `take()` run with the session helper (`Stress`), `subprocess` and the
-signpost reader replaced by fakes with a small model of one pane's tabs and of what each key does to them. So this
-proves the script's own logic (the model, the rows, the failures), NOT the app and NOT what a Mac's keys do.
+signpost reader replaced by fakes with a small model of one pane's tabs and of what each key does to them; `main()`
+runs to its first row with the launcher (`BenchApp`), `open`, `ps`, `lsappinfo` and `os.kill` replaced (no process
+starts, no signal goes to one). So this proves the script's own logic (the model, the rows, the failures, the launch
+forms), NOT the app, NOT what a Mac's keys do and NOT what LaunchServices does.
 Run: python3 -I scripts/measure/tests/held-new-tab.test.py"""
-import argparse, contextlib, importlib.util, io, itertools, json, os, shutil, tarfile, tempfile, unittest
+import argparse, contextlib, importlib.util, io, itertools, json, os, shutil, signal, subprocess, sys, tarfile, tempfile, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +24,9 @@ M = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(M)
 ACTION = {"t": "newTab.default", "w": "closeTab"}
 WIDE = ["action", "stall", "stalls", "tab-switch"]
+BUNDLE = "/fake/cmux DEV fake.app"
+BINARY = BUNDLE + "/Contents/MacOS/cmux DEV fake"
+CEF_READY = {"state": "ready", "default_engine": "chromium", "unavailable": None, "fallback": None}  # the app's `debug.cef`
 
 
 def wait(test, seconds, step=0.25):
@@ -44,6 +49,7 @@ class World:
         self.faults, self.count, self.tabs, self.pane, self.space = faults, 0, [], "pane1", None
         self.marks, self.keys, self.calls, self.takes, self.openings, self.records = [], 0, [], [], [], 0
         self.closes, self.given, self.slow, self.base, self.now = 0, 0, {}, 100.0, 100.0
+        self.fewest, self.kills, self.children = float("inf"), [], []  # the smallest tab count after a close; the group kills; each child
 
     def tab(self, kind, selected=False):
         self.count += 1
@@ -61,7 +67,9 @@ class World:
         at = self.selected()
         new = self.tab(kind)
         new["opener"] = self.tabs[at]["id"] if at is not None else None
-        self.tabs.insert(len(self.tabs) if at is None else at + 1, new)
+        # The fault of the case: in that take (a count from 1) the app puts each new tab first in the list.
+        wrong = kind == "newtab" and len(self.takes) == self.faults.get("new_tab_first_in_take")
+        self.tabs.insert(0 if wrong else len(self.tabs) if at is None else at + 1, new)
         self.select(new)
         return new
 
@@ -69,6 +77,7 @@ class World:
         """`tab` goes; when it was the selected one: its opener, else the next tab, else the previous one."""
         at = self.tabs.index(tab)
         self.tabs.remove(tab)
+        self.fewest = min(self.fewest, len(self.tabs))
         if tab["selected"] and self.tabs:
             opener = next((other for other in self.tabs if other["id"] == tab.get("opener")), None)
             self.select(opener or self.tabs[min(at, len(self.tabs) - 1)])
@@ -124,7 +133,7 @@ class World:
                     self.key(letter, at)
             return {"base_s": self.base, "duration_ms": (at - self.base) * 1000 + 50}
         if method == "debug.new_tab":
-            return {"openings": list(self.openings)}
+            return {"openings": ["no record"] if self.faults.get("opens_are_no_records") else list(self.openings)}
         return {}
 
     # The take of a row, as the child process of the signpost recorder makes it: the keys, then the 2 files.
@@ -207,6 +216,9 @@ class Builder:
         return self.tabs(workspace, pane)
 
     def add_tab(self, workspace, pane, kind):
+        if self.world.faults.get("add_tab_raises") and self.world.records:
+            # The session helper's own exception class and words for a tab that did not come.
+            raise RuntimeError(f"{kind} tab did not appear in {pane} in 20 s")
         if not self.world.faults.get("no_tab_comes_back") or self.world.records == 0:
             self.world.add(kind)
         self.world.given += 1
@@ -231,18 +243,45 @@ class Stress:
         return Builder(self.world)
 
 
+class Child:
+    """A take's child process. One that `hangs` does not end in a bound: it ends by the kill of its group."""
+    pid = 4242
+
+    def __init__(self, world, command, hangs):
+        self.world, self.command, self.hangs = world, command, hangs
+
+    def wait(self, timeout=None):
+        if self.hangs and not self.world.kills:
+            raise subprocess.TimeoutExpired(self.command, timeout)
+        return -9 if self.hangs else 0
+
+
 class Recorder:
-    """`subprocess` for `run()`: the one child of a take is the signpost recorder with the take's own command."""
+    """`subprocess` for `run()`: the one child of a take is the signpost recorder with the take's own command. The
+    fault `take_never_ends` names the take (a count from 1) whose child hangs: it makes no record."""
     DEVNULL = -3
+    SubprocessError, TimeoutExpired = subprocess.SubprocessError, subprocess.TimeoutExpired
 
     def __init__(self, world):
         self.world = world
 
-    def run(self, command, **options):
+    def take(self, command):
         value = lambda flag: command[command.index(flag) + 1]
         categories = [command[i + 1] for i, part in enumerate(command) if part == "--category"]
-        self.world.records += 1
         self.world.take(value("--row"), value("--out"), categories, int(value("--keep")), "--film" in command)
+
+    def Popen(self, command, **options):
+        self.world.records += 1
+        hangs = self.world.records == self.world.faults.get("take_never_ends")
+        self.world.children.append({"new_session": options.get("start_new_session"), "hangs": hangs})
+        if not hangs:
+            self.take(command)
+        return Child(self.world, command, hangs)
+
+    def run(self, command, **options):
+        """A caller that gives its child no bound waits to the child's end."""
+        self.world.records += 1
+        self.take(command)
         return argparse.Namespace(returncode=0)
 
 
@@ -290,6 +329,8 @@ class Case(unittest.TestCase):
                                ("slow_records", lambda roots, start, end: []), ("bluetoothd", lambda: ["1"]),
                                ("bluetoothd_starts", lambda start, end: 0), ("time", Clock)):
                 stack.enter_context(mock.patch.object(M, name, fake))
+            # No signal goes to a process: the fake app keeps each kill of a process group.
+            stack.enter_context(mock.patch.object(M.os, "killpg", lambda group, sent: world.kills.append((group, sent))))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             yield
 
@@ -303,6 +344,13 @@ class Case(unittest.TestCase):
         with self.fakes(world):
             M.run(opts, app, Signposts, report, form)
         return report
+
+    def rows_or_fail(self, world, **options):
+        """`rows`, and a failure of the test (not an error) when a fault of the fake app leaves `run()`."""
+        try:
+            return self.rows(world, **options)
+        except Exception as error:  # noqa: BLE001  each class: the row that was measured is lost with it
+            self.fail(f"run() stopped and the measured row is lost: {error!r}")
 
     def record(self, world, row="hold", form="activate", film=None):
         """`take()` on the fake app: the record that it wrote."""
@@ -395,6 +443,60 @@ class OrderRow(unittest.TestCase):
         row, openers = M.order_row(record, fates, {})
         self.assertEqual((row.get("provisional_after"), openers), (1, None))
 
+    def test_a_list_with_a_stand_in_tab_has_no_verdict(self):
+        record, fates = keys("t", order(["a"], ["terminal"], "a"), order(["a", "pending_tab_1"], ["terminal", "newtab"], "pending_tab_1"))
+        row, _ = M.order_row(record, fates, {})
+        self.assertEqual((row["equal"], row.get("provisional_after")), (None, 1))
+        self.assertIn("stand-in", row.get("why", ""))
+
+    def test_a_close_of_a_new_tab_names_that_tab_and_is_not_counted_as_checked(self):
+        """The app closes the FIRST new tab and not the selected one: the tool cannot see it (the close gives the
+        model's tab its id), so the row must not say that it checked this close by identity."""
+        record, fates = keys("ttw", order(["a"], ["terminal"], "a"), order(["a", "x2"], ["terminal", "newtab"], "x2"), closed=["x1"])
+        row, _ = M.order_row(record, fates, {})
+        self.assertIs(row["equal"], True)
+        self.assertEqual((row.get("closes_checked_by_id"), row.get("new_tabs"), row.get("order_by")),
+                         (0, {"made": 2, "named_by_a_close": 1, "known_by_place": 1}, "identity and place"))
+        self.assertIn("not checked for which new tab it closed", row["limit"])
+
+    def test_a_close_of_a_tab_that_had_its_id_is_counted_as_checked(self):
+        record, fates = keys("www", self.HELD, order(["o1", "o2", "o3"], ["terminal"] * 3, "o2"), closed=["n3", "n2", "n1"])
+        row, _ = M.order_row(record, fates, dict(self.OPENERS))
+        self.assertEqual((row.get("closes_checked_by_id"), row.get("order_by")), (3, "identity"))
+
+    def test_a_key_with_no_record_of_what_it_did_gives_no_verdict(self):
+        """The recording lost a record of one key (a `closed` mark: `no_outcome`; the action's run: `missing`). The
+        app did the right thing in both cases, so `not equal` would blame it for the recording's loss."""
+        cases = {"no_outcome": ("tw", order(["a", "b"], ["terminal"] * 2, "a"), order(["a", "b"], ["terminal"] * 2, "a")),
+                 "missing": ("tt", order(["a"], ["terminal"], "a"), order(["a", "x1", "x2"], ["terminal", "newtab", "newtab"], "x2"))}
+        for fate, (letters, before, after) in cases.items():
+            record, fates = keys(letters, before, after)
+            fates[1] = fate
+            row, openers = M.order_row(record, fates, {})
+            self.assertEqual((row["equal"], openers), (None, None), fate)
+            self.assertIn(f"key 1 has the fate {fate}", row.get("why", ""))
+
+    def test_no_verdict_says_which_cause_it_has(self):
+        before, after = order(["a"], ["terminal"], "a"), order(["a", "x1"], ["terminal", "newtab"], "x1")
+        record, fates = keys("t", before, after)
+        whys = {}
+        for cause, (orders, given) in {"before": ({"after": after}, fates), "after": ({"before": before}, fates),
+                                       "fates": ({"before": before, "after": after}, [])}.items():
+            row, openers = M.order_row({**record, "order": orders}, given, {})
+            self.assertEqual((row["equal"], openers), (None, None), cause)
+            whys[cause] = row["why"]
+        self.assertEqual(len(set(whys.values())), 3, whys)
+        self.assertIn("before the keys", whys["before"])
+        self.assertIn("after the keys", whys["after"])
+        self.assertIn("fate", whys["fates"])
+
+    def test_a_start_with_no_known_selected_tab_has_no_verdict(self):
+        after = order(["a", "b", "x1"], ["terminal", "terminal", "newtab"], "x1")
+        record, fates = keys("t", order(["a", "b"], ["terminal"] * 2, None), after)
+        row, openers = M.order_row(record, fates, {})
+        self.assertEqual((row["equal"], openers), (None, None))
+        self.assertIn("selected", row.get("why", ""))
+
     def test_the_rule_of_a_close_is_the_one_that_it_was(self):
         """A pin: this change does not touch the rule (a tab it opened, a tab of the same opener, its opener, the next,
         the previous)."""
@@ -423,6 +525,59 @@ class Rows(Case):
     def test_a_restore_that_leaves_a_difference_is_a_failure_of_the_run(self):
         report = self.rows(World(close_another_tab_at=5, no_tab_comes_back=True))
         self.assertTrue([why for why in report["failures"] if "not restored" in why], report["failures"])
+
+    def test_a_tab_that_does_not_come_back_by_the_helpers_exception_keeps_the_row(self):
+        report = self.rows_or_fail(World(close_another_tab_at=5, add_tab_raises=True))
+        self.assertEqual([row["scenario"] for row in report["rows"]], ["mixed", "hold", "close", "hold-wide"])
+        close = report["rows"][2]
+        self.assertEqual((close.get("tabs_given_back"), len(close.get("not_restored") or [])), (0, 1))
+        self.assertIn("did not come back: terminal tab did not appear in pane1 in 20 s", close["not_restored"][0])
+        self.assertTrue([why for why in report["failures"] if "not restored" in why], report["failures"])
+
+    def test_a_fault_of_the_read_of_the_opens_keeps_the_row(self):
+        report = self.rows_or_fail(World(opens_are_no_records=True))
+        self.assertEqual(len(report["rows"]), 4)
+        self.assertIn("AttributeError", report["rows"][0].get("opens_error", ""))
+
+    def test_a_take_that_does_not_end_is_killed_with_its_group_and_has_its_row(self):
+        world = World(take_never_ends=2)  # the second take: `hold`
+        report = self.rows(world)
+        self.assertEqual([(row["scenario"], bool(row.get("errors"))) for row in report["rows"]], [("mixed", False), ("hold", True)])
+        self.assertIn("did not end", report["rows"][1]["errors"][0])
+        self.assertEqual(world.kills, [(Child.pid, signal.SIGKILL)])  # ONE kill, of the child's own group
+        self.assertEqual([child["new_session"] for child in world.children], [True, True])  # so the group is the child's
+        self.assertEqual([take["row"] for take in world.takes], ["mixed"])  # the run ends there: no key for an app that does not answer
+        self.assertTrue([why for why in report["failures"] if "did not end" in why], report["failures"])
+
+    def test_a_right_app_is_equal_in_each_row_and_each_close_of_close_is_checked_by_its_id(self):
+        report = self.rows(World())
+        self.assertEqual([row["order"]["equal"] for row in report["rows"]], [True] * 4)
+        close = report["rows"][2]["order"]
+        self.assertEqual((close.get("closes_checked_by_id"), close.get("order_by"), close.get("openers_at_start")), (4, "identity", 4))
+
+    def test_a_fault_of_the_order_is_no_verdict_with_its_words_and_the_first_frame_stays(self):
+        with mock.patch.object(M, "order_row", side_effect=ValueError("a fake fault")):
+            report = self.rows(World())
+        for row in report["rows"]:
+            order = row.get("order") or {}
+            self.assertEqual((order.get("equal", "no such field"), "ValueError" in order.get("why", "")), (None, True), row["scenario"])
+            self.assertIn("first_frame", row)
+
+    def test_a_fault_of_the_first_frame_does_not_take_the_verdict_from_close(self):
+        with mock.patch.object(M, "first_frame", side_effect=ValueError("a fake fault")):
+            report = self.rows(World())
+        close = report["rows"][2]
+        self.assertEqual((close["order"]["equal"], close["order"].get("openers_at_start")), (True, 4))
+        self.assertIn("ValueError", close.get("first_frame_error", ""))
+
+    def test_close_with_no_openers_says_what_the_row_before_did(self):
+        report = self.rows(World(new_tab_first_in_take=2))  # the second take: `hold` puts each new tab first
+        hold, close = report["rows"][1]["order"], report["rows"][2]["order"]
+        self.assertIs(hold["equal"], False)
+        self.assertIsNone(close["equal"])
+        self.assertIn("openers", close["why"])
+        self.assertIn("not equal", close["why"])
+        self.assertNotIn("stand-in", close["why"])  # that is another cause, and it is not the one of this run
 
     def test_a_take_whose_pane_is_gone_is_not_run(self):
         world = World(pane_gone="after mixed")
@@ -455,7 +610,8 @@ class Rows(Case):
         self.assertEqual([(take["row"], take["categories"]) for take in world.takes],
                          [("mixed", ["action"]), ("hold", ["action"]), ("close", ["action"]), ("hold", WIDE)])
         wide = report["rows"][-1]
-        self.assertEqual((wide["round"], wide["scenario"]), ("wide", "hold, wider recording"))
+        self.assertEqual((wide["round"], wide["scenario"]), ("wide", "hold-wide"))
+        self.assertNotIn(",", M.WIDE_NAME)  # a reader that joins a row's labels with a comma gets one label
         self.assertEqual(wide.get("not_restored"), [])
         self.assertEqual(len(world.tabs), 3)
 
@@ -469,7 +625,45 @@ class Rows(Case):
         self.assertEqual(found["slow_keys"],
                          [{"key": 2, "key_to_commit_ms": 280.0,
                            "between": [{"what": "stall.main_task class=background owner=NewTabSparePool.warm", "ms": 180.0, "count": 1},
-                                       {"what": "tab-switch.switch", "ms": 20.0, "count": 1}]}])
+                                       {"what": "tab-switch.switch", "ms": 20.0, "count": 1}],
+                           "own_call_tasks_left_out": {"count": 1, "ms": 270.0}}])
+
+
+class Between(unittest.TestCase):
+    """`between`: what the wider recording says of one slow key."""
+
+    def test_an_interval_counts_only_inside_the_key_to_commit_window_and_3_names_are_kept(self):
+        commit = World.interval("action.commit", "action", 100.25, 50.0, {"input_age_ms": "250.0"})
+        task = lambda owner, at, ms: World.interval("stall.main_task", "stall", at, ms, {"class": "work", "owner": owner})
+        # The window is 100.0 s to 100.3 s. A starts before it, B ends after it, C is 2 intervals, D is the fourth
+        # name, E is after the window.
+        intervals = [task("A", 99.9, 150.0), task("B", 100.28, 100.0), task("C", 100.1, 100.0), task("C", 100.21, 30.0),
+                     task("D", 100.1, 10.0), task("E", 101.0, 500.0)]
+        record = {"press_letters": ["t"], "press_times_s": [100.0]}
+        found, own = M.between(intervals, {0: {"commit": commit}}, record, ["created"], "activate")
+        self.assertEqual([(part["what"].split("owner=")[1], part["ms"], part["count"]) for part in found[0]["between"]],
+                         [("C", 130.0, 2), ("A", 50.0, 1), ("B", 20.0, 1)])
+        self.assertEqual((found[0].get("own_call_tasks_left_out"), own), ({"count": 0, "ms": 0.0}, 0))
+        self.assertIn("3 names by summed time", M.WIDE_LIMIT)
+
+
+class Restore(Case):
+    """`restore`: the start's shape again after a row."""
+
+    def test_the_tabs_of_the_start_come_back_before_the_tabs_of_the_row_close(self):
+        world = World()
+        builder = Builder(world)
+        builder.new_workspace()
+        state = M.BENCH.start_state(builder, "ws1")
+        for _ in range(2):
+            world.add("newtab")
+        world.close(world.tabs[0])  # the row closed each tab of the start: the pane has the row's 2 tabs only
+        world.fewest = len(world.tabs)
+        with self.fakes(world):
+            new, left, back = M.restore(builder, "ws1", "pane1", state)
+        self.assertGreaterEqual(world.fewest, 1, "the restore closed each tab of the pane before it gave one back")
+        self.assertEqual((left, back, [tab["kind"] for tab in world.tabs]), ([], 1, ["terminal"]))
+        self.assertEqual(new, {"pane1": {world.tabs[0]["id"]}})
 
 
 class Take(Case):
@@ -520,6 +714,149 @@ class Artifact(Case):
         self.assertNotIn("--artifact held-new-tab.json [--artifact", usage)
         self.assertIn("ONE --artifact", usage)
         self.assertIn('--artifact "$PWD/held-new-tab.tgz"', text)
+        self.assertIn('cp "$out/measure/report.json" "$PWD/held-new-tab.json"', text)  # the report alone, for a reader that asks for it
+
+    def test_the_entry_script_requires_the_page_engine_in_its_build(self):
+        with open(os.path.join(HERE, "..", "held-new-tab.sh")) as f:
+            text = f.read()
+        self.assertIn('CMUX_NEXT_REQUIRE_CEF="$require_cef"', text)
+        self.assertIn("--allow-no-chromium) require_cef=0 ;;", text)
+        self.assertIn("require_cef=1", text)
+
+
+class App:
+    """bench_launch.py's `BenchApp` with no process: the app's active state, its engine word, the faults of the case."""
+    made, faults, engine = [], set(), [CEF_READY]
+
+    def __init__(self, app, out=None, env=None):
+        self.app, self.binary, self.window, self.socket, self.extra = app, BINARY, (40, 40, 1440, 900), "/fake.sock", env or {}
+        self.process, self.teardown, self.ready_seconds, self.limits, self.stopped = mock.Mock(pid=100), None, 1.0, {}, False
+        # pid: its parent. 100 = the launch's own process.
+        self.opens, self.signals, self.pids, self.engine_reads = [], [], {100: 50}, 0
+
+    def launch(self):
+        env = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_AGENT_PANE_MOCK": "1", **self.extra}
+        self.launched_env = {key: value for key, value in env.items() if value is not None}
+        self.active = "launch-activates" in App.faults and "CMUX_NEXT_NO_ACTIVATE" not in self.launched_env
+        App.made.append(self)
+        return self
+
+    def stop(self):
+        self.stopped = True
+
+    def rpc(self, method, params=None, timeout=60):
+        if method == "debug.focus":
+            return {"app_active": self.active, "key_window": "ShellWindow" if self.active else None}
+        if method == "debug.cef":
+            self.engine_reads += 1
+            return App.engine[min(self.engine_reads, len(App.engine)) - 1]
+        return {}
+
+
+class LaunchServices:
+    """`subprocess` for a launch: `open`, `ps` and `lsappinfo` of the newest fake launch; no process starts."""
+    SubprocessError, TimeoutExpired = subprocess.SubprocessError, subprocess.TimeoutExpired
+
+    @staticmethod
+    def run(command, **_):
+        app, said = App.made[-1], ""
+        if command[0] == "/usr/bin/open":
+            app.opens.append(command[1:])
+            app.active = "open-activates" in App.faults
+            if "open-second-instance" in App.faults:
+                app.pids[200] = 1  # a new instance, under launchd
+        elif command[0] == "/bin/ps":
+            # 101: a process that the app started with its own binary (no instance).
+            said = "".join(f"{pid} {parent} {BINARY}\n" for pid, parent in app.pids.items()) + f"101 100 {BINARY} --helper\n"
+        elif command[:2] == ["/usr/bin/lsappinfo", "front"]:
+            said = "ASN:0x0-0x1b01b:\n"
+        elif command[0] == "/usr/bin/lsappinfo":
+            said = '"LSDisplayName"="Finder"\n' if "name" in command else '"pid"=77\n'
+        return subprocess.CompletedProcess(command, 0, said, "")
+
+
+class Launch(unittest.TestCase):
+    """`main()` to its first row: the launch forms, what makes the app active, and the engine's word. The preflight,
+    the window's placement, the session and the rows are not in it (`preflight`, `place` and `run` are stubs)."""
+
+    def main(self, faults, *args, engine=(CEF_READY,)):
+        """`main()` with `faults`: (exit code, the report, the printed lines, each fake launch)."""
+        App.made, App.faults, App.engine = [], set(faults), list(engine)
+        out, said = tempfile.mkdtemp(prefix="held-new-tab-test-"), io.StringIO()
+        self.addCleanup(shutil.rmtree, out, True)
+
+        def rows(opts, app, signposts, report, form):
+            report["rows"].append({"scenario": "mixed", "round": 0, "key_source": form, "errors": [], "invalid": []})
+
+        fakes = ((M, "hid_grant", lambda: True), (M, "subprocess", LaunchServices), (M, "STRESS", Stress(World())),
+                 (M, "preflight", lambda *given: {"frames": 120, "p50_ms": 8.33, "refresh_ms": 8.33}),
+                 (M, "place", lambda app: [40, 40, 1440, 900]), (M, "run", rows),
+                 (M.BENCH, "load", lambda name, file: argparse.Namespace(host_facts=lambda: {"os": "fake"})),
+                 (M.bench_launch, "BenchApp", App), (M.os, "kill", lambda pid, sent: App.made[-1].signals.append((pid, sent))),
+                 (sys, "argv", ["held-new-tab.py", "--app", BUNDLE, "--out", out, "--rounds", "1", *args]))
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.dict(os.environ))  # the script sets 2 variables of the launcher
+            for target, name, fake in fakes:
+                stack.enter_context(mock.patch.object(target, name, fake))
+            stack.enter_context(contextlib.redirect_stdout(said))
+            stack.enter_context(contextlib.redirect_stderr(said))
+            code = M.main()
+        with open(os.path.join(out, "report.json")) as f:
+            report = json.load(f)
+        return code, report, said.getvalue().splitlines(), list(App.made)
+
+    def test_one_open_makes_the_app_active_and_the_report_has_the_line(self):
+        code, report, lines, launches = self.main({"open-activates"})
+        line = ("PREFLIGHT activate: by=open app_active=true key_window=ShellWindow front=Finder (pid 77) instances=1 "
+                "(pids [100]; before the open: [100])")
+        self.assertEqual((code, len(launches), report.get("launch_form")), (0, 1, "activate"))
+        self.assertEqual((launches[0].opens, report["launch"].get("activate")), ([[BUNDLE]], line))
+        self.assertIn(line, lines)
+
+    def test_an_open_that_does_not_make_the_app_active_goes_on_in_the_one_key_form(self):
+        code, report, lines, launches = self.main(set())
+        self.assertEqual((code, [len(app.opens) for app in launches], report.get("launch_form")), (0, [1, 0], "one-key"))
+        self.assertTrue(launches[0].stopped)  # the app of the failed form is ended before the next launch
+        start = "PREFLIGHT next form: one-key (the activate form failed: PREFLIGHT activate: by=none app_active=false"
+        self.assertTrue([line for line in lines if line.startswith(start)], lines)
+        self.assertTrue(report["launch"].get("activate", "").startswith("PREFLIGHT activate: by=not asked"), report["launch"])
+
+    def test_an_open_that_starts_a_second_instance_ends_the_run_with_one_sigterm_and_no_other_form(self):
+        code, report, lines, launches = self.main({"open-activates", "open-second-instance"})
+        self.assertEqual((code, len(launches)), (1, 1))  # no launch in the `one-key` form
+        # ONE signal, a SIGTERM, to the pid that was not there before the open; none to the launch's own process.
+        self.assertEqual(launches[0].signals, [(200, signal.SIGTERM)])
+        self.assertIn("a second instance of the app runs after the open", report.get("preflight_failed", ""))
+        self.assertEqual((launches[0].stopped, report["rows"]), (True, []))
+
+    def test_the_report_has_the_page_engine_at_the_launch_and_after_the_rows(self):
+        fell = {**CEF_READY, "fallback": {"count": 2, "reason": None, "source": None, "notified": False}}
+        code, report, lines, launches = self.main({"launch-activates"}, engine=(CEF_READY, fell))
+        found = report.get("page_engine") or {}
+        self.assertEqual((found.get("engine"), (found.get("at_launch") or {}).get("engine"), (found.get("after_the_rows") or {}).get("webkit_fallbacks")),
+                         ("mixed", "chromium", 2))
+        self.assertEqual([line for line in lines if line.startswith("PREFLIGHT page engine:")],
+                         ["PREFLIGHT page engine: engine=chromium default_engine=chromium chromium_state=ready unavailable=none webkit_fallbacks=0"])
+        self.assertEqual(code, 0)
+
+
+class Engine(unittest.TestCase):
+    """`page_engine`: the app's own word on its page engine (`debug.cef`), in each case."""
+
+    def test_each_case_of_the_apps_word(self):
+        read = getattr(M, "page_engine", None)
+        self.assertIsNotNone(read, "the tool has no read of the page engine")
+        gone = {"code": "notBundled", "detail": None}
+        cases = (("chromium", CEF_READY), ("webkit", {**CEF_READY, "state": "unavailable", "unavailable": gone}),
+                 ("webkit", {**CEF_READY, "default_engine": "webkit"}), ("mixed", {**CEF_READY, "fallback": {"count": 3}}),
+                 ("chromium not ready", {**CEF_READY, "state": "idle"}), ("not read", {"error": "unknown method"}), ("not read", None))
+        for want, reply in cases:
+            self.assertEqual(read(lambda method, params=None, timeout=60: reply)["engine"], want, reply)
+
+        def broken(method, params=None, timeout=60):
+            raise OSError("no socket")
+
+        self.assertEqual(read(broken)["engine"], "not read")
 
 
 if __name__ == "__main__":
