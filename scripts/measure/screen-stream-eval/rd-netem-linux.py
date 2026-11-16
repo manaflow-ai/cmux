@@ -44,6 +44,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -163,6 +164,22 @@ def summarize_key(report: dict | None) -> dict:
     }
 
 
+def wire_summary(samples: list[tuple[float, int, int]]) -> dict:
+    """Per-second Mbps from (monotonic s, viewer rx bytes, viewer tx bytes) veth counter samples.
+
+    The viewer veth's counters are every byte on the wire after netem, all kinds together
+    (media, FEC, probes, control, feedback and IP/UDP headers). The bench's own media + FEC
+    count is `passive.mbps_per_s`; the difference is the rest."""
+    down, up = [], []
+    for (t0, r0, x0), (t1, r1, x1) in zip(samples, samples[1:]):
+        dt = t1 - t0
+        if dt > 0:
+            down.append(round((r1 - r0) * 8 / dt / 1e6, 3))
+            up.append(round((x1 - x0) * 8 / dt / 1e6, 3))
+    return {"down_mbps_per_s": down, "up_mbps_per_s": up,
+            "source": "viewer veth rx/tx bytes (all datagram kinds, with headers)"}
+
+
 def count_idrs(timing_text: str) -> dict:
     """Encoded frames and IDRs in a slice of the host's CMUX_RD_TIMING_LOG.
 
@@ -206,13 +223,14 @@ def _series(values, digits=1, limit=30):
 
 def markdown_table(rows: list[dict]) -> str:
     head = ("| cmux-rd | profile | key p50 / p95 ms (lost) | Mbps median (min–max) | Mbps per second "
-            "| target kbps per second | s to 15 Mbps target / received | decoded fps median "
+            "| target kbps per second | wire Mbps down median (all kinds) | s to 15 Mbps target / received "
+            "| decoded fps median "
             "| IDRs / frames passive, key (reasons) | stage ledger |")
-    out = [head, "|" + "---|" * 10]
+    out = [head, "|" + "---|" * 11]
     for r in rows:
         if r.get("error"):
             out.append(f"| `{r.get('commit', '?')[:12]}` | {PROFILE_LABELS.get(r.get('profile'), r.get('profile'))} "
-                       f"| error: {' '.join(str(r['error']).split())[:120]} | | | | | | | |")
+                       f"| error: {' '.join(str(r['error']).split())[:120]} | | | | | | | | |")
             continue
         key, passive = r.get("key") or {}, r.get("passive") or {}
         mbps = [v for v in passive.get("mbps_per_s") or [] if v is not None]
@@ -225,6 +243,8 @@ def markdown_table(rows: list[dict]) -> str:
         idr = f"{idr_cell(r.get('idr_passive'))}, {idr_cell(r.get('idr_key'))}"
         fps = [v for v in passive.get("decoded_fps_per_s") or [] if v is not None]
         fps_cell = f"{statistics.median(fps):.1f}" if fps else _fmt(passive.get("fps"))
+        down = (r.get("wire") or {}).get("down_mbps_per_s") or []
+        wire_cell = f"{statistics.median(down):.2f}" if down else "–"
         t15 = f"{_fmt(passive.get('target_s_to_15mbps'))} / {_fmt(passive.get('received_s_to_15mbps'))}"
         ledgers = [x for x in (passive.get("stage_ledger"), key.get("stage_ledger")) if x]
         ledger = "yes" if ledgers else "no"
@@ -232,7 +252,7 @@ def markdown_table(rows: list[dict]) -> str:
             f"| `{r['commit'][:12]}` | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
             f"| {_fmt(key.get('p50_ms'))} / {_fmt(key.get('p95_ms'))} ({_fmt(key.get('lost'))}) "
             f"| {spread} | {_series(passive.get('mbps_per_s') or [], 1)} "
-            f"| {_series(target, 0)} | {t15} | {fps_cell} | {idr} | {ledger} |")
+            f"| {_series(target, 0)} | {wire_cell} | {t15} | {fps_cell} | {idr} | {ledger} |")
     return "\n".join(out) + "\n"
 
 
@@ -296,6 +316,33 @@ class Rig:
             inner += ["bash", "-c", 'exec "$@" 3< <(cat "$0")', str(token)]
         return subprocess.Popen(priv(["ip", "netns", "exec", ns, *inner, *argv]),
                                 stdout=stdout, stderr=stderr, start_new_session=True)
+
+
+class WireSampler:
+    """Reads the viewer veth's byte counters once a second while a bench session runs."""
+
+    def __init__(self, rig: "Rig"):
+        self.rig, self.samples, self.done = rig, [], threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def read(self):
+        out = run(priv(["ip", "netns", "exec", self.rig.view_ns, "cat",
+                        f"/sys/class/net/{self.rig.view_dev}/statistics/rx_bytes",
+                        f"/sys/class/net/{self.rig.view_dev}/statistics/tx_bytes"]), check=False).stdout.split()
+        if len(out) == 2:
+            self.samples.append((time.monotonic(), int(out[0]), int(out[1])))
+
+    def run(self):
+        while not self.done.is_set():
+            self.read()
+            self.done.wait(1.0)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.done.set()
+        self.thread.join(timeout=5)
 
 
 def stop(proc: subprocess.Popen | None):
@@ -410,7 +457,11 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
             row["error"] = "host did not listen: " + host_log.read_text(errors="replace")[-600:]
             return row
         start = timing.stat().st_size
+        wire = WireSampler(rig)
+        wire.start()
         passive, perr = bench(rig, binary, token, ["--input", "none", "--duration-s", str(passive_s)], passive_s + 60)
+        wire.stop()
+        row["wire"] = wire_summary(wire.samples)
         mid = timing.stat().st_size
         key, kerr = bench(rig, binary, token, ["--input", "key", "--samples", str(samples)], samples * 3 + 90)
         end = timing.stat().st_size

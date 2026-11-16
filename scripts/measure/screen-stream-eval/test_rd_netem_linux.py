@@ -71,6 +71,12 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(rdnl.count_idrs(''.join(json.dumps(x) + '\n' for x in lines))['reasons'],
                          {'loss': 2, 'encoder': 1, 'requested': 1})
 
+    def test_wire_summary_from_counter_samples(self):
+        w = rdnl.wire_summary([(0.0, 0, 0), (1.0, 1_250_000, 12_500), (1.5, 2_000_000, 12_500)])
+        self.assertEqual(w['down_mbps_per_s'], [10.0, 12.0])
+        self.assertEqual(w['up_mbps_per_s'], [0.1, 0.0])
+        self.assertEqual(rdnl.wire_summary([(0.0, 5, 5)])['down_mbps_per_s'], [])
+
     def test_seconds_to_level(self):
         self.assertEqual(rdnl.seconds_to([None, 9, 15, 20], 15), 3)
         self.assertIsNone(rdnl.seconds_to([1, 2], 15))
@@ -83,6 +89,7 @@ class TableTests(unittest.TestCase):
                 'passive': {'mbps_per_s': [8.0, 1.0, 1.2], 'target_kbps_per_s': [8000, 1000, 1000],
                             'decoded_fps_per_s': [30.0, 10.0, 20.0], 'target_s_to_15mbps': None,
                             'received_s_to_15mbps': None},
+                'wire': {'down_mbps_per_s': [8.0, 9.0, 10.0]},
                 'idr_passive': {'idrs': 1, 'frames': 60, 'reasons': {'unlogged': 1}},
                 'idr_key': {'idrs': 3, 'frames': 40}}
         bad = {'commit': 'b' * 40, 'profile': 'clean', 'error': 'host did not\nlisten\n'}
@@ -90,7 +97,7 @@ class TableTests(unittest.TestCase):
         lines = table.strip().splitlines()
         self.assertEqual(len(lines), 4)
         self.assertIn('| `aaaaaaaaaaaa` | 5±5 ms | 20.0 / 40.0 (0) | 1.20 (1.00–8.00) | 8.0 1.0 1.2 | 8000 1000 1000 '
-                      '| – / – | 20.0 | 1/60 (unlogged 1), 3/40 | yes |',
+                      '| 9.00 | – / – | 20.0 | 1/60 (unlogged 1), 3/40 | yes |',
                       lines[2])
         self.assertIn('error: host did not listen', lines[3])
 
