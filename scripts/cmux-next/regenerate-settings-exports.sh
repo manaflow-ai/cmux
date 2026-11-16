@@ -112,3 +112,11 @@ git add --intent-to-add -- "${exports[@]}" "${followers[@]}"
 git diff --binary HEAD -- "${exports[@]}" "${followers[@]}" > "$bundle"
 echo "bundle: $bundle"
 git diff --stat HEAD -- "${exports[@]}" "${followers[@]}"
+# The patch again on stdout, base64 between markers, for when the artifact
+# upload is refused (cache_http_400): the step's OUTPUT (`cmux-ci artifact
+# <step id> OUTPUT --summary`) still comes back, and
+# `sed -n '/^settings-exports.patch base64 begin$/,/^settings-exports.patch base64 end$/p'`
+# minus the marker lines, through `base64 -d`, is the same file.
+echo "settings-exports.patch base64 begin"
+base64 < "$bundle"
+echo "settings-exports.patch base64 end"
