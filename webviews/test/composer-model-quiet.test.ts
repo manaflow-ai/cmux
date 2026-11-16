@@ -26,6 +26,7 @@ import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
+import { COMPOSER_MD, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-model-quiet.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -224,21 +225,24 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
 
   test("the model button, its labels and the mode use the composer's font, the prompt's", async () => {
     const page = await open("quiet-chips");
-    const fonts = await page.evaluate(() => {
-      const family = (selector: string) => {
-        const element = document.querySelector(selector);
-        return element ? getComputedStyle(element).fontFamily : `missing ${selector}`;
-      };
-      return {
-        token: getComputedStyle(document.documentElement).getPropertyValue("--font-ui").trim(),
-        composer: family(".acpmux-composer"),
-        prompt: family(".acpmux-composer-box .acpmux-md"),
-        button: family(".acpmux-composer-foot .acpmux-model .acpmux-picker-button"),
-        name: family(".acpmux-composer-foot .acpmux-model-name"),
-        effort: family(".acpmux-composer-foot .acpmux-model-detail"),
-        mode: family(".acpmux-composer-foot .acpmux-access .acpmux-picker-button"),
-      };
-    });
+    const fonts = await page.evaluate(
+      ({ COMPOSER_MD }) => {
+        const family = (selector: string) => {
+          const element = document.querySelector(selector);
+          return element ? getComputedStyle(element).fontFamily : `missing ${selector}`;
+        };
+        return {
+          token: getComputedStyle(document.documentElement).getPropertyValue("--font-ui").trim(),
+          composer: family(".acpmux-composer"),
+          prompt: family(COMPOSER_MD),
+          button: family(".acpmux-composer-foot .acpmux-model .acpmux-picker-button"),
+          name: family(".acpmux-composer-foot .acpmux-model-name"),
+          effort: family(".acpmux-composer-foot .acpmux-model-detail"),
+          mode: family(".acpmux-composer-foot .acpmux-access .acpmux-picker-button"),
+        };
+      },
+      { COMPOSER_MD },
+    );
     await page.close();
     const { token, ...parts } = fonts;
     // The app's UI font token (styles.css `.acpmux-composer { font-family: var(--font-ui) }`,
@@ -254,57 +258,60 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
 
   /** The forms the quiet row shows: each unit's visible label, and whether its controls fit. */
   const row = (page: Page) =>
-    page.evaluate(() => {
-      const foot = document.querySelector<HTMLElement>(".acpmux-composer-foot")!;
-      const visible = (element: Element) => {
-        const style = getComputedStyle(element);
-        return style.position !== "absolute" && style.visibility !== "hidden" && style.display !== "none";
-      };
-      const label = (unit: string) =>
-        [...foot.querySelectorAll<HTMLElement>(`[data-fit-part="${unit}"]`)]
-          .filter(visible)
-          .map((part) => part.dataset.label ?? part.textContent?.trim() ?? "")
-          .join(" ");
-      // In the row's order: the mode, the context ring, then the model (the ring stands left of it).
-      const boxes = [
-        foot.querySelector(".acpmux-access .acpmux-picker-button"),
-        foot.querySelector(".acpmux-context-ring"),
-        foot.querySelector(".acpmux-model .acpmux-picker-button"),
-      ]
-        .filter((element): element is Element => element !== null)
-        .map((element) => element.getBoundingClientRect());
-      const edge = foot.getBoundingClientRect();
-      const overlap = boxes.some((box, index) => index > 0 && box.left < boxes[index - 1]!.right - 0.5);
-      const outside = boxes.some((box) => box.left < edge.left - 0.5 || box.right > edge.right + 0.5);
-      const composer = document.querySelector<HTMLElement>(".acpmux-composer")!;
-      const style = getComputedStyle(composer);
-      return {
-        composer: composer.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-        model: label("model"),
-        effort: label("effort"),
-        access: label("access"),
-        steps: [...foot.attributes].filter((attribute) => attribute.name.startsWith("data-fit-")).map((a) => a.name),
-        // What the model button shows: its visible text and drawn labels, in order.
-        button: [...foot.querySelectorAll<HTMLElement>(".acpmux-model .acpmux-picker-button *")]
-          .filter((element) => visible(element) && element.getBoundingClientRect().width > 0)
-          .map(
-            (element) =>
-              [...element.childNodes]
-                .filter((node) => node.nodeType === Node.TEXT_NODE)
-                .map((node) => node.textContent)
-                .join("") +
-              (element.dataset.label && /^".+"$/.test(getComputedStyle(element, "::before").content)
-                ? element.dataset.label
-                : ""),
-          )
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim(),
-        overlap,
-        outside,
-        overflow: foot.scrollWidth > foot.clientWidth + 0.5,
-      };
-    });
+    page.evaluate(
+      ({ MODEL_PICKER }) => {
+        const foot = document.querySelector<HTMLElement>(".acpmux-composer-foot")!;
+        const visible = (element: Element) => {
+          const style = getComputedStyle(element);
+          return style.position !== "absolute" && style.visibility !== "hidden" && style.display !== "none";
+        };
+        const label = (unit: string) =>
+          [...foot.querySelectorAll<HTMLElement>(`[data-fit-part="${unit}"]`)]
+            .filter(visible)
+            .map((part) => part.dataset.label ?? part.textContent?.trim() ?? "")
+            .join(" ");
+        // In the row's order: the mode, the context ring, then the model (the ring stands left of it).
+        const boxes = [
+          foot.querySelector(".acpmux-access .acpmux-picker-button"),
+          foot.querySelector(".acpmux-context-ring"),
+          foot.querySelector(MODEL_PICKER),
+        ]
+          .filter((element): element is Element => element !== null)
+          .map((element) => element.getBoundingClientRect());
+        const edge = foot.getBoundingClientRect();
+        const overlap = boxes.some((box, index) => index > 0 && box.left < boxes[index - 1]!.right - 0.5);
+        const outside = boxes.some((box) => box.left < edge.left - 0.5 || box.right > edge.right + 0.5);
+        const composer = document.querySelector<HTMLElement>(".acpmux-composer")!;
+        const style = getComputedStyle(composer);
+        return {
+          composer: composer.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          model: label("model"),
+          effort: label("effort"),
+          access: label("access"),
+          steps: [...foot.attributes].filter((attribute) => attribute.name.startsWith("data-fit-")).map((a) => a.name),
+          // What the model button shows: its visible text and drawn labels, in order.
+          button: [...foot.querySelectorAll<HTMLElement>(".acpmux-model .acpmux-picker-button *")]
+            .filter((element) => visible(element) && element.getBoundingClientRect().width > 0)
+            .map(
+              (element) =>
+                [...element.childNodes]
+                  .filter((node) => node.nodeType === Node.TEXT_NODE)
+                  .map((node) => node.textContent)
+                  .join("") +
+                (element.dataset.label && /^".+"$/.test(getComputedStyle(element, "::before").content)
+                  ? element.dataset.label
+                  : ""),
+            )
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim(),
+          overlap,
+          outside,
+          overflow: foot.scrollWidth > foot.clientWidth + 0.5,
+        };
+      },
+      { MODEL_PICKER },
+    );
 
   // Frame widths: the composer is SIDES (32 px) narrower (488, 414 and 308 px; 208 and 168 px). Since #24938
   // took the harness label out of the row it holds only the mode, the model button and the ring; the
