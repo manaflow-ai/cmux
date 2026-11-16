@@ -7,127 +7,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No agent sessions yet. Sessions of Claude Code, Codex and other agents run in cmux terminals show here."
+            "value": "No agent sessions yet."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد جلسات وكلاء بعد. تظهر هنا جلسات Claude Code وCodex والوكلاء الآخرين التي تعمل في طرفيات cmux."
+            "state": "needs_review",
+            "value": "لا توجد جلسات وكلاء بعد."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Još nema sesija agenata. Ovdje se prikazuju sesije Claude Codea, Codexa i drugih agenata pokrenutih u cmux terminalima."
+            "state": "needs_review",
+            "value": "Još nema sesija agenata."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ingen agentsessioner endnu. Sessioner fra Claude Code, Codex og andre agenter, der kører i cmux-terminaler, vises her."
+            "state": "needs_review",
+            "value": "Ingen agentsessioner endnu."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Noch keine Agentensitzungen. Sitzungen von Claude Code, Codex und anderen Agenten in cmux-Terminals erscheinen hier."
+            "state": "needs_review",
+            "value": "Noch keine Agentensitzungen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aún no hay sesiones de agentes. Aquí aparecen las sesiones de Claude Code, Codex y otros agentes ejecutados en terminales de cmux."
+            "state": "needs_review",
+            "value": "Aún no hay sesiones de agentes."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aucune session d’agent pour l’instant. Les sessions de Claude Code, Codex et d’autres agents lancées dans les terminaux cmux apparaissent ici."
+            "state": "needs_review",
+            "value": "Aucune session d’agent pour l’instant."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ancora nessuna sessione di agenti. Qui compaiono le sessioni di Claude Code, Codex e altri agenti eseguiti nei terminali cmux."
+            "state": "needs_review",
+            "value": "Ancora nessuna sessione di agenti."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "エージェントのセッションはまだありません。cmux のターミナルで実行した Claude Code、Codex などのセッションがここに表示されます。"
+            "state": "needs_review",
+            "value": "エージェントのセッションはまだありません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនទាន់មានវគ្គភ្នាក់ងារនៅឡើយ។ វគ្គរបស់ Claude Code, Codex និងភ្នាក់ងារផ្សេងទៀតដែលដំណើរការក្នុងស្ថានីយ cmux បង្ហាញនៅទីនេះ។"
+            "state": "needs_review",
+            "value": "មិនទាន់មានវគ្គភ្នាក់ងារនៅឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "아직 에이전트 세션이 없습니다. cmux 터미널에서 실행한 Claude Code, Codex 등 에이전트의 세션이 여기에 표시됩니다."
+            "state": "needs_review",
+            "value": "아직 에이전트 세션이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ingen agentøkter ennå. Økter fra Claude Code, Codex og andre agenter som kjører i cmux-terminaler, vises her."
+            "state": "needs_review",
+            "value": "Ingen agentøkter ennå."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Brak sesji agentów. Tutaj pojawiają się sesje Claude Code, Codex i innych agentów uruchomionych w terminalach cmux."
+            "state": "needs_review",
+            "value": "Brak sesji agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ainda não há sessões de agentes. Sessões do Claude Code, Codex e outros agentes executados em terminais do cmux aparecem aqui."
+            "state": "needs_review",
+            "value": "Ainda não há sessões de agentes."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Сеансов агентов пока нет. Здесь появляются сеансы Claude Code, Codex и других агентов, запущенных в терминалах cmux."
+            "state": "needs_review",
+            "value": "Сеансов агентов пока нет."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ยังไม่มีเซสชันของเอเจนต์ เซสชันของ Claude Code, Codex และเอเจนต์อื่นที่รันในเทอร์มินัล cmux จะแสดงที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Henüz ajan oturumu yok. cmux terminallerinde çalışan Claude Code, Codex ve diğer ajanların oturumları burada görünür."
+            "state": "needs_review",
+            "value": "Henüz ajan oturumu yok."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Сеансів агентів поки немає. Тут з’являються сеанси Claude Code, Codex та інших агентів, запущених у терміналах cmux."
+            "state": "needs_review",
+            "value": "Сеансів агентів поки немає."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chưa có phiên tác tử nào. Các phiên Claude Code, Codex và tác tử khác chạy trong terminal cmux sẽ hiện ở đây."
+            "state": "needs_review",
+            "value": "Chưa có phiên tác tử nào."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "还没有智能体会话。在 cmux 终端中运行的 Claude Code、Codex 等智能体的会话会显示在这里。"
+            "state": "needs_review",
+            "value": "还没有智能体会话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "還沒有代理工作階段。在 cmux 終端機中執行的 Claude Code、Codex 等代理的工作階段會顯示在這裡。"
+            "state": "needs_review",
+            "value": "還沒有代理工作階段。"
           }
         }
       }

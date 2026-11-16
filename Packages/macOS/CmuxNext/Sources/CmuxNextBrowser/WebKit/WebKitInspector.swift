@@ -27,7 +27,7 @@ public struct WebKitInspector {
 
     /// Lets the inspector open for this web view (all builds).
     public func prepare() {
-        if !webView.isInspectable { webView.isInspectable = true }
+        if !webView.isInspectable, !webView.cmuxIsSuspended { webView.isInspectable = true }
     }
 
     /// Whether the inspector is shown.
