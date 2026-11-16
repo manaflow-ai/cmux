@@ -14,6 +14,12 @@ round sets up one STATE, ends the app by one PATH, opens it again into the same 
   settled    ms from the process's start to the last launch region shown (`reveal.sidebar`, `reveal.tabs`,
              `reveal.pane` or `reveal.home`, and `agent_pane.painted` when a chat is in front). A region shown by its
              deadline instead of its data (`reveal.<region>.by_deadline`) is pop-in: the round says so.
+  prior chat live   Leo, 21:24Z: "when i restart/re-launch... im expecting my prior workspace and the probable agent
+             chat session that i had running. so THAT's the importtnt one". ms from the process's start until the
+             front window shows the workspace and chat that were in front at the quit (snapshot.get, polled), its
+             page is drawn (`agent_pane.painted`) and its stream transport is open (`agent_pane.transport_open`);
+             `stream` also checks the reply goes on growing. Beside it, `warm switch`: the median of three switches
+             back to that workspace in the running app before the quit, timed the same way (request to shown).
 
 PATHs (only release control methods and the OS, so a NIGHTLY runs it):
   dock       the quit Apple event NSRunningApplication.terminate sends, as the Dock's Quit and Cmd-Q reach
@@ -26,6 +32,7 @@ PATHs (only release control methods and the OS, so a NIGHTLY runs it):
   kill       SIGKILL of the app (a crash)
   term       SIGTERM (origin .signal)
 STATEs:
+  stream     a chat whose reply streams a word 8 times a second through the quit and after it, in front
   idle       a chat with one answered turn, in front
   midturn    a chat whose turn streams "before-gate" and waits on a FIFO, in front
   queued     midturn plus a second message sent while the turn runs (queued in acpmux)
@@ -61,8 +68,10 @@ import relaunch_restore_check as l5  # noqa: E402
 import stable_next_ui_journey as ui  # noqa: E402
 
 PATHS = ("dock", "cmdq", "scripted", "update", "kill", "term")
-STATES = ("idle", "midturn", "queued", "tool", "long", "many")
-IN_FLIGHT = ("midturn", "queued", "tool", "many")
+STATES = ("stream", "idle", "midturn", "queued", "tool", "long", "many")
+IN_FLIGHT = ("stream", "midturn", "queued", "tool", "many")
+GATED = ("midturn", "queued", "tool", "many")
+STREAM_PROMPT = "stream: 900 8"  # idle_cost_agent.py: a word 8 times a second for 15 min, until cancelled
 HARNESS = "gamutfake"
 REOPEN_S = 45.0
 
@@ -275,8 +284,14 @@ class Gamut:
         self.args, self.root, self.out = args, root, out
         self.work = root / "h" / "gamut-work"
         self.work.mkdir(parents=True, exist_ok=True)
-        self.fake = root / "fake_agent.py"
-        shutil.copyfile(args.fake_agent, self.fake)  # under ROOT, so own_pids finds the agents this run started
+        # The agent is idle_cost_agent.py (fake_agent.py plus "stream:"), copied under ROOT in the repository's own
+        # layout (it loads fake_agent.py from ../../cmux-tui/...), so own_pids finds every agent this run started.
+        agents = root / "a"
+        (agents / "scripts" / "cmux-next").mkdir(parents=True)
+        (agents / "cmux-tui" / "crates" / "acpmux" / "tests").mkdir(parents=True)
+        shutil.copyfile(args.fake_agent, agents / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py")
+        self.fake = agents / "scripts" / "cmux-next" / "idle_cost_agent.py"
+        shutil.copyfile(HERE.parent / "cmux-next" / "idle_cost_agent.py", self.fake)
         self.app: App | None = None
         self.many_made = False
         self.rounds: list[dict] = []
@@ -322,7 +337,13 @@ class Gamut:
                 raise RuntimeError(f"the long chat has {assistant_text(app, chat).count('long turn')} of "
                                    f"{self.args.long_turns} answers")
             case["long_messages"] = len(chat_items(app, chat))
-        if state in ("midturn", "queued", "tool", "many"):
+        if state == "stream":
+            why = send(app, chat, STREAM_PROMPT)
+            if why:
+                raise RuntimeError(f"send: {why}")
+            if not wait_for(lambda: assistant_text(app, chat).count("word") >= 8, 30, 0.25):
+                raise RuntimeError(f"the stream never started: {json.dumps(chat_state(app, chat))[:300]}")
+        if state in GATED:
             fifo = str(self.work / f"g{n}.fifo")
             if os.path.exists(fifo):
                 os.remove(fifo)
@@ -353,8 +374,32 @@ class Gamut:
             self.put_front(term_ws["id"] if term_ws else ws, None)
         else:
             self.put_front(ws, case["chat_tab"])
+            # The baseline Leo's target is set against: a warm switch back to this workspace, from another, in the
+            # running app, timed the same way the reopen's front is (until the snapshot shows it in front).
+            case["warm_switch_ms"] = self.warm_switch(ws, case["chat_tab"], chat)
         case["workspaces"] = len((topo or {}).get("workspaces") or [])
         return case
+
+    def shows(self, chat: str, topo: dict | None = None) -> bool:
+        """The front window shows CHAT's workspace with the chat's tab selected."""
+        topo = topo if topo is not None else self.app.inst.topology()
+        return any(t.get("agent_session") == chat for w in l5.front(topo) for t in w.get("selected") or [])
+
+    def warm_switch(self, ws: str, tab: str | None, chat: str) -> float | None:
+        """Median ms of three switches to WS (its chat tab in front) from another workspace, request to shown."""
+        other = next((w.get("id") for w in (self.app.inst.topology() or {}).get("workspaces") or []
+                      if w.get("id") != ws and w.get("kind") != "home"), None)
+        if not other:
+            return None
+        samples = []
+        for _ in range(3):
+            self.app.cli("workspace", other, "focus")
+            wait_for(lambda: not self.shows(chat), 5, 0.02)
+            asked = time.monotonic()
+            self.put_front(ws, tab)
+            if wait_for(lambda: self.shows(chat), 5, 0.01):
+                samples.append((time.monotonic() - asked) * 1000)
+        return round(sorted(samples)[len(samples) // 2]) if samples else None
 
     def check(self, state: str, case: dict, row: dict) -> list[str]:
         """After the reopen: the chat back, in-flight work finished with nothing lost."""
@@ -379,7 +424,16 @@ class Gamut:
         row["agent_alive_after"] = alive(case.get("agent_pid"))
         if in_flight and not row["agent_alive_after"]:
             failures.append(f"the agent with work in flight (pid {case.get('agent_pid')}) ended")
-        if in_flight:
+        if state == "stream":
+            # Still streaming: the reply grows over the next 2 s, then the turn is cancelled.
+            before = assistant_text(app, chat).count("word")
+            time.sleep(2)
+            after = assistant_text(app, chat).count("word")
+            row["stream_words_in_2s"] = after - before
+            if after <= before:
+                failures.append(f"the reply stopped streaming after the reopen ({before} words, then {after})")
+            app.cli("agents", "chat", "interrupt", chat)
+        elif in_flight:
             row["state_after_reopen"] = chat_state(app, chat)
             why = release(case["fifo"])
             if why:
@@ -454,19 +508,31 @@ class Gamut:
             swap_bundle(self.app.bundle, update_bundle)
         started = self.app.start()
         row["timeline"] = []
-        settled_at = None
+        settled_at = front_ms = None
         chat_front = state != "many"
         while time.monotonic() - started < REOPEN_S and self.app.process.poll() is None:
             marks = self.app.drain()
+            # Leo's number (2026-11-16 21:24Z): the prior workspace selected with its chat in front. The snapshot
+            # answers once the control socket is up; the first poll that shows the chat in front is its time.
+            if chat_front and front_ms is None and self.shows(case["chat"]):
+                front_ms = round((time.monotonic() - started) * 1000)
             # Settled: the window, the sidebar, the tab strips and what the front pane shows (the chat drawn, or the
             # terminal's first frame) are all in. Each mark is ms since the process started.
             content = marks.get("agent_pane.painted") if chat_front else marks.get("reveal.pane")
             needed = [marks.get("first_window_frame_committed"), marks.get("reveal.sidebar"), marks.get("reveal.tabs"), content]
-            if all(v is not None for v in needed):
+            if all(v is not None for v in needed) and (front_ms is not None or not chat_front):
                 settled_at = max(needed)
                 break
             time.sleep(0.05)
         marks = self.app.drain()
+        if chat_front:
+            # The chat back and live: in front, its page drawn and its stream transport open (agent_pane marks).
+            parts = [front_ms, marks.get("agent_pane.painted"), marks.get("agent_pane.transport_open")]
+            row["prior_chat_front_ms"] = front_ms
+            row["prior_chat_live_ms"] = max(parts) if all(p is not None for p in parts) else None
+            row["warm_switch_ms"] = case.get("warm_switch_ms")
+            if row["prior_chat_live_ms"] and row["warm_switch_ms"]:
+                row["live_over_warm_switch"] = round(row["prior_chat_live_ms"] / max(row["warm_switch_ms"], 1), 1)
         if recorder:
             time.sleep(8)
             recorder.terminate()
@@ -539,17 +605,18 @@ def swap_bundle(bundle: Path, source: Path) -> None:
 
 
 def table(rows: list[dict]) -> str:
-    lines = ["| quit | state | survives | first window (ms) | settled (ms) | quit (ms) | notes |", "|---|---|---|---|---|---|---|"]
+    lines = ["| quit | state | survives | first window (ms) | settled (ms) | prior chat live (ms) | warm switch (ms) | "
+             "quit (ms) | notes |", "|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         if r.get("not_run"):
-            lines.append(f"| {r['path']} | {r['state']} | not run | | | | {r['not_run']} |")
+            lines.append(f"| {r['path']} | {r['state']} | not run | | | | | | {r['not_run']} |")
             continue
         ok = "yes" if not r.get("failures") else "NO"
         notes = "; ".join(r.get("failures") or [])
         if r.get("state") in IN_FLIGHT and not r.get("failures"):
             notes = f"agent pid {r.get('agent_pid_before')} kept"
         lines.append(f"| {r['path']} | {r['state']} | {ok} | {r.get('first_window_ms')} | {r.get('settled_ms')} | "
-                     f"{r.get('quit_ms')} | {notes[:300]} |")
+                     f"{r.get('prior_chat_live_ms')} | {r.get('warm_switch_ms')} | {r.get('quit_ms')} | {notes[:300]} |")
     return "\n".join(lines) + "\n"
 
 
