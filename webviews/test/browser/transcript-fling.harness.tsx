@@ -123,7 +123,8 @@ let foldStreamVersion = 0;
 let streamStep = 0;
 Object.assign(window, {
   __streamStep() {
-    const at = current.length - 1;
+    let at = current.length - 1;
+    while (at >= 0 && current[at]!.kind !== "assistant") at -= 1;
     if (at < 0) return;
     streamStep += 1;
     current = [...current];

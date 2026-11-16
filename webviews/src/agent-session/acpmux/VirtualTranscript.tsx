@@ -19,6 +19,7 @@ import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdEntranceForFirstFrame } from "./conversation/entranceClock";
 import {
+  layoutAroundView,
   layoutConversation,
   type ConversationLayout,
   type PlacedLayout,
@@ -1573,10 +1574,14 @@ interface LastEstimate {
 /// placement mounted. `live`: the box's width changed again within LIVE_RESIZE_MS (a live resize).
 /// - `kept`: the last estimate, when it is whole and for this width and chat: the rows it starts with keep
 ///   their heights.
-/// - `resizing`: a live resize's frame at a new width measures only the rows around the mounted ones; the rest
-///   keep the last layout's heights (O(rows in view), not O(rows)). A chat that window covers half of or more
-///   is measured whole (a short chat costs less measured whole than placed again from row 0 over a partial
-///   layout): that layout is not partial.
+/// - `resizing`: a frame at a new width (a live resize's, the first step of one, a sidebar or split opening) or
+///   the settle after a live resize measures only the rows around the mounted ones; the rest keep the last
+///   layout's heights (O(rows in view), not O(rows)): `layoutAroundView` when the rows away from the view are the
+///   last layout's, else layoutConversation's `resizing` pass. A live resize's frame is `partial`, and its settle
+///   at the width that held measures the rows around the view again; a step that is not live, and the settle, are
+///   whole layouts whose rows away from the view take their heights at this width when they draw. A chat that
+///   window covers half of or more is measured whole (a short chat costs less measured whole than placed again
+///   from row 0 over a partial layout): that layout is not partial.
 function estimateFrom(
   last: LastEstimate | undefined,
   placed: { first: number; last: number } | undefined,
@@ -1590,12 +1595,14 @@ function estimateFrom(
   partial: boolean;
 } {
   if (!last || last.sessionId !== sessionId) return { kept: undefined, resizing: undefined, partial: false };
-  if (last.width === rowWidth) return { kept: last.partial ? undefined : last, resizing: undefined, partial: false };
-  if (!live || !placed) return { kept: undefined, resizing: undefined, partial: false };
+  if (last.width === rowWidth && !last.partial) return { kept: last, resizing: undefined, partial: false };
+  if (!placed) return { kept: undefined, resizing: undefined, partial: false };
   const from = Math.max(0, placed.first - LIVE_RESIZE_ROWS);
   const to = placed.last + LIVE_RESIZE_ROWS;
   if ((to - from) * 2 >= rowCount) return { kept: undefined, resizing: undefined, partial: false };
-  return { kept: undefined, resizing: { rows: last.rows, layout: last.layout, from, to }, partial: true };
+  // A partial layout at this width (a live resize's last frame, or a delta in it): the settle when the width
+  // held, or the live resize still going.
+  return { kept: undefined, resizing: { rows: last.rows, layout: last.layout, from, to }, partial: live };
 }
 
 /// The rows around the ones the last placement mounted, in `rows` (layoutConversation `near`): the same
@@ -3807,17 +3814,25 @@ function TranscriptView({
       sessionId,
       rows.length,
     );
-    const layout = layoutConversation(
-      rows,
-      rowWidth,
-      cache,
-      (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
-      measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
-      kept,
-      sessionId,
-      resizing,
-      nearView(lastPlaced.current, rows, sessionId),
-    );
+    const measureOverride = (row: AcpmuxRow, measureWidth: number) =>
+      registry[rowKind(row)]?.measure?.(row, measureWidth);
+    const known = measurementSession.current === sessionId ? rowHeights.current.heights : undefined;
+    // Around the view only, when the rows away from it are the last layout's (Leo, 2026-10-27: "the resized
+    // chromium pane still lagging ... when recalculating size/layout"). Otherwise a live frame keeps the rows'
+    // heights by object over a pass of every row, and anything else is laid out whole.
+    const layout =
+      (resizing && layoutAroundView(rows, rowWidth, cache, measureOverride, known, resizing, resizing, sessionId)) ||
+      layoutConversation(
+        rows,
+        rowWidth,
+        cache,
+        measureOverride,
+        known,
+        kept,
+        sessionId,
+        partial ? resizing : undefined,
+        nearView(lastPlaced.current, rows, sessionId),
+      );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
     // Prepared text is kept for the PREPARED_ROWS most recently measured rows (model.ts), whatever the
     // chat's length.

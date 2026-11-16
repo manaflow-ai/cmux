@@ -3402,6 +3402,121 @@ export function layoutConversation(
   return layout;
 }
 
+/// The most rows away from the view that `layoutAroundView` measures besides the view's (rows changed since the last
+/// layout: a streaming reply above a reader scrolled down, a tool's update); past it the chat is laid out whole.
+const AROUND_VIEW_CHANGED = 64;
+
+/// A new width (a divider or window edge dragged, the sidebar or a split opening), or rows changed while a resize's
+/// layout keeps other widths' heights, measured around the view only: the rows `[from, to)` and any row changed since
+/// `base` are measured at `width`, every other row keeps its height from `base` (the last layout, at another width or
+/// this one), and only the tops below the first measured row are summed again. A width change then costs the rows on
+/// screen, not the chat's length (Leo, 2026-10-27: "the resized chromium pane still lagging ... when recalculating
+/// size/layout"); a row away from the view takes this width's height when it mounts and draws, as `near` rows do
+/// (Chromium's `content-visibility: auto` with a remembered size). Each measured run is measured with its drawn
+/// neighbours on each side, so its rows take their true edges and gaps.
+///
+/// Undefined when it cannot: another scale, fewer rows than `base` (rows removed or a page prepended shift every
+/// index), more than AROUND_VIEW_CHANGED changed rows away from the view, or a layout with room above its rows. The
+/// caller then lays the chat out whole (layoutConversation).
+export function layoutAroundView(
+  rows: readonly AcpmuxRow[],
+  width: number,
+  cache: Map<string, PreparedRow>,
+  measureOverride: ((row: AcpmuxRow, width: number) => number | undefined) | undefined,
+  known: RowHeights | undefined,
+  base: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  window: { from: number; to: number },
+  sessionId?: string,
+): ConversationLayout | undefined {
+  const old = base.layout;
+  const count = rows.length;
+  const baseCount = base.rows.length;
+  const scale = gridScale();
+  if ((old.scale ?? 1) !== scale || !old.gaps || !old.marks || old.heights.length !== baseCount) return undefined;
+  if (count < baseCount || old.origin) return undefined;
+  const from = Math.max(0, Math.min(window.from, count));
+  const to = Math.max(from, Math.min(window.to, count));
+  if (from === to) return undefined;
+  // The runs to measure: the view's, and each run of rows changed (or added) away from it.
+  const runs: { from: number; to: number }[] = [];
+  let changed = 0;
+  const changedRuns = (start: number, stop: number) => {
+    for (let index = start; index < stop; index += 1) {
+      if (index < baseCount && rows[index] === base.rows[index]) continue;
+      let end = index + 1;
+      while (end < stop && (end >= baseCount || rows[end] !== base.rows[end])) end += 1;
+      changed += end - index;
+      runs.push({ from: index, to: end });
+      index = end;
+    }
+  };
+  changedRuns(0, from);
+  if (changed > AROUND_VIEW_CHANGED) return undefined;
+  runs.push({ from, to });
+  changedRuns(to, count);
+  if (changed > AROUND_VIEW_CHANGED) return undefined;
+  const heights = new Float64Array(count);
+  const gaps = new Float64Array(count);
+  const marks = new Uint8Array(count);
+  heights.set(old.heights);
+  gaps.set(old.gaps);
+  marks.set(old.marks);
+  for (const run of runs) {
+    // The drawn row above the run and the one under it are measured with it, so its first and last rows read their
+    // true neighbours; their own heights are not taken (they lack theirs).
+    let first = run.from - 1;
+    while (first > 0 && drawsNothing(rows[first]!)) first -= 1;
+    first = Math.max(0, first);
+    let end = run.to;
+    while (end < count && drawsNothing(rows[end]!)) end += 1;
+    end = Math.min(count, end + 1);
+    const span = layoutConversation(rows.slice(first, end), width, cache, measureOverride, known, undefined, sessionId);
+    // Heights inside the run; gaps and marks through the drawn row under it, whose gap follows the run's last row.
+    for (let index = run.from; index < end; index += 1) {
+      const at = index - first;
+      if (index < run.to) heights[index] = span.heights[at]!;
+      gaps[index] = span.gaps![at]!;
+      marks[index] = span.marks![at]!;
+    }
+  }
+  // The rows above the first run keep their places; the rest are summed again (no row is measured).
+  const start = runs[0]!.from;
+  const tops = new Float64Array(count);
+  let top = 0;
+  if (start > 0) {
+    tops.set(old.tops.subarray(0, start));
+    top = old.tops[start - 1]! + old.heights[start - 1]!;
+  }
+  for (let index = start; index < count; index += 1) {
+    const height = heights[index]!;
+    if (height > 0) top += gaps[index]!;
+    tops[index] = top;
+    top += height;
+  }
+  let lastContent = count - 1;
+  while (lastContent >= 0 && heights[lastContent] === 0) lastContent -= 1;
+  let beforeLast = lastContent - 1;
+  while (beforeLast >= 0 && heights[beforeLast] === 0) beforeLast -= 1;
+  const footer = footerAfter(marks, heights);
+  const messages = new MessagePlacement(rows, old);
+  for (const run of runs)
+    for (let index = run.from; index < run.to; index += 1) messages.visit(rows[index]!, index, base.rows[index]);
+  const layout: ConversationLayout = {
+    tops,
+    heights,
+    gaps,
+    marks,
+    tailGap: tailGap(marks[lastContent] ?? 0, marks[beforeLast] ?? 0, footer) * scale,
+    restBand: restBand(footer) * scale,
+    scale,
+    totalHeight: top,
+    // The rows away from the view keep another width's heights until they draw.
+    remembered: true,
+  };
+  messages.finish(rows, layout);
+  return layout;
+}
+
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
 /// No row is measured, so this costs one pass over the rows' heights.
 /// `kept` rows at the start keep their places from `previous` (the last placement, which they
