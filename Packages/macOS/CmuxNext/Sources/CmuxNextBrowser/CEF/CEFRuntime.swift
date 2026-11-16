@@ -290,8 +290,7 @@ final class CEFRuntime {
 
     /// Returns once `gate` is open (at once when it is nil or already open); true when it waited.
     static func waitForInitializeGate(_ gate: FirstFrameGate?) async -> Bool {
-        guard let gate, !gate.isOpen else { return false }
-        await gate.opened()
+        guard gate != nil else { return false } // RED: the start no longer waits for the first frame
         return true
     }
 
