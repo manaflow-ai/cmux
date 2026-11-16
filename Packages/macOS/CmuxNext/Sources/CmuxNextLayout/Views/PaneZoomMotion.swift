@@ -6,9 +6,9 @@ import CoreGraphics
 /// 2026-10-18: "content must move while it animates"; the tab bar "needs to always be visible").
 /// It is the topmost layer until it lands (`ScreenContentView.rank`, DESIGN Z2 and Z4) and covers
 /// the other panes: they stay still under it (`covered`) and are let go once it lands. An unzoom
-/// finds them there. The others are dimmed while it moves and only then (Lawrence 2026-11-16:
-/// "zoom dim: only during the motion"; until then they were covered and never faded): `dim` is
-/// how far the zoom is, on the pane's spring and clock, and `PaneZoomDimView` draws it.
+/// finds them there. The others are dimmed while it moves and only then (a zoom at rest draws no
+/// dim; before, they were covered and never faded): `dim` is how far the zoom is, on the pane's
+/// spring and clock, and `PaneZoomDimView` draws it.
 /// One spring (`zoom`, `PaneMotionVariant.expandSpring`) moves it both ways; a second
 /// Cmd-Shift-Enter retargets it with its velocity.
 struct PaneZoomMotion {
