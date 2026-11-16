@@ -185,7 +185,8 @@ extension CmuxRemoteActionEnvironment {
     /// hub, but a missing grant still gets its steps: a share that cannot capture is not done.
     static func shareWithoutOverview(_ step: ShareStep, setup: CmuxRemoteSharingSetup,
                                      present: (CmuxDialogSpec) async -> String) async throws -> Bool {
-        try await setup.proceed(after: "continue", enabling: step == .apply, present: present)
+        guard step == .apply else { return true }
+        return try await setup.proceed(after: "continue", present: present)
     }
 
     /// Whether a share request may skip the overview: `remote.shareWithoutAsking` is on and the
