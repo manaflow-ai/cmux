@@ -15,9 +15,11 @@
 # (docs/cmux-remote.md). CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 makes the missing asset an error for a
 # build that must have it.
 # DEV warns and embeds nothing unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1; a sha256 mismatch fails.
-# A bench build (reload.sh --config bench, check-release-compile.sh --bench-hooks: a Release
-# configuration with -DCMUX_BENCH_HOOKS in OTHER_SWIFT_FLAGS) is never published
-# (check-no-bench-hooks.sh), so the asset is optional there as in DEV.
+# A bench build (reload.sh --config bench: a Release configuration with -DCMUX_BENCH_HOOKS in
+# OTHER_SWIFT_FLAGS, lib/bench-swift-defines.sh) is never published (check-no-bench-hooks.sh), so
+# the asset is optional there as in DEV. A dogfood `reload.sh --release` build with a tag of
+# release_bench_tags (cmux-next.dogfood.conf) is a bench build too: on a Mac with no asset it has no
+# cmux Remote, and the only sign is the warning line in the build log.
 # CMUX_NEXT_SKIP_CMUX_REMOTE=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
