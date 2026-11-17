@@ -132,6 +132,16 @@ pub fn installation_token(token: &str) -> bool {
     })
 }
 
+/// A GitHub settings page a refusal may name for granting a repository: https on github.com,
+/// bounded, with no query, fragment, whitespace or control character.
+pub fn configure_url(url: &str) -> bool {
+    url.len() <= 512
+        && url.strip_prefix("https://github.com/").is_some_and(|path| {
+            !path.is_empty()
+                && path.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._/".contains(&b))
+        })
+}
+
 /// A refusal reply (`ok: false`) with the API's error code and message.
 pub fn refusal(code: &str, message: &str) -> Value {
     json!({ "ok": false, "error": { "code": code, "message": message } })
@@ -186,7 +196,14 @@ pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
             let mut out = Map::new();
             out.insert("ok".to_owned(), json!(false));
             out.insert("status".to_owned(), json!(status));
-            out.insert("error".to_owned(), json!({ "code": code, "message": message }));
+            let mut refused = Map::new();
+            refused.insert("code".to_owned(), json!(code));
+            refused.insert("message".to_owned(), json!(message));
+            // The page that grants the repository to the app, when the API names one.
+            if let Some(url) = error.field("configure_url").as_str().filter(|u| configure_url(u)) {
+                refused.insert("configure_url".to_owned(), json!(url));
+            }
+            out.insert("error".to_owned(), Value::Object(refused));
             let retry = body.field("retry_after").as_u64().or(error.field("retry_after").as_u64());
             if let Some(retry) = retry {
                 out.insert("retry_after".to_owned(), json!(retry));

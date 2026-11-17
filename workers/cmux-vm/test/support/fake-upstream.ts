@@ -334,6 +334,11 @@ export function makeFakeUpstream(apiKey: string) {
         if (reply !== undefined) return reply();
         if (vm.state !== "running") return conflict("the VM is not running");
         if (command === "poweroff") {
+          // As in the guest image: only root may power it off; the default user (ubuntu) is refused and the VM runs on.
+          const user = typeof body === "object" && body !== null && "linuxUser" in body ? String(body.linuxUser) : "ubuntu";
+          if (user !== "root") {
+            return Response.json({ statusCode: 1, stdout: "", stderr: "Call to PowerOff failed: Interactive authentication required.\n", vmId: vm.id, node: "host-leak-check" });
+          }
           vm.state = "stopped";
           return conflict("VM_NON_RESPONSIVE");
         }

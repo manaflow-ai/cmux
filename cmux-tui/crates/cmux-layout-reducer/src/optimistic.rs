@@ -723,3 +723,63 @@ pub fn daemon_move_index(
 pub fn is_provisional(handle: u64) -> bool {
     handle >= PROVISIONAL_BIT
 }
+
+/// The deepest JSON nesting an `optimistic` request may have. serde_json's default limit (128)
+/// refused every request for a screen split into a chain of about 125 panes or more (each split
+/// nests its sides one level deeper), so the app's intents there showed nothing. This bound admits
+/// a 600-pane chain inside a column's rows and still refuses input nested past any layout a person
+/// can make, before the recursive parse could exhaust the caller's stack.
+pub const MAX_NESTING: usize = 640;
+
+/// Whether `bytes` nests objects and arrays at most `limit` deep (strings skipped): a byte scan,
+/// so the parse after it can run without serde_json's fixed recursion limit.
+fn nesting_within(bytes: &[u8], limit: usize) -> bool {
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for &byte in bytes {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                if depth > limit {
+                    return false;
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    true
+}
+
+fn parse_bounded<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> serde_json::Result<T> {
+    if !nesting_within(bytes, MAX_NESTING) {
+        return Err(serde::de::Error::custom(format!(
+            "JSON nested deeper than {MAX_NESTING} levels"
+        )));
+    }
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let value = T::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
+}
+
+/// Reads one `optimistic` request (the JSON the app sends), nested up to [`MAX_NESTING`] deep.
+pub fn parse_request(bytes: &[u8]) -> serde_json::Result<Request> {
+    parse_bounded(bytes)
+}
+
+/// Reads any JSON value under the same rules as [`parse_request`] (an answer read back).
+pub fn parse_value(bytes: &[u8]) -> serde_json::Result<Value> {
+    parse_bounded(bytes)
+}
