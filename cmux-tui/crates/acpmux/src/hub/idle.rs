@@ -116,7 +116,7 @@ impl Hub {
     pub(super) fn agent_background_work(&self, session: &Session) -> bool {
         self.any_process_running(session)
             || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
-            || session.work_below_since.lock().map_or(false, |v| *v != 0)
+            || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
     /// The agent of `session` restarts once nothing runs in it (`Session::respawn_when_quiet`):
