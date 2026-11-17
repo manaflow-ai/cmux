@@ -64,6 +64,46 @@ import UIKit
         Self.recordShots(category: category)
     }
 
+    /// Items are 8 pt apart, as `MarkdownListView`, however many lines the one above runs to: the
+    /// font leading UILabel does not draw is not left as extra space under a long item.
+    @Test func itemsAreEightPointsApart() throws {
+        let cell = try Self.cell(width: 350, category: .large, style: .dark)
+        let texts = cell.contentView.subviews.compactMap { $0 as? UILabel }
+            .filter { !$0.isHidden && ($0.attributedText?.length ?? 0) > 0 && !ChatNativeRowCell.isListMarker($0.attributedText?.string ?? "") }
+            .sorted { $0.frame.minY < $1.frame.minY }
+        #expect(texts.count == Self.items.count)
+        for (above, below) in zip(texts, texts.dropFirst()) {
+            let gap = below.frame.minY - above.frame.maxY
+            #expect(abs(gap - 8) <= 0.34, "\(gap) pt under \(above.text ?? "")")
+        }
+    }
+
+    /// A tap on a link opens it where UILabel draws it, also on the last line of a long item: the
+    /// hit test laid the text out with the font leading UILabel leaves out, a line lower by the
+    /// end of a long item, so a tap on the link's line found the plain line above it.
+    @Test func aLinkOnALongItemsLastLineOpensWhereItIsDrawn() throws {
+        let url = "https://example.com/last-line"
+        let item = MarkdownList.Item(text: String(repeating: "plain words on this line ", count: 70) + "\n[openme](\(url))",
+                                     depth: 0, ordinal: nil, checked: nil)
+        let environment = ChatNativeEnvironment(width: 350, category: .large, wrapCode: false)
+        let kind = MarkdownBlock.Kind.list(MarkdownList(items: [item]))
+        let layout = try #require(ChatNativeLayout.make(.block(messageID: "m", block: MarkdownBlock(id: 0, kind: kind)), id: "m#0",
+                                                        expanded: false, environment: environment))
+        let cell = ChatNativeRowCell(frame: CGRect(x: 0, y: 0, width: 390, height: layout.height))
+        cell.apply(layout, actions: ChatNativeActions())
+        cell.layoutIfNeeded()
+        let label = try #require(cell.contentView.subviews.compactMap { $0 as? UILabel }.first { $0.text?.contains("openme") == true })
+        let font = try #require(label.attributedText?.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        let drawn = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 0).height
+        let textTop = label.frame.minY + max(0, label.bounds.height - drawn) / 2
+        let lastLine = CGPoint(x: label.frame.minX + 12, y: textTop + drawn - font.lineHeight / 2)
+        let lineAbove = CGPoint(x: lastLine.x, y: lastLine.y - font.lineHeight - 5)
+        let lines = Int((drawn / (font.lineHeight + 5)).rounded())
+        #expect(lines >= 15, "the item runs to \(lines) lines")
+        #expect(cell.link(at: lastLine)?.absoluteString == url, "a tap on the link's line (\(lines) lines down)")
+        #expect(cell.link(at: lineAbove) == nil, "a tap on the plain line above it")
+    }
+
     /// The row as drawn (its layer tree, on the chat's background) in both looks, attached to the
     /// result bundle for the PR's before and after.
     static func recordShots(category: UIContentSizeCategory) {
