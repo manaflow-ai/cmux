@@ -122,6 +122,7 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
         switch connect {
         case .open(let url): open(url); self = .opened
         case .connected: self = .alreadyConnected
+        case .pending: self = .failed(AgentPaneModel.gitHubConnectPendingMessage)
         case .unavailable: self = .failed("")
         }
     }

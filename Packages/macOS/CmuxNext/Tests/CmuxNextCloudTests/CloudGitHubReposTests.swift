@@ -96,6 +96,22 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubPicker.connectFromStatus(status: 503, body: Data()) == .unavailable)
     }
 
+    /// A connect beside a pending connection (Settings', another launch's) would add a second: the picker reads
+    /// `integration.list` first unless it holds a flow of its own for the team.
+    @MainActor @Test func aPendingConnectionHoldsAnotherConnect() async {
+        let pending = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"gmail","status":"pending"},{"provider":"github","status":"pending"}],"providers":[]}}"#)
+        let active = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"github","status":"active"},{"provider":"gmail","status":"pending"}],"providers":[]}}"#)
+        #expect(CloudGitHubConnects.pending(status: 200, body: pending) == true)
+        #expect(CloudGitHubConnects.pending(status: 200, body: active) == false)
+        #expect(CloudGitHubConnects.pending(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"auth.forbidden"}}"#)) == nil)
+        #expect(CloudGitHubConnects.pending(status: 500, body: pending) == nil)
+        let connects = CloudGitHubConnects(newKey: { "key" })
+        #expect(!connects.resumable(team: "team_a"))
+        _ = await connects.page(team: "team_a", now: Date()) { _ in .noAnswer }
+        #expect(connects.resumable(team: "team_a"))
+        #expect(!connects.resumable(team: "team_b"))
+    }
+
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
 
     @Test func theConnectReplyOpensOnlyTheAppsInstallationPage() {

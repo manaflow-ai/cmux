@@ -90,6 +90,8 @@ struct AgentPaneGitHubRequestTests {
         let open = AgentPaneGitHubConnect(.open(page)) { opened.append($0) }
         let connected = AgentPaneGitHubConnect(.connected) { opened.append($0) }
         let unavailable = AgentPaneGitHubConnect(.unavailable) { opened.append($0) }
+        let pending = AgentPaneGitHubConnect(.pending) { opened.append($0) }
+        #expect(pending == .failed(AgentPaneModel.gitHubConnectPendingMessage))
         #expect(open == .opened)
         #expect(connected == .alreadyConnected)
         #expect(unavailable == .failed(""))

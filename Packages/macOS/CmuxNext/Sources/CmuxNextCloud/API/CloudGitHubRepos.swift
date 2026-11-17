@@ -105,6 +105,14 @@ extension CloudOwnerAPIClient {
         return CloudGitHubConnects.answer(status: answer.status, body: answer.body)
     }
 
+    /// `integration.list` on `/v1/read` in ``teamID``'s team: whether a GitHub connection this person sees is pending
+    /// (Settings' Connect, or another launch's); nil when it did not answer.
+    public func gitHubConnectPending() async -> Bool? {
+        guard let json = try? JSONSerialization.data(withJSONObject: ["op": "integration.list", "params": [String: Any]()]),
+              let answer = await person("/v1/read", post: json) else { return nil }
+        return CloudGitHubConnects.pending(status: answer.status, body: answer.body)
+    }
+
     /// One GET of `path` (a POST of `post` in ``teamID``'s team when given) with only Authorization (the Worker's
     /// invocation log masks it); nil when it did not answer.
     func person(_ path: String, post: Data? = nil) async -> (status: Int, body: Data)? {
@@ -158,6 +166,19 @@ public final class CloudGitHubConnects {
         case .page(let url): flows[team] = (key, url); return url
         case .refused: flows[team] = nil; return nil
         case .noAnswer: return nil
+        }
+    }
+
+    /// Whether this launch's picker holds a flow for `team` it can resume (its page, or a key whose answer may be lost).
+    public func resumable(team: String) -> Bool { flows[team] != nil }
+
+    /// The `integration.list` reply `{value: {connections: [{provider, status}]}}`: whether a GitHub one is pending; nil for any other reply.
+    nonisolated static func pending(status: Int, body: Data) -> Bool? {
+        guard (200..<300).contains(status), let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], reply["ok"] as? Bool != false,
+              let rows = (reply["value"] as? [String: Any])?["connections"] as? [Any] else { return nil }
+        return rows.contains { row in
+            guard let row = row as? [String: Any] else { return false }
+            return row["provider"] as? String == "github" && row["status"] as? String == "pending"
         }
     }
 
@@ -231,6 +252,8 @@ public struct CloudGitHubPicker {
         case open(URL)
         /// The team is connected already: nothing to open.
         case connected
+        /// A connection this picker can't resume is pending (Settings' Connect, another launch's): finish that one.
+        case pending
         /// Signed out, no App here, a team policy that disallows GitHub, or no answer.
         case unavailable
     }
@@ -243,6 +266,14 @@ public struct CloudGitHubPicker {
               let status = await owner.client.person(path) else { return .unavailable }
         if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }
         let client = owner.client
+        // As Settings' Connect (`!pending || resumable`): another connect beside a pending one would add a second.
+        if !connects.resumable(team: owner.team) {
+            switch await client.gitHubConnectPending() {
+            case false?: break
+            case true?: return .pending
+            case nil: return .unavailable
+            }
+        }
         guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0) }) else { return .unavailable }
         return .open(page)
     }
