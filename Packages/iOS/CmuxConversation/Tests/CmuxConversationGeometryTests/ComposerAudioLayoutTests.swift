@@ -96,6 +96,19 @@ import Testing
 /// recording when the finger lifts, stop opens the review. The composer
 /// used to start on a tap and stop to review on release.
 @Suite struct ComposerAudioFlowTests {
+    /// A kept recording (rebuilt screen, background, relaunch) opens in its
+    /// review, from where it records more, sends or is thrown away.
+    @Test func aRestoredRecordingOpensInReview() {
+        var flow = ComposerAudioFlow()
+        #expect(flow.handle(.restore) == [])
+        #expect(flow.stage == .review)
+        #expect(flow.handle(.restore) == [], "only from the text field")
+        #expect(flow.handle(.continueRecording) == [.resumeRecording])
+        #expect(flow.handle(.stop(longEnough: true)) == [.pauseRecording], "the restored recorder counts as running")
+        #expect(flow.handle(.send) == [.sendRecording])
+        #expect(flow.stage == nil)
+    }
+
     @Test func tapShowsHintAndDoesNotRecord() {
         var flow = ComposerAudioFlow()
         #expect(flow.handle(.tap(voiceOver: false)) == [.showHoldHint])

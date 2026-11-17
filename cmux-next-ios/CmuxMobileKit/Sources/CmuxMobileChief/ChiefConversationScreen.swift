@@ -180,6 +180,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     }
 
     private func configure(_ conversation: ConversationViewController) {
+        // An unsent recording outlives the screen, the background and a relaunch.
+        conversation.useAudioDrafts(ChiefSession.audioDrafts, key: session.audioDraftKey)
         conversation.onBack = back
         // A file link in a Chief message opens the file preview (read from
         // Chief's Mac), a cmux link what it names; web links open in Safari as before.
@@ -646,7 +648,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         guard !handedOffComposer, isViewLoaded else { return }
         handedOffComposer = true
         let focused = composerTextView?.isFirstResponder == true || composerFocusedWhenSceneLeft
-        session.carryComposerText(composerTextView?.text ?? "", focused: focused)
+        // A recording goes too (the user, 2026-11-11: back from the background the
+        // rebuilt screen had lost the recorded clip); a running one stops into review.
+        session.carryComposerText(composerTextView?.text ?? "", focused: focused, audio: conversation.takeAudioDraft())
     }
 
     /// The text written on the screen this one replaces (or the last visit's),
@@ -659,6 +663,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             field.delegate?.textViewDidChange?(field)
         }
         if carried.focused { focusesCarriedComposer = true }
+        if let audio = carried.audio { conversation.restoreAudioDraft(audio) }
     }
 
     /// Back in the foreground the field gets its keyboard again if it had it

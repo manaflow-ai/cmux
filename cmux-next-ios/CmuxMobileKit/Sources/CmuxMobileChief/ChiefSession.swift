@@ -207,6 +207,27 @@ public final class ChiefSession {
     public func discardTranscripts() {
         store.discardKeptTranscript()
         transcripts?.removeAll()
+        Self.audioDrafts?.removeAll()
+        // A recording carried to a screen not built yet goes too: never to the next account.
+        carriedComposer = nil
+    }
+
+    /// Unsent recordings of every Chief conversation, kept on this phone (cleared at sign-out).
+    public static let audioDrafts: ConversationAudioDraftStore? = {
+        let store = ConversationAudioDraftStore.inApplicationSupport("cmux-mobile-chief-voice-drafts")
+        #if DEBUG
+        // UI tests start without a recording an earlier test left in review.
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_CLEAR_AUDIO_DRAFTS"] == "1" { store?.removeAll() }
+        #endif
+        return store
+    }()
+
+    /// The key this Chief's unsent recording is kept under: the account, then its kept
+    /// transcript's key, so another account on this phone never opens it.
+    var audioDraftKey: String? {
+        guard let transcriptKey else { return nil }
+        let account = boundAccount.flatMap { $0 } ?? "-"
+        return "\(account)|\(transcriptKey)"
     }
 
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
@@ -358,21 +379,23 @@ public final class ChiefSession {
         /// The field had the keyboard: a screen rebuilt in place (a new
         /// store after a reconnect) keeps it, as if nothing was rebuilt.
         public var focused: Bool
+        /// A recording in the composer (stopped into its review), nil when none.
+        public var audio: ConversationAudioDraft? = nil
     }
 
     private var carriedComposer: CarriedComposer?
 
     /// The leaving screen's unsent text (empty clears it) and whether its field was focused.
-    public func carryComposerText(_ text: String, focused: Bool = false) {
+    public func carryComposerText(_ text: String, focused: Bool = false, audio: ConversationAudioDraft? = nil) {
         let kept = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
-        carriedComposer = kept == nil && !focused ? nil : CarriedComposer(text: kept, focused: focused)
+        carriedComposer = kept == nil && !focused && audio == nil ? nil : CarriedComposer(text: kept, focused: focused, audio: audio)
     }
 
     /// Keeps the carried text but not its focus (the Chief route left).
     public func dropCarriedComposerFocus() {
         guard var carried = carriedComposer, carried.focused else { return }
         carried.focused = false
-        carriedComposer = carried.text == nil ? nil : carried
+        carriedComposer = carried.text == nil && carried.audio == nil ? nil : carried
     }
 
     /// The carried composer, once.

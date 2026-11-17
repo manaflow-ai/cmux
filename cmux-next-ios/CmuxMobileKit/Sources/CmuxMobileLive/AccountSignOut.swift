@@ -80,6 +80,9 @@ public struct AccountSignOut {
     /// preferences belonged to a session that ended without a sign-out here,
     /// so they are dropped instead of going to the next account.
     public func settleLaunchSignedOut(secrets: any DeviceSecretStore = KeychainSecretStore()) {
+        // A recording left unsent by a session that ended without a sign-out here
+        // (expired, or the app ended) is not the next account's.
+        ChiefSession.audioDrafts?.removeAll()
         guard preferences.settleSignedOut() else { return }
         DeviceIdentity.discardLegacy(store: secrets)
         PhoneKeys.discardLegacy(store: secrets)

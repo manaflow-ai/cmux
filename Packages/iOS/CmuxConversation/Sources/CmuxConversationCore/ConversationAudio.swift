@@ -32,6 +32,37 @@ public enum ConversationWAV {
         return data
     }
 
+    /// Reads back what ``encode(_:sampleRate:)`` wrote (16-bit mono PCM), in
+    /// memory and without AVFoundation; nil for any other layout.
+    public static func decodePCM16(_ data: Data) -> [Float]? {
+        data.withUnsafeBytes { raw -> [Float]? in
+            func tag(_ at: Int, _ name: String) -> Bool {
+                at + 4 <= raw.count && raw[at ..< at + 4].elementsEqual(name.utf8)
+            }
+            func u16(_ at: Int) -> Int { Int(UInt16(littleEndian: raw.loadUnaligned(fromByteOffset: at, as: UInt16.self))) }
+            func u32(_ at: Int) -> Int { Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: at, as: UInt32.self))) }
+            guard tag(0, "RIFF"), tag(8, "WAVE") else { return nil }
+            var offset = 12
+            var pcm16Mono = false
+            while offset + 8 <= raw.count {
+                let size = u32(offset + 4)
+                let body = offset + 8
+                if tag(offset, "fmt ") {
+                    guard body + 16 <= raw.count else { return nil }
+                    pcm16Mono = u16(body) == 1 && u16(body + 2) == 1 && u16(body + 14) == 16
+                } else if tag(offset, "data") {
+                    guard pcm16Mono else { return nil }
+                    let count = (min(raw.count, body + size) - body) / 2
+                    return (0 ..< count).map { index in
+                        Float(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: body + index * 2, as: Int16.self))) / Float(Int16.max)
+                    }
+                }
+                offset = body + size + (size & 1)
+            }
+            return nil
+        }
+    }
+
     /// Decodes any file AVFoundation reads into mono samples at `sampleRate`.
     public static func decode(contentsOf url: URL, sampleRate: Int = sampleRate) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
@@ -123,6 +154,29 @@ public enum ConversationSyntheticSpeech {
     }
 }
 
+/// A recording stopped for review and not yet sent or thrown away: what the
+/// composer keeps when its screen is rebuilt, the app leaves the foreground or
+/// the app is ended in the background, so the review comes back as it was.
+public struct ConversationAudioDraft: Sendable, Equatable, Codable {
+    /// 16-bit mono PCM WAV at ``ConversationWAV/sampleRate``.
+    public var wav: Data
+    /// The meter's levels, one per ``ConversationAudioRecorder/levelInterval``.
+    public var levels: [Float]
+    /// What a synthetic input "said" (nil for the microphone).
+    public var transcript: String?
+
+    public init(wav: Data, levels: [Float], transcript: String? = nil) {
+        self.wav = wav
+        self.levels = levels
+        self.transcript = transcript
+    }
+
+    /// Seconds of audio in ``wav``.
+    public var duration: TimeInterval {
+        Double(max(0, wav.count - 44) / 2) / Double(ConversationWAV.sampleRate)
+    }
+}
+
 /// What finishing a recording yields.
 public struct ConversationRecordedAudio: Sendable {
     public var data: Data
@@ -172,6 +226,35 @@ public final class ConversationAudioRecorder: NSObject {
 
     public init(input: Input = .fromEnvironment) {
         self.input = input
+    }
+
+    /// A recorder holding `draft`, stopped for review: play, send, discard,
+    /// or `continueRecording()` to record on from its end. Nil when the
+    /// draft's audio cannot be read.
+    public convenience init?(restoring draft: ConversationAudioDraft, input: Input = .fromEnvironment) {
+        guard let samples = ConversationWAV.decodePCM16(draft.wav), !samples.isEmpty else { return nil }
+        self.init(input: input)
+        committed = samples
+        let wanted = Int((Double(samples.count) / Double(ConversationWAV.sampleRate)) / Self.levelInterval)
+        var levels = Array(draft.levels.prefix(wanted))
+        while levels.count < wanted { levels.append(levels.last ?? 0) }
+        self.levels = levels
+        syntheticTranscript = draft.transcript
+        switch input {
+        case .microphone: break
+        case .synthetic: replay = ConversationSyntheticSpeech.samples(seconds: 60, seed: UInt64(Date().timeIntervalSince1970))
+        case let .file(url): replay = (try? ConversationWAV.decode(contentsOf: url)) ?? []
+        }
+        replayOffset = samples.count
+        state = .paused
+    }
+
+    /// The recording kept so far, while stopped for review; nil while it
+    /// records or when there is nothing worth keeping.
+    public var draft: ConversationAudioDraft? {
+        guard state == .paused, committed.count > ConversationWAV.sampleRate / 4 else { return nil }
+        return ConversationAudioDraft(wav: ConversationWAV.encode(committed), levels: levels,
+                                      transcript: input == .microphone ? nil : syntheticTranscript)
     }
 
     /// Recorded time, including the segment in progress.
