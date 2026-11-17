@@ -203,6 +203,13 @@ impl Segment {
     /// The seq of the segment's first line, from its first bytes alone; None when they do not
     /// say (an empty segment, a blank or older first line).
     fn first_seq(&mut self) -> Result<Option<u64>> {
+        // A cold segment's index names it: no chunk decoded for a head (a v1 source's search by
+        // halves opens about log2 of the segments, 9 of a 300-segment chat).
+        if let super::cold_segments::SegmentFile::Cold(cold) = &self.file
+            && let Some(seq) = cold.first_seq()
+        {
+            return Ok(Some(seq));
+        }
         let mut head = [0u8; HEAD];
         let n = self.read_at(0, &mut head)?;
         Ok(head.get(..n).and_then(record_seq))
@@ -518,7 +525,9 @@ impl LocalStore {
             // may have started the next one since the listing. The next one's name is its
             // index + 1, so one look at that name says, and the directory is listed only when
             // it is there.
-            let full = length >= self.segment_bytes || segment.index == 0;
+            // At the least roll size: a segment that rolled at the cold-segment size
+            // (`LocalStore::set_cold_roll`) is full too.
+            let full = length >= self.least_roll_bytes() || segment.index == 0;
             if is_last
                 && !relisted
                 && full

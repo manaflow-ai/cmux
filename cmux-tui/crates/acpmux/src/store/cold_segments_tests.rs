@@ -156,9 +156,8 @@ fn a_crash_at_every_step_of_a_move_loses_nothing() {
         );
         for name in &cold {
             let index: u32 = name.trim_end_matches(".zst").parse().unwrap();
-            let idx = format!("{index:06}{IDX_SUFFIX}");
             let ndjson = format!("{index:06}.ndjson");
-            assert!(events.contains(&idx), "{step:?}: {name} has no index");
+            assert!(read_index(&sessions.join(ID), index).is_ok(), "{step:?}: {name} has no index");
             assert!(!events.contains(&ndjson), "{step:?}: {name} beside its segment");
         }
         move_all(&restarted);
@@ -228,10 +227,11 @@ fn a_damaged_archive_beside_its_segment_reads_from_the_segment() {
     assert_eq!(all(&store), expected(1200));
 }
 
-/// A cold segment whose archive or index is damaged with no segment left: a read fails with an
-/// error that names it (never a page with records missing), and no settle removes anything.
+/// A cold segment whose archive is damaged with no segment left: a read fails with an error that
+/// names it (never a page with records missing), and no settle removes anything. A damaged index
+/// is `cold_segments_index_tests.rs`'s.
 #[test]
-fn a_damaged_archive_or_index_alone_is_a_clear_error_and_nothing_goes() {
+fn a_damaged_archive_alone_is_a_clear_error_and_nothing_goes() {
     let (_home, sessions, store) = chat(1200);
     move_all(&store);
     let session = sessions.join(ID);
@@ -244,16 +244,6 @@ fn a_damaged_archive_or_index_alone_is_a_clear_error_and_nothing_goes() {
     store.settle_cold_segments(ID).unwrap();
     assert_eq!((names(&session.join("events")), names(&session.join(COLD_DIR))), files);
     std::fs::write(&zst, &saved).unwrap();
-    assert_eq!(all(&store), expected(1200));
-
-    let idx = idx_path(&session, 3);
-    let text = std::fs::read(&idx).unwrap();
-    std::fs::write(&idx, &text[..text.len() / 2]).unwrap();
-    let error = store.scan(ID, 0, &mut |_| true).expect_err("a cut index fails the read");
-    assert!(format!("{error:#}").contains("does not read"), "{error:#}");
-    store.settle_cold_segments(ID).unwrap();
-    assert!(idx.exists() && zst_path(&session, 3).exists(), "nothing is removed");
-    std::fs::write(&idx, &text).unwrap();
     assert_eq!(all(&store), expected(1200));
 }
 
@@ -342,20 +332,17 @@ fn a_whole_chat_archive_refuses_a_cold_segment_whose_index_is_short() {
     let (_home, sessions, store) = chat(1500);
     assert!(move_all(&store) > 0);
     let session = sessions.join(ID);
-    let idx = names(&session.join("events"))
-        .into_iter()
-        .find(|n| n.ends_with(".cold.idx"))
-        .expect("a cold segment's index");
-    let idx = session.join("events").join(idx);
+    let idx = index_path(&session);
     let mut doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&idx).unwrap()).unwrap();
-    let raw = doc["rawLen"].as_u64().unwrap();
-    doc["rawLen"] = (raw / 2).into();
+    let first = doc["segments"].as_object().unwrap().keys().next().unwrap().clone();
+    let raw = doc["segments"][&first]["rawLen"].as_u64().unwrap();
+    doc["segments"][&first]["rawLen"] = (raw / 2).into();
     std::fs::write(&idx, serde_json::to_vec(&doc).unwrap()).unwrap();
     let archives = names(&session.join(COLD_DIR));
     assert!(store.stage_cold(ID).is_err(), "a short index is refused, not archived as the segment");
     assert!(!store.is_cold(ID));
     assert_eq!(names(&session.join(COLD_DIR)), archives, "every segment archive is still there");
-    doc["rawLen"] = raw.into();
+    doc["segments"][&first]["rawLen"] = raw.into();
     std::fs::write(&idx, serde_json::to_vec(&doc).unwrap()).unwrap();
     assert_eq!(all(&store), expected(1500), "the history is whole once the index is");
 }
@@ -648,7 +635,7 @@ fn a_damaged_archive_stays_cold_with_a_clear_error_and_the_others_come_back() {
     assert_eq!(warmed.left[0].0, 2);
     assert!(warmed.left[0].1.contains("damaged"), "{warmed:?}");
     assert_eq!(std::fs::read(&zst).unwrap(), damaged, "the archive is as it was");
-    assert!(idx_path(&session, 2).exists(), "its index too");
+    assert!(read_index(&session, 2).is_ok(), "its index too");
     assert!(!session.join("events").join("000002.ndjson").exists(), "no segment made from it");
     assert!(
         names(&session.join("events")).iter().all(|n| !n.contains(".tmp-")),

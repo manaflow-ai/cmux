@@ -1512,6 +1512,9 @@ pub trait Store: Send + Sync {
     /// Called with a chat's id when its log seals a segment (rolls over to the next), under the
     /// store's writers' lock: it may only note the id and wake a worker. Set once.
     fn on_segment_sealed(&self, _hook: SealHook) {}
+    /// Whether cold segments are on (`hub/cold_segments.rs`, each round): the open segment then
+    /// rolls at `cold_segments::COLD_ROLL_BYTES` when that is smaller than the configured size.
+    fn set_cold_roll(&self, _on: bool) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1657,6 +1660,8 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// [`Store::on_segment_sealed`].
     seal_hook: std::sync::OnceLock<SealHook>,
+    /// [`Store::set_cold_roll`]: the open segment rolls at [`LocalStore::roll_bytes`].
+    cold_roll: std::sync::atomic::AtomicBool,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
     /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
@@ -1719,11 +1724,28 @@ impl LocalStore {
             cold_tag: format!("{}x{}", std::process::id(), uuid::Uuid::now_v7().simple()),
             rehydrate_hook: Default::default(),
             seal_hook: Default::default(),
+            cold_roll: Default::default(),
             parts: Default::default(),
             kind_heads: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
+    }
+
+    /// The size the open segment rolls at now: `store.segmentBytes`, or
+    /// [`cold_segments::COLD_ROLL_BYTES`] when that is smaller and cold segments are on.
+    fn roll_bytes(&self) -> u64 {
+        if self.cold_roll.load(std::sync::atomic::Ordering::Relaxed) {
+            self.segment_bytes.min(cold_segments::COLD_ROLL_BYTES.max(64 * 1024))
+        } else {
+            self.segment_bytes
+        }
+    }
+
+    /// The smallest size a sealed segment can have rolled at (with cold segments on or off): a
+    /// reader that asks whether the last segment it listed may have rolled since asks at this.
+    fn least_roll_bytes(&self) -> u64 {
+        self.segment_bytes.min(cold_segments::COLD_ROLL_BYTES.max(64 * 1024))
     }
 
     /// Held through a write; refused once the store is sealed (`Store::seal`).
@@ -1782,6 +1804,7 @@ impl LocalStore {
         let dir = self.dir(id).join("events");
         let mut out = Vec::new();
         let mut cold = Vec::new();
+        let mut one_index = false;
         let mut cut_pending = false;
         let Ok(rd) = std::fs::read_dir(&dir) else {
             return Ok((out, false));
@@ -1795,15 +1818,18 @@ impl LocalStore {
                 && let Ok(idx) = stem.parse::<u32>()
             {
                 out.push((idx, entry.path()));
+            } else if name == cold_segments::INDEX_FILE {
+                one_index = true;
             } else if let Some(idx) = cold_segments::idx_index(&name) {
                 cold.push(idx);
             }
         }
         // A sealed segment that went cold (`store/cold_segments.rs`) reads from its archive once
-        // only its index is left: while its `.ndjson` is there, that is the segment.
-        if !cold.is_empty() {
+        // the chat's index names it and its `.ndjson` is gone: while that is there, that is the
+        // segment. The index is parsed once per change of it, not per listing.
+        if one_index || !cold.is_empty() {
             let session = self.dir(id);
-            for index in cold {
+            for index in cold_segments::cold_indexes(&session, one_index, cold)? {
                 if !out.iter().any(|(i, _)| *i == index) {
                     out.push((index, cold_segments::zst_path(&session, index)));
                 }
@@ -2001,7 +2027,7 @@ impl LocalStore {
         }
         writers.clock += 1;
         let clock = writers.clock;
-        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
+        let full = writers.open.get(id).is_some_and(|w| w.written >= self.roll_bytes());
         if full && let Some(old) = writers.open.remove(id) {
             // The full segment closes before the next one opens (rare: once per segment).
             let index = old.index + 1;
@@ -2625,6 +2651,10 @@ impl Store for LocalStore {
 
     fn on_segment_sealed(&self, hook: SealHook) {
         let _ = self.seal_hook.set(hook);
+    }
+
+    fn set_cold_roll(&self, on: bool) {
+        self.cold_roll.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn seal(&self) {
