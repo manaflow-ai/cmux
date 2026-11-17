@@ -294,7 +294,6 @@ impl HttpCache {
             break request;
         };
         drop(entries);
-        let started = Instant::now();
         // A fetcher that panics must not leave the URL in flight for good:
         // every later reader would wait on it and then fail.
         let fetched =
@@ -307,7 +306,7 @@ impl HttpCache {
                 });
         // Freshness and the failure floor count from when the answer came, so a
         // slow or timed-out fetch is not tried again sooner than FLOOR after it.
-        let now = now + started.elapsed();
+        let now = now.max(Instant::now());
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         // Prune keeps an entry in flight, so this finds the one this read marked.
         let entry = entries.entry(key).or_insert_with(|| Entry::new(now));
