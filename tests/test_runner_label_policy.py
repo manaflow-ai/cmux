@@ -236,7 +236,10 @@ class SideLaneVariable(unittest.TestCase):
         for name in ("CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER"):
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-std-xcode-26.6"}), [])
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-light-xcode-26.6"}), [])
-            self.assertEqual(drifted_runner_variables({name: "glaeda-aws-side-std-xcode-26.3"}), [])
+            self.assertEqual(
+                [found for found, _, _ in drifted_runner_variables({name: "glaeda-aws-side-std-xcode-26.3"})],
+                [name],
+            )
             self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-26"}), [])
             for label in ("glaeda-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-side-nonsense",
                           "warp-macos-26-arm64-12x"):
