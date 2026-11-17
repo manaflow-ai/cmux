@@ -593,6 +593,12 @@ impl CongestionController {
         if let Some(rtt_us) = samples.iter().map(|s| now_us.saturating_sub(s.0)).min() {
             self.lan_start(rtt_us);
         }
+        eprintln!(
+            "DIAG fb us={now_us} n={} rtt_min={:?} target={} before={before_bps}",
+            samples.len(),
+            samples.iter().map(|s| now_us.saturating_sub(s.0)).min(),
+            self.target_bps
+        ); // DIAG
         let mut evidence = false;
         for (sent_us, raw_arrival, bytes) in samples {
             let arrival = self.unwrap_arrival(raw_arrival as u32);
