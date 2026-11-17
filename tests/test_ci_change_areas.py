@@ -3241,8 +3241,10 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     # #24927 moved a pull request's base comparison into react-apps-base-check;
     # the gate waits on it too and requires it only on pull requests.
     assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]" in block
-    assert 'required_jobs = ["react-apps-check-shard", "react-doctor"]' in block
+    assert 'required_jobs = ["react-apps-check-shard"]' in block
     assert 'required_jobs.append("react-apps-base-check")' in block
+    # React Doctor reports on a push only; the ratchet (cmux-next-react-doctor.yml) gates a pull request.
+    assert 'else:\n              required_jobs.append("react-doctor")' in block
     # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
     assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
 
@@ -3250,6 +3252,10 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     block = workflow_job_block("react-doctor", WEB_WORKFLOW)
     assert "needs: [web-subarea-scope, runners]" in block
+    # Not on a pull request: React Doctor (changed React projects) scans and gates it there.
+    assert "if: ${{ github.event_name != 'pull_request' && inputs.web == 'true'" in block
+    ratchet = (WEB_WORKFLOW.parent / "cmux-next-react-doctor.yml").read_text(encoding="utf-8")
+    assert "  pull_request:\n" in ratchet and "react_doctor_gate.py --changed-from" in ratchet
     assert "react-apps-check-shard" not in block
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
