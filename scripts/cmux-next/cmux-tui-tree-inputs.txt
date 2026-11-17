@@ -131,4 +131,3 @@ blob webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl
 blob webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl
-blob scripts/measure/screen-stream-eval/wifi-away-holds.json
