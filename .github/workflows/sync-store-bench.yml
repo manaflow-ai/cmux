@@ -32,6 +32,11 @@ on:
         required: false
         default: "50"
         type: string
+      scenarios:
+        description: sync_bench scenarios (a cold direct copy, e through the store; b and c bring a)
+        required: false
+        default: e
+        type: string
       bench_runner:
         description: The runner label the bench job runs on (its kernel needs netem for an rtt above 0)
         required: false
@@ -58,12 +63,14 @@ jobs:
     env:
       COMMIT: ${{ inputs.commit || '9c178a6947f72dc984b6ac251348e3a98bb9f32c' }}
       RTT_MS: ${{ inputs.rtt_ms || '50' }}
+      SCENARIOS: ${{ inputs.scenarios || 'e' }}
     steps:
       - name: Refuse a malformed commit or round trip
         run: |
           set -euo pipefail
           printf '%s' "$COMMIT" | grep -Eqx '[0-9a-f]{40}' || { echo "::error::commit must be a full 40-character sha"; exit 1; }
           printf '%s' "$RTT_MS" | grep -Eqx '[0-9]{1,4}(,[0-9]{1,4})*' || { echo "::error::rtt_ms must be numbers, comma-separated"; exit 1; }
+          printf '%s' "$SCENARIOS" | grep -Eqx '[a-e](,?[a-e])*' || { echo "::error::scenarios must be letters a to e"; exit 1; }
 
       - name: Check out the benched commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -131,10 +138,11 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    timeout-minutes: 180
+    timeout-minutes: 300
     env:
       COMMIT: ${{ inputs.commit || '9c178a6947f72dc984b6ac251348e3a98bb9f32c' }}
       RTT_MS: ${{ inputs.rtt_ms || '50' }}
+      SCENARIOS: ${{ inputs.scenarios || 'e' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -204,8 +212,9 @@ jobs:
           bun-version: "1.4.4"
 
       # The only step that sees the stack pair, through env.
-      - name: sync-bench a and e (staging store)
-        timeout-minutes: 120
+      # SYNC_BENCH_ROWS: each scenario's row the moment it ends, so a timeout keeps what finished.
+      - name: sync-bench (staging store)
+        timeout-minutes: 240
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -214,9 +223,10 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/sync-store-bench"
           mkdir -p "$out"
+          export SYNC_BENCH_ROWS="$out/rows.jsonl"
           bun scripts/cmux-next/sync-store-bench.ts --backend staging --out "$out" -- \
             python3 cmux-tui/scripts/sync_bench.py run --commit "$COMMIT" --binary "$BINARY" \
-              --layout projects --scenario a,e --rtt-ms "$RTT_MS" > "$out/records.jsonl"
+              --layout projects --scenario "$SCENARIOS" --rtt-ms "$RTT_MS" > "$out/records.jsonl"
 
       - name: Summarize
         if: always()
@@ -225,7 +235,10 @@ jobs:
           out="$RUNNER_TEMP/sync-store-bench"
           mkdir -p "$out"
           cp -r "$SYNC_BENCH_ROOT/results/$COMMIT" "$out/results" 2>/dev/null || true
-          if grep -rEiq '(cmvm|cmk|crt|crk|cmm|cmj|csg)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]{8,}' "$out"; then
+          # Redact secret-shaped values (a store grant in an error line, say), then refuse anything left.
+          shapes='(cmvm|cmk|crt|crk|cmm|cmj|csg)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|[Bb]earer[[:space:]]+[A-Za-z0-9._~+/=-]{8,}'
+          find "$out" -type f -exec sed -E -i "s#${shapes}#[secret]#g" {} +
+          if grep -rEiq "$shapes" "$out"; then
             echo "::error::the bench output holds a secret-shaped value; it is neither shown nor uploaded"
             rm -rf "$out"
             exit 1
@@ -243,33 +256,37 @@ jobs:
               s = json.loads(store.read_text())
               print(f"- store: platform `{s.get('platform')}`, usage before {s.get('usage_before')}, after {s.get('usage_after')}; install revoked: {s.get('install_revoked')}")
           print()
-          records = out / "records.jsonl"
-          lines = records.read_text().splitlines() if records.exists() else []
+          # rows.jsonl: one line per scenario as it ended (sync_bench SYNC_BENCH_ROWS), kept through a timeout.
+          rows = out / "rows.jsonl"
+          lines = rows.read_text().splitlines() if rows.exists() else []
           GIB = 1 << 30
+          if lines:
+              print("| layout | rtt ms | scenario | exit | wall s | written files | GiB written | store used | store detail |")
+              print("|---|---|---|---|---|---|---|---|---|")
+          details = []
           for line in lines:
               try:
                   r = json.loads(line)
               except ValueError:
                   continue
-              print(f"### {r['layout']} tree {r['tree']}, rtt {r['rtt_ms']} ms, host {r['host']}\n")
-              print("| scenario | exit | wall s | written files | GiB written | store used | store detail |")
-              print("|---|---|---|---|---|---|---|")
-              for key, row in r["scenarios"].items():
-                  if "not_run" in row:
-                      print(f"| {key} | not run | - | - | - | - | {row['not_run']} |")
-                      continue
-                  s = row.get("summary") or {}
-                  st = s.get("store")
-                  used = "-" if st is None else ("yes" if st.get("used") else "no")
-                  detail = "-" if st is None else json.dumps(st)[:300].replace("|", "/")
-                  print(f"| {key} | {row.get('exit')} | {row.get('wall_ms', 0) / 1000:.1f} | {s.get('written', '-')} | "
-                        f"{(s.get('bytes') or 0) / GIB:.2f} | {used} | {detail} |")
-                  if row.get("exit"):
-                      tail = (row.get("stderr_tail") or "")[-600:].replace("`", "'")
-                      print(f"\n<details><summary>{key} stderr tail</summary>\n\n```\n{tail}\n```\n</details>\n")
-              print()
+              key, row = r["scenario"], r["row"]
+              if "not_run" in row:
+                  print(f"| {r['layout']} | {r['rtt_ms']} | {key} | not run | - | - | - | - | {row['not_run']} |")
+                  continue
+              s = row.get("summary") or {}
+              st = s.get("store")
+              used = "-" if st is None else ("yes" if st.get("used") else "no")
+              detail = "-" if st is None else json.dumps(st)[:300].replace("|", "/")
+              print(f"| {r['layout']} | {r['rtt_ms']} | {key} | {row.get('exit')} | {row.get('wall_ms', 0) / 1000:.1f} | "
+                    f"{s.get('written', '-')} | {(s.get('bytes') or 0) / GIB:.2f} | {used} | {detail} |")
+              said = "\n".join(row.get("store_lines") or [])
+              if row.get("exit"):
+                  said += "\n--- stderr tail ---\n" + (row.get("stderr_tail") or "")[-600:]
+              if said.strip():
+                  details.append(f"\n<details><summary>{key}: the push's store lines</summary>\n\n```\n{said.replace('`', chr(39))}\n```\n</details>\n")
+          print("".join(details))
           if not lines:
-              print("No bench record was written (the run stopped before a scenario finished).")
+              print("No scenario finished (the run stopped before one did).")
           PY
 
       - name: Upload the bench records
