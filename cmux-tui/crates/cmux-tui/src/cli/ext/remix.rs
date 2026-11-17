@@ -107,6 +107,16 @@ impl SourceRef {
         }
     }
 
+    /// `HOST/OWNER/REPO[/PATH]`, with no ref.
+    pub(super) fn location(&self) -> String {
+        let mut out = self.repository();
+        if !self.path.is_empty() {
+            out.push('/');
+            out.push_str(&self.path);
+        }
+        out
+    }
+
     /// The reference, written as the button writes it: with `commit` in place of the asked rev.
     pub(super) fn display(&self, commit: Option<&str>) -> String {
         let mut out = self.repository();
@@ -199,7 +209,7 @@ impl Remix {
         let dir = self.dir.display();
         let mut out = format!(
             "Remixed {} at {} into {dir} as {}, a folder of the person's with its own git repository.\n",
-            self.source.display(None),
+            self.source.location(),
             short(&self.commit),
             self.app
         );
@@ -437,8 +447,10 @@ pub(super) fn with_repository(manifest: &str, url: Option<&str>) -> Option<Strin
     if manifest.ends_with('\n') {
         out.push('\n');
     }
-    // A layout these line edits do not keep valid (one line, odd spacing): write it whole.
-    if serde_json::from_str::<Value>(&out).is_err() {
+    // A layout these line edits did not change as asked (one line, odd spacing): write it whole.
+    let wanted = url.map(Value::from);
+    let edited = serde_json::from_str::<Value>(&out).ok();
+    if edited.as_ref().map(|edited| edited.get("repository")) != Some(wanted.as_ref()) {
         let object = value.as_object_mut()?;
         match url {
             Some(url) => {
@@ -457,7 +469,7 @@ pub(super) fn with_repository(manifest: &str, url: Option<&str>) -> Option<Strin
 fn remixed_readme(readme: &str, source: &SourceRef, commit: &str) -> String {
     let line = format!(
         "Remixed from [{}]({}) at `{}`.",
-        source.display(None),
+        source.location(),
         source.web_url(commit),
         short(commit)
     );
