@@ -87,6 +87,19 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+try:
+    import chat_renderer_crash  # noqa: E402  (CMUX_BENCH_CHAT_RENDERER_CRASH: the chat renderer crash test)
+except ModuleNotFoundError:
+    # perf-idle-ab.sh copies this file alone and the frame-pacing job's sparse checkout omits the helper:
+    # without it the crash test is off, and asking for it is an error.
+    if os.environ.get("CMUX_BENCH_CHAT_RENDERER_CRASH") == "1":
+        raise
+
+    class chat_renderer_crash:  # noqa: N801
+        @staticmethod
+        def enabled() -> bool:
+            return False
+
 
 
 def _thread_wakes():
@@ -172,12 +185,10 @@ def kind_of(cmd: str, bundle: str) -> str:
         return "cef-helper"
     if rel.startswith("/Contents/MacOS/"):
         return "app"
+    if "/bin/cmux-holder" in rel:
+        return "holder"
     if "/bin/cmux-tui" in rel or "/bin/cmux " in rel or rel.endswith("/bin/cmux"):
-        if "__terminal-host" in rel:
-            return "terminal-host"
-        if "--session cmux-chief" in rel:
-            return "tui-daemon-chief"
-        return "tui-daemon"
+        return tui_kind(rel)
     if "/bin/acpmux" in rel:
         return "acpmux-" + (rel.split("/bin/acpmux", 1)[1].split() or ["agent"])[0]
     if "/bin/" in rel:
@@ -187,16 +198,88 @@ def kind_of(cmd: str, bundle: str) -> str:
     return os.path.basename(cmd.split()[0])
 
 
-def owned(app_pid: int, bundle: str):
-    """{pid: (kind, command)} for every process from the bundle, plus the
-    WebKit processes the app is responsible for."""
-    found = {}
-    for pid, _ppid, cmd in process_table():
+def tui_kind(rel: str) -> str:
+    """The kind of a cmux-tui (or cmux) process, by its first argument. The daemon starts with a flag
+    (`--headless ...`) or as `<scope> start`. Every other bundle process of the binary runs one hidden
+    subcommand (`__terminal-host`, `__holder`, `__provider-authority`, ...) and gets a kind of its own,
+    so the daemon's row is the daemon alone (it was 4 processes summed into one 86 MB `tui-daemon`)."""
+    tail = rel.split("/bin/", 1)[1].split()[1:] if "/bin/" in rel else rel.split()[1:]
+    first = tail[0] if tail else ""
+    if first == "__terminal-host":
+        return "terminal-host"
+    if first == "__holder":
+        return "holder"
+    if first.startswith("__"):
+        return "tui-" + first.lstrip("_")
+    if first and not first.startswith("-") and (tail[1:2] != ["start"]):
+        return "cmux-" + first
+    if "--session cmux-chief" in rel:
+        return "tui-daemon-chief"
+    return "tui-daemon"
+
+
+# The processes the daemon starts with a bare argv[0] (host_exe.rs `arg0("cmux-tui")`, the holder's
+# `cmux-holder`): their command line has no bundle path, so they are found by their executable or by
+# the daemon that owns them.
+BARE_NAMES = ("cmux-tui", "cmux-tui-host", "cmux-holder", "cmux")
+OWNER = re.compile(r"--owner \S*@(\d+)")
+
+
+def exe_path(pid: int) -> str | None:
+    """The process's executable (proc_pidpath), whatever its argv[0] says."""
+    buf = ctypes.create_string_buffer(4096)
+    try:
+        size = _libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(4096))
+    except (AttributeError, TypeError, ctypes.ArgumentError):
+        return None
+    if not isinstance(size, int) or size <= 0:
+        return None
+    return buf.value.decode("utf-8", "replace")
+
+
+def bundle_processes(table, bundle: str, exe_of=exe_path) -> dict[int, tuple[str, str]]:
+    """{pid: (kind, command)} for every process of the bundle in `table` ((pid, ppid, command) rows):
+    a command that starts with the bundle path; else an executable inside the bundle (a bare argv[0]),
+    named by that path; else a bare-named cmux-tui or holder process whose `--owner ...@<pid>` or
+    parent is one of these (repeated, so a host of the holder counts too)."""
+    found: dict[int, tuple[str, str]] = {}
+    bare = []
+    for pid, ppid, cmd in table:
         if in_bundle(cmd, bundle) is not None:
-            _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
-        elif _responsible is not None and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
-            found[pid] = (kind_of(cmd, bundle), cmd)
+            continue
+        name = os.path.basename(cmd.split(None, 1)[0]) if cmd.strip() else ""
+        if name not in BARE_NAMES:
+            continue
+        exe = exe_of(pid)
+        if exe and in_bundle(exe, bundle) is not None:
+            named = exe + (" " + cmd.split(None, 1)[1] if len(cmd.split(None, 1)) > 1 else "")
+            found[pid] = (kind_of(named, bundle), named)
+        else:
+            bare.append((pid, ppid, cmd, name))
+    grew = True
+    while grew:
+        grew = False
+        for pid, ppid, cmd, name in bare:
+            if pid in found:
+                continue
+            owner = OWNER.search(cmd)
+            if ppid in found or (owner and int(owner.group(1)) in found):
+                found[pid] = (kind_of("/bin/" + cmd, bundle), cmd)
+                grew = True
+    return found
+
+
+def owned(app_pid: int, bundle: str):
+    """{pid: (kind, command)} for every process of the bundle (bundle_processes), plus the WebKit
+    processes the app is responsible for."""
+    table = process_table()
+    found = bundle_processes(table, bundle)
+    _run_pids.update(found)
+    if _responsible is not None:
+        for pid, _ppid, cmd in table:
+            if pid not in found and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
+                found[pid] = (kind_of(cmd, bundle), cmd)
     return found
 
 
@@ -236,7 +319,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             continue
         row = {"pid": pid, "kind": kind, "rss_mb": round(got[0] / MB, 1),
                "footprint_mb": round(got[1] / MB, 1), "max_footprint_mb": round(got[2] / MB, 1),
-               "command": cmd[:160]}
+               "command": (in_bundle(cmd, bundle) or cmd)[:200]}
         if pid in start:
             row["cpu_pct"] = round(100 * (got[3] - start[pid][3]) / 1e9 / measure, 3)
             row["wakeups_per_s"] = round((got[4] - start[pid][4]) / measure, 2)
@@ -425,6 +508,27 @@ def print_attribution(label: str, found: dict):
     sys.stdout.flush()
 
 
+# --vmmap-kinds tui-daemon,app: after each sample, `vmmap --summary` of every process of those kinds, as VMMAP
+# lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap suspends the process
+# while it reads it, so it runs after the sample's window and only when asked.
+def print_vmmap(result, kinds_arg: str | None) -> None:
+    kinds = {k for k in (kinds_arg or "").split(",") if k}
+    if not kinds or not shutil.which("vmmap"):
+        return
+    for row in result["processes"]:
+        if row["kind"] not in kinds:
+            continue
+        got = subprocess.run(["vmmap", "--summary", str(row["pid"])], capture_output=True, text=True, timeout=120)
+        lines = got.stdout.splitlines()
+        keep = [ln for ln in lines if ln.startswith(("Physical footprint", "ReadOnly portion", "Writable regions"))]
+        start = next((i for i, ln in enumerate(lines) if ln.startswith("REGION TYPE")), None)
+        if start is not None:
+            keep += [ln for ln in lines[start:] if ln.strip() and not ln.startswith("=")][:60]
+        for ln in keep:
+            print(f"VMMAP {result['label']} {row['kind']} pid {row['pid']} | {ln.rstrip()}")
+    sys.stdout.flush()
+
+
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
           f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
@@ -438,7 +542,7 @@ def print_sample(result, top: int):
     print(f"   top {top} processes by footprint:")
     for row in result["processes"][:top]:
         print(f"   {row['footprint_mb']:>8.1f} MB  RSS {row['rss_mb']:>7.1f}  max {row['max_footprint_mb']:>7.1f}  "
-              f"{row['kind']:<20} pid {row['pid']}")
+              f"{row['kind']:<20} pid {row['pid']}  {row.get('command', '')}")
     sys.stdout.flush()
 
 
@@ -604,6 +708,12 @@ class FakeChats:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
         remember_chat_tab(created[0], response)
+        if chat_renderer_crash.enabled():
+            # A pinned chat keeps its hidden page (HiddenChatPages), so the crash test finds every chat live.
+            tab = CHAT_TABS.get(created[0]) or chat_tab_of(self.app, created[0])
+            pinned = self.app.run("palette.toggleTabPin", target=tab) if tab else {"error": "no chat tab"}
+            if pinned.get("error"):
+                print(f"   pin {created[0]}: {pinned['error']}", file=sys.stderr)
         return created[0]
 
 
@@ -668,6 +778,77 @@ def cef_page_count(app: App) -> int | None:
     if not isinstance(pages, list):
         return None
     return sum(1 for p in pages if str(p.get("origin", "")).startswith("cmux-page://"))
+
+
+def heap_summary(pages: list, replies: dict) -> dict:
+    """--js-heap (pure): the V8 heap of the renderers that host cmux's pages, from each page's
+    `Runtime.getHeapUsage` reply. `replies` maps a page's browser id to its parsed reply.
+
+    The reply is the page's renderer's whole isolate, not the page's own share: cmux pages share a
+    renderer per site (CEFSwitches `cmux-process-per-site-schemes`), so every page of one renderer
+    answers the same numbers. Summing pages counted that isolate once per page (a fleet Mac run at
+    10 chats read 2,562 MB of "heap" from a 632 MB renderer). The totals count each renderer once (by
+    its `renderer_clients`); a page with none is its own. `by_path` counts pages only.
+    A page whose read failed is counted under `errors`, never as 0 MB."""
+    rows, errors = [], []
+    for page in pages:
+        if not isinstance(page, dict) or not str(page.get("origin", "")).startswith("cmux-page://"):
+            continue
+        reply = replies.get(page.get("browser")) or {}
+        used, total = reply.get("usedSize"), reply.get("totalSize")
+        if not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
+            errors.append(str(reply.get("error") or "no heap in the reply")[:120])
+            continue
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        rows.append({"browser": page.get("browser"), "path": str(page.get("path") or "/"), "hidden": bool(page.get("hidden")),
+                     "renderer": clients[0] if clients else None,
+                     "used_mb": round(used / MB, 1), "total_mb": round(total / MB, 1)})
+    renderers: dict = {}
+    for row in rows:
+        key = ("renderer", row["renderer"]) if row["renderer"] is not None else ("page", row["browser"])
+        entry = renderers.setdefault(key, {"renderer": row["renderer"], "pages": 0, "hidden_pages": 0,
+                                           "used_mb": 0.0, "total_mb": 0.0})
+        entry["pages"] += 1
+        entry["hidden_pages"] += int(row["hidden"])
+        # One isolate: its pages read it at slightly different moments; the largest read stands.
+        entry["used_mb"] = max(entry["used_mb"], row["used_mb"])
+        entry["total_mb"] = max(entry["total_mb"], row["total_mb"])
+    by_path: dict = {}
+    for row in rows:
+        entry = by_path.setdefault(row["path"], {"pages": 0, "hidden_pages": 0})
+        entry["pages"] += 1
+        entry["hidden_pages"] += int(row["hidden"])
+    isolates = sorted(renderers.values(), key=lambda r: -r["total_mb"])
+    return {"pages": len(rows), "hidden_pages": sum(int(r["hidden"]) for r in rows), "renderers": len(isolates),
+            "used_mb": round(sum(r["used_mb"] for r in isolates), 1),
+            "total_mb": round(sum(r["total_mb"] for r in isolates), 1),
+            "by_renderer": isolates[:12],
+            "by_path": dict(sorted(by_path.items(), key=lambda item: -item[1]["pages"])),
+            "per_page": sorted(rows, key=lambda r: -r["total_mb"])[:40], "errors": errors[:5], "error_count": len(errors)}
+
+
+def js_heaps(app: App) -> dict:
+    """--js-heap: every cmux page's V8 heap (DevTools `Runtime.getHeapUsage`, which needs no domain enabled
+    and runs no script), read after the sample's window so the read is not in it. A bench or DEV build has
+    `debug.cef_pages`; an app without it gives {"error": ...}."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        return {"error": "no debug.cef_pages (a bench or DEV build has it)"}
+
+    def read(page):
+        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.getHeapUsage",
+                                                     "params": {}}, timeout=20)
+        if reply.get("error") or not isinstance(reply.get("result"), str):
+            return page["browser"], {"error": str(reply.get("error") or "no reply")}
+        try:
+            return page["browser"], json.loads(reply["result"])
+        except ValueError as error:
+            return page["browser"], {"error": str(error)}
+
+    own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        replies = dict(pool.map(read, own))
+    return heap_summary(own, replies)
 
 
 def percentile(values: list[float], share: float) -> float | None:
@@ -1083,6 +1264,73 @@ def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
 
+APP_VM_TOOLS = (
+    # (tool, its arguments, lines kept): the app process's own memory by region, by footprint category, and by malloc
+    # zone and class. The goal's app process (~250 MB idle) had never been broken down (ram-baseline, CMUX-571).
+    ("vmmap", ["--summary"], 400),
+    ("footprint", [], 400),
+    ("heap", ["--sortBySize"], 160),
+)
+
+
+def app_vm_stacks(pid: int, pattern: str, limit: int = 40) -> dict:
+    """--app-vm-stacks: the address and size of each live block of a class `heap` names (`heap -addresses PATTERN`), and
+    for up to `limit` of them, largest first, the stack that allocated it (`malloc_history`; the app runs with
+    MallocStackLogging=lite for this). Says which code keeps the copies a class count shows (CMUX-571: 36 copies of the
+    palette's item list in the idle app)."""
+    try:
+        # heap matches the whole type name; a step argument carries no regex characters, so a substring is wrapped here.
+        proc = subprocess.run(["heap", str(pid), "-addresses", f".*{pattern}.*"], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"error": str(e)[:300]}
+    blocks = []
+    for line in proc.stdout.splitlines():
+        m = re.match(r"\s*(0x[0-9a-f]+): .*?\((\d+) bytes\)", line)
+        if m:
+            blocks.append((int(m.group(2)), m.group(1), line.strip()[:200]))
+    blocks.sort(reverse=True)
+    out = {"rc": proc.returncode, "blocks": [b[2] for b in blocks], "stderr": proc.stderr[-400:], "head": proc.stdout.splitlines()[:120],
+           "stacks": {}}
+    for size, address, _ in blocks[:limit]:
+        try:
+            hist = subprocess.run(["malloc_history", str(pid), address], capture_output=True, text=True, timeout=120)
+            out["stacks"][f"{address} {size}"] = hist.stdout.splitlines()[-80:] + hist.stderr.splitlines()[-5:]
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out["stacks"][f"{address} {size}"] = [str(e)[:200]]
+    return out
+
+
+def app_vm(pid: int) -> dict:
+    """--app-vm: the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` (each output's first lines;
+    heap lists its zones, then the largest classes). A tool that fails keeps its error, so the report says why."""
+    out = {}
+    for tool, extra, keep in APP_VM_TOOLS:
+        if not shutil.which(tool):
+            out[tool] = {"error": "not installed"}
+            continue
+        try:
+            proc = subprocess.run([tool, *extra, str(pid)], capture_output=True, text=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out[tool] = {"error": str(e)[:300]}
+            continue
+        lines = proc.stdout.splitlines()
+        out[tool] = {"rc": proc.returncode, "lines": lines[:keep], "total_lines": len(lines),
+                     "stderr": proc.stderr[-600:]}
+    return out
+
+
+def print_app_vm(label: str, vm: dict) -> None:
+    for tool, entry in ((t, e) for t, e in vm.items() if t not in ("pages", "stacks")):
+        if "error" in entry:
+            print(f"APP-VM {label} {tool} error: {entry['error']}", flush=True)
+            continue
+        print(f"APP-VM {label} {tool} rc={entry.get('rc')} lines={entry.get('total_lines')}", flush=True)
+        for line in entry.get("lines") or []:
+            print(f"APP-VM {label} {tool}| {line}", flush=True)
+        if entry.get("stderr") and entry.get("rc"):
+            print(f"APP-VM {label} {tool} stderr: {entry['stderr']}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="the .app bundle")
@@ -1101,6 +1349,8 @@ def main():
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument("--vmmap-kinds", help="after each sample, vmmap --summary of every process of these kinds "
+                        "(comma list, e.g. tui-daemon,app), as VMMAP lines")
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
     parser.add_argument("--fake-agent", metavar="SCRIPT",
@@ -1134,6 +1384,16 @@ def main():
     parser.add_argument("--child-time", action="store_true",
                         help="with --measure: child_cpu_pct, the whole CPU of each process's children that ended "
                              "in the window (the daemon's git runs); none when the run's own check of the read fails")
+    parser.add_argument("--js-heap", action="store_true",
+                        help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
+                             "(`js_heap` in the sample; a bench or DEV build)")
+    parser.add_argument("--app-vm", action="store_true",
+                        help="after the idle-launch sample: the app process's vmmap --summary, footprint and "
+                             "heap --sortBySize (`app_vm` in the sample, APP-VM lines)")
+    parser.add_argument("--app-vm-stacks", metavar="PATTERN",
+                        help="with --app-vm: launch with MallocStackLogging=lite and print each live block of the classes "
+                             "`heap -addresses PATTERN` names with the stack that allocated it (a diagnostic run: the "
+                             "logging itself costs memory, so its footprint is not a measurement)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1171,7 +1431,11 @@ def main():
         socket_path, app_pid = args.socket, args.app_pid
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
+        if args.app_vm_stacks:
+            extra["MallocStackLogging"] = "lite"  # --app-vm-stacks: malloc_history needs the allocation stacks
         config = json.loads(args.config)
+        if chat_renderer_crash.enabled():
+            config = merged(config, chat_renderer_crash.CONFIG)
         launched, socket_path, scratch = launch(bundle, config, extra)
         app_pid = launched
     app = App(bundle, socket_path)
@@ -1214,10 +1478,37 @@ def main():
         if attribution:
             result["attribution"] = attribution.finish()
             print_attribution(label, result["attribution"])
+        if args.js_heap:
+            result["js_heap"] = js_heaps(app)
+            heap = result["js_heap"]
+            print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
+                  f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
+                  f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
+        if args.app_vm and label == "idle-launch":
+            result["app_vm"] = app_vm(app_pid)
+            if args.app_vm_stacks:
+                stacks = app_vm_stacks(app_pid, args.app_vm_stacks)
+                result["app_vm"]["stacks"] = stacks
+                print(f"APP-VM {label} stacks rc={stacks.get('rc')} blocks={len(stacks.get('blocks') or [])} "
+                      f"error={stacks.get('error')} stderr={stacks.get('stderr')!r}", flush=True)
+                for line in stacks.get("head") or []:
+                    print(f"APP-VM {label} stacks-head| {line}", flush=True)
+                for line in stacks.get("blocks") or []:
+                    print(f"APP-VM {label} block| {line}", flush=True)
+                for key, frames in (stacks.get("stacks") or {}).items():
+                    for frame in frames:
+                        print(f"APP-VM {label} stack {key}| {frame}", flush=True)
+            try:  # which pages are live at idle (their engines own the WebContent and renderer processes)
+                result["app_vm"]["pages"] = (app.call("debug.page", {"action": "list"}, timeout=30) or {}).get("pages")
+            except Exception as e:  # noqa: BLE001 - a build without the debug op still gets its vmmap
+                result["app_vm"]["pages"] = {"error": str(e)[:300]}
+            print(f"APP-VM {label} pages: {json.dumps(result['app_vm']['pages'])[:3000]}", flush=True)
+            print_app_vm(label, result["app_vm"])
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
+        print_vmmap(result, args.vmmap_kinds)
         return result
 
     try:
@@ -1250,7 +1541,10 @@ def main():
                 repository = os.path.join(os.path.realpath(diff_scratch), "diff-tab-repository")
                 diff_tab = {"repository": cells.make_repository(repository, args.diff_tab)}
                 diff_tab["open"] = cells.open_tab(app, repository)
-            settle_and_sample(f"idle-{count}", diff_tab)
+            result = settle_and_sample(f"idle-{count}", diff_tab)
+            if chat_renderer_crash.enabled() and chats:
+                result["chat_renderers"] = chat_renderer_crash.renderers(app)
+                print(f"CHAT-RENDERERS phase=open agents={count} {json.dumps(result['chat_renderers'])}", flush=True)
             if args.purge_hidden:
                 purge = purge_hidden_pages(app)
                 print(f"== purge at {count}: {json.dumps(purge)}", flush=True)
@@ -1271,6 +1565,8 @@ def main():
                 print(f"== released at {count}: cmux pages {json.dumps(result['cef_pages'])}", flush=True)
                 report["restore"] = restore_chats(app, opened, args.restore_chats)
                 print(f"== restore: {json.dumps({k: v for k, v in report['restore'].items() if k != 'opens'})}", flush=True)
+        if chat_renderer_crash.enabled() and chats:
+            report["chat_renderer_crash"] = chat_renderer_crash.crash(app)
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
@@ -1314,6 +1610,9 @@ def main():
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:
             shutil.rmtree(diff_scratch, ignore_errors=True)
+    crash = report.get("chat_renderer_crash")
+    if crash is not None and not crash.get("pass"):
+        sys.exit(2 if crash.get("setup_failed") else 1)
 
 
 if __name__ == "__main__":

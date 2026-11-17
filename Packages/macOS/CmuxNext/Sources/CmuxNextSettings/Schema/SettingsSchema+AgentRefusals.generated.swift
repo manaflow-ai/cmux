@@ -23,6 +23,8 @@ extension SettingsSchema {
         "agents.chats.enabled": .privacy,
         // Each recap is an extra model call on the person's usage: theirs to turn on or off.
         "agents.chats.sessionRecap": .userOnly,
+        // Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off.
+        "agents.chats.terminalChatWritable": .userOnly,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
@@ -196,6 +198,6 @@ extension SettingsSchema {
         "browser.passwords.offerToSave": .privacy, "browser.passwords.generate": .privacy,
         "browser.passwords.allowExport": .privacy,
         // The person decides whether cmux reads verification emails.
-        "browser.verificationAutofill.enabled": .privacy,
+        "browser.verificationAutofill.enabled": .privacy, "browser.verificationAutofill.accounts": .privacy,
     ]
 }

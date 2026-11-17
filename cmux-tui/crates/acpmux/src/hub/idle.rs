@@ -72,7 +72,7 @@ impl Hub {
     /// A turn or permission an adopted host's recovery rebuilt (`hosts.rs` `recover_work`) counts
     /// like a live one: it sets `session.turn` (and holds `turn_lock` until the answer), registers
     /// the permission as pending, and moves the status off ready.
-    fn idle_eligible(&self, session: &Session) -> bool {
+    pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
@@ -396,10 +396,15 @@ impl Hub {
     /// cause `click`): its idle period starts again, and a hibernated session wakes now, so its
     /// agent is up by the time they send. Nothing for a session that was not hibernated, is
     /// closed, is watched (no agent until Take Over, `watch.rs`), or whose folder has no Trust
-    /// answer (`warm.rs`). The wake runs on its own task under the stop count read here, so a
-    /// Stop that comes first is never undone by it (`ensure_child`). A failure is logged and the
-    /// prompt that follows starts the agent itself (and shows its error, with Retry, if that
-    /// fails too).
+    /// answer (`warm.rs`); and no open wakes one an earlier daemon hibernated
+    /// (`slept_before_this_daemon`): after a restart the viewers attach and show every chat they
+    /// had open again, and each of those opens started a harness at once (8 on a 2-vCPU host,
+    /// load 20, at every one of ten restarts in 42 minutes). Such a chat starts its agent for its
+    /// next turn (a prompt, a queued one, a question), or when the person types into it, and
+    /// shows its transcript, models and state from the store meanwhile. The wake runs on its own
+    /// task under the stop count read here, so a Stop that comes first is never undone by it
+    /// (`ensure_child`). A failure is logged and the prompt that follows starts the agent itself
+    /// (and shows its error, with Retry, if that fails too).
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
         // Use: a chat being typed into or opened does not hibernate meanwhile.
         self.touch(session);
@@ -411,6 +416,10 @@ impl Hub {
             || session.meta().watching.is_some()
             || self.stopping.load(Ordering::SeqCst)
         {
+            return;
+        }
+        if cause == "click" && self.slept_before_this_daemon(session) {
+            tracing::debug!(session = %session.id, "opened after a restart: wakes for its turn");
             return;
         }
         let hub = self.clone();
@@ -425,6 +434,13 @@ impl Hub {
             hub.wake_cause(&session, cause);
             let _ = hub.child_for_since(&session, stops).await;
         });
+    }
+
+    /// Whether `session` hibernated under an earlier daemon: its stored hibernation (wall time)
+    /// is older than this daemon's start. One that hibernated under this daemon is newer.
+    fn slept_before_this_daemon(&self, session: &Session) -> bool {
+        let at = session.meta().hibernated_ms;
+        at != 0 && at < self.started_at
     }
 
     /// What keeps this daemon in use with no client (`daemon/unused_exit.rs`), or None: its

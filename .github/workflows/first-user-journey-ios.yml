@@ -16,7 +16,7 @@ run-name: >-
 # A schedule fires only from the default branch's copy of a workflow. That
 # copy (main) has no cmux-next-ios, so its scheduled run only dispatches this
 # workflow on feat-cmux-next, where the journey runs. It runs on no pull
-# request (the pull-request job budget in ci/steps.toml only goes down): try
+# request: try
 # a change with `gh workflow run first-user-journey-ios.yml --ref BRANCH`.
 on:
   schedule:
@@ -119,18 +119,54 @@ jobs:
           persist-credentials: false
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
+      # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
+      # about 3 minutes of a Mac (run 43652999096). A pull request only
+      # reads the cache; other events save what they built.
+      - name: The framework's inputs
+        id: ffi-key
+        run: |
+          set -euo pipefail
+          # A ref from before the key script, or a key that fails, builds as before.
+          if [ -f .github/scripts/ios_link_ffi_key.py ]; then
+            python3 -I .github/scripts/ios_link_ffi_key.py --repo . --explain \
+              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
+              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
+          fi
+      - name: Restore the framework built from the same inputs
+        id: ffi
+        if: steps.ffi-key.outputs.key != ''
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
       - name: Set up pinned Rust
+        if: steps.ffi.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Cache cargo
+        if: steps.ffi.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: first-user-journey-ios
       - name: Build CmuxMobileLinkFFI.xcframework
+        if: steps.ffi.outputs.cache-hit != 'true'
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+      - name: Save the framework for later runs
+        if: steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        # Another job saving the same key first is not a failure.
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
       - name: Install xcodegen
         run: |
           set -euo pipefail

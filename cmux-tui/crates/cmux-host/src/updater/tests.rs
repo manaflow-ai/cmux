@@ -901,12 +901,12 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
-    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(resolve::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
     assert!(looks.is_empty(), "it looked until the sessions left");
 
     let mut attached = || Some("1 carrier session(s) attached".to_owned());
     tx.send(role::Msg::Stop).unwrap();
-    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+    assert!(!resolve::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
 }
 
 /// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
@@ -923,7 +923,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
     let mut hold = carrier::CarrierHold::default();
     let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut carrier, |d| {
+    resolve::guard_rollback_waits(&mut carrier, |d| {
         slept += d;
         clock.set(clock.get() + d);
     });
@@ -932,7 +932,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
 
     let mut idle = || None;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    resolve::guard_rollback_waits(&mut idle, |d| slept += d);
     assert_eq!(slept, Duration::ZERO, "no session, no wait");
 }
 
@@ -2317,6 +2317,59 @@ fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
     assert_eq!(io.armed, vec![2]);
     assert_eq!(io.restarted, vec![role::store_binary(OLD_TUI)]);
     assert!(load_state(&paths).last.unwrap().starts_with("before the first ready: updating"));
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], true);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], new_tui);
+    assert_eq!(timing["channel_commit"], COMMIT);
+    assert_eq!(timing["outcome"], "updated");
+    assert!(timing["update_ms"].as_u64().unwrap() > 0);
+    // The next process reloads the same durable observation before its first report.
+    let again = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert!(matches!(again, first_ready::First::NotFirst(_)));
+    assert_eq!(&look::report(&paths).unwrap()["first_ready"], timing);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_current_image_reports_no_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    assert_eq!(
+        first_ready::before_ready(&paths, TARGET, deadline, &mut io),
+        first_ready::First::Current(COMMIT.to_owned())
+    );
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], false);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], OLD_TUI);
+    assert_eq!(timing["update_ms"], 0);
+    assert_eq!(timing["outcome"], "current");
+    assert!(load_pending(&paths).is_none());
+    assert!(io.restarted.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_failed_channel_is_unknown_not_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    io.read = Box::new(|| Err("unavailable".to_owned()));
+    let first = first_ready::before_ready(&paths, TARGET, std::time::Instant::now(), &mut io);
+    assert!(matches!(first, first_ready::First::OnImage(_)));
+    let report = look::report(&paths).unwrap();
+    let timing = report.get("first_ready").unwrap();
+    assert_eq!(timing["image_behind"], serde_json::Value::Null);
+    assert_eq!(timing["update_ms"], serde_json::Value::Null);
+    assert_eq!(timing["to_version"], serde_json::Value::Null);
+    assert_eq!(timing["outcome"], "on_image");
 }
 
 /// Once the step flipped, nothing flips after the ready on this path: the exec'd
@@ -2475,5 +2528,96 @@ fn first_ready_cost_from_the_production_channel() {
         pct(&mut behind, 90),
         pct(&mut current, 50),
         pct(&mut current, 90),
+    );
+}
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable." An update's flip, inside the gate, sends its `stopping` report before it
+/// restarts the services, and a report that fails or never answers still restarts them, within
+/// the report's bound (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s
+/// later, and its chat never connected).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_flip_reports_stopping_before_it_restarts_the_services() {
+    use std::cell::RefCell;
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let steps = RefCell::new(Vec::new());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            steps.borrow_mut().push("flip");
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::report_then_restart(
+                || {
+                    steps.borrow_mut().push("stopping");
+                    Ok(())
+                },
+                || steps.borrow_mut().push("restart"),
+            );
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    assert_eq!(*steps.borrow(), ["flip", "stopping", "restart"], "the stopping report goes first");
+
+    // A refused report is logged, and the services restart anyway.
+    let restarted = RefCell::new(false);
+    role::report_then_restart(|| Err("HTTP 503".to_owned()), || *restarted.borrow_mut() = true);
+    assert!(*restarted.borrow(), "a failed stopping report stopped the restart");
+
+    // A report that never answers holds the restart for its bound, no longer.
+    let (_hang, hung) = std::sync::mpsc::channel::<()>();
+    let started = Instant::now();
+    let restarted = RefCell::new(false);
+    role::report_then_restart(
+        || {
+            crate::cloud::role::within(Duration::from_millis(200), move || {
+                let _ = hung.recv();
+                Ok(())
+            })
+        },
+        || *restarted.borrow_mut() = true,
+    );
+    assert!(*restarted.borrow(), "a hung stopping report stopped the restart");
+    assert!(started.elapsed() < Duration::from_secs(2), "the restart waited past the bound");
+    assert_eq!(crate::cloud::role::STOPPING_REPORT_BOUND, Duration::from_secs(2));
+}
+
+/// The real [`role::restart_after_flip`] (the restart every flip, `adopt` and rollback run),
+/// driven inside the gate as the check's flip runs it: its stopping report goes out first, then
+/// the restarts of what runs the old binary. Its two effects are the test's record
+/// (`role::after_flip`), so a body that skips the report fails here.
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let old = role::store_binary(OLD_TUI);
+    role::after_flip::CALLS.with(|c| c.borrow_mut().clear());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::restart_after_flip(&paths, &old);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let calls = role::after_flip::CALLS.with(|c| c.borrow().clone());
+    assert_eq!(
+        calls,
+        [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
+        "restart_after_flip must report stopping, then restart"
     );
 }

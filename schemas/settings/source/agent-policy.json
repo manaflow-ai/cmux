@@ -98,7 +98,8 @@
       "agent": "settable",
       "why": "Which New Tab page draws; a look switch, ends no work.",
       "keys": [
-        "tabs.nativeNewTabPage"
+        "tabs.nativeNewTabPage",
+        "tabs.newTabApp"
       ]
     },
     {
@@ -250,7 +251,12 @@
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
         "appearance.background",
-        "appearance.backgroundRotation"
+        "appearance.backgroundRotation",
+        "appearance.backgroundLight",
+        "appearance.backgroundDark",
+        "appearance.backgroundSchedule",
+        "appearance.backgroundDynamic",
+        "appearance.backgroundLocation"
       ]
     },
     {
@@ -275,6 +281,7 @@
         "appearance.customDensity",
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
+        "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.sidebarSurface",
@@ -967,6 +974,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off.",
+      "keys": [
+        "agents.chats.terminalChatWritable"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
       "keys": [
@@ -1618,7 +1632,8 @@
       "agent": "privacy",
       "why": "The person decides whether cmux reads verification emails.",
       "keys": [
-        "browser.verificationAutofill.enabled"
+        "browser.verificationAutofill.enabled",
+        "browser.verificationAutofill.accounts"
       ]
     }
   ]

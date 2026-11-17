@@ -8,6 +8,7 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends; while it serves a page, the page's chip
 // (PreviewChip.tsx).
+import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
 import { memo, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
@@ -37,6 +38,7 @@ import { failureWord, useInStep } from "./toolFailureCauseModel";
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
 export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  useToolRowCount(item.tool?.id, item.tool?.kind);
   const step = useInStep();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.

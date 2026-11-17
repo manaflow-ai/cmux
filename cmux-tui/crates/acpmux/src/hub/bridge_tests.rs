@@ -22,7 +22,7 @@ fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
     let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi").unwrap();
     let again = deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi");
     assert!(again.is_err(), "one id, one send");
-    assert_eq!(delivered("s1", "u-find"), Some(("p1".into(), "hi".into())));
+    assert_eq!(delivered("s1", "u-find"), Some(("u-find".into(), "p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
     assert_eq!(delivered("s1", "u-find"), None, "an answered delivery is shown already");
@@ -445,21 +445,42 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
 
 #[test]
 fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed() {
-    assert_eq!(with_reply_hint("hi", None, None, false), "hi");
-    assert_eq!(with_reply_hint("hi", Some("  "), None, false), "hi");
-    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, false);
+    assert_eq!(with_reply_hint("hi", None, None, false, false), "hi");
+    assert_eq!(with_reply_hint("hi", Some("  "), None, false, true), "hi");
+    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, false, false);
     assert!(
         hinted.starts_with(
             "From another agent (cosmic-gray/claude-sr2-coord), not the person:\nhi\n\n"
         ),
         "{hinted}"
     );
-    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"), false);
+    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"), false, false);
     assert!(named.starts_with("From another agent (desktop-zoe, claude), not the person:\nhi"));
-    let claimed = with_reply_hint("hi", Some("bot"), None, true);
+    let claimed = with_reply_hint("hi", Some("bot"), None, true, false);
     assert!(claimed.starts_with("From a program that calls itself bot, not the person:\nhi"));
     assert!(hinted.contains("`acpmux send 'cosmic-gray/claude-sr2-coord' '<your reply>'`"));
-    let quoted = with_reply_hint("hi", Some("it's"), None, false);
+    let quoted = with_reply_hint("hi", Some("it's"), None, false, false);
+    assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
+}
+
+/// Claude Code wraps every peer message in its own "Another Claude session sent a message:" and
+/// a paragraph saying a peer is not the user (ask-c810e83a38): acpmux's part is one line, the
+/// sender and how to answer, then the text, with nothing after it.
+#[test]
+fn a_claude_code_session_gets_the_sender_and_the_answer_in_one_line() {
+    let named = with_reply_hint("PR is green", Some("gcp/lane-12"), Some("codex"), false, true);
+    assert_eq!(
+        named,
+        "From another agent (gcp/lane-12, codex), not the person. Answer with `acpmux send 'gcp/lane-12' '<your reply>'`, not SendMessage:\nPR is green"
+    );
+    assert!(!named.contains("cannot reach it"), "{named}");
+    // A program acpmux could not verify says so too.
+    let claimed = with_reply_hint("hi", Some("bot"), None, true, true);
+    assert_eq!(
+        claimed,
+        "From a program that calls itself bot, not the person. Answer with `acpmux send 'bot' '<your reply>'`, not SendMessage:\nhi"
+    );
+    let quoted = with_reply_hint("hi", Some("it's"), None, false, true);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
 }
 
@@ -537,9 +558,50 @@ fn a_codex_delivery_is_found_by_its_text_once_and_oldest_first() {
     deliveries().claim("u-c2".into(), "sc", "pc2", "hi", "hi\n\n[hint]").unwrap();
     assert_eq!(delivered_text("sc", "hi"), None, "the app got the hinted text");
     assert_eq!(delivered_text("other", "hi\n\n[hint]"), None);
-    assert_eq!(delivered_text("sc", " hi\n\n[hint] "), Some(("pc1".into(), "hi".into())));
-    assert_eq!(delivered_text("sc", "hi\n\n[hint]"), Some(("pc2".into(), "hi".into())));
+    assert_eq!(
+        delivered_text("sc", " hi\n\n[hint] "),
+        Some(("u-c1".into(), "pc1".into(), "hi".into()))
+    );
+    assert_eq!(
+        delivered_text("sc", "hi\n\n[hint]"),
+        Some(("u-c2".into(), "pc2".into(), "hi".into()))
+    );
     assert_eq!(delivered_text("sc", "hi\n\n[hint]"), None, "each line shows one delivery");
+}
+
+/// A queue line may be a delivery's only by its exact text (review P1-F1, P2-F3): one that merely
+/// contains a delivery's text is the terminal's own.
+#[test]
+fn a_queue_line_may_be_a_deliverys_only_by_exact_text() {
+    deliveries().claim("u-q1".into(), "sq", "pq1", "test", "test").unwrap();
+    assert!(!may_be_delivery("sq", "please test the migration"), "containment is not it");
+    assert!(!may_be_delivery("other", "test"));
+    assert!(may_be_delivery("sq", " test "));
+    // Taken in by a turn as not the person's, with no uuid acpmux sent: shown once, under its id.
+    assert_eq!(delivered_queued("sq", "test"), Some(("u-q1".into(), "pq1".into(), "test".into())));
+    assert_eq!(delivered_queued("sq", "test"), None);
+    assert!(!may_be_delivery("sq", "test"), "shown: any later line is typed");
+}
+
+/// A delivery taken back in the terminal before it ran ends with why at once (review P2-F2).
+#[test]
+fn a_delivery_taken_back_in_the_terminal_ends_with_why() {
+    let rx = deliveries().claim("u-t1".into(), "st", "pt1", "later", "later").unwrap();
+    assert!(!taken_back("st", "other text"));
+    assert!(taken_back("st", "later"));
+    assert!(matches!(&*rx.borrow(), Some(Err(why)) if why.contains("taken back")));
+    assert!(!taken_back("st", "later"), "once");
+}
+
+/// A batch the journal refused gives back what it claimed, so the batch read again shows the
+/// delivery (review P1-F2).
+#[test]
+fn a_refused_batch_gives_its_claims_back() {
+    deliveries().claim("u-r1".into(), "sr", "pr1", "hi", "hi").unwrap();
+    let shown = delivered("sr", "u-r1").unwrap();
+    assert!(delivered("sr", "u-r1").is_none());
+    unclaim(&[Claim::Shown(shown.0)]);
+    assert!(delivered("sr", "u-r1").is_some(), "given back: it shows by its line");
 }
 
 /// The Codex loop: a prompt to a watched Codex desktop chat is queued for its thread through
@@ -874,6 +936,7 @@ async fn a_codex_chat_its_terminal_drives_takes_prompts_into_that_terminals_queu
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_terminal_chat_writable(true).await;
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
         .await

@@ -60,15 +60,18 @@ pub async fn run(client: Arc<Client>, key: &str, print: bool, json_out: bool) ->
     // The turn shows while it runs; the release answers once it ended.
     // This process becomes the harness (`exec`, same pid): the chat's prompts go into it while it
     // runs (`hub/bridge.rs`). `--print` runs nothing here, so it names no process.
-    let mut params = json!({"sessionId": id});
-    if !print {
-        params["terminalPid"] = json!(std::process::id());
-    }
+    let params = if print {
+        json!({"sessionId": id})
+    } else {
+        json!({"sessionId": id, "terminalPid": std::process::id()})
+    };
     let release = client.request(method::MUX_RELEASE_TO_WATCH, params);
     let answer = if print {
         release.await
     } else {
         // Both on this task: the stream ends when the release answers (it is dropped then).
+        // A permission the turn waits on is asked and answered here (`resume_here_ask.rs`).
+        let asked = crate::cli::resume_here_ask::start(&id);
         let shown = crate::cli::output::plain_attach(client.clone(), &id);
         tokio::pin!(release, shown);
         let answer = tokio::select! {
@@ -76,6 +79,7 @@ pub async fn run(client: Arc<Client>, key: &str, print: bool, json_out: bool) ->
             // The stream ended first (a closed connection, a mesh read): wait for the answer alone.
             _ = &mut shown => release.await,
         };
+        asked.end().await;
         println!();
         answer
     };

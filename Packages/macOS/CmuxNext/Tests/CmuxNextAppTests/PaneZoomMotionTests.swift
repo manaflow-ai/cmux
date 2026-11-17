@@ -4,10 +4,11 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// Zoom and unzoom (Leo 2026-10-13, Lawrence 2026-10-18): the zooming pane owns the motion and is
-/// laid out live at its spring rect on every frame ("content must move while it animates"); it
-/// covers the other panes, which never fade or move and are let go once it lands. Frames step at a
-/// fixed 120 Hz dt, so every assertion is about frame N, not wall time.
+/// Zoom and unzoom (decided 2026-10-13 and 2026-10-18): the zooming pane owns the motion and is
+/// laid out live at its spring rect on every frame (the content moves while it animates); it
+/// covers the other panes, whose hosts keep their opacity and place and are let go once it lands
+/// (the dim over them while it moves is one view above them: `PaneZoomDimsOthersTests`). Frames step
+/// at a fixed 120 Hz dt, so every assertion is about frame N, not wall time.
 @MainActor
 @Suite(.closesItsWindows)
 struct PaneZoomMotionTests {
@@ -86,7 +87,7 @@ struct PaneZoomMotionTests {
     static var scale: Double { Motion.panes.spring(.move).response / MotionSpring.move.base.response }
 
     @Test(arguments: [("p1", "p4"), ("p4", "p1"), ("p2", "p3")])
-    func inA2x2ZoomTheZoomedPaneLaysOutLiveAndCoversTheOthersWhichNeverFadeOrMove(zoomed: String, opposite: String) throws {
+    func inA2x2ZoomTheZoomedPaneLaysOutLiveAndCoversTheOthersWhichKeepTheirOpacityAndPlace(zoomed: String, opposite: String) throws {
         let screen = Screen(Self.grid2)
         defer { screen.window.closeAfterTest() }
         let pane = PaneID(zoomed), corner = PaneID(opposite)
@@ -97,7 +98,7 @@ struct PaneZoomMotionTests {
         var reached: Int?, released: Int?, sizes: [CGSize] = []
         for frame in 1...120 {
             screen.step()
-            // Lawrence 2026-10-18: cover, never fade. A covered pane is opaque and still until it is let go.
+            // A covered pane's own host is opaque and still until it is let go: the zoom's dim is a view over it.
             for other in others {
                 if let host = screen.root.context.hosts[other], host.superview != nil {
                     #expect(host.alphaValue == 1, "frame \(frame): \(other) faded")

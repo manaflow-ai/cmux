@@ -252,6 +252,11 @@ extension LiveWorkspaceCreationBackend: TerminalChatBackend {
         return acpmux.sessions.values.compactMap(Self.terminalChatListing)
     }
 
+    public func terminalChatListedWhole(on macID: String) -> Bool {
+        guard canManage(on: macID), let acpmux else { return false }
+        return acpmux.isReady && acpmux.listWhole
+    }
+
     /// One acpmux session as a pairing candidate; nil for a peer's (another machine's) chat.
     nonisolated static func terminalChatListing(_ session: AcpmuxSession) -> TerminalChatListing? {
         guard session.peer == nil else { return nil }

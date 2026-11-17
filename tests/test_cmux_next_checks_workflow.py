@@ -556,6 +556,93 @@ class ReferencedFilesExist(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+SCRIPT_TEST_RUNNER = "scripts/cmux-next/tests/run-script-tests.py"
+
+
+def named_script_tests() -> set[str]:
+    """The scripts/cmux-next test_*.py files a `python3` line of a workflow or a CI script names."""
+    texts = [path.read_text(encoding="utf-8", errors="replace")
+             for folder in (ROOT / ".github/workflows", ROOT / "scripts/ci") for path in sorted(folder.rglob("*"))
+             if path.is_file() and path.suffix in (".yml", ".yaml", ".sh", ".py")]
+    run = set()
+    for text in texts:
+        for line in text.splitlines():
+            if not line.lstrip().startswith("#"):
+                run |= set(re.findall(r"python3(?: -I)? (scripts/cmux-next/[A-Za-z0-9_./-]*test_[A-Za-z0-9_-]+\.py)", line))
+    return run
+
+
+def all_script_tests() -> list[str]:
+    return sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "scripts/cmux-next").rglob("test_*.py")
+                  if not {"node_modules", "__pycache__"} & set(path.parts))
+
+
+def load_script_test_runner():
+    spec = importlib.util.spec_from_file_location("run_script_tests", ROOT / SCRIPT_TEST_RUNNER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def script_tests_run(tests: list[str]) -> set[str]:
+    """Of `tests`, the ones CI runs: each a named `python3` line runs, and, when the checks job's script tests
+    run the glob runner, each that runner picks."""
+    run = named_script_tests() & set(tests)
+    runner_line = f"python3 {SCRIPT_TEST_RUNNER}"
+    if (ROOT / SCRIPT_TEST_RUNNER).exists() and runner_line in check_commands(
+            next(step for step in steps() if step.get("id") == "script-tests")).splitlines():
+        run |= set(load_script_test_runner().selected(tests))
+    return run
+
+
+class ScriptTestsAreListed(unittest.TestCase):
+    """Every scripts/cmux-next test_*.py runs in CI.
+    test_hot_apply.py and 72 others were run by no line, so their reds went unseen (30 of
+    test_hot_apply's 100 failed on feat-cmux-next until #43831). The fix was a hand list in the checks job,
+    and each new test missing from it then turned feat-cmux-next red (#43986, #44113, #44407)."""
+
+    def test_no_test_file_is_left_out(self):
+        tests = all_script_tests()
+        self.assertGreater(len(tests), 90)
+        left_out = sorted(set(tests) - script_tests_run(tests))
+        self.assertEqual(left_out, [], f"each is run by no line; {SCRIPT_TEST_RUNNER} runs every test_*.py it "
+                                       "does not exclude (a test that needs a Mac skips on Linux with its reason)")
+
+    def test_a_new_script_test_runs_with_no_workflow_edit(self):
+        """A test_*.py added later runs in the checks job without a line naming it."""
+        for new in ("scripts/cmux-next/tests/test_added_after_this_guard.py",
+                    "scripts/cmux-next/test_added_after_this_guard.py",
+                    "scripts/cmux-next/some-tool/test_added_after_this_guard.py"):
+            self.assertTrue(new in script_tests_run(all_script_tests() + [new]),
+                            f"a new {new} would run in no CI job until a hand-edited line named it")
+
+    def test_each_excluded_test_has_a_reason_and_another_line_runs_it(self):
+        runner = load_script_test_runner()
+        named = named_script_tests()
+        for test, reason in runner.EXCLUDED.items():
+            self.assertTrue(reason.strip(), f"{test}: say which line runs it")
+            if (ROOT / test).exists():
+                self.assertIn(test, named, f"{test} is excluded from {SCRIPT_TEST_RUNNER} but no line runs it")
+
+    def test_the_runner_runs_each_test_and_fails_naming_the_red_ones(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, body in (("scripts/cmux-next/tests/test_green.py", "print('green ran')"),
+                              ("scripts/cmux-next/tool/test_red.py", "raise SystemExit('red ran')"),
+                              ("scripts/cmux-next/node_modules/x/test_vendored.py", "raise SystemExit(1)")):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(body + "\n", encoding="utf-8")
+            result = subprocess.run([sys.executable, str(ROOT / SCRIPT_TEST_RUNNER), "--root", str(root), "--jobs", "2"],
+                                    capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("---- scripts/cmux-next/tests/test_green.py: ok", result.stdout)
+            self.assertIn("green ran", result.stdout)
+            self.assertIn("red ran", result.stdout)
+            self.assertIn("::error title=script test failed::scripts/cmux-next/tool/test_red.py", result.stdout)
+            self.assertNotIn("test_vendored", result.stdout)
+            self.assertIn("1 of 2 script tests passed", result.stdout)
+
+
 class GodfileScopes(unittest.TestCase):
     """`--only swift` and `--only rust` each check their half, at unchanged budgets."""
 
@@ -1488,7 +1575,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
-        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files", "path_route",
+        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "dev-landing-compile", "fast-tier", "generated-files", "path_route",
                                            "release-compile", "request-nightly-next",
                                            "swift-canary", "swift-test", "web-bundles"])
 
@@ -2571,6 +2658,9 @@ FAST_LANE_CLAUSE = (
 )
 # While fast-tier-fleet ran, the fast tier only reports its verdict from Linux (GatewayRunsOnlyTheFleetClient);
 # a step still queued (verdict `queued`) hands it back, and it runs on Blacksmith macOS.
+# The hand-back reads the Blacksmith switch as every owned fallback does since #43860: with the value
+# `pr-rescue`, a pull request's re-run (attempt 2 and later), or a bot's re-run of a dispatch gating one
+# (cmuxterm-hq#12109), does not take the side lane label.
 FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
@@ -2582,7 +2672,14 @@ FAST_TIER_REPORT_CLAUSE = (
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
-    "needs.fast-tier-fleet.outputs.verdict == 'queued' && (vars.CI_BLACKSMITH_MACOS != 'on' && "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && "
+    "((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && "
+    "(github.event_name != 'workflow_dispatch' || "
+    "!contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || "
+    "inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || "
+    "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
+    "inputs.no_reuse == true)) "
+    "&& vars.CI_BLACKSMITH_MACOS != 'on' && "
     "vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
 
@@ -2673,9 +2770,20 @@ class ReservedLaneLabels(unittest.TestCase):
         for placed in ("1", ""):
             self.assertEqual(evaluate(runs_on, context(fast, attempt=2, placed_attempt=placed)),
                              "blacksmith-6vcpu-macos-26")
-        for actor in ("someone", "github-actions[bot]", "cmux-bot[bot]"):
+        # A person's later re-run carries attempt 1's reading: Blacksmith, as above.
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor="someone", placed_attempt="1")),
+                         "blacksmith-6vcpu-macos-26")
+        for actor in ("github-actions[bot]", "cmux-bot[bot]"):
             with self.subTest(actor=actor):
-                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor)),
+                # The bot's later attempts are placed afresh (macos-placement runs on every bot attempt), so the
+                # attempt's own reading decides: its Blacksmith slot, else the side route it placed the job on.
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor,
+                                                           blacksmith_6_jobs=" fast-tier ")),
+                                 "blacksmith-6vcpu-macos-26")
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=5, actor=actor)),
+                                 "glaeda-side-std-xcode-26.6")
+                # A carried reading (placement did not run in this attempt) never takes the owned label.
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor, placed_attempt="1")),
                                  "blacksmith-6vcpu-macos-26")
 
 

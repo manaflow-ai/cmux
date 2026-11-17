@@ -126,8 +126,9 @@ pub(super) struct Subscribers {
     ops: Vec<u8>,
     /// The queue changed in the batch of lines being applied.
     queue_changed: bool,
-    /// A read for a subscriber refused a record: the book is rebuilt from raw at the end of
-    /// this step, and the subscribers, kept through it, get the new edition's window.
+    /// A read for a subscriber refused a record, or a resume could not be measured past a
+    /// damaged header: the book is rebuilt from raw at the end of this step. The rebuild keeps
+    /// the edition, so the subscribers, kept through it, resume from the seq each last took.
     refused: bool,
 }
 
@@ -307,7 +308,8 @@ pub(super) fn step(state: &mut ActorState) -> Result<(), ChatError> {
             at += 1;
         }
     }
-    // A record a window, a resume or a page refused: the book is rebuilt from raw (rule 16).
+    // A record a window, a resume or a page refused, or a header a resume's measure could not
+    // pass: the book is rebuilt from raw (rule 16).
     if std::mem::take(&mut state.subs.refused) {
         return Err(ChatError::Book(log::Error::Rebuild("a read refused a record")));
     }
@@ -514,9 +516,16 @@ fn resume_step(
     checked: bool,
 ) -> Result<(), ChatError> {
     if !checked {
-        // Missed too much: one fresh window at the end, with no record read to decide it.
+        // Missed too much: one fresh window at the end, with no record's text read to decide
+        // it. A header on the way that is not the next record's: the window too, and the book
+        // is rebuilt after this step, as for a record a read refused.
         match state.log.resume_size(cursor, MISSED_LIMIT) {
             Ok(log::ResumeSize::Over) => {
+                send_window(state, at, log::Anchor::End, MAX_ROWS);
+                return Ok(());
+            }
+            Ok(log::ResumeSize::Damaged) => {
+                state.subs.refused = true;
                 send_window(state, at, log::Anchor::End, MAX_ROWS);
                 return Ok(());
             }
@@ -542,7 +551,8 @@ fn resume_step(
         return Ok(());
     }
     // A refused record ends the resume: the rows before it go out, then a window, no `end`;
-    // the book is rebuilt after this step, and the new edition's window holds the row.
+    // the book is rebuilt after this step. A rebuild from the same raw keeps its edition, so
+    // the subscriber resumes from the window's cursor and a later window holds the row.
     let stop = since.stopped_on_refusal || !refused.is_empty();
     state.subs.refused |= stop;
     let mut ops = Vec::new();
@@ -783,9 +793,18 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         Some((PageSide::After, Position::Row(id))) => log::Edge::After(*id),
         _ => return reply.error("invalid_params", "a chat page is before or after a rowId"),
     };
-    let (_, folds) = person_state(state, &person);
     let max = Log::bound(page.max_bytes as usize, MAX_PAGE_BYTES);
-    let read = match state.log.read_page(edge, max, page.fold, Some(&state.folds), &folds) {
+    let read = if page.turns {
+        if page.fold.is_some() {
+            return reply.error("bad_request", "a page of turns names no fold");
+        }
+        // The group rows `folds.idx` lists; the open turn's is in the window, not here.
+        state.log.read_turns(edge, max, &state.folds)
+    } else {
+        let (_, folds) = person_state(state, &person);
+        state.log.read_page(edge, max, page.fold, Some(&state.folds), &folds)
+    };
+    let read = match read {
         Ok(read) => read,
         Err(error) => return reply.error("read_failed", &error.to_string()),
     };
@@ -800,6 +819,7 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         has_before: read.has_before,
         has_after: read.has_after,
         refused: read.refused,
+        turns: page.turns,
     };
     state.subs.refused |= !result.refused.is_empty();
     match Frame::json(FrameKind::Page, &result) {

@@ -141,7 +141,7 @@ pub(crate) fn pid_start_ms(pid: u32) -> Option<u64> {
 /// (clock ticks since boot) after `/proc/stat`'s `btime` (the boot, seconds since the epoch).
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) fn pid_start_ms(pid: u32) -> Option<u64> {
-    let ticks = crate::daemon::owner_exit::process_start(pid)?;
+    let ticks = crate::owner_exit::process_start(pid)?;
     let stat = std::fs::read_to_string("/proc/stat").ok()?;
     let boot: u64 =
         stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;

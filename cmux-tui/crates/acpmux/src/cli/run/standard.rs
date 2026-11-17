@@ -35,6 +35,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
+            | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
             | Command::Tail { .. }
@@ -692,6 +693,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .filter(|_| relay.relay.is_some())
                 .map(crate::prompt_provenance::relayed_label)
                 .filter(|label| !label.is_empty());
+            // A Claude Code chat acpmux did not start, sending as no one: nothing can reply to it
+            // until it registers, so the send starts that (`cli/reply_address.rs`).
+            let auto_register =
+                crate::cli::reply_address::of_this_process(from.is_some() || relayed.is_some());
             // The harness or app it runs in says where it came from: provenance beside the prompt,
             // self-reported (Leo, 2026-11-07: "ACPMux should also auto-detect that you sent it
             // from...").
@@ -813,6 +818,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     if announce && let Some(shown) = sender.shown {
                         eprintln!("sending as {shown}");
                     }
+                }
+                if let Some(want) = &auto_register {
+                    crate::cli::reply_address::start(&client, want, deadline).await;
                 }
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
@@ -1066,6 +1074,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {

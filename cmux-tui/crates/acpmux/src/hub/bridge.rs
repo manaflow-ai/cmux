@@ -13,8 +13,10 @@
 //! any turn. Nothing is started and nothing is written to the transcript by acpmux.
 //!
 //! A chat handed to a cmux terminal (`release_to_watch.rs`, `acpmux resume-here`) is bridged by
-//! that terminal, whatever the setting says (Leo, 2026-11-14: "this is obviously what we need",
-//! on the chat writable in both directions while the terminal drives the session). The daemon
+//! that terminal, whatever `agents.desktopBridge.enabled` says, while Write to a chat a terminal
+//! runs (`agents.chats.terminalChatWritable`, off by default) is on (Leo, 2026-11-14: "this is
+//! obviously what we need", on the chat writable in both directions while the terminal drives the
+//! session; 2026-11-15: "these are opt-in settings"). Off, that chat is a View Only watch. The daemon
 //! recorded the terminal's process (`Watching::terminal`: `resume-here` becomes the harness, same
 //! pid); a prompt goes to the Claude Code session registered under that pid for this conversation
 //! (its inbox, opened with the peer key), or to the Codex thread a running Codex holds (its
@@ -135,48 +137,116 @@ impl Deliveries {
     }
 }
 
+/// What the watch took from the delivery registry while it read one batch: given back
+/// (`unclaim`) when the journal refused the batch, so the batch read again finds the same
+/// deliveries unshown and shows them, never skipping a prompt.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Claim {
+    /// The delivery with this uuid was shown.
+    Shown(String),
+}
+
+/// Gives back what a refused batch claimed (`Claim`).
+pub(super) fn unclaim(claims: &[Claim]) {
+    let mut all = deliveries();
+    for Claim::Shown(uuid) in claims {
+        if let Some(p) = all.by_uuid.get_mut(uuid) {
+            p.shown = false;
+        }
+    }
+}
+
+/// A delivery the watch shows now: (uuid, prompt id, text as sent).
+pub(super) type ShownDelivery = (String, String, String);
+
+fn show(uuid: &str, p: &mut Pending) -> ShownDelivery {
+    p.shown = true;
+    (uuid.to_owned(), p.prompt_id.clone(), p.text.clone())
+}
+
 /// The delivery a transcript line with `uuid` in `session_id` shows, if acpmux sent it and the
 /// watch has not shown it yet, marked shown: Claude Code may write it twice (the attachment that
 /// takes it into a running turn, then its line), and it shows once.
-pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<(String, String)> {
+pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<ShownDelivery> {
     let mut all = deliveries();
     let p = all
         .by_uuid
         .get_mut(uuid)
         .filter(|p| p.session_id == session_id && !p.shown && p.turn.borrow().is_none())?;
-    p.shown = true;
-    Some((p.prompt_id.clone(), p.text.clone()))
+    Some(show(uuid, p))
 }
 
-/// Whether `text`, a prompt the app queued, is one acpmux delivered into `session_id` and has not
-/// answered: it shows by its own line, under its id (`delivered`, `delivered_text`), not as typed.
-pub(super) fn pending_wire(session_id: &str, text: &str) -> bool {
+/// The oldest unanswered delivery into `session_id` whose text as the app got it is exactly
+/// `text`, among those `pick` admits.
+fn oldest_with<'a>(
+    all: &'a mut Deliveries,
+    session_id: &str,
+    text: &str,
+    pick: impl Fn(&Pending) -> bool,
+) -> Option<(&'a String, &'a mut Pending)> {
     let text = text.trim();
-    deliveries().by_uuid.values().any(|p| {
-        p.session_id == session_id
-            && p.turn.borrow().is_none()
-            && !p.wire.trim().is_empty()
-            && (p.wire.trim() == text || text.contains(p.wire.trim()))
-    })
+    all.by_uuid
+        .iter_mut()
+        .filter(|(_, p)| {
+            p.session_id == session_id
+                && p.turn.borrow().is_none()
+                && !p.wire.trim().is_empty()
+                && p.wire.trim() == text
+                && pick(p)
+        })
+        .min_by_key(|(_, p)| p.order)
+}
+
+/// Whether a queue line with `text` may be a delivery's: an unanswered, unshown delivery into
+/// `session_id` has exactly that text. Claude Code's `enqueue` line carries the text alone, so such
+/// a line is told from a prompt typed in the terminal with the same text only when it runs (its
+/// attachment's `source_uuid` and origin, or its line's uuid): it shows then, never at once, so
+/// neither is lost nor shown twice. A prompt that only contains a delivery's text is not one.
+pub(super) fn may_be_delivery(session_id: &str, text: &str) -> bool {
+    let mut all = deliveries();
+    oldest_with(&mut all, session_id, text, |p| !p.shown).is_some()
+}
+
+/// The delivery a running turn took in by its text when its attachment names no uuid acpmux sent
+/// but says it did not come from the person (`origin.kind` other than `human`): the oldest unshown
+/// delivery with exactly that text, marked shown.
+pub(super) fn delivered_queued(session_id: &str, text: &str) -> Option<ShownDelivery> {
+    let mut all = deliveries();
+    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown)?;
+    let uuid = uuid.clone();
+    Some(show(&uuid, p))
+}
+
+/// The app took a queued prompt with `text` back (edited or cancelled in the terminal) that was a
+/// delivery's: the oldest unshown one with exactly that text ends with why, so its sender hears at
+/// once instead of waiting for a turn that never comes. True when one did.
+pub(super) fn taken_back(session_id: &str, text: &str) -> bool {
+    let mut all = deliveries();
+    let Some((_, p)) = oldest_with(&mut all, session_id, text, |p| !p.shown) else { return false };
+    p.shown = true;
+    p.turn.send_replace(Some(Err("taken back in the terminal before it ran".to_owned())));
+    true
 }
 
 /// The delivery a Codex rollout's prompt `text` in `session_id` shows: the oldest one acpmux
 /// sent with that text the watch has not shown yet, marked shown.
-pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<(String, String)> {
-    let text = text.trim();
+pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<ShownDelivery> {
     let mut all = deliveries();
-    let p = all
-        .by_uuid
-        .values_mut()
-        .filter(|p| {
-            p.session_id == session_id
-                && !p.shown
-                && p.turn.borrow().is_none()
-                && p.wire.trim() == text
-        })
-        .min_by_key(|p| p.order)?;
-    p.shown = true;
-    Some((p.prompt_id.clone(), p.text.clone()))
+    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown)?;
+    let uuid = uuid.clone();
+    Some(show(&uuid, p))
+}
+
+/// The turn outcome of delivery `prompt_id`, for tests.
+#[cfg(test)]
+pub(super) fn delivery_turn(session_id: &str, prompt_id: &str) -> Option<watch::Receiver<Outcome>> {
+    deliveries().of_prompt(session_id, prompt_id).map(|(_, p)| p.turn.subscribe())
+}
+
+/// A delivery for tests that drive the watch alone: `uuid` into `session_id` as `prompt_id`.
+#[cfg(test)]
+pub(super) fn test_delivery(session_id: &str, prompt_id: &str, uuid: &str, text: &str) {
+    let _ = deliveries().claim(uuid.to_owned(), session_id, prompt_id, text, text);
 }
 
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
@@ -322,7 +392,9 @@ impl Hub {
         let agent_session_id = session.meta().agent_session_id?;
         // A chat handed to a cmux terminal (`release_to_watch.rs`) goes into that terminal's
         // harness, bound by its process: the daemon's own record, never a tag.
-        let terminal = watching.terminal.clone();
+        // Only while Write to a chat a terminal runs is on (`release_to_watch.rs`); off, the
+        // binding is let go of, and a chat that still had one is read-only meanwhile.
+        let terminal = watching.terminal.clone().filter(|_| self.terminal_chat_writable());
         // The terminal's harness asks its permissions in that terminal, under the person's own
         // settings there, not through acpmux: the remote floor (the asking-mode table, D13) cannot
         // hold, so a paired device (Web control) never sends into it. The Mac and the terminal do.
@@ -364,10 +436,14 @@ impl Hub {
             }
         }
         let target = match terminal {
-            Some(driver) => match terminal_target(&family, &agent_session_id, driver).await {
+            Some(driver) => match terminal_target(&family, &agent_session_id, driver.clone()).await
+            {
                 TerminalTarget::Ready(target) => Some(target),
                 // The terminal's harness ended: a watch as any other (Take Over runs it here).
-                TerminalTarget::Gone => None,
+                TerminalTarget::Gone => {
+                    self.terminal_ended(session, &driver).await;
+                    None
+                }
                 TerminalTarget::NoInbox(why) => return Some(Err(no_inbox(&why))),
             },
             None => {
@@ -395,8 +471,14 @@ impl Hub {
         let unverified =
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
-        let wire =
-            with_reply_hint(&text, reply_name(opts).as_deref(), harness.as_deref(), unverified);
+        let claude = matches!(target, Target::Claude { .. });
+        let wire = with_reply_hint(
+            &text,
+            reply_name(opts).as_deref(),
+            harness.as_deref(),
+            unverified,
+            claude,
+        );
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
         // request's own check, and a refused prompt never reaches the app.
@@ -491,28 +573,41 @@ impl Hub {
 /// The person's prompt goes as typed.
 /// A sender acpmux could not bind (`unverified`) reads as the program it claims to be, as on the
 /// ACP path (`prompt_attribution::unverified_line`).
+///
+/// Claude Code (`claude`) puts its own text around every message that reaches it this way:
+/// "Another Claude session sent a message:" before it, and after it a paragraph saying a peer is
+/// not the user and cannot grant permissions. Nothing turns those off, and its terminal shows
+/// them on every message. So a Claude Code session gets the sender and how to answer as one line
+/// and nothing after the text (Leo, 2026-11-14, ask-c810e83a38: "it sends so much s*** each
+/// time. can it not?"). The line keeps "not the person": a sender's name may be only what it
+/// claimed, and Claude Code's note calls a peer "very likely working on their behalf".
 fn with_reply_hint(
     text: &str,
     agent: Option<&str>,
     harness: Option<&str>,
     unverified: bool,
+    claude: bool,
 ) -> String {
-    match agent.map(str::trim).filter(|a| !a.is_empty()) {
-        Some(agent) => {
-            let quoted = agent.replace('\'', "'\\''");
-            let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
-            let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
-            let line = if unverified {
-                super::prompt_attribution::unverified_line(Some(&who))
-            } else {
-                super::prompt_attribution::agent_line(&who)
-            };
-            format!(
-                "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
-            )
-        }
-        None => text.to_owned(),
+    let Some(agent) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
+        return text.to_owned();
+    };
+    let quoted = agent.replace('\'', "'\\''");
+    let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
+    let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
+    let line = if unverified {
+        super::prompt_attribution::unverified_line(Some(&who))
+    } else {
+        super::prompt_attribution::agent_line(&who)
+    };
+    if claude {
+        let line = line.trim_end_matches(':');
+        return format!(
+            "{line}. Answer with `acpmux send '{quoted}' '<your reply>'`, not SendMessage:\n{text}"
+        );
     }
+    format!(
+        "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
+    )
 }
 
 /// The sender's harness the daemon bound on the prompt's provenance (`fromHarness`).

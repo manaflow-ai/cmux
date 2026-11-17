@@ -303,19 +303,23 @@ extension WindowController {
         let view = chiefPanelView ?? makeChiefPanelView()
         if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
         view.mount(in: root.contentHost)
-        view.hold(chief)
+        giveBackToHome(view.hold(chief))
         return state.chiefPanel
     }
 
     /// Takes the panel off screen; Home's pane that shows the Chief tab takes its view back.
     func removeChiefPanel() {
         guard let view = chiefPanelView, view.superview != nil else { return }
-        let hadKeys = view.hasKeys
-        let homeContent = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
-        let panes = homeContent.map { Array($0.panes.values) } ?? []
-        if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } }
+        let hadKeys = view.hasKeys, homeContent = giveBackToHome(view.release())
         view.unmount()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
+    }
+
+    /// Home's pane that shows `chief` (a view the panel let go) takes it back; Home's content.
+    @discardableResult private func giveBackToHome(_ chief: NSView?) -> WorkspaceContentController? {
+        let home = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
+        if let chief { for pane in home.map({ Array($0.panes.values) }) ?? [] where pane.view.content === chief { _ = pane.view.show(chief) } }
+        return home
     }
 
     /// The stage's pane nearest the panel (`direction` says where from), else its focused pane, takes the keys.

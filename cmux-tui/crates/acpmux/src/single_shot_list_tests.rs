@@ -12,6 +12,7 @@
 //! on any not in [`ALLOWED`], each with why it reads only what it asks for. A new single-shot read
 //! fails here: page it, or add it below with the reason it needs one page only.
 
+use crate::test_support::v1_list_scan::{sources, sources_from, unnamed_v1_list_uses};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -58,8 +59,9 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
     (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_stream.rs",
         "\"_acpmux/watch\"",
-        1,
-        "turns watching on with `limit: 1`; the list is read by `call_whole_list`",
+        2,
+        "turns watching on with `limit: 1`, its page unread: on v1 the list is read by \
+         `call_whole_list`, and on the v2 list the descendants by `page` with `family` (row 7c)",
     ),
     (
         "cmux-tui/crates/cmux-tui-core/src/server/mobile_chat.rs",
@@ -72,25 +74,6 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
 fn repo_root() -> PathBuf {
     // cmux-tui/crates/acpmux
     Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().to_path_buf()
-}
-
-fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if path.is_dir() {
-            if !matches!(name.as_str(), "target" | "tests" | "benches" | "node_modules" | ".git") {
-                sources(&path, out);
-            }
-        } else if name.ends_with(".rs")
-            && !name.ends_with("_tests.rs")
-            && !name.ends_with("_test.rs")
-            && !name.contains("bench")
-        {
-            out.push(path);
-        }
-    }
 }
 
 #[test]
@@ -155,7 +138,8 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     // `whole_list` itself: the v1 fallback's pager, kept whole until the shim goes.
     ("client.rs", "method::MUX_SESSIONS", 1, "`Client::whole_list`, each page after the first"),
     // The peer link's reads: row 8's, which moves them to the list stream on the link.
-    ("peer.rs", "method::MUX_SESSIONS", 2, "row 8: the peer link's watch pages"),
+    ("peer.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
+    ("peer_list_read.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
     ("peer.rs", "method::MUX_WATCH", 4, "row 8: the peer link's watch"),
     ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
     // `deliver::sessions` has no caller outside its own test.
@@ -212,66 +196,17 @@ fn the_hub_machines_read_is_named_once() {
     }
 }
 
-/// The uses in `files` (`(path from src/, text)`) that `named` does not hold, one line each.
-fn unnamed_v1_list_uses(
-    files: &[(String, String)],
-    named: &[(&str, &str, usize, &str)],
-) -> Vec<String> {
-    let token = regex::Regex::new(
-        r#"method::(?:MUX_SESSIONS|MUX_WATCH|SESSION_LIST)\b|"(?:_acpmux/sessions|_acpmux/watch|session/list)""#,
-    )
-    .unwrap();
-    let mut found: BTreeMap<(String, String), Vec<usize>> = BTreeMap::new();
-    for (rel, text) in files {
-        if rel.starts_with("server/") || rel.starts_with("hub/") {
-            continue;
-        }
-        for hit in token.find_iter(text) {
-            let line = text[..hit.start()].matches('\n').count() + 1;
-            found.entry((rel.clone(), hit.as_str().to_owned())).or_default().push(line);
-        }
-    }
-    let mut wrong = Vec::new();
-    for ((file, method), lines) in &found {
-        // A file may name one method in several rows, each a use with its own reason.
-        let allowed: usize = named
-            .iter()
-            .filter(|(f, m, _, _)| f == file && m == method)
-            .map(|(_, _, n, _)| *n)
-            .sum();
-        if lines.len() != allowed {
-            wrong.push(format!(
-                "src/{file}:{lines:?} uses {method} {} time(s); the table names {allowed}",
-                lines.len()
-            ));
-        }
-    }
-    for (file, method, _, _) in named {
-        if !found.contains_key(&((*file).to_owned(), (*method).to_owned())) {
-            wrong.push(format!("src/{file} no longer uses {method}: take it out of the table"));
-        }
-    }
-    wrong
-}
+/// The acpmux crate's directories that serve the methods: not scanned.
+const SERVES_THE_METHODS: &[&str] = &["server/", "hub/"];
 
 fn crate_sources() -> Vec<(String, String)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    sources(&src, &mut files);
-    files
-        .into_iter()
-        .filter(|path| path.file_name().is_some_and(|name| name != "tests.rs"))
-        .filter_map(|path| {
-            let text = std::fs::read_to_string(&path).ok()?;
-            let rel = path.strip_prefix(&src).ok()?.to_string_lossy().replace('\\', "/");
-            Some((rel, text))
-        })
-        .collect()
+    sources_from(&src, std::slice::from_ref(&src))
 }
 
 #[test]
 fn every_v1_list_read_outside_the_server_is_a_named_fallback() {
-    let wrong = unnamed_v1_list_uses(&crate_sources(), V1_LIST_USES);
+    let wrong = unnamed_v1_list_uses(&crate_sources(), V1_LIST_USES, SERVES_THE_METHODS).unwrap();
     assert!(
         wrong.is_empty(),
         "a list caller reads through `cli/list_read.rs` (agent service v2, row 7b); a v1 list \
@@ -288,12 +223,18 @@ fn an_unnamed_v1_list_read_fails_the_scan() {
         "let all = client.whole_list(method::MUX_SESSIONS, json!({})).await?;".to_owned(),
     )];
     assert_eq!(
-        unnamed_v1_list_uses(&caller, &[]),
+        unnamed_v1_list_uses(&caller, &[], SERVES_THE_METHODS).unwrap(),
         ["src/cli/new_caller.rs:[1] uses method::MUX_SESSIONS 1 time(s); the table names 0"]
     );
     let named = [("cli/new_caller.rs", "method::MUX_SESSIONS", 1, "a fallback")];
-    assert!(unnamed_v1_list_uses(&caller, &named).is_empty());
+    assert!(unnamed_v1_list_uses(&caller, &named, SERVES_THE_METHODS).unwrap().is_empty());
     // The server and the hub serve the methods: not scanned.
     let served = vec![("hub/new.rs".to_owned(), "method::MUX_WATCH".to_owned())];
-    assert!(unnamed_v1_list_uses(&served, &[]).is_empty());
+    assert!(unnamed_v1_list_uses(&served, &[], SERVES_THE_METHODS).unwrap().is_empty());
+    // A scan that skips nothing (`cmux-tui-core`'s own) reads every directory.
+    let tui_core = vec![(
+        "cmux-tui-core/src/server/new_caller.rs".to_owned(),
+        "link.call_whole_list(\"_acpmux/sessions\", json!({}), T)".to_owned(),
+    )];
+    assert_eq!(unnamed_v1_list_uses(&tui_core, &[], &[]).unwrap().len(), 1);
 }

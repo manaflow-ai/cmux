@@ -319,9 +319,12 @@ jobs:
 
       # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
       # The head and the base run on the same machine, so either way they compare like for like.
+      # Its download can fail (GitHub answered 504 on 2026-11-08); the next step's fallback covers that
+      # too, so a failed setup leaves no path rather than failing the group.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
         if: runner.os == 'Linux'
+        continue-on-error: true
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
@@ -579,12 +582,12 @@ jobs:
     name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+8), so
-    # with the checkout's 5 the steps' caps sum to the job's 35 and no step's stall can use up another's time. A step
+    # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3+8), so
+    # with the checkout's 5 the steps' caps sum to the job's 38 and no step's stall can use up another's time. A step
     # that times out fails and the next step still runs. The generated files guard's 8 holds its checks' one shared
     # 400 s deadline (generated_files_guard.py DEADLINE_SECONDS): a check that cannot finish inside it warns, so a
     # busy runner makes the guard slower, never red, and it always ends before the step's limit to print why.
-    timeout-minutes: 35
+    timeout-minutes: 38
     steps:
       - name: Checkout
         timeout-minutes: 5
@@ -683,6 +686,13 @@ jobs:
         timeout-minutes: 2
         run: python3 tests/test_generated_files_guard.py
 
+      # Every file the guard calls generated merges through the driver its family needs, so no
+      # merge leaves a person a generated-file conflict (scripts/cmux-next/generated_merge.py audit).
+      - name: Generated files merge without a person
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
+        run: python3 tests/test_generated_merge.py
+
       - name: cmux-next no new generated files
         if: ${{ !cancelled() }}
         timeout-minutes: 8
@@ -718,16 +728,53 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
+  # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+  # can get it to do". Whether this pull request is hot-only: scripts/ci/cmux_next_route.py --hot-only on the merge
+  # commit's diff, the verdict cmux-next.yml skips its Mac app jobs by (every file a running app takes live through
+  # hot-apply.py, or one that reaches no app tier; no full-ci or dev-build label). A hot-only pull request runs
+  # tooling-tests on Linux, never on a mini. Any failure here reads as not hot: tooling-tests keeps its mini route.
+  hot-route:
+    name: hot-only route
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      hot_only: ${{ steps.route.outputs.hot_only }}
+    steps:
+      - name: Checkout the merge commit and its base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Route the pull request (cmux_next_route.py --hot-only)
+        id: route
+        env:
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -uo pipefail
+          git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          if ! python3 scripts/ci/cmux_next_route.py --hot-only --event pull_request \
+              --changed-files "$RUNNER_TEMP/changed.txt" --labels "$EVENT_LABELS" --base-rev HEAD^1 \
+              --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"; then
+            echo "::warning title=hot-only route::cmux_next_route.py --hot-only failed; tooling-tests keeps its mini route."
+            echo "hot_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
   # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER. Others take fleet Linux, then a free
-    # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith.
-    needs: [portable-placement]
+    # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith. A hot-only pull request
+    # (hot-route) skips the mini: fleet Linux, else Blacksmith.
+    needs: [portable-placement, hot-route]
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.hot-route.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -844,6 +891,27 @@ jobs:
       - name: The Python test registry, and the tests no pull request runs
         run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" ${{ github.event_name == 'push' && '--warn-only' || '' }}
 
+      # A Swift test target no pull request check runs (hq#11644): cmux#43937 added seven tests that
+      # the fast tier built and listed, and no check ran. The tree check fails on a package test
+      # target with no runner and no scripts/ci/swift-test-targets.json entry. On a pull request the
+      # diff check (HEAD^1 is the base) also fails on a new CmuxNext test target that no fast-tier.json
+      # entry covers, unless the pull request carries full-ci, whose `cmux-next swift test` runs it.
+      - name: Every Swift test target runs in a pull request check (swift_test_coverage.py)
+        if: ${{ !cancelled() }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$EVENT_NAME" == pull_request ]]; then args+=(--base "$(git rev-parse HEAD^1)"); fi
+          if [[ "$FULL_CI" == true ]]; then args+=(--full-ci); fi
+          python3 -I scripts/ci/swift_test_coverage.py ${args[@]+"${args[@]}"}
+
+      - name: The Swift test target coverage check's own tests (swift_test_coverage.py)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_swift_test_coverage.py
+
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
       # package with no node_modules gets a `bun install`.
@@ -875,6 +943,10 @@ jobs:
       - name: The iOS simulator step runs the declared runtime, never just the newest (ios_sim_runtime.py)
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_sim_runtime.py
+
+      - name: Every simulator the iOS simulator step makes goes through sim_create (the fleet worker's slim helper, else simctl create)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_sim_create.py
 
       - name: The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)
         if: ${{ !cancelled() }}

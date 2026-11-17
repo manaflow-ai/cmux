@@ -272,7 +272,7 @@
       "after_minutes": 25
     },
     "CI_BLACKSMITH_MACOS": {
-      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane (docs/ci/cmux-next-workflow-notes.md#note-350)",
+      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane; pr-rescue moves only cmux-next pull-request jobs past a 45-min owned wait or on a re-run (docs/ci/cmux-next-workflow-notes.md#note-350)",
       "after_minutes": 5
     },
     "CI_CLASSIC_NIGHTLY_MINI": {

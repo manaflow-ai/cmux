@@ -146,10 +146,45 @@ impl PtyTerminalRuntime {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        self.after_observed_output(metadata, bytes)
+    }
+
+    /// [`Self::observe_terminal_output`] that also rewrites the title ops
+    /// ghostty-vt skips (`titles`, the stream's
+    /// [`ShellMarks::titles_mut`](crate::prompt_mode_reset::ShellMarks::titles_mut)),
+    /// in the same one walk of the bytes. Returns the rewritten bytes, for
+    /// `crate::prompt_mode_reset::write_rewritten_output`, and the
+    /// notifications.
+    pub(super) fn observe_terminal_output_rewriting_titles<'a>(
+        &self,
+        titles: &mut crate::terminal_title::TitleTracker,
+        bytes: &'a [u8],
+    ) -> (Cow<'a, [u8]>, Vec<crate::terminal_metadata::TerminalNotification>) {
+        let mut metadata =
+            self.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
+        let rewritten = metadata.observe_output_rewriting_titles(titles, bytes);
+        (rewritten, self.after_observed_output(metadata, bytes))
+    }
+
+    fn after_observed_output(
+        &self,
+        mut metadata: std::sync::MutexGuard<'_, crate::terminal_metadata::TerminalMetadata>,
+        bytes: &[u8],
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         if self.tail_pin.feed(bytes)
             && let Some(mux) = self.mux.upgrade()
         {
             mux.queue_terminal_tail(self.event_surface_id);
+        }
+        // Mark and wake: the ports pass reads the screen later, off the reader.
+        if !bytes.is_empty()
+            && self.port_mark.mark()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_ports(self.event_surface_id);
         }
         metadata.take_admitted_notifications(Instant::now())
     }
@@ -329,6 +364,9 @@ pub struct PtyTerminalRuntime {
     /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
     /// unless the terminal is pinned.
     pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
+    /// Set when the terminal printed since the last ports pass
+    /// (`mux/terminal_port_watch.rs`); the reader only sets it.
+    pub(crate) port_mark: crate::mux::PortMark,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,

@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { candidateRuns, gh, guardedVarGate, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
+import { candidateRuns, gh, guardedVarGate, holdOff, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER = "89abcdef0123456789abcdef0123456789abcdef"
@@ -34,8 +34,17 @@ describe("G6 hold values", () => {
     expect(holdPinned(`released:${upper}`)).toBeUndefined()
     expect(holdReleases("RELEASED", SHA)).toBe(false)
   })
-  it("anything else holds", () => {
-    for (const v of [undefined, "", "hold", "released ", " released", `released:${SHA}\n`, `released:${SHA.slice(0, 12)}`, `released:${SHA}0`]) {
+  it("the switch is off by default: unset or empty releases every commit", () => {
+    for (const v of [undefined, ""]) {
+      expect(holdOff(v)).toBe(true)
+      expect(holdReleases(v, SHA)).toBe(true)
+      expect(holdReleases(v, undefined)).toBe(true)
+      expect(holdPinned(v)).toBeUndefined()
+    }
+  })
+  it("anything else a person sets holds", () => {
+    for (const v of ["hold", "on: held for the launch", "released ", " released", `released:${SHA}\n`, `released:${SHA.slice(0, 12)}`, `released:${SHA}0`]) {
+      expect(holdOff(v)).toBe(false)
       expect(holdReleases(v, SHA)).toBe(false)
       expect(holdPinned(v)).toBeUndefined()
     }
@@ -188,7 +197,17 @@ describe("serving().heldBack", () => {
     versions = { v2: code(repo.B), v1: code(repo.A) }
     setDeployments([{ version: "v1", trigger: "rollback" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
     const s = await serving("cmux-api")
-    expect(s).toMatchObject({ version: "v1", sourceTag: tag(repo.A), heldBack: "production serves a rollback" })
+    expect(s).toMatchObject({ version: "v1", sourceTag: tag(repo.A), heldBack: "production serves a rollback", rolledBackTag: tag(repo.B) })
+  })
+  it("a rollback names the code it removed, past a secret-only deployment on either side", async () => {
+    versions = { v4: {}, v3: {}, v2: code(repo.B), v1: code(repo.A) }
+    setDeployments([{ version: "v4", trigger: "secret" }, { version: "v1", trigger: "rollback" }, { version: "v3", trigger: "secret" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+    expect(await serving("cmux-api")).toMatchObject({ sourceTag: tag(repo.A), heldBack: "production serves a rollback", rolledBackTag: tag(repo.B) })
+  })
+  it("a normal deployment and the off switch name no rolled-back code", async () => {
+    versions = { v2: off(repo.A), v1: code(repo.A) }
+    setDeployments([{ version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+    expect((await serving("cmux-api")).rolledBackTag).toBeUndefined()
   })
   it("the Chief off switch holds automatic promotes, also under a later secret-only deployment", async () => {
     versions = { v3: off(repo.A), v2: off(repo.A), v1: code(repo.A) }
@@ -473,5 +492,72 @@ describe("G1 excludes a source-fenced staging skip", () => {
       if (savedToken === undefined) delete process.env.GITHUB_TOKEN
       else process.env.GITHUB_TOKEN = savedToken
     }
+  })
+})
+
+describe("gates after a rollback (no person needed to move forward)", () => {
+  /** main(["gates"]) against the fake Cloudflare above and a fake GitHub: staging proved `greenSha`, one open P0 issue (G2 stops there). */
+  const gates = async (greenSha: string, hold?: string) => {
+    const saved = { fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, hold: process.env.CMUX_NEXT_PRODUCTION_HOLD }
+    process.env.GITHUB_TOKEN = "test-token"
+    if (hold === undefined) delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+    else process.env.CMUX_NEXT_PRODUCTION_HOLD = hold
+    const greenJobs = [
+      { name: "test", conclusion: "success" },
+      { name: "migrations-push-guard", conclusion: "success" },
+      { name: "deploy-staging", conclusion: "success", completed_at: "2026-10-19T00:00:00Z", steps: [{ name: "Smoke the API Worker; roll back on red", conclusion: "success" }] },
+    ]
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url)
+      if (url.host === "api.cloudflare.com") return fakeFetch(input)
+      if (url.host !== "api.github.com") throw new Error(`unexpected host ${url.host}`)
+      if (url.pathname.endsWith("/backend.yml/runs")) return Response.json({ workflow_runs: [{ id: 1, head_sha: greenSha }] })
+      if (url.pathname.endsWith("/runs/1/jobs")) return Response.json({ jobs: greenJobs })
+      if (url.pathname.endsWith("/issues")) return Response.json(url.searchParams.get("labels")?.endsWith("P0") ? [{ number: 7 }] : [])
+      throw new Error(`unexpected GitHub path ${url.pathname}`)
+    }) as typeof fetch
+    const lines: Array<string> = []
+    const [log, error] = [console.log, console.error]
+    console.log = (...a: Array<unknown>) => void lines.push(a.join(" "))
+    console.error = (...a: Array<unknown>) => void lines.push(a.join(" "))
+    try {
+      return { code: await main(["gates"]), out: lines.join("\n") }
+    } finally {
+      ;[console.log, console.error] = [log, error]
+      globalThis.fetch = saved.fetch
+      if (saved.token === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = saved.token
+      if (saved.hold === undefined) delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+      else process.env.CMUX_NEXT_PRODUCTION_HOLD = saved.hold
+    }
+  }
+  // B was promoted, then rolled back onto A: production serves A and holds B.
+  const rolledBackFromB = () => {
+    versions = { v2: code(repo.B), v1: code(repo.A) }
+    setDeployments([{ version: "v1", trigger: "rollback" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+  }
+  it("the rolled-back commit itself holds", async () => {
+    rolledBackFromB()
+    const r = await gates(repo.B)
+    expect(r.code).toBe(3)
+    expect(r.out).toContain(`HOLD (rolled-back) production serves a rollback of ${repo.B.slice(0, 12)}`)
+  })
+  it("a newer staging-proven commit goes on to the other gates with the hold switch unset", async () => {
+    rolledBackFromB()
+    const r = await gates(repo.C)
+    expect(r.out).not.toContain("HOLD (rolled-back)")
+    expect(r.out).not.toContain("HOLD (G6)")
+    expect(r.out).toContain("HOLD (G2) open P0/P1 regression issues: #7")
+  })
+  it("a hold a person set still stops it first", async () => {
+    rolledBackFromB()
+    const r = await gates(repo.C, "on: launch freeze")
+    expect(r.out).toContain("HOLD (G6) hold switch: on? launch freeze")
+  })
+  it("the Chief off switch still holds every automatic promote", async () => {
+    versions = { v2: off(repo.A), v1: code(repo.A) }
+    setDeployments([{ version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+    const r = await gates(repo.C)
+    expect(r.out).toContain("HOLD (rolled-back) production serves the Chief off switch")
   })
 })

@@ -91,3 +91,66 @@ fn identify_lists_subscribe_scroll_on_attach() {
         "identify does not list {SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY}: {capabilities:?}"
     );
 }
+
+#[test]
+fn screen_identity_replay_and_live_events_are_opt_in() {
+    let mux = test_mux();
+    let opted = connect(&mux);
+    let reply = line(
+        &mux,
+        &opted,
+        json!({"id": "info", "cmd": "set-client-info", "name": "cmux-next",
+               "capabilities": [SCREEN_DEVICE_IDENTITY_CAPABILITY]}),
+    );
+    assert_eq!(reply["ok"], true, "{reply}");
+    let legacy = connect(&mux);
+    for conn in [&opted, &legacy] {
+        assert!(handle_connection_message(
+            &mux,
+            conn.0,
+            &json!({"id": "sub", "cmd": "subscribe"}).to_string(),
+            &conn.1,
+            &conn.3,
+        ));
+    }
+
+    mux.emit(MuxEvent::ScreenDeviceChanged(Some("550e8400-e29b-41d4-a716-446655440000".into())));
+    mux.emit(MuxEvent::Status("screen-identity-marker".into()));
+
+    let opted_seen = until_marker(&opted, "screen-identity-marker");
+    let opted_events: Vec<Value> = opted_seen
+        .iter()
+        .filter_map(|message| serde_json::from_str(message).ok())
+        .filter(|message: &Value| message["event"] == "screen-device-changed")
+        .collect();
+    assert!(
+        !opted_events.is_empty(),
+        "an opted-in owner must receive the identity replay/live event: {opted_seen:?}"
+    );
+    assert!(
+        opted_events.iter().all(|message| message["screen_device_id"].is_null()),
+        "identity payloads must read the current cache, not a stale queued value: {opted_events:?}"
+    );
+    let legacy_seen = until_marker(&legacy, "screen-identity-marker");
+    assert!(
+        legacy_seen.iter().all(|message| !message.contains("screen-device-changed")),
+        "a legacy owner must not receive the additive identity event: {legacy_seen:?}"
+    );
+}
+
+#[test]
+fn identify_lists_screen_identity_capability() {
+    let mux = test_mux();
+    let identity = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false, revisions: false },
+        &test_writer(),
+    )
+    .unwrap();
+    let capabilities = identity["capabilities"].as_array().cloned().unwrap_or_default();
+    assert!(
+        capabilities.iter().any(|c| c == SCREEN_DEVICE_IDENTITY_CAPABILITY),
+        "identify does not list {SCREEN_DEVICE_IDENTITY_CAPABILITY}: {capabilities:?}"
+    );
+}

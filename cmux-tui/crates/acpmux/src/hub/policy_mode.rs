@@ -134,24 +134,40 @@ pub(super) fn claude_spawn_mode(
     policy_mode(policy, "claude", &offered)
 }
 
-/// The modes a new chat a remote connection started on the Codex bridge settles in, the start
-/// first (`server/remote_guard.rs` `settle_web_session_mode`). A chat an enrolled peer of this
-/// host started (`peer`) under deny-all (`policy`: the chat's narrower policy) settles in the
-/// policy's own `read-only` (`policy_mode`) when the harness offers it: its sandbox refuses every
-/// write and the network, and deny-all refuses every escalation out of it, where in `ask`
-/// deny-all refuses every command Codex asks about, reads included. Anything else, the Web and
-/// a paired device included, settles in the bridge's asking modes
+/// The modes a new chat a remote connection started on the Codex bridge settles in, in the order
+/// they are tried, the start first (`server/remote_guard.rs` `settle_web_session_mode`). A chat an
+/// enrolled peer of this host started (`peer`) under deny-all (`policy`: the chat's narrower
+/// policy) settles in the policy's own `read-only` (`policy_mode`) when the harness offers it: its
+/// sandbox refuses every write and the network, and deny-all refuses every escalation out of it,
+/// where in `ask` deny-all refuses every command Codex asks about, reads included.
+///
+/// A chat at its caller's VM boundary (`vm_boundary`: `vm_boundary.rs`
+/// `vm_boundary_peer_approves` held for it, and full access is allowed here) with no narrower
+/// policy settles in `agent-full-access` when the harness offers it, the asking modes after it:
+/// the VM is the boundary, as for a Claude Code chat there (`remote_sandbox.rs`
+/// `boundary_plan`). In `ask` Codex's own workspace-write sandbox keeps every write outside the
+/// chat's folder and `/tmp` read-only and the network off, so a lane there could not take a
+/// checkout (`wt new` and its mirror's `fetch.lock`), write `~/.local/state` or `~/.cache`, or
+/// reach the daemon's socket (`acpmux send`).
+///
+/// Anything else, the Web and a paired device included, settles in the bridge's asking modes
 /// (`web_modes::BRIDGE_ASKING_MODES`).
 pub(crate) fn bridge_settle_modes(
     peer: bool,
     policy: Option<PermissionPolicy>,
     offered: &[String],
+    vm_boundary: bool,
 ) -> Vec<String> {
     const READ_ONLY: &str = "read-only";
+    const FULL_ACCESS: &str = "agent-full-access";
     if peer && policy == Some(PermissionPolicy::DenyAll) && offered.iter().any(|m| m == READ_ONLY) {
         return vec![READ_ONLY.to_owned()];
     }
-    crate::web_modes::BRIDGE_ASKING_MODES.iter().map(|m| (*m).to_owned()).collect()
+    let asking = crate::web_modes::BRIDGE_ASKING_MODES.iter().map(|m| (*m).to_owned());
+    if peer && vm_boundary && policy.is_none() && offered.iter().any(|m| m == FULL_ACCESS) {
+        return std::iter::once(FULL_ACCESS.to_owned()).chain(asking).collect();
+    }
+    asking.collect()
 }
 
 /// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
@@ -167,12 +183,24 @@ fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
 
 impl Hub {
     /// [`bridge_settle_modes`] for `session`, which an enrolled peer started when `peer`: its
-    /// narrower policy (its own, else a deny-all default) and the modes its harness offers.
+    /// narrower policy (its own, else a deny-all default), the modes its harness offers, and
+    /// whether it is at a VM boundary this machine takes (`vm_boundary.rs`) where full access is
+    /// allowed (`sessions.allowFullAccess`, MDM).
     pub(crate) async fn bridge_settle_modes(&self, session: &Session, peer: bool) -> Vec<String> {
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
         let offered = super::start_mode::offered_ids(&meta);
-        bridge_settle_modes(peer, narrow_policy(&meta, default), &offered)
+        let vm_boundary = super::vm_boundary_peer_approves(
+            self.vm_boundary_unsandboxed(&meta).await,
+            cfg!(target_os = "macos"),
+            peer,
+            self.approve_all_allowed(),
+        ) && self.off_latch().allows_full_access()
+            // Its own approve-all (asked, or the vmHost grant `requests.rs` gives first), never a
+            // chat that only has no narrower policy (a switched fork that took none).
+            && meta.permission_policy.as_deref().and_then(|p| p.parse().ok())
+                == Some(PermissionPolicy::ApproveAll);
+        bridge_settle_modes(peer, narrow_policy(&meta, default), &offered, vm_boundary)
     }
 
     /// `session`'s policy mode when its policy is narrower than approve-all (module docs):
@@ -309,6 +337,20 @@ impl Hub {
             if s.turn().is_some_and(|t| t.control == Control::Web) {
                 self.remote_floor_cancel(s, "remote.full_access_ended");
             }
+        }
+        // A Web turn the owner's phone drove in a mode that does not ask, in a chat no policy
+        // holds (a chat started on this machine): with the phone removed or its setting off, the
+        // floor no longer lets it go on (`remote_floor_breach`). It ends now, as the held ones do.
+        let floored: Vec<Arc<Session>> = self
+            .sessions()
+            .into_iter()
+            .filter(|s| !held.iter().any(|h| Arc::ptr_eq(h, s)))
+            .filter(|s| s.turn().is_some_and(|t| t.control == Control::Web))
+            .filter(|s| self.remote_floor_breach(s).is_some())
+            .collect();
+        for s in &floored {
+            tracing::warn!(session = %s.id, "a phone's Full access ended: its turn in a mode that does not ask ends");
+            self.remote_floor_cancel(s, "remote.full_access_ended");
         }
         futures::future::join_all(held.iter().map(|s| self.follow_policy(s))).await;
         // After the move: a turn that began before it ran in the wider mode.
@@ -832,17 +874,60 @@ mod tests {
     fn a_remote_bridge_start_settles_in_read_only_only_for_a_peer_under_deny_all() {
         let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
         let deny_all = Some(PermissionPolicy::DenyAll);
-        assert_eq!(bridge_settle_modes(true, deny_all, &codex), ids(&["read-only"]));
-        assert_eq!(bridge_settle_modes(false, deny_all, &codex), ids(&["ask"]));
-        assert_eq!(bridge_settle_modes(true, deny_all, &ids(&["ask", "agent"])), ids(&["ask"]));
-        assert_eq!(bridge_settle_modes(true, deny_all, &[]), ids(&["ask"]));
+        for vm in [false, true] {
+            assert_eq!(bridge_settle_modes(true, deny_all, &codex, vm), ids(&["read-only"]));
+            assert_eq!(bridge_settle_modes(false, deny_all, &codex, vm), ids(&["ask"]));
+            assert_eq!(
+                bridge_settle_modes(true, deny_all, &ids(&["ask", "agent"]), vm),
+                ids(&["ask"])
+            );
+            assert_eq!(bridge_settle_modes(true, deny_all, &[], vm), ids(&["ask"]));
+        }
         for policy in [
             None,
             Some(PermissionPolicy::Ask),
             Some(PermissionPolicy::ApproveReads),
             Some(PermissionPolicy::ApproveEdits),
         ] {
-            assert_eq!(bridge_settle_modes(true, policy, &codex), ids(&["ask"]), "{policy:?}");
+            assert_eq!(
+                bridge_settle_modes(true, policy, &codex, false),
+                ids(&["ask"]),
+                "{policy:?}"
+            );
+        }
+    }
+
+    /// A Codex chat the owner's peer daemon starts at its VM boundary (a lane VM of its own
+    /// fleet) with approve-all runs in full access, the VM being the boundary, so the lane can
+    /// write its host's wt mirrors, `~/.local/state` and `~/.cache` and reach the daemon's socket
+    /// for `acpmux send`; `ask` (Codex's workspace-write sandbox) only if that is refused. Never
+    /// for a narrower policy, a Web client or paired device, a chat away from the boundary, or a
+    /// harness that offers no full access.
+    #[test]
+    fn a_peer_codex_start_at_the_vm_boundary_runs_in_full_access() {
+        let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
+        assert_eq!(
+            bridge_settle_modes(true, None, &codex, true),
+            ids(&["agent-full-access", "ask"])
+        );
+        assert_eq!(bridge_settle_modes(true, None, &codex, false), ids(&["ask"]), "no boundary");
+        assert_eq!(bridge_settle_modes(false, None, &codex, true), ids(&["ask"]), "not the peer");
+        assert_eq!(
+            bridge_settle_modes(true, None, &ids(&["ask", "agent"]), true),
+            ids(&["ask"]),
+            "no full access offered"
+        );
+        for policy in [
+            PermissionPolicy::Ask,
+            PermissionPolicy::ApproveReads,
+            PermissionPolicy::ApproveEdits,
+            PermissionPolicy::Review,
+        ] {
+            assert_eq!(
+                bridge_settle_modes(true, Some(policy), &codex, true),
+                ids(&["ask"]),
+                "{policy:?}"
+            );
         }
     }
 

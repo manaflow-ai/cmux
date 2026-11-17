@@ -37,6 +37,25 @@ fn agent_hooks_flag_collects_providers() {
     assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
 }
 
+/// `--via-machine M` reaches a loopback daemon on another of the person's machines through
+/// acpmux's carrier; it owns the route's dial, so no tunnel flag may come with it.
+#[test]
+fn via_machine_names_the_machine_and_owns_the_dial() {
+    let args = ["ws://127.0.0.1:7781/v1/link", "--via-machine", "mac"].map(str::to_string);
+    assert_eq!(parse_connect_flags(&args).unwrap().via_machine.as_deref(), Some("mac"));
+    let twice = ["ws://127.0.0.1:7781/v1/link", "--via-machine", "a", "--via-machine", "b"]
+        .map(str::to_string);
+    assert!(parse_connect_flags(&twice).is_err());
+    for tunnel in ["--wireguard-hub", "--wireguard-config"] {
+        let both = ["ws://127.0.0.1:7781/v1/link", "--via-machine", "mac", tunnel, "/tmp/x"]
+            .map(str::to_string);
+        let error = parse_connect_flags(&both).err().expect("both flags must be rejected");
+        assert_eq!(error.to_string(), catalog().remote_client.via_machine_conflict);
+    }
+    // `exec` and `cp` take it as a value option, so its value is never the command.
+    assert!(REMOTE_VALUE_OPTIONS.contains(&"--via-machine"));
+}
+
 #[test]
 fn wireguard_config_and_hub_are_mutually_exclusive() {
     let both = [
@@ -620,7 +639,17 @@ fn reconnect_backoff_is_configurable() {
 
 #[test]
 fn every_remote_subcommand_help_exits_without_running_the_command() {
-    for command in ["connect", "ssh", "forward", "dial-tcp", "rpc", "enroll", "remote-probe"] {
+    for command in [
+        "connect",
+        "ssh",
+        "forward",
+        "dial-tcp",
+        "rpc",
+        "remote-exec",
+        "remote-cp",
+        "enroll",
+        "remote-probe",
+    ] {
         let args = [command.to_string(), "--help".to_string()];
         assert!(
             run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
@@ -1071,6 +1100,54 @@ fn enrollment_admin_parser_rejects_unknown_duplicate_missing_and_inapplicable_ar
 }
 
 #[test]
+fn enroll_create_binds_to_a_device_key_only_when_both_are_valid() {
+    let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([3_u8; 32]);
+    let parsed = parse_enroll_admin_args(
+        &["create", "--device-key", &key, "--device-name", "agent-vm"].map(str::to_string),
+    )
+    .unwrap();
+    assert_eq!(parsed.device_key.as_deref(), Some(key.as_str()));
+    assert_eq!(parsed.device_name.as_deref(), Some("agent-vm"));
+
+    // Review finding P2-F1: URL-safe base64 keys may begin with `--`.
+    let dashed = "--xB2u1TMQGQfWhu3U-iRb62JmaBNqBDnoRBUzReaEg";
+    let parsed =
+        parse_enroll_admin_args(&["create", "--device-key", dashed].map(str::to_string)).unwrap();
+    assert_eq!(parsed.device_key.as_deref(), Some(dashed));
+
+    for args in [
+        vec!["approve", "id", "--device-key", key.as_str()],
+        vec!["create", "--device-name", "agent-vm"],
+        vec!["create", "--device-key", "too-short"],
+        vec!["create", "--device-key", key.as_str(), "--device-key", key.as_str()],
+        vec!["create", "--device-key"],
+    ] {
+        let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+        assert!(parse_enroll_admin_args(&args).is_err(), "unexpectedly accepted {args:?}");
+    }
+}
+
+#[test]
+fn device_key_prints_the_key_a_bound_invitation_reads() {
+    let state = tempfile::tempdir().unwrap();
+    let parsed = parse_device_key_args(
+        &["--state-dir", &state.path().display().to_string(), "--json"].map(str::to_string),
+    )
+    .unwrap();
+    assert!(parsed.json);
+    assert_eq!(parsed.state_dir.as_deref(), Some(state.path()));
+    let store = ClientIdentityStore::load_or_create(state.path().join("client")).unwrap();
+    let bound = BoundDevice::parse(&store.device_public_key(), None).unwrap();
+    assert_eq!(bound.public_key, store.identity().public_key());
+    assert_eq!(bound.fingerprint(), store.identity().fingerprint());
+
+    for args in [vec!["--json", "--json"], vec!["--state-dir"], vec!["extra"]] {
+        let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+        assert!(parse_device_key_args(&args).is_err(), "unexpectedly accepted {args:?}");
+    }
+}
+
+#[test]
 fn known_daemon_parser_is_strict_and_supports_forget() {
     let parsed = parse_known_daemons_args(
         &["forget", "fingerprint", "--state-dir", "/tmp/client-state", "--json"]
@@ -1192,6 +1269,7 @@ fn remote_client_locale_fixture() {
         "rpc",
         "enroll",
         "known-daemons",
+        "remote-device-key",
         "remote-probe",
         "remote-link",
         "install-self",
@@ -2547,4 +2625,354 @@ fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
         remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
             .is_err()
     );
+}
+
+fn words(args: &[&str]) -> Vec<String> {
+    args.iter().map(|arg| arg.to_string()).collect()
+}
+
+#[test]
+fn exec_splits_route_flags_and_command_at_the_first_double_dash() {
+    let parsed = exec_cp::parse_exec_args(&words(&[
+        "ws://127.0.0.1:47931/",
+        "--state-dir",
+        "--cwd",
+        "--cwd",
+        "/tmp/fr",
+        "--env",
+        "A=1=2",
+        "--env",
+        "B=",
+        "-t",
+        "--timeout-seconds",
+        "30",
+        "--",
+        "sh",
+        "-c",
+        "echo hi -- --cwd x",
+    ]))
+    .unwrap();
+    // A connect option's value is never read as an exec option.
+    assert_eq!(parsed.connect, words(&["ws://127.0.0.1:47931/", "--state-dir", "--cwd"]));
+    assert_eq!(parsed.cwd.as_deref(), Some("/tmp/fr"));
+    assert_eq!(parsed.env.get("A").map(String::as_str), Some("1=2"));
+    assert_eq!(parsed.env.get("B").map(String::as_str), Some(""));
+    assert!(parsed.tty);
+    assert_eq!(parsed.timeout_seconds, Some(30));
+    assert_eq!(parsed.argv, words(&["sh", "-c", "echo hi -- --cwd x"]));
+    // The connect half is what the connect parser accepts.
+    let flags = parse_connect_flags(&parsed.connect).unwrap();
+    assert_eq!(flags.route.as_deref(), Some("ws://127.0.0.1:47931/"));
+    assert_eq!(flags.state_dir.as_deref(), Some(Path::new("--cwd")));
+}
+
+#[test]
+fn exec_refuses_a_missing_command_and_bad_options() {
+    for args in [
+        &["box", "ls"][..],
+        &["box", "--"],
+        &["--cwd", "relative", "--", "ls"],
+        &["--cwd", "/a", "--cwd", "/b", "--", "ls"],
+        &["--env", "=1", "--", "ls"],
+        &["--env", "NOEQUALS", "--", "ls"],
+        &["--timeout-seconds", "0", "--", "ls"],
+        &["--timeout-seconds", "soon", "--", "ls"],
+        &["--cwd"],
+    ] {
+        assert!(exec_cp::parse_exec_args(&words(args)).is_err(), "{args:?}");
+    }
+    let plain = exec_cp::parse_exec_args(&words(&["--", "ls", "-la"])).unwrap();
+    assert!(plain.connect.is_empty() && plain.cwd.is_none() && !plain.tty);
+    assert_eq!(plain.argv, words(&["ls", "-la"]));
+}
+
+#[test]
+fn help_scan_stops_at_double_dash_so_the_command_keeps_its_help_flag() {
+    assert!(!remote_help_requested(&words(&["box", "--", "ls", "--help"])));
+    assert!(remote_help_requested(&words(&["box", "--help", "--", "ls"])));
+    assert!(!remote_help_requested(&words(&["--cwd", "--help", "--", "ls"])));
+}
+
+#[test]
+fn cp_reads_route_paths_and_json() {
+    use exec_cp::CopyEndpoint;
+    let parsed = exec_cp::parse_cp_args(&words(&[
+        "box",
+        "--state-dir",
+        "/s",
+        "--json",
+        "./a.bin",
+        "remote:/srv/a.bin",
+    ]))
+    .unwrap();
+    assert_eq!(parsed.connect, words(&["--state-dir", "/s", "box"]));
+    assert_eq!(parsed.source, CopyEndpoint::Local("./a.bin".into()));
+    assert_eq!(parsed.destination, CopyEndpoint::Remote("/srv/a.bin".into()));
+    assert!(parsed.json);
+
+    let download = exec_cp::parse_cp_args(&words(&["remote:/var/log/x", "--", "-out"])).unwrap();
+    assert!(download.connect.is_empty());
+    assert_eq!(download.source, CopyEndpoint::Remote("/var/log/x".into()));
+    assert_eq!(download.destination, CopyEndpoint::Local("-out".into()));
+    assert!(!download.json);
+}
+
+#[test]
+fn cp_needs_exactly_one_absolute_remote_path() {
+    for args in [
+        &["a", "b"][..],
+        &["remote:/a", "remote:/b"],
+        &["box", "a", "remote:relative"],
+        &["only-one"],
+        &["box", "extra", "a", "remote:/b"],
+    ] {
+        assert!(exec_cp::parse_cp_args(&words(args)).is_err(), "{args:?}");
+    }
+    assert!(exec_cp::parse_remote_path("./local").is_none());
+    assert_eq!(exec_cp::parse_remote_path("remote:/x/y").unwrap().unwrap(), "/x/y");
+    assert!(exec_cp::parse_remote_path("remote:~/x").unwrap().is_err());
+}
+
+#[test]
+fn exec_exit_status_maps_code_signal_and_unknown() {
+    assert_eq!(exec_cp::exit_status_code(Some(0), None), 0);
+    assert_eq!(exec_cp::exit_status_code(Some(3), None), 3);
+    assert_eq!(exec_cp::exit_status_code(Some(255), None), 255);
+    assert_eq!(exec_cp::exit_status_code(None, Some(2)), 130);
+    assert_eq!(exec_cp::exit_status_code(None, Some(9)), 137);
+    assert_eq!(exec_cp::exit_status_code(None, None), 255);
+    assert_eq!(exec_cp::exit_status_code(Some(-1), None), 255);
+    assert_eq!(exec_cp::exit_status_code(Some(256), None), 255);
+}
+
+#[test]
+fn exec_exit_status_reaches_run_without_a_message() {
+    let error: anyhow::Error = ExitWith { code: 3, error: None }.into();
+    assert_eq!(error.downcast_ref::<ExitWith>().map(|exit| exit.code), Some(3));
+    // A parse failure is a local failure: 255, like ssh.
+    let args = words(&["remote-exec", "box", "ls"]);
+    assert_eq!(run(&args, "usage", || panic!("exec must not load TUI config")), 255);
+}
+
+#[test]
+fn cp_paths_and_report() {
+    assert_eq!(exec_cp::workspace_relative("/srv/app/a"), "srv/app/a");
+    assert_eq!(exec_cp::workspace_relative("/"), "");
+    let report = exec_cp::transfer_report(20 * 1024 * 1024, Duration::from_secs(2));
+    assert_eq!(report["bytes"], 20 * 1024 * 1024);
+    assert_eq!(report["seconds"], 2.0);
+    assert_eq!(report["mib_per_s"], 10.0);
+}
+
+#[test]
+fn exec_fails_when_output_was_lost() {
+    // P1 review of #43048: a truncated stream or a replay gap must not look
+    // like success to an agent.
+    assert_eq!(exec_cp::final_status(3, false).unwrap(), 3);
+    assert_eq!(exec_cp::final_status(0, false).unwrap(), 0);
+    assert!(exec_cp::final_status(0, true).is_err());
+    assert!(exec_cp::final_status(7, true).is_err());
+    // run() maps that error to 255 (see `exec_exit_status_reaches_run_without_a_message`).
+}
+
+#[test]
+fn download_never_widens_permissions() {
+    // P2-F2: the protocol says only whether the remote file is executable,
+    // so a new file starts from 0600 (0700) and the local umask applies.
+    assert_eq!(exec_cp::download_mode(false, 0o022, None), 0o600);
+    assert_eq!(exec_cp::download_mode(true, 0o022, None), 0o700);
+    assert_eq!(exec_cp::download_mode(true, 0o077, None), 0o700);
+    assert_eq!(exec_cp::download_mode(true, 0o177, None), 0o600);
+    // Replacing a file keeps its mode, narrowed to what a new file may have.
+    assert_eq!(exec_cp::download_mode(false, 0o022, Some(0o100600)), 0o600);
+    assert_eq!(exec_cp::download_mode(false, 0o022, Some(0o100400)), 0o400);
+    assert_eq!(exec_cp::download_mode(false, 0o022, Some(0o100644)), 0o600);
+    assert_eq!(exec_cp::download_mode(true, 0o022, Some(0o100750)), 0o700);
+}
+
+/// P2-F1 and P2-F3: the remote join of a large upload runs here on its real
+/// /bin/sh. A predictable staging name beside the destination (an attacker's
+/// symlink) must never be written through, and the joined file must stay
+/// 0600 until it is complete.
+#[cfg(target_os = "linux")]
+#[test]
+fn upload_assembly_writes_only_its_private_staging_and_stays_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let dest = root.path().join("out.bin");
+    let dest_text = dest.to_str().unwrap().to_owned();
+    let victim = root.path().join("victim");
+    fs::write(&victim, "keep").unwrap();
+    for name in ["out.bin.cmux-tmp", "out.bin.cmux-part.000000", "out.bin.cmux-part.000001"] {
+        std::os::unix::fs::symlink(&victim, root.path().join(name)).unwrap();
+    }
+    // A `cat` that records the mode of the file it appends to. Its stdout is
+    // that file: keep it on fd 3 for `stat`, whose own stdout is the log.
+    let bin = root.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    let log = root.path().join("cat.log");
+    fs::write(
+        bin.join("cat"),
+        "#!/bin/sh\nstat -L -c %a /proc/self/fd/3 3>&1 >> \"$CAT_LOG\"\nexec /bin/cat \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(bin.join("cat"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    let staging = tempfile::Builder::new().prefix(".cmux-cp.").tempdir_in(root.path()).unwrap();
+    let staging = staging.keep();
+    let staging_text = staging.to_str().unwrap().to_owned();
+    // Parts the way the daemon writes them (it refuses an existing path).
+    for (index, part) in ["first part, ", "second part"].iter().enumerate() {
+        let path = exec_cp::upload_part_path(&staging_text, &dest_text, index as u64);
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&path);
+        if let Ok(file) = file.as_mut() {
+            file.write_all(part.as_bytes()).unwrap();
+        } else {
+            // The old layout's part names are the symlinks above: writing
+            // them is the overwrite this test is about.
+            fs::write(&path, part).unwrap();
+        }
+    }
+    let argv = exec_cp::assemble_argv(&staging_text, &dest_text, 2, "640");
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let status = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("umask 022; exec \"$@\"")
+        .arg("sh")
+        .args(&argv)
+        .env("PATH", path)
+        .env("CAT_LOG", &log)
+        .status()
+        .unwrap();
+
+    assert!(status.success(), "assembly failed: {status}");
+    assert_eq!(fs::read_to_string(&victim).unwrap(), "keep", "wrote through a symlink");
+    assert!(!fs::symlink_metadata(&dest).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(&dest).unwrap(), "first part, second part");
+    assert_eq!(fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o640);
+    let modes = fs::read_to_string(&log).unwrap();
+    assert!(
+        !modes.is_empty() && modes.lines().all(|mode| mode == "600"),
+        "joined file modes while it grew: {modes:?}"
+    );
+    assert!(!staging.exists(), "staging dir left behind");
+}
+
+/// Runs the upload join of `parts` into `dest` the way the remote does, with
+/// `bin` (when given) first on PATH. Returns the staging dir and the status.
+#[cfg(unix)]
+fn run_assembly(
+    root: &Path,
+    dest: &Path,
+    parts: &[&str],
+    bin: Option<&Path>,
+) -> (PathBuf, std::process::ExitStatus) {
+    let dest_text = dest.to_str().unwrap().to_owned();
+    let staging = tempfile::Builder::new().prefix(".cmux-cp.").tempdir_in(root).unwrap().keep();
+    let staging_text = staging.to_str().unwrap().to_owned();
+    for (index, part) in parts.iter().enumerate() {
+        fs::write(exec_cp::upload_part_path(&staging_text, &dest_text, index as u64), part)
+            .unwrap();
+    }
+    let argv = exec_cp::assemble_argv(&staging_text, &dest_text, parts.len() as u64, "600");
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg("exec \"$@\"").arg("sh").args(&argv).env("DEST", dest);
+    if let Some(bin) = bin {
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        command.env("PATH", path);
+    }
+    (staging, command.status().unwrap())
+}
+
+/// P3-F1 (review of #43048): `mv` onto a directory moves into it. An upload
+/// whose destination is an existing directory must fail and leave that
+/// directory alone, not overwrite a file in it named like a staging file.
+#[cfg(unix)]
+#[test]
+fn upload_assembly_refuses_a_directory_destination() {
+    let root = tempfile::tempdir().unwrap();
+    let dest = root.path().join("payload");
+    fs::create_dir(&dest).unwrap();
+    fs::write(dest.join("assembled"), "keep").unwrap();
+
+    let (staging, status) = run_assembly(root.path(), &dest, &["new ", "data"], None);
+
+    assert!(!status.success(), "assembly onto a directory succeeded");
+    assert_eq!(fs::read_to_string(dest.join("assembled")).unwrap(), "keep");
+    let names: Vec<_> =
+        fs::read_dir(&dest).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    assert_eq!(names, vec![OsString::from("assembled")], "wrote into the directory");
+    assert!(!staging.exists(), "staging dir left behind");
+}
+
+/// P3-F1: a directory that appears at the destination after the check (an
+/// `mv` that makes it first stands in for the race) gets the file under the
+/// staging dir's random name, which is taken back out, and the copy fails.
+#[cfg(unix)]
+#[test]
+fn upload_assembly_takes_back_a_file_moved_into_a_racing_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let dest = root.path().join("payload");
+    let bin = root.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    fs::write(
+        bin.join("mv"),
+        "#!/bin/sh\nfor last; do :; done\n[ \"$last\" = \"$DEST\" ] && mkdir \"$DEST\"\nexec /bin/mv \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(bin.join("mv"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    let (staging, status) = run_assembly(root.path(), &dest, &["data"], Some(&bin));
+
+    assert!(!status.success(), "assembly into a racing directory succeeded");
+    assert!(dest.is_dir());
+    assert_eq!(fs::read_dir(&dest).unwrap().count(), 0, "left the file in the directory");
+    assert!(!staging.exists(), "staging dir left behind");
+}
+
+/// P3-F2: a small upload is one part through the same join, and an empty
+/// file is none; both replace an existing file with the new mode.
+#[cfg(unix)]
+#[test]
+fn upload_assembly_handles_one_part_and_an_empty_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    for parts in [&["small"][..], &[]] {
+        let dest = root.path().join("out.txt");
+        fs::write(&dest, "old").unwrap();
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o644)).unwrap();
+        let (staging, status) = run_assembly(root.path(), &dest, parts, None);
+        assert!(status.success(), "assembly of {parts:?} failed: {status}");
+        assert_eq!(fs::read_to_string(&dest).unwrap(), parts.concat());
+        assert_eq!(fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(!staging.exists(), "staging dir left behind");
+    }
+}
+
+#[test]
+fn cp_takes_vm_kind_as_a_connect_value() {
+    // P2-F1 (review of #43048): `owner` is the option's value, not a path.
+    let parsed = exec_cp::parse_cp_args(&words(&[
+        "box",
+        "--vm-kind",
+        "owner",
+        "./file",
+        "remote:/tmp/file",
+    ]))
+    .unwrap();
+    assert_eq!(parsed.connect, words(&["--vm-kind", "owner", "box"]));
+    assert_eq!(parsed.destination, exec_cp::CopyEndpoint::Remote("/tmp/file".into()));
+}
+
+#[test]
+fn tty_eof_releases_an_unterminated_line_first() {
+    // P3-F4: one Control-D after `foo` only hands `foo` to the reader.
+    assert!(!exec_cp::pty_line_open(None));
+    assert!(!exec_cp::pty_line_open(Some(b'\n')));
+    assert!(!exec_cp::pty_line_open(Some(0x04)));
+    assert!(exec_cp::pty_line_open(Some(b'o')));
 }

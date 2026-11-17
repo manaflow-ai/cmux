@@ -13,6 +13,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   setDefaultTimeout(150_000);
@@ -63,21 +64,24 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   }
 
   function read(page: Page) {
-    return page.evaluate(() => {
-      const prompt = document.querySelector(".acpmux-composer-prompt [contenteditable='true']");
-      const menu = document.querySelector<HTMLElement>(".acpmux-emoji-menu");
-      const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
-      const rect = menu?.getBoundingClientRect();
-      return {
-        text: prompt?.textContent ?? "",
-        active: prompt?.getAttribute("aria-activedescendant") ?? null,
-        rows: [...document.querySelectorAll<HTMLElement>(".acpmux-emoji-row")].map((row) =>
-          row.getAttribute("aria-label"),
-        ),
-        menu: rect ? { left: rect.left, right: rect.right, bottom: rect.bottom, width: rect.width } : null,
-        box: box ? { left: box.left, right: box.right, top: box.top } : null,
-      };
-    });
+    return page.evaluate(
+      ({ COMPOSER_EDITOR }) => {
+        const prompt = document.querySelector(COMPOSER_EDITOR);
+        const menu = document.querySelector<HTMLElement>(".acpmux-emoji-menu");
+        const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+        const rect = menu?.getBoundingClientRect();
+        return {
+          text: prompt?.textContent ?? "",
+          active: prompt?.getAttribute("aria-activedescendant") ?? null,
+          rows: [...document.querySelectorAll<HTMLElement>(".acpmux-emoji-row")].map((row) =>
+            row.getAttribute("aria-label"),
+          ),
+          menu: rect ? { left: rect.left, right: rect.right, bottom: rect.bottom, width: rect.width } : null,
+          box: box ? { left: box.left, right: box.right, top: box.top } : null,
+        };
+      },
+      { COMPOSER_EDITOR },
+    );
   }
 
   test("stills of every look, light and dark (with FAST_CHECKS_OUT)", async () => {

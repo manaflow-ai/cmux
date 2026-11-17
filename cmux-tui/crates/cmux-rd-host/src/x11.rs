@@ -1,8 +1,9 @@
 //! The Linux desktop: X damage, XShm readback of the damaged rectangle into an I420
-//! picture, H.264 (openh264 by default, x264 opt-in) and XTest injection.
+//! picture, H.264 (openh264 by default, x264 opt-in) and XTest injection. Two X
+//! connections: the loop thread's reads damage, the encode thread's reads pixels back.
 
 use crate::capture::{Capturer, Rect as CapRect};
-use crate::desktop::Desktop;
+use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::encoder::{self, EncCfg, H264Encoder};
 use crate::inject::Injector;
 use crate::stream::SessionCfg;
@@ -12,39 +13,42 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_proto::InputEvent;
 use std::os::fd::RawFd;
 
+/// The loop thread's half: damage and XTest input.
 pub struct X11Desktop {
     cap: Capturer,
     injector: Injector,
-    enc: Box<dyn H264Encoder>,
-    pic: I420,
     damage: Vec<crate::capture::DamageEvent>,
 }
 
-impl X11Desktop {
-    pub fn open(cfg: &SessionCfg) -> Res<Self> {
-        let cap = Capturer::new(&cfg.display, true)?;
-        // x264 and 4:2:0 need even sizes; an odd last column or row is not sent.
-        let (w, h) = (cap.width & !1, cap.height & !1);
-        let enc = encoder::open(&EncCfg {
-            width: w,
-            height: h,
-            fps: cfg.max_fps,
-            kbps: cfg.start_kbps,
-            threads: cfg.threads,
-            codec: &cfg.codec,
-            screen_content: cfg.content != "camera",
-            preset: &cfg.preset,
-            profile: &cfg.profile,
-            openh264_lib: cfg.openh264_lib.as_deref(),
-        })?;
-        Ok(Self {
-            injector: Injector::new(&cfg.display)?,
-            pic: I420::new(w as usize, h as usize),
-            damage: Vec::new(),
-            cap,
-            enc,
-        })
-    }
+/// The encode thread's half: XShm readback into the I420 picture and the encoder.
+pub struct X11Frames {
+    cap: Capturer,
+    enc: Box<dyn H264Encoder>,
+    pic: I420,
+}
+
+/// Opens both halves of the X display `cfg.display`.
+pub fn open(cfg: &SessionCfg) -> Res<Halves> {
+    let damage = Capturer::new(&cfg.display, true)?;
+    let cap = Capturer::new(&cfg.display, false)?;
+    // x264 and 4:2:0 need even sizes; an odd last column or row is not sent.
+    let (w, h) = (cap.width & !1, cap.height & !1);
+    let enc = encoder::open(&EncCfg {
+        width: w,
+        height: h,
+        fps: cfg.max_fps,
+        kbps: cfg.start_kbps,
+        threads: cfg.threads,
+        codec: &cfg.codec,
+        screen_content: cfg.content != "camera",
+        preset: &cfg.preset,
+        profile: &cfg.profile,
+        openh264_lib: cfg.openh264_lib.as_deref(),
+    })?;
+    let desktop =
+        X11Desktop { injector: Injector::new(&cfg.display)?, damage: Vec::new(), cap: damage };
+    let frames = X11Frames { pic: I420::new(w as usize, h as usize), cap, enc };
+    Ok((Box::new(desktop), Box::new(frames)))
 }
 
 impl Desktop for X11Desktop {
@@ -68,8 +72,22 @@ impl Desktop for X11Desktop {
         Ok(())
     }
 
+    fn inject(&mut self, event: &InputEvent) -> Res<()> {
+        self.injector.apply(event)
+    }
+
+    fn release_all(&mut self) -> Res<()> {
+        self.injector.release_all()
+    }
+
+    fn pump(&mut self) -> Res<Option<std::time::Duration>> {
+        self.injector.pump()
+    }
+}
+
+impl FrameSource for X11Frames {
     fn capture(&mut self, damage: Rect) -> Res<()> {
-        let (w, h) = self.size();
+        let (w, h) = (self.cap.width & !1, self.cap.height & !1);
         let r = CapRect { x: damage.x, y: damage.y, w: damage.width, h: damage.height }
             .align_even(w, h);
         if r.w > 0 && r.h > 0 {
@@ -81,7 +99,7 @@ impl Desktop for X11Desktop {
                 r.y as usize,
                 r.w as usize,
                 r.h as usize,
-                2,
+                cmux_encode::convert_threads(),
             );
         }
         Ok(())
@@ -101,17 +119,5 @@ impl Desktop for X11Desktop {
 
     fn encoder_name(&self) -> String {
         self.enc.name()
-    }
-
-    fn inject(&mut self, event: &InputEvent) -> Res<()> {
-        self.injector.apply(event)
-    }
-
-    fn release_all(&mut self) -> Res<()> {
-        self.injector.release_all()
-    }
-
-    fn pump(&mut self) -> Res<Option<std::time::Duration>> {
-        self.injector.pump()
     }
 }

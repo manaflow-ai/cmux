@@ -162,7 +162,25 @@ impl HolderLink {
         on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
         spawn_timeout: Duration,
     ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
-        let (client, listed) = crate::client::HolderClient::connect(socket, token)?;
+        let connected = crate::client::HolderClient::connect(socket, token)?;
+        Self::from_client(connected, on_lost, spawn_timeout)
+    }
+
+    /// The link of a connect the holder answered late
+    /// ([`crate::client::PendingClient`], after its `welcomed` returned
+    /// `Ok`): as [`Self::connect`] from there on.
+    pub fn from_pending(
+        pending: crate::client::PendingClient,
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
+    ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
+        Self::from_client(pending.into_client(), on_lost, SPAWN_TIMEOUT)
+    }
+
+    fn from_client(
+        (client, listed): (crate::client::HolderClient, Vec<Listed>),
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
+        spawn_timeout: Duration,
+    ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
         let (stream, reader, version) = client.into_parts();
         match stream.set_read_timeout(None) {
             Ok(()) => {}

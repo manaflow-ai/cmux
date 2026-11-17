@@ -64,6 +64,19 @@ extension BackdropSelectionSetting {
     /// `appearance.backgroundRotation`.
     public nonisolated static let rotationPath = ["appearance", "backgroundRotation"]
     public nonisolated static let rotationDefault: BackdropRotation = .daily
+    public nonisolated static let rotationRange: ClosedRange<Double> = 1...1440
+    public nonisolated static let rotationPlaceholder: Double = 30
+    /// `appearance.backgroundLight`: The picture of Background's Light and Dark (appearance) in the light appearance: any fixed background id (art, desktop, system:, file:). Unset: the dark side's picture.
+    public nonisolated static let lightPath = ["appearance", "backgroundLight"]
+    /// `appearance.backgroundDark`: The picture of Background's Light and Dark (appearance) in the dark appearance: any fixed background id. Unset: the light side's picture.
+    public nonisolated static let darkPath = ["appearance", "backgroundDark"]
+    /// `appearance.backgroundSchedule`: Background's Time of Day (schedule): when -> fixed background id. When is HH:MM (24 h, local) or sunrise | sunset | dawn | dusk | noon with an optional offset (sunset-30m, sunrise+1h). Now's picture is the latest entry at or before now (before the first: yesterday's last); a sun event that does not happen today is skipped (BackdropTimeOfDay).
+    public nonisolated static let schedulePath = ["appearance", "backgroundSchedule"]
+    /// `appearance.backgroundDynamic`: How a dynamic macOS wallpaper (system: .madesktop or .heic) changes: appearance shows its light or dark frame; time follows the sun (solar metadata), the clock (h24), or for a light/dark-only or not downloaded picture the sun above or below -6 degrees.
+    public nonisolated static let dynamicPath = ["appearance", "backgroundDynamic"]
+    public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
+    /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
+    public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -154,6 +167,12 @@ extension InterfaceSizeSetting {
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
     public nonisolated static let range: ClosedRange<Double> = 10...16
     public nonisolated static let placeholder: Double = 12
+}
+
+extension FontSmoothingSetting {
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.
+    public nonisolated static let configPath = ["appearance", "fontSmoothing"]
+    public nonisolated static let fallback: FontSmoothing = .auto
 }
 
 extension InterfaceScaleSetting {
@@ -305,7 +324,7 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
                 kind: .choice([
                     SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(NekoIconTheme.neko.rawValue, "Neko"),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
                 ]),
                 default: .string(NekoIconThemeSetting.fallback.rawValue),
                 keywords: ["icons", "icon", "theme", "neko", "cat"]

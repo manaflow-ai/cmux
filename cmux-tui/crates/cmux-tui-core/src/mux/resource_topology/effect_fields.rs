@@ -380,5 +380,19 @@ pub(super) fn semantic_creation_fields(fields: &Map<String, Value>) -> Map<Strin
     fields.remove("expected_revision");
     fields.remove("correlation_key");
     fields.remove("idempotency_key");
+    // Not a part of the request: what the daemon knew when the request arrived.
+    fields.remove(tab_strip::tab_place::ORIGIN_FIELD);
     fields
+}
+
+/// The fields that the effect of a creation reads: those of the request
+/// ([`semantic_creation_fields`]) and what the daemon knew when the request
+/// arrived, which the creation fingerprint leaves out. With no such field
+/// the tab of the creation does not find the slot that its request took.
+pub(super) fn creation_effect_fields(fields: &Map<String, Value>) -> Map<String, Value> {
+    let mut effect = semantic_creation_fields(fields);
+    if let Some(origin) = fields.get(tab_strip::tab_place::ORIGIN_FIELD) {
+        effect.insert(tab_strip::tab_place::ORIGIN_FIELD.to_string(), origin.clone());
+    }
+    effect
 }

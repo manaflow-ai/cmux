@@ -2237,7 +2237,12 @@ impl Hub {
         let (mut found, mut removed, mut noticed) = (false, false, false);
         let mut answer: Option<super::queue::Answer> = None;
         let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
-        let _ = self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
+        // Only the records naming it are read whole: by `promptId`, or by a list of prompts
+        // (`promptIds`), which the head does not hold.
+        let keep = &mut |h: &crate::store::KindHead<'_>| -> bool {
+            h.unread || h.names_many || h.prompt_id == Some(prompt_id)
+        };
+        let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
             match e.kind.as_str() {
                 "inbox" if own => found = true,
