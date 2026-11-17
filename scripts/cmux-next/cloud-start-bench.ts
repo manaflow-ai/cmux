@@ -57,7 +57,7 @@ export type StartTarget = {
   /** The guest daemon check; absent when this path's image has no agent daemon to check (the VM API's base image). */
   daemon?: boolean;
   /** After the timed phases, before the remove, untimed: the platform's kept create trace (traceFacts). A failure is no failure. */
-  trace?: (machine: string) => Promise<StartTrace | null>;
+  trace?: (machine: string) => Promise<StartTrace | string | null>;
   remove: (machine: string) => Promise<void>;
 };
 
@@ -125,8 +125,10 @@ export async function timeStart(target: StartTarget, run: number, clock: StartCl
     sample.error = String((error as Error)?.message ?? error).slice(0, 400);
   } finally {
     if (machine !== null && target.trace) {
-      const trace = await target.trace(machine).catch(() => null);
-      if (trace) sample.facts.trace = trace;
+      // A string is why there is none (the read's status), kept so the table says why it is missing.
+      const trace = await target.trace(machine).catch((e) => `read failed: ${String((e as Error)?.name ?? "error")}`);
+      if (typeof trace === "string") sample.facts.trace_missing = trace;
+      else if (trace) sample.facts.trace = trace;
     }
     if (machine !== null) await target.remove(machine).catch(() => undefined);
   }
@@ -212,11 +214,22 @@ export function traceFacts(view: unknown): StartTrace | null {
   return { outcome: typeof v.outcome === "string" ? v.outcome : null, attempt: num(v.attempt), totalMs: num(v.totalMs), steps };
 }
 
+/**
+ * A platform create's own steps from its answer (cmux-platform#1484: value.timings {path, steps, total_ms}, each step the
+ * ms since the request's entry; spare or create path). Kept as a StartTrace under facts.timings; none reads null.
+ */
+export function answerTimings(answer: unknown): StartTrace | null {
+  const t = answer && typeof answer === "object" ? (answer as Record<string, unknown>).timings : undefined;
+  if (!t || typeof t !== "object" || Array.isArray(t)) return null;
+  const v = t as Record<string, unknown>;
+  return traceFacts({ createTrace: { outcome: typeof v.path === "string" ? v.path : null, attempt: null, steps: v.steps, totalMs: v.total_ms } });
+}
+
 /** p50 of each kept trace step per path (steps in the order the samples first show them), and of totalMs. */
-export function traceStepSummary(samples: StartSample[]): Array<{ path: StartPath; traced: number; steps: Array<{ step: string; p50: number | null }> }> {
+export function traceStepSummary(samples: StartSample[], key: "trace" | "timings" = "trace"): Array<{ path: StartPath; traced: number; steps: Array<{ step: string; p50: number | null }> }> {
   return START_PATHS.flatMap((path) => {
     const traces = samples.flatMap((s) => {
-      const t = s.path === path ? (s.facts.trace as StartTrace | undefined) : undefined;
+      const t = s.path === path ? (s.facts[key] as StartTrace | undefined) : undefined;
       return t && typeof t === "object" && t.steps ? [t] : [];
     });
     if (!traces.length) return [];
@@ -230,15 +243,25 @@ export function traceStepSummary(samples: StartSample[]): Array<{ path: StartPat
 
 /** The extra table under the start bench: per path, the p50 of each create trace step (ms since the submit's entry). */
 export function traceStepMarkdown(samples: StartSample[]): string[] {
-  const rows = traceStepSummary(samples);
-  if (!rows.length) return [];
+  const table = (key: "trace" | "timings", title: string) => {
+    const rows = traceStepSummary(samples, key);
+    if (!rows.length) return [];
+    return [
+      title,
+      "",
+      "| Path | Traced | Step | p50 |",
+      "|---|---:|---|---:|",
+      ...rows.flatMap((r) => r.steps.map((s) => `| ${r.path} | ${r.traced} | ${s.step} | ${s.p50 === null ? "-" : `${Math.round(s.p50)} ms`} |`)),
+      "",
+    ];
+  };
+  // Why a platform sample kept no trace (the read's HTTP status, or "no createTrace"), counted, so a missing table says why.
+  const missing: Record<string, number> = {};
+  for (const s of samples) if (typeof s.facts.trace_missing === "string") missing[s.facts.trace_missing] = (missing[s.facts.trace_missing] ?? 0) + 1;
   return [
-    "Platform create trace, p50 per step in ms since the submit's entry (GET /v1/machines/{id}?include=trace; read after the timed phases):",
-    "",
-    "| Path | Traced | Step | p50 |",
-    "|---|---:|---|---:|",
-    ...rows.flatMap((r) => r.steps.map((s) => `| ${r.path} | ${r.traced} | ${s.step} | ${s.p50 === null ? "-" : `${Math.round(s.p50)} ms`} |`)),
-    "",
+    ...table("timings", "Platform create answer's own steps (value.timings), p50 per step in ms since the request's entry:"),
+    ...table("trace", "Platform create trace, p50 per step in ms since the submit's entry (GET /v1/machines/{id}?include=trace; read after the timed phases):"),
+    ...(Object.keys(missing).length ? [`Samples with no create trace: ${Object.entries(missing).map(([why, n]) => `${why} (${n})`).join(", ")}`, ""] : []),
   ];
 }
 

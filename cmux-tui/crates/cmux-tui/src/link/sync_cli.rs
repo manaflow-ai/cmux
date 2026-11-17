@@ -50,6 +50,7 @@ use cmux_json::JsonSet as _;
 
 mod base;
 pub(super) mod fence;
+pub(super) mod fetch;
 mod git_back;
 mod history;
 mod links;
@@ -74,6 +75,7 @@ pub(super) use seed_pull::{
     Exported, SeedBase, SeedPulled, export_move_to, export_to,
     failure_code as seed_pull_failure_code, is_sha, seed_pull, still_as_recorded,
 };
+pub(crate) mod estimate;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -416,6 +418,33 @@ fn write_checked(
     write_with_progress(remote, &job.target, &job.file, &mut ignored)
 }
 
+/// A step before the writes (`prepare`: looking at each file; `folders`: making the new
+/// folders) as a seed's progress line on stderr, `{"progress":{"phase","objects",
+/// "objects_total"}}`, at most every [`PROGRESS_EVERY`] once it took that long: the card
+/// shows the step moving instead of "0 of N files" (`moves::seed` hands it on).
+#[derive(Default)]
+struct Throttled {
+    last: Option<std::time::Instant>,
+    said: bool,
+}
+
+impl Throttled {
+    fn report(&mut self, phase: &str, done: u64, total: u64) {
+        let now = std::time::Instant::now();
+        // A step that took less than a beat says nothing; one that spoke says its end.
+        let last = *self.last.get_or_insert(now);
+        let due = now.duration_since(last) >= PROGRESS_EVERY || (self.said && done >= total);
+        if !due {
+            return;
+        }
+        (self.last, self.said) = (Some(now), true);
+        eprintln!(
+            "{}",
+            json!({"progress": {"phase": phase, "objects": done, "objects_total": total}})
+        );
+    }
+}
+
 /// Prints a push's progress on stderr as JSON lines, at most every
 /// [`PROGRESS_EVERY`]; the first and the last always go.
 pub(super) fn progress_printer() -> impl FnMut(Progress) {
@@ -433,6 +462,9 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
+    if let Some(too_big) = error.downcast_ref::<TooBig>() {
+        return ("folder_too_big".to_string(), too_big.to_string());
+    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())
@@ -644,13 +676,58 @@ pub(super) fn upload(
     if !file.metadata()?.is_file() {
         anyhow::bail!("{} is not a regular file", local.display());
     }
+    let meta = file.metadata()?;
     let read = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut reader = Counted { inner: file, read: read.clone() };
     let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
+    if upload_through_store(socket, &mut remote, local, &meta, parent, target, progress)? {
+        return Ok(());
+    }
     remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
     Ok(())
+}
+
+/// [`upload`] through the content-addressed store ([`store`]), when one is
+/// configured and the machine fetches from it: this Mac uploads the file's
+/// blobs over HTTPS, several at once, and the machine fetches them over the
+/// data-centre network. Over the link a part is one request the forwarder
+/// buffers whole, so a seed bundle crossed at about 200 KB/s (DEV
+/// 36050-cloud-multiplayer, 2026-11-13: 76 MB in 6 minutes). True when the
+/// machine wrote the file; false leaves it to the link, which nothing has
+/// written to. A fetch that may still be running fails the upload, as it
+/// does a push.
+fn upload_through_store(
+    socket: &Path,
+    remote: &mut Remote,
+    local: &Path,
+    meta: &std::fs::Metadata,
+    folder: &str,
+    target: &str,
+    progress: &mut dyn FnMut(u64),
+) -> anyhow::Result<bool> {
+    if meta.len() < STORE_MIN_BYTES || !store::usable(store::fetch_served(socket) == Some(true)) {
+        return Ok(false);
+    }
+    let mut file = LocalFile::listed(local, meta);
+    file.permissions = 0o600;
+    let pending = store::Pending {
+        target: target.to_string(),
+        sha256: hash(&file)?,
+        size: meta.len(),
+        file: &file,
+    };
+    match store::send(remote, folder, std::slice::from_ref(&pending), progress) {
+        Ok(sent) => Ok(sent.written.contains_key(target)),
+        Err(error) if error.is::<store::Unsettled>() || error.is::<store::Superseded>() => {
+            Err(error)
+        }
+        Err(error) => {
+            eprintln!("{}", json!({"store": {"used": false, "error": format!("{error:#}")}}));
+            Ok(false)
+        }
+    }
 }
 
 /// Copies the folder at `local` once to `target` on the machine (a
@@ -971,6 +1048,14 @@ fn link_targets(
 }
 
 /// Whether `folder` is in a git working copy (its top folder or below it).
+/// The heavy folder an untracked file `relative` of the repository at `top`
+/// is in, and why it stays on this Mac, as a copy leaves it out: the seed
+/// leaves out the same folders.
+pub(super) fn heavy_folder(top: &Path, relative: &str) -> Option<(String, &'static str)> {
+    local::heavy_folder(top, relative)
+        .map(|folder| (format!("{folder}/"), skips::Why::Heavy.text()))
+}
+
 pub(super) fn in_git(folder: &Path) -> bool {
     !matches!(local::GitDirs::of(folder), Ok(None))
 }
@@ -1029,6 +1114,15 @@ fn push_inner(
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
     let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
+    // A fresh chat copy that would take longer than the start's budget on this link goes as a
+    // first pass too, as its start said before any machine (estimate.rs). A re-push (a base is
+    // kept for the machine folder) never does: it would delete what a whole copy left there.
+    if head_links.is_none()
+        && !base::kept(&local, remote_root)
+        && let Some(estimate) = estimate::for_copy(&local, &mut set)
+    {
+        eprintln!("{}", json!({ "estimate": estimate.json() }));
+    }
     let before = set.files.len();
     let in_git = set.git;
     // A head link's file goes with it: the machine makes no link to nothing (`CLAUDE.md` to
@@ -1068,6 +1162,8 @@ fn push_inner(
     }
     set.skips.unnamed(set.skipped);
     stages.mark("list");
+    // The send's own time, for the link's rate (estimate.rs): everything after the listing.
+    let sending = std::time::Instant::now();
     let (skipped_files, skipped_counts) = set.skips.json();
     let mut summary =
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
@@ -1127,6 +1223,22 @@ fn push_inner(
             );
         }
     }
+    // A folder too big for the machine stops here, before any file goes. A
+    // file the machine already holds is rewritten in place and needs no new
+    // room; a daemon too old to name its free space is not asked.
+    let needed = set
+        .files
+        .iter()
+        .filter(|(relative, _)| !previous.files.contains_key(*relative))
+        .map(|(_, file)| size(file).unwrap_or(0))
+        .fold(0, u64::saturating_add);
+    if let Some(free) = remote
+        .stat(remote_root)?
+        .and_then(|stat| stat.get("available_bytes").and_then(serde_json::Value::as_u64))
+        && needed > free
+    {
+        return Err(TooBig { needed, free }.into());
+    }
     let mut links = LinkSync::default();
 
     // Deletes first, so a file that became a folder (or the reverse) is out
@@ -1162,6 +1274,10 @@ fn push_inner(
 
     let mut made: BTreeSet<String> = BTreeSet::new();
     let mut folder_links: BTreeMap<String, bool> = BTreeMap::new();
+    // How far the look at each file before the first write is: its hash and, outside
+    // folders this push makes, what the machine has there.
+    let mut checking = Throttled::default();
+    let checking_total = set.files.len() as u64;
     let mut tally = Tally {
         summary,
         next: Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() },
@@ -1175,7 +1291,10 @@ fn push_inner(
     // gathered and the machine fetches them after the loop.
     let via_store = store::usable(fetch_served);
     let (mut small, mut alone, mut deferred) = (Vec::new(), Vec::new(), Vec::new());
-    for (relative, file) in &set.files {
+    for (checked, (relative, file)) in set.files.iter().enumerate() {
+        if tally.progress.is_some() {
+            checking.report("prepare", checked as u64, checking_total);
+        }
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
         let sha256 = stages.hashing(|| hash(file))?;
@@ -1190,8 +1309,10 @@ fn push_inner(
         }
         // A symlink of the machine's on the way to it: the write would
         // land wherever that link points, so this Mac's file stays.
-        // Below a folder this push made, nothing is the machine's ([`fresh`]).
-        let ours = fresh.covers(parent);
+        // Below a folder this push made, nothing is the machine's ([`fresh`]), as long as the
+        // machine refuses a write through a symlink swapped in since: with no-follow writes it
+        // does; without them each folder is still checked, as before.
+        let ours = remote.no_follow() && fresh.covers(parent);
         if !ours && through_link(&mut remote, remote_root, parent, &mut folder_links)? {
             set.skips.note(relative, skips::Why::SymlinkTaken);
             tally.step(bytes);
@@ -1274,6 +1395,11 @@ fn push_inner(
     };
     let Tally { mut summary, mut next, .. } = tally;
     summary.store = store_part;
+    // A copy into a folder the machine had nothing of sent every byte it counted: its rate is the
+    // link's (a re-push spends most of its time on files it finds unchanged).
+    if previous.files.is_empty() {
+        estimate::record_rate(summary.bytes, sending.elapsed());
+    }
     // A link whose target is a link not made yet waits for the next pass;
     // passes go on while one makes something.
     let mut waiting: Vec<(&String, &Linked)> = set.links.iter().collect();
@@ -1733,6 +1859,69 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
         }
         Source::Bytes(bytes) => Box::new(std::io::Cursor::new(bytes.clone())),
     })
+}
+
+/// A push whose new files need more room than the machine has left.
+#[derive(Debug)]
+pub(super) struct TooBig {
+    needed: u64,
+    free: u64,
+}
+
+impl std::fmt::Display for TooBig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "The folder needs {} on the Cloud machine, which has {} free",
+            bytes_text(self.needed),
+            bytes_text(self.free)
+        )
+    }
+}
+
+impl std::error::Error for TooBig {}
+
+/// What a copy of `local` (`cmux link sync push`, by its rules) would send:
+/// its files and their bytes.
+pub(super) fn copy_estimate(local: &Path) -> anyhow::Result<(u64, u64)> {
+    let local =
+        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let set = local::collect(&local, local::Rules::Copy, None)?;
+    let bytes = set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add);
+    Ok((u64::try_from(set.files.len()).unwrap_or(u64::MAX), bytes))
+}
+
+/// "1 file", "36,796 files".
+pub(super) fn files_text(files: u64) -> String {
+    let digits = files.to_string();
+    let mut grouped = String::with_capacity(digits.len().saturating_add(digits.len() / 3));
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && digits.len().saturating_sub(index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    if files == 1 { "1 file".to_string() } else { format!("{grouped} files") }
+}
+
+/// `bytes` in decimal units as Finder shows them: "980 bytes", "12 kB",
+/// "12.8 GB".
+pub(super) fn bytes_text(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["kB", "MB", "GB", "TB", "PB"];
+    if bytes < 1000 {
+        return format!("{bytes} bytes");
+    }
+    // Tenths of the unit, rounded: exact in integers up to u64::MAX.
+    let mut scaled = bytes;
+    let mut unit = 0;
+    while scaled >= 999_950 && unit < UNITS.len().saturating_sub(1) {
+        scaled /= 1000;
+        unit = unit.saturating_add(1);
+    }
+    let tenths = scaled.saturating_add(50) / 100;
+    let (whole, tenth) = (tenths / 10, tenths % 10);
+    let name = UNITS.get(unit).copied().unwrap_or("PB");
+    if tenth == 0 { format!("{whole} {name}") } else { format!("{whole}.{tenth} {name}") }
 }
 
 fn size(file: &LocalFile) -> anyhow::Result<u64> {

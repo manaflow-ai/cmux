@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 6831d8c0fb2d9fa67d4657b67895eba689c62e3bba74d3fc3decc6198566063a
+// app-ffi-pin-checksum: e6f51bb5b1d63f5759459768aa0c4f07729a3ab3eb1881e48a92804c2c30a6da
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -680,6 +680,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextCloud",
                 "CmuxNextCodeRouter",
+                "CmuxNextCompat",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
@@ -1936,10 +1937,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudUI",
             // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
+            // Daemon: the Team section reads the person's Cloud machines' stores (CloudTeamFeature).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
+                "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextPalette",
@@ -1951,6 +1954,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextCloudUITests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCloudUI",
                 "CmuxNextDesign",
