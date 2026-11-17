@@ -172,6 +172,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-image-linear"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
@@ -941,6 +945,7 @@ dependencies = [
  "cmux-chief",
  "cmux-config",
  "cmux-conversation",
+ "cmux-image-linear",
  "cmux-mcp-connect",
  "cmux-panic-log",
  "cmux-sdk",

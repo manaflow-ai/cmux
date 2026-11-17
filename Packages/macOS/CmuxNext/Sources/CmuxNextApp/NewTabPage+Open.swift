@@ -95,8 +95,8 @@ extension NewTabPage {
         }
         // `showNow` already syncs the strip as part of presenting the adopted spare. Repeating
         // that full reconciliation on the same main-actor turn adds directly to the Cmd-T p95
-        // budget (cx-98s). Cold pages still need the immediate strip sync because their content
-        // is presented by the normal scheduler on a later frame.
+        // budget (cx-98s). A cold page still gets the strip sync now: its view is made by the
+        // scheduler at the next frame (`PaneController.apply`, the frame rule, decision 2026-11-16).
         if !showedSpare {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
@@ -235,7 +235,7 @@ extension NewTabPage {
                 return false
             }
         }
-        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, make)
+        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, opening: .tool, make)
     }
 
     /// Whether a pick on a page beside a lone chat (the main pane) docks the chat left once it lands, so the
@@ -369,7 +369,7 @@ extension NewTabPage {
 
     private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) -> Bool {
         let services = page.services
-        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
+        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind, opening: .tool) { target, placed in
             switch request.kind {
             case .terminal:
                 let typing = nativeTerminalTyping(request)

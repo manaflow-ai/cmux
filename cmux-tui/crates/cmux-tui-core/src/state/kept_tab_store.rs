@@ -18,7 +18,7 @@
 //! EXISTS`, so an older binary ignores it. Rows naming a closed tab are
 //! inert (reads join live tabs) and are pruned on the next write.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
@@ -295,6 +295,15 @@ impl WorkspaceRegistry {
             rows.extend(row);
         }
         Ok(rows)
+    }
+
+    /// The id of each kept tab, read with one statement (the parked read of the output store asks for each
+    /// terminal of the session, `Mux::parked_terminal_ids`).
+    pub(crate) fn kept_tab_ids(&self) -> anyhow::Result<HashSet<String>> {
+        let db = self.connection.get();
+        let mut statement = db.prepare("SELECT tab_id FROM kept_tabs")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<HashSet<_>, _>>()?)
     }
 
     /// Whether any of `tab_ids` is a kept tab.

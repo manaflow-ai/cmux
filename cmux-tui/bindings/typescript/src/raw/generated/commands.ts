@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1. */
+/* cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362. */
 
 
 import type * as T from "./types.js";
@@ -1223,6 +1223,19 @@ export interface DetachClientRequest extends CmuxRequestBase {
 }
 export type DetachClientResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface DeviceSetupRequest extends CmuxRequestBase {
+  cmd: "device-setup";
+  /** Turn on the agents permission (the person's click in the app). */
+  "allow_agents"?: boolean;
+  /** A device id, name or address, as `cmux device list` shows it. */
+  "device": string;
+  "dry_run"?: boolean;
+  /** setup (every step) or start (reach, login item and start). */
+  "verb": string;
+}
+export type DeviceSetupResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface ExportLayoutRequest extends CmuxRequestBase {
   cmd: "export-layout";
@@ -1266,6 +1279,19 @@ export interface FeedLocalReadRequest extends CmuxRequestBase {
   "items": Array<string>;
 }
 export type FeedLocalReadResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface FloatPaneRequest extends CmuxRequestBase {
+  cmd: "float-pane";
+  "h"?: (number) | null;
+  "mode"?: (string) | null;
+  "pane": T.Id;
+  "transaction"?: (bigint) | null;
+  "w"?: (number) | null;
+  "x"?: (number) | null;
+  "y"?: (number) | null;
+}
+export type FloatPaneResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
@@ -1764,6 +1790,8 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "owner"?: (string) | null;
   "page"?: (string) | null;
   "pane"?: (T.Id) | null;
+  /** Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split. */
+  "place"?: (T.TabPlace) | null;
   "route"?: (string) | null;
   "rows"?: (number) | null;
   /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction. */
@@ -1793,11 +1821,15 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "idempotency_key"?: (string) | null;
   "owner"?: (string) | null;
   "pane"?: (T.Id) | null;
+  /** Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split. */
+  "place"?: (T.TabPlace) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
   /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
   "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
+  /** Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split. */
+  "transaction"?: (string) | null;
   "url": string;
   /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
   "workspace"?: (T.Id) | null;
@@ -1897,9 +1929,13 @@ export interface NewTabRequest extends CmuxRequestBase {
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
   "pane"?: (T.Id) | null;
+  /** Where the tab goes in the strip of pane. Needs pane. */
+  "place"?: (T.TabPlace) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  /** Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. */
+  "transaction"?: (string) | null;
 }
 export type NewTabResult = T.SurfaceResult;
 
@@ -3155,12 +3191,14 @@ export type CmuxRequest =
   | DeleteWorkspaceGroupRequest
   | DetachAttachedViewRequest
   | DetachClientRequest
+  | DeviceSetupRequest
   | ExportLayoutRequest
   | FeedLocalHandoffAbortRequest
   | FeedLocalHandoffBeginRequest
   | FeedLocalHandoffDoneRequest
   | FeedLocalListRequest
   | FeedLocalReadRequest
+  | FloatPaneRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -4223,6 +4261,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "device-setup": {
+    request: DeviceSetupRequest;
+    result: DeviceSetupResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "device-setup-v1";
+    stream: null;
+  };
   "export-layout": {
     request: ExportLayoutRequest;
     result: T.ExportLayoutResult;
@@ -4269,6 +4315,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "float-pane": {
+    request: FloatPaneRequest;
+    result: FloatPaneResult;
+    authority: "control";
+    since: 12;
+    capability: "floating-panes-v1";
     stream: null;
   };
   "focus-direction": {

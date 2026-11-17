@@ -71,9 +71,33 @@ import Testing
         let prewarm = StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200")
         #expect(prewarm.runs(bundle: full).map { "\($0.executable.lastPathComponent) \($0.arguments.joined(separator: " "))" }
             == ["cmux \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
-                "cmux Helper (GPU) --version", "cmux Helper --version"])
+                "cmux Helper (GPU) --version", "cmux Helper --version", "cmux \(StagedUpdatePrewarm.chromiumArgument)"])
         let bare = try Self.stage(root, "u2", "x2", build: "201", bins: [], helpers: [])
-        #expect(prewarm.runs(bundle: bare).map(\.arguments) == [[StagedUpdatePrewarm.argument]])
+        #expect(prewarm.runs(bundle: bare).map(\.arguments) == [[StagedUpdatePrewarm.argument], [StagedUpdatePrewarm.chromiumArgument]])
+    }
+
+    /// Chromium's pre-warm runs the staged app itself, last, once the framework's first load is paid by the helpers'
+    /// `--version` runs; a bundle with no executable of its own gets no Chromium run either.
+    @Test func chromiumRunsLastAndOnlyWithTheAppsExecutable() throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let full = try Self.stage(root, "u1", "x1", build: "200")
+        let prewarm = StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200")
+        let runs = prewarm.runs(bundle: full)
+        #expect(runs.last?.arguments == [StagedUpdatePrewarm.chromiumArgument])
+        #expect(runs.last?.executable == runs.first?.executable, "Chromium's pre-warm ran something other than the staged app")
+        #expect(runs.filter { $0.arguments == [StagedUpdatePrewarm.chromiumArgument] }.count == 1)
+        try FileManager.default.removeItem(at: full.appending(path: "Contents/MacOS/cmux"))
+        #expect(!prewarm.runs(bundle: full).contains { $0.arguments == [StagedUpdatePrewarm.chromiumArgument] })
+    }
+
+    @Test func onlyTheChromiumArgumentStartsChromiumsPrewarm() {
+        #expect(StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux", StagedUpdatePrewarm.chromiumArgument]))
+        #expect(!StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux", StagedUpdatePrewarm.argument]))
+        #expect(!StagedUpdatePrewarm.isPrewarm(["/A/cmux", StagedUpdatePrewarm.chromiumArgument]), "the exec-only pre-warm would skip Chromium")
+        #expect(!StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux"]))
+        #expect(!StagedUpdatePrewarm.isChromiumPrewarm(["/A/cmux", "--other", StagedUpdatePrewarm.chromiumArgument]), "only as the first argument")
+        #expect(!StagedUpdatePrewarm.isChromiumPrewarm([StagedUpdatePrewarm.chromiumArgument]), "the executable itself is not an argument")
     }
 
     @Test func performRunsEachOnceWithItsArguments() async throws {
@@ -83,10 +107,48 @@ import Testing
         let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
         let ran = try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n")
         #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
-                        "cmux Helper (GPU) --version", "cmux Helper --version"])
+                        "cmux Helper (GPU) --version", "cmux Helper --version", "app \(StagedUpdatePrewarm.chromiumArgument)"])
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
+        #expect(line.contains("Frameworks read 2 files, 2 pages"), "the two helpers' executables, after they ran: \(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())
         #expect(none.contains("no staged bundle of 300"))
+    }
+
+    /// Leo's NIGHTLY update log read "cmux exit 11" for a SIGSEGV of Chromium's pre-warm and "exit 255" for each helper
+    /// that loaded the framework: a crash names its signal, and a helper's 255 says it loaded.
+    @Test func aCrashNamesItsSignalAndAHelpersLoadSaysSo() async throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let app = try Self.stage(root, "u1", "x1", build: "200", bins: [], helpers: ["cmux Helper (GPU)"])
+        let executable = app.appending(path: "Contents/MacOS/cmux")
+        try "#!/bin/sh\n[ \"$1\" = \"\(StagedUpdatePrewarm.chromiumArgument)\" ] && kill -SEGV $$\nexit 0\n"
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let helper = app.appending(path: "Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)")
+        try "#!/bin/sh\nexit 255\n".write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
+        #expect(line.contains("cmux signal 11 "), "a SIGSEGV read as an exit status: \(line)")
+        #expect(line.contains("cmux Helper (GPU) exit 255 (framework loaded) "), "\(line)")
+        #expect(line.contains("cmux exit 0 "), "the first run exits on its own: \(line)")
+    }
+
+    /// The helpers' --version runs none of the framework's code, so the pre-warm reads every page of every regular
+    /// file under Contents/Frameworks once: empty files and symbolic links are skipped, a file one byte past three
+    /// pages is four pages.
+    @Test func readPagesReadsEachPageOfEachRegularFileOnce() throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let page = Int(getpagesize()), files = FileManager.default
+        let framework = root.appending(path: "Frameworks/Chromium Embedded Framework.framework/Resources")
+        try files.createDirectory(at: framework, withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 3 * page + 1).write(to: framework.appending(path: "resources.pak"))
+        try Data([1]).write(to: root.appending(path: "Frameworks/libone.dylib"))
+        try Data().write(to: root.appending(path: "Frameworks/empty"))
+        try files.createSymbolicLink(at: root.appending(path: "Frameworks/link.pak"), withDestinationURL: framework.appending(path: "resources.pak"))
+        let pages = StagedUpdatePrewarm.readPages(under: root.appending(path: "Frameworks"))
+        #expect(pages.files == 2 && pages.pages == 5, "\(pages)")
+        #expect(StagedUpdatePrewarm.readPages(under: root.appending(path: "missing")) == StagedUpdatePrewarm.Pages())
     }
 
     /// A pre-warm that ran leaves its build for that build's first launch, which consumes it (`cmux app launch-times`'

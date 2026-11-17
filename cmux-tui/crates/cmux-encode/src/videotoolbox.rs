@@ -50,6 +50,10 @@ struct CFDictionaryKeyCallBacks {
 struct CFDictionaryValueCallBacks {
     _p: [u8; 0],
 }
+#[repr(C)]
+struct CFArrayCallBacks {
+    _p: [u8; 0],
+}
 
 type OutputCallback = extern "C" fn(*mut c_void, *mut c_void, OSStatus, u32, CMSampleBufferRef);
 
@@ -59,6 +63,8 @@ crate::framework! {
         static kCFBooleanFalse: CFBooleanRef;
         ref kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
         ref kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
+        ref kCFTypeArrayCallBacks: CFArrayCallBacks;
+        fn CFArrayCreate(a: CFAllocatorRef, values: *const CFTypeRef, n: c_long, cb: *const CFArrayCallBacks) -> CFArrayRef;
         fn CFDictionaryCreate(a: CFAllocatorRef, keys: *const CFTypeRef, values: *const CFTypeRef, n: c_long, kcb: *const CFDictionaryKeyCallBacks, vcb: *const CFDictionaryValueCallBacks) -> CFDictionaryRef;
         fn CFNumberCreate(a: CFAllocatorRef, t: c_long, v: *const c_void) -> CFNumberRef;
         fn CFArrayGetCount(a: CFArrayRef) -> c_long;
@@ -117,6 +123,7 @@ crate::framework! {
         static kVTCompressionPropertyKey_MaxKeyFrameInterval: CFStringRef;
         static kVTCompressionPropertyKey_ExpectedFrameRate: CFStringRef;
         static kVTCompressionPropertyKey_AverageBitRate: CFStringRef;
+        static kVTCompressionPropertyKey_DataRateLimits: CFStringRef;
         static kVTCompressionPropertyKey_ProfileLevel: CFStringRef;
         static kVTProfileLevel_H264_High_AutoLevel: CFStringRef;
         static kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel: CFStringRef;
@@ -193,6 +200,23 @@ fn number_i32(v: i32) -> CFNumberRef {
 fn number_f64(v: f64) -> CFNumberRef {
     // SAFETY: as above.
     unsafe { CFNumberCreate(null(), CF_NUMBER_FLOAT64, (&v as *const f64).cast()) }
+}
+
+/// The per-frame byte budget at `kbps` and `fps`: (bytes, seconds) for DataRateLimits, one
+/// frame interval's share of the rate. A frame within it leaves a paced sender in one frame
+/// interval, so the send stage holds at most one frame at any rate (the encoder spends a
+/// higher QP on a large change instead of a frame that queues for hundreds of ms).
+fn frame_budget(kbps: u32, fps: u32) -> (i32, f64) {
+    let fps = fps.max(1);
+    let bytes = u64::from(kbps.min(2_000_000)) * 1000 / 8 / u64::from(fps);
+    (i32::try_from(bytes.max(1)).unwrap_or(i32::MAX), 1.0 / f64::from(fps))
+}
+
+/// Whether a new target replaces the session's rate. A cut applies at once (the link has
+/// less room now); a rise under 5% is skipped, since every change makes the encoder
+/// re-plan its rate control.
+fn bitrate_change_applies(current: u32, next: u32) -> bool {
+    next < current || u64::from(next - current) * 20 >= u64::from(current)
 }
 
 fn dict(pairs: &[(CFStringRef, CFTypeRef)]) -> CFDictionaryRef {
@@ -457,12 +481,31 @@ impl VideoToolbox {
         self.color = Some(color);
     }
 
+    /// Sets the average rate and the per-frame byte budget (`frame_budget`): VideoToolbox's
+    /// DataRateLimits over one frame interval, so one frame drains within one frame interval
+    /// at the current rate. A budget the encoder refuses leaves only the average rate.
     fn apply_bitrate(&mut self, kbps: u32) {
         let bps = number_i32((kbps.min(2_000_000) * 1000) as i32);
-        // SAFETY: our live session; the number is released after use.
+        let (bytes, seconds) = frame_budget(kbps, self.fps);
+        // SAFETY: our live session; every CF object is released after use (the array
+        // retains its numbers, the session retains the array).
         unsafe {
             VTSessionSetProperty(self.session, kVTCompressionPropertyKey_AverageBitRate(), bps);
             CFRelease(bps);
+            let bytes = number_i32(bytes);
+            let seconds = number_f64(seconds);
+            let pair = [bytes, seconds];
+            let limits = CFArrayCreate(null(), pair.as_ptr(), 2, kCFTypeArrayCallBacks());
+            if !limits.is_null() {
+                VTSessionSetProperty(
+                    self.session,
+                    kVTCompressionPropertyKey_DataRateLimits(),
+                    limits,
+                );
+                CFRelease(limits);
+            }
+            CFRelease(bytes);
+            CFRelease(seconds);
         }
         self.kbps = kbps;
     }
@@ -511,7 +554,7 @@ impl H264Encoder for VideoToolbox {
 
     fn set_bitrate(&mut self, kbps: u32) {
         let kbps = kbps.max(100);
-        if kbps.abs_diff(self.kbps) * 20 >= self.kbps {
+        if bitrate_change_applies(self.kbps, kbps) {
             self.apply_bitrate(kbps);
         }
     }
@@ -590,5 +633,27 @@ impl Drop for VideoToolbox {
             CFRelease(self.session as CFTypeRef);
             CFRelease(self.pixel_buffer as CFTypeRef);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_frame_budget_is_one_frame_intervals_share_of_the_rate() {
+        assert_eq!(frame_budget(8_000, 60), (16_666, 1.0 / 60.0));
+        assert_eq!(frame_budget(1_000, 30).0, 4_166);
+        assert_eq!(frame_budget(100, 0), (12_500, 1.0), "fps 0 counts as 1");
+        assert!(frame_budget(u32::MAX, 1).0 > 0, "clamped, never negative");
+    }
+
+    #[test]
+    fn a_bitrate_cut_applies_at_once_and_a_small_rise_waits() {
+        assert!(bitrate_change_applies(10_000, 9_900), "a 1% cut");
+        assert!(bitrate_change_applies(10_000, 5_000));
+        assert!(!bitrate_change_applies(10_000, 10_400), "a 4% rise");
+        assert!(bitrate_change_applies(10_000, 10_500), "a 5% rise");
+        assert!(!bitrate_change_applies(10_000, 10_000));
     }
 }

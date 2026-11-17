@@ -106,6 +106,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
 | `drive.usercontent.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
 | `fonts.googleapis.com` | connects | fonts an agent's rendered page may load |
+| `generativelanguage.googleapis.com` | connects | the Google AI API, when you give an agent a Google AI API key |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
@@ -115,6 +116,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
+| `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
 | `uniichat.com` | connects | the hosted UniiChat agent, only when you start it |
@@ -301,6 +303,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `www.ietf.org` | identifier | an RTP header extension id, never fetched |
 | `json-schema.org` | identifier | a JSON schema id, never fetched |
 | `www.w3.org` | identifier | an XML or SVG namespace, never fetched |
+| `schemas.microsoft.com` | identifier | the Task Scheduler XML namespace in acpmux's Windows logon task, never fetched |
 | `freestyle.sh` | identifier | a cloud host name the app recognizes |
 | `ac.uk` | identifier | a public suffix, so sites under it are told apart |
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
@@ -347,9 +350,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `machine.io` | not-a-host | a method, area or resource kind name |
 | `cloud.machine.io` | not-a-host | a method, area or resource kind name |
 | `config.ru` | not-a-host | a file name |
-| `agent-auth.sh` | not-a-host | a file name |
 | `build.sh` | not-a-host | a file name |
 | `cmux-debug-cli.sh` | not-a-host | a file name |
-| `login.sh` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux-arm64.8.so` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux64.8.so` | not-a-host | a file name |

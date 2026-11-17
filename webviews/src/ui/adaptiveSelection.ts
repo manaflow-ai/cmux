@@ -13,10 +13,9 @@ import {
   HIGHLIGHT_FLOORS,
   inkOf,
   resolveCssColor,
-  surfaceUnder,
+  surfaceReader,
   webKitSelectionColor,
   type HighlightFloor,
-  type SurfaceMemo,
 } from "./highlightContrast";
 
 /** What every `::selection` rule reads first: the fill fit to the selection's surface. */
@@ -53,10 +52,10 @@ export function updateSelectionFill(doc: Document, floor: HighlightFloor = HIGHL
     return;
   }
   const base = isWebKit(view) ? webKitSelectionColor(resolved) : resolved;
-  const memo: SurfaceMemo = new Map();
-  const start = surfaceUnder(selection.anchorNode, memo);
-  const end = surfaceUnder(selection.focusNode, memo);
-  const fit = fitHighlightOn(base, [start, end], inkOf(selection.anchorNode, start), floor);
+  // Both ends' surfaces, over every canvas a see-through window may show under them.
+  const read = surfaceReader(doc);
+  const surfaces = [...read(selection.anchorNode), ...read(selection.focusNode)];
+  const fit = fitHighlightOn(base, surfaces, inkOf(selection.anchorNode, surfaces[0]!), floor);
   const value = highlightCss(fit.fill);
   if (root.style.getPropertyValue(SELECTION_FILL_PROPERTY) !== value)
     root.style.setProperty(SELECTION_FILL_PROPERTY, value);

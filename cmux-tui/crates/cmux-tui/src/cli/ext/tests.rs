@@ -42,11 +42,16 @@ fn parses_new_dev_list_remove_and_help() {
     assert_eq!(parse(&words("dev --help")), Ok(Request::Help));
     assert_eq!(
         parse(&words("new my-prs")),
-        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None })
+        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None, repo: None })
     );
     assert_eq!(
         parse(&words("new w --kind section --dir /tmp/w")),
-        Ok(Request::New { name: "w".into(), kind: "section".into(), dir: Some("/tmp/w".into()) })
+        Ok(Request::New {
+            name: "w".into(),
+            kind: "section".into(),
+            dir: Some("/tmp/w".into()),
+            repo: None
+        })
     );
     let Ok(Request::Dev(options)) = parse(&words("dev")) else { panic!("dev") };
     assert_eq!(options.dir, PathBuf::from("."));
@@ -290,14 +295,77 @@ fn an_invalid_manifest_names_its_file_and_field_and_exits_4() {
     assert_eq!(json["phase"], "manifest");
     assert_eq!(json["exitCode"], 4);
 
-    // A third-party id is refused: the local folder holds local/ apps only.
+    // A published id (with its repository) loads as local/NAME, the only publisher the local
+    // folder holds (publish_tests); a store id with no repository is refused by the validator.
     manifest["implements"]["cmux.section/1"]["options"]["defaultRegion"] = json!("bottom");
     manifest["id"] = json!("acme/broken");
     manifest["repository"] = json!("https://github.com/acme/broken");
     std::fs::write(&path, manifest.to_string()).unwrap();
+    assert_eq!(dev::load_package(&dir).unwrap().id, "local/broken");
+    manifest.as_object_mut().unwrap().remove("repository");
+    std::fs::write(&path, manifest.to_string()).unwrap();
     let errors = dev::load_package(&dir).unwrap_err();
-    assert_eq!(errors[0].field.as_deref(), Some("/id"));
-    assert!(errors[0].message.contains("local/broken"), "{errors:?}");
+    assert_eq!(errors[0].field.as_deref(), Some("/repository"), "{errors:?}");
+}
+
+/// A fresh clone: `src/main.ts` and no `dist/` (every example gitignores it). The build makes
+/// `dist/main.js`, so the manifest check before the build does not ask for it; with nothing to
+/// build, a missing main script is still a manifest error (exit 4).
+#[test]
+fn ext_dev_builds_a_fresh_folder_before_checking_its_main() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "fresh");
+    let built = root.path().join("built-main.js");
+    std::fs::copy(dir.join("dist/main.js"), &built).unwrap();
+    std::fs::remove_dir_all(dir.join("dist")).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/fresh", false);
+
+    // `--build CMD` writes the main script.
+    let mut options = dev_options(&dir);
+    options.build = Some(format!("mkdir -p dist && cp '{}' dist/main.js", built.display()));
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.build, Some("command"));
+    assert!(local.join("fresh/dist/main.js").is_file(), "the built script is copied");
+
+    // The packer writes it from `src/main.ts` when bun is on PATH.
+    if let Some(bun) = dev::find_bun() {
+        std::fs::remove_dir_all(dir.join("dist")).unwrap();
+        let mut options = dev_options(&dir);
+        options.bun = Some(bun);
+        let outcome = dev::once(&global(&fake.socket), &options, false);
+        assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+        assert_eq!(outcome.build, Some("pack"));
+        assert!(dir.join("dist/main.js").is_file(), "the packer wrote the main script");
+    } else {
+        eprintln!("bun is not on PATH: the packer half of this test needs it");
+    }
+
+    // Nothing to build (no `--build`, and no bun for `src/main.ts`): still exit 4 at manifest,
+    // with or without a daemon.
+    std::fs::remove_dir_all(dir.join("dist")).ok();
+    for socket in [fake.socket.clone(), PathBuf::from("/nonexistent/cmux.sock")] {
+        let outcome = dev::once(&global(&socket), &dev_options(&dir), false);
+        assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+        assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+        assert_eq!(outcome.build, None);
+        let error = &outcome.errors[0];
+        assert_eq!(error.field.as_deref(), Some("/runtime/main"), "{error:?}");
+        assert!(error.message.contains("path.missing"), "{error:?}");
+    }
+    std::fs::remove_file(dir.join("src/main.ts")).unwrap();
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.exit_code(), exit::MANIFEST_INVALID);
+
+    // A build that does not write the main script fails the check after it.
+    std::fs::write(dir.join("src/main.ts"), "").unwrap();
+    let mut options = dev_options(&dir);
+    options.build = Some("true".into());
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Manifest, "{:?}", outcome.errors);
+    assert_eq!(outcome.errors[0].field.as_deref(), Some("/runtime/main"));
 }
 
 #[test]

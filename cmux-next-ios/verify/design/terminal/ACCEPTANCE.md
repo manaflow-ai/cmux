@@ -531,7 +531,7 @@ Until a gap is closed, its rows are `blocked (needs tool)`, never `pass`.
 ## 12. Device-only criteria (T-DEV): never claimed from a simulator
 
 A real iPhone is needed. Per the user's global rules, an agent may use the
-user's phone (TapKit) only when the user explicitly asks for real-phone
+user's real phone only when the user explicitly asks for real-phone
 verification for this task and the phone is connected. Until then these rows are
 `blocked (needs device)` and the terminal is reported as **simulator-green,
 device-pending**, never "done".

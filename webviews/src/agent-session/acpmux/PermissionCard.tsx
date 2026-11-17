@@ -27,6 +27,7 @@ import {
   type PermissionKeyAction,
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { focusRoute } from "../../ui/focusRoute";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 
@@ -494,10 +495,10 @@ export function PermissionCard({
     if (!active) return;
     const focus = () => {
       takePermissionFocus();
-      group.current?.focus();
+      focusRoute(group.current, "system", "a permission request");
     };
     // Asked just before this card mounted: the chat opened first.
-    if (takePermissionFocus()) group.current?.focus();
+    if (takePermissionFocus()) focusRoute(group.current, "system", "a permission request");
     window.addEventListener("cmux-acpmux-permissionFocus", focus);
     return () => window.removeEventListener("cmux-acpmux-permissionFocus", focus);
   }, [active]);

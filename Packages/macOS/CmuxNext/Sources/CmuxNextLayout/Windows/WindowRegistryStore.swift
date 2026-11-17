@@ -25,8 +25,8 @@ public final class WindowRegistryStore {
     /// (TYPING UNDER LOAD F6: every row read the whole registry).
     public let incognitoByWorkspace = ObservedMap<String, Bool>()
     /// The close-selection rule's state for the workspaces of every window: who opened which, and the pick after a
-    /// close (`WindowCloseSelection`). One instance for all windows is safe: a workspace has one owner window
-    /// (`WindowRegistry.owner(of:)`), so no relation of one window can be ended by a selection change of another.
+    /// close (`WindowCloseSelection`). One instance for all windows: each relation is keyed by its window, and a window
+    /// that lists a workspace as a guest answers for it as its owner does (`repairSelection`).
     @ObservationIgnored public let closeSelection = WindowCloseSelection()
     /// The window that lists each workspace (`WindowRegistry.owner(of:)`), observed one workspace at a time: nil while
     /// no window lists it. An observer of ONE workspace (its link places, its shown name) reads its own entry, never
@@ -68,7 +68,7 @@ public final class WindowRegistryStore {
     /// share storage (the compare is O(windows) then); a reconcile writes each list again, and the compare reads them.
     private static func sameAnswers(_ old: WindowRegistry, _ new: WindowRegistry) -> Bool {
         old.incognito == new.incognito && old.discarding == new.discarding && old.windows.count == new.windows.count
-            && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
+            && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs && $0.guests == $1.guests }
     }
 
     /// Drops every launch-snapshot membership (the restore): each window's readers hear only their own window's entry.
@@ -127,7 +127,7 @@ public final class WindowRegistryStore {
         for workspace in ids {
             closeWork.shownIDs += 1
             let owner = registry.owner(of: workspace)
-            if owner == id { continue }
+            if owner == id || window?.guests.contains(workspace) == true { continue }
             var listed = launch.contains(workspace)
             if let window, owner != nil {
                 closeWork.shownIDs += window.workspaceIDs.count
@@ -152,7 +152,7 @@ public final class WindowRegistryStore {
         // The first window that lists a workspace owns it (`WindowRegistry.owner(of:)`).
         for window in value.windows {
             let incognito = value.isIncognito(window.id)
-            for id in window.workspaceIDs where next[id] == nil { next[id] = (incognito: incognito, owner: window.id) }
+            for id in window.workspaceIDs where next[id] == nil && !window.guests.contains(id) { next[id] = (incognito: incognito, owner: window.id) }
         }
         for id in value.discarding { next[id] = (incognito: true, owner: next[id]?.owner) }
         for (id, old) in answered where next[id] == nil {

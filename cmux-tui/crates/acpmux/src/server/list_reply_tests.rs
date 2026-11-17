@@ -15,13 +15,13 @@ use tokio::sync::mpsc;
 const OWN: &str = "own-chat";
 
 /// A hub with one chat of its own and one mirrored from its peer `box`.
-async fn hub_with_a_mirrored_row() -> Arc<crate::hub::Hub> {
+async fn hub_with_mirrored_row_status(status: &str) -> Arc<crate::hub::Hub> {
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let meta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": OWN, "name": OWN,
-        "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        "harness": "fake", "cwd": "/tmp", "status": status, "createdAt": 1, "updatedAt": 1
     }))
     .unwrap();
     store.save(&meta).unwrap();
@@ -29,7 +29,8 @@ async fn hub_with_a_mirrored_row() -> Arc<crate::hub::Hub> {
     let (tx, _rx) = mpsc::channel(8);
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
-    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
+    let remote_name = if status != "closed" { OWN } else { "lane" };
+    let row = json!({"sessionId": "m1", "name": remote_name, "status": "idle", "updatedAt": 5});
     let mut settled = peer.settled();
     for notice in [PeerNotice::sessions_from_values(vec![row]), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
@@ -40,6 +41,42 @@ async fn hub_with_a_mirrored_row() -> Arc<crate::hub::Hub> {
         .unwrap();
     assert_eq!(hub.remote_sessions().len(), 1);
     hub
+}
+
+async fn hub_with_a_mirrored_row() -> Arc<crate::hub::Hub> {
+    hub_with_mirrored_row_status("idle").await
+}
+
+/// One resolve request on a connection, including the initialize that establishes its origin.
+async fn resolved(hub: &Arc<crate::hub::Hub>, origin: Origin, query: &str) -> Value {
+    let (input, incoming) = mpsc::channel(64);
+    let (output, mut outgoing) = mpsc::channel(64);
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, origin));
+    for (id, method, params) in [
+        (
+            1,
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "test", "version": "0"}}),
+        ),
+        (2, method::MUX_RESOLVE, json!({"query": query})),
+    ] {
+        input.send(Message::request(id, method, params).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(5), outgoing.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == id {
+                if id == 1 {
+                    assert!(reply.get("error").is_none(), "initialize: {reply}");
+                    break;
+                }
+                return reply;
+            }
+        }
+    }
+    unreachable!()
 }
 
 /// The `_acpmux/watch` reply's rows on a connection of `origin` named `client`, `tools` or not.
@@ -94,4 +131,32 @@ async fn a_peer_link_watch_lists_only_this_daemons_own_sessions() {
     // the peer client's name keeps a client out of presence, and filters no data.
     assert_eq!(ids(&watched(&hub, Origin::Web, crate::peer::CLIENT_NAME, true).await), ["m1", OWN]);
     assert_eq!(ids(&watched(&hub, Origin::Local, "cli", true).await), ["m1", OWN]);
+}
+
+#[tokio::test]
+async fn a_peer_resolve_names_no_machine_in_match_or_refusal() {
+    let hub = hub_with_a_mirrored_row().await;
+    let machine = crate::pairing::machine_name();
+
+    let match_reply = resolved(&hub, Origin::Peer, OWN).await;
+    assert!(match_reply.get("error").is_none(), "{match_reply}");
+    let match_text = match_reply.to_string();
+    assert!(!match_text.contains(&machine), "peer resolve leaked this machine: {match_reply}");
+    assert!(!match_text.contains("box"), "peer resolve leaked a peer name: {match_reply}");
+
+    let refusal = resolved(&hub, Origin::Peer, "no-such-chat").await;
+    assert!(refusal.get("error").is_some(), "{refusal}");
+    let refusal_text = refusal.to_string();
+    assert!(!refusal_text.contains(&machine), "peer refusal leaked this machine: {refusal}");
+    assert!(!refusal_text.contains("box"), "peer refusal leaked a peer name: {refusal}");
+}
+
+#[tokio::test]
+async fn a_closed_local_chat_resolves_through_the_request_with_a_connected_peer() {
+    let hub = hub_with_mirrored_row_status("closed").await;
+    let reply = resolved(&hub, Origin::Local, OWN).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert_eq!(reply["result"]["session"]["sessionId"], OWN);
+    assert_eq!(reply["result"]["session"]["name"], OWN);
+    assert_eq!(reply["result"]["session"]["host"], crate::pairing::machine_name());
 }
