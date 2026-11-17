@@ -102,11 +102,12 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         // Up from the latest message, so the button shows.
         expect(await wheelOver(page, ".acpmux-scroll", -1200)).toBeLessThan(0);
         await page.locator(JUMP_LATEST_SHOWN).waitFor();
-        // The jump control keeps its own glass without washing out extra transcript lines.
+        // The jump control keeps its own glass without washing out transcript lines: the transcript has
+        // no soft edge above the composer at all (Lucas, 2026-11-17, conversation.css).
         const fade = await page.evaluate(() =>
           getComputedStyle(document.querySelector(".acpmux-scroll")!).getPropertyValue("--acpmux-fade-bottom").trim(),
         );
-        expect(fade).toBe("18px");
+        expect(fade).toBe("");
         expect(await wheelOver(page, ".acpmux-jump-latest", -300)).toBeLessThan(-100);
         expect(await wheelOver(page, ".acpmux-jump-latest", 200)).toBeGreaterThan(100);
         await page.locator(JUMP_LATEST).click();
