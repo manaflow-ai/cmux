@@ -413,8 +413,17 @@ class HostedOverride(unittest.TestCase):
         # Deleting the variable is the revert: the next pass puts every pool back on Blacksmith.
         back = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
         self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": raw}, api=Main.Api(None), switch=back, now=NOW), 0)
-        [(name, raw)] = back.writes
+        [(name, raw), mirrored] = back.writes
         self.assertEqual({k: json.loads(raw)[k] for k in self.X64}, {k: before[k] for k in self.X64})
+        # router-review F1: LINUX_RUNNER follows the pool back too, so --check passes after the revert.
+        self.assertEqual(mirrored, ("LINUX_RUNNER", before["linux"]))
+        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": raw, "LINUX_RUNNER": mirrored[1]}), 0)
+
+    def test_the_mirror_leaves_the_hosted_label_alone_while_the_override_is_set(self) -> None:
+        value = {"linux": "ubuntu-24.04"}
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "ubuntu-24.04"}, record=None), [])
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
+                                                    record=None), [("LINUX_RUNNER", "ubuntu-24.04")])
 
     def test_the_watch_and_the_check_pass_the_variable(self) -> None:
         for path, find in ((".github/workflows/ci-cloud-overflow-probe.yml", "runner_pools.py"),

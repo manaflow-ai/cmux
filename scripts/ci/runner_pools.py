@@ -280,7 +280,10 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         current = (live.get(name) or "").strip()
         if not isinstance(want, str) or not want or current == want:
             continue
-        if current and not EPHEMERAL.match(current):
+        # A hosted Ubuntu label is the outage override's footprint (HOSTED_OVERRIDE): while it is set the pool's
+        # live member is that label, so nothing moves; once it is deleted the mirror follows the pool back to
+        # Blacksmith, so deleting the variable is the whole revert (router-review F1 on cmux#45710).
+        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
             continue
         writes.append((name, want))
     return writes
