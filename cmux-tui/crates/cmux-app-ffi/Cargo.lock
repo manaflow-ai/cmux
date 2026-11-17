@@ -171,6 +171,7 @@ dependencies = [
  "cbindgen",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
+ "cmux-background-ready",
  "cmux-config",
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
@@ -192,6 +193,10 @@ dependencies = [
  "serde_json",
  "unicode-segmentation",
 ]
+
+[[package]]
+name = "cmux-background-ready"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-bookmarks-core"
