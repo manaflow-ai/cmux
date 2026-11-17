@@ -220,7 +220,7 @@ export function Timeline(options: {
   label?: (hour: number) => string
 }): View {
   const hourHeight = options.hourHeight ?? 32
-  const labelWidth = options.labelWidth ?? 34
+  const labelWidth = options.labelWidth ?? 40
   const gridWidth = Math.max(0, options.width - labelWidth)
   const label = options.label ?? ((hour: number) => `${hour % 12 || 12} ${hour % 24 < 12 ? "AM" : "PM"}`)
   const hours: number[] = []

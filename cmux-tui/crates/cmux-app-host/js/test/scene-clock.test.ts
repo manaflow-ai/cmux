@@ -67,17 +67,17 @@ describe("SDK Timeline", () => {
     expect((row.props.frame as { width?: number }).width).toBe(334)
     const rule = row.children[1] as ViewNode
     expect(rule.type).toBe("Line")
-    expect((rule.props.frame as { width?: number }).width).toBe(300)
+    expect((rule.props.frame as { width?: number }).width).toBe(294)
     expect(list!.type).toBe("ForEach")
     const item = (event: (typeof events)[number]) => list!.list!.template(() => event, event.id)
     const standup = item(events[0]!)
     const review = item(events[1]!)
     const place = (node: ViewNode) => (node.props.position as () => { x: number; y: number })()
-    // Grid width 300 after the 34 pt labels, two lanes of 150; 9:00 is 30 pt below 8:00.
-    expect(place(standup)).toEqual({ x: 34 + 75, y: 30 + 14 })
-    expect(place(review).x).toBe(34 + 225)
+    // Grid width 294 after the 40 pt labels ("10 AM" fits), two lanes of 147; 9:00 is 30 pt below 8:00.
+    expect(place(standup)).toEqual({ x: 40 + 73.5, y: 30 + 14 })
+    expect(place(review).x).toBe(40 + 220.5)
     expect(line!.type).toBe("Line")
-    expect(place(line!)).toEqual({ x: 34 + 150, y: 75 })
+    expect(place(line!)).toEqual({ x: 40 + 147, y: 75 })
     expect(dot!.type).toBe("Circle")
   })
 })

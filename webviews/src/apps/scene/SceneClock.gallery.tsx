@@ -44,8 +44,16 @@ function roundedTime(): Node {
     text("November 16", { font: 15, weight: "semibold", fontDesign: "rounded", color: "secondary" }),
     node("Spacer"),
     node("HStack", { alignment: "firstTextBaseline", spacing: 2 }, [
-      text("9:41", { font: 56, weight: "heavy", fontDesign: "rounded", lineLimit: 1, fixedSize: "horizontal" }),
-      text("AM", { font: 17, weight: "bold", fontDesign: "rounded", color: "secondary" }),
+      // Sized to a small tile's 138 pt content width: 9:41 and AM side by side, never wrapped.
+      text("9:41", { font: 44, weight: "heavy", fontDesign: "rounded", lineLimit: 1, fixedSize: "horizontal" }),
+      text("AM", {
+        font: 17,
+        weight: "bold",
+        fontDesign: "rounded",
+        color: "secondary",
+        lineLimit: 1,
+        fixedSize: "horizontal",
+      }),
     ]),
   ]);
 }
@@ -57,7 +65,8 @@ function ticking(): Node {
     text("", {
       date: now,
       dateStyle: "time",
-      font: 34,
+      font: 28,
+      lineLimit: 1,
       weight: "heavy",
       fontDesign: "rounded",
       contentTransition: "numericText",
@@ -136,7 +145,7 @@ function bar(): Node {
 /** Apple's large Calendar day: an hour grid, two overlapping events sharing the width and the now
  * line, every one placed on the grid with ZStack `position` (the SDK's Timeline draws the same). */
 function calendarDay(): Node {
-  const [start, end, hourHeight, labelWidth, width] = [8, 13, 52, 34, 332];
+  const [start, end, hourHeight, labelWidth, width] = [8, 13, 52, 40, 332];
   const grid = width - labelWidth;
   const y = (hour: number) => (hour - start) * hourHeight;
   const rows = Array.from({ length: end - start + 1 }, (_, i) =>
