@@ -25,6 +25,7 @@ mod tier;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
@@ -221,6 +222,8 @@ struct Installed {
 pub struct Ranker {
     installed: Option<Installed>,
     history: Option<(i64, Frecency)>,
+    /// Rows scored since the ranker was made ([`Ranker::rows_scored`]).
+    rows_scored: AtomicUsize,
 }
 
 impl Ranker {
@@ -242,6 +245,33 @@ impl Ranker {
     /// Ranks one request: its own entries, or the installed ones of its version, with its own
     /// history, or the installed one of its history revision.
     pub fn rank(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        self.rank_with(request)
+    }
+
+    /// [`Ranker::rank`] with every row scored again: the reference a keystroke's answer must
+    /// equal.
+    pub fn rank_full(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        self.rank_with(request)
+    }
+
+    /// The rows this ranker has scored (matched against a query) since it was made: the work a
+    /// keystroke costs, counted rather than timed.
+    pub fn rows_scored(&self) -> usize {
+        self.rows_scored.load(Ordering::Relaxed)
+    }
+
+    fn rank_with(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        let mut work = 0;
+        let answer = self.answer(request, &mut work);
+        self.rows_scored.fetch_add(work, Ordering::Relaxed);
+        answer
+    }
+
+    fn answer(
+        &self,
+        request: &RankRequest,
+        work: &mut usize,
+    ) -> Result<Vec<RankedSection>, RankError> {
         let store = match (request.frecency.as_ref(), request.history_revision) {
             (Some(frecency), _) => Some(frecency),
             (None, Some(revision)) => match &self.history {
@@ -251,13 +281,17 @@ impl Ranker {
             (None, None) => None,
         };
         if let Some(entries) = request.entries.as_deref() {
-            return Ok(rank_entries(request, entries, None, store).sections);
+            return Ok(rank_entries(request, entries, None, store, work).sections);
         }
         match &self.installed {
-            Some(installed) if Some(installed.version) == request.version => {
-                Ok(rank_entries(request, &installed.entries, Some(&installed.prepared), store)
-                    .sections)
-            }
+            Some(installed) if Some(installed.version) == request.version => Ok(rank_entries(
+                request,
+                &installed.entries,
+                Some(&installed.prepared),
+                store,
+                work,
+            )
+            .sections),
             _ => Err(RankError::NotInstalled(request.version)),
         }
     }
@@ -268,6 +302,7 @@ fn rank_entries(
     entries: &[Entry],
     prepared: Option<&rank::Prepared>,
     store: Option<&Frecency>,
+    work: &mut usize,
 ) -> RankAnswer {
     if request.operation == "rankEmpty" {
         return RankAnswer {
@@ -276,8 +311,8 @@ fn rank_entries(
         };
     }
     match prepared {
-        Some(prepared) => rank::rank(request, entries, prepared, store),
-        None => rank::rank(request, entries, &rank::Prepared::new(entries), store),
+        Some(prepared) => rank::rank(request, entries, prepared, store, work),
+        None => rank::rank(request, entries, &rank::Prepared::new(entries), store, work),
     }
 }
 
@@ -293,5 +328,6 @@ pub fn rank_request_answer(request: &RankRequest) -> RankAnswer {
         request.entries.as_deref().unwrap_or_default(),
         None,
         request.frecency.as_ref(),
+        &mut 0,
     )
 }

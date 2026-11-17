@@ -404,6 +404,7 @@ pub(crate) fn rank(
     entries: &[Entry],
     prepared: &Prepared,
     store: Option<&Frecency>,
+    work: &mut usize,
 ) -> RankAnswer {
     let raw = request.query.as_deref().unwrap_or("");
     let query = Query::new(raw);
@@ -434,8 +435,9 @@ pub(crate) fn rank(
     };
     let mut scored: Vec<Scored> = Vec::new();
     let rank_pass = |allows_typo: bool, scored: &mut Vec<Scored>| {
-        let mut strong = 0;
+        let (mut strong, mut visited) = (0, 0);
         for (index, entry) in entries.iter().enumerate() {
+            visited += 1;
             if !shown_while_typing(entry, gated, raw) {
                 continue;
             }
@@ -502,12 +504,13 @@ pub(crate) fn rank(
                 highlight,
             });
         }
-        strong
+        (strong, visited)
     };
-    let strict_matches = rank_pass(false, &mut scored);
+    let (strict_matches, visited) = rank_pass(false, &mut scored);
+    *work += visited;
     if request.typo_pass.unwrap_or(strict_matches < TYPO_PASS_THRESHOLD) {
         scored.clear();
-        rank_pass(true, &mut scored);
+        *work += rank_pass(true, &mut scored).1;
     }
     // The strongest learned pick for this query that still matches it goes first.
     let candidates = lift_candidates(store, raw, now);

@@ -147,7 +147,12 @@ const KEYCAPS: &[&[&str]] = &[&["⌘", "P"], &["⇧", "⌘", "P"], &["⌥", "⌘
 
 /// `count` rows mixed the way the palette mixes them.
 fn corpus(count: usize) -> Vec<Value> {
-    let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+    corpus_seeded(count, 0x9e37_79b9_7f4a_7c15)
+}
+
+/// [`corpus`] drawn from another seed.
+fn corpus_seeded(count: usize, seed: u64) -> Vec<Value> {
+    let mut rng = Rng(seed);
     (0..count)
         .map(|index| {
             let verb = rng.pick(VERBS);
@@ -277,6 +282,173 @@ fn allocations_per_keystroke_do_not_grow_with_the_corpus() {
                 at_large <= at_small + 64,
                 "{query:?} {extra}: {at_small} allocations at 1,000 rows, {at_large} at 16,000"
             );
+        }
+    }
+}
+
+/// Rows scored by one keystroke of each 12-key query at 100,000 rows. A keystroke that extends
+/// the query scores only the rows the shorter query could still lead to, so key 12 scores a
+/// few hundred rows where scoring every row costs 100,000 (and 200,000 with the typo pass).
+#[test]
+fn rows_scored_per_keystroke_follow_the_shrinking_matches() {
+    const ROWS: usize = 100_000;
+    /// Key 12 may score at most this many rows: 2% of the corpus.
+    const KEY_12_BOUND: usize = ROWS / 50;
+    let ranker = installed(&corpus(ROWS));
+    // Words, a path, and typos that run the typo pass.
+    for query in ["toggle sideb", "src/palette_", "opne setings", "zqxjv wkpfh "] {
+        let mut per_key = Vec::new();
+        for typed in keystrokes(query) {
+            let request: RankRequest = serde_json::from_value(request(1, &typed)).expect("request");
+            let before = ranker.rows_scored();
+            ranker.rank(&request).expect("rank");
+            per_key.push(ranker.rows_scored() - before);
+        }
+        assert_eq!(per_key.len(), 12, "{query:?} is 12 keys");
+        let key_12 = per_key.last().copied().unwrap_or_default();
+        assert!(
+            key_12 <= KEY_12_BOUND,
+            "{query:?}: key 12 scored {key_12} of {ROWS} rows (bound {KEY_12_BOUND}); per key \
+             {per_key:?}"
+        );
+    }
+}
+
+/// Characters and phrases the random typist types: words of the corpus, typos, a handle, an
+/// action id, a path, a shortcut, query prefixes, CJK and accents.
+const PHRASES: &[&str] = &[
+    "open workspace settings",
+    "toggle sidebar",
+    "opne setings windw",
+    "screen sharing",
+    "shared files",
+    "a612",
+    "612",
+    "workspace.open",
+    "Workspace.Rename",
+    "src/palette_42.rs",
+    "cmd shift p",
+    "⌘P",
+    ":12",
+    ">run",
+    "switch theme",
+    "Open Settings...",
+    "café naïve",
+    "日本語 検索",
+    "zqxjv wkpfh",
+    "duplicate pane",
+];
+const CHARACTERS: &[&str] = &[
+    "a", "e", "o", "s", "t", "n", "p", "x", "q", "z", " ", ".", ":", ">", "1", "6", "W", "é", "検",
+];
+
+/// Rows the generated corpus lacks: gated, scope, hidden-by-typing, stem and ellipsis rows.
+fn special_rows() -> Vec<Value> {
+    vec![
+        json!({"title": "Go to Line", "queryPrefix": ":", "frecencyKey": "special:line"}),
+        json!({"title": "Run Command", "queryPrefix": ">", "keywords": ["run"]}),
+        json!({"title": "Recent Files", "hidesWhenTyping": true}),
+        json!({"title": "Switch Theme…", "entersScope": true, "keywords": ["theme", "themes"]}),
+        json!({"title": "Open Settings...", "actionID": "settings.open", "hasShortcut": true}),
+        json!({"title": "Screen Sharing", "actionID": "screen.share", "aliases": ["share it"]}),
+        json!({"title": "Shared Files", "actionID": "Workspace.Rename", "keycaps": ["⇧", "⌘", "P"]}),
+        json!({"title": "Open Workspace", "actionID": "workspace.open", "handles": ["b42"]}),
+        json!({"title": "Café Naïve", "subtitle": "naive cafe", "isEnabled": false}),
+        json!({"title": "", "keywords": ["empty"]}),
+    ]
+}
+
+/// A random keystroke's request: options a host sends vary too (prefix-first order, the typo
+/// pass, user aliases and pins, hidden rows, learned picks, section order).
+fn random_request(rng: &mut Rng, query: &str) -> RankRequest {
+    let mut value = request(1, query);
+    let Some(object) = value.as_object_mut() else { panic!("request object") };
+    if rng.next() % 8 == 0 {
+        object.insert("ranksPrefixFirst".into(), json!(true));
+    }
+    match rng.next() % 6 {
+        0 => {
+            object.insert("typoPass".into(), json!(true));
+        }
+        1 => {
+            object.insert("typoPass".into(), json!(false));
+        }
+        _ => {}
+    }
+    if rng.next() % 3 == 0 {
+        object.insert(
+            "aliases".into(),
+            json!({"window.open0": ["op", "sw"], "settings.open": ["o"]}),
+        );
+        object.insert("pins".into(), json!(["window.open0"]));
+    }
+    if rng.next() % 3 == 0 {
+        object.insert(
+            "frecency".into(),
+            json!({
+                "entries": {"action:3": {"score": 4.0, "lastUsed": 999_000.0}},
+                "hidden": ["tab:6", "action:20", "special:line"],
+                "picks": [
+                    {"prefix": "o", "key": "action:30", "score": 5.0, "lastUsed": 999_000.0, "last": true},
+                    {"prefix": "to", "key": "action:41", "score": 3.0, "lastUsed": 999_000.0, "last": false},
+                ],
+            }),
+        );
+    }
+    if rng.next() % 4 == 0 {
+        object.insert("keepsSectionOrder".into(), json!(true));
+        object.insert("sectionOrders".into(), json!([3, 1, 2, 0, 4, 5, 6, 7, 8, 9]));
+    }
+    serde_json::from_value(value).expect("request")
+}
+
+/// One random edit of the query: type the next key of a phrase, a stray key, backspace, paste
+/// a phrase onto the end or over the whole query, or clear it.
+fn random_edit(rng: &mut Rng, query: &mut Vec<char>, phrase: &mut Vec<char>) {
+    match rng.next() % 100 {
+        0..=54 => {
+            if phrase.is_empty() {
+                *phrase = rng.pick(PHRASES).chars().rev().collect();
+                if !query.is_empty() && rng.next() % 2 == 0 {
+                    query.push(' ');
+                }
+            }
+            query.extend(phrase.pop());
+        }
+        55..=64 => query.extend(rng.pick(CHARACTERS).chars()),
+        65..=79 => {
+            for _ in 0..=rng.next() % 3 {
+                query.pop();
+            }
+        }
+        80..=87 => {
+            if rng.next() % 2 == 0 {
+                query.push(' ');
+            }
+            query.extend(rng.pick(PHRASES).chars());
+        }
+        88..=93 => *query = rng.pick(PHRASES).chars().collect(),
+        _ => query.clear(),
+    }
+}
+
+/// Random typing (keys, backspace, paste, clear) over seeded corpora: every keystroke's answer
+/// equals scoring every row again.
+#[test]
+fn narrowed_keystrokes_rank_like_a_full_rescore() {
+    for seed in [1, 0x5eed, 0xdead_beef] {
+        let mut entries = corpus_seeded(1_200, seed);
+        entries.extend(special_rows());
+        let ranker = installed(&entries);
+        let mut rng = Rng(seed ^ 0x2545_f491_4f6c_dd1d);
+        let (mut query, mut phrase) = (Vec::new(), Vec::new());
+        for step in 0..400 {
+            random_edit(&mut rng, &mut query, &mut phrase);
+            let typed: String = query.iter().collect();
+            let request = random_request(&mut rng, &typed);
+            let narrowed = ranker.rank(&request).expect("rank");
+            let full = ranker.rank_full(&request).expect("rank");
+            assert_eq!(narrowed, full, "seed {seed:#x} step {step}: {typed:?}");
         }
     }
 }
