@@ -32,6 +32,7 @@ public final class DensityPlaygroundModel {
 
     @ObservationIgnored private let design: DesignSettings
     @ObservationIgnored private let persist: @MainActor (_ customs: [DensityTokens], _ active: DensityTokens) -> Void
+    @ObservationIgnored private let isManaged: @MainActor () -> Bool
     @ObservationIgnored private let saveTimer = DemandTimer(owner: "densityPlayground.save")
     /// How long after the last change the playground writes cmux.json.
     @ObservationIgnored public var saveDelay: Duration = .milliseconds(600)
@@ -39,15 +40,23 @@ public final class DensityPlaygroundModel {
     /// - Parameters:
     ///   - entries: The values to list (``DensityTokenCatalog/entries(fallbacks:)``).
     ///   - design: The app's design settings (`DesignSettings.shared`).
+    ///   - isManaged: Whether a policy manages the density keys (then changes apply but never save).
     ///   - persist: Writes the custom densities and the density in use to cmux.json.
-    public init(entries: [DensityTokenCatalog.Entry], design: DesignSettings,
+    public init(entries: [DensityTokenCatalog.Entry], design: DesignSettings, isManaged: @escaping @MainActor () -> Bool = { false },
                 persist: @escaping @MainActor (_ customs: [DensityTokens], _ active: DensityTokens) -> Void) {
         self.entries = entries
         self.design = design
+        self.isManaged = isManaged
         self.persist = persist
         draft = design.densityTokens
         customs = design.customDensities
     }
+
+    /// Whether a policy manages the density keys: changes still apply live, but none is saved, and the window says so.
+    public var savesBlocked: Bool { false }
+
+    /// What the window says under its header about saving: why nothing saves, or nil.
+    public var statusNotice: String? { nil }
 
     /// Picks up the app's density and list again (the window reopening after a Settings change).
     public func refresh() {
