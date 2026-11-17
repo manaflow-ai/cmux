@@ -863,6 +863,8 @@ mod tests {
             // Latest screen first (attach-replay-history-rows-v1): screen only, then a chunk more.
             br#"{"cmd":"attach-surface","cols":80,"id":"m2","replay_history_rows":0,"rows":24,"surface":7}"#,
             br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":2000,"surface":7}"#,
+            // A reattach in one write (attach-identity-v1): fenced by the boot and the terminal.
+            br#"{"cmd":"attach-surface","cols":54,"expected_generation":"gen-1","expected_terminal_id":"term_a","id":"m2","replay_history_rows":0,"rows":38,"surface":7}"#,
             br#"{"bytes":"bHMK","cmd":"send","id":"m3","surface":7}"#,
             br#"{"cmd":"resize-surface","cols":80,"id":"m4","rows":24,"surface":7}"#,
             br#"{"cmd":"release-surface-size","id":"m5","surface":7}"#,
@@ -1095,7 +1097,8 @@ mod tests {
         // A notification's own reply is PR B's narrow command, with only its notification
         // and text (`notification_reply_takes_only_its_notification_and_text`); a stray
         // field still refuses it.
-        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
+        let line =
+            br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
         assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
     }
 
@@ -1528,7 +1531,11 @@ mod tests {
             br#"{"cmd":"set-size-policy","id":"s5","surface":7,"policy":{"mode":"fixed"}}"#.as_slice(),
             br#"{"cmd":"set-size-counts","id":"s6","surface":7,"counts":false}"#,
         ] {
-            assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)), "{}", String::from_utf8_lossy(line));
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
         }
         let line = br#"{"cmd":"set-client-info","id":"c1","device_kind":"mac","device_id":"someone-else","remote":false}"#;
         let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
