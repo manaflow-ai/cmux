@@ -1,0 +1,2 @@
+# Renders from build.js; they go on the PR, not into the repo.
+out/

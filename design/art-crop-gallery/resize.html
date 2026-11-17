@@ -1,0 +1,110 @@
+<!doctype html>
+<!--
+  Live resize: a simulated cmux window dragged 16:10 -> 9:19.5 -> 21:9 over
+  8 s, its wallpaper framed by cmux-follow-cam's Camera::set_viewport each
+  frame (resize.js, from the Rust example `art_crop resize`). Right: the full
+  picture with the camera's crop (green) and the centre crop (orange,
+  dashed), and what the centre crop would show in the same window.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Art-aware crop: live resize</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; width: 1600px; height: 900px; overflow: hidden; background: radial-gradient(circle at 30% 40%, #23262d, #121316 70%); color: #e8e6e3; font: 13px/1.4 -apple-system, "Inter", "Helvetica Neue", Arial, sans-serif; }
+  #desk { position: absolute; left: 0; top: 0; width: 1080px; height: 900px; }
+  #win { position: absolute; border-radius: 11px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08); background: #000; }
+  #bar { height: 30px; background: rgba(28,29,33,0.92); display: flex; align-items: center; gap: 8px; padding: 0 12px; position: relative; z-index: 1; }
+  #bar i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  #bar span { margin-left: 10px; color: #a9adb4; font-size: 12px; }
+  #view { display: block; }
+  #side { position: absolute; left: 1100px; top: 40px; width: 460px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .meta { color: #8b8f96; margin-bottom: 14px; }
+  #key { width: 460px; border-radius: 6px; display: block; }
+  .legend { display: flex; gap: 16px; margin: 8px 0 22px; color: #a9adb4; }
+  .legend b { display: inline-block; width: 18px; height: 0; vertical-align: middle; margin-right: 6px; }
+  #cbox { width: 460px; height: 330px; display: flex; align-items: center; justify-content: center; background: #0b0c0e; border-radius: 6px; }
+  #center { border-radius: 4px; }
+  .cap { color: #e6a08a; margin: 6px 0 0; }
+  #stat { position: absolute; left: 24px; bottom: 20px; color: #8b8f96; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="desk"><div id="win"><div id="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>cmux NEXT · wallpaper</span></div><canvas id="view"></canvas></div></div>
+<div id="side">
+  <h2 id="title"></h2>
+  <div class="meta">Camera::set_viewport every frame; the crop pans with the camera's speed bound</div>
+  <canvas id="key"></canvas>
+  <div class="legend"><span><b style="border-top:3px solid #5fd08a"></b>art-aware (camera)</span><span><b style="border-top:2px dashed #e6a08a"></b>centre crop</span><span><b style="border-top:1px dashed #fff"></b>salient</span></div>
+  <div id="cbox"><canvas id="center"></canvas></div>
+  <p class="cap">Centre crop in the same window</p>
+</div>
+<div id="stat"></div>
+<script src="resize.js"></script>
+<script>
+  const ART_DIR = '../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/';
+  const D = window.ART_RESIZE;
+  const SCALE = 0.7, BAR = 30, DPR = 1;
+  let img, k;
+
+  function frameAt(t) {
+    const i = Math.max(0, Math.min(D.frames.length - 1, Math.round(t * D.fps)));
+    return D.frames[i];
+  }
+
+  function draw(f) {
+    const W = Math.round(f.window.w * SCALE), H = Math.round(f.window.h * SCALE);
+    const win = document.getElementById('win');
+    win.style.width = W + 'px'; win.style.height = (H + BAR) + 'px';
+    win.style.left = Math.round((1080 - W) / 2) + 'px'; win.style.top = Math.round((900 - H - BAR) / 2) + 'px';
+    const v = document.getElementById('view');
+    v.width = W * DPR; v.height = H * DPR; v.style.width = W + 'px'; v.style.height = H + 'px';
+    const s = img.naturalWidth / D.source.w;
+    v.getContext('2d').drawImage(img, f.crop.x * s, f.crop.y * s, f.crop.w * s, f.crop.h * s, 0, 0, v.width, v.height);
+
+    const key = document.getElementById('key');
+    const g = key.getContext('2d');
+    g.drawImage(img, 0, 0, key.width, key.height);
+    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(0, 0, key.width, key.height);
+    g.setLineDash([4, 4]); g.lineWidth = 1; g.strokeStyle = 'rgba(255,255,255,0.45)';
+    D.regions.forEach(r => g.strokeRect(r.x * k, r.y * k, r.w * k, r.h * k));
+    g.setLineDash([8, 5]); g.lineWidth = 2; g.strokeStyle = '#e6a08a';
+    g.strokeRect(f.center.x * k + 1, f.center.y * k + 1, f.center.w * k - 2, f.center.h * k - 2);
+    g.setLineDash([]); g.lineWidth = 3; g.strokeStyle = '#5fd08a';
+    g.strokeRect(f.crop.x * k + 1.5, f.crop.y * k + 1.5, f.crop.w * k - 3, f.crop.h * k - 3);
+
+    const c = document.getElementById('center');
+    const ck = Math.min(460 / f.window.w, 330 / f.window.h);
+    c.width = Math.round(f.window.w * ck); c.height = Math.round(f.window.h * ck);
+    c.getContext('2d').drawImage(img, f.center.x * s, f.center.y * s, f.center.w * s, f.center.h * s, 0, 0, c.width, c.height);
+    document.getElementById('stat').textContent =
+      `t ${f.t.toFixed(2)} s   window ${Math.round(f.window.w)}×${Math.round(f.window.h)}   aspect ${(f.window.w / f.window.h).toFixed(3)}   crop x ${f.crop.x.toFixed(1)} y ${f.crop.y.toFixed(1)}`;
+  }
+
+  window.show = (t) => draw(frameAt(t));
+  window.play = () => {
+    const start = performance.now();
+    const end = D.frames[D.frames.length - 1].t;
+    const tick = () => {
+      const t = (performance.now() - start) / 1000;
+      draw(frameAt(t));
+      if (t < end) requestAnimationFrame(tick); else document.body.dataset.done = '1';
+    };
+    requestAnimationFrame(tick);
+  };
+
+  img = new Image();
+  img.onload = () => {
+    const key = document.getElementById('key');
+    key.width = 460; key.height = Math.round(460 * D.source.h / D.source.w);
+    k = key.width / D.source.w;
+    document.getElementById('title').textContent = D.title;
+    draw(D.frames[0]);
+    document.body.dataset.ready = '1';
+  };
+  img.src = ART_DIR + D.file;
+</script>
+</body>
+</html>
