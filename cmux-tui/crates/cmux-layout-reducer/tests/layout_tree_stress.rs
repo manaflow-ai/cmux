@@ -22,7 +22,7 @@ use std::time::Instant;
 use cmux_layout_reducer::optimistic::{self, Dir, Node, Request, Screen};
 use cmux_layout_reducer::{
     Column, Edge, LayoutOp, LayoutOpKind, LayoutState, Row, Screen as LayoutScreen, TabContent,
-    Workspace, apply,
+    Workspace, apply, apply_mut,
 };
 use serde_json::{Value, json};
 
@@ -178,6 +178,12 @@ fn run(state: &LayoutState, kind: &LayoutOpKind) -> LayoutState {
     apply(state, &op).unwrap_or_else(|reject| panic!("{kind:?}: {reject}")).0
 }
 
+/// One command as the daemon runs it, on a model it owns: `apply_mut` on `next`.
+fn run_in_place(next: &mut LayoutState, kind: &LayoutOpKind) {
+    let op = LayoutOp { key: String::new(), kind: kind.clone() };
+    apply_mut(next, &op).unwrap_or_else(|reject| panic!("{kind:?}: {reject}"));
+}
+
 // ---------------------------------------------------------------------------
 // Optimistic corpus.
 
@@ -310,14 +316,20 @@ fn layout_tree_stress_sweep() {
         return;
     }
     let started = Instant::now();
-    for (panes, others) in [(1, 0), (50, 0), (500, 0), (1, 500), (1, 5000), (50, 5000)] {
+    for (panes, others) in
+        [(1, 0), (4, 0), (50, 0), (500, 0), (1, 500), (4, 500), (1, 5000), (4, 5000), (50, 5000)]
+    {
         let corpus = corpus(panes, others);
         for (name, kind) in reducer_ops(&corpus) {
-            let (allocs, _) = allocations(|| run(&corpus.state, &kind));
+            let mut next = corpus.state.clone();
+            let (allocs, ()) = allocations(|| run_in_place(&mut next, &kind));
+            drop(next);
             let mut samples = Samples::default();
             for _ in 0..samples_for(panes + others) {
+                // The copy is the caller's; the command is what the daemon pays.
+                let mut next = corpus.state.clone();
                 let start = Instant::now();
-                let next = run(&corpus.state, &kind);
+                run_in_place(&mut next, &kind);
                 samples.push(start);
                 drop(next);
             }
@@ -376,11 +388,11 @@ fn layout_tree_stress_sweep() {
 /// A reducer command on one screen should cost the same however many panes
 /// other workspaces hold: the daemon validates every tab move with it, so a
 /// cost that grows with the whole layout grows with every workspace a person
-/// opens. Today it does not hold: `apply` clones the whole state and checks
-/// every pane twice, and the daemon projects its whole state around it twice
-/// more (https://github.com/manaflow-ai/cmux/issues/45007). Run it with `--ignored` to see the gap.
+/// opens. It counts `apply_mut`, the command on a model its caller owns
+/// (`apply` adds a copy of the whole state for its result); before
+/// https://github.com/manaflow-ai/cmux/issues/45007 that also copied the
+/// whole state and checked every pane of every workspace twice.
 #[test]
-#[ignore = "apply is O(all panes) per command; follow-up https://github.com/manaflow-ai/cmux/issues/45007"]
 fn reducer_command_work_does_not_grow_with_untouched_workspaces() {
     let small = corpus(4, 0);
     let large = corpus(4, 5000);
@@ -388,8 +400,9 @@ fn reducer_command_work_does_not_grow_with_untouched_workspaces() {
     let ops_large = reducer_ops(&large);
     let mut report = BTreeMap::new();
     for ((name, kind_small), (_, kind_large)) in ops_small.iter().zip(&ops_large) {
-        let (a, _) = allocations(|| run(&small.state, kind_small));
-        let (b, _) = allocations(|| run(&large.state, kind_large));
+        let (mut small_next, mut large_next) = (small.state.clone(), large.state.clone());
+        let (a, ()) = allocations(|| run_in_place(&mut small_next, kind_small));
+        let (b, ()) = allocations(|| run_in_place(&mut large_next, kind_large));
         report.insert(*name, (a, b));
     }
     for (name, (small, large)) in &report {

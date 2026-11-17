@@ -648,6 +648,14 @@ pub fn apply(
     Ok((next, events))
 }
 
+/// [`apply`] in place: `state` becomes the result, or stays as it was on a
+/// rejection.
+pub fn apply_mut(state: &mut LayoutState, op: &LayoutOp) -> Result<Vec<LayoutEvent>, Reject> {
+    let (next, events) = apply(state, op)?;
+    *state = next;
+    Ok(events)
+}
+
 /// The keys of recently applied ops, oldest first, at most
 /// [`Ledger::CAPACITY`]. The store keeps its own durable ledger; this one
 /// serves the model and its tests.

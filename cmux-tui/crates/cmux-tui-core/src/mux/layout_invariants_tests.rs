@@ -1043,3 +1043,48 @@ fn closes_after_moves_across_workspaces_restate_the_pane_whose_focus_changed() {
         check_step(&mux, &before, &outcome, rejections);
     }
 }
+
+/// The validation of a tab move projects the workspaces the move touches,
+/// never the whole session: a reorder within a pane and a move to a pane of
+/// another workspace put as many panes in their models with twelve
+/// untouched three-pane workspaces as without them
+/// (https://github.com/manaflow-ai/cmux/issues/45007).
+#[test]
+fn tab_move_validation_work_does_not_grow_with_untouched_workspaces() {
+    let work = |others: usize| {
+        let mux = test_mux("layout-invariants-scoped-work");
+        let mut layout = vec![vec![2], vec![1]];
+        layout.extend(std::iter::repeat_n(vec![1, 1, 1], others));
+        build(&mux, &layout);
+        // The only single-pane workspaces: the source pane has two tabs.
+        let (source, target) = mux.with_state(|state| {
+            let single = state
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.screens[0].root.pane_ids_vec())
+                .filter(|panes| panes.len() == 1)
+                .map(|panes| panes[0])
+                .collect::<Vec<_>>();
+            assert_eq!(single.len(), 2, "{single:?}");
+            let source = single.iter().copied().find(|pane| state.panes[pane].tabs.len() == 2);
+            let source = source.unwrap();
+            (source, single.into_iter().find(|pane| *pane != source).unwrap())
+        });
+        let tabs = mux.with_state(|state| state.panes[&source].tabs.clone());
+        let before = projected_panes_on_this_thread();
+        assert!(mux.move_tab(tabs[0], source, 2), "reorder");
+        let reorder = projected_panes_on_this_thread() - before;
+        let before = projected_panes_on_this_thread();
+        assert!(mux.move_tab(tabs[0], target, 0), "move to another workspace");
+        let across = projected_panes_on_this_thread() - before;
+        assert_eq!(rejections_on_this_thread(), 0);
+        (reorder, across)
+    };
+    let (small, large) = (work(0), work(12));
+    assert!(small.0 > 0 && small.1 > 0, "the moves were validated: {small:?}");
+    assert_eq!(
+        small, large,
+        "panes projected for (a reorder, a move across workspaces) with no other workspaces, \
+         and with twelve more"
+    );
+}

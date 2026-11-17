@@ -67,6 +67,8 @@ pub(crate) fn conserves_tabs(operation: &str) -> bool {
 /// The layout model of `state`. A tab's content is the address of its
 /// runtime (stable while both compared states hold it) and its terminal.
 pub(crate) fn project(state: &State) -> LayoutState {
+    #[cfg(test)]
+    PROJECTED_PANES.with(|count| count.set(count.get() + state.panes.len()));
     LayoutState {
         workspaces: state
             .workspaces
@@ -210,6 +212,18 @@ thread_local! {
     /// Rejections on this thread, so property tests can tell a layout bug
     /// that the daemon caught from an ordinary rejection.
     static REJECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Panes the layout projections on this thread put in a model: the work
+    /// the daemon's validation does per operation.
+    static PROJECTED_PANES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn projected_panes_on_this_thread() -> usize {
+    PROJECTED_PANES.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
