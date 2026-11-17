@@ -18,6 +18,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
+| launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm. |
 | post-update | `update-click-ab.sh` (default), `relaunch-shift.sh` (mode=shift), `nightly-fresh-launch.sh` (mode=fresh-copy) | First launch after an update and its hitches. |
 | screen-share | `screen-stream-eval.sh` (default), `screen-share-vs.py` (mode=vs, once on base) | Screen share kbps, fps under motion, input-to-frame latency. |
 | newtab | `instant-new-surfaces.sh` (default, mode=launch-pairs), `held-new-tab.sh` (mode=held) | New Tab first paint and settled-interactive time. |
@@ -25,6 +26,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 
 
 ## Launch and update
@@ -33,6 +35,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `launch-ready.sh` | Time from Dock launch to a usable window, measured from outside the app. | CMUX-629, CMUX-631 | 2026-11-15 | active |
 | `launch-ready.swift` | Swift probe that launches one app copy like the Dock and records every mark. | CMUX-629 | 2026-11-15 | active |
+| `launch-premain.sh` | What makes a launch reach `main` 600 to 1170 ms late: arms after a 60 s run, page cache, purge, another app, sampled (launch bench mode=premain). | CMUX-629 | 2026-11-17 | active |
+| `launch-premain.swift` | Probe for launch-premain.sh: open or exec one launch, pageins, CPU and the executable's residency at `main`. | CMUX-629 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
@@ -104,6 +108,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `idle-cpu.sh` | Idle CPU and wakeups of the app, acpmux and cmux-tui after N minutes. | - | 2026-11-04 | active |
+| `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
+| `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
 | `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces. | perf-10x | 2026-11-14 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
@@ -229,8 +235,10 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `blocking-probe.sh` | Finds main-thread blocking with the probe over every catalog action. | - | 2026-11-12 | active |
 | `blocking-probe` | probe.c, injected into the app by blocking-probe.sh. | - | 2026-10-24 | active |
 | `blocking-probe-report.py` | Ranks the main-thread blocking the probe recorded. | - | 2026-10-24 | active |
+| `ios-sim-density.sh` | iOS simulators per fleet Mac: N clones of one booted base running the same UI suites at once, jobs per hour, failures, memory per simulator, CPU, swap, pressure. | Leo 2026-11-16, simulator density | 2026-11-17 | active |
+| `ios-sim-density.py` | Python driver for ios-sim-density.sh. | Leo 2026-11-16 | 2026-11-17 | active |
 | `tui-kit-selftest.sh` | Self-test of the journeys TUI load kit on a Mac. | - | 2026-11-11 | active |
-| `tests` | Shell and Python tests for the harnesses in this directory (23 files). | - | 2026-11-15 | active |
+| `tests` | Shell and Python tests for the harnesses in this directory (28 files). | - | 2026-11-15 | active |
 | `export-action-catalog-dump.sh` | Regenerates action-catalog.json from the Swift catalog (generator). | CMUX-383 | 2026-11-14 | active |
 | `export-action-surfaces.sh` | Regenerates action surfaces, docs and links (generator). | - | 2026-11-03 | active |
 | `export-settings-artifacts.sh` | Regenerates settings artifacts with the CI-pinned Xcode (generator). | cx-aha.12 | 2026-10-12 | stale |

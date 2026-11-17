@@ -17,8 +17,13 @@ arm=base for the other side of an A/B.
                        --arg base=<sha> to build a base too and interleave its runs (arm=base)
   --arg runs=N         measured relaunches per side (1 to 10, default 5); --arg profile=1 adds a Time Profiler pass
   --arg labels=a,b     worker labels (default measure, on a display worker as the harness documents)
+  --arg mode=premain   scripts/measure/launch-premain.sh instead (CMUX-629's pre-main study, NIGHTLY only, about 50
+                       minutes): per arm (z, a, b, c, d, e, e0, x, f; --arg arms=, --arg reps=N) the measured launch's
+                       main_start, pageins, user_ms, system_ms, disk_read_kb, resident_before, resident_at_main and
+                       pages_touched, rows labeled mode=premain arm=<arm>; the harness's header says what each arm is
 
-`--import` takes the step's log, its report.tgz, or the runs.jsonl inside it.
+`--import` takes the step's log, its report.tgz, or the runs.jsonl inside it (an LP-RUN log or runs.jsonl reads as
+mode=premain).
 """
 from __future__ import annotations
 
@@ -33,6 +38,11 @@ RUN = re.compile(r"LR-RUN (?:(\w+) )?(\{.*\})\s*$")
 NO_RESULT = re.compile(r"LR-RUN (\w+) (\w+) no result")
 HOST = re.compile(r'LR host (\S+) chip="([^"]*)" macOS (\S+)')
 TOP = ("finished_launching", "window_on_screen", "active", "request_to_start")
+PREMAIN = "scripts/measure/launch-premain.sh"
+LP_RUN = re.compile(r"LP-RUN (\{.*\})\s*$")
+LP_HOST = re.compile(r'LP host (\S+) chip="([^"]*)" macOS (\S+)')
+LP_KEYS = {"main_start": "ms", "pageins": "count", "system_pageins": "count", "user_ms": "ms", "system_ms": "ms",
+           "disk_read_kb": "KB", "resident_before": "%", "resident_at_main": "%", "pages_touched": "count"}
 
 
 def _metric(name: str) -> str:
@@ -84,6 +94,16 @@ class Launch(Bench):
 
     def run(self, ctx: Context) -> None:
         build = ctx.build
+        if ctx.arg("mode") == "premain":
+            if build["channel"] != "nightly" and not ctx.arg("dmg"):
+                raise BenchError("launch mode=premain: --build nightly or --arg dmg=https://... (a DMG)")
+            args = [f"dmg={build.get('url') or ctx.arg('dmg') or 'nightly'}", f"reps={ctx.arg('reps', '5')}"]
+            if ctx.arg("arms"):
+                args.append(f"arms={ctx.arg('arms')}")
+            res = ctx.fleet_step(PREMAIN, args, ".build/launch-premain/report.tgz",
+                                 labels=tuple(ctx.arg("labels", "measure").split(",")), timeout=5400, display=True)
+            self.ingest(ctx, res.log_path)
+            return
         args = [f"runs={ctx.arg('runs', '5')}"]
         if ctx.arg("profile"):
             args.append(f"profile={ctx.arg('profile')}")
@@ -106,6 +126,8 @@ class Launch(Bench):
         self.ingest(ctx, res.log_path)
 
     def ingest(self, ctx: Context, path: Path) -> None:
+        if ctx.arg("mode") == "premain" or _is_premain(path):
+            return self.ingest_premain(ctx, path)
         runs, text = read_runs(path)
         host = HOST.search(text)
         if host and ctx.host.get("name") in ("fleet", "", None):
@@ -123,6 +145,48 @@ class Launch(Bench):
             for name in names:
                 ctx.row(_metric(name), unit="ms", samples=[r["marks"][name] for r in done if name in r["marks"]],
                         labels=labels)
+
+
+    def ingest_premain(self, ctx: Context, path: Path) -> None:
+        """launch-premain.sh's measured launches (role B), one row per key and arm."""
+        text = _premain_text(path)
+        host = LP_HOST.search(text)
+        if host and ctx.host.get("name") in ("fleet", "", None):
+            ctx.host.update({"name": host.group(1), "chip": host.group(2), "os": f"macOS {host.group(3)}"})
+        runs = []
+        for line in text.splitlines():
+            m = LP_RUN.search(line) if "LP-RUN" in line else None
+            if m or line.startswith("{"):
+                row = json.loads(m.group(1) if m else line)
+                if row.get("role") == "B":
+                    runs.append(row)
+        if not runs:
+            raise BenchError(f"{path}: no LP-RUN lines with role B")
+        for arm in dict.fromkeys(r["arm"] for r in runs):
+            measured = [r for r in runs if r["arm"] == arm]
+            done = [r for r in measured if r.get("main_start") is not None and not r.get("error")]
+            labels = {"mode": "premain", "arm": arm}
+            ctx.row("failed_launches", len(measured) - len(done), "count", labels=labels)
+            for key, unit in LP_KEYS.items():
+                scale = 100.0 if unit == "%" else 1.0  # the harness's residency is a fraction
+                ctx.row(key, unit=unit, samples=[r[key] * scale for r in done if r.get(key) is not None], labels=labels,
+                        better="higher" if key.startswith("resident") else "lower")
+
+
+def _premain_text(path: Path) -> str:
+    if tarfile.is_tarfile(path):
+        with tarfile.open(path) as tar:
+            member = next((m for m in tar.getmembers() if m.name.rsplit("/", 1)[-1] == "runs.jsonl"), None)
+            if member is None:
+                raise BenchError(f"{path}: no runs.jsonl in the archive")
+            return tar.extractfile(member).read().decode("utf-8", "replace")
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _is_premain(path: Path) -> bool:
+    """A launch-premain.sh log or runs.jsonl (its rows carry role), not a launch-ready.sh one."""
+    text = _premain_text(path)
+    return "LP-RUN " in text or '"role": "B"' in text
 
 
 BENCH = Launch()
