@@ -428,7 +428,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .dismissed:
             // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
             // and Escape are consumed, as before.
-            return Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
+            return LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
@@ -437,17 +437,9 @@ final class KeyRouter: BrowserKeyRouting {
         case .mismatch:
             // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
             // armed chord prefix went to the page (or terminal) instead of closing the tab.
-            if Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
+            if LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
-    }
-
-    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
-    /// ``routeChord``): a Command or Control chord bound to a system or navigation action, other than the leader
-    /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
-    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
-        guard isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
-        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
     }
 }
