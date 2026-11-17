@@ -248,7 +248,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     cloud_machines_malformed: "the cmux app's cloud.machines reply has no machines list",
     cloud_secret_help: "Store secrets in this Mac's Keychain. set reads a value from a hidden prompt\nor stdin, never a command argument. ls lists names and scopes, never values.\nUse --repo OWNER/NAME with set or rm for a repository-scoped secret.",
     launch_times: LaunchTimesMessages {
-        usage: "usage: cmux app launch-times [--limit <n>] [--file <path>]\nThe app's last launches (at most 50), oldest first: build, commit, pre-main ms (process start to main),\nmain ms (main to the first window frame), first window frame ms, Home's first page ms, whether Home\nshowed by its page or its deadline, whether the updater pre-warmed the build, and whether it was the\nbuild's first launch. Read from ~/Library/Application Support/<bundle id>/launch-times.jsonl; the app\nneed not run.",
+        usage: "usage: cmux app launch-times [--limit <n>] [--file <path>]\nThe app's last launches (at most 50), oldest first: build, commit, pre-main ms (process start to main),\nmain ms (main to the first window frame), first window frame ms, Home's first page ms, whether Home\nshowed by its page or its deadline, ms to the window taking keys (Home's message field), ms to the first\nshell output, whether the launch had no saved snapshot to show, whether the updater pre-warmed the build,\nand whether it was the build's first launch. Read from ~/Library/Application Support/<bundle id>/launch-times.jsonl; the app\nneed not run.",
         no_app: "no cmux app around this CLI: run the CLI bundled in the app, or set CMUX_BUNDLE_ID",
         empty: "no launches recorded yet in {path}",
         unreadable: "cannot read {path}: {error}",
@@ -398,7 +398,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
     cloud_secret_help: "シークレットをこの Mac のキーチェーンに保存します。set は非表示の入力プロンプト\nまたは標準入力から値を読み取ります。値をコマンドの引数には指定しません。\nls は名前とスコープを一覧表示し、値は表示しません。\nリポジトリ専用のシークレットには set または rm に --repo OWNER/NAME を指定します。",
     launch_times: LaunchTimesMessages {
-        usage: "使い方: cmux app launch-times [--limit <n>] [--file <パス>]\nアプリの直近の起動 (最大 50 件) を古い順に表示します: ビルド、コミット、main までの ms (プロセス開始から main)、\nmain から最初のウィンドウフレームまでの ms、最初のウィンドウフレームの ms、Home の最初のページの ms、\nHome がページと期限のどちらで表示されたか、アップデーターがそのビルドを事前起動したか、そのビルドの初回起動か。\n~/Library/Application Support/<バンドル ID>/launch-times.jsonl から読み取ります。アプリが動作している必要はありません。",
+        usage: "使い方: cmux app launch-times [--limit <n>] [--file <パス>]\nアプリの直近の起動 (最大 50 件) を古い順に表示します: ビルド、コミット、main までの ms (プロセス開始から main)、\nmain から最初のウィンドウフレームまでの ms、最初のウィンドウフレームの ms、Home の最初のページの ms、\nHome がページと期限のどちらで表示されたか、\nウィンドウがキー入力を受け付けるまで (Home のメッセージ欄) の ms、最初のシェル出力までの ms、保存されたスナップショットがなかったか、\nアップデーターがそのビルドを事前起動したか、そのビルドの初回起動か。\n~/Library/Application Support/<バンドル ID>/launch-times.jsonl から読み取ります。アプリが動作している必要はありません。",
         no_app: "この CLI の周りに cmux アプリがありません。アプリ同梱の CLI を実行するか、CMUX_BUNDLE_ID を設定してください",
         empty: "{path} にはまだ起動の記録がありません",
         unreadable: "{path} を読み取れません: {error}",

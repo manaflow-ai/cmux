@@ -77,6 +77,14 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     public var homeFirstPageMs: Double?
     /// What showed Home: `mark` (its first page came) or `deadline` (``LaunchReveal``'s deadline passed first).
     public var homeRevealedBy: String?
+    /// Process start to the window taking keys (`window_usable`): Home's message field has the keyboard in the key
+    /// window. Nil when it had not by the time the record was written (the keyboard went elsewhere, no Home).
+    public var windowUsableMs: Double?
+    /// Process start to the first live output of a shell this launch (`first_shell_live`), when one came before the record.
+    public var firstShellLiveMs: Double?
+    /// The launch found no launch snapshot (`launch.no_snapshot`): nothing saved to show, a fresh install's launch.
+    /// Nil in records written before this field.
+    public var noSnapshot: Bool?
     /// The updater pre-warmed this build before this launch (`StagedUpdatePrewarm`): this is the first
     /// launch of a build the running app ran once while the update waited.
     public var prewarmed: Bool
@@ -88,6 +96,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
         case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
+        case windowUsableMs = "window_usable_ms", firstShellLiveMs = "first_shell_live_ms", noSnapshot = "no_snapshot"
         case prewarmed, firstLaunchOfBuild = "first_launch_of_build"
     }
 
@@ -104,6 +113,9 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         if let main = marks["main_start"], let frame = marks["first_window_frame_committed"] { mainMs = round(frame - main) }
         homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
+        windowUsableMs = round(marks["window_usable"])
+        firstShellLiveMs = round(marks["first_shell_live"])
+        noSnapshot = marks["launch.no_snapshot"] != nil
         self.prewarmed = prewarmed
         firstLaunchOfBuild = true
     }

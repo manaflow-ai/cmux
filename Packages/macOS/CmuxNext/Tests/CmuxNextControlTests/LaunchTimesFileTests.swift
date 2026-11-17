@@ -37,6 +37,35 @@ import Testing
         let byDeadline = Self.record(marks: deadline)
         #expect(byDeadline.homeRevealedBy == "deadline")
         #expect(byDeadline.homeFirstPageMs == nil)
+        #expect(record.windowUsableMs == nil && record.firstShellLiveMs == nil && record.noSnapshot == false)
+    }
+
+    /// A launch with nothing to restore (piece 8, the bare launch) records when its window took keys and its first shell went live.
+    @Test func aBareLaunchRecordsWhenItsWindowTookKeysAndItsShellWentLive() throws {
+        var marks = Self.marks
+        marks["launch.no_snapshot"] = 60
+        marks["window_usable"] = 231.04
+        marks["first_shell_live"] = 512.96
+        let record = Self.record(marks: marks)
+        #expect(record.noSnapshot == true)
+        #expect(record.windowUsableMs == 231)
+        #expect(record.firstShellLiveMs == 513)
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        let line = try file.append(record)
+        #expect(line.contains(#""window_usable_ms":231"#) && line.contains(#""first_shell_live_ms":513"#) && line.contains(#""no_snapshot":true"#))
+    }
+
+    /// A line an older build wrote (no bare-launch fields) still reads back.
+    @Test func aRecordFromBeforeTheBareLaunchFieldsReadsBack() throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let old = #"{"build":"200","first_launch_of_build":true,"prewarmed":false,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#
+        try Data((old + "\n").utf8).write(to: file.url)
+        let records = file.records()
+        #expect(records.count == 1)
+        #expect(records.first?.noSnapshot == nil && records.first?.windowUsableMs == nil)
     }
 
     /// Home shows from its saved state before the Chief's first page (launch piece 3): the record is
@@ -59,7 +88,7 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "prewarmed", "first_launch_of_build"])
+                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build"])
         var expected = Self.record(prewarmed: true)
         expected.firstLaunchOfBuild = true
         #expect(file.records() == [expected])

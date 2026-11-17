@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
-            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited")  // suspends for the read; the daemon's start reads no file
+            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: the bare launch (piece 8)
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
                 try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited")

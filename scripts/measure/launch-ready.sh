@@ -16,6 +16,10 @@
 #                default, session=small, measures the priming launch's session (one window on Home).
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
 #                and print its main thread from process start to the window on screen (launch-ready-profile.py)
+#   state=bare   every launch, the priming one included, starts with an empty home: nothing to restore, as a fresh
+#                install's window after its copy's first exec (the priming launch pays that exec). Default state=kept:
+#                the priming launch makes the home's state and every measured launch relaunches into it. With state=bare
+#                the probe also opens a terminal once Home takes keys (window_usable): shell_requested, first_shell_live.
 #   prerun=S     before each measured launch, one full run of the same copy and home that stays up S seconds after its
 #                window shows (1 to 600; 60 for "a launch after a 60 s full run"), then quits as the measured ones do.
 #                The time before main differs by case: 30 to 80 ms when launches follow each other closely, 600 to 1170
@@ -31,6 +35,7 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
+  LR_STATE=kept
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -38,15 +43,18 @@ main() {
       head=*) headsha="${arg#head=}" ;;
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
+      state=kept|state=bare) LR_STATE="${arg#state=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
+  [[ "$LR_STATE" == kept || "$session" == small ]] || { echo "state=bare empties the home before each launch: it takes no session=$session" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  echo "LR state $LR_STATE"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
@@ -118,7 +126,7 @@ for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
     loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
     med = {"n": len(done), "max_load_1m": max(loads) if loads else None}
-    for key in ("finished_launching", "window_on_screen", "active", "request_to_start"):
+    for key in ("finished_launching", "window_on_screen", "active", "request_to_start", "shell_requested"):
         vals = [r[key] for r in done if r.get(key) is not None]
         med[key] = round(statistics.median(vals), 1) if vals else None
     # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
@@ -141,6 +149,9 @@ probe() {
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   quiesce "$app" "$side" "$label"
+  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again). Only this run's own home
+  # is removed; a daemon the last launch kept has its socket in the removed home and ends with the others at the end.
+  if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t"; fi
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
@@ -148,7 +159,8 @@ probe() {
     recorder=$!
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
-  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" \
+    $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   if [[ -n "$recorder" ]]; then
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi

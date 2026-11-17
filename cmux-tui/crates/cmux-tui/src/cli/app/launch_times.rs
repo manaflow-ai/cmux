@@ -78,7 +78,7 @@ pub(super) fn read(path: &Path, limit: Option<usize>) -> std::io::Result<Vec<Val
 
 /// One row per launch under the record's own key names.
 pub(super) fn table(records: &[Value]) -> String {
-    const HEADER: [&str; 10] = [
+    const HEADER: [&str; 13] = [
         "started_at",
         "build",
         "commit",
@@ -87,6 +87,9 @@ pub(super) fn table(records: &[Value]) -> String {
         "first_window_frame_ms",
         "home_first_page_ms",
         "home_revealed_by",
+        "window_usable_ms",
+        "first_shell_live_ms",
+        "no_snapshot",
         "prewarmed",
         "first_launch_of_build",
     ];
