@@ -253,6 +253,7 @@ rm -f "$reap_child_pid" "$reap_status"
 set -m
 set +e
 (
+  # shellcheck disable=SC2016 # the child's own $$ and $1, expanded by its bash
   PATH="$nognu" PYTHONPATH="$in_reap_hook" "$bounded" 30 \
     bash -c 'echo "$$" >"$1"; exec sleep 30' reap-child "$reap_child_pid" >/dev/null 2>&1
   echo "$?" >"$reap_status"
