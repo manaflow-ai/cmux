@@ -6,13 +6,14 @@ import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
-import { clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -669,6 +670,79 @@ describe("opRetryable", () => {
     expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
     expect(opRetryable({ ok: true, value: {} })).toBe(false);
     expect(opRetryable("vm_unavailable")).toBe(false);
+  });
+});
+
+describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
+  const unreachable = { status: 503, body: { _tag: "OwnerUnreachable", code: "owner.unreachable", message: "Error: Network connection lost.", retryable: true } };
+  const timedOut = { status: 503, body: { ok: false, error: { code: "owner.unreachable", message: "CallTimedOut: team machines: get did not answer", retryable: true } } };
+  const ok = { status: 200, body: { ok: true, value: { id: "vm_1" } } };
+  /** Answers each request with the next of `answers` (the last repeats) and keeps the bodies sent. */
+  async function withAnswers<T>(answers: { status: number; body: unknown }[], run: (sent: any[]) => Promise<T>): Promise<T> {
+    const sent: any[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      const a = answers[Math.min(sent.length - 1, answers.length - 1)]!;
+      return new Response(JSON.stringify(a.body), { status: a.status });
+    }) as typeof fetch;
+    try {
+      return await run(sent);
+    } finally {
+      globalThis.fetch = real;
+    }
+  }
+  const journey = () => new Journey(resolveBackend("staging"), null, {});
+  const api = () => Object.assign(new Api("https://api.invalid"), { bearer: "t" });
+
+  test("op() sends the same request once more under the same key, and the step says so", async () => {
+    await withAnswers([unreachable, ok], async (sent) => {
+      const J = journey();
+      const v = await J.step("create", async () => ({ value: await api().op("cloud.machine.create", { name: "n" }, "tag-create"), detail: "vm_1" }));
+      expect(v).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+      expect(sent[1]).toEqual(sent[0]);
+      expect(sent[1].idempotency_key).toBe("tag-create");
+      expect(J.steps[0]!.detail).toBe("vm_1; retried once after owner.unreachable");
+    });
+  });
+
+  test("read() reads once more, and a second owner.unreachable fails the step naming the retry", async () => {
+    await withAnswers([timedOut, ok], async (sent) => {
+      expect(await api().read("cloud.machine.get", { machine: "vm_1" })).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+    });
+    await withAnswers([unreachable], async (sent) => {
+      const J = journey();
+      await expect(J.step("get", async () => ({ value: await api().read("cloud.machine.get", { machine: "vm_1" }), detail: "" }))).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(2);
+      expect(J.steps[0]!.status).toBe("fail");
+      expect(J.steps[0]!.detail).toContain("retried once after owner.unreachable");
+    });
+    await withAnswers([unreachable], async (sent) => {
+      await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "tag-start")).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(2);
+    });
+  });
+
+  test("no retry on other codes, on owner.unreachable not marked retryable, or on an op without a key", async () => {
+    const answers = [
+      { status: 503, body: { ok: false, error: { code: "cloud.provider.unavailable", retryable: true } } },
+      { status: 503, body: { code: "owner.unreachable", retryable: false } },
+      { status: 409, body: { ok: false, error: { code: "cloud.machine.busy", retryable: false } } },
+    ];
+    for (const a of answers) {
+      // Every request gets the error: op and read each send exactly one.
+      await withAnswers([a], async (sent) => {
+        await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "k")).rejects.toThrow();
+        await expect(api().read("cloud.machine.get", { machine: "vm_1" })).rejects.toThrow();
+        expect(sent.length).toBe(2);
+      });
+    }
+    await withAnswers([unreachable, ok], async (sent) => {
+      await expect(api().op("cloud.machine.start", { machine: "vm_1" })).rejects.toThrow("owner.unreachable");
+      expect(sent.length).toBe(1);
+    });
   });
 });
 
@@ -2720,5 +2794,60 @@ describe("exec probe bench", () => {
     expect(md).toContain("| boot | short | 2 | 1 | 100 | 900 |");
     expect(md).toContain("| settled | wait | 1 | 0 | 20400 | 20400 |");
     expect(md).toContain("| boot | short | 0 | 900 | - | ECONNRESET | yes | answer lost after the guest ran it | socket \\| closed |");
+  });
+});
+
+describe("a request whose socket drops (run 43927514723: connect_info ECONNRESET 40 ms in)", () => {
+  /** A local HTTP server that resets the socket of the first `resets` requests and answers the rest with `{ok:true}`. */
+  async function resetting<T>(resets: number, run: (url: string, seen: () => number) => Promise<T>): Promise<T> {
+    const { createServer } = await import("node:net");
+    let seen = 0;
+    const server = createServer((c) => {
+      c.on("data", () => {
+        seen++;
+        if (seen <= resets) return c.resetAndDestroy();
+        const body = JSON.stringify({ ok: true, value: { host: "h" } });
+        c.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`);
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      return await run(`http://127.0.0.1:${(server.address() as { port: number }).port}`, () => seen);
+    } finally {
+      server.close();
+    }
+  }
+
+  test("a read is sent once more on a fresh connection and answers", async () => {
+    await resetting(1, async (url, seen) => {
+      const r = await journeyHttp("POST", `${url}/v1/read`, { op: "cloud.machine.connect_info", params: {} }, {}, 5_000, true);
+      expect(r.status).toBe(200);
+      expect(r.body.value).toEqual({ host: "h" });
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a GET retries by default; a second drop fails naming both", async () => {
+    await resetting(1, async (url, seen) => {
+      expect((await journeyHttp("GET", `${url}/v1/health`, undefined, {})).status).toBe(200);
+      expect(seen()).toBe(2);
+    });
+    await resetting(2, async (url, seen) => {
+      await expect(journeyHttp("GET", `${url}/v1/health`, undefined, {})).rejects.toThrow("sent once more on a fresh connection");
+      expect(seen()).toBe(2);
+    });
+  });
+
+  test("a POST that is not repeatable (an op with no key, an exec) is sent once", async () => {
+    await resetting(1, async (url, seen) => {
+      await expect(journeyHttp("POST", `${url}/v1/cloud/machines/m/exec`, { command: "true" }, {})).rejects.toThrow();
+      expect(seen()).toBe(1);
+    });
+  });
+
+  test("socketDropped knows a dropped socket from a timeout", () => {
+    expect(socketDropped(Object.assign(new TypeError("ECONNRESET: The socket connection was closed unexpectedly."), { code: "ECONNRESET" }))).toBe(true);
+    expect(socketDropped(new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) }))).toBe(true);
+    expect(socketDropped(new DOMException("The operation timed out.", "TimeoutError"))).toBe(false);
   });
 });

@@ -42,12 +42,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
     let usageWarningMark = DecorativeImageView()
-    /// A flat remote workspace's View screen, on hover and when selected, or a local row's sharing badge (`layoutScreen`).
-    let screenSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeScreenButton() }
-    var screenAction: SidebarIntent?
-    var onScreenAction: ((SidebarIntent) -> Void)?
-    /// A local row while this Mac shares its screen (`SidebarMachine.screenShared`): the sharing badge's row.
-    var screenShared = false
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`). Made when it first shows
@@ -104,13 +98,7 @@ final class WorkspaceRowView: SidebarRowView {
         }
     }
     /// On screen in this window but not the focused one (`SidebarModel.onScreen`): the soft fill.
-    var isOnScreen = false {
-        didSet {
-            guard isOnScreen != oldValue else { return }
-            needsDisplay = true
-            if screenShared { needsLayout = true } // the sharing badge follows the row on screen
-        }
-    }
+    var isOnScreen = false { didSet { if isOnScreen != oldValue { needsDisplay = true } } }
     override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -192,10 +180,10 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, screenSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, screenSlot.made] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
     }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
@@ -233,8 +221,6 @@ final class WorkspaceRowView: SidebarRowView {
         onSelect = nil
         onToggleTree = nil
         onToggleAudio = nil
-        onScreenAction = nil
-        configureScreen(nil)
         title.stopMarquee()
         title.cancelRoll()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")

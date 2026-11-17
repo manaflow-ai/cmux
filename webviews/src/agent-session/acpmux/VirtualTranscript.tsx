@@ -94,8 +94,8 @@ import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./co
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
-import { noteTranscriptMount, noteReplyUnpainted, noteMounted, noteUnmounted } from "./flickerLog";
-import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
+import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
+import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
@@ -5203,27 +5203,18 @@ function TranscriptView({
     // fold's bound (followChase `alongside`), so the rows move as one motion, never the sum of two.
     followChase.current?.alongside(turnEnd.current?.animations);
   }, [rows, sessionId, stopFollowMotion]);
-  // The detector for a reply the chat holds but does not paint (conversation/replyPainted.ts): once
-  // the turn has ended and the page has settled, the followed view must show its final reply, or
-  // the flicker ring file says why (`reply-unpainted`). Each reply is judged once.
-  const judgedReply = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (working || loading) return;
-    const id = finalReplyId(rows);
-    if (!id || judgedReply.current === id) return;
-    const timer = setTimeout(() => {
-      const scroller = ref.current;
-      const host = thread.current;
-      if (!scroller || !host || document.visibilityState !== "visible" || !scrolledTo.current.atLatest) return;
-      judgedReply.current = id;
-      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
-      const node = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
-      const view = scroller.getBoundingClientRect();
-      const why = replyUnpainted(node, host, { top: view.top, bottom: view.bottom - dockSpace });
-      if (why) noteReplyUnpainted(why, Math.round(node?.getBoundingClientRect().height ?? 0));
-    }, REPLY_SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [rows, working, loading, dockSpace]);
+  // The detector for a reply the chat holds but does not paint, for a turn this page saw end
+  // (conversation/replyJudge.ts).
+  useEndedReplyCheck({
+    rows,
+    sessionId,
+    working,
+    loading,
+    dockSpace,
+    scroller: ref,
+    host: thread,
+    follow: scrolledTo,
+  });
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(
     () => () => {
@@ -6968,7 +6959,7 @@ function TranscriptView({
               <div
                 ref={thread}
                 className="acpmux-thread"
-                style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
+                style={{ top: lift + topInset }}
                 onPointerOver={(event) => pointAt(event.target)}
                 onPointerLeave={() => pointAt(null)}
               >

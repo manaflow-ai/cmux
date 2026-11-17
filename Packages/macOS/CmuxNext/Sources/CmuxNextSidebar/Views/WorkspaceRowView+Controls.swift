@@ -8,68 +8,6 @@ extension WorkspaceRowView {
     /// Where the row's last layout put the menu button, made or not: the menu anchors there (`SidebarRowMenu`).
     var moreFrame: NSRect { moreSlot.frame }
 
-    func makeScreenButton() -> SidebarIconButton {
-        let button = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
-        button.onPress = { [weak self] in
-            guard let self, let action = self.screenAction else { return }
-            self.onScreenAction?(action)
-        }
-        identify(button, as: "screen")
-        return button
-    }
-
-    func configureScreen(_ machine: SidebarMachine?) {
-        let next: SidebarIntent?
-        // A local row has no Share button (Leo 11-16: "JUST GET RID OF IT NOW"; the machine header and palette share).
-        // While this Mac shares, the local rows carry the sharing badge instead, drawn on the row on screen only.
-        let shared = machine?.kind == .local && machine?.screenShared == true && !isPlaceholderRow
-        if let machine, !isPlaceholderRow {
-            switch machine.kind {
-            case .local: next = shared ? .shareScreen(.local) : nil
-            case .cloud: next = .viewScreen(machine.id)
-            case .ssh, .server: next = machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
-            }
-        } else {
-            next = nil
-        }
-        if screenAction != next { screenAction = next; needsLayout = true }
-        if screenShared != shared { screenShared = shared; needsLayout = true }
-        if let machine, screenAction != nil {
-            let button = screenSlot.control(in: self)
-            button.isEnabled = shared || machine.kind == .cloud || machine.screenAvailable
-            // A screen, never the generic share arrow (Leo 2026-11-16: "Holy moly is THIS the icon for screen
-            // sharing???"). The sharing badge is the same screen in the accent.
-            button.icon = .remoteDisplay
-            button.tintOverride = shared ? Palette.accent : nil
-            button.label = shared ? Strings.sharingScreen : Strings.viewScreen + (button.isEnabled ? "" : " — " + Strings.statusOffline)
-            identify(button, as: "screen")
-        } else {
-            screenSlot.made?.isHidden = true
-            screenSlot.made?.isEnabled = false
-            screenSlot.made?.tintOverride = nil
-        }
-    }
-
-    /// The local row on screen while this Mac shares: the workspace the people watching see.
-    var showsSharingBadge: Bool { screenShared && (isSelected || isOnScreen) }
-
-    var showsScreen: Bool {
-        screenAction != nil && !isShowingPlaceholder && !renaming && (screenShared ? showsSharingBadge : revealsHoverControls || isSelected)
-    }
-
-    /// View screen on hover and on the selected row, never on every row at rest (Leo 2026-11-16); the sharing badge
-    /// on the shared row only. It takes the shared slot left of the hover cluster (`after`), over the title's faded
-    /// end like ⋮ and ✕, so nothing moves and no slot is reserved at rest. Returns its leading edge when shown.
-    func layoutScreen(rowWidth: CGFloat, cy: CGFloat, control: CGFloat, after cluster: [NSRect], fades: Bool) -> CGFloat? {
-        let shown = showsScreen
-        setHoverShown(screenSlot, shown, fades: fades)
-        guard shown else { return nil }
-        let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
-        let next = cluster.map { Int(round((center - $0.midX) / SidebarStyle.trailingSlotPitch)) + 1 }.max() ?? 1
-        screenSlot.frame = trailingActionFrame(rowWidth: rowWidth, cy: cy, control: control, minimumSlot: next)
-        return screenSlot.frame.minX
-    }
-
     func makeCloseButton() -> SidebarIconButton {
         let button = SidebarIconButton.rowClose(label: Strings.closeButton)
         button.onPress = { [weak self] in self?.onClose?() }
@@ -122,7 +60,6 @@ extension WorkspaceRowView {
 
     /// The made controls' accessibility identifiers, for the row's workspace.
     func applyControlIdentifiers() {
-        screenSlot.made.map { identify($0, as: "screen") }
         closeSlot.made.map { identify($0, as: "close") }
         moreSlot.made.map { identify($0, as: "more") }
         pinSlot.made.map { identify($0, as: "pin") }

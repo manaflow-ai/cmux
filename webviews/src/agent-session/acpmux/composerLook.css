@@ -82,7 +82,9 @@
   --acpmux-codex-prompt-gap: var(--acpmux-composer-inset);
   --acpmux-codex-row-bottom: var(--acpmux-composer-inset);
   --acpmux-codex-prompt-side: calc(18px * var(--acpmux-density));
-  --acpmux-codex-editor-min: max(calc(40px * var(--acpmux-density)), var(--text-content--line-height));
+  /* A density's own editor floor (`--cmux-chat-editor-min`, DensityPreset's chatEditorMin: Comfortable 16, Spacious
+     50; Lucas 2026-11-16: the chat prompt got taller at bigger densities), else Codex's 40 px editor at the density. */
+  --acpmux-codex-editor-min: var(--cmux-chat-editor-min, max(calc(40px * var(--acpmux-density)), var(--text-content--line-height)));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid] {
   --acpmux-shell-inset-top: var(--acpmux-codex-prompt-top);
@@ -119,6 +121,8 @@
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > :not(.acpmux-composer-actions),
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > .acpmux-composer-actions {
   grid-row: 3;
+  align-self: end;
+  margin-top: 0;
   margin-bottom: var(--acpmux-codex-row-bottom);
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {

@@ -14,10 +14,8 @@ import Testing
         switch row {
         case let row as WorkspaceRowView:
             // The speaker shows the tabs play or are muted; the drive indicator shows an agent driving; a folded parent's
-            // chevron shows it is folded (an open one is hover or selection only, design/sidebar.md); the sharing badge
-            // shows This Mac sharing on the row on screen.
-            [row.audioSlot.made, row.driveIndicator, row.treeFold == .collapsed ? row.treeFoldSlot.made : nil,
-             row.showsSharingBadge ? row.screenSlot.made : nil].compactMap(\.self)
+            // chevron shows it is folded (an open one is hover or selection only, design/sidebar.md).
+            [row.audioSlot.made, row.driveIndicator, row.treeFold == .collapsed ? row.treeFoldSlot.made : nil].compactMap(\.self)
         case let row as SectionHeaderRowView:
             // A machine header's + stays at rest (cx-g2kk, #19023: hiding it made the sidebar's bottom flash); its
             // sharing badge shows This Mac sharing.
@@ -75,7 +73,6 @@ import Testing
         row.layoutSubtreeIfNeeded()
         let marks = Self.stateMarks(row)
         let shown = row.interactiveSubviews.filter { control in Self.drawn(control) && !marks.contains { $0 === control } }
-        #expect(shown.contains { $0 === row.screenSlot.made }, "View screen draws on hover")
         #expect(shown.contains { $0 === row.moreSlot.made }, "the menu button draws on hover")
     }
 }

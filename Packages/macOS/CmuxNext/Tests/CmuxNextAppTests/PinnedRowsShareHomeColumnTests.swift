@@ -96,22 +96,27 @@ import Testing
     }
 
     /// Runs `body` with the sidebar at `c` and `sidebar.pinnedRowLeading` at its default.
-    static func at(_ c: Case, _ body: () throws -> Void) throws {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
-        try #require(SidebarPinnedRowLeading.tunable.value == .ownIcon, "the default look is ownIcon")
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
+    static func at(_ c: Case, preset: DensityPreset = .compact, _ body: () throws -> Void) throws {
+        // Release closed views between synchronous cases before the next motion notification.
+        try autoreleasepool {
+            Motion.reduceMotionOverride = true
+            defer { Motion.reduceMotionOverride = nil }
+            TunableStore.shared.activate(file: nil)
+            TunableStore.shared.register(SidebarTunables.all)
+            TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
+            try #require(SidebarPinnedRowLeading.tunable.value == .ownIcon, "the default look is ownIcon")
+            try DensityTokens.$scoped.withValue(preset.tokens) {
+                try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
+            }
+        }
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/42431: every pinned row's leading glyph centers on Home's glyph's
     /// center line. The left-edge check above passed while the pin, taller than it is wide, hugged the column's left
     /// edge with its middle 3 pt left of the house's, the globe's and the app icons'.
-    @Test(arguments: cases)
-    func everyPinnedRowsLeadingGlyphCentersUnderHomes(_ c: Case) throws {
-        try Self.at(c) {
+    @Test(arguments: cases, DensityPreset.allCases)
+    func everyPinnedRowsLeadingGlyphCentersUnderHomes(_ c: Case, preset: DensityPreset) throws {
+        try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
@@ -135,9 +140,9 @@ import Testing
     /// A pinned group's pin draws on the same line and at the same size as a pinned workspace row's: centered under Home's
     /// glyph, its ink as large as the house's. It centered on the icon column's middle, which (glyphs 1 to 2 pt
     /// under the column's width) sits 1 pt right of the line Home and the pinned rows share.
-    @Test(arguments: cases)
-    func aPinnedGroupsPinCentersUnderHomes(_ c: Case) throws {
-        try Self.at(c) {
+    @Test(arguments: cases, DensityPreset.allCases)
+    func aPinnedGroupsPinCentersUnderHomes(_ c: Case, preset: DensityPreset) throws {
+        try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale, pinnedGroup: true)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
@@ -156,24 +161,24 @@ import Testing
         }
     }
 
-    @Test(arguments: cases)
-    func thePinDrawsAsLargeAsHomesGlyph(_ c: Case) throws {
-        try Self.at(c) {
+    @Test(arguments: cases, DensityPreset.allCases)
+    func thePinDrawsAsLargeAsHomesGlyph(_ c: Case, preset: DensityPreset) throws {
+        try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let plain = try HomePinnedRowAlignmentTests.item(list, Self.plain.id)
             let pin = try #require(plain.pinInkFrame, "the text-only pinned row draws no pin")
             let house = try #require(home.glyphInkFrame, "Home drew no glyph")
-            #expect(abs(max(pin.width, pin.height) - max(house.width, house.height)) <= 1,
+            #expect(abs(SidebarOpticalGlyph.fittedExtent(pin.size) - SidebarOpticalGlyph.fittedExtent(house.size)) <= 1,
                     "\(c.testDescription): the pin's ink is \(pin.width) x \(pin.height) pt, Home's \(house.width) x \(house.height) pt")
         }
     }
 
     /// Every pinned row's title, with or without its own icon or dot, starts at Home's label x.
-    @Test(arguments: cases)
-    func everyPinnedTitleStartsAtHomesLabel(_ c: Case) throws {
-        try Self.at(c) {
+    @Test(arguments: cases, DensityPreset.allCases)
+    func everyPinnedTitleStartsAtHomesLabel(_ c: Case, preset: DensityPreset) throws {
+        try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
@@ -188,9 +193,9 @@ import Testing
 
     /// A pinned group with its own icon draws it in the pin's place (`SidebarPinnedRowLeading`), so its name starts
     /// where a pinned group without one starts its name after the pin, and the icon centers where that pin does.
-    @Test(arguments: cases)
-    func pinnedGroupNamesStartAtOneXWithOrWithoutAnIcon(_ c: Case) throws {
-        try Self.at(c) {
+    @Test(arguments: cases, DensityPreset.allCases)
+    func pinnedGroupNamesStartAtOneXWithOrWithoutAnIcon(_ c: Case, preset: DensityPreset) throws {
+        try Self.at(c, preset: preset) {
             _ = NSApplication.shared
             let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
             let plainID = GroupID("g-share-plain"), iconID = GroupID("g-share-icon")
