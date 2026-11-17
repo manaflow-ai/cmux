@@ -68,7 +68,8 @@
     "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always",
     "_acpmux/plan/build": "always",
-    "_acpmux/presets": "always"
+    "_acpmux/presets": "always",
+    "_acpmux/run_elsewhere/start": "always"
   },
   "click_only": [
     "_acpmux/permission_group_respond",

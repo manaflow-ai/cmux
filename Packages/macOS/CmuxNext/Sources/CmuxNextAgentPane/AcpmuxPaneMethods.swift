@@ -437,6 +437,10 @@ nonisolated enum AcpmuxPaneMethods {
         // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
         // need none: Keep only archives chats the person's Build started.
         "_acpmux/plan/build": .always,
+        // Run on a bigger machine's Run sends the chat's command, the files the person ticked and
+        // maybe its secrets to another machine: not a message send, so only on the person's click or
+        // Return in its panel.
+        "_acpmux/run_elsewhere/start": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture.
         // _acpmux/retry: no gesture. It runs again only the turn or subagent that failed.

@@ -19,7 +19,7 @@ struct AgentPaneSendNeedsNoGestureTests {
     static let sendMethods = [
         "session/prompt", "chat.fix_from_link", "_acpmux/queue_approve", "_acpmux/review_verdict", "_acpmux/btw",
         "_acpmux/side_chat", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
-        "_acpmux/race/start", "_acpmux/run_elsewhere/start",
+        "_acpmux/race/start",
     ]
 
     @Test func noSendMethodNeedsAGesture() {

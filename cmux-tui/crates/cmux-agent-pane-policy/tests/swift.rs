@@ -69,7 +69,7 @@ fn the_known_params_are_the_macos_hosts() {
 }
 
 /// Sending never needs the person's own key press or click (Leo, 2026-11-17): no send method of
-/// the composer, Retry, Approve, `/btw`, `/side`, a race, Run elsewhere or Fix from a link has a
+/// the composer, Retry, Approve, `/btw`, `/side`, a race or Fix from a link has a
 /// gesture rule on either side.
 #[test]
 fn no_send_needs_a_gesture() {
@@ -84,7 +84,6 @@ fn no_send_needs_a_gesture() {
         "_acpmux/agent_hold",
         "_acpmux/app_reply",
         "_acpmux/race/start",
-        "_acpmux/run_elsewhere/start",
     ] {
         assert!(!policy().gesture_rules.contains_key(method), "{method} needs a gesture");
     }
