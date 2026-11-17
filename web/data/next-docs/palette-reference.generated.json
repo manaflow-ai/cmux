@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1409,
-    "shortcuts": 192
+    "entries": 1423,
+    "shortcuts": 193
   },
   "sections": [
     {
@@ -88,6 +88,12 @@
           "command": "cmux history clear"
         },
         {
+          "id": "closed.clear",
+          "title": "Clear Recently Closed…",
+          "shortcut": null,
+          "command": "cmux closed clear"
+        },
+        {
           "id": "hints.show",
           "title": "Click by Hint",
           "shortcut": null,
@@ -152,6 +158,12 @@
           "title": "Delete Conversation from List",
           "shortcut": null,
           "command": "cmux home hide"
+        },
+        {
+          "id": "closed.delete",
+          "title": "Delete Recently Closed Item…",
+          "shortcut": null,
+          "command": "cmux closed delete"
         },
         {
           "id": "home.disableChannels",
@@ -458,6 +470,12 @@
           "title": "Remove from Group…",
           "shortcut": null,
           "command": "cmux home remove-member"
+        },
+        {
+          "id": "history.removeSite",
+          "title": "Remove Site from History…",
+          "shortcut": null,
+          "command": "cmux history remove-site"
         },
         {
           "id": "home.renameConversation",
@@ -1796,6 +1814,12 @@
           "title": "Ungroup Workspaces",
           "shortcut": null,
           "command": "cmux workspace-group ungroup"
+        },
+        {
+          "id": "workspace.unpinFromSpace",
+          "title": "Unpin Workspace from Space",
+          "shortcut": null,
+          "command": "cmux room unpin"
         },
         {
           "id": "workspaceGroup.color.blue",
@@ -3580,12 +3604,6 @@
           "command": "cmux tab restart"
         },
         {
-          "id": "macScreen.revokeViewer",
-          "title": "Revoke This Device",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "tab.stashOthers",
           "title": "Save and Close Other Tabs",
           "shortcut": null,
@@ -3606,7 +3624,7 @@
         {
           "id": "macScreen.open",
           "title": "Screen Sharing",
-          "shortcut": null,
+          "shortcut": "⇧⌘S",
           "command": "cmux tab new-mac-screen"
         },
         {
@@ -3654,12 +3672,6 @@
         {
           "id": "tab.showResources",
           "title": "Show Tab Resource Usage",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "macScreen.stopSharing",
-          "title": "Stop Sharing This Mac",
           "shortcut": null,
           "command": null
         },
@@ -3838,6 +3850,12 @@
           "command": null
         },
         {
+          "id": "terminal.fixLastCommand",
+          "title": "Fix Last Command with Agent",
+          "shortcut": null,
+          "command": "cmux terminal fix-last-command"
+        },
+        {
           "id": "focusTextBoxInput",
           "title": "Focus TextBox",
           "shortcut": "⌥⌘A",
@@ -3948,6 +3966,18 @@
         {
           "id": "sendCtrlFToTerminal",
           "title": "Send Ctrl-F to Terminal",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "terminal.sendLastOutputToChat",
+          "title": "Send Last Output to Chat",
+          "shortcut": null,
+          "command": "cmux terminal send-last-output-to-chat"
+        },
+        {
+          "id": "terminal.sendSelectionToChat",
+          "title": "Send Selection to Chat",
           "shortcut": null,
           "command": null
         },
@@ -7420,6 +7450,12 @@
           "command": "cmux machine add"
         },
         {
+          "id": "machine.joined.check",
+          "title": "Check Joined Machine",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "machine.doctor",
           "title": "Check Machine",
           "shortcut": null,
@@ -7552,6 +7588,24 @@
           "command": "cmux remote remove-group"
         },
         {
+          "id": "machine.joined.revoke",
+          "title": "Revoke Joined Machine…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "macScreen.revokeViewer",
+          "title": "Revoke This Device",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "machine.joined.rotate",
+          "title": "Rotate Joined Machine's Credential",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "macScreen.deviceAccess",
           "title": "Set Device Access to This Mac…",
           "shortcut": null,
@@ -7566,6 +7620,12 @@
         {
           "id": "macScreen.shareThisMac",
           "title": "Share This Mac",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "macScreen.stopSharing",
+          "title": "Stop Sharing This Mac",
           "shortcut": null,
           "command": null
         },
@@ -7652,6 +7712,12 @@
           "title": "Check for Updates…",
           "shortcut": null,
           "command": "cmux settings check-for-updates"
+        },
+        {
+          "id": "errors.clear",
+          "title": "Clear Error Journal",
+          "shortcut": null,
+          "command": "cmux errors clear"
         },
         {
           "id": "palette.clearSearchHistory",
@@ -7912,6 +7978,12 @@
           "command": "cmux settings keep-3-neighbor-tabs-awake"
         },
         {
+          "id": "debug.keycapPlayground",
+          "title": "Keycap Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "links.openInCmuxBrowser",
           "title": "Links: Open in cmux Browser",
           "shortcut": null,
@@ -8126,6 +8198,12 @@
           "title": "Rounded Pane Corners",
           "shortcut": null,
           "command": "cmux settings toggle-pane-corners"
+        },
+        {
+          "id": "app.try.run",
+          "title": "Run a PR as This App…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "app.command.run",
@@ -8384,6 +8462,12 @@
           "title": "Turn Off Tab Hibernation",
           "shortcut": null,
           "command": "cmux settings turn-off-tab-hibernation"
+        },
+        {
+          "id": "app.try.undo",
+          "title": "Undo Last PR Run",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "palette.uninstallCLI",
