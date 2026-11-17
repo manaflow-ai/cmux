@@ -40,13 +40,14 @@ public struct PageDebugQuery {
 }
 
 extension PageWebView {
-    /// Which live view a probe read (`debug.page`): page id, instance, parked, window number and the
+    /// Which live view a probe read (`debug.page`): page id, instance, parked, shown, window number and the
     /// last claim.
     public var debugIdentity: [String: JSONValue] {
         var members: [String: JSONValue] = [
             "page": .string(pageID),
             "instance": .number(Double(PageRegistry.instance(of: self))),
             "parked": .bool(isParkedSpare),
+            "shown": .bool(PageRegistry.isShown(self)),
             "window_number": window.map { .number(Double($0.windowNumber)) } ?? .null,
         ]
         if let claim = lastClaim {

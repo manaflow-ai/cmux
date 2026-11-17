@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextSettings
@@ -23,6 +24,29 @@ struct PageRegistryProbeTests {
         #expect(PageRegistry.probeTarget(id: descriptor.id, instance: PageRegistry.instance(of: view)) == nil)
         #expect(PageRegistry.pages(id: descriptor.id, probing: true).isEmpty)
         #expect(PageRegistry.pages(id: descriptor.id).contains { $0 === view })
+    }
+
+    /// widget-demo tour6: a window held three unparked New Tab pages; the newest sat under an alpha-0 view,
+    /// was not hidden, and took every press while the frames showed another page untouched.
+    @Test func aPageUnderAnAlphaZeroViewIsNotTheDefaultTarget() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("page-probe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Shown</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let descriptor = PageDescriptor(id: "test.probe-shown-\(UUID().uuidString)", resource: "probe-page", namespaces: [])
+        let shown = try #require(PageWebView(descriptor: descriptor, root: root, testRoot: true, routes: [], route: "#/"))
+        let covered = try #require(PageWebView(descriptor: descriptor, root: root, testRoot: true, routes: [], route: "#/"))
+        defer { shown.close(); covered.close() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let content = try #require(window.contentView), holder = NSView(frame: content.bounds)
+        holder.alphaValue = 0
+        shown.frame = content.bounds; covered.frame = content.bounds
+        content.addSubview(shown); content.addSubview(holder); holder.addSubview(covered)
+        #expect(PageRegistry.isShown(shown) && !PageRegistry.isShown(covered))
+        #expect(PageRegistry.probeTarget(id: descriptor.id) === shown)
+        holder.alphaValue = 1
+        #expect(PageRegistry.probeTarget(id: descriptor.id) === covered)
     }
 }
 
