@@ -51,10 +51,15 @@ fn float_pane_has_its_key_and_acts_on_a_pane() {
     assert!(action.default_chord.is_none());
     assert_eq!(action.targets, &["pane"]);
     assert_eq!(action.surface_plan.cli, Some(Decision::Offered));
-    assert!(
-        action.surface_plan.context_menus.iter().any(|p| p.context == "pane"),
-        "the pane's right-click menu has Float Pane"
-    );
+    assert_eq!(action.cli_name, "pane toggle-floating");
+    // One place: the Layout folder of the pane's right-click menu, after Equalize Splits (101).
+    let places: Vec<_> = action
+        .surface_plan
+        .context_menus
+        .iter()
+        .map(|place| (place.context, place.group, place.rank, place.folder))
+        .collect();
+    assert_eq!(places, [("pane", "layout", 102, Some("layout"))]);
     assert!(!action.starts_terminal, "Float Pane moves a pane that exists");
 }
 
@@ -65,6 +70,9 @@ fn new_floating_pane_has_its_key_and_starts_a_terminal() {
     assert!(action.default_chord.is_none());
     assert_eq!(action.targets, &["pane"]);
     assert_eq!(action.surface_plan.cli, Some(Decision::Offered));
+    assert_eq!(action.cli_name, "pane new-floating");
+    // No right-click row: the palette and the key are its surfaces.
+    assert_eq!(action.surface_plan.context_menu(), Some(Decision::Exempt("pointerMenuTrim")));
     assert!(action.starts_terminal);
     assert!(action.opens_workspace_content);
 }
@@ -82,6 +90,9 @@ fn quick_terminal_is_a_chord_under_the_leader_with_no_plain_key() {
     assert!(action.starts_terminal, "the first run makes the terminal");
     assert!(action.opens_workspace_content);
     assert!(action.targets.is_empty(), "it acts on the workspace that has the focus");
+    // No CLI verb (`guiOnly`) and no right-click row (`noObject`).
+    assert_eq!(action.surface_plan.cli, Some(Decision::Exempt("guiOnly")));
+    assert_eq!(action.surface_plan.context_menu(), Some(Decision::Exempt("noObject")));
 }
 
 #[test]
