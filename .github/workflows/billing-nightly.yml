@@ -21,10 +21,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: billing-nightly-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   lane:
     name: lane
@@ -58,4 +54,4 @@ jobs:
           GH_REPO: ${{ github.repository }}
           NEEDS: ${{ toJSON(needs) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 scripts/ci/billing_nightly.py alert --title "Billing nightly (feat-cmux-next) is red" --workflow billing-nightly.yml
+        run: python3 scripts/ci/billing_nightly.py alert --title "Billing nightly (feat-cmux-next) is red" --workflow billing-nightly.yml --no-slack
