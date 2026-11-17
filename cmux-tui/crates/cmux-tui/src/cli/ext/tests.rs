@@ -295,14 +295,17 @@ fn an_invalid_manifest_names_its_file_and_field_and_exits_4() {
     assert_eq!(json["phase"], "manifest");
     assert_eq!(json["exitCode"], 4);
 
-    // A third-party id is refused: the local folder holds local/ apps only.
+    // A published id (with its repository) loads as local/NAME, the only publisher the local
+    // folder holds (publish_tests); a store id with no repository is refused by the validator.
     manifest["implements"]["cmux.section/1"]["options"]["defaultRegion"] = json!("bottom");
     manifest["id"] = json!("acme/broken");
     manifest["repository"] = json!("https://github.com/acme/broken");
     std::fs::write(&path, manifest.to_string()).unwrap();
+    assert_eq!(dev::load_package(&dir).unwrap().id, "local/broken");
+    manifest.as_object_mut().unwrap().remove("repository");
+    std::fs::write(&path, manifest.to_string()).unwrap();
     let errors = dev::load_package(&dir).unwrap_err();
-    assert_eq!(errors[0].field.as_deref(), Some("/id"));
-    assert!(errors[0].message.contains("local/broken"), "{errors:?}");
+    assert_eq!(errors[0].field.as_deref(), Some("/repository"), "{errors:?}");
 }
 
 /// A fresh clone: `src/main.ts` and no `dist/` (every example gitignores it). The build makes
