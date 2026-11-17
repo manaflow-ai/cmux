@@ -623,8 +623,6 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
-            // Only a matching same-person grant supplies owner authority to the local RPC.
-            // An explicit team/daemon control grant is not a grant of host-user execution.
             let same_person = self.allowed.iter().any(|entry| {
                 entry.same_user && entry.allows(&message.from, own_user.as_deref(), op)
             });
@@ -749,16 +747,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage, same_person: bool) -> 
         };
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
-    if !same_person {
-        // This is server-derived provenance. Ignore any owner/boundary claim in the body.
-        crate::hub::merge_mux_meta(
-            &mut params,
-            serde_json::json!({
-                "via": crate::hub::vm_boundary::VIA_DEVICE,
-                crate::hub::vm_boundary::FIELD: false,
-            }),
-        );
-    }
+    super::lane_parent::mark_control_boundary(&mut params, same_person);
     let (tx, mut rx) = relay_connection(hub);
     let initialized = rpc_call(
         &tx,

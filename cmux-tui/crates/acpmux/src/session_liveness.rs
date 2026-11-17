@@ -75,6 +75,25 @@ pub fn blocked_reply(reply: &str) -> Option<&str> {
     Some(tail.trim_start_matches(['*', ' ']))
 }
 
+pub fn sandbox_failed(summary: &Value) -> bool {
+    summary["harnessSandboxFailing"] == true
+}
+
+pub fn blocked(summary: &Value) -> bool {
+    summary["preview"].as_str().and_then(blocked_reply).is_some()
+}
+
+pub fn failure_error(summary: &Value) -> Value {
+    if sandbox_failed(summary) {
+        summary["harnessSandboxError"].clone()
+    } else {
+        summary["lastTurn"]["errorText"]
+            .as_str()
+            .or_else(|| summary["preview"].as_str().and_then(blocked_reply))
+            .map_or(Value::Null, |error| Value::String(error.to_owned()))
+    }
+}
+
 #[cfg(test)]
 mod blocked_reply_tests {
     use super::blocked_reply;

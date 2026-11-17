@@ -9,6 +9,45 @@ use crate::rpc::RpcError;
 use serde_json::Value;
 use std::sync::Arc;
 
+pub(super) fn mark_forwarded_boundary(
+    hub: &Hub,
+    conn: &Conn,
+    original: &Value,
+    peer: &crate::peer::Peer,
+    forwarded: &mut Value,
+) {
+    if let Some(meta) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        meta.remove(crate::hub::vm_boundary::FIELD);
+    }
+    let owner = crate::hub::vm_boundary::owner(
+        conn.auth,
+        super::remote_guard::control_of(conn.origin, conn.auth, original),
+        original,
+    );
+    if owner
+        && (peer.vm_boundary() || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
+    {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({crate::hub::vm_boundary::FIELD: true}),
+        );
+    } else if hub.is_leased(&peer.name) {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({crate::hub::vm_boundary::FIELD: false}),
+        );
+    }
+}
+
+pub(super) fn mark_control_boundary(params: &mut Value, same_person: bool) {
+    if !same_person {
+        crate::hub::merge_mux_meta(
+            params,
+            serde_json::json!({"via": crate::hub::vm_boundary::VIA_DEVICE, crate::hub::vm_boundary::FIELD: false}),
+        );
+    }
+}
+
 /// The parent's exact id, or none.
 pub(super) fn lane_parent(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Option<String> {
     let root = matches!(

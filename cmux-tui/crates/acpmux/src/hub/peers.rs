@@ -124,12 +124,6 @@ fn removed_mux_ids(rows: &[Value]) -> impl Iterator<Item = String> + '_ {
 }
 
 impl Hub {
-    /// Whether `name` is held by a live Cloud peer lease. Lease-only trust claims are
-    /// server-derived; saved peers use their configured boundary independently.
-    pub(crate) fn peer_is_leased(&self, name: &str) -> bool {
-        self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(name)
-    }
-
     /// Starts configured peer dials after the local socket has served its first client. The
     /// daemon's deferred startup uses this gate; in-process hubs may start peers immediately.
     pub(crate) async fn start_saved_peers(&self) {

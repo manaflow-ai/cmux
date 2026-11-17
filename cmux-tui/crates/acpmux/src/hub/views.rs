@@ -168,24 +168,14 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "closed" => None,
         "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
-        _ if summary["harnessSandboxFailing"] == true => Some("failed"),
+        _ if crate::session_liveness::sandbox_failed(summary) => Some("failed"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
-        // A sub-session below it waits on the person: its run stalls there until someone answers,
-        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
-        _ if summary["preview"]
-            .as_str()
-            .and_then(crate::session_liveness::blocked_reply)
-            .is_some() =>
-        {
-            Some("failed")
-        }
+        _ if crate::session_liveness::blocked(summary) => Some("failed"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
-        // A peer gone unreachable takes its work with it; a local chat whose harness stopped
-        // (`disconnected`) still works while a sub-session it started runs.
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
@@ -279,15 +269,7 @@ pub fn lane(summary: &Value) -> Value {
         _ => ("idle", ended),
     };
     let error = match state {
-        "failed" if summary["harnessSandboxFailing"] == true => {
-            summary["harnessSandboxError"].clone()
-        }
-        "failed" => summary["lastTurn"]["errorText"]
-            .as_str()
-            .or_else(|| {
-                summary["preview"].as_str().and_then(crate::session_liveness::blocked_reply)
-            })
-            .map_or(Value::Null, |error| Value::String(error.to_owned())),
+        "failed" => crate::session_liveness::failure_error(summary),
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
