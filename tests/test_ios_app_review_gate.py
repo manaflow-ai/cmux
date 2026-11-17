@@ -664,9 +664,12 @@ class GateWorkflowTests(unittest.TestCase):
         # Every check is deterministic: no model judges the build, and the
         # report takes no agent verdict (removed 2026-11-17).
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
-        for gone in ("Agent reviewer pass", "CLAUDE_CODE_OAUTH_TOKEN", "app_review_agent_pass", "agent_pass",
+        for gone in ("Agent reviewer pass", "CLAUDE_CODE_OAUTH_TOKEN", "app_review_agent_pass",
                      "--expect-agent", "--agent-skipped", "agent-findings.json", "@anthropic-ai/claude-code"):
             self.assertNotIn(gone, workflow)
+        # `agent_pass` stays declared as an ignored input (main's readiness workflow still dispatches
+        # with it, and GitHub refuses an undeclared input), but nothing may read its value.
+        self.assertNotIn("inputs.agent_pass", workflow)
         self.assertFalse((ROOT / "cmux-next-ios/scripts/app_review_agent_pass.py").exists())
         self.assertEqual(self.report("--expect-agent")[0], 2, "the report no longer knows the agent's flags")
 
