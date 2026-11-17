@@ -24,6 +24,7 @@ enum DebugFocus {
             "keyboard_given_back": keyboardGuard(services),
             // Windows whose keys wait for a New Tab field (NewTabInputCoordinator); never stays.
             "new_tab_key_log": .array(services.keyRouter.newTabInputCoordinator.log.map(JSONValue.string)),
+            "creation_hold_tab_keys": .object(creations.holdEnds.tabKeyCounts.mapValues { .number(Double($0)) }), // since the app started (``CreationHoldLog``)
             "new_tab_key_holds": .array(services.windows.controllers.filter {
                 services.keyRouter.newTabInputCoordinator.isHolding(in: $0.window)
             }.map { .string($0.state.id) }),

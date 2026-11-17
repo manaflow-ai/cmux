@@ -1101,6 +1101,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
+      - name: Validate side-lane runs-on reads the capability label array
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_side_lane_capability_labels.py
+
       - name: Validate no job takes one runner size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py

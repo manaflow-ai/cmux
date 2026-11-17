@@ -27,7 +27,7 @@ extension ControlRouter {
                 }
                 writer = .user
             }
-            // A write to a parent object (`cloud` with `{"useMyClaudeLoginOnMyCloudMachines": true}`)
+            // A write to a parent object (`cloud` with `{"agentsStartWithoutAsking": true}`)
             // replaces every key under it: one the writer may not change makes it the person's to
             // confirm too, never a raw file write that skips the leaf's policy.
             if descriptor == nil, let guarded = SettingsSchema.all.first(where: { $0.path.count > path.count
