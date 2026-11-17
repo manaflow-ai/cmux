@@ -15,6 +15,9 @@ public final class HomeLaunchEarly {
     public private(set) static var current: HomeLaunchEarly?
     /// The one a page adopted, until that page's box took the keyboard (``boxIsUp()``).
     private static var adopted: HomeLaunchEarly?
+    /// The signed-in person is not known before `AppServices`: a local me, as the provisional
+    /// Chief is local; the held sends go to the real Chief under their keys either way.
+    static let me = Participant(id: ParticipantID("me"), kind: .human, displayName: "")
 
     public let store: HomeStore
     public let hold: LaunchChiefHold
@@ -26,10 +29,7 @@ public final class HomeLaunchEarly {
 
     private init(title: String, frame: CGRect, makeView: (HomeStore) -> NSView) {
         hold = LaunchChiefHold()
-        // The signed-in person is not known before `AppServices`: a local me, as the provisional
-        // Chief is local; the held sends go to the real Chief under their keys either way.
-        let me = Participant(id: ParticipantID("me"), kind: .human, displayName: "")  // the view's `me` too
-        store = HomeStore(source: HomeLaunchChiefSource(me: me, title: title, hold: hold))
+        store = HomeStore(source: HomeLaunchChiefSource(me: Self.me, title: title, hold: hold))
         store.start()
         let chief = makeView(store)
         HomeNativeTranscriptView.first(in: chief)?.holdsChiefFace = true
@@ -41,22 +41,29 @@ public final class HomeLaunchEarly {
     /// (`window_usable` when its window is key), as Home's page in the real window marks them.
     public static func attach(_ shell: LaunchShell, title: @escaping @MainActor () -> String,
                               mark: @escaping @MainActor (String) -> Void) -> LaunchShell {
-        shell.content.bare = { frame, _ in
-            let early = HomeLaunchEarly(title: title(), frame: frame) { store in
-                HomeNativeTranscriptView(store: store, conversation: HomeLaunchChiefSource.conversation, me: ParticipantID("me"),
-                                         composerFocused: { mark($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") })
-            }
-            current = early
-            mark("home.launch_early")
-            return early.view
-        }
-        shell.content.bareReady = { ready in
-            guard let early = current ?? adopted, !early.isUp else { return ready() }
-            early.ready = ready
-        }
+        shell.content.bare = { frame, _ in start(title: title(), frame: frame, mark: mark) }
+        shell.content.bareReady = { whenUp($0) }
         // The page has the store already, or the Chief takes it when known: only the view goes.
         shell.content.handoff = { view in view.removeFromSuperview() }
         return shell
+    }
+
+    /// Stage 0's content for this launch: makes the launch's box (``current``) and its view.
+    static func start(title: String, frame: CGRect, mark: @escaping @MainActor (String) -> Void) -> NSView {
+        let early = HomeLaunchEarly(title: title, frame: frame) { store in
+            HomeNativeTranscriptView(store: store, conversation: HomeLaunchChiefSource.conversation, me: me.id,
+                                     composerFocused: { mark($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") })
+        }
+        current = early
+        mark("home.launch_early")
+        return early.view
+    }
+
+    /// Calls `ready` once Home's box in the real window is up (at once when it is, or when there is
+    /// no launch box).
+    static func whenUp(_ ready: @escaping @MainActor () -> Void) {
+        guard let early = current ?? adopted, !early.isUp else { return ready() }
+        early.ready = ready
     }
 
     /// Home's message box in the real window took the keyboard (Home's page, the provisional one
