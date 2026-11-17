@@ -27,6 +27,17 @@ name: cmux-next tab switch (advisory)
 # 2026-11-17 02:10Z the frames job submitted 321 steps; 133 started after their job had left (116 could not measure),
 # they took 31 of the 68 exclusive host-hours, the exclusive queue's p90 wait was about 9 hours, and every lane
 # measurement (startup launch A/Bs) waited behind them. Leo's ask: a measurement step waits minutes, not hours.
+#
+# A background step starts only when no exclusive step is queued ahead of it, so the job asks first. Before
+# submitting, it reads the controller's measure-host table (/v1/status measure_hosts, one 15 ms read) and submits
+# only when fewer exclusive steps are queued for the display Macs than are running there now (ADMIT below: the step
+# would start within QUEUE_WAIT_S); otherwise it records "not measured: the display queue is busy" and ends in
+# seconds, and the verdict warns. An unreadable table submits anyway (fail open), and QUEUE_WAIT_S bounds the wait.
+# In the 24 hours to 2026-11-17 08:27Z the frames job ran 354 times at p50 60.2 min: 220 "successes" were the client
+# waiting out --queue-timeout 3600 with 60 exclusive steps ahead and returning no report, and none of 354 returned
+# one. Each wait held one of its mini's two gateway tokens (glaeda docs/CMUX_MINI_RUNNER.md, gatewayRunners), which
+# the fleet compile and test clients and signing jobs need, so 31 jobs of other gateway clients and its own failed
+# in "Set up runner" waiting 600 s for a token.
 
 on:
   pull_request:
@@ -50,6 +61,9 @@ env:
   # tab-switch.sh exits 1 on a budget miss and 3 when it cannot measure (no Screen Recording grant, say): 3 is no
   # report, never a pass, whatever file it left.
   CANNOT_MEASURE_EXIT: "3"
+  # The longest the frames job waits for its background step to leave the fleet queue (cmux-ci --queue-timeout). The
+  # step is submitted only when the queue says it would start by then (ADMIT in the frames job).
+  QUEUE_WAIT_S: "1200"
 
 jobs:
   scope:
@@ -92,10 +106,11 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
       && vars.CI_EVAL_STEP_GATEWAY != ''
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    # The job holds one of the gateway runner's two tokens while it waits, so it waits at most an hour for an idle
-    # display worker and an hour for the build and the measure. Past the hour in the queue the client cancels the
-    # background step (exit 75) and the verdict has no report, which only warns while GATE_MODE is report.
-    timeout-minutes: 130
+    # The job holds one of the gateway runner's two tokens while it waits, so it waits only when the queue is short
+    # (ADMIT), at most QUEUE_WAIT_S (20 min) for a display worker, and an hour for the build and the measure. Past
+    # QUEUE_WAIT_S in the queue the client cancels the background step (exit 75) and the verdict has no report, which
+    # only warns while GATE_MODE is report.
+    timeout-minutes: 90
     permissions: {}
     steps:
       # No checkout: the gateway runner takes only thin cmux-ci clients. The display worker checks out the base
@@ -105,6 +120,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ needs.scope.outputs.base_sha }}
           PR: ${{ github.event.pull_request.number }}
+          FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -113,13 +129,55 @@ jobs:
             echo "::error title=Tab switch::$client is not installed on runner $RUNNER_NAME; nothing was measured."
             exit 1
           fi
+          # Would a background step start within QUEUE_WAIT_S? Exclusive steps run one per display Mac, and a
+          # background one starts after every queued one, so it is submitted only while fewer are queued (the most
+          # any online measure host could take, queued_eligible) than are running now: each running step frees its
+          # host within about one step's run (p50 15 min). A table that cannot be read admits (fail open).
+          controller="${FLEET_CONTROLLER:-${CMUX_CI_CONTROLLER:-}}"
+          config="$HOME/.local/share/cmux-fleet-client/client.json" # where the client's installer writes its address
+          if [[ -z "$controller" && -r "$config" ]]; then
+            controller="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("controller", ""))' "$config" 2>/dev/null || true)"
+          fi
+          table="$RUNNER_TEMP/fleet-status.json" # outside the uploaded folder
+          admit="admit: no controller address (vars.CMUX_FLEET_CONTROLLER, CMUX_CI_CONTROLLER or $config); submitting"
+          if [[ -n "$controller" ]] && curl -fsS --max-time 15 -o "$table" "${controller%/}/v1/status"; then
+            python3 - "$table" > "$RUNNER_TEMP/admit.txt" <<'ADMIT' || echo "admit: the admission check failed; submitting" > "$RUNNER_TEMP/admit.txt"
+          import json, sys
+          try:
+              with open(sys.argv[1]) as f:
+                  hosts = [h for h in json.load(f).get("measure_hosts") or [] if h.get("online")]
+          except (OSError, ValueError, AttributeError) as e:
+              print(f"admit: the measure-host table could not be read ({e}); submitting")
+              raise SystemExit
+          queued = max((int(h.get("queued_eligible") or 0) for h in hosts), default=0)
+          running = sum(1 for h in hosts if h.get("running"))
+          if not hosts:
+              print("skip: no display measure host is online")
+          elif queued < max(1, running):
+              print(f"admit: {queued} exclusive steps queued, {running} running on {len(hosts)} online measure hosts")
+          else:
+              print(f"skip: {queued} exclusive steps queued ahead of a background step, {running} running on "
+                    f"{len(hosts)} online measure hosts; it would not start within the queue wait")
+          ADMIT
+            admit="$(head -n 1 "$RUNNER_TEMP/admit.txt")"
+            [[ -n "$admit" ]] || admit="admit: the admission check printed nothing; submitting"
+          elif [[ -n "$controller" ]]; then
+            admit="admit: the controller's /v1/status could not be read; submitting"
+          fi
+          echo "tab-switch $admit"
+          if [[ "$admit" == skip:* ]]; then
+            echo "${admit#skip: }" > "$RUNNER_TEMP/tab-switch/skipped"
+            echo skipped > "$RUNNER_TEMP/tab-switch/step-exit"
+            echo "::notice title=Tab switch::not measured: ${admit#skip: }"
+            exit 0
+          fi
           log="$RUNNER_TEMP/tab-switch/step.log"
           status=0
           "$client" run --class exclusive --measurement --display --background \
             --script scripts/measure/tab-switch.sh --ref "$BASE_SHA" --repo manaflow-ai/cmux \
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
-            --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout 3600 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           out="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
           if [[ -n "$step" ]]; then
@@ -192,6 +250,12 @@ jobs:
           fi
           report="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
           step_exit="$(cat "$RUNNER_TEMP/tab-switch/step-exit" 2>/dev/null || echo none)"
+          if [[ "$step_exit" == skipped ]]; then
+            why="$(cat "$RUNNER_TEMP/tab-switch/skipped" 2>/dev/null || echo "the display queue was busy")"
+            printf '### %s: not measured\n\nThe display Macs could not start this step within the queue wait, so the frames job did not submit it: %s. No verdict is never a pass.\n' \
+              "$title" "$why" >> "$GITHUB_STEP_SUMMARY"
+            miss "not measured: $why"
+          fi
           if [[ "$step_exit" == "$CANNOT_MEASURE_EXIT" ]]; then
             printf '### %s: no verdict\n\nThe harness could not measure on its worker (exit %s, for example no Screen Recording grant): see the frames job. No verdict is never a pass.\n' \
               "$title" "$step_exit" >> "$GITHUB_STEP_SUMMARY"
