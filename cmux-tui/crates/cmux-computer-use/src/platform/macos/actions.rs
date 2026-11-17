@@ -1966,6 +1966,39 @@ fn web_keys_ready(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<Result<bool, (
     }
 }
 
+/// After keys typed into a WebKit page: the field's caret, read now, is
+/// written back (through the caret gate). WebKit keeps an autocorrection
+/// pending on the last word typed and applies it when a caret write later
+/// lands in another field. Live, Safari on macOS 26.6: "Hello from cmux"
+/// read back exactly, and the next call's caret write into the search box
+/// turned it into "Hello from crux", after this call had said confirmed.
+/// Writing the caret where it is clears the pending correction, so what
+/// the read-back sees is what stays. Nothing is written when the caret
+/// can't be read; the read-back after the settle still decides.
+fn settle_web_caret(d: &MacDesktop, t: &Target, el: &Ax, typed: &str) -> DResult<()> {
+    // Keys posted to a process are handled a moment later: the value must
+    // show the typed text, or stop changing over three reads, before the
+    // caret is read.
+    let mut last = None;
+    let mut steady = 0;
+    super::menus::wait_for(KEYS_SETTLE, || {
+        let now = el.try_value_text().ok().flatten();
+        if now.as_deref().is_some_and(|v| v.contains(typed)) {
+            return true;
+        }
+        steady = if now == last { steady + 1 } else { 0 };
+        last = now;
+        steady >= 3
+    });
+    let Ok(Some(at)) = el.try_selected_range() else { return Ok(()) };
+    let _ = persons_caret_write(d, t, el, true, || el.set_selected_range(at).is_ok())?;
+    Ok(())
+}
+
+/// How long typed keys get to show in a web field's value before its caret
+/// is written again.
+const KEYS_SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+
 /// How long the web host view gets to hold its focus before keys go.
 const FOCUS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
@@ -2154,6 +2187,9 @@ pub(super) fn type_text(
     // Plain text typed into a text element shows in its value; into
     // anything else (a canvas, a calculator's keypad) it may not show.
     let shows_text = !has_keys && target.as_ref().is_some_and(is_text_element);
+    // A WebKit web field typed into with keys: its caret is written again
+    // after them (settle_web_caret).
+    let mut web_keys_into: Option<Ax> = None;
     if let Some(el) = &target {
         // Web content (and a browser's fields) take an AX insert and ignore
         // it: posted keys go there directly, gated as always, read back at
@@ -2210,7 +2246,13 @@ pub(super) fn type_text(
                 let decided =
                     roles::web_typing(ready.is_ok(), eligible.as_ref().map(|_| ()).map_err(|w| *w));
                 match (decided, &eligible, ready) {
-                    (roles::WebTyping::Keys, _, _) => {}
+                    (roles::WebTyping::Keys, _, _) => {
+                        if roles::settles_caret_after_keys(roles::web_engine(
+                            app_bundle(&t).as_deref(),
+                        )) {
+                            web_keys_into = Some(el.clone());
+                        }
+                    }
                     (roles::WebTyping::Value, Ok(field), _) => {
                         return web_value_write(d, &t, el, text, field);
                     }
@@ -2298,9 +2340,15 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
+        if let Some(el) = &web_keys_into {
+            settle_web_caret(d, &t, el, text)?;
+        }
         return Ok(typed_outcome(route.name(), shows_text, d.expect(check)));
     }
     unprimed(route, |p| input::type_text(p, text))?;
+    if let Some(el) = &web_keys_into {
+        settle_web_caret(d, &t, el, text)?;
+    }
     Ok(typed_outcome(route.name(), shows_text, d.expect(check)))
 }
 

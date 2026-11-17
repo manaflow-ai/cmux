@@ -3036,6 +3036,7 @@ fn every_targeted_field_write_goes_through_the_caret_gate() {
             "actions.rs:ax_scroll_run",
             "actions.rs:focus_and_select",
             "actions.rs:set_value",
+            "actions.rs:settle_web_caret",
             "actions.rs:slider_drag",
             "actions.rs:type_text",
             "actions.rs:web_focus",
