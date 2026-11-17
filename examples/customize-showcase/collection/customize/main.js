@@ -15,15 +15,20 @@
 const message = (e) => (e instanceof Error ? e.message : String(e))
 const two = (n) => String(n).padStart(2, "0")
 
+// Frames are armed from callbacks (a tap, a read), so no view owns them. `epoch` moves when the
+// last view closes; a frame armed before that sees it moved and stops.
+let epoch = 0
+
 // Moves a number from `from` to `to` over `frames` frames of 50 ms, easing out. A newer tween
-// of the same key, or stopTween(key), ends the one before it.
+// of the same key, stopTween(key) or the last view closing ends the one before it.
 const tweens = {}
 const stopTween = (key) => (tweens[key] = (tweens[key] ?? 0) + 1)
 function tween(key, set, from, to, frames = 12) {
   const gen = stopTween(key)
+  const born = epoch
   let i = 0
   const step = () => {
-    if (tweens[key] !== gen) return
+    if (tweens[key] !== gen || epoch !== born) return
     i += 1
     const t = 1 - Math.pow(1 - i / frames, 3)
     set(from + (to - from) * t)
@@ -242,6 +247,7 @@ const PITY = 30
 
 const [owned, setOwned] = signal({}) // chief id -> how many
 const [sincePity, setSincePity] = signal(0)
+const [hydrated, setHydrated] = signal(false) // the saved chiefs have been read
 const [reel, setReel] = signal({ chief: null, angle: 0, glow: 0, spinning: false, at: 0 })
 
 function draw() {
@@ -257,15 +263,20 @@ function draw() {
 }
 
 function pull() {
+  // Until the saved chiefs are read, a pull would count pity from 0 and be overwritten by them.
+  if (!hydrated()) return
   const r = reel()
   // A reel whose view closed mid-spin stopped with it; let the next pull start over.
   if (r.spinning && Date.now() - r.at < 1500) return
   const result = draw()
   stopTween("glow")
   const frames = 26
+  const born = epoch
   let i = 0
   let angle = 0
   const frame = () => {
+    // The last view closed mid-spin: nothing is drawn, so nothing is kept or toasted.
+    if (epoch !== born) return
     i += 1
     const t = i / frames
     if (i < frames) {
@@ -314,7 +325,7 @@ function gacha() {
           .color(tone)
       ]),
       Spacer(),
-      Button("Pull", pull).disabled(() => reel().spinning)
+      Button("Pull", pull).disabled(() => !hydrated() || reel().spinning)
     ]),
     Text(() => {
       const left = PITY - sincePity()
@@ -361,13 +372,18 @@ function start() {
     mounts -= 1
     clearPolls()
     if (mounts > 0) cmux.timer.after(50, () => mounts > 0 && !polls.length && armPolls())
+    else {
+      epoch += 1
+      if (untrack(reel).spinning) setReel((r) => ({ ...r, spinning: false }))
+    }
   })
   if (!polls.length) armPolls()
   if (loaded) return
   loaded = true
   loadUsage()
   cmux.storage.get("place").then((saved) => {
-    if (saved && typeof saved.latitude === "number") {
+    // A city typed in before the read came back wins over the saved one.
+    if (saved && typeof saved.latitude === "number" && !untrack(place)) {
       setPlace(saved)
       loadWeather()
     }
@@ -377,7 +393,8 @@ function start() {
       setOwned(saved.owned || {})
       setSincePity(saved.sincePity || 0)
     }
-  }, () => undefined)
+    setHydrated(true)
+  }, () => setHydrated(true))
 }
 
 function renderSection() {

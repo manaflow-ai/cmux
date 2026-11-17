@@ -163,6 +163,41 @@ describe("the collection", () => {
     expect(h.calls.filter((c) => c.name === "usage_app.status")).toHaveLength(1)
   })
 
+  test("Pull waits for the saved chiefs, so an early pull can't count pity from 0 or be overwritten", async () => {
+    const h = host()
+    let answer = (_: unknown) => {}
+    h.handlers["app.storage.get"] = (p) =>
+      p.key === "gacha" ? new Promise((r) => (answer = r)) : { ok: true, body: { value: null } }
+    h.mount("m", "renderSection")
+    await h.settle(10)
+    const pull = () => h.findNode("m", (n) => n.type === "Button" && JSON.stringify(n.props).includes("Pull"))!
+    expect(h.tree("m").nodes.get(pull())!.props.disabled).toBe(true)
+    h.dispatch("m", pull(), "tap", {})
+    await h.settle()
+    expect(texts(h)).not.toContain("Rolling…")
+    answer({ ok: true, body: { value: { owned: { lint: 1 }, sincePity: 29 } } })
+    await h.settle(10)
+    expect(h.tree("m").nodes.get(pull())!.props.disabled).toBeFalsy()
+    h.dispatch("m", pull(), "tap", {})
+    await h.settle()
+    await runFrames(h)
+    expect(texts(h)).toContain("Cloud Chief")
+  })
+
+  test("closing the last view mid-spin stops the reel: no more frames, nothing kept, no toast", async () => {
+    const h = host({ gacha: { owned: {}, sincePity: 29 } })
+    h.mount("m", "renderSection")
+    await h.settle(10)
+    await runFrames(h)
+    h.dispatch("m", h.findNode("m", (n) => n.type === "Button" && JSON.stringify(n.props).includes("Pull"))!, "tap", {})
+    await h.settle()
+    h.global.__cmuxAppUnmount("m")
+    // At most the frame already armed fires, and it stops there.
+    expect(await runFrames(h)).toBeLessThanOrEqual(1)
+    expect(h.calls.some((c) => c.name === "app.storage.set" && c.params.key === "gacha")).toBe(false)
+    expect(h.calls.some((c) => c.name === "toast.show")).toBe(false)
+  })
+
   test("the New Tab page draws the same three cards", async () => {
     const h = host()
     h.mount("m", "renderPage")
