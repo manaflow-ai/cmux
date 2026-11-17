@@ -318,10 +318,9 @@ impl RegistryConnection {
 }
 
 impl WorkspaceRegistry {
-    /// Commit `intent` through the journal writer batch when the writer runs
-    /// and this thread does not hold the connection; otherwise in its own
-    /// request-side transaction. The caller holds the registry, and must not
-    /// hold state unless it pinned the connection first.
+    /// Commit `intent` in a request-side transaction, on this thread. The
+    /// caller holds the registry, and must not hold state unless it pinned
+    /// the connection first.
     pub(crate) fn commit_registry_intent(
         &mut self,
         intent: RegistryIntent,
@@ -329,57 +328,26 @@ impl WorkspaceRegistry {
         self.commit_registry_intent_with(intent, None)
     }
 
-    /// [`Self::commit_registry_intent`] with `settle`, the state update to
-    /// apply if the receipt is indeterminate and arrives later. The caller
-    /// holds neither state nor the connection: it waits for the receipt.
+    /// [`Self::commit_registry_intent`]. `settle` was the state update for a
+    /// writer receipt that arrived late; a commit on this thread has its
+    /// receipt at once, so it is not kept.
+    ///
+    /// Registry commits never ride the journal writer's batch (PL-daemon b5):
+    /// under `synchronous=NORMAL` (`wal_durability.rs`) a commit is a WAL
+    /// page-cache write, well under a millisecond, so the batch only queued
+    /// the request behind the writer's other work. With the writer busy 1 s
+    /// per batch a new workspace waited 3 s, a split 3 s and a rename 1 s
+    /// (`journal_writer_stall`).
     pub(crate) fn commit_registry_intent_with(
         &mut self,
         intent: RegistryIntent,
         settle: Option<SettleState>,
     ) -> anyhow::Result<RegistryReceipt> {
-        // Every prepare drains earlier indeterminate commits first (bounded),
-        // so `intent` is not built on a base a late commit changes; this
-        // second drain covers one that went indeterminate meanwhile.
+        drop(settle);
+        // An indeterminate commit from before is drained first (bounded), so
+        // `intent` is not built on a base a late commit changes.
         self.connection.drain_unsettled()?;
-        let Some(sink) = self.connection.accepting_sink().cloned() else {
-            return self.commit_registry_intent_locally(&intent);
-        };
-        // A thread that still holds the connection (an outer pin or guard)
-        // would block the writer it waits for: commit locally instead. The
-        // request_effect_commits counter makes any such caller visible.
-        if self.connection.is_held_by_current_thread() {
-            return self.commit_registry_intent_locally(&intent);
-        }
-        // No request waits for the disk while it holds the mux state lock:
-        // every state reader would queue behind this receipt.
-        debug_assert!(
-            !registry_connection::current_thread_holds_state(),
-            "a request waits for a journal writer receipt while it holds the mux state lock"
-        );
-        match sink.send(intent) {
-            EffectSend::Sent(Ok(receipt)) => Ok(receipt),
-            EffectSend::Sent(Err(error)) => {
-                self.abandon_effect_commit();
-                Err(error)
-            }
-            EffectSend::Indeterminate(error, pending) => {
-                // The writer can still commit after this request gives up:
-                // forget the public fold, and keep the receipt so the next
-                // state holder installs what it committed.
-                self.abandon_effect_commit();
-                self.connection.hold_unsettled(pending, settle);
-                Err(error)
-            }
-            EffectSend::NotQueued(intent) => {
-                // The writer stopped between the check and the send. A
-                // thread that holds state cannot take the connection now.
-                anyhow::ensure!(
-                    !registry_connection::current_thread_holds_state(),
-                    "the session journal writer stopped before it took a registry commit"
-                );
-                self.commit_registry_intent_locally(&intent)
-            }
-        }
+        self.commit_registry_intent_locally(&intent)
     }
 
     /// Commit an intent in its own request-side transaction and fsync: the
