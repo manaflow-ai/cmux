@@ -73,6 +73,54 @@ export const MAX_PRICING_USD = {
 } as const satisfies MonthlyOrYearlyPlanPricing;
 
 /**
+ * cmux NEXT plans. They are decoupled from cmux classic: a NEXT purchase
+ * never grants a classic plan and a classic subscription never carries over
+ * to NEXT. So they get their own plan IDs (never "pro" or "max", which the
+ * classic webhook, recovery and entitlements read) and their own lookup keys
+ * (never a `cmux-pro-` or `cmux-max-` prefix, which subscriptionPlan.ts maps
+ * to the classic plans). Monthly only; no yearly Price exists for them.
+ *
+ * Catalog only: no Stripe Product or Price exists for these keys yet, and
+ * provision-catalog.sh does not create them, because no checkout, webhook or
+ * entitlement path handles a NEXT plan. That lands with the decoupled
+ * checkout (see NEXT_PLAN_CHECKOUT_ENABLED in nextPlans.ts).
+ */
+export const NEXT_PRO_PLAN_ID = "next-pro" as const;
+export const NEXT_MAX_PLAN_ID = "next-max" as const;
+export const NEXT_PLAN_IDS = [NEXT_PRO_PLAN_ID, NEXT_MAX_PLAN_ID] as const;
+export type NextPlanId = (typeof NEXT_PLAN_IDS)[number];
+
+export const NEXT_PRO_PRICING_USD = {
+  month: {
+    billedAmount: 50,
+    monthlyEquivalent: 50,
+    discountPercent: 0,
+    lookupKey: "cmux-next-pro-monthly-50",
+  },
+} as const satisfies MonthlyOnlyPlanPricing;
+
+export const NEXT_MAX_PRICING_USD = {
+  month: {
+    billedAmount: 200,
+    monthlyEquivalent: 200,
+    discountPercent: 0,
+    lookupKey: "cmux-next-max-monthly-200",
+  },
+} as const satisfies MonthlyOnlyPlanPricing;
+
+export const NEXT_PLAN_PRICING_USD: Readonly<Record<NextPlanId, MonthlyOnlyPlanPricing>> = {
+  [NEXT_PRO_PLAN_ID]: NEXT_PRO_PRICING_USD,
+  [NEXT_MAX_PLAN_ID]: NEXT_MAX_PRICING_USD,
+};
+
+/** Every cmux NEXT lookup key starts with this; no classic key does. */
+export const NEXT_PLAN_LOOKUP_KEY_PREFIX = "cmux-next-";
+
+export function isNextPlanLookupKey(lookupKey: string | null | undefined): boolean {
+  return typeof lookupKey === "string" && lookupKey.startsWith(NEXT_PLAN_LOOKUP_KEY_PREFIX);
+}
+
+/**
  * New checkouts default to monthly. Pro and Max also sell yearly Prices; Go
  * and Team stay monthly, and their historical annual subscriptions remain
  * valid.

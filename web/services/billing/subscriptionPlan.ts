@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { MAX_PRICING_USD } from "./plans";
+import { MAX_PRICING_USD, isNextPlanLookupKey } from "./plans";
 import { planItem } from "./subscriptionItems";
 
 export function personalPlanIdForSubscription(
@@ -10,6 +10,9 @@ export function personalPlanIdForSubscription(
   if (subscription.metadata?.founders_edition === "true") return "pro";
   const lookupKey = planItem(subscription)?.price?.lookup_key;
   if (typeof lookupKey === "string") {
+    // A cmux NEXT price is decoupled from classic: it never grants a classic
+    // plan, whatever the metadata says.
+    if (isNextPlanLookupKey(lookupKey)) return null;
     if (lookupKey.startsWith("cmux-starter-") || lookupKey.startsWith("cmux-go-")) return "go";
     if (lookupKey === MAX_PRICING_USD.month.lookupKey || lookupKey.startsWith("cmux-max-")) {
       return "max";
