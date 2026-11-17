@@ -174,7 +174,7 @@ fn check_version(name: &str, version: &Version, tree: &impl Tree, problems: &mut
         },
         (None, None) if version.note.is_some() => {}
         (None, None) => {
-            problems.push(format!("{name}: version {} names no source and no note", version.value))
+            problems.push(format!("{name}: version {} names no source and no note", version.value));
         }
         _ => problems.push(format!("{name}: version needs both `source` and `contains`")),
     }
