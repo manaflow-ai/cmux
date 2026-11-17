@@ -6,6 +6,8 @@ use std::collections::HashMap;
 
 #[cfg(unix)]
 mod agent_activity;
+#[cfg(unix)]
+mod agent_event_commit_bytes;
 mod agent_hook_fences;
 mod agent_hook_retry;
 #[cfg(unix)]
