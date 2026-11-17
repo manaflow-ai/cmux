@@ -7451,6 +7451,64 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFailureText(unittest.TestCase):
+    """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
+    as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new
+    offender, tools/test_merge_hold.py, that main's did not: only the failing tests' names were compared. A failing
+    test is the same red on the base only when its failure text (normalised: numbers masked, file names kept) is."""
+    STEP = (".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step; "
+            "exclusions carry a reason)")
+    UNIT = "test_text_io_encoding.py"
+    FIXTURES = Path(__file__).resolve().parent / "fixtures/base_red_excuse_ws_check_failure_text"
+
+    def printed(self, name):
+        """The lines the fixture run log NAME (gh's job log, trimmed to the unit's group) printed inside its group."""
+        lines = excuse.lines_of((self.FIXTURES / name).read_text(encoding="utf-8"))
+        start = lines.index(f"##[group]{self.STEP} [{self.UNIT}]")
+        return lines[start + 1:lines.index("##[endgroup]", start)]
+
+    def judge(self, head, main):
+        gh = WsCheckGitHub()
+        gh.verdict(HEAD, 1, {self.STEP: {self.UNIT: head}})
+        gh.verdict(gh.TIP, 2, {self.STEP: {self.UNIT: main}})
+        return excuse.judge(gh.REPO, "main", HEAD, [], gh)
+
+    def test_a_head_whose_lint_test_lists_a_new_offender_is_refused(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(self.printed("head-16b96c09.log"), self.printed("main-d240eaab.log"))
+        said = str(caught.exception)
+        self.assertIn("1 failure(s) not on main", said)
+        # The test is red on main too; its failure text, naming the new offender, is what differs.
+        self.assertIn(f"not excused 'ws-check' test '{self.STEP} :: [{self.UNIT}] "
+                      "test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry (__main__.Ratchet."
+                      "test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry)': red on main", said)
+        self.assertIn("but failing another way there", said)
+        self.assertRegex(said, r"tools/test_merge_hold\.py: # text read\(s\)")
+
+    def test_the_same_failure_on_two_runs_is_still_excused(self):
+        main = self.printed("main-d240eaab.log")
+        self.assertIn("excused 'ws-check': every failure", self.judge(main, main)[0])
+        # Another run of it: other counts, source lines, times and checkout root, the same offenders.
+        moved = [line.replace("[253 chars]", "[260 chars]").replace("132 write_text()", "135 write_text()")
+                 .replace("line 195,", "line 201,").replace("in 5.795s", "in 7.012s")
+                 .replace("/home/runner/_work/cmuxterm-hq/cmuxterm-hq/", "/home/runner/_work/_temp/lw/")
+                 for line in main]
+        self.assertNotEqual(moved, main)
+        self.assertIn("excused 'ws-check': every failure", self.judge(moved, main)[0])
+
+    def test_a_failures_text_is_read_after_its_traceback(self):
+        section = ["test_x (__main__.A.test_x) ... FAIL", "=" * 70, "FAIL: test_x (__main__.A.test_x)", "-" * 70,
+                   "Traceback (most recent call last):", 'File "/w/tools/test_a.py", line 9, in test_x',
+                   "self.check()", 'File "/w/tools/a.py", line 3, in check', "raise ValueError(1)", "^^^^^^^^^^^^",
+                   'File "<string>", line 1, in <module>', "ValueError: tools/b.py is listed", "- 'tools/b.py'",
+                   "=" * 70, "ERROR: test_y (__main__.A.test_y)", "-" * 70, "Traceback (most recent call last):",
+                   'File "/w/tools/test_a.py", line 12, in test_y', "KeyError: 'k'", "-" * 70, "Ran 2 tests in 0.1s",
+                   "FAILED (failures=1, errors=1)"]
+        self.assertEqual(excuse.unittest_failures(section),
+                         [("test_x (__main__.A.test_x)", ["ValueError: tools/b.py is listed", "- 'tools/b.py'"]),
+                          ("test_y (__main__.A.test_y)", ["KeyError: 'k'"])])
+
+
 class WsCheckSquashTree(unittest.TestCase):
     """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
     to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""

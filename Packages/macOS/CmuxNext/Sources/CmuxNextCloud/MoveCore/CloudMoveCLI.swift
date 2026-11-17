@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 public import Foundation
 
 /// The cmux-tui CLIs Move to Cloud, Bring Back Local and a chat start run (cmux-tui `link/sync_cli.rs`,
@@ -35,6 +35,12 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var copyBytes: Int64?
         /// `link seed fetch --find-root`: the machine's repository root the chat's folder is in.
         public var remoteRoot: String?
+        /// A copy past its limits sent a first pass: the files it left on this Mac; nil for a whole copy.
+        public var leftOnMac: Int64?
+        /// `link start-chat plan`'s `cloud.size.locked`: the sizes and the upgrade the platform named (``CloudSizeLocked``).
+        public var sizeLocked: JSONValue?
+        /// `link start-chat plan`'s `seed_refused` for a machine smaller than the size asked (`machine.too_small`): its name.
+        public var machineTitle: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
@@ -175,10 +181,53 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link start-chat preflight --local FOLDER`, before any machine or lease is made for a start: the refusal of a
     /// folder past the copy's limits, else nil (a pass, and also a check that could not run: the copy counts it again).
     public func startChatPreflight(local: String) async -> StartChatPreflightRefusal? {
+        if case .refused(let refusal) = await startChatPreflightAnswer(local: local) { return refusal }
+        return nil
+    }
+
+    /// The preflight's answer: a refusal, or the bytes the folder's copy will send and the size a machine needs for them.
+    public enum StartChatPreflight: Sendable, Equatable {
+        case refused(StartChatPreflightRefusal)
+        /// `bytes`: what the copy sends (`estimate_bytes`); `size`: the chat size that holds it (`needed_size`), nil past
+        /// the largest. Both nil when the preflight could not read the folder (a cmux-tui that answers no size).
+        case passed(bytes: Int64?, size: CloudChatSize?)
+
+        /// The answer an object names: a refusal (``StartChatPreflightRefusal``), else a pass with its fields.
+        public init(answer: [String: Any]) {
+            if let refusal = StartChatPreflightRefusal(answer: answer) { self = .refused(refusal); return }
+            let bytes = (answer["estimate_bytes"] as? NSNumber)?.int64Value
+            self = .passed(bytes: bytes, size: (answer["needed_size"] as? String).flatMap(CloudChatSize.init(rawValue:)))
+        }
+
+        /// The size to ask the machine's create for (nil: the chat size), or the start's refusal: a folder the largest
+        /// chat size cannot hold is `cloud_folder_too_big` (`folder`: the folder as the person reads it), never a
+        /// partial copy shown as complete.
+        public func size(folder: String) throws -> CloudChatSize? {
+            switch self {
+            case .refused(let refusal): throw refusal
+            case .passed(let bytes?, nil):
+                throw StartChatPreflightRefusal(message: "\(folder) is too big for a Cloud machine", folder: folder, bytes: Double(bytes))
+            case .passed(_, let size): return size
+            }
+        }
+    }
+
+    /// ``startChatPreflight(local:)`` with its size: a pass that could not run is a pass with no size.
+    public func startChatPreflightAnswer(local: String) async -> StartChatPreflight {
         struct Call: Encodable { var verb = "start-chat-preflight"; var local: String }
         guard let read = try? await run(Call(local: local), reading: "reservation"), let object = read.object,
-              let answer = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return nil }
-        return StartChatPreflightRefusal(answer: answer)
+              let answer = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return .passed(bytes: nil, size: nil) }
+        return StartChatPreflight(answer: answer)
+    }
+
+    /// The start's machine size for the folder `local` (``StartChatPreflight/size(folder:)``), its refusal thrown.
+    public func startChatSize(local: String) async throws -> CloudChatSize? {
+        try await startChatPreflightAnswer(local: local).size(folder: Self.shownFolder(local))
+    }
+
+    /// `local` as the person reads it: under the home folder as `~/…`.
+    public static func shownFolder(_ local: String, home: String = NSHomeDirectory()) -> String {
+        local == home || local.hasPrefix(home + "/") ? "~" + local.dropFirst(home.count) : local
     }
 
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
@@ -434,15 +483,16 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code`,
     /// `install_url` and `copy_bytes`, so they come from the answer's own JSON line when Rust left them out.
     private static func withSeedFields(_ answer: Answer, stdout: String) -> Answer {
-        guard answer.fallbackCode == nil || answer.copyBytes == nil else { return answer }
+        guard answer.fallbackCode == nil || answer.copyBytes == nil || answer.machineTitle == nil else { return answer }
         struct Fields: Decodable {
-            var fallbackCode: String?, installURL: String?, copyBytes: Int64?
-            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url", copyBytes = "copy_bytes" }
+            var fallbackCode: String?, installURL: String?, copyBytes: Int64?, machineTitle: String?
+            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url", copyBytes = "copy_bytes", machineTitle = "machine_title" }
         }
         let line = stdout.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }
         guard let line, let fields = try? JSONDecoder().decode(Fields.self, from: Data(line.utf8)) else { return answer }
         var answer = answer
         (answer.fallbackCode, answer.installURL, answer.copyBytes) = (answer.fallbackCode ?? fields.fallbackCode, answer.installURL ?? fields.installURL, answer.copyBytes ?? fields.copyBytes)
+        answer.machineTitle = answer.machineTitle ?? fields.machineTitle
         return answer
     }
 
