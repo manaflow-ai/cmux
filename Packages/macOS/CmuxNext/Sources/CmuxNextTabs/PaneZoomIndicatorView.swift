@@ -88,8 +88,13 @@ public final class PaneZoomIndicatorView: NSView {
 
     override public func layout() {
         super.layout()
-        surface?.frame = bounds
-        button.frame = bounds.insetBy(dx: Self.padding, dy: Self.padding)
+        // A hidden indicator has no size, and an inset of a rect smaller than the inset is the null
+        // rect, whose origin is infinite: AppKit faults on that frame. The frames wait for a size.
+        let inner = bounds.insetBy(dx: Self.padding, dy: Self.padding)
+        if !inner.isNull {
+            surface?.frame = bounds
+            button.frame = inner
+        }
         button.layer?.cornerRadius = Metrics.buttonCornerRadius
         button.contentTintColor = performWithTheme { Palette.litGlyph }
     }
