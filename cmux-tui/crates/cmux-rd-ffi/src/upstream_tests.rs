@@ -225,9 +225,9 @@ fn a_full_queue_drops_new_frames() {
         }
         sent += 1;
     }
-    // Each frame is one unpadded 232-byte datagram.
+    // Each frame is one unpadded 240-byte datagram (the LTR token adds 8 bytes).
     assert!(
-        sent * 232 >= CMUX_RD_UPSTREAM_MAX_QUEUED,
+        sent * 240 >= CMUX_RD_UPSTREAM_MAX_QUEUED,
         "frames went out until the queue filled: {sent}"
     );
     assert_eq!(send(&u, &frame, true, now + 2_000), 0, "the queue is full");

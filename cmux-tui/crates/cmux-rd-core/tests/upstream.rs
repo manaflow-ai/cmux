@@ -64,7 +64,12 @@ fn frames_go_out_as_upmedia_shards_the_host_reassembles() {
     assert_eq!(released[0].flags & flags::KEYFRAME, flags::KEYFRAME);
     assert_eq!(
         released[0].body,
-        FrameBody { t_capture_us: 11, ref_frame: REF_NONE, access_unit: vec![7u8; 3_000] }
+        FrameBody {
+            t_capture_us: 11,
+            ref_frame: REF_NONE,
+            ltr_token: None,
+            access_unit: vec![7u8; 3_000]
+        }
     );
     assert_eq!((released[1].frame, released[1].body.ref_frame), (2, 1));
     assert_eq!(s.stats().frames_sent, 2);

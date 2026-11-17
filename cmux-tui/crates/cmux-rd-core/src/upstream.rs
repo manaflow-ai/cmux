@@ -199,6 +199,7 @@ impl UpstreamSender {
         let body = FrameBody {
             t_capture_us,
             ref_frame: if independent { REF_NONE } else { self.last_sent.unwrap_or(REF_NONE) },
+            ltr_token: None,
             access_unit: access_unit.to_vec(),
         };
         let data_shards =

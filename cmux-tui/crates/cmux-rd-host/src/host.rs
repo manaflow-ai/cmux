@@ -505,6 +505,11 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // LTR is only advertised when this host uses the VideoToolbox encoder;
+    // OpenH264 and unknown viewers retain the IDR recovery path.
+    if cfg!(target_os = "macos") {
+        host_caps.push(caps::LTR);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

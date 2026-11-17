@@ -249,6 +249,7 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                ltr_enabled: negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LTR),
                 ..EngineConfig::default()
             },
             now_us(),
@@ -492,6 +493,7 @@ impl MediaSession {
             access_unit: frame.access_unit,
             idr: frame.idr,
             t_capture_us: frame.t_capture_us,
+            ltr_token: frame.ltr_token,
         };
         let out =
             self.engine.encoded(&req, Some(encoded), now_us()).map_err(|e| format!("{e:?}"))?;

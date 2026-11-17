@@ -31,8 +31,10 @@ pub use datagram::{
     DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
 };
 pub use error::DecodeError;
-pub use feedback::{Arrival, Feedback, MAX_ARRIVALS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack};
-pub use frame::{FRAME_PREFIX_LEN, FrameBody, REF_NONE};
+pub use feedback::{
+    Arrival, Feedback, MAX_ARRIVALS, MAX_LTR_TOKENS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack,
+};
+pub use frame::{FRAME_LTR_PREFIX_LEN, FRAME_PREFIX_LEN, FrameBody, REF_NONE};
 pub use input::{
     INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_SERVICE_BYTES, MAX_TEXT_BYTES,
     service_flags,

@@ -35,9 +35,11 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// VideoToolbox long-term-reference loss recovery.
+    pub const LTR: &str = "video.ltr";
     /// Every named cap.
-    pub const ALL: [&str; 8] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
+    pub const ALL: [&str; 9] =
+        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR, LTR];
 }
 
 /// Why a hello is refused.
