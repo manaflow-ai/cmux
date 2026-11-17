@@ -1,6 +1,6 @@
 // Writes request-signing-vectors.json beside this file: the device-signed request
 // contract of docs/device-hub/PROTOCOL.md ("Device-signed requests"), checked by the
-// hub (workers/device-hub), the Linux host (cmux-rd-host linux_host/hub.rs) and the
+// hub (workers/device-hub), the screen host (cmux-hub-host hub.rs) and the
 // apps (Packages/Shared/CmuxDeviceHub). Run: node schemas/device-hub/generate-request-signing-vectors.mjs
 // ECDSA signatures are random, so a rerun rewrites every signature; the canonical
 // strings and verdicts stay the same.

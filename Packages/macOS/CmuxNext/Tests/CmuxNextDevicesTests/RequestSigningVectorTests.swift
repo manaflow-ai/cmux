@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// This app's signer against `schemas/device-hub/request-signing-vectors.json`, the file the hub
-/// (`workers/device-hub`) and the Linux host (`cmux-rd-host`) test too, so a signer and the hub's
+/// (`workers/device-hub`) and the screen host (`cmux-hub-host`) test too, so a signer and the hub's
 /// verifier cannot drift apart.
 @Suite struct RequestSigningVectorTests {
     struct Vectors: Decodable {

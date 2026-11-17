@@ -1,5 +1,5 @@
-// The hub's side of schemas/device-hub/request-signing-vectors.json. The Linux host
-// (cmux-rd-host linux_host/hub.rs) and the apps (Packages/Shared/CmuxDeviceHub)
+// The hub's side of schemas/device-hub/request-signing-vectors.json. The screen host
+// (cmux-hub-host hub.rs) and the apps (Packages/Shared/CmuxDeviceHub)
 // test against the same file, so a signer and this verifier cannot drift apart.
 import { describe, expect, it } from "vitest";
 import vectors from "../../../schemas/device-hub/request-signing-vectors.json";
