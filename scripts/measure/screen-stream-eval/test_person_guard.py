@@ -120,6 +120,21 @@ class CheckTests(unittest.TestCase):
                             env=env, capture_output=True, text=True)
         self.assertEqual((ok.returncode, ok.stderr), (0, ""))
 
+    def test_cli_viewer_role_as_peer_agent_calls_it(self):
+        # peer.py's viewer agent runs `check TARGET viewer` for each target the host asks for.
+        host = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip() or socket.gethostname()
+        registry = os.path.join(self.tmp, "person.json")
+        Path(registry).write_text(json.dumps({"machines": {host.lower(): {"roles": ["leo-mac"], "aliases": []}}}))
+        env = {**os.environ, "CMUX_FLEET_REGISTRY": registry}
+
+        def cli(*args):
+            return subprocess.run([sys.executable, "-I", str(HERE / "person_guard.py"), "check", *args],
+                                  env=env, capture_output=True, text=True).returncode
+        self.assertEqual(cli("apple-rfb", "viewer"), 0)
+        self.assertEqual(cli("apple-high", "viewer"), 2)
+        self.assertEqual(cli("apple-rfb"), 2)
+        self.assertEqual(cli("apple-rfb", "host"), 2)
+
 
 class HarnessTests(unittest.TestCase):
     def test_harness_refuses_before_removing_anything(self):
