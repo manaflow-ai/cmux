@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture commands, paths and machine names, not shipped UI.
-// "Run on a bigger machine": the chip shows on a running shell row from 20 s on and never on a
-// finished one or a non-shell; a click shows exactly what goes (secret-looking files left out
+// "Run on a bigger machine": the chip shows on a running shell row from 20 s on when acpmux says
+// the command computes, never on one acpmux says waits (on the network, a timer), a finished one
+// or a non-shell; a click shows exactly what goes (secret-looking files left out
 // until ticked, untracked files staying) and starts the run with the plan's digest; the run's
 // output streams in under the row in order, and the reads stop when it ends. A background command
 // gets no chip; a command that stays here (acpmux's reason, the host refusing to relay the run, no
@@ -18,6 +19,7 @@ import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
 import {
   RUN_ELSEWHERE_AFTER_MS,
+  RUN_ELSEWHERE_RECHECK_MS,
   RunElsewhereContext,
   RunElsewhereStore,
   appendOutput,
@@ -28,6 +30,7 @@ import {
   resetHostRelays,
   RUN_OUTPUT_KEEP,
   type RunElsewhere,
+  type RunOffer,
   type RunOutput,
   type RunPlan,
 } from "./runElsewhereModel";
@@ -110,12 +113,27 @@ async function advance(ms: number) {
   await flush();
 }
 
-function harness(outputs: RunOutput[] = [], plan: () => Promise<RunPlan> = async () => PLAN) {
-  const calls: { started?: unknown[]; reads: number[]; stopped: string[] } = { reads: [], stopped: [] };
+/** acpmux's answer for a build that keeps cores busy. */
+const COMPUTES: RunOffer = { show: true, why: "it keeps 6.0 cores busy", busyCores: 6 };
+
+function harness(
+  outputs: RunOutput[] = [],
+  plan: () => Promise<RunPlan> = async () => PLAN,
+  offer: (command: string) => Promise<RunOffer> = async () => COMPUTES,
+) {
+  const calls: { started?: unknown[]; reads: number[]; stopped: string[]; offers: string[] } = {
+    reads: [],
+    stopped: [],
+    offers: [],
+  };
   const runs: RunElsewhere = {
     store: new RunElsewhereStore(),
     client: {
       plan,
+      offer: (command) => {
+        calls.offers.push(command);
+        return offer(command);
+      },
       start: async (...args) => {
         calls.started = args;
         return { id: "bg-7" };
@@ -142,6 +160,8 @@ async function render(item: AcpmuxActivity, runs: RunElsewhere, Row: typeof Comm
       </RunElsewhereContext.Provider>,
     ),
   );
+  // acpmux's answer to the chip's question settles.
+  await flush();
   return host;
 }
 
@@ -206,6 +226,53 @@ test("a command running under 20 s, a finished one and a non-shell show no chip"
   root = undefined;
   host = await render(call("in_progress", Date.now() - 60_000, "Read src/lib.rs", "read"), runs, ToolRow);
   expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+});
+
+// Leo, 2026-11-17, on the chip over a merge_hold call waiting on GitHub: "WHY IS THIS HERE".
+test("a command acpmux says waits on the network never gets the chip, however long it runs", async () => {
+  const waits: RunOffer = {
+    show: false,
+    why: "it waits on the network or a timer; a bigger machine would wait as long",
+  };
+  const command = "python3 tools/merge_hold.py explain manaflow-ai/cmux 44505 2>&1";
+  const { runs, calls } = harness(
+    [],
+    async () => PLAN,
+    async () => waits,
+  );
+  jest.useFakeTimers();
+  const host = await render(call("in_progress", Date.now() - 60_000, command), runs);
+  expect(calls.offers).toEqual([command]);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+  // It asks again while the command runs, and the answer is still no.
+  await advance(RUN_ELSEWHERE_RECHECK_MS * 3);
+  expect(calls.offers.length).toBe(4);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+});
+
+test("a build that starts to compute gets the chip once acpmux says so, with its reason", async () => {
+  const answers: RunOffer[] = [{ show: false, why: "it uses 0.1 cores; a bigger machine would not make it faster" }];
+  const { runs, calls } = harness(
+    [],
+    async () => PLAN,
+    async () => answers.shift() ?? COMPUTES,
+  );
+  jest.useFakeTimers();
+  const host = await render(call("in_progress", Date.now() - 30_000, "cargo build --release"), runs);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+  await advance(RUN_ELSEWHERE_RECHECK_MS);
+  const chip = host.querySelector<HTMLElement>(".cv-run-elsewhere-chip");
+  expect(chip?.getAttribute("title")).toContain("6.0 cores");
+  // A yes is kept: no more questions, and the chip stays.
+  await advance(RUN_ELSEWHERE_RECHECK_MS * 2);
+  expect(calls.offers.length).toBe(2);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).not.toBeNull();
+});
+
+test("a command under 20 s is never asked about", async () => {
+  const { runs, calls } = harness();
+  await render(call("in_progress", Date.now() - 5_000), runs);
+  expect(calls.offers).toEqual([]);
 });
 
 test("a click shows what goes, leaves the secret out, and starts with the plan's digest", async () => {

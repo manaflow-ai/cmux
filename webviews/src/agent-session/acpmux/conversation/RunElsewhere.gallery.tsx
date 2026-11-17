@@ -18,13 +18,14 @@ import {
   RunElsewhereStore,
   resetHostRelays,
   type RunElsewhere,
+  type RunOffer,
   type RunPlan,
   type RunState,
 } from "./runElsewhereModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 type Look = "text" | "icon" | "accent";
-type Shown = "chip" | "panel" | "refused" | "host-refused" | "no-machine" | "running" | "finished" | "failed";
+type Shown = "chip" | "waits" | "panel" | "refused" | "host-refused" | "no-machine" | "running" | "finished" | "failed";
 /** How a command that stays here reads: the shipped quiet line, the reason at the row's edge, or
  * the line in the panel's card chrome. */
 type NoteLook = "line" | "edge" | "card";
@@ -75,6 +76,7 @@ test cache::keeps_hot ... ok
 function stateFor(shown: Shown, store: RunElsewhereStore): RunState | undefined {
   switch (shown) {
     case "chip":
+    case "waits":
       return undefined;
     case "panel":
       return { phase: "choosing", plan: PLAN, machine: "build-box", send: [] };
@@ -115,19 +117,37 @@ function stateFor(shown: Shown, store: RunElsewhereStore): RunState | undefined 
 }
 
 const never = () => new Promise<never>(() => undefined);
-const NEVER_CLIENT = { plan: never, start: never, output: never, stop: async () => undefined };
+const NEVER_CLIENT = { plan: never, offer: never, start: never, output: never, stop: async () => undefined };
+
+/** A command that waits on GitHub over the network, using almost no CPU (the one Leo saw the chip
+ * on, 2026-11-17: "WHY IS THIS HERE"). acpmux never offers it a bigger machine. */
+const WAITING = "python3 tools/merge_hold.py explain manaflow-ai/cmux 44505 2>&1";
+
+/** acpmux's answers (`run_elsewhere.rs` `offer`), as it gives them for each row's command. */
+const OFFERS: Record<string, RunOffer> = {
+  test: { show: true, why: "it keeps 7.4 cores busy", busyCores: 7.4 },
+  build: { show: true, why: "a build or test, using 3.1 cores", busyCores: 3.1 },
+  wait: { show: false, why: "it waits on the network or a timer; a bigger machine would wait as long" },
+};
 
 function Stage({ look, shown, note = "line" }: Props) {
   const runs = useMemo<RunElsewhere>(() => {
     const store = new RunElsewhereStore();
     const state = stateFor(shown, store);
     if (state) store.set("test", state);
+    // Answered before the first paint, so every capture shows the settled rows.
+    for (const [id, offer] of Object.entries(OFFERS)) store.setOffer(id, offer);
     return { store, client: { ...NEVER_CLIENT, plan: async () => PLAN } };
   }, [shown]);
   return (
     <TranscriptDisclosureProvider sessionId="gallery-run-elsewhere">
       <RunElsewhereContext.Provider value={runs}>
         <div className="acpmux-shell cv-run-elsewhere-looks" data-look={look} data-note={note} style={{ padding: 16 }}>
+          {shown === "waits" && (
+            <div className="cv-tools">
+              <CommandRow item={call("wait", WAITING)} />
+            </div>
+          )}
           <div className="cv-tools">
             <CommandRow item={call("test", "cargo test -p cmux-core")} />
           </div>
@@ -166,8 +186,12 @@ export default componentEntry<Props>({
   ],
   variants: {
     text: {
-      note: "Shipped look: a small machine icon and the words in the row's dim ink at its trailing edge, accent on hover. It arrives 20 s into a running command, in the slot a running row leaves empty, so nothing moves.",
+      note: "Shipped look: a small machine icon and the words in the row's dim ink at its trailing edge, accent on hover. It arrives 20 s into a running command that acpmux says computes (its session busy across cores, or a build or test), in the slot a running row leaves empty, so nothing moves. Its tooltip says why.",
       props: { look: "text", shown: "chip" },
+    },
+    waits: {
+      note: 'A command that waits on the network (here merge_hold asking GitHub, the row Leo asked "WHY IS THIS HERE" about) never gets the chip, however long it runs: a bigger machine would wait as long. The build rows under it still do.',
+      props: { look: "text", shown: "waits" },
     },
     icon: {
       note: "Alternative: the icon alone, the words in its tooltip. Quietest, but a person has to hover to learn what it does, and the point is to be found.",
