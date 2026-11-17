@@ -26,6 +26,29 @@ struct WorkspaceMenuReadUnreadTests {
         NSApp.sendAction(action, to: item.target, from: item)
     }
 
+    /// Mark Workspace as Unread rings the workspace, as a tab's Mark as Unread does: Dismiss Highlight hides the ring and
+    /// keeps the mark (the dot stays), and marking it unread again after a read rings again.
+    @Test func markAsUnreadRingsUntilDismissed() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let workspace = try #require(services.daemon.store.workspaces.first)
+            let target = ActionTargetRef(kind: .workspace, id: workspace.id)
+            #expect(!services.notifications.hasHighlight(workspace), "a fresh workspace draws no ring")
+            _ = services.registry.perform(Self.unread, invocation: ActionInvocation(target: target, origin: .user))
+            try await PinnedPageTests.until({ workspace.markedUnread }, report: { "the daemon never marked \(workspace.id) unread" })
+            #expect(services.notifications.hasHighlight(workspace), "Mark as Unread draws the workspace's ring")
+
+            _ = services.registry.perform("notifications.dismissHighlight", invocation: ActionInvocation(target: target, origin: .user))
+            #expect(!services.notifications.hasHighlight(workspace), "Dismiss Highlight hides the ring")
+            #expect(workspace.markedUnread, "Dismiss Highlight keeps the mark: the dot stays")
+
+            _ = services.registry.perform(Self.read, invocation: ActionInvocation(target: target, origin: .user))
+            try await PinnedPageTests.until({ !workspace.markedUnread }, report: { "the daemon never cleared \(workspace.id)'s mark" })
+            _ = services.registry.perform(Self.unread, invocation: ActionInvocation(target: target, origin: .user))
+            try await PinnedPageTests.until({ workspace.markedUnread }, report: { "the second mark never landed" })
+            #expect(services.notifications.hasHighlight(workspace), "a new mark rings again")
+        }
+    }
+
     @Test func theRowMenuOffersMarkAsUnreadThenMarkAsRead() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let workspace = try #require(services.daemon.store.workspaces.first)
