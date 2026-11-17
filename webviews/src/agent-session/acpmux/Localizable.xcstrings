@@ -16772,127 +16772,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خدمة الوكلاء على هذا الـ Mac أقدم ولا تحتفظ بقائمة انتظار بعد. حدّث cmux لعرض كل الطلبات هنا."
+            "value": "حدّث cmux لترى كل الطلبات هنا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usluga agenata na ovom Macu je starija i još ne vodi red čekanja. Ažurirajte cmux da vidite sve zahtjeve ovdje."
+            "value": "Ažurirajte cmux da ovdje vidite sve upite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenttjenesten på denne Mac er ældre og har ingen kø endnu. Opdater cmux for at se alle anmodninger her."
+            "value": "Opdater cmux for at se alle spørgsmål her."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agent-Dienst dieses Macs ist älter und führt noch keine Warteschlange. Aktualisiere cmux, um hier alle Anfragen zu sehen."
+            "value": "Aktualisiere cmux, um hier jede Anfrage zu sehen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac's agent service is older and keeps no queue yet. Update cmux to see every ask here."
+            "value": "Update cmux to see every ask here."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El servicio de agentes de este Mac es más antiguo y aún no mantiene una cola. Actualiza cmux para ver aquí todas las solicitudes."
+            "value": "Actualiza cmux para ver aquí todas las solicitudes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le service d'agents de ce Mac est plus ancien et ne gère pas encore de file. Mettez à jour cmux pour voir toutes les demandes ici."
+            "value": "Mettez cmux à jour pour voir toutes les demandes ici."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il servizio agenti di questo Mac è più vecchio e non gestisce ancora una coda. Aggiorna cmux per vedere qui tutte le richieste."
+            "value": "Aggiorna cmux per vedere qui ogni richiesta."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac のエージェントサービスは古く、まだキューに対応していません。cmux を更新すると、すべての依頼がここに表示されます。"
+            "value": "ここですべての依頼を見るには cmux をアップデートしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេវាភ្នាក់ងារនៅលើ Mac នេះចាស់ជាង ហើយមិនទាន់មានជួររង់ចាំនៅឡើយទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលសំណើទាំងអស់នៅទីនេះ។"
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលសំណើទាំងអស់នៅទីនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 에이전트 서비스가 오래되어 아직 대기열을 지원하지 않습니다. cmux를 업데이트하면 모든 요청을 여기서 볼 수 있습니다."
+            "value": "여기서 모든 요청을 보려면 cmux를 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenttjenesten på denne Macen er eldre og har ingen kø ennå. Oppdater cmux for å se alle forespørsler her."
+            "value": "Oppdater cmux for å se alle forespørsler her."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usługa agentów na tym Macu jest starsza i nie prowadzi jeszcze kolejki. Zaktualizuj cmux, aby widzieć tu wszystkie prośby."
+            "value": "Zaktualizuj cmux, aby widzieć tu wszystkie prośby."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O serviço de agentes deste Mac é mais antigo e ainda não mantém uma fila. Atualize o cmux para ver todos os pedidos aqui."
+            "value": "Atualize o cmux para ver todos os pedidos aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба агентов на этом Mac устарела и пока не ведёт очередь. Обновите cmux, чтобы видеть здесь все запросы."
+            "value": "Обновите cmux, чтобы видеть здесь все запросы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บริการเอเจนต์บน Mac เครื่องนี้เป็นรุ่นเก่าและยังไม่มีคิว อัปเดต cmux เพื่อดูคำขอทั้งหมดที่นี่"
+            "value": "อัปเดต cmux เพื่อดูคำขอทั้งหมดที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac'in ajan hizmeti daha eski ve henüz kuyruk tutmuyor. Tüm istekleri burada görmek için cmux'u güncelleyin."
+            "value": "Tüm istekleri burada görmek için cmux'u güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба агентів на цьому Mac застаріла й ще не веде чергу. Оновіть cmux, щоб бачити тут усі запити."
+            "value": "Оновіть cmux, щоб бачити тут усі запити."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dịch vụ tác tử trên máy Mac này cũ hơn và chưa có hàng đợi. Hãy cập nhật cmux để xem mọi yêu cầu tại đây."
+            "value": "Hãy cập nhật cmux để xem mọi yêu cầu ở đây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac 的智能体服务版本较旧，尚不支持队列。请更新 cmux 以在此查看所有请求。"
+            "value": "请更新 cmux 以在此查看所有请求。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這部 Mac 的代理程式服務版本較舊，尚未支援佇列。請更新 cmux 以在此查看所有請求。"
+            "value": "請更新 cmux 以在此查看所有請求。"
           }
         }
       }
@@ -26804,127 +26804,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خدمة الوكلاء على هذا الـ Mac أقدم ولا تحتفظ بسجل تكاليف بعد. حدّث cmux لعرض التكاليف هنا."
+            "value": "حدّث cmux لترى التكاليف هنا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usluga agenata na ovom Macu je starija i još ne vodi evidenciju troškova. Ažurirajte cmux da vidite troškove ovdje."
+            "value": "Ažurirajte cmux da ovdje vidite troškove."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenttjenesten på denne Mac er ældre og har endnu ingen omkostningsoversigt. Opdater cmux for at se omkostninger her."
+            "value": "Opdater cmux for at se omkostninger her."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agent-Dienst dieses Macs ist älter und führt noch kein Kostenbuch. Aktualisiere cmux, um hier die Kosten zu sehen."
+            "value": "Aktualisiere cmux, um hier die Kosten zu sehen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac's agent service is older and keeps no cost ledger yet. Update cmux to see costs here."
+            "value": "Update cmux to see costs here."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El servicio de agentes de este Mac es más antiguo y aún no lleva un registro de costos. Actualiza cmux para ver aquí los costos."
+            "value": "Actualiza cmux para ver aquí los costes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le service d'agents de ce Mac est plus ancien et ne tient pas encore de registre des coûts. Mettez à jour cmux pour voir les coûts ici."
+            "value": "Mettez cmux à jour pour voir les coûts ici."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il servizio agenti di questo Mac è più vecchio e non tiene ancora un registro dei costi. Aggiorna cmux per vedere qui i costi."
+            "value": "Aggiorna cmux per vedere qui i costi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac のエージェントサービスは古く、まだコスト台帳に対応していません。cmux を更新すると、ここにコストが表示されます。"
+            "value": "ここでコストを見るには cmux をアップデートしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេវាភ្នាក់ងារនៅលើ Mac នេះចាស់ជាង ហើយមិនទាន់មានសៀវភៅកត់ត្រាថ្លៃចំណាយនៅឡើយទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលថ្លៃចំណាយនៅទីនេះ។"
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលការចំណាយនៅទីនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 에이전트 서비스가 오래되어 아직 비용 원장을 지원하지 않습니다. cmux를 업데이트하면 비용을 여기서 볼 수 있습니다."
+            "value": "여기서 비용을 보려면 cmux를 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenttjenesten på denne Macen er eldre og har ikke kostnadsregister ennå. Oppdater cmux for å se kostnader her."
+            "value": "Oppdater cmux for å se kostnader her."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usługa agentów na tym Macu jest starsza i nie prowadzi jeszcze rejestru kosztów. Zaktualizuj cmux, aby widzieć tu koszty."
+            "value": "Zaktualizuj cmux, aby widzieć tu koszty."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O serviço de agentes deste Mac é mais antigo e ainda não mantém um registro de custos. Atualize o cmux para ver os custos aqui."
+            "value": "Atualize o cmux para ver os custos aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба агентов на этом Mac устарела и пока не ведёт учёт расходов. Обновите cmux, чтобы видеть здесь расходы."
+            "value": "Обновите cmux, чтобы видеть здесь расходы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บริการเอเจนต์บน Mac เครื่องนี้เป็นรุ่นเก่าและยังไม่มีบัญชีค่าใช้จ่าย อัปเดต cmux เพื่อดูค่าใช้จ่ายที่นี่"
+            "value": "อัปเดต cmux เพื่อดูค่าใช้จ่ายที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac'in ajan hizmeti daha eski ve henüz maliyet defteri tutmuyor. Maliyetleri burada görmek için cmux'u güncelleyin."
+            "value": "Maliyetleri burada görmek için cmux'u güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба агентів на цьому Mac застаріла й ще не веде облік витрат. Оновіть cmux, щоб бачити тут витрати."
+            "value": "Оновіть cmux, щоб бачити тут витрати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dịch vụ tác tử trên máy Mac này cũ hơn và chưa có sổ chi phí. Hãy cập nhật cmux để xem chi phí tại đây."
+            "value": "Hãy cập nhật cmux để xem chi phí ở đây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac 的智能体服务版本较旧，尚不支持费用账本。请更新 cmux 以在此查看费用。"
+            "value": "请更新 cmux 以在此查看费用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這部 Mac 的代理程式服務版本較舊，尚未支援費用帳本。請更新 cmux 以在此查看費用。"
+            "value": "請更新 cmux 以在此查看費用。"
           }
         }
       }
@@ -30896,127 +30896,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac's agent service is older and can't read the team's spend yet. Update cmux to see it here."
+            "value": "Update cmux to see the team's spend here."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خدمة الوكيل على هذا الـ Mac أقدم ولا يمكنها قراءة إنفاق الفريق بعد. حدّث cmux لرؤيته هنا."
+            "value": "حدّث cmux لترى إنفاق الفريق هنا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servis agenta na ovom Macu je stariji i još ne može čitati potrošnju tima. Ažurirajte cmux da je vidite ovdje."
+            "value": "Ažurirajte cmux da ovdje vidite potrošnju tima."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne Macs agenttjeneste er ældre og kan ikke læse teamets forbrug endnu. Opdater cmux for at se det her."
+            "value": "Opdater cmux for at se teamets forbrug her."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agent-Dienst dieses Macs ist älter und kann den Verbrauch des Teams noch nicht lesen. Aktualisieren Sie cmux, um ihn hier zu sehen."
+            "value": "Aktualisiere cmux, um hier die Ausgaben des Teams zu sehen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El servicio de agentes de este Mac es antiguo y aún no puede leer el gasto del equipo. Actualiza cmux para verlo aquí."
+            "value": "Actualiza cmux para ver aquí el gasto del equipo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le service d'agents de ce Mac est trop ancien pour lire les dépenses de l'équipe. Mettez cmux à jour pour les voir ici."
+            "value": "Mettez cmux à jour pour voir ici les dépenses de l’équipe."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il servizio agenti di questo Mac è meno recente e non può ancora leggere la spesa del team. Aggiorna cmux per vederla qui."
+            "value": "Aggiorna cmux per vedere qui la spesa del team."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac のエージェントサービスは古いため、チームの支出をまだ読み込めません。cmux をアップデートするとここに表示されます。"
+            "value": "ここでチームの支出を見るには cmux をアップデートしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេវាភ្នាក់ងាររបស់ Mac នេះចាស់ ហើយមិនទាន់អាចអានការចំណាយរបស់ក្រុមបានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលវានៅទីនេះ។"
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលការចំណាយរបស់ក្រុមនៅទីនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 에이전트 서비스가 오래되어 아직 팀 지출을 읽을 수 없습니다. cmux를 업데이트하면 여기에서 볼 수 있습니다."
+            "value": "여기서 팀 지출을 보려면 cmux를 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenttjenesten på denne Macen er eldre og kan ikke lese teamets forbruk ennå. Oppdater cmux for å se det her."
+            "value": "Oppdater cmux for å se teamets forbruk her."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usługa agentów na tym Macu jest starsza i nie może jeszcze odczytać wydatków zespołu. Zaktualizuj cmux, aby je tu zobaczyć."
+            "value": "Zaktualizuj cmux, aby widzieć tu wydatki zespołu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O serviço de agentes deste Mac é antigo e ainda não lê os gastos da equipe. Atualize o cmux para vê-los aqui."
+            "value": "Atualize o cmux para ver os gastos da equipe aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба агентов на этом Mac устарела и пока не читает расходы команды. Обновите cmux, чтобы увидеть их здесь."
+            "value": "Обновите cmux, чтобы видеть здесь расходы команды."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บริการเอเจนต์ของ Mac เครื่องนี้เก่ากว่าและยังอ่านค่าใช้จ่ายของทีมไม่ได้ อัปเดต cmux เพื่อดูที่นี่"
+            "value": "อัปเดต cmux เพื่อดูค่าใช้จ่ายของทีมที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac'in ajan hizmeti eski ve ekip harcamalarını henüz okuyamıyor. Burada görmek için cmux'u güncelleyin."
+            "value": "Ekibin harcamasını burada görmek için cmux'u güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба агентів на цьому Mac застаріла й поки не читає витрати команди. Оновіть cmux, щоб побачити їх тут."
+            "value": "Оновіть cmux, щоб бачити тут витрати команди."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dịch vụ tác tử trên Mac này đã cũ và chưa đọc được chi tiêu của nhóm. Cập nhật cmux để xem tại đây."
+            "value": "Hãy cập nhật cmux để xem chi tiêu của nhóm ở đây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 的智能体服务较旧，尚不能读取团队的支出。更新 cmux 后即可在此查看。"
+            "value": "请更新 cmux 以在此查看团队支出。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 的代理服務較舊，尚無法讀取團隊的支出。更新 cmux 後即可在此查看。"
+            "value": "請更新 cmux 以在此查看團隊支出。"
           }
         }
       }
@@ -83144,127 +83144,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This chat is too large for this version of cmux to open. Update cmux, then Retry."
+            "value": "Update cmux to open this chat, then Retry."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هذه المحادثة أكبر من أن يفتحها هذا الإصدار من cmux. حدّث cmux، ثم أعد المحاولة."
+            "value": "حدّث cmux لفتح هذه الدردشة، ثم اختر إعادة المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj chat je prevelik da ga ova verzija cmuxa otvori. Ažurirajte cmux, pa pokušajte ponovo."
+            "value": "Ažurirajte cmux da otvorite ovaj chat, pa odaberite Pokušaj ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chat er for stor til, at denne version af cmux kan åbne den. Opdater cmux, og prøv igen."
+            "value": "Opdater cmux for at åbne denne chat, og vælg derefter Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Chat ist zu groß für diese cmux-Version. Aktualisiere cmux und versuche es erneut."
+            "value": "Aktualisiere cmux, um diesen Chat zu öffnen, und wähle dann Erneut versuchen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat es demasiado grande para esta versión de cmux. Actualiza cmux y vuelve a intentarlo."
+            "value": "Actualiza cmux para abrir este chat y luego pulsa Reintentar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette discussion est trop volumineuse pour cette version de cmux. Mettez cmux à jour, puis réessayez."
+            "value": "Mettez cmux à jour pour ouvrir ce chat, puis cliquez sur Réessayer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa chat è troppo grande per questa versione di cmux. Aggiorna cmux, poi riprova."
+            "value": "Aggiorna cmux per aprire questa chat, poi scegli Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このチャットはこのバージョンの cmux では大きすぎて開けません。cmux をアップデートしてから再試行してください。"
+            "value": "このチャットを開くには cmux をアップデートしてから「再試行」を選んでください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកនេះធំពេកសម្រាប់កំណែ cmux នេះដើម្បីបើក។ អាប់ដេត cmux រួចព្យាយាមម្តងទៀត។"
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីបើកការជជែកនេះ រួចចុច ព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 채팅은 이 버전의 cmux에서 열기에는 너무 큽니다. cmux를 업데이트한 다음 다시 시도하세요."
+            "value": "이 채팅을 열려면 cmux를 업데이트한 다음 다시 시도를 누르세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chatten er for stor til at denne versjonen av cmux kan åpne den. Oppdater cmux, og prøv igjen."
+            "value": "Oppdater cmux for å åpne denne chatten, og velg deretter Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten czat jest za duży, by ta wersja cmux mogła go otworzyć. Zaktualizuj cmux, a potem spróbuj ponownie."
+            "value": "Zaktualizuj cmux, aby otworzyć ten czat, a potem wybierz Ponów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat é grande demais para esta versão do cmux abrir. Atualize o cmux e tente de novo."
+            "value": "Atualize o cmux para abrir este chat e depois toque em Tentar de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот чат слишком велик для этой версии cmux. Обновите cmux и повторите попытку."
+            "value": "Обновите cmux, чтобы открыть этот чат, затем нажмите «Повторить»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทนี้ใหญ่เกินกว่าที่ cmux เวอร์ชันนี้จะเปิดได้ อัปเดต cmux แล้วลองอีกครั้ง"
+            "value": "อัปเดต cmux เพื่อเปิดแชทนี้ แล้วกดลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbet, cmux'un bu sürümünün açamayacağı kadar büyük. cmux'u güncelleyin, sonra yeniden deneyin."
+            "value": "Bu sohbeti açmak için cmux'u güncelleyin, sonra Yeniden Dene'ye basın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей чат завеликий для цієї версії cmux. Оновіть cmux і спробуйте ще раз."
+            "value": "Оновіть cmux, щоб відкрити цей чат, потім натисніть «Повторити»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuộc trò chuyện này quá lớn để phiên bản cmux này mở. Hãy cập nhật cmux rồi thử lại."
+            "value": "Hãy cập nhật cmux để mở cuộc trò chuyện này, rồi bấm Thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天太大，此版本的 cmux 无法打开。请更新 cmux，然后重试。"
+            "value": "请更新 cmux 以打开此聊天，然后点按“重试”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天太大，此版本的 cmux 無法開啟。請更新 cmux，然後重試。"
+            "value": "請更新 cmux 以開啟此聊天，然後點按「重試」。"
           }
         }
       }
@@ -144627,138 +144627,6 @@
         }
       }
     },
-    "switch.deferred": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يبدأ {agent} مع الـ prompt التالي. يستمر هذا الرد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} se pokreće uz vaš sljedeći prompt. Ovaj odgovor se nastavlja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} starter med din næste prompt. Dette svar fortsætter."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} startet mit deinem nächsten Prompt. Diese Antwort läuft weiter."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{agent} starts with your next prompt. This reply keeps going."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} se inicia con tu próximo prompt. Esta respuesta continúa."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} démarre avec votre prochain prompt. Cette réponse continue."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} si avvia con il prossimo prompt. Questa risposta continua."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{agent} は次のプロンプトから使われます。この返答はそのまま続きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} នឹងចាប់ផ្តើមជាមួយប្រអប់បញ្ចូលបន្ទាប់របស់អ្នក។ ការឆ្លើយតបនេះបន្តដំណើរការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent}은(는) 다음 프롬프트와 함께 시작됩니다. 이 응답은 계속됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} starter med neste prompt. Dette svaret fortsetter."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} uruchomi się z Twoim następnym promptem. Ta odpowiedź trwa nadal."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} inicia com seu próximo prompt. Esta resposta continua."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} запустится с вашим следующим запросом. Этот ответ продолжается."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} จะเริ่มพร้อมพรอมต์ถัดไปของคุณ การตอบกลับนี้จะดำเนินต่อไป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent}, bir sonraki isteminle başlar. Bu yanıt devam eder."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} запуститься з вашим наступним запитом. Ця відповідь триває."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} khởi động cùng lời nhắc tiếp theo của bạn. Phản hồi này vẫn tiếp tục."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} 将随你的下一条提示启动。此回复会继续。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{agent} 會隨你的下一則提示啟動。此回覆會繼續。"
-          }
-        }
-      }
-    },
     "switch.failed": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -167446,127 +167314,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This cmux and its agent service are different versions. Update cmux, then try again."
+            "value": "Update cmux, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إصدار cmux هذا وخدمة الوكلاء التابعة له مختلفان. حدّث cmux، ثم أعد المحاولة."
+            "value": "حدّث cmux، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj cmux i njegov servis agenata su različite verzije. Ažurirajte cmux, pa pokušajte ponovo."
+            "value": "Ažurirajte cmux, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne cmux og dens agenttjeneste er forskellige versioner. Opdater cmux, og prøv igen."
+            "value": "Opdater cmux, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieses cmux und sein Agentendienst haben verschiedene Versionen. Aktualisiere cmux und versuche es erneut."
+            "value": "Aktualisiere cmux und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este cmux y su servicio de agentes son de versiones distintas. Actualiza cmux y vuelve a intentarlo."
+            "value": "Actualiza cmux y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ce cmux et son service d’agents ne sont pas de la même version. Mettez cmux à jour, puis réessayez."
+            "value": "Mettez cmux à jour, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo cmux e il suo servizio agenti sono versioni diverse. Aggiorna cmux, poi riprova."
+            "value": "Aggiorna cmux, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この cmux とエージェントサービスのバージョンが異なります。cmux をアップデートしてから、もう一度お試しください。"
+            "value": "cmux をアップデートしてから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux នេះ និងសេវាភ្នាក់ងាររបស់វាជាកំណែខុសគ្នា។ អាប់ដេត cmux រួចព្យាយាមម្តងទៀត។"
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux រួចព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 cmux와 에이전트 서비스의 버전이 다릅니다. cmux를 업데이트한 다음 다시 시도하세요."
+            "value": "cmux를 업데이트한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne cmux og agenttjenesten dens er forskjellige versjoner. Oppdater cmux, og prøv igjen."
+            "value": "Oppdater cmux, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten cmux i jego usługa agentów to różne wersje. Zaktualizuj cmux, a potem spróbuj ponownie."
+            "value": "Zaktualizuj cmux i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este cmux e seu serviço de agentes são de versões diferentes. Atualize o cmux e tente de novo."
+            "value": "Atualize o cmux e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Версии этого cmux и его службы агентов не совпадают. Обновите cmux и повторите попытку."
+            "value": "Обновите cmux и попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux นี้กับบริการเอเจนต์เป็นคนละเวอร์ชัน อัปเดต cmux แล้วลองอีกครั้ง"
+            "value": "อัปเดต cmux แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu cmux ile ajan hizmeti farklı sürümlerde. cmux'u güncelleyin, sonra yeniden deneyin."
+            "value": "cmux'u güncelleyin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Версії цього cmux і його служби агентів різняться. Оновіть cmux і спробуйте ще раз."
+            "value": "Оновіть cmux і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux này và dịch vụ tác tử của nó khác phiên bản. Hãy cập nhật cmux rồi thử lại."
+            "value": "Hãy cập nhật cmux rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 cmux 与其代理服务版本不同。请更新 cmux，然后重试。"
+            "value": "请更新 cmux，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 cmux 與其代理服務版本不同。請更新 cmux，然後重試。"
+            "value": "請更新 cmux，然後重試。"
           }
         }
       }
@@ -298550,138 +298418,6 @@
         }
       }
     },
-    "picker.optionsHelp": {
-      "comment": "Agent pane: tooltip line of the composer's Options chip, saying what the control is",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعدادات أخرى يوفرها هذا الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dodatne postavke koje nudi ovaj agent"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flere indstillinger, som denne agent tilbyder"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Weitere Einstellungen dieses Agenten"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "More settings this agent offers"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Más ajustes que ofrece este agente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autres réglages proposés par cet agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altre impostazioni offerte da questo agente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このエージェントが提供するその他の設定"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការកំណត់បន្ថែមដែលភ្នាក់ងារនេះផ្តល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 에이전트가 제공하는 추가 설정"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flere innstillinger denne agenten tilbyr"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dodatkowe ustawienia tego agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mais configurações que este agente oferece"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Другие настройки этого агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การตั้งค่าเพิ่มเติมที่เอเจนต์นี้มีให้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu ajanın sunduğu diğer ayarlar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Інші налаштування цього агента"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các cài đặt khác mà tác tử này cung cấp"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此智能体提供的更多设置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此代理提供的更多設定"
-          }
-        }
-      }
-    },
     "prompt.gestureReason": {
       "comment": "Agent pane: why a prompt was not sent, after \"Not sent: \" (prompt.notSent) or \"Still not sent: \" (prompt.stillNotSent): the app saw no key press or click of the person's own behind the send (a script or another app's posted input does not count)",
       "extractionState": "manual",
@@ -299217,127 +298953,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يُرسَل بسبب خطأ في لوحة الوكيل."
+            "value": "لم يُرسل. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije poslano zbog greške u panelu agenta."
+            "value": "Nije poslano. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke sendt på grund af en fejl i agentpanelet."
+            "value": "Ikke sendt. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wegen eines Fehlers im Agentenbereich nicht gesendet."
+            "value": "Nicht gesendet. Versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not sent because of an error in the agent pane."
+            "value": "Not sent. Try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No enviado por un error en el panel del agente."
+            "value": "No se envió. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non envoyé en raison d'une erreur dans le panneau de l'agent."
+            "value": "Non envoyé. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non inviato a causa di un errore nel pannello dell'agente."
+            "value": "Non inviato. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントペインのエラーにより送信されていません。"
+            "value": "送信されませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានផ្ញើទេ ដោយសារកំហុសនៅក្នុងផ្ទាំងភ្នាក់ងារ។"
+            "value": "មិនបានផ្ញើទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 패널 오류로 보내지 않았습니다."
+            "value": "보내지 못했습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke sendt på grunn av en feil i agentpanelet."
+            "value": "Ikke sendt. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie wysłano z powodu błędu w panelu agenta."
+            "value": "Nie wysłano. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não enviado por causa de um erro no painel do agente."
+            "value": "Não enviado. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не отправлено из-за ошибки в панели агента."
+            "value": "Не отправлено. Попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้ส่ง เพราะเกิดข้อผิดพลาดในแผงเอเจนต์"
+            "value": "ยังไม่ได้ส่ง ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan bölmesindeki bir hata nedeniyle gönderilmedi."
+            "value": "Gönderilmedi. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не надіслано через помилку в панелі агента."
+            "value": "Не надіслано. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa gửi do lỗi trong khung tác tử."
+            "value": "Chưa gửi. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "由于智能体面板出错，未发送。"
+            "value": "未发送。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "由於代理程式面板發生錯誤，未傳送。"
+            "value": "未傳送。請重試。"
           }
         }
       }
@@ -299349,127 +299085,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يُرسَل بعد بسبب خطأ في لوحة الوكيل."
+            "value": "لم يُرسل بعد. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nije poslano zbog greške u panelu agenta."
+            "value": "Još nije poslano. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stadig ikke sendt på grund af en fejl i agentpanelet."
+            "value": "Stadig ikke sendt. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wegen eines Fehlers im Agentenbereich immer noch nicht gesendet."
+            "value": "Immer noch nicht gesendet. Versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Still not sent because of an error in the agent pane."
+            "value": "Still not sent. Try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no enviado por un error en el panel del agente."
+            "value": "Sigue sin enviarse. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Toujours pas envoyé en raison d'une erreur dans le panneau de l'agent."
+            "value": "Toujours pas envoyé. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora non inviato a causa di un errore nel pannello dell'agente."
+            "value": "Ancora non inviato. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントペインのエラーにより、まだ送信されていません。"
+            "value": "まだ送信されていません。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "នៅតែមិនបានផ្ញើទេ ដោយសារកំហុសនៅក្នុងផ្ទាំងភ្នាក់ងារ។"
+            "value": "នៅតែមិនបានផ្ញើ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 패널 오류로 아직 보내지 않았습니다."
+            "value": "아직 보내지 못했습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fortsatt ikke sendt på grunn av en feil i agentpanelet."
+            "value": "Fortsatt ikke sendt. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nadal nie wysłano z powodu błędu w panelu agenta."
+            "value": "Nadal nie wysłano. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ainda não enviado por causa de um erro no painel do agente."
+            "value": "Ainda não enviado. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Всё ещё не отправлено из-за ошибки в панели агента."
+            "value": "Всё ещё не отправлено. Попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังคงไม่ได้ส่ง เพราะเกิดข้อผิดพลาดในแผงเอเจนต์"
+            "value": "ยังส่งไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan bölmesindeki bir hata nedeniyle hâlâ gönderilmedi."
+            "value": "Hâlâ gönderilmedi. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Досі не надіслано через помилку в панелі агента."
+            "value": "Досі не надіслано. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vẫn chưa gửi do lỗi trong khung tác tử."
+            "value": "Vẫn chưa gửi. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "由于智能体面板出错，仍未发送。"
+            "value": "仍未发送。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "由於代理程式面板發生錯誤，仍未傳送。"
+            "value": "仍未傳送。請重試。"
           }
         }
       }
@@ -321801,127 +321537,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "انتهت صلاحية نقطة نهاية الطرفية لهذا العامل. اطلب تذكرة إرفاق جديدة."
+            "value": "انتهت صلاحية رابط الطرفية هذا. افتح الطرفية مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Krajnja tačka terminala ovog radnika je istekla. Zatražite novu kartu za povezivanje."
+            "value": "Ovaj link terminala je istekao. Ponovo otvorite terminal."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne arbejders terminalendepunkt er udløbet. Anmod om en ny tilknytningsbillet."
+            "value": "Dette terminallink er udløbet. Åbn terminalen igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Terminal-Endpunkt dieses Workers ist abgelaufen. Fordere ein neues Verbindungsticket an."
+            "value": "Dieser Terminal-Link ist abgelaufen. Öffne das Terminal erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This worker terminal endpoint has expired. Request a fresh attach ticket."
+            "value": "This terminal link expired. Open the terminal again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El punto de conexión de terminal de este worker ha caducado. Solicita un nuevo ticket de conexión."
+            "value": "Este enlace de terminal caducó. Vuelve a abrir la terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le point de terminaison du terminal de ce worker a expiré. Demandez un nouveau ticket de connexion."
+            "value": "Ce lien de terminal a expiré. Rouvrez le terminal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L'endpoint del terminale di questo worker è scaduto. Richiedi un nuovo ticket di collegamento."
+            "value": "Questo link al terminale è scaduto. Riapri il terminale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このワーカーのターミナルエンドポイントは期限切れです。新しい接続チケットをリクエストしてください。"
+            "value": "このターミナルのリンクは期限切れです。ターミナルをもう一度開いてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចំណុចបញ្ចប់ទែមីណាល់របស់ worker នេះបានផុតកំណត់ហើយ។ សូមស្នើសុំសំបុត្រភ្ជាប់ថ្មី។"
+            "value": "តំណ terminal នេះផុតកំណត់ហើយ។ សូមបើក terminal ម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 워커의 터미널 엔드포인트가 만료되었습니다. 새 연결 티켓을 요청하세요."
+            "value": "이 터미널 링크가 만료되었습니다. 터미널을 다시 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminalendepunktet til denne arbeideren har utløpt. Be om en ny tilkoblingsbillett."
+            "value": "Denne terminallenken er utløpt. Åpne terminalen på nytt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Punkt końcowy terminala tego workera wygasł. Poproś o nowy bilet połączenia."
+            "value": "Ten link do terminala wygasł. Otwórz terminal ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O endpoint de terminal deste worker expirou. Solicite um novo tíquete de conexão."
+            "value": "Este link do terminal expirou. Abra o terminal de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Срок действия точки подключения терминала этого воркера истёк. Запросите новый билет подключения."
+            "value": "Срок действия ссылки на терминал истёк. Откройте терминал снова."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปลายทางเทอร์มินัลของ worker นี้หมดอายุแล้ว โปรดขอตั๋วเชื่อมต่อใหม่"
+            "value": "ลิงก์เทอร์มินัลนี้หมดอายุแล้ว เปิดเทอร์มินัลอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu çalışanın terminal uç noktasının süresi doldu. Yeni bir bağlanma bileti isteyin."
+            "value": "Bu terminal bağlantısının süresi doldu. Terminali yeniden açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Термін дії точки підключення термінала цього воркера минув. Запросіть новий квиток підключення."
+            "value": "Термін дії посилання на термінал минув. Відкрийте термінал знову."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Điểm cuối terminal của worker này đã hết hạn. Hãy yêu cầu vé kết nối mới."
+            "value": "Liên kết terminal này đã hết hạn. Hãy mở lại terminal."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此工作器的终端端点已过期。请申请新的连接票据。"
+            "value": "此终端链接已过期。请重新打开终端。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此工作器的終端機端點已過期。請申請新的連線票證。"
+            "value": "此終端機連結已過期。請重新開啟終端機。"
           }
         }
       }
@@ -321933,127 +321669,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يوفّر هذا العامل نقطة نهاية لطرفية cmux."
+            "value": "لا يمكن فتح طرفية هذا العامل في cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj radnik ne nudi krajnju tačku cmux terminala."
+            "value": "Terminal ovog radnika nije moguće otvoriti u cmuxu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne arbejder har intet cmux-terminalendepunkt."
+            "value": "Denne arbejders terminal kan ikke åbnes i cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Worker stellt keinen cmux-Terminal-Endpunkt bereit."
+            "value": "Das Terminal dieses Workers kann in cmux nicht geöffnet werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This worker does not expose a cmux terminal endpoint."
+            "value": "This worker's terminal can't be opened in cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este worker no ofrece un punto de conexión de terminal de cmux."
+            "value": "La terminal de este worker no se puede abrir en cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ce worker n'expose pas de point de terminaison de terminal cmux."
+            "value": "Le terminal de ce worker ne peut pas s’ouvrir dans cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo worker non espone un endpoint di terminale cmux."
+            "value": "Il terminale di questo worker non si può aprire in cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このワーカーは cmux ターミナルのエンドポイントを公開していません。"
+            "value": "このワーカーのターミナルは cmux で開けません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "worker នេះមិនផ្តល់ចំណុចបញ្ចប់ទែមីណាល់ cmux ទេ។"
+            "value": "មិនអាចបើក terminal របស់ worker នេះនៅក្នុង cmux បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 워커는 cmux 터미널 엔드포인트를 제공하지 않습니다."
+            "value": "이 워커의 터미널은 cmux에서 열 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne arbeideren tilbyr ikke et cmux-terminalendepunkt."
+            "value": "Terminalen til denne arbeideren kan ikke åpnes i cmux."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten worker nie udostępnia punktu końcowego terminala cmux."
+            "value": "Terminala tego workera nie można otworzyć w cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este worker não expõe um endpoint de terminal do cmux."
+            "value": "O terminal deste worker não pode ser aberto no cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот воркер не предоставляет точку подключения терминала cmux."
+            "value": "Терминал этого воркера нельзя открыть в cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "worker นี้ไม่มีปลายทางเทอร์มินัล cmux"
+            "value": "เปิดเทอร์มินัลของเวิร์กเกอร์นี้ใน cmux ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu çalışan bir cmux terminal uç noktası sunmuyor."
+            "value": "Bu çalışanın terminali cmux'ta açılamıyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей воркер не надає точку підключення термінала cmux."
+            "value": "Термінал цього воркера не можна відкрити в cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Worker này không cung cấp điểm cuối terminal cmux."
+            "value": "Không thể mở terminal của worker này trong cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此工作器未提供 cmux 终端端点。"
+            "value": "无法在 cmux 中打开此工作器的终端。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此工作器未提供 cmux 終端機端點。"
+            "value": "無法在 cmux 中開啟此工作器的終端機。"
           }
         }
       }
@@ -322197,127 +321933,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يُرجع إرفاق التشغيل أي جلسة عامل."
+            "value": "تعذّر فتح طرفية هذا العامل. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Povezivanje na pokretanje nije vratilo sesiju radnika."
+            "value": "Terminal ovog radnika nije moguće otvoriti. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilknytning til kørslen returnerede ingen arbejdersession."
+            "value": "Kunne ikke åbne denne arbejders terminal. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das Verbinden mit dem Lauf hat keine Worker-Sitzung geliefert."
+            "value": "Das Terminal dieses Workers konnte nicht geöffnet werden. Versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run attach returned no worker session."
+            "value": "Couldn't open this worker's terminal. Try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La conexión a la ejecución no devolvió ninguna sesión de worker."
+            "value": "No se pudo abrir la terminal de este worker. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La connexion à l'exécution n'a renvoyé aucune session de worker."
+            "value": "Impossible d’ouvrir le terminal de ce worker. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il collegamento all'esecuzione non ha restituito alcuna sessione del worker."
+            "value": "Impossibile aprire il terminale di questo worker. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "実行への接続でワーカーセッションが返されませんでした。"
+            "value": "このワーカーのターミナルを開けませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការភ្ជាប់ទៅការដំណើរការ មិនបានផ្តល់វគ្គ worker ទេ។"
+            "value": "មិនអាចបើក terminal របស់ worker នេះបានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "실행 연결에서 워커 세션이 반환되지 않았습니다."
+            "value": "이 워커의 터미널을 열 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilkobling til kjøringen returnerte ingen arbeiderøkt."
+            "value": "Kunne ikke åpne terminalen til denne arbeideren. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podłączenie do uruchomienia nie zwróciło sesji workera."
+            "value": "Nie udało się otworzyć terminala tego workera. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A conexão à execução não retornou nenhuma sessão de worker."
+            "value": "Não foi possível abrir o terminal deste worker. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Подключение к запуску не вернуло сеанс воркера."
+            "value": "Не удалось открыть терминал этого воркера. Попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การเชื่อมต่อการรันไม่ได้ส่งเซสชัน worker กลับมา"
+            "value": "เปิดเทอร์มินัลของเวิร์กเกอร์นี้ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çalıştırmaya bağlanma bir çalışan oturumu döndürmedi."
+            "value": "Bu çalışanın terminali açılamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Підключення до запуску не повернуло сеанс воркера."
+            "value": "Не вдалося відкрити термінал цього воркера. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kết nối lần chạy không trả về phiên worker nào."
+            "value": "Không thể mở terminal của worker này. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "连接运行未返回工作器会话。"
+            "value": "无法打开此工作器的终端。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "連線執行未傳回工作器工作階段。"
+            "value": "無法開啟此工作器的終端機。請重試。"
           }
         }
       }
@@ -329793,127 +329529,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يستطيع {harness} تفريع محادثة أثناء دورها، لذا يبدأ هذا الفرع من نص المحادثة."
+            "value": "يبدأ هذا التفرع من نص الدردشة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} ne može račvati chat usred poteza, pa ovaj račvani chat počinje od transkripta chata."
+            "value": "Ovaj fork počinje od transkripta chata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} kan ikke forgrene en chat midt i en tur, så denne forgrening starter fra chattens udskrift."
+            "value": "Denne fork starter fra chattens transskription."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} kann einen Chat nicht mitten im Durchgang abzweigen, daher beginnt diese Abzweigung mit dem Verlauf des Chats."
+            "value": "Dieser Fork beginnt mit dem Transkript des Chats."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} can't fork a chat mid-turn, so this fork starts from the chat's transcript."
+            "value": "This fork starts from the chat's transcript."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} no puede bifurcar un chat a mitad de turno, así que esta bifurcación empieza desde la transcripción del chat."
+            "value": "Esta bifurcación empieza desde la transcripción del chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} ne peut pas dupliquer une conversation en cours de tour : cette copie part de la transcription de la conversation."
+            "value": "Ce fork démarre de la transcription du chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} non può diramare una chat a metà turno, quindi questa diramazione parte dalla trascrizione della chat."
+            "value": "Questo fork parte dalla trascrizione della chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} はターンの途中でチャットをフォークできないため、このフォークはチャットの記録から始まります。"
+            "value": "このフォークはチャットのトランスクリプトから始まります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} មិនអាចបំបែកការជជែកពាក់កណ្ដាលវេនបានទេ ដូច្នេះការបំបែកនេះចាប់ផ្ដើមពីប្រតិចារិកនៃការជជែក។"
+            "value": "fork នេះចាប់ផ្ដើមពីប្រតិចារិករបស់ការជជែក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness}은(는) 턴 도중에 채팅을 포크할 수 없어서, 이 포크는 채팅 기록에서 시작합니다."
+            "value": "이 포크는 채팅 기록에서 시작합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} kan ikke forgrene en chat midt i en tur, så denne forgreningen starter fra chattens utskrift."
+            "value": "Denne forken starter fra chattens transkripsjon."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} nie może rozgałęzić czatu w trakcie tury, więc to rozgałęzienie zaczyna się od zapisu czatu."
+            "value": "Ten fork zaczyna się od transkrypcji czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} não consegue bifurcar um chat no meio do turno, então esta bifurcação começa pela transcrição do chat."
+            "value": "Esta bifurcação começa pela transcrição do chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} не может ответвить чат посреди хода, поэтому это ответвление начинается со стенограммы чата."
+            "value": "Этот форк начинается с расшифровки чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} แยกแชทกลางเทิร์นไม่ได้ แชทที่แยกนี้จึงเริ่มจากบันทึกของแชท"
+            "value": "ฟอร์กนี้เริ่มจากบันทึกการสนทนาของแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} bir sohbeti tur ortasında çatallayamaz, bu yüzden bu çatal sohbetin dökümünden başlar."
+            "value": "Bu çatal, sohbetin dökümünden başlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} не може відгалузити чат посеред ходу, тому це відгалуження починається зі стенограми чату."
+            "value": "Цей форк починається з розшифровки чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} không thể rẽ nhánh cuộc trò chuyện giữa lượt, nên nhánh này bắt đầu từ bản ghi của cuộc trò chuyện."
+            "value": "Bản fork này bắt đầu từ bản ghi của cuộc trò chuyện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} 无法在回合中途分叉聊天，因此此分叉从聊天记录开始。"
+            "value": "此分叉从聊天记录开始。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "{harness} 無法在回合中途分叉聊天，因此此分叉從聊天記錄開始。"
+            "value": "此分支從聊天記錄開始。"
           }
         }
       }
@@ -336261,127 +335997,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طرفيته على جهاز آخر، والاستدعاء الذي بدأه غير محمّل"
+            "value": "طرفيته على جهاز آخر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Njegov terminal je na drugoj mašini, a poziv koji ga je pokrenuo nije učitan"
+            "value": "Njegov terminal je na drugom računaru"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dens terminal er på en anden maskine, og kaldet, der startede den, er ikke indlæst"
+            "value": "Dens terminal er på en anden maskine"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sein Terminal ist auf einem anderen Rechner, und der Aufruf, der ihn gestartet hat, ist nicht geladen"
+            "value": "Sein Terminal ist auf einem anderen Rechner"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Its terminal is on another machine, and the call that started it is not loaded"
+            "value": "Its terminal is on another machine"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Su terminal está en otra máquina y la llamada que la inició no está cargada"
+            "value": "Su terminal está en otra máquina"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Son terminal est sur une autre machine, et l'appel qui l'a lancée n'est pas chargé"
+            "value": "Son terminal est sur une autre machine"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il suo terminale è su un'altra macchina e la chiamata che l'ha avviato non è caricata"
+            "value": "Il suo terminale è su un'altra macchina"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルは別のマシン上にあり、開始した呼び出しは読み込まれていません"
+            "value": "このターミナルは別のマシンにあります"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទែមីណាល់របស់វានៅលើម៉ាស៊ីនផ្សេង ហើយការហៅដែលចាប់ផ្ដើមវាមិនទាន់បានផ្ទុកទេ"
+            "value": "terminal របស់វានៅលើម៉ាស៊ីនផ្សេង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널이 다른 컴퓨터에 있고, 이를 시작한 호출이 로드되지 않았습니다"
+            "value": "터미널이 다른 기기에 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminalen er på en annen maskin, og kallet som startet den er ikke lastet inn"
+            "value": "Terminalen er på en annen maskin"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jego terminal jest na innej maszynie, a wywołanie, które go uruchomiło, nie jest wczytane"
+            "value": "Jego terminal jest na innej maszynie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O terminal está em outra máquina, e a chamada que o iniciou não está carregada"
+            "value": "O terminal está em outra máquina"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Его терминал на другой машине, а вызов, который его запустил, не загружен"
+            "value": "Его терминал на другой машине"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัลอยู่บนเครื่องอื่น และการเรียกที่เริ่มคำสั่งนี้ยังไม่ได้โหลด"
+            "value": "เทอร์มินัลอยู่บนเครื่องอื่น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminali başka bir makinede ve onu başlatan çağrı yüklenmedi"
+            "value": "Terminali başka bir makinede"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Його термінал на іншій машині, а виклик, який його запустив, не завантажено"
+            "value": "Його термінал на іншій машині"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal của lệnh này ở máy khác và lệnh gọi đã khởi chạy nó chưa được tải"
+            "value": "Terminal của nó nằm trên máy khác"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "其终端在另一台机器上，且启动它的调用尚未加载"
+            "value": "其终端在另一台机器上"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "其終端機在另一台機器上，且啟動它的呼叫尚未載入"
+            "value": "其終端機在另一台機器上"
           }
         }
       }
@@ -336393,127 +336129,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد طرفية لفتحها: لا يرتبط به أي استدعاء في هذه المحادثة"
+            "value": "لا توجد طرفية لفتحها"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nema terminala za otvaranje: nijedan poziv u ovom razgovoru nije povezan s njim"
+            "value": "Nema terminala za otvaranje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen terminal at åbne: intet kald i denne chat er knyttet til den"
+            "value": "Ingen terminal at åbne"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Terminal zum Öffnen: Kein Aufruf in diesem Chat ist damit verknüpft"
+            "value": "Kein Terminal zum Öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No terminal to open: no call in this chat is linked to it"
+            "value": "No terminal to open"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay terminal que abrir: ninguna llamada de este chat está vinculada"
+            "value": "No hay terminal que abrir"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun terminal à ouvrir : aucun appel de ce chat n'y est lié"
+            "value": "Aucun terminal à ouvrir"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun terminale da aprire: nessuna chiamata in questa chat è collegata"
+            "value": "Nessun terminale da aprire"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開くターミナルがありません: このチャットにはこれに紐づく呼び出しがありません"
+            "value": "開けるターミナルがありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានទែមីណាល់ត្រូវបើកទេ៖ គ្មានការហៅណាមួយក្នុងការជជែកនេះភ្ជាប់ជាមួយវាទេ"
+            "value": "គ្មាន terminal ដើម្បីបើកទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열 터미널이 없습니다: 이 채팅에 연결된 호출이 없습니다"
+            "value": "열 수 있는 터미널이 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen terminal å åpne: ingen kall i denne chatten er knyttet til den"
+            "value": "Ingen terminal å åpne"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brak terminala do otwarcia: żadne wywołanie w tym czacie nie jest z nim powiązane"
+            "value": "Brak terminala do otwarcia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhum terminal para abrir: nenhuma chamada deste chat está vinculada a ele"
+            "value": "Nenhum terminal para abrir"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нечего открыть: ни один вызов в этом чате не связан с ним"
+            "value": "Нет терминала, который можно открыть"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีเทอร์มินัลให้เปิด: ไม่มีการเรียกในแชตนี้ที่เชื่อมโยงกับคำสั่งนี้"
+            "value": "ไม่มีเทอร์มินัลให้เปิด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Açılacak terminal yok: bu sohbette ona bağlı bir çağrı yok"
+            "value": "Açılacak terminal yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немає термінала для відкриття: жоден виклик у цьому чаті не пов'язаний із ним"
+            "value": "Немає термінала, який можна відкрити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có terminal để mở: không lệnh gọi nào trong cuộc trò chuyện này liên kết với nó"
+            "value": "Không có terminal để mở"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有可打开的终端：此对话中没有与之关联的调用"
+            "value": "没有可打开的终端"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有可開啟的終端機：此對話中沒有與之關聯的呼叫"
+            "value": "沒有可開啟的終端機"
           }
         }
       }
@@ -357885,127 +357621,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show the effective harness session status."
+            "value": "Show this chat's status"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عرض حالة جلسة الأداة الفعلية."
+            "value": "إظهار حالة هذه الدردشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikaži stvarni status sesije alata."
+            "value": "Prikaži status ovog chata"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis den aktuelle sessionsstatus for værktøjet."
+            "value": "Vis denne chats status"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Den tatsächlichen Sitzungsstatus des Harness anzeigen."
+            "value": "Status dieses Chats anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar el estado efectivo de la sesión del agente."
+            "value": "Mostrar el estado de este chat"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afficher l'état effectif de la session de l'agent."
+            "value": "Afficher l’état de ce chat"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra lo stato effettivo della sessione dell'agente."
+            "value": "Mostra lo stato di questa chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ハーネスの実際のセッション状態を表示します。"
+            "value": "このチャットの状態を表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញស្ថានភាពវគ្គពិតប្រាកដរបស់ឧបករណ៍។"
+            "value": "បង្ហាញស្ថានភាពនៃការជជែកនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "하네스의 실제 세션 상태를 표시합니다."
+            "value": "이 채팅의 상태 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis den faktiske øktstatusen for verktøyet."
+            "value": "Vis statusen til denne chatten"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokaż rzeczywisty stan sesji narzędzia."
+            "value": "Pokaż stan tego czatu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar o status efetivo da sessão do agente."
+            "value": "Mostrar o status deste chat"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показать фактический статус сеанса."
+            "value": "Показать состояние этого чата"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงสถานะเซสชันจริงของเครื่องมือ"
+            "value": "แสดงสถานะของแชทนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aracın geçerli oturum durumunu göster."
+            "value": "Bu sohbetin durumunu göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показати фактичний стан сеансу."
+            "value": "Показати стан цього чату"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiển thị trạng thái phiên thực tế của công cụ."
+            "value": "Hiện trạng thái của cuộc trò chuyện này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "显示工具当前的实际会话状态。"
+            "value": "显示此聊天的状态"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "顯示工具目前的實際工作階段狀態。"
+            "value": "顯示此聊天的狀態"
           }
         }
       }
