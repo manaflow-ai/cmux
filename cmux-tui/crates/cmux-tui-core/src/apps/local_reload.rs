@@ -631,12 +631,15 @@ const RACY_NANOS: u128 = 2_000_000_000;
 /// The most files whose content hash is kept; past it the cache starts over.
 const CACHED_FILES: usize = 50_000;
 
+/// A cached hash: the stamp it holds for, when it was taken (ns), the hash.
+type Hashed = (Stamp, u128, u64);
+
 /// Content hashes by path, with the stamp they hold for and when they were
 /// taken. A reload pass reads every watched app, so without this one save
 /// re-read every app's bundle (200 apps of 256 KiB: 50 MiB per save). The
 /// rule is git's racy-clean check: a file is read again unless its stamp is
 /// unchanged and its last change is older than the hash by `RACY_NANOS`.
-static HASHES: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, (Stamp, u128, u64)>>> =
+static HASHES: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, Hashed>>> =
     std::sync::LazyLock::new(Default::default);
 
 fn now_nanos() -> u128 {
