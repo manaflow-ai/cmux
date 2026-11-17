@@ -213,13 +213,13 @@ struct ChatNativeLayout: @unchecked Sendable {
             }
             let x = lead + markerWidth + 8
             let text = ChatInlineText.make(item.text, font: body, color: .label)
-            let size = measure(text, width: max(width - x, 20))
             // The label hugs the text it draws: `measure` adds the font's leading to every line,
             // which UILabel does not draw, and UILabel centers its text in a taller frame. That
-            // pushed an item's first line down by half a leading per line, below its marker.
+            // pushed an item's first line down by half a leading per line, below its marker. Items
+            // are 8 pt apart, as `MarkdownListView`, whatever their length.
             let drawnHeight = measureDrawn(text, width: max(width - x, 20)).height
             drawn.texts.append(Text(text: text, frame: CGRect(x: x, y: y, width: max(width - x, 20), height: drawnHeight)))
-            y += size.height
+            y += drawnHeight
             if index < list.items.count - 1 { y += 8 }
         }
         return ChatNativeLayout(content: .drawn(drawn), height: y)
