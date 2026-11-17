@@ -330,7 +330,7 @@ export function BookmarksPage({
         snap.loading ? null : (
           <div className="bm-empty">
             <span className="bm-empty-title">{t(searching ? "page.emptySearchTitle" : "page.emptyTitle")}</span>
-            <span className="bm-empty-hint">{t(searching ? "page.emptySearchHint" : "page.emptyHint")}</span>
+            {searching ? null : <span className="bm-empty-hint">{t("page.emptyHint")}</span>}
           </div>
         )
       ) : (
