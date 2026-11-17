@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxNextLiveCode
+@testable import CmuxLiveCode
 
 /// The signature check and dlopen read one private copy of a patch (cmux#36330 review: the NIGHTLY
 /// turns off library validation, so a check of the shared folder's file could be swapped before
@@ -43,6 +43,7 @@ struct LivePatchCopyTests {
         #expect(throws: LiveCodeError.self) { try live.privateCopy("patch-3.dylib") }
     }
 
+    #if os(macOS)
     @Test func aFileThatIsNotSignedCodeIsRefusedEvenByAnAppWithNoTeam() throws {
         let live = try folder()
         let path = live.url.appendingPathComponent("plain.dylib")
@@ -50,8 +51,10 @@ struct LivePatchCopyTests {
         #expect(throws: LiveCodeError.self) { try PatchSignature.check(path.path, app: .noTeam) }
         #expect(throws: LiveCodeError.self) { try PatchSignature.check(path.path, app: .team("ABCDE12345")) }
     }
+    #endif
 }
 
+#if os(macOS)
 /// Whose patches an app loads (cmux#13742): a team-signed app only its team's, an app with no team any
 /// validly signed one.
 struct PatchSignatureTests {
@@ -116,3 +119,4 @@ struct PatchSignatureTests {
         }
     }
 }
+#endif

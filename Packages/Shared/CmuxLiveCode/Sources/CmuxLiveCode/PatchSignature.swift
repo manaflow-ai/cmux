@@ -10,12 +10,13 @@
 // validation on it (hardened runtime, no disable-library-validation entitlement): dyld then maps
 // only code of the app's own team, whatever file it opens, and this check is the early refusal with
 // a reason. A team's app without it refuses every patch.
+#if os(macOS)
 import Foundation
 import Security
 
-nonisolated enum PatchSignature {
+public enum PatchSignature {
     /// Who signed the running app, from its own code signature.
-    enum AppSigner: Equatable, Sendable {
+    public enum AppSigner: Equatable, Sendable {
         /// Signed by this team (its ten-character ID).
         case team(String)
         /// Unsigned or ad hoc: the signature names no team.
@@ -68,7 +69,7 @@ nonisolated enum PatchSignature {
 
     /// The running app's signer, from its own code signature (SecCodeCopySelf) and the kernel's
     /// status of this process.
-    static func runningSigner() -> AppSigner {
+    public static func runningSigner() -> AppSigner {
         var running: SecCode?
         var code: SecStaticCode?
         var info: CFDictionary?
@@ -106,3 +107,4 @@ nonisolated enum PatchSignature {
         return .team(team)
     }
 }
+#endif

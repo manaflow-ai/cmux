@@ -110,6 +110,11 @@ layout code, which runs again at once. Needs a rebuild: stored properties, enum 
 resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
 has the numbers and what would make more of them live.
 
+A SwiftUI `body` applies when its view type stays the same: values, strings, colors, conditions and
+the code it calls. A view or modifier added to or removed from a `body` changes its `some View`
+type, which the build's conformance names, so the app refuses that patch and says so in its log
+(`a some View ... result's type changed`) instead of reading the new body as the old type.
+
 ## Live mode: restart into the live code build and back
 
 Leo (2026-11-05): "So caveat (for now?) is that toggling it on will slow things because the

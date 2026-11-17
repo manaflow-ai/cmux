@@ -14,7 +14,12 @@
 # It holds the Swift symbols that name a CmuxNext module: their functions, and their extensions of
 # other modules' types.
 
-live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E '[0-9]CmuxNext' | sort -u; }
+#
+# LIVE_CODE_MODULE_PREFIX names the app's own modules (default CmuxNext, the macOS app; CmuxMobile
+# for the iPhone app, scripts/live-code/ios-sim.sh). A Swift symbol names its module as the name's
+# length then the name, so "[0-9]PREFIX" finds them.
+
+live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E "[0-9]${LIVE_CODE_MODULE_PREFIX:-CmuxNext}" | sort -u; }
 
 live_code_list() { # BIN OUT
   local bin="$1" out="$2"

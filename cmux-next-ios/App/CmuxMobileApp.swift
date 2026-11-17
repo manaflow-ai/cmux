@@ -4,6 +4,7 @@ import CmuxMobileModel
 import CmuxMobileShell
 import CmuxMobileVoice
 #if DEBUG
+import CmuxLiveCode
 import CmuxMobileTerminal
 #endif
 import SwiftUI
@@ -38,6 +39,9 @@ struct CmuxMobileApp: App {
         #if DEBUG
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
+        // Swift live code in the simulator (scripts/live-code/ios-sim.sh): watches the folder
+        // CMUX_LIVE_CODE_DIR names and applies each patch without a rebuild or relaunch.
+        LiveCodeRedraw.shared.startFromEnvironment()
         #endif
     }
 
@@ -65,6 +69,10 @@ struct CmuxMobileApp: App {
             RootView(auth: auth, store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []))
             #endif
             }
+            #if DEBUG
+            // Rebuilt with the new code after each live code patch (LiveCodeRedraw).
+            .liveCodeRedraw()
+            #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
                 scenePhase: scenePhase,

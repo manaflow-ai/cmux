@@ -1863,15 +1863,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Live code in the app: loads a patch of the app's own Swift functions without a rebuild or
-        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift).
+        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift). The engine
+        // is Packages/Shared/CmuxLiveCode, which the iPhone app runs in the iOS Simulator too.
         .target(
             name: "CmuxNextLiveCode",
-            dependencies: ["CmuxNextCompat"],
-            swiftSettings: uiSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextLiveCodeTests",
-            dependencies: ["CmuxNextLiveCode"],
+            dependencies: [.product(name: "CmuxLiveCode", package: "CmuxLiveCode")],
             swiftSettings: uiSwiftSettings
         ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
@@ -2793,6 +2789,7 @@ let package = Package(
     products: packageProducts,
     dependencies: [
         .package(path: "../../Shared/CmuxGhosttyKit"),
+        .package(path: "../../Shared/CmuxLiveCode"),
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),

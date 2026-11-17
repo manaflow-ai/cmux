@@ -19,10 +19,17 @@
 live_code_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Every CmuxNext target Package.swift names (products and tests too; a name no target has is
-# never read).
+# never read). The iPhone app (scripts/live-code/ios-sim.sh) sets LIVE_CODE_MODULE_PREFIX=CmuxMobile,
+# LIVE_CODE_PACKAGE_SWIFT to CmuxMobileKit's manifest and LIVE_CODE_EXTRA_TARGETS to the app target,
+# whose sources are in the Xcode project, not a package.
 live_code_targets() {
-  grep -oE 'name: "CmuxNext[A-Za-z0-9_]*"' "$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift" \
-    | sed -E 's/.*"(.*)"/\1/' | sort -u
+  local prefix="${LIVE_CODE_MODULE_PREFIX:-CmuxNext}"
+  {
+    grep -oE "name: \"${prefix}[A-Za-z0-9_]*\"" "${LIVE_CODE_PACKAGE_SWIFT:-$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift}" \
+      | sed -E 's/.*"(.*)"/\1/'
+    local target
+    for target in ${LIVE_CODE_EXTRA_TARGETS:-}; do echo "$target"; done
+  } | sort -u
 }
 
 live_code_xcodebuild_args() { # CONFIG [LIST]
