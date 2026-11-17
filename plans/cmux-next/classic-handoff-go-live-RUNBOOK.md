@@ -14,11 +14,11 @@ Classic stable (0.65.x, bundle `com.cmuxterm.app`) checks
 | Must be true | Today |
 | --- | --- |
 | Item is EdDSA-signed with classic's stable key (`SUPublicEDKey` avjcg…, secret `SPARKLE_PRIVATE_KEY`) | release.yml on feat-cmux-next signs with the same secret. Proven by the RC dry run. |
-| `sparkle:version` (CFBundleVersion) > installed build. Classic 0.65.2.2 is build **113** | feat-cmux-next has `CURRENT_PROJECT_VERSION = 108`. **Blocker B1.** The RC set 114 in Info.plist on its test branch only. |
+| `sparkle:version` (CFBundleVersion) > installed build. Classic 0.65.2.2 is build **113** | feat-cmux-next has `CURRENT_PROJECT_VERSION = 108`. **Blocker B1.** The RCs set 114 and 115 in Info.plist on their test branches only. |
 | No `sparkle:channel` on the item (classic allows no channels) | release.yml writes none. |
 | `sparkle:minimumSystemVersion` ≤ the Mac's macOS | Both floors are 14.0. |
 | Same bundle id, Developer ID team 7WLXT3NR37, notarized, stapled | Release config: `com.cmuxterm.app`, `cmux.app`, same team. |
-| Universal DMG for Intel | release.yml builds `ARCHS="arm64 x86_64"` for the app; the RC's `bin/cmux` and CEF are arm64 only (**B0b**, **B6b**); Intel not run on hardware (**B6**). |
+| Apple silicon only | The app binary is universal, but `bin/cmux` and CEF are arm64 only (**B6b**), so the item requires arm64 (**B0b**) and Intel classic is not offered it. Intel not run on hardware (**B6**). |
 | Per-arch feed files exist on the latest release | release.yml copies `appcast.xml` to `appcast-arm64.xml` and `appcast-x86_64.xml`. |
 
 Classic ignores a `defaults write com.cmuxterm.app SUFeedURL …` override (its Sparkle delegate returns
@@ -58,11 +58,19 @@ one classic already reads.
 ## Go live (not taken)
 
 Preconditions: every **Blocker** below closed; the RC passed the end-to-end test on a clean classic install
-for the current classic release and one older release; one Intel run.
+for the current classic release and one older release; one Intel classic run shows no update offered (B0b).
 
 1. Land the build-number bump on feat-cmux-next: `CURRENT_PROJECT_VERSION` above both the newest classic
-   build and every RC build handed out (the RCs used 114, so ≥ 115). `project.pbxproj` is frozen
-   (`FREEZE: cmux.xcodeproj/project.pbxproj token=none`): ask the coordinator for a slot.
+   build and every RC build handed out (the RCs used 114 and 115, so ≥ 116). The exact change, in
+   `cmux.xcodeproj/project.pbxproj` on feat-cmux-next: both `CURRENT_PROJECT_VERSION = 108;` lines (the
+   Debug and Release configs of the cmux target) become `CURRENT_PROJECT_VERSION = 116;`
+   (`./scripts/bump-version.sh 1.0.0` would write 109, too low: write the number by hand or run
+   `bump-version.sh` after the edit). `Resources/Info.plist` reads `$(CURRENT_PROJECT_VERSION)`, so nothing
+   else changes. The file is frozen (`FREEZE: cmux.xcodeproj/project.pbxproj token=none` in the
+   coordinator's WINDOW, `~/fun/cmuxterm-hq/.cmux-scratch/nx-coordinator/WINDOW`; `prepush-gate.py`
+   enforces it). Only Chief (the coordinator) grants a slot: it writes a token on that line, the commit
+   carries `Freeze-Token: <token>`, and the line goes back to `none` after the push. Lawrence can order a
+   slot directly (as on 2026-10-20).
 2. Pin the final classic item (only if the cmux-next floor rises above 14.0):
    `skills/cmux-release/references/cmux-next-update-floor.md`.
 3. Decide the release tag (`v1.0.0`) and changelog (`/release` flow on feat-cmux-next).
@@ -109,12 +117,12 @@ already downloaded the update in the background install it at their next quit; t
 | # | Severity | Finding | Fix or owner |
 | --- | --- | --- | --- |
 | B0 | Blocker | `release.yml` had never built feat-cmux-next. Six dry runs found six breaks, each fixed on feat-cmux-next: no Zig (2361b768), Zig 0.16 instead of 0.17 for acpmux (f9f86e98), web bundles missing (8cd2edf8), arm64/x86_64 CEF versions differ (92de5acb), no Intel cmux-tui in the tree manifest (8005881e), classic `remote-daemon-status` query run on the Rust CLI (43c5b903). | Keep one dry run green per week until go-live. |
-| B0b | Blocker | Only main and rc/** pushes build cmux-tui for Intel. A tag cut from a feat-cmux-next commit has no Intel `bin/cmux`; the tag release fails (correct), and a dry run ships an arm64-only CLI with a warning. | Tag only a commit whose cmux-tui tree a main or rc/** push published, or build Intel on feat-cmux-next too. |
-| B0c | Blocker | `release.yml` does not build or bundle what nightly-next ships beside the app: the OptChat Chief (`bin/optchat-chief`), the iPhone host (`bin/cmux-mobile-host`) and the Screen Sharing helper. A stable cmux-next built today has no Chief. | Port nightly.yml's chief-build.sh, app-build-mobile-host.sh, app-bundle-chief-and-mobile-host.sh and the Screen Sharing helper steps into release.yml, and its architecture check. |
+| B0b | Closed (Apple silicon only) | Only main and rc/** pushes build cmux-tui for Intel (cmux-next is arm64 only since 2026-11-12, and tree manifests are immutable), so a feat-cmux-next tag has no Intel `bin/cmux`. | Decision: cmux-next stable goes to Apple silicon only. release.yml now bundles the arm64 CLI for tags too and marks the appcast item `<sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>` (`scripts/cmux-next/appcast-require-arm64.py`, test `tests/test_appcast_require_arm64.py`, run in the step). Sparkle 2.9+ (classic ships 2.9.5) skips that item on Intel, so Intel classic stays on classic 0.65.2.2. Risk: a classic build with Sparkle older than 2.9 ignores the element. To offer Intel later: build Intel cmux-tui on feat-cmux-next and Intel CEF (B6b), then drop the marker. |
+| B0c | Closed | `release.yml` did not build or bundle the OptChat Chief (`bin/optchat-chief`), the iPhone host (`bin/cmux-mobile-host`) and the Screen Sharing helper, and the app started a bundled Chief only on DEV and NIGHTLY. | release.yml runs nightly's chief-build.sh, app-build-mobile-host.sh and app-bundle-chief-and-mobile-host.sh and checks all three are universal; `HomeBrainHost.bundledChiefAllowed` now also allows stable and RC (red/green suite `ChiefStableChannelTests`). Developer tools stay DEV and NIGHTLY only. This reverses c8ca87c2 ("Release and RC never bundle or start it"). |
 | B6b | High | Intel CEF is pinned at cmux.48, arm64 at cmux.52. Since 92de5acb the build embeds arm64 CEF only, so an Intel Mac gets cmux-next with no Chromium browser. | Publish a cmux.52 x86_64 CEF before go-live. |
-| B14 | Blocker | After the update (run B and run C, two launches each) the main window's sidebar showed no workspace rows, although `cmux workspace list` returned all 5 workspaces and the group. Only the focused workspace was usable. Not yet reproduced on a nightly-next build, so it may be RC-specific (release.yml build) or a general first-run bug. Screenshot: `b05-second-launch-empty-sidebar.png` on release rc7-b114. | Reproduce with the rc7-b114 DMG; compare with the nightly-next build of the same commit. |
+| B14 | Closed (lab config, not a product bug) | After the update the sidebar showed no workspace rows, although `cmux workspace list` returned all 5 workspaces. Root cause: the lab Mac's `~/.config/cmux/cmux-next.json` (written on 2026-11-16 by earlier nightly-next dogfood, before the runs) has `"sidebar": {"showProjects": false, "minimal": true}`, which hides the workspace list. No classic setting maps to it, and a fresh user gets `showProjects: true`. | Rerun with `showProjects: true` (see the RC 8 results). Possible polish: the import toast could say when Projects is hidden. |
 | B15 | Medium | On cmux-next's first launch macOS 27 showed "Data Access Blocked: “cmux” tried to access your data from other apps". | Find the path (likely a classic-era container or another app's data during import) and avoid it or ask first. |
-| B1 | Blocker | feat-cmux-next `CURRENT_PROJECT_VERSION` is 108, classic stable is 113: classic would never take the update, and the tag push's monotonic guard (`enforce`) fails. | Bump ≥ 115 with a pbxproj freeze slot (step 1). |
+| B1 | Blocker | feat-cmux-next `CURRENT_PROJECT_VERSION` is 108, classic stable is 113: classic would never take the update, and the tag push's monotonic guard (`enforce`) fails. | Both `CURRENT_PROJECT_VERSION = 108;` lines to `116` in a Chief-granted pbxproj slot (Go live step 1 has the exact change and the slot rule). Not done here: the freeze holds. |
 | B2 | Fixed | Socket access got looser: classic's Settings choice (UserDefaults `socketControlMode`) was ignored and next defaulted to `automation`. | Fixed in this change: `ControlService.classicStoredMode` falls back to classic's stored mode when `cmux-next.json` names none; `password` still fails closed to `off`. Suite `ControlServiceAccessModeTests` 3/3 on aws-m4pro-6. |
 | B3 | High | Classic's packet-tunnel system extension (`com.cmuxterm.app.tunnel`) and its "cmux Cloud" VPN configuration are orphaned; cmux-next has no NetworkExtension code to remove them. | Ship a one-time cleanup in cmux-next, or a last classic build that deactivates it first. |
 | B4 | High | Settings-window preferences are lost: only 4 link-routing keys and shortcuts import; theme, fonts, sidebar tint and about 170 other `@AppStorage` keys do not. No notice tells the user. | Import list or a toast naming what did not carry over. |
