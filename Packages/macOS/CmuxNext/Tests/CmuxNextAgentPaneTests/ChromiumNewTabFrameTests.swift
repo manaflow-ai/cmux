@@ -71,5 +71,27 @@ struct ChromiumNewTabFrameTests {
         await withCheckedContinuation { done in view.redraw.rememberFrame(of: view, appearance: .darkAqua) { done.resume() } }
         #expect(page.calls.filter { $0.method == "Page.captureScreenshot" }.count == 1, "a frame already held is not pictured again")
     }
+
+    @Test func aChromiumNewTabPageThatHasNotPaintedLiesOutsideTheWindowUntilItPaints() async throws {
+        let (view, _) = try await chromiumNewTabPage()
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSView(frame: NSRect(origin: .zero, size: Self.size))
+        window.contentView = host
+        host.addSubview(view)
+        view.frame = host.bounds
+        view.layoutSubtreeIfNeeded()
+        let place = view.pageContent.frame
+        #expect(!view.model.hasPainted)
+        view.holdChromiumPageUntilPainted()
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.pageContent.frame.intersects(view.bounds), "the page lies outside the pane until it paints: \(view.pageContent.frame)")
+        #expect(!view.debugPageOnScreen)
+        view.model.markPainted()
+        view.layoutSubtreeIfNeeded()
+        #expect(view.pageContent.frame == place, "the page is back in place in the turn it painted")
+        #expect(!view.holdsPageAway)
+    }
 }
 #endif
