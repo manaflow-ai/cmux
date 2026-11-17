@@ -998,6 +998,10 @@ fn projected_message(d: &Delivery) -> Option<&Value> {
 }
 
 #[cfg(test)]
+#[path = "outbox_model_tests.rs"]
+mod model_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
