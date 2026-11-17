@@ -643,7 +643,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         // A GitHub repository with no folder (`github:owner/name`): only a Cloud start clones one (``AgentPaneCloudStart/repository``).
         case .useFolder(let cwd, _) where AgentPaneGitHubFolder.isGitHub(cwd):
-            return AgentPaneReply.failure(code: "github.cloud_only", message: Self.gitHubFolderCloudOnlyMessage)
+            return AgentPaneReply.failure(code: AgentPaneGitHubFolder.cloudOnlyReason, message: Self.gitHubFolderCloudOnlyMessage)
         case .useFolder(let cwd, let confirm) where remoteChat:
             // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).

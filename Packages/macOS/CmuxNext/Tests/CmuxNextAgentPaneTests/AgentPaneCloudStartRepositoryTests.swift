@@ -50,6 +50,20 @@ struct AgentPaneCloudStartRepositoryTests {
         #expect((error?["userMessage"] as? String)?.isEmpty == false)
     }
 
+    /// The page's local start (`chat.new`) of a chat in a repository sends `session/new {cwd: "github:..."}`:
+    /// refused before any folder fill, with the reason the host words (``AgentPaneGitHubFolder/cloudOnlyReason``).
+    @Test func aNewChatHereInARepositoryIsRefusedWithItsReason() throws {
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": 3, "method": "session/new", "params": ["cwd": "github:acme/api", "mcpServers": []]]
+        let text = String(decoding: try JSONSerialization.data(withJSONObject: frame), as: UTF8.self)
+        guard case .failure(let refusal) = AcpmuxPathPolicy.checkNow(text, scope: AcpmuxPathPolicy.Scope(roots: ["/tmp"])) else {
+            Issue.record("a github: folder started a chat here")
+            return
+        }
+        #expect(refusal.error == .pathInvalid)
+        #expect(refusal.reason == "github.cloud_only")
+        #expect(refusal.method == "session/new")
+    }
+
     @Test func noAccessIsConnectGitHubThenRetryOnTheSameMachine() {
         let needs = AgentPaneCloudRepositoryRefusal.needsGitHub("acme/api").reply
         let error = needs["error"] as? [String: Any]
