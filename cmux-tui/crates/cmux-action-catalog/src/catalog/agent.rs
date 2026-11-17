@@ -314,7 +314,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "palette.addHarness",
         group: GROUP,
-        title: t("ActionCatalog", "action.palette.addHarness", "Add Agent…"),
+        title: t("ActionCatalog", "action.palette.addHarness", "Integrate a Harness with an Agent…"),
         keywords: &["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
         category: "agents",
         symbol: "puzzlepiece.extension",

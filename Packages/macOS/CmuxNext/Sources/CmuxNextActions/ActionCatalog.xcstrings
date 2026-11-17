@@ -88395,127 +88395,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إضافة وكيل…"
+            "value": "دمج أداة تشغيل بمساعدة وكيل…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj agenta…"
+            "value": "Integriraj harness uz pomoć agenta…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilføj agent…"
+            "value": "Integrer en harness med en agent…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agent hinzufügen…"
+            "value": "Harness mit einem Agenten integrieren…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Agent…"
+            "value": "Integrate a Harness with an Agent…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Añadir agente…"
+            "value": "Integrar un harness con un agente…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajouter un agent…"
+            "value": "Intégrer un harness avec un agent…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiungi agente…"
+            "value": "Integra un harness con un agente…"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "エージェントを追加…"
+            "state": "translated",
+            "value": "エージェントでハーネスを統合…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែមភ្នាក់ងារ…"
+            "value": "រួមបញ្ចូល harness ជាមួយភ្នាក់ងារ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 추가…"
+            "value": "에이전트로 하네스 통합…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legg til agent…"
+            "value": "Integrer en harness med en agent…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj agenta…"
+            "value": "Zintegruj harness z pomocą agenta…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adicionar agente…"
+            "value": "Integrar um harness com um agente…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Добавить агента…"
+            "value": "Подключить оболочку с помощью агента…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่มเอเจนต์…"
+            "value": "ผสานรวม harness ด้วยเอเจนต์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan Ekle…"
+            "value": "Bir Aracıyla Harness Entegre Et…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Додати агента…"
+            "value": "Інтегрувати оболонку за допомогою агента…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm tác nhân…"
+            "value": "Tích hợp harness bằng tác tử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "添加智能体…"
+            "value": "借助智能体集成 harness…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增代理程式…"
+            "value": "借助代理整合 harness…"
           }
         }
       }
@@ -95348,7 +95348,7 @@
     "action.agentChat.copyHarnessSessionID": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Agent Session ID"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Harness Session ID"}},
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -95978,7 +95978,7 @@
     "action.agentChat.copyHarnessConfigFile": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Agent Config File"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Harness Config File"}},
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -96104,7 +96104,7 @@
     "action.agentChat.copyHarnessSettingsFile": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Agent Settings File"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Harness Settings File"}},
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -109651,127 +109651,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent"
+            "value": "Harness"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent"
+            "state": "translated",
+            "value": "Agentenlaufzeit"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent"
+            "state": "translated",
+            "value": "Moteur d’agent"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "الوكيل"
+            "state": "translated",
+            "value": "مشغّل الوكيل"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agente"
+            "state": "translated",
+            "value": "Motor del agente"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "代理程式"
+            "state": "translated",
+            "value": "代理程式執行環境"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "智能体"
+            "state": "translated",
+            "value": "智能体运行环境"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트"
+            "state": "translated",
+            "value": "에이전트 실행 환경"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "エージェント"
+            "state": "translated",
+            "value": "エージェント実行環境"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent"
+            "state": "translated",
+            "value": "Izvršno okruženje agenta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent"
+            "state": "translated",
+            "value": "Agentmiljø"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agente"
+            "state": "translated",
+            "value": "Ambiente dell’agente"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្នាក់ងារ"
+            "state": "translated",
+            "value": "បរិស្ថានដំណើរការភ្នាក់ងារ"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent"
+            "state": "translated",
+            "value": "Agentmiljø"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent"
+            "state": "translated",
+            "value": "Środowisko agenta"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agente"
+            "state": "translated",
+            "value": "Ambiente do agente"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент"
+            "state": "translated",
+            "value": "Среда агента"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เอเจนต์"
+            "state": "translated",
+            "value": "สภาพแวดล้อมเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan"
+            "state": "translated",
+            "value": "Aracı çalışma ortamı"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент"
+            "state": "translated",
+            "value": "Середовище агента"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tác nhân"
+            "state": "translated",
+            "value": "Môi trường tác nhân"
           }
         }
       }

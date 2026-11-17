@@ -6401,19 +6401,19 @@
         },
         {
           "id": "agentChat.copyHarnessConfigFile",
-          "title": "Copy Agent Config File",
+          "title": "Copy Harness Config File",
           "shortcut": null,
           "command": null
         },
         {
           "id": "agentChat.copyHarnessSessionID",
-          "title": "Copy Agent Session ID",
+          "title": "Copy Harness Session ID",
           "shortcut": null,
           "command": null
         },
         {
           "id": "agentChat.copyHarnessSettingsFile",
-          "title": "Copy Agent Settings File",
+          "title": "Copy Harness Settings File",
           "shortcut": null,
           "command": null
         },
@@ -6569,7 +6569,7 @@
         },
         {
           "id": "palette.addHarness",
-          "title": "Add Agent…",
+          "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
           "command": null
         },

@@ -69148,7 +69148,7 @@
       "targets" : [
 
       ],
-      "title" : "Add Agent…",
+      "title" : "Integrate a Harness with an Agent…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -75723,7 +75723,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy Agent Session ID",
+      "title" : "Copy Harness Session ID",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -76225,7 +76225,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy Agent Config File",
+      "title" : "Copy Harness Config File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -76296,7 +76296,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy Agent Settings File",
+      "title" : "Copy Harness Settings File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
