@@ -7,7 +7,13 @@ import Testing
 /// The proofs that the phone's lean decoder draws agent CLI screens right (Leo, 2026-11-16:
 /// "prove it correct" / "i think we prob need more ways to prove things correct in ios").
 /// Each prints one `HYBRID_PROOF` line of JSON with what it ran.
-@MainActor @Suite struct AgentCLIHybridProofTests {
+///
+/// Not `@MainActor`: the parity replay and the fuzz are tens of seconds of CPU in a debug build,
+/// and they run on a thread of their own (`onProofThread`). Held on the main actor they stalled
+/// every main-actor test of the package for 43 to 54 s in CI, and every test with a real-time
+/// deadline then passed or failed by wake order. Only the attach tests, which drive a
+/// `DaemonTerminalSession`, are `@MainActor`.
+@Suite struct AgentCLIHybridProofTests {
     // MARK: 1. Parity with the reference terminal
 
     /// Every frame of four recorded sessions (Claude Code 2.1.310, Codex 0.164.0, opencode 1.19.5
@@ -18,8 +24,28 @@ import Testing
     /// colors, attributes) with the cursor, and the bytes are the ones cmux-tui draws into a second
     /// ghostty-vt for the same check.
     @Test(arguments: HybridParityFixture.names)
-    func everyFrameDrawsTheReferenceScreen(name: String) throws {
-        let fixture = try #require(HybridParityFixture.load(name), "\(name): no fixture at \(HybridParityFixture.url(name).path)")
+    func everyFrameDrawsTheReferenceScreen(name: String) async {
+        let report = await onProofThread { Self.parity(name) }
+        #expect(report.problems.isEmpty, "\(name): \(report.problems.count) problems: \(report.problems.prefix(5))")
+        if let line = report.line { print(line) }
+    }
+
+    struct ParityReport: Sendable {
+        var problems: [String] = []
+        var line: String?
+    }
+
+    /// The replay behind `everyFrameDrawsTheReferenceScreen`, off the test's executor: every
+    /// check it fails is a problem, and one that the rest of the replay cannot go past ends it.
+    static func parity(_ name: String) -> ParityReport {
+        var report = ParityReport()
+        guard let fixture = HybridParityFixture.load(name) else {
+            report.problems.append("\(name): no fixture at \(HybridParityFixture.url(name).path)")
+            return report
+        }
+        func expect(_ condition: Bool, _ message: @autoclosure () -> String) {
+            if !condition { report.problems.append(message()) }
+        }
         var parser = DaemonTerminalEventParser(surface: 1)
         var decoder = AgentCLIHybridLeanDecoder()
         var connection = 0
@@ -38,44 +64,49 @@ import Testing
             }
             let events = parser.parse(HybridWire.leanLine(step.lean))
             let label = "\(name) frame \(step.frame) (connection \(step.connection))"
-            #expect(!events.contains { if case .hybridFallback = $0 { true } else { false } }, "\(label): \(events)")
+            expect(!events.contains { if case .hybridFallback = $0 { true } else { false } }, "\(label): \(events)")
             let outputs = events.compactMap { event -> Data? in
                 if case .output(let bytes) = event { return bytes }
                 return nil
             }
-            let bytes = try #require(outputs.count == 1 ? outputs.first : nil, "\(label): \(events)")
+            guard outputs.count == 1, let bytes = outputs.first else {
+                report.problems.append("\(label): \(events)")
+                return report
+            }
             // cmux-tui's `vt::frame_bytes` wraps each frame in a synchronized update (DEC 2026);
             // the phone writes the same bytes without it (`AgentCLIHybridFrame.terminalBytes`).
             let syncBegin = Data("\u{1b}[?2026h".utf8), syncEnd = Data("\u{1b}[?2026l".utf8)
-            #expect(step.terminalBytes.starts(with: syncBegin) && step.terminalBytes.suffix(syncEnd.count) == syncEnd,
-                    "\(label): cmux-tui's bytes are no longer one synchronized update")
+            expect(step.terminalBytes.starts(with: syncBegin) && step.terminalBytes.suffix(syncEnd.count) == syncEnd,
+                   "\(label): cmux-tui's bytes are no longer one synchronized update")
             let reference = Data(step.terminalBytes.dropFirst(syncBegin.count).dropLast(syncEnd.count))
-            #expect(bytes == reference, "\(label): not the bytes cmux-tui checked against ghostty-vt")
-            #expect(events.last == .hybridFrame(stream: fixture.stream, frame: step.frame,
-                                                resumed: firstOfConnection && step.base != nil), "\(label)")
-            let decodedFrame = decoder.decode(step.lean)
-            let decoded = try #require(decodedFrame, "\(label)")
-            let v1 = try #require(AgentCLIHybridFrame.Delta(step.delta), "\(label)")
-            #expect(decoded.delta?.shift == v1.shift && decoded.delta?.spans == v1.spans, "\(label): lean and v1 differ")
-            #expect(decoded.base == step.base && decoded.columns == step.columns && decoded.rows == step.rows, "\(label)")
+            expect(bytes == reference, "\(label): not the bytes cmux-tui checked against ghostty-vt")
+            expect(events.last == .hybridFrame(stream: fixture.stream, frame: step.frame,
+                                               resumed: firstOfConnection && step.base != nil), "\(label)")
+            guard let decoded = decoder.decode(step.lean), let v1 = AgentCLIHybridFrame.Delta(step.delta) else {
+                report.problems.append("\(label): the lean or v1 frame does not decode")
+                return report
+            }
+            expect(decoded.delta?.shift == v1.shift && decoded.delta?.spans == v1.spans, "\(label): lean and v1 differ")
+            expect(decoded.base == step.base && decoded.columns == step.columns && decoded.rows == step.rows, "\(label)")
             if step.base == nil || model == nil {
                 model = HybridScreenModel(columns: step.columns, rows: step.rows, widths: fixture.widths)
             }
             model?.write(bytes)
-            let screen = try #require(model)
+            guard let screen = model else { return report }
             let differences = screen.differences(from: step.screen)
             if !differences.isEmpty { mismatched += 1 }
-            #expect(differences.isEmpty, "\(label): \(differences)")
-            #expect(HybridParityFixture.Cursor(x: screen.x, y: screen.y, visible: screen.cursorVisible) == step.cursor, "\(label)")
+            expect(differences.isEmpty, "\(label): \(differences)")
+            expect(HybridParityFixture.Cursor(x: screen.x, y: screen.y, visible: screen.cursorVisible) == step.cursor, "\(label)")
             cells += step.columns * step.rows
             shown = (fixture.stream, step.frame)
             firstOfConnection = false
         }
         let resumed = fixture.steps.filter { $0.connection > 0 }.count
         let sizes = Set(fixture.steps.map { "\($0.columns)x\($0.rows)" }).sorted()
-        #expect(resumed > 0, "\(name): a resume after the drop")
-        print("HYBRID_PROOF parity {\"session\":\"\(name)\",\"frames\":\(fixture.steps.count),\"cells\":\(cells),"
+        expect(resumed > 0, "\(name): a resume after the drop")
+        report.line = ("HYBRID_PROOF parity {\"session\":\"\(name)\",\"frames\":\(fixture.steps.count),\"cells\":\(cells),"
             + "\"framesAfterResume\":\(resumed),\"grids\":\"\(sizes.joined(separator: " "))\",\"mismatchedFrames\":\(mismatched)}")
+        return report
     }
 
     // MARK: 2. Random frame streams
@@ -102,8 +133,8 @@ import Testing
 
     /// Feeds `lines` to a fresh parser of the attach `connection` and checks every frame it draws
     /// against the reference screen of the frame it says it is.
-    private func run(_ lines: [Data], fixture: HybridParityFixture, connection: Int,
-                     resume: (stream: String, frame: Int)?) -> Outcome {
+    private static func run(_ lines: [Data], fixture: HybridParityFixture, connection: Int,
+                            resume: (stream: String, frame: Int)?) -> Outcome {
         var parser = DaemonTerminalEventParser(surface: 1, hybridResume: resume)
         var model: HybridScreenModel
         if let resume, let base = fixture.screen(frame: resume.frame) {
@@ -153,7 +184,7 @@ import Testing
         return outcome
     }
 
-    private func randomBytes(_ count: Int, _ rng: inout SeededGenerator) -> Data {
+    private static func randomBytes(_ count: Int, _ rng: inout SeededGenerator) -> Data {
         Data((0..<count).map { _ in UInt8.random(in: 0...255, using: &rng) })
     }
 
@@ -162,9 +193,26 @@ import Testing
     /// with only mutations the wire can tell either draws exactly the reference at every frame or
     /// falls back (a full resync, then bytes mode) before it draws a wrong one. Seeded:
     /// the same 6,000 cases on every run.
-    @Test func randomFrameStreamsNeverDrawAWrongScreenSilently() throws {
+    @Test func randomFrameStreamsNeverDrawAWrongScreenSilently() async {
+        let report = await onProofThread { Self.fuzz() }
+        #expect(report.fixtures == HybridParityFixture.names.count, "the parity fixtures")
+        #expect(report.failures.isEmpty, "\(report.failures.count) cases: \(report.failures.prefix(5))")
+        print(report.line)
+    }
+
+    struct FuzzReport: Sendable {
+        var fixtures: Int
+        var failures: [String]
+        var line: String
+    }
+
+    /// The 6,000 cases behind `randomFrameStreamsNeverDrawAWrongScreenSilently`, off the
+    /// test's executor.
+    static func fuzz() -> FuzzReport {
         let fixtures = HybridParityFixture.all
-        try #require(fixtures.count == HybridParityFixture.names.count, "the parity fixtures")
+        guard fixtures.count == HybridParityFixture.names.count else {
+            return FuzzReport(fixtures: fixtures.count, failures: [], line: "HYBRID_PROOF fuzz {\"fixtures\":\(fixtures.count)}")
+        }
         var rng = SeededGenerator(seed: 0x4405_2C0F_FEE0_7CEE)
         var tally: [String: [String: Int]] = [:]
         var failures: [String] = []
@@ -326,9 +374,9 @@ import Testing
             if tellable, let wrong = outcome.wrong { failures.append("\(caseName): \(wrong)") }
             if tellable, bad.contains(true), !outcome.fellBack { failures.append("\(caseName): no fallback") }
         }
-        #expect(failures.isEmpty, "\(failures.count) cases: \(failures.prefix(5))")
         let summary = (try? JSONSerialization.data(withJSONObject: tally, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        print("HYBRID_PROOF fuzz {\"cases\":\(cases),\"seed\":\"0x44052C0FFEE07CEE\",\"failures\":\(failures.count),\"tally\":\(summary)}")
+        return FuzzReport(fixtures: fixtures.count, failures: failures,
+                          line: "HYBRID_PROOF fuzz {\"cases\":\(cases),\"seed\":\"0x44052C0FFEE07CEE\",\"failures\":\(failures.count),\"tally\":\(summary)}")
     }
 
     // MARK: The fallback signal
@@ -409,6 +457,7 @@ import Testing
         #expect(frame([.set(row: 0, column: 0, cells: [.init(text: "界", style: plain), .init(text: "", style: plain)])]).invalidReason == nil)
     }
 
+    @MainActor
     private func waitUntil(attempts: Int = 500, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))
@@ -433,6 +482,7 @@ import Testing
     /// A frame the phone cannot draw makes the session attach again at once for a full resync
     /// (no resume: the Mac sends a keyframe); a second one, in bytes mode (no hybrid
     /// capability declared: the PTY's bytes, as before the hybrid stream).
+    @MainActor
     @Test func aFrameThatCannotBeDrawnResyncsThenFallsBackToBytes() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.hybridEvents = [v1Event(frame: 1, base: nil), v1Event(frame: 2, base: 9, data: Data([0, 0, 0, 0]))]
@@ -459,6 +509,7 @@ import Testing
     /// daemon's `identify` did not list `agent-cli-hybrid-v1`, and such a daemon refuses those
     /// fields. The phone resumes only on a daemon that lists the capability, otherwise it
     /// attaches for bytes as before.
+    @MainActor
     @Test func aResumeGoesOnlyToADaemonThatListsTheHybridStream() async throws {
         for daemonStillLists in [true, false] {
             let daemon = FakeTerminalDaemon()
@@ -503,6 +554,7 @@ import Testing
     }
 
     /// The screen's output and the commands of one attach, a link drop and a reattach.
+    @MainActor
     private func attachTwice(hybridSetting: Bool, daemonKnowsHybrid: Bool) async throws -> (output: String, daemon: FakeTerminalDaemon) {
         let daemon = FakeTerminalDaemon()
         if daemonKnowsHybrid {
@@ -540,6 +592,7 @@ import Testing
     /// phone (the setting on) on an old daemon (it never sends a frame) gets the same bytes and
     /// never asks to resume a stream. The daemon's side of both is cmux-tui's
     /// `old_viewers_get_what_they_got_before` and the SDK's `a_new_viewer_on_an_old_daemon_falls_back_to_bytes`.
+    @MainActor
     @Test func oldPhonesAndOldDaemonsKeepTheByteStream() async throws {
         let oldPhone = try await attachTwice(hybridSetting: false, daemonKnowsHybrid: true)
         let newPhone = try await attachTwice(hybridSetting: true, daemonKnowsHybrid: false)
