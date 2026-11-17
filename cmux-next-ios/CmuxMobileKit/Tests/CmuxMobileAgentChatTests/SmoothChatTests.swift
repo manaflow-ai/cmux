@@ -199,7 +199,7 @@ import Testing
             _ = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false)
         }
         #expect(cache.computations == 2)
-        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows ?? []
+        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows.unfolded ?? []
         let card = rows.first { $0.id == "f-t2" }
         let snippet = rows.first { $0.id == "e-c2" }
         guard case .editedFiles(let changes)? = card?.kind, case .edit(_, let files)? = snippet?.kind else {

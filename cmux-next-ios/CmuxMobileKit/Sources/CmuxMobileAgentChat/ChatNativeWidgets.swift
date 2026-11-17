@@ -38,6 +38,8 @@ struct ChatNativeWidgets {
             return snippet(call, files: files, expanded: expanded)
         case .editedFiles(let changes):
             return editedFiles(changes)
+        case .worked(let fold):
+            return worked(fold.label, key: fold.key)
         case .actions(let turn, let isLast):
             return actions(turn, isLast: isLast)
         default:
@@ -125,6 +127,22 @@ struct ChatNativeWidgets {
             drawn.hits.append(.init(frame: CGRect(x: 0, y: -6, width: width, height: height + 12), hit: .toggle(key), label: title, isDisclosure: true))
         }
         drawn.accessibilityLabel = title
+        return Layout(content: .drawn(drawn), height: height)
+    }
+
+    /// `WorkedForRow` closed: "Worked for 1m 9s" and its chevron after the words, as the Mac draws it.
+    private func worked(_ label: String, key: String) -> Layout {
+        var drawn = Drawn()
+        let titleText = text(label, styles.font(.subheadline), .secondaryLabel, lineBreak: .byWordWrapping)
+        let chevron = chevronSymbol()
+        let titleSize = size(titleText, width: width - 6 - chevron.frame.width)
+        let height = max(44, titleSize.height) - 12
+        drawn.texts.append(.init(text: titleText, frame: CGRect(x: 0, y: (height - titleSize.height) / 2, width: titleSize.width, height: titleSize.height)))
+        var mark = chevron
+        mark.frame.origin = CGPoint(x: titleSize.width + 6, y: (height - mark.frame.height) / 2)
+        drawn.symbols.append(mark)
+        drawn.hits.append(.init(frame: CGRect(x: 0, y: -6, width: width, height: height + 12), hit: .toggle(key), label: label, isDisclosure: true))
+        drawn.accessibilityLabel = label
         return Layout(content: .drawn(drawn), height: height)
     }
 
