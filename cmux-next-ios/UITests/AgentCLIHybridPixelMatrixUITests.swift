@@ -32,11 +32,6 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        XCUIDevice.shared.orientation = .portrait
-    }
-
-    override func tearDown() {
-        XCUIDevice.shared.orientation = .portrait
     }
 
     // MARK: Rows
@@ -116,7 +111,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
     func testRow8ResizeAndRotate() throws {
         compare(row: 8, "shell-bash-5.2", atMs: try still("shell-bash-5.2", moment: "small"), label: "80x24")
         compare(row: 8, "shell-bash-5.2", atMs: try still("shell-bash-5.2", moment: "done"), label: "100x32-again")
-        let rotate: (XCUIApplication) -> Void = { _ in XCUIDevice.shared.orientation = .landscapeLeft }
+        let rotate: @MainActor (XCUIApplication) -> Void = { _ in XCUIDevice.shared.orientation = .landscapeLeft }
         compare(row: 8, "pixel-matrix", atMs: try still("pixel-matrix", moment: "edges"), label: "landscape", between: rotate)
         compare(row: 8, "opencode-1.19.5", atMs: try stills("opencode-1.19.5").last!, label: "landscape", between: rotate)
     }
@@ -124,7 +119,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
     /// Row 9: the app sent to the background and brought back with a still on screen.
     @MainActor
     func testRow9ResumeAfterBackground() throws {
-        let background: (XCUIApplication) -> Void = { app in
+        let background: @MainActor (XCUIApplication) -> Void = { app in
             XCUIDevice.shared.press(.home)
             Self.pause(2)
             app.activate()
@@ -193,7 +188,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
 
     @MainActor
     private func shot(_ name: String, _ mode: String, _ atMs: Int, panEnd: Bool,
-                      between: ((XCUIApplication) -> Void)?) -> Still? {
+                      between: (@MainActor (XCUIApplication) -> Void)?) -> Still? {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         guard let packed = try? packedFixture(name) else {
@@ -249,7 +244,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
     /// One case: the PTY's and the lean frames' stills of `name` at `atMs`, compared.
     @MainActor
     private func compare(row: Int, _ name: String, atMs: Int, label: String = "", panEnd: Bool = false,
-                         sameLayout: Bool = false, between: ((XCUIApplication) -> Void)? = nil) {
+                         sameLayout: Bool = false, between: (@MainActor (XCUIApplication) -> Void)? = nil) {
         if !Self.warmedUp {
             // The first launch on a fresh simulator draws nothing for its first seconds.
             Self.warmedUp = true
@@ -293,7 +288,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
     // MARK: Pixels
 
     /// RGBA pixels of `image`, drawn upright.
-    static func pixels(_ image: UIImage) -> (bytes: [UInt8], width: Int, height: Int)? {
+    @MainActor static func pixels(_ image: UIImage) -> (bytes: [UInt8], width: Int, height: Int)? {
         let width = Int((image.size.width * image.scale).rounded())
         let height = Int((image.size.height * image.scale).rounded())
         guard width > 0, height > 0 else { return nil }
@@ -322,7 +317,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
     /// The grid's pixels of `a` and `b` that differ (the cursor cells left out), overall and per
     /// band, and an image of them: red where they differ, `b` dimmed elsewhere, the grid's
     /// outline yellow.
-    static func diff(_ a: Still, _ b: Still) -> (differing: Int, compared: Int, bands: [Band], image: UIImage)? {
+    @MainActor static func diff(_ a: Still, _ b: Still) -> (differing: Int, compared: Int, bands: [Band], image: UIImage)? {
         guard let first = pixels(a.image), let second = pixels(b.image), first.width == second.width,
               first.height == second.height else { return nil }
         let (width, height) = (first.width, first.height)
