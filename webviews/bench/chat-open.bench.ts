@@ -23,7 +23,10 @@
 // pairs with its ordinary twin by dropping `.god` (chat_open.god.compact.latest, chat_open.compact.latest).
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
-// names) and every timed round runs on it, so the stage times are not the production build's.
+// names) and every timed round runs on it, so the stage times are not the production build's. It also prints
+// the stretch from the attach's answer to the newest message: busy and idle ms, the idle stretches, and the
+// functions by self and total time.
+// PANE_OUT=dir builds the pane into dir once and reuses it on later runs (bench/chat-open-ab.sh).
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -188,18 +191,22 @@ try {
     },
   ]);
 
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
-  releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+  // PANE_OUT=dir keeps the pane's build there and takes one already in it, so a harness that runs the
+  // bench many times on one checkout (bench/chat-open-ab.sh) builds each side once.
+  const keptOut = process.env.PANE_OUT ? path.resolve(process.env.PANE_OUT) : undefined;
+  const out = keptOut ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
+  if (!keptOut) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
-  await build({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: {
-      outDir: out,
-      emptyOutDir: true,
-      ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
-    },
-    logLevel: "error",
-  });
+  if (!keptOut || !fs.existsSync(path.join(out, "index.html")))
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: {
+        outDir: out,
+        emptyOutDir: true,
+        ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
+      },
+      logLevel: "error",
+    });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -638,10 +645,24 @@ try {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Profiler.enable");
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+    // When the newest message was first in the page (epoch ms), so the profile can be cut to the stretch
+    // between the attach's answer and it: the page's own parse, replay and first render.
+    await page.addInitScript((latestText) => {
+      const tick = () => {
+        if (document.body?.textContent?.includes(latestText))
+          (window as unknown as { __latestAt: number }).__latestAt = performance.timeOrigin + performance.now();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, LATEST);
+    attachedAt = 0;
     await cdp.send("Profiler.start");
+    const profileStart = Date.now();
     await page.goto(url);
     await page.getByText(LATEST, { exact: false }).first().waitFor({ timeout: 120_000 });
     await page.waitForTimeout(500);
+    const latestAt = await page.evaluate(() => (window as unknown as { __latestAt?: number }).__latestAt ?? 0);
+    const profileAttach = attachedAt;
     const { profile } = (await cdp.send("Profiler.stop")) as {
       profile: {
         nodes: {
@@ -714,6 +735,58 @@ try {
       console.log(`${ms.toFixed(1)}\t${key}`);
     console.log("busy per 25 ms window from profile start (ms):");
     console.log([...byWindow].map(([key, ms]) => `${key}: ${ms.toFixed(0)}`).join(", "));
+    // From the attach's answer to the newest message in the page: what the page spent, by function (self
+    // and with its callees), and how long it sat idle (a timer, a frame or an await between the two).
+    if (profileAttach && latestAt) {
+      const from = profileAttach - profileStart;
+      const to = latestAt - profileStart;
+      const windowSelf = new Map<string, number>();
+      const windowTotal = new Map<string, number>();
+      let idle = 0;
+      let busy = 0;
+      let clockAt = 0;
+      // Each idle stretch of 2 ms or more, as start+length from the attach: where the page waited.
+      const gaps: string[] = [];
+      let gapFrom = -1;
+      profile.samples.forEach((id, index) => {
+        const delta = (profile.timeDeltas[index] ?? 0) / 1000;
+        clockAt += delta;
+        if (clockAt < from || clockAt > to) return;
+        const node = byId.get(id)!;
+        const name = (frame: (typeof node)["callFrame"]) =>
+          `${frame.functionName || "(anon)"} ${frame.url ? mapper(frame.url.split("/").pop() ?? "", frame.lineNumber, frame.columnNumber) : "(native)"}`.replace(
+            /home\/runner\/_work\/cmux\/cmux\/.fast-checks-checkout\/webviews\//g,
+            "",
+          );
+        if (node.callFrame.functionName === "(idle)") {
+          idle += delta;
+          if (gapFrom < 0) gapFrom = clockAt - delta;
+          return;
+        }
+        if (gapFrom >= 0 && clockAt - delta - gapFrom >= 2)
+          gaps.push(`${(gapFrom - from).toFixed(0)}+${(clockAt - delta - gapFrom).toFixed(0)}`);
+        gapFrom = -1;
+        busy += delta;
+        windowSelf.set(name(node.callFrame), (windowSelf.get(name(node.callFrame)) ?? 0) + delta);
+        const seen = new Set<string>();
+        for (let up: typeof node | undefined = node; up; up = parents.get(up.id)) {
+          const key = name(up.callFrame);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          windowTotal.set(key, (windowTotal.get(key) ?? 0) + delta);
+        }
+      });
+      console.log(
+        `attach to latest in the profiled load: attach answered at ${from.toFixed(0)} ms, latest in the page at ${to.toFixed(0)} ms (${(to - from).toFixed(0)} ms): busy ${busy.toFixed(0)} ms, idle ${idle.toFixed(0)} ms`,
+      );
+      console.log(`  idle stretches (ms after the attach + ms): ${gaps.join(", ")}`);
+      console.log("  top self time (ms):");
+      for (const [key, ms] of [...windowSelf].sort((a, b) => b[1] - a[1]).slice(0, 30))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
+      console.log("  top total time, with callees (ms):");
+      for (const [key, ms] of [...windowTotal].sort((a, b) => b[1] - a[1]).slice(0, 60))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
+    }
     const total = [...self.values()].reduce((a, b) => a + b, 0);
     console.log(`profile: ${total.toFixed(0)} ms sampled; top self time (ms)`);
     for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 45)) console.log(`${ms.toFixed(1)}\t${key}`);
@@ -767,6 +840,9 @@ try {
         median((r) => r.drift).toFixed(0),
       ].join(" | "),
     );
+    // Every round's value, not only the median, for a harness that pools rounds (bench/chat-open-ab.sh).
+    console.log(`per round attach_to_latest ms: ${rounds.map((r) => (r.latest - r.attach).toFixed(1)).join(" ")}`);
+    console.log(`per round dom_content_loaded ms: ${rounds.map((r) => r.dcl.toFixed(1)).join(" ")}`);
     if (REMOTE_TAIL) {
       console.log(
         `remote tail ${REMOTE_TAIL}: initialize delayed ${PEER_CONNECT_MS} ms; origins are navigation and native tail request, not a native Mac click`,
