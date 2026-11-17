@@ -262,9 +262,11 @@ pub fn settles_caret_after_keys(engine: WebEngine) -> bool {
 /// (it would otherwise accept that correction at the next focus move into
 /// another field, after this call said confirmed).
 pub fn settle_caret_writes(at: (isize, isize), typed: isize) -> Vec<(isize, isize)> {
-    // Stub (red): the caret written back where it is, as before.
-    let _ = typed;
-    vec![at]
+    if typed <= 0 {
+        return Vec::new();
+    }
+    let began = (at.0 - typed).max(0);
+    vec![(began, 0), at]
 }
 
 /// Where a background app's focused element (`AXFocusedUIElement`) is,

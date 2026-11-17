@@ -1966,15 +1966,19 @@ fn web_keys_ready(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<Result<bool, (
     }
 }
 
-/// After keys typed into a WebKit page: the field's caret, read now, is
-/// written back (through the caret gate). WebKit keeps an autocorrection
-/// pending on the last word typed and applies it when a caret write later
-/// lands in another field. Live, Safari on macOS 26.6: "Hello from cmux"
-/// read back exactly, and the next call's caret write into the search box
-/// turned it into "Hello from crux", after this call had said confirmed.
-/// Writing the caret where it is clears the pending correction, so what
-/// the read-back sees is what stays. Nothing is written when the caret
-/// can't be read; the read-back after the settle still decides.
+/// After keys typed into a WebKit page: once the field's value shows the
+/// text, the caret goes to where the typing began and back where it was
+/// ([`roles::settle_caret_writes`]), through the caret gate. WebKit offers an
+/// autocorrection for the last word typed some time after the keys (when its
+/// spell check returns) and accepts it at the next focus move into another
+/// field. Live, Safari on macOS 26.6: "Hello from wierd" read back exactly
+/// and the call said confirmed; the next call's caret write into the search
+/// box turned it into "Hello from weird" (9/10 fresh misspellings). A caret
+/// written back where it was dismissed nothing (it does not move the
+/// selection, and it came before the correction was offered); moving it off
+/// the typed text and back ends the typing context, and no correction is
+/// offered (8/8 kept). Nothing is written when the caret can't be read; the
+/// read-back after the settle still decides.
 fn settle_web_caret(d: &MacDesktop, t: &Target, el: &Ax, typed: &str) -> DResult<()> {
     // Keys posted to a process are handled a moment later: the value must
     // show the typed text, or stop changing over three reads, before the
@@ -1991,7 +1995,13 @@ fn settle_web_caret(d: &MacDesktop, t: &Target, el: &Ax, typed: &str) -> DResult
         steady >= 3
     });
     let Ok(Some(at)) = el.try_selected_range() else { return Ok(()) };
-    let _ = persons_caret_write(d, t, el, true, || el.set_selected_range(at).is_ok())?;
+    let writes =
+        roles::settle_caret_writes((at.location, at.length), typed.encode_utf16().count() as isize);
+    let _ = persons_caret_write(d, t, el, true, || {
+        writes.iter().all(|&(location, length)| {
+            el.set_selected_range(super::sys::CFRange { location, length }).is_ok()
+        })
+    })?;
     Ok(())
 }
 
