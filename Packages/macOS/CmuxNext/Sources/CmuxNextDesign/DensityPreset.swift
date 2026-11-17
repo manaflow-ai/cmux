@@ -66,6 +66,9 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
             // Its URL capitals are a point over Compact's 10 (Lucas 2026-11-17: "for default our font size has to be 1px
             // taller in height"), with the smoothing's 0.31 pt as in the reference below.
             sizes["omnibarFontSize"] = (Self.defaultOmnibarCapHeight - 0.31) / 0.70459
+            // Its search glyph is a point taller than Compact's 12 pt too (Lucas 2026-11-17: "maybe make the search icon
+            // 1px taller too for default"): Compact's box times 13 / 12.
+            if let icon = sizes["omnibarIconSize"] { sizes["omnibarIconSize"] = Double(DensityTokens.half(icon * 13 / 12)) }
         }
         return DensityTokens(id: rawValue, name: name, level: (Self.referenceTokens.level + 3) * t - 3,
                              spacing: Self.referenceTokens.spacing * t,

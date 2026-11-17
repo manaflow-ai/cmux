@@ -105,6 +105,8 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
     tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
     // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).
     tokens.omnibarFontSize = (DEFAULT_OMNIBAR_CAP_HEIGHT - 0.31) / 0.70459;
+    // Its search glyph is a point taller than Compact's 12 pt: Compact's box times 13 / 12.
+    tokens.omnibarIconSize = half((tokens.omnibarIconSize! * 13) / 12);
   }
   return {
     id,
