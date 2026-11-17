@@ -94,11 +94,11 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
     /// then Cr to R, Cb to G, Cr to G and Cb to B (`rv_fragment`'s `k`).
     static func conversion(for buffer: CVPixelBuffer) -> SIMD8<Float> {
         let fullRange = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        let (kr, kb): (Float, Float) = switch attachment(buffer, kCVImageBufferYCbCrMatrixKey) {
-        case kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String: (0.2126, 0.0722)
-        case kCVImageBufferYCbCrMatrix_ITU_R_2020 as String: (0.2627, 0.0593)
-        default: (0.299, 0.114)
-        }
+        let matrix = attachment(buffer, kCVImageBufferYCbCrMatrixKey)
+        let (kr, kb): (Float, Float) =
+            if matrix == kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String { (0.2126, 0.0722) }
+            else if matrix == kCVImageBufferYCbCrMatrix_ITU_R_2020 as String { (0.2627, 0.0593) }
+            else { (0.299, 0.114) }
         let kg = 1 - kr - kb
         return SIMD8(
             fullRange ? 0 : 16 / 255, fullRange ? 1 : 255 / 219, fullRange ? 1 : 255 / 224,
@@ -108,11 +108,9 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
     /// The layer's colour space for a stream's primaries: Display P3 for P3 D65, BT.2020 for
     /// BT.2020, else sRGB (BT.709 primaries, which every untagged host sends).
     static func colorSpaceName(primaries: String) -> CFString {
-        switch primaries {
-        case kCVImageBufferColorPrimaries_P3_D65 as String: CGColorSpace.displayP3
-        case kCVImageBufferColorPrimaries_ITU_R_2020 as String: CGColorSpace.itur_2020_sRGBGamma
-        default: CGColorSpace.sRGB
-        }
+        if primaries == kCVImageBufferColorPrimaries_P3_D65 as String { CGColorSpace.displayP3 }
+        else if primaries == kCVImageBufferColorPrimaries_ITU_R_2020 as String { CGColorSpace.itur_2020_sRGBGamma }
+        else { CGColorSpace.sRGB }
     }
 
     static func attachment(_ buffer: CVPixelBuffer, _ key: CFString) -> String? {
