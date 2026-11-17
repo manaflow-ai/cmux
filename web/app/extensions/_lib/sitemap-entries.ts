@@ -14,10 +14,12 @@ export function extensionSitemapEntries(extensions: readonly Listing[] | null, s
   const listings = [...(extensions ?? []), ...(setups ?? [])];
   const newest = (items: readonly Listing[]) =>
     items.map((listing) => listing.reviewedAt ?? listing.updatedAt).filter((date): date is string => Boolean(date)).sort().at(-1);
-  const entries: Entry[] = [
-    { url: `${SITE}/extensions`, lastModified: newest(extensions ?? []) ?? "2026-11-17", changeFrequency: "daily", priority: 0.8 },
-    { url: `${SITE}/setups`, lastModified: newest(setups ?? []) ?? "2026-11-17", changeFrequency: "daily", priority: 0.7 },
-  ];
+  // With no dated listing an index page carries no lastModified, rather than a date that goes stale.
+  const index = (url: string, items: readonly Listing[], priority: number): Entry => {
+    const date = newest(items);
+    return { url, ...(date ? { lastModified: date } : {}), changeFrequency: "daily", priority };
+  };
+  const entries: Entry[] = [index(`${SITE}/extensions`, extensions ?? [], 0.8), index(`${SITE}/setups`, setups ?? [], 0.7)];
   const authors = new Map<string, Listing[]>();
   for (const listing of listings) {
     const date = listing.reviewedAt ?? listing.updatedAt;
