@@ -22,6 +22,9 @@ enum LinkHandlers {
                 _ = try StashHandlers.show(services, focus: !background)
                 return
             }
+            if let url = URL(string: trimmed), let draft = DeepLink.buildDraft(for: url, linkScheme: services.linkScheme) { // Fork and customize: a new chat, its ask unsent
+                return _ = registry.perform(DeepLink.buildChatAction, invocation: ActionInvocation(arguments: ["draft": .string(draft)], origin: .user))
+            }
             if let url = URL(string: trimmed), let reference = DeepLink.agentReference(url, linkScheme: services.linkScheme) { // a footer's `cmux://agent?id=aid-…`
                 return try DeepLinkNavigator(services: services).openAgentLink(nil, bare: reference, background ? .bringForward : .raise, asking: true)
             }

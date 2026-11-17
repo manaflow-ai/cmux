@@ -4,14 +4,20 @@
 //! noun and `cmux apps ...` keeps working unchanged. `ext new` scaffolds a
 //! folder, `ext dev` loads it into the running cmux and reloads it on every
 //! save (`dev.rs`), `ext shot` shows what it rendered (`shot.rs`), `ext list`
-//! and `ext remove` show and drop the folders `ext dev` loaded.
+//! and `ext remove` show and drop the folders `ext dev` loaded. `ext remix`
+//! copies a published extension into a new folder to change (`remix.rs`), and
+//! `ext share` publishes a folder to a new GitHub repository (`share.rs`).
 
 mod daemon;
 mod dev;
 #[cfg(test)]
 mod kinds_tests;
+mod remix;
+#[cfg(test)]
+mod remix_tests;
 mod scaffold;
 mod scene;
+mod share;
 mod shot;
 #[cfg(test)]
 mod tests;
@@ -46,6 +52,8 @@ pub(super) mod exit {
     pub const BUILD_FAILED: i32 = 5;
     /// `ext shot`: it loaded and rendered, but no picture was taken.
     pub const SHOT_FAILED: i32 = 6;
+    /// `ext share`: GitHub is not connected; the folder is kept.
+    pub const NOT_CONNECTED: i32 = 7;
     pub const INTERRUPTED: i32 = 130;
 }
 
@@ -67,6 +75,14 @@ cmux ext: make a cmux extension and watch it change as you work.
                                last good view stays; exit 1 when one did not load
   cmux reload-config           cmux-next.json, the Ghostty config and every local extension, at once
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
+  cmux ext remix HOST/OWNER/REPO[/PATH][@COMMIT] [--dir D] [--name N]
+                               fork and customize: that extension's source at the commit in a
+                               new folder (~/Projects/NAME) as local/NAME with its own git
+                               repository, and the steps to change and publish it
+  cmux ext share [DIR] [--name REPO] [--private]
+                               publish DIR to a new GitHub repository of yours (your gh login):
+                               the manifest and README badge made yours, topic cmux-extension,
+                               and its cmux.com page; exit 7 when GitHub is not connected
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
                                and consent text, from the running cmux (--json adds the types)
@@ -111,6 +127,14 @@ pub(super) enum Request {
     /// The running cmux's capability manifest, or one op's row.
     Capabilities {
         op: Option<String>,
+    },
+    /// `ext remix REF`: fork and customize.
+    Remix(remix::RemixOptions),
+    /// `ext share [DIR]`: publish to a new GitHub repository.
+    Share {
+        dir: PathBuf,
+        name: Option<String>,
+        private: bool,
     },
 }
 
@@ -265,6 +289,57 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             ))),
             _ => Err(usage("ext remove needs one ID")),
         },
+        "remix" => {
+            let (mut source, mut dir, mut name) = (None, None, None);
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--dir" => {
+                        dir = Some(PathBuf::from(
+                            words.next().ok_or_else(|| usage("--dir needs a path"))?,
+                        ));
+                    }
+                    "--name" => {
+                        name =
+                            Some(words.next().ok_or_else(|| usage("--name needs a name"))?.clone());
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if source.is_some() => return Err(usage("ext remix takes one source")),
+                    _ => source = Some(word.clone()),
+                }
+            }
+            let source = source.ok_or_else(|| {
+                usage("ext remix needs a source: HOST/OWNER/REPO[/PATH][@COMMIT]")
+            })?;
+            if remix::SourceRef::parse(&source).is_none() {
+                return Err(usage(&format!(
+                    "{source}: give the source as HOST/OWNER/REPO[/PATH][@COMMIT]"
+                )));
+            }
+            Ok(Request::Remix(remix::RemixOptions { source, dir, name }))
+        }
+        "share" => {
+            let (mut dir, mut name, mut private) = (None, None, false);
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--private" => private = true,
+                    "--public" => private = false,
+                    "--name" => {
+                        name =
+                            Some(words.next().ok_or_else(|| usage("--name needs a name"))?.clone());
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if dir.is_some() => return Err(usage("ext share takes one DIR")),
+                    _ => dir = Some(PathBuf::from(word)),
+                }
+            }
+            Ok(Request::Share { dir: dir.unwrap_or_else(|| PathBuf::from(".")), name, private })
+        }
         other => Err(usage(&format!("unknown ext verb {other}"))),
     }
 }
@@ -325,11 +400,22 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                     if json_out {
                         println!(
                             "{}",
-                            json!({ "app": format!("local/{name}"), "dir": dir, "files": files })
+                            json!({
+                                "app": format!("local/{name}"),
+                                "dir": dir,
+                                "files": files,
+                                // Publishing to a new GitHub repository of the person's is the
+                                // last step, on by default (`ext share`).
+                                "publish": format!("cmux ext share {}", dir.display()),
+                            })
                         );
                     } else {
                         println!("made local/{name} in {}", dir.display());
                         println!("next: cd {} && cmux ext dev", dir.display());
+                        println!(
+                            "when it works: cmux ext share {} publishes it to a new GitHub repository of yours",
+                            dir.display()
+                        );
                     }
                     exit::OK
                 }
@@ -372,6 +458,56 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
         Request::Reload { app } => reload(global, app.as_deref(), json_out),
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
+        Request::Remix(mut options) => {
+            options.dir = options.dir.map(absolute_new);
+            let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("."), PathBuf::from);
+            match remix::remix(&options, &home, None) {
+                Ok(made) => {
+                    if json_out {
+                        println!("{}", made.to_json());
+                    } else {
+                        print!("{}", made.brief());
+                    }
+                    exit::OK
+                }
+                Err(message) => {
+                    eprintln!("cmux: {message}");
+                    1
+                }
+            }
+        }
+        Request::Share { dir, name, private } => {
+            let dir = absolute(dir);
+            // The person's own `gh` login; `CMUX_EXT_GH` names another program (tests).
+            let gh =
+                std::env::var_os("CMUX_EXT_GH").map_or_else(|| PathBuf::from("gh"), PathBuf::from);
+            match share::share(&share::ShareOptions { dir: dir.clone(), name, private, gh }) {
+                Ok(shared) => {
+                    if json_out {
+                        println!("{}", shared.to_json(&dir));
+                    } else {
+                        print!("{}", shared.text(&dir));
+                    }
+                    match shared {
+                        share::Shared::Published { .. } => exit::OK,
+                        share::Shared::NotConnected { .. } => exit::NOT_CONNECTED,
+                    }
+                }
+                Err(message) => {
+                    eprintln!("cmux: {message}");
+                    1
+                }
+            }
+        }
+    }
+}
+
+/// `dir` made absolute against the working folder (it need not exist yet).
+fn absolute_new(dir: PathBuf) -> PathBuf {
+    if dir.is_absolute() {
+        dir
+    } else {
+        std::env::current_dir().map(|cwd| cwd.join(&dir)).unwrap_or(dir)
     }
 }
 

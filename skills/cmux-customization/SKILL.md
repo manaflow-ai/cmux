@@ -255,6 +255,13 @@ reloads the view, and the app installs itself the first time. No restart, no
 install click.
 
 - A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, edit its `src/main.ts`, then `cmux ext dev --once --json` until ok.
+- An extension you built (`cmux ext new`) or remixed (`cmux ext remix REF`) ends published, by
+  default: say it goes to a new public GitHub repository of theirs, then run `cmux ext share DIR --json`
+  unless they asked to keep it local (`--private` for a private one). It makes the manifest and
+  README badge theirs, adds the topic `cmux-extension` and prints the cmux.com page; give them that
+  link. Exit 7 means GitHub is not connected: the folder stays, tell them the one step it prints.
+- "Fork and customize" on a cmux.com extension page opens a chat with `cmux ext remix REF` asked:
+  run it, do what it prints (ask what to change, change it, publish as above).
 - `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
   `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
   there the first time it sees it, and the person's later move or removal wins.
