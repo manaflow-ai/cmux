@@ -661,6 +661,17 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
+    "app.keyStyle" : {
+      "default" : "standard",
+      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+      "enum" : [
+        "standard",
+        "vim",
+        "emacs"
+      ],
+      "title" : "Key Style",
+      "type" : "string"
+    },
     "app.quitBehavior" : {
       "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -670,6 +681,16 @@
         "end-everything"
       ],
       "title" : "When Quitting",
+      "type" : "string"
+    },
+    "app.shortcutLayout" : {
+      "default" : "followLayout",
+      "description" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
+      "enum" : [
+        "followLayout",
+        "qwertyPositions"
+      ],
+      "title" : "Keyboard Layout",
       "type" : "string"
     },
     "app.showMenuBarIcon" : {
