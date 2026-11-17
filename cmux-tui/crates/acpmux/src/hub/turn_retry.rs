@@ -142,7 +142,6 @@ fn says_sign_in_refused(detail: &str) -> bool {
             "log in again",
             "sign in again",
             "refresh token",
-            "unauthorized",
             "invalid_api_key",
             "token_expired",
             "not signed in",
