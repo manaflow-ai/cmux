@@ -27,8 +27,8 @@ const CLIENT_SESSION_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/client-s
 const GUEST_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/(exec|fs\/(?:dir|read|stat|write|mkdir|remove))$/
 /** The carrier ticket (cmux-platform CarrierRoute.ts): the machine's Register ticket and a device's Connect ticket for its relay slot. */
 const CARRIER_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/carrier$/
-/** The team's inference gateway (cmux-platform InferenceGatewayRoute.ts): its mode and machine, and the gateway's own socket. */
-const INFERENCE_GATEWAY_PATH = /^\/v1\/cloud\/inference-gateway(?:\/connect)?$/
+/** The team's (or, under /personal, the person's own) inference gateway (cmux-platform InferenceGatewayRoute.ts): its mode and machine, and the gateway's own socket. */
+const INFERENCE_GATEWAY_PATH = /^\/v1\/cloud\/inference-gateway(?:\/personal)?(?:\/connect)?$/
 /** The machine routes only cmux-platform serves (cmux-api has no handler for them). */
 const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH]
 

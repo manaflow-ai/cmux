@@ -27,7 +27,7 @@ export type TokenFail = { readonly ok: false; readonly status: number; readonly 
 export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; connection_id: string; permissions: Record<string, string>; token_id: string } } | TokenFail
 
 export type RepoListReply =
-  | { readonly ok: true; readonly value: { readonly repos: ReadonlyArray<{ readonly full_name: string; readonly private: boolean }>; readonly cursor: string | null } }
+  | { readonly ok: true; readonly value: { readonly repos: ReadonlyArray<{ readonly full_name: string; readonly private: boolean; readonly default_branch?: string }>; readonly cursor: string | null } }
   | TokenFail
 
 /** What the ledger needs from its ConnectionDO. */
@@ -247,10 +247,10 @@ export const githubRepos = async (
     if (!body || !Array.isArray(body.repositories)) return fail(503, "integration.unavailable", "GitHub returned an invalid repository list")
     const repos = body.repositories.flatMap((entry) => {
       if (!entry || typeof entry !== "object") return []
-      const repo = entry as { full_name?: unknown; private?: unknown }
+      const repo = entry as { full_name?: unknown; private?: unknown; default_branch?: unknown }
       const fullName = typeof repo.full_name === "string" ? repo.full_name : ""
       return fullName && githubRepoAllowed(connection, policyOf(state), fullName) && (!cursor.query || fullName.toLowerCase().includes(cursor.query))
-        ? [{ full_name: fullName, private: repo.private === true }]
+        ? [{ full_name: fullName, private: repo.private === true, ...(typeof repo.default_branch === "string" && repo.default_branch ? { default_branch: repo.default_branch } : {}) }]
         : []
     })
     const hasNext = body.repositories.length >= 100 && (typeof body.total_count !== "number" || cursor.page * 100 < body.total_count)
