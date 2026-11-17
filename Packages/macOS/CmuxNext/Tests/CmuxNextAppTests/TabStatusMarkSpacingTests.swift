@@ -65,4 +65,22 @@ import Testing
         let pill = cell.backgroundLayer.frame
         #expect(abs((pill.maxX - spinner.midX) - (m.contentTrailingInset + m.closeButtonSize / 2)) <= 0.5)
     }
+
+    /// Under `mirrorAll` the hovered x moves into the mirrored slot. The x's one origin
+    /// (`TabChromeVisibility.closeButtonOriginX`), which rapid close's hit target and the accessibility
+    /// child read before hover, lands where the cell draws it.
+    @Test func theMirroredXIsWhereItsTargetsAre() throws {
+        let hovered = Self.cell(busy: true, hovered: true, placement: .mirrorAll)
+        let drawn = try #require(hovered.closeButtonRect, "the hovered tab draws no x")
+        let m = hovered.metrics
+        let form = TabChromeVisibility.resolve(
+            width: hovered.bounds.width, isPinned: false, isSelected: false, isHovered: true,
+            hasStatus: true, style: hovered.style, metrics: m)
+        let origin = try #require(form.closeButtonOriginX(pillWidth: hovered.bounds.width, metrics: m))
+        #expect(abs(origin - drawn.minX) <= 0.5, "the x's target starts at \(origin), the x draws at \(drawn.minX)")
+
+        let rest = Self.cell(busy: true, placement: .mirrorAll)
+        let axFrame = rest.accessibility.closeButton.accessibilityFrameInParentSpace()
+        #expect(abs(axFrame.midX - drawn.midX) <= 0.5, "the accessibility x centers at \(axFrame.midX), the x draws at \(drawn.midX)")
+    }
 }

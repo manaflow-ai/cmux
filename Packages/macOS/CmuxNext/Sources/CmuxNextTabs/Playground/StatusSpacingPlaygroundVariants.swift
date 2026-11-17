@@ -10,7 +10,7 @@ struct StatusSpacingPlaygroundVariants {
     var all: [TabBarPlaygroundVariant] {
         [
             variant(String(localized: "tabs.playground.statusSpacing.mirrorIcon",
-                           defaultValue: "The mark mirrors the icon: as far from the end as the icon from the start",
+                           defaultValue: "The mark mirrors the icon's inset",
                            bundle: .module), .mirrorIcon, shipped: true),
             variant(String(localized: "tabs.playground.statusSpacing.mirrorAll",
                            defaultValue: "The mark and the hovered close button both mirror the icon",
