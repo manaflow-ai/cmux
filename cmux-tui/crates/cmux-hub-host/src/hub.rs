@@ -225,8 +225,11 @@ impl Hub {
             // A host-scoped session from the device key alone (the anchor that `enable`
             // recorded lets this device renew for 30 days).
             Renewal::DeviceAnchor => {
-                let user =
-                    self.user_id().ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
+                #[cfg(not(windows))]
+                const NOT_ENABLED: &str = "not enabled: run `cmux-rd linux-host enable` first";
+                #[cfg(windows)]
+                const NOT_ENABLED: &str = "not enabled: run `cmux-rd windows-host enable` first";
+                let user = self.user_id().ok_or(NOT_ENABLED)?;
                 let body = json!({ "userId": user });
                 self.send("POST", "/v1/auth/device", Some(&body), None, true)?
             }
