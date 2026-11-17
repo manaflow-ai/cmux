@@ -419,7 +419,16 @@ public final class ConversationViewController: UIViewController {
         store.claimPrimary(self) { [weak self] change in self?.storeDidChange(change) }
         store.prepareLiveMessage = { [weak self] message in self?.bubbleTextPreparation(for: message) }
         store.start()
+        // A store already down past its bound sends no new callback for this screen: read it now.
+        showConnectionStatus()
         rebuild(change: .reset)
+    }
+
+    /// The header's line under the name: only a drop past the store's quiet bound says so,
+    /// a normal reconnect shows nothing.
+    private func showConnectionStatus() {
+        let down = store.connection != .connected && store.connectionNoticeDue
+        header.setConnectionStatus(down ? String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module) : nil)
     }
 
     /// The conversation draws its own header, so it hides its navigation
@@ -842,9 +851,7 @@ public final class ConversationViewController: UIViewController {
         detailsController?.storeDidChange(change)
         switch change {
         case .connection:
-            // Only a drop past the store's quiet bound says so: a normal reconnect shows nothing.
-            let down = store.connection != .connected && store.connectionNoticeDue
-            header.setConnectionStatus(down ? String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module) : nil)
+            showConnectionStatus()
             // A host's pinned row sits under that line: it moves with it.
             parent?.view.setNeedsLayout()
             if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount) }

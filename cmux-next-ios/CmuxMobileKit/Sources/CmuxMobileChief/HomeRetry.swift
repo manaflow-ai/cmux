@@ -84,11 +84,12 @@ final class MacConversationLoader {
         do {
             let loaded = try await sessionForRoute()
             guard mine == generation, !Task.isCancelled else { return }
-            if let previous, previous !== loaded {
+            // The one shown now: the previous session, or a first open's fallback shown past the bound.
+            if let shown = session, shown !== loaded {
                 // What was written while the link was down goes to the new session.
-                for message in previous.outbox { loaded.send(message, asksForAlerts: false) }
-                previous.discardOutbox()
-                Self.clearStale(previous)
+                for message in shown.outbox { loaded.send(message, asksForAlerts: false) }
+                shown.discardOutbox()
+                Self.clearStale(shown)
             }
             endNotLive()
             Self.clearStale(loaded)
@@ -131,6 +132,9 @@ final class MacConversationLoader {
         quietWait = nil
         guard let notLive else { return }
         Self.markStale(notLive.session, tryAgain: notLive.tryAgain)
+        // A first open still loading shows its fallback now: an empty one is never shown kept
+        // (``MacConversationScreen``), so it would stay a spinner until the load gives up.
+        if session == nil { session = notLive.session }
         isStale = true
     }
 
