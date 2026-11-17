@@ -2406,13 +2406,10 @@
     }
   },
   "home.engine.harness": {
-    "source": "Harness",
+    "source": "Agent",
     "identityLocales": {
-      "de": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); German developer UIs keep the English word, as Klassifikator-Harness does.",
-      "fr": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); French developer UIs keep the English word, as Harness du classificateur does.",
-      "es": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Spanish developer UIs keep the English word, as Harness del clasificador does.",
-      "zh-Hans": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分类器 Harness does.",
-      "zh-Hant": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分類器 Harness does."
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
   "settings.automation.kiro.notificationLevel.minimal": {
