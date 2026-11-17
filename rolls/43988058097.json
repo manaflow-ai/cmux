@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43988058097",
+  "recorded_at": "2026-11-17T00:44:18Z",
+  "reason": "cmux-tui 2f45cc6296e3 changes the image's cmux-tui (pinned 07cf11a48f16)",
+  "dry_run": false,
+  "cmux_tui": "2f45cc6296e3fa7f1f06a90730b14d31c7871c28",
+  "fixes": [
+    {
+      "sha": "2f45cc6296e3fa7f1f06a90730b14d31c7871c28",
+      "mergedAt": "2026-11-16T16:10:13-08:00",
+      "subject": "Agent chat: the relay takes the row store's hold attach, so a chat typed on New Tab starts (#42460) (#44842)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T00:44:18Z",
+    "snapshot_id": "sh-d11f4b65f6134f84bbc8af21632191f1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43988058097): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "063c4800244b36a09269e9221effdd1650c18878",
+    "image": "cloud-native-auto-2f45cc62-43988058097-1",
+    "revision": "ci-43988058097-1",
+    "at": "2026-11-17T00:44:18Z"
+  },
+  "rolled_back": false
+}
