@@ -296,7 +296,7 @@
     "webviews/src/agent-session/acpmux/importSession.ts": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "webviews/src/agent-session/acpmux/question/model.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "webviews/src/agent-session/acpmux/rows/host.ts": {"count": 1, "reason": "safe: passes the caller's optional maxBytes for a page of the daemon's rows coming in to the page; no cap of its own, and nothing the person sends goes through it"},
-    "webviews/src/agent-session/acpmux/rows/store.ts": {"count": 2, "reason": "safe: bounds how much of a chat's rendered rows and read bodies the page holds; past it the farthest rows are let go and a page or blob read brings them back, so nothing the person sends is refused or cut"},
+    "webviews/src/agent-session/acpmux/rows/store.ts": {"count": 3, "reason": "safe: bounds how much of a chat's rendered rows, read bodies and prompt heads the page holds; past it the farthest rows and heads are let go and a page or blob read brings them back, so nothing the person sends is refused or cut"},
     "webviews/src/agent-session/acpmux/toolCards/ToolCards.tsx": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "webviews/src/agent-session/acpmux/turnChanges/viewChanges.ts": {"count": 1, "reason": "safe: mirrors AgentPaneDiffPatch.maximumBytes; a longer patch stays in the page's own Last turn view instead of a diff tab, nothing the person sends is refused"},
     "webviews/src/agent-session/acpmux/wire.ts": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

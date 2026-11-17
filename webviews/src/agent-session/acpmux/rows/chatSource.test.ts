@@ -462,7 +462,7 @@ test("asked from the open turn's group row, and behind a page out: a person's pa
   expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", before: 61, turns: true });
 });
 
-test("not while the page is hidden: asked when it is seen again", async () => {
+test("hidden: asked when seen again; a switch away and back after asks nothing", async () => {
   const doc = globalThis as { document?: unknown };
   const had = Object.getOwnPropertyDescriptor(globalThis, "document");
   let state = "hidden";
@@ -481,6 +481,12 @@ test("not while the page is hidden: asked when it is seen again", async () => {
     expect(pageAsks(posts)).toEqual([]);
     state = "visible";
     for (const listener of listeners) listener();
+    expect(pageAsks(posts)).toHaveLength(1);
+    // Nothing owed: hidden then seen again, twice, asks no other page this edition.
+    for (const next of ["hidden", "visible", "hidden", "visible"]) {
+      state = next;
+      for (const listener of listeners) listener();
+    }
     expect(pageAsks(posts)).toHaveLength(1);
   } finally {
     if (had) Object.defineProperty(globalThis, "document", had);

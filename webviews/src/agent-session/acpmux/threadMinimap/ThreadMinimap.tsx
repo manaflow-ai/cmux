@@ -657,7 +657,9 @@ export function ThreadMinimap({
   const loadThroughNow = useRef(loadThrough);
   loadThroughNow.current = loadThrough;
   const loadPromptRowNow = useRef(loadPromptRow);
-  loadPromptRowNow.current = loadPromptRow;
+  useLayoutEffect(() => {
+    loadPromptRowNow.current = loadPromptRow;
+  }, [loadPromptRow]);
   const loadPromptIndexNow = useRef(loadPromptIndex);
   loadPromptIndexNow.current = loadPromptIndex;
   /// The rail's one ask for the prompt index per chat: a hover sweep across a hundred pending ticks

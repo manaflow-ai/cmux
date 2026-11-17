@@ -47,6 +47,9 @@ ALLOWED_LISTENERS = {
     "or ended a turn, or came back to a folder: the one read it held back, `owed`); a switch away "
     "and back with nothing due reads nothing. Listed in shared-projections.md section 6 with the "
     "change that removes it",
+    (f"{ACPMUX}/rows/chatSource.ts", "visibilitychange"): "asks the one page of turns held back "
+    "while the page was hidden, once an edition; a switch away and back with nothing owed asks "
+    "nothing (`askTurns`, `turnsAsked`; decision 456)",
     (f"{ACPMUX}/chatSnapshot/live.ts", "visibilitychange"): "writes the chat's drawn copy for the "
     "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
     (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
