@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// runs) keeps on purpose, each group with why.
 const ALLOWED: &[&str] = &[
     // The agents' own logins: the harnesses the daemon runs read them (acpmux login_env.rs,
-    // agent_login.rs, byo_endpoint.rs, harness_health/agent_files.rs).
+    // agent_login.rs, byo_endpoint.rs, harness_health/agent_files.rs, provider_cloud_auth.rs).
     "AI_GATEWAY_API_KEY",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -34,6 +34,7 @@ const ALLOWED: &[&str] = &[
     "GOOGLE_API_KEY",
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "GROK_API_KEY",
+    "GROK_CODE_XAI_API_KEY",
     "GROQ_API_KEY",
     "HF_TOKEN",
     "KIMI_API_KEY",
@@ -106,7 +107,7 @@ const ALLOWED: &[&str] = &[
     "CMUX_LAUNCH_CREDENTIAL",
     "MUX_AGENT_TOKEN_FILE",
     // No environment variable: redaction and secret-scan fixtures, a vault's secret names,
-    // the X authority file, ssh's and git's own names.
+    // a server's error codes, the X authority file, ssh's and git's own names.
     "ACCESSTOKEN",
     "ACCESS_KEY",
     "APIKEY",
@@ -127,13 +128,21 @@ const ALLOWED: &[&str] = &[
     "LESSKEYIN",
     "OPENAI_ORG_TOKEN",
     "OPENROUTER_REFERER_TOKEN",
+    "OTHER_API_KEY",
     "OTHER_KEY",
     "OTHER_TOKEN",
     "PRIVATE_KEY",
     "PRIVATE_TOKEN",
     "PROFILE_KEY",
+    "REFRESH_TOKEN_NOT_FOUND",
     "ROUTER_KEY",
     "SEEDAWSKEY",
+    // The suffixes of a minted R2 key's two store names (`cmux keys mint`, cli/key_broker.rs):
+    // PREFIX_ACCESS_KEY_ID and PREFIX_SECRET_ACCESS_KEY name a GitHub secret, a Keychain item or
+    // a vault entry. The values reach `gh secret set`, `security -i` or `acpmux machine vault
+    // keep` on stdin, never as a child's environment, and nothing reads these bare names.
+    "ACCESS_KEY_ID",
+    "SECRET_ACCESS_KEY",
     "SSH_AUTH_INFO_0",
     "TOP_LEVEL_KEY",
     "VAULT_SECRET",

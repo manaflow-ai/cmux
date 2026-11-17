@@ -17,6 +17,8 @@
 
 use std::path::{Path, PathBuf};
 
+use super::publish::{self, Repo};
+
 /// The kinds `--kind` takes (`section` is `sidebar`'s first name).
 pub(super) const KINDS: &[&str] =
     &["sidebar", "section", "session-info", "pane", "newtab", "widget", "command"];
@@ -82,6 +84,8 @@ const COMMAND: &[(&str, &str)] = &[
 /// Every kind's project files around the code.
 const COMMON: &[(&str, &str)] = &[
     ("README.md", include_str!("templates/common/README.md")),
+    // Stored without its dot, so it does not apply to the templates folder.
+    (".gitignore", include_str!("templates/common/gitignore")),
     ("package.json", include_str!("templates/common/package.json")),
     ("tsconfig.json", include_str!("templates/common/tsconfig.json")),
 ];
@@ -200,8 +204,24 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
     }
 }
 
-/// The files of a new `kind` extension called `name`, by relative path.
-pub(super) fn files(name: &str, kind: &str) -> Option<Vec<(&'static str, String)>> {
+/// The id of extension `name`: `PUBLISHER/NAME` when it has a GitHub
+/// repository (the owner, lowercased, as the store requires), else
+/// `local/NAME`.
+pub(super) fn app_id(name: &str, repo: Option<&Repo>) -> String {
+    match repo {
+        Some(repo) => format!("{}/{name}", repo.publisher()),
+        None => format!("local/{name}"),
+    }
+}
+
+/// The files of a new `kind` extension called `name`, by relative path, published from `repo`: its id is the owner's,
+/// the manifest names the repository, and the README's badge and install
+/// line point at it (marked placeholders with none).
+pub(super) fn files_for(
+    name: &str,
+    kind: &str,
+    repo: Option<&Repo>,
+) -> Option<Vec<(&'static str, String)>> {
     let templates = match kind {
         "sidebar" | "section" => SECTION,
         "pane" => PANE,
@@ -213,14 +233,27 @@ pub(super) fn files(name: &str, kind: &str) -> Option<Vec<(&'static str, String)
     };
     let (what, usage, extra) = readme_parts(kind);
     let title = title(name);
-    let namespace = cmux_app_manifest::app_namespace(&format!("local/{name}"));
+    let id = app_id(name, repo);
+    let namespace = cmux_app_manifest::app_namespace(&id);
+    let badge = publish::readme_badge(repo);
+    let install = publish::readme_install(repo);
+    // The manifest's id line, and the repository under it.
+    let local_id_line = format!("\"id\": \"local/{name}\",");
+    let id_line = match repo {
+        Some(repo) => format!("\"id\": \"{id}\",\n  \"repository\": \"{}\",", repo.url()),
+        None => local_id_line.clone(),
+    };
     let fill = |text: &str| {
         text.replace("{{WHAT}}", what)
             .replace("{{USE}}", usage)
             .replace("{{FILES}}", extra)
+            .replace("{{BADGE}}", &badge)
+            .replace("{{INSTALL}}", &install)
+            .replace("{{ID}}", &id)
             .replace("{{NAME}}", name)
             .replace("{{TITLE}}", &title)
             .replace("{{NS}}", &namespace)
+            .replace(&local_id_line, &id_line)
     };
     let mut out: Vec<(&'static str, String)> =
         templates.iter().chain(COMMON).map(|(path, text)| (*path, fill(text))).collect();
@@ -231,8 +264,23 @@ pub(super) fn files(name: &str, kind: &str) -> Option<Vec<(&'static str, String)
 
 /// Writes a new extension into `dir`, which must not exist yet (or be
 /// empty); returns the files written.
+#[cfg(test)]
 pub(super) fn scaffold(dir: &Path, name: &str, kind: &str) -> Result<Vec<PathBuf>, String> {
-    let files = files(name, kind).ok_or_else(|| {
+    scaffold_for(dir, name, kind, None)
+}
+
+/// `scaffold` for an extension published from `repo`. A folder that holds
+/// only `.git` (a clone of a new, empty repository) counts as empty.
+pub(super) fn scaffold_for(
+    dir: &Path,
+    name: &str,
+    kind: &str,
+    repo: Option<&Repo>,
+) -> Result<Vec<PathBuf>, String> {
+    if let Some(problem) = repo.and_then(Repo::publisher_problem) {
+        return Err(problem);
+    }
+    let files = files_for(name, kind, repo).ok_or_else(|| {
         format!("--kind {kind} is not one cmux ext new makes; it makes {}", KINDS.join(", "))
     })?;
     if kind == "command"
@@ -240,7 +288,10 @@ pub(super) fn scaffold(dir: &Path, name: &str, kind: &str) -> Result<Vec<PathBuf
     {
         return Err(problem);
     }
-    if std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some()) {
+    let occupied = std::fs::read_dir(dir).is_ok_and(|mut entries| {
+        entries.any(|entry| !entry.is_ok_and(|entry| entry.file_name() == ".git"))
+    });
+    if occupied {
         return Err(format!("{} already exists and is not empty", dir.display()));
     }
     let mut written = Vec::new();

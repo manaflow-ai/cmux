@@ -799,6 +799,24 @@ button.cv-subagent > :last-child {
   min-width: 7.5ch;
   font-variant-numeric: tabular-nums;
 }
+/* Open, the header's time stands in the lines' time column: its box takes the row's free room and
+   its digits end it, on the x every line's time ends on (Lucas, 2026-11-17: "we also need to align
+   the timestamps here", of a header's "23m 10s" a few pixels left of its line's). Folded, with no
+   lines under it, it stays one gap after its counts. */
+.acpmux-running-tray__head[aria-expanded="true"] > .acpmux-running-tray__time:not(:empty) {
+  text-align: right;
+}
+/* The header's Stop column is the lines' one: the lines space their tracks one tray gap apart, the
+   header row its usual 8px, so the slot gives that difference back on both sides and lies exactly
+   over the lines' Stop column (and under the panel button, `.acpmux-running-tray__open`). */
+.acpmux-running-tray__head > .acpmux-running-tray__open-slot {
+  margin-inline: calc(var(--acpmux-tray-gap) - var(--ds-space-2));
+}
+/* A header with no panel button still keeps the lines' Stop column empty before its chevron, so a
+   time pushed to the end stops where theirs do. */
+.acpmux-running-tray__head:not(:has(> .acpmux-running-tray__open-slot)) > .acpmux-running-tray__status {
+  margin-inline-start: calc(var(--acpmux-tray-stop-width) + 2 * var(--acpmux-tray-gap) - var(--ds-space-2));
+}
 .acpmux-running-tray__time:empty {
   margin-left: -8px;
 }

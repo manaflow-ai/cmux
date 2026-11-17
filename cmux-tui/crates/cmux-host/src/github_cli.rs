@@ -72,6 +72,9 @@ pub struct Refused {
     pub message: String,
     /// Seconds, from a `rate_limited` answer.
     pub retry_after: Option<u64>,
+    /// The GitHub page where the repository can be granted to the cmux GitHub App, when the
+    /// refusal names one (a github.com https URL; the agent checks it).
+    pub configure_url: Option<String>,
 }
 
 impl std::fmt::Display for Refused {
@@ -89,6 +92,59 @@ impl std::fmt::Display for Refused {
 }
 
 pub use crate::github_connect::CONNECT_GITHUB;
+
+impl Refused {
+    /// What is wrong with `subject` (a repository, or "GitHub") and, when the person can fix
+    /// it, the one line that says how: the cmux GitHub App not installed, the repository not
+    /// granted to it, the team's GitHub connection or this machine's Cloud sign-in to renew.
+    /// Anything else is the code and message on one line.
+    pub fn explain(&self, subject: &str) -> (String, Option<String>) {
+        let lead = format!("cmux could not get a GitHub token for {subject}");
+        let again = "then run the same command again";
+        match self.code.as_str() {
+            "integration.not_found" | "github.not_connected" => (
+                format!("{lead}: the cmux GitHub App is not installed for this cmux team."),
+                Some(format!("To install it, {CONNECT_GITHUB}; {again}.")),
+            ),
+            "policy.denied" if !self.message.contains("workflows") => {
+                let grant = match &self.configure_url {
+                    Some(url) => format!("open {url} and add the repository"),
+                    None => format!("{CONNECT_GITHUB}, and add the repository on GitHub's page"),
+                };
+                (
+                    format!(
+                        "{lead}: the repository is not granted to the cmux GitHub App, or the \
+                         team's policy does not allow it."
+                    ),
+                    Some(format!("To grant it, {grant} (or ask a team admin); {again}.")),
+                )
+            }
+            "needs_reauth" => (
+                format!(
+                    "{lead}: the team's GitHub connection needs renewing (the app was removed or \
+                     suspended on GitHub)."
+                ),
+                Some(format!("To renew it, {CONNECT_GITHUB}; {again}.")),
+            ),
+            "auth.required" | "auth.forbidden" | "auth.refused" | "vm.unbound" => (
+                format!("{lead}: this machine's cmux Cloud sign-in needs renewing."),
+                Some(format!(
+                    "Reconnect this machine to cmux Cloud from cmux on your Mac; {again}."
+                )),
+            ),
+            _ if self.message.is_empty() => (format!("{lead} ({}).", self.code), None),
+            _ => (format!("{lead} ({}: {}).", self.code, self.message), None),
+        }
+    }
+
+    /// [`Refused::explain`] as the one or two lines stderr shows.
+    pub fn explained(&self, subject: &str) -> String {
+        match self.explain(subject) {
+            (what, Some(fix)) => format!("{what}\n{fix}"),
+            (what, None) => what,
+        }
+    }
+}
 
 /// The one next step for a refusal the person can fix, or `None` (an outage, a bad answer:
 /// retrying is all there is). Leo, 2026-11-10: when the user is not connected, the error says
@@ -127,7 +183,12 @@ pub fn retryable(code: &str) -> bool {
 }
 
 pub fn refused(code: &str, message: impl Into<String>) -> Refused {
-    Refused { code: code.to_owned(), message: message.into(), retry_after: None }
+    Refused {
+        code: code.to_owned(),
+        message: message.into(),
+        retry_after: None,
+        configure_url: None,
+    }
 }
 
 /// How long to wait before the one retry of a retryable refusal:
@@ -172,6 +233,11 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
         error.field("message").as_str().unwrap_or(""),
     );
     e.retry_after = reply.field("retry_after").as_u64();
+    e.configure_url = error
+        .field("configure_url")
+        .as_str()
+        .filter(|url| crate::cloud::github::configure_url(url))
+        .map(str::to_owned);
     Err(e)
 }
 
@@ -409,10 +475,10 @@ pub fn credential_get(
                 return (format!("username=x-access-token\npassword={}\n", minted.token), None);
             }
             Err(e) if e.code == "policy.denied" => last = Some(e),
-            Err(e) => return (String::new(), Some(format!("{repo}: {e}"))),
+            Err(e) => return (String::new(), Some(e.explained(&repo))),
         }
     }
-    (String::new(), last.map(|e| format!("{repo}: {e}")))
+    (String::new(), last.map(|e| e.explained(&repo)))
 }
 
 /// What `gh` runs with: the repo, whether to ask for write, and gh's own
@@ -978,9 +1044,12 @@ fn gh_auto(args: &[String]) -> u8 {
                         .env_remove("GH_ENTERPRISE_TOKEN")
                         .env_remove("GITHUB_ENTERPRISE_TOKEN");
                 }
-                Err(e) => eprintln!(
-                    "cmux github gh: no GitHub token for {repo} ({e}); gh runs without one"
-                ),
+                Err(e) => match e.explain(&repo) {
+                    (what, Some(fix)) => {
+                        eprintln!("cmux github gh: {what} gh runs without one.\n{fix}");
+                    }
+                    (what, None) => eprintln!("cmux github gh: {what} gh runs without one."),
+                },
             }
         }
     }
@@ -1004,7 +1073,7 @@ fn gh(args: &[String]) -> u8 {
     let minted = match ask_retrying(Path::new(AGENT_SOCKET), &gh_ask(&plan.repo, plan.write)) {
         Ok(minted) => minted,
         Err(e) => {
-            eprintln!("cmux github gh: {}: {e}", plan.repo);
+            eprintln!("cmux github gh: {}", e.explained(&plan.repo));
             return 1;
         }
     };
@@ -1151,10 +1220,14 @@ mod tests {
         assert_eq!(calls, 1);
         let note = note.unwrap();
         assert!(
-            note.starts_with("o/r: integration.not_found: no GitHub connection. Next: "),
+            note.starts_with(
+                "cmux could not get a GitHub token for o/r: the cmux GitHub App is not installed \
+                 for this cmux team.\nTo install it, in cmux choose Connect GitHub"
+            ),
             "{note}"
         );
         assert!(note.contains("`cmux accounts github-connect`"), "{note}");
+        assert_eq!(note.lines().count(), 2, "{note}");
         assert!(!note.contains(SECRET));
     }
 
@@ -1336,6 +1409,46 @@ mod tests {
         let one_mint = Duration::from_secs(120);
         let need = crate::cloud::github_minter::MAX_QUEUE_WAIT.checked_add(one_mint);
         assert!(need.is_some_and(|need| ASK_TIMEOUT >= need));
+    }
+
+    #[test]
+    fn each_refusal_the_person_can_fix_says_what_is_wrong_and_what_to_do_in_two_lines() {
+        let lines = |e: &Refused| e.explained("acme/web");
+        let not_installed = lines(&refused("integration.not_found", "no GitHub connection"));
+        assert!(not_installed.contains("the cmux GitHub App is not installed"), "{not_installed}");
+        assert!(not_installed.contains("Connect GitHub"), "{not_installed}");
+
+        // Not granted: the configure page when the refusal names one, else Connect GitHub.
+        let denied = refused("policy.denied", "may not act on acme/web");
+        let plain = lines(&denied);
+        assert!(plain.contains("not granted to the cmux GitHub App"), "{plain}");
+        assert!(plain.contains("Connect GitHub"), "{plain}");
+        assert!(plain.contains(", and add the repository on GitHub's page"), "{plain}");
+        let url = "https://github.com/organizations/acme/settings/installations/9";
+        let with_page = lines(&Refused { configure_url: Some(url.to_owned()), ..denied });
+        assert!(with_page.contains(&format!("open {url} and add the repository")), "{with_page}");
+        // A workflows refusal is no grant problem: its own words.
+        let workflows = lines(&refused("policy.denied", "workflows: write needs the team policy"));
+        assert_eq!(
+            workflows,
+            "cmux could not get a GitHub token for acme/web (policy.denied: workflows: write \
+             needs the team policy)."
+        );
+
+        let renew = lines(&refused("needs_reauth", "link GitHub again"));
+        assert!(renew.contains("GitHub connection needs renewing"), "{renew}");
+        for code in ["auth.required", "auth.forbidden", "vm.unbound"] {
+            let signin = lines(&refused(code, ""));
+            assert!(signin.contains("cmux Cloud sign-in needs renewing"), "{code}: {signin}");
+            assert!(signin.contains("Reconnect this machine"), "{code}: {signin}");
+        }
+        for text in [not_installed, plain, with_page, renew] {
+            assert_eq!(text.lines().count(), 2, "{text}");
+        }
+        assert_eq!(
+            lines(&refused("integration.unavailable", "")),
+            "cmux could not get a GitHub token for acme/web (integration.unavailable)."
+        );
     }
 
     #[test]

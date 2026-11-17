@@ -4,12 +4,18 @@
 //! noun and `cmux apps ...` keeps working unchanged. `ext new` scaffolds a
 //! folder, `ext dev` loads it into the running cmux and reloads it on every
 //! save (`dev.rs`), `ext shot` shows what it rendered (`shot.rs`), `ext list`
-//! and `ext remove` show and drop the folders `ext dev` loaded.
+//! and `ext remove` show and drop the folders `ext dev` loaded. `ext publish`
+//! checks a folder is ready to list on cmux.com from its git repository
+//! (`publish.rs`).
 
 mod daemon;
 mod dev;
 #[cfg(test)]
 mod kinds_tests;
+mod pack;
+mod publish;
+#[cfg(test)]
+mod publish_tests;
 mod scaffold;
 mod scene;
 mod shot;
@@ -56,7 +62,17 @@ cmux ext: make a cmux extension and watch it change as you work.
                                in an agent chat's Session Info), pane (a view in a tab),
                                newtab (a whole New Tab page, picked in tabs.newTabApp),
                                widget (a New Tab and sidebar widget, small/medium/large),
-                               command (a palette command, `cmux NAME ...` and an agent tool)
+                               command (a palette command, `cmux NAME ...` and an agent tool);
+                               --repo OWNER/REPO (else the folder's github.com origin) makes the
+                               id OWNER/NAME, sets repository and fills the README's badge
+  cmux ext publish [DIR] [--repo OWNER/REPO] [--write-badge] [--json]
+                               whether DIR is ready to list (manifest, id, README badge,
+                               repository, a picture) and the steps: push, a release, the
+                               registry PR; writes nothing to the network; exit 1 when
+                               something is left to do
+  cmux ext pack [DIR] [--out DIR] [--json]
+                               the release assets: cmux-extension.tar.gz (the manifest and the
+                               files it names) and cmux-app.v2.json in DIR/release; prints the sha256
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
   cmux ext shot [DIR] [--out PNG] [--json]
@@ -98,6 +114,8 @@ pub(super) enum Request {
         name: String,
         kind: String,
         dir: Option<PathBuf>,
+        /// `--repo OWNER/REPO`: the GitHub repository it is published from.
+        repo: Option<publish::Repo>,
     },
     Dev(DevOptions),
     Shot(shot::ShotOptions),
@@ -113,6 +131,10 @@ pub(super) enum Request {
     Capabilities {
         op: Option<String>,
     },
+    /// `ext publish [DIR]`: is the folder ready to list, and the steps.
+    Publish(publish::PublishOptions),
+    /// `ext pack [DIR]`: the release assets.
+    Pack(pack::PackOptions),
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -126,6 +148,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             let mut name = None;
             let mut kind = "section".to_string();
             let mut dir = None;
+            let mut repo = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
@@ -136,6 +159,14 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                         dir = Some(PathBuf::from(
                             words.next().ok_or_else(|| usage("--dir needs a path"))?,
                         ));
+                    }
+                    "--repo" => {
+                        let text = words.next().ok_or_else(|| usage("--repo needs OWNER/REPO"))?;
+                        repo = Some(publish::Repo::parse(text).ok_or_else(|| {
+                            usage(&format!(
+                                "--repo {text}: give the GitHub repository as OWNER/REPO"
+                            ))
+                        })?);
                     }
                     flag if flag.starts_with('-') => {
                         return Err(usage(&format!("unknown option {flag}")));
@@ -159,7 +190,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     scaffold::KINDS.join(", ")
                 )));
             }
-            Ok(Request::New { name, kind, dir })
+            Ok(Request::New { name, kind, dir, repo })
         }
         "dev" => {
             let mut options = DevOptions {
@@ -232,6 +263,57 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
                 _ => Err(usage("ext shot")),
             }
+        }
+        "pack" => {
+            let mut options = pack::PackOptions { dir: PathBuf::from("."), out: None };
+            let mut dir = None;
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--out" => {
+                        let out = words.next().ok_or_else(|| usage("--out needs a folder"))?;
+                        options.out = Some(PathBuf::from(out));
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if dir.is_some() => return Err(usage("ext pack takes one DIR")),
+                    _ => dir = Some(PathBuf::from(word)),
+                }
+            }
+            if let Some(dir) = dir {
+                options.dir = dir;
+            }
+            Ok(Request::Pack(options))
+        }
+        "publish" => {
+            let mut options =
+                publish::PublishOptions { dir: PathBuf::from("."), repo: None, write_badge: false };
+            let mut dir = None;
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--repo" => {
+                        let text = words.next().ok_or_else(|| usage("--repo needs OWNER/REPO"))?;
+                        if publish::Repo::parse(text).is_none() {
+                            return Err(usage(&format!(
+                                "--repo {text}: give the GitHub repository as OWNER/REPO"
+                            )));
+                        }
+                        options.repo = Some(text.clone());
+                    }
+                    "--write-badge" => options.write_badge = true,
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if dir.is_some() => return Err(usage("ext publish takes one DIR")),
+                    _ => dir = Some(PathBuf::from(word)),
+                }
+            }
+            if let Some(dir) = dir {
+                options.dir = dir;
+            }
+            Ok(Request::Publish(options))
         }
         "list" if rest.is_empty() => Ok(Request::List),
         "reload" => match rest {
@@ -314,18 +396,40 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             println!("{HELP}");
             exit::OK
         }
-        Request::New { name, kind, dir } => {
+        Request::New { name, kind, dir, repo } => {
             let dir = absolute(dir.unwrap_or_else(|| PathBuf::from(&name)));
-            match scaffold::scaffold(&dir, &name, &kind) {
+            // A clone of the extension's own repository names it.
+            let repo = repo.or_else(|| publish::origin_repo(&dir));
+            match scaffold::scaffold_for(&dir, &name, &kind, repo.as_ref()) {
                 Ok(files) => {
+                    let git = publish::git_init(&dir);
+                    let app = scaffold::app_id(&name, repo.as_ref());
                     if json_out {
                         println!(
                             "{}",
-                            json!({ "app": format!("local/{name}"), "dir": dir, "files": files })
+                            json!({
+                                "app": app,
+                                "dir": dir,
+                                "files": files,
+                                "repository": repo.as_ref().map(publish::Repo::url),
+                                "gitInit": git == Some(true),
+                            })
                         );
                     } else {
-                        println!("made local/{name} in {}", dir.display());
+                        println!("made {app} in {}", dir.display());
+                        if git == Some(true) {
+                            println!("made it a git repository (branch main)");
+                        }
                         println!("next: cd {} && cmux ext dev", dir.display());
+                        match &repo {
+                            Some(repo) => println!(
+                                "share: push it to {}, then cmux ext publish says what is left",
+                                repo.url()
+                            ),
+                            None => println!(
+                                "share: cmux ext publish --repo OWNER/REPO --write-badge, once it has a GitHub repository"
+                            ),
+                        }
                     }
                     exit::OK
                 }
@@ -368,6 +472,41 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
         Request::Reload { app } => reload(global, app.as_deref(), json_out),
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
+        Request::Pack(mut options) => {
+            options.dir = absolute(options.dir);
+            options.out = options.out.map(absolute);
+            match pack::pack(&options) {
+                Ok(packed) => {
+                    if json_out {
+                        println!("{}", packed.to_json());
+                    } else {
+                        print!("{}", packed.text());
+                    }
+                    exit::OK
+                }
+                Err(message) => {
+                    eprintln!("cmux: {message}");
+                    exit::MANIFEST_INVALID
+                }
+            }
+        }
+        Request::Publish(mut options) => {
+            options.dir = absolute(options.dir);
+            match publish::check(&options) {
+                Ok(report) => {
+                    if json_out {
+                        println!("{}", report.to_json());
+                    } else {
+                        print!("{}", report.text());
+                    }
+                    if report.ready() { exit::OK } else { 1 }
+                }
+                Err(message) => {
+                    eprintln!("cmux: {message}");
+                    exit::USAGE
+                }
+            }
+        }
     }
 }
 
