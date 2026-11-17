@@ -22,11 +22,9 @@ mod coalesce;
 mod completion;
 pub(crate) mod contention;
 mod disk_full;
-mod effect_intents;
 mod terminal_offer;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
-pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
 pub(crate) use terminal_offer::TerminalOffer;
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
@@ -235,9 +233,6 @@ pub(crate) enum JournalIngressEvent {
         origin: String,
         idempotency_key: String,
     },
-    /// A registry commit (effect receipt, terminal record, workspace
-    /// registry revision) applied in the batch under its own SAVEPOINT.
-    Effect(Box<crate::workspace_registry::RegistryIntent>),
     /// A projected agent hook's retry row, deleted in the batch: the request
     /// that projected the hook waits for it instead of committing the delete
     /// on its own (mux/journal.rs finish_journal_ingress).
@@ -265,10 +260,9 @@ impl JournalIngressEvent {
             | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
             #[cfg(test)]
             Self::TerminalOutput { .. } => JournalLane::Terminal,
-            Self::Frontend { .. }
-            | Self::Producer { .. }
-            | Self::Effect(_)
-            | Self::AgentHookCleared { .. } => JournalLane::Durable,
+            Self::Frontend { .. } | Self::Producer { .. } | Self::AgentHookCleared { .. } => {
+                JournalLane::Durable
+            }
         }
     }
 
@@ -279,7 +273,6 @@ impl JournalIngressEvent {
             Self::TerminalOutput { bytes, .. } => bytes.len(),
             Self::TerminalResize { .. } => 64,
             Self::TerminalOutputGap { .. } => 128,
-            Self::Effect(intent) => intent.estimated_bytes(),
             Self::AgentHookCleared { producer_id, origin, idempotency_key } => producer_id
                 .len()
                 .saturating_add(origin.len())
@@ -368,27 +361,20 @@ enum JournalIngressCompletion {
         deadline: Instant,
         commit_fence: Arc<AtomicU8>,
     },
-    Effect {
-        sender: SyncSender<Result<crate::workspace_registry::RegistryReceipt, String>>,
-        deadline: Instant,
-        commit_fence: Arc<AtomicU8>,
-    },
 }
 
 impl JournalIngressCompletion {
     fn deadline(&self) -> Instant {
         match self {
-            Self::Durable { deadline, .. }
-            | Self::Producer { deadline, .. }
-            | Self::Effect { deadline, .. } => *deadline,
+            Self::Durable { deadline, .. } | Self::Producer { deadline, .. } => *deadline,
         }
     }
 
     fn commit_fence(&self) -> &AtomicU8 {
         match self {
-            Self::Durable { commit_fence, .. }
-            | Self::Producer { commit_fence, .. }
-            | Self::Effect { commit_fence, .. } => commit_fence,
+            Self::Durable { commit_fence, .. } | Self::Producer { commit_fence, .. } => {
+                commit_fence
+            }
         }
     }
 }
@@ -1166,9 +1152,6 @@ pub(crate) fn start(
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
     mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))?;
-    // Registry commits (effect receipts, terminal records, workspace
-    // revisions) ride the writer batch from now on.
-    mux.install_registry_intent_sink();
     Ok(())
 }
 
