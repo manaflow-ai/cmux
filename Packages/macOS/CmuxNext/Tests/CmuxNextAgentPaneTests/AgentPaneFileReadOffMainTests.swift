@@ -1,57 +1,58 @@
 @testable import CmuxNextAgentPane
+import Darwin
 import Foundation
 import Testing
 
 /// The agent pane's bundled files are read off the main actor: the body handed to
 /// `WKURLSchemeTask.didReceive(_:)` on the main actor is bytes, not a mapping whose pages fault in
 /// there (the same class as the NIGHTLY hang 2026-11-16T21-27-58 in `PageSchemeHandler`). Base
-/// red: ``AgentPaneSchemeHandler/read(_:)`` mapped the file, so an in-place write showed through.
+/// red: ``AgentPaneSchemeHandler/read(_:)`` mapped the file. The oracle asks the kernel whether
+/// the body's memory is backed by the file, for a file a plain `.mappedIfSafe` read is first
+/// shown to map (read-only, as in the signed app bundle).
 struct AgentPaneFileReadOffMainTests {
     static let size = 20 << 20
 
-    @Test func theReadBodyHoldsTheBytesReadNotAMappingOfTheFile() async throws {
-        let dir = try Self.mappableDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let file = dir.appending(path: "big.bin")
-        try Data(repeating: 0x41, count: Self.size).write(to: file)
-
+    @Test func theReadBodyIsReadNotAMappingOfTheFile() async throws {
+        let (dir, file) = try Self.mappableFile()
+        defer { Self.remove(dir) }
         let body = try #require(await AgentPaneSchemeHandler.read(file))
         #expect(body.count == Self.size)
-
-        try Self.overwriteInPlace(file, with: 0x42)
-        #expect(body == Data(repeating: 0x41, count: Self.size),
-                "the body changed with the file: it is a mapping, so its pages fault in on the main thread")
+        let backing = Self.backingFile(of: body)
+        #expect(backing == nil, "the body is a mapping of \(backing ?? ""): its pages fault in on the main thread")
     }
 
-    /// A new directory where `.mappedIfSafe` really maps (as for the app bundle on the boot disk),
-    /// proven by a control read; a CI worker's `TMPDIR` may sit on a volume where it never maps.
-    static func mappableDirectory() throws -> URL {
-        let candidates = [URL(fileURLWithPath: "/private/tmp", isDirectory: true),
-                          FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Caches", directoryHint: .isDirectory),
-                          FileManager.default.temporaryDirectory]
-        for base in candidates {
-            let dir = base.appending(path: "agent-pane-read-off-main-\(UUID().uuidString)", directoryHint: .isDirectory)
-            guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { continue }
-            let probe = dir.appending(path: "probe.bin")
-            let shows: Bool = (try? {
-                try Data(repeating: 0x41, count: size).write(to: probe)
-                let mapped = try Data(contentsOf: probe, options: .mappedIfSafe)
-                try overwriteInPlace(probe, with: 0x42)
-                return mapped.last == 0x42
-            }()) ?? false
-            try? FileManager.default.removeItem(at: probe)
-            if shows { return dir }
-            try? FileManager.default.removeItem(at: dir)
+    static func backingFile(of data: Data) -> String? {
+        data.withUnsafeBytes { raw -> String? in
+            guard let base = raw.baseAddress else { return nil }
+            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            let length = proc_regionfilename(getpid(), UInt64(UInt(bitPattern: base)), &path, UInt32(path.count))
+            return length > 0 ? String(cString: path) : nil
         }
-        Issue.record("no candidate directory shows a .mappedIfSafe mapping: the oracle cannot tell a read from a map here")
+    }
+
+    static func mappableFile() throws -> (URL, URL) {
+        let bases = [URL(fileURLWithPath: "/private/tmp", isDirectory: true),
+                     FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Caches", directoryHint: .isDirectory),
+                     FileManager.default.temporaryDirectory]
+        for base in bases {
+            for readOnly in [true, false] {
+                let dir = base.appending(path: "agent-pane-read-off-main-\(UUID().uuidString)", directoryHint: .isDirectory)
+                guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { continue }
+                let file = dir.appending(path: "big.bin")
+                if (try? Data(repeating: 0x41, count: size).write(to: file)) != nil,
+                   !readOnly || (try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)) != nil,
+                   let control = try? Data(contentsOf: file, options: .mappedIfSafe), backingFile(of: control) != nil {
+                    return (dir, file)
+                }
+                remove(dir)
+            }
+        }
+        Issue.record("no candidate file is mapped by .mappedIfSafe here: the oracle cannot tell a read from a map")
         throw CocoaError(.fileReadUnknown)
     }
 
-    static func overwriteInPlace(_ file: URL, with byte: UInt8) throws {
-        let handle = try FileHandle(forWritingTo: file)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: 0)
-        try handle.write(contentsOf: Data(repeating: byte, count: size))
-        try handle.synchronize()
+    static func remove(_ dir: URL) {
+        _ = chmod(dir.appending(path: "big.bin").path, 0o644)
+        try? FileManager.default.removeItem(at: dir)
     }
 }
