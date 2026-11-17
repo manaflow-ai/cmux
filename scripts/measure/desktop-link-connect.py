@@ -7,7 +7,7 @@ that status says `installed`. This harness does the same two calls in a scratch 
 Claude desktop and Codex look installed, and times each round until the row is linked, then
 Disconnect. It never touches the real home.
 
-  desktop-link-connect.py --bin PATH/TO/cmux [--runs 20] [--apps claude-desktop,codex]
+  desktop-link-connect.py --bin PATH/TO/cmux | --cargo-build [--runs 20] [--apps claude-desktop,codex]
 
 Prints one line per sample and one summary line per (app, step):
 
@@ -69,12 +69,32 @@ def pct(values: list[float], q: float) -> float:
     return ordered[min(len(ordered) - 1, int(round(q * (len(ordered) - 1))))]
 
 
+def cargo_bin(repo: Path) -> str:
+    """Builds cmux-tui's CLI (release) and returns the binary cargo wrote, wherever its target dir is."""
+    out = subprocess.run(["cargo", "build", "-p", "cmux-tui", "--bin", "cmux-tui", "--release",
+                          "--message-format=json"], cwd=repo / "cmux-tui", text=True, capture_output=True)
+    for line in out.stdout.splitlines():
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if msg.get("reason") == "compiler-artifact" and msg.get("executable") and msg["target"]["name"] == "cmux-tui":
+            return msg["executable"]
+    sys.exit(f"cargo build gave no cmux-tui binary ({out.returncode}): {out.stderr.strip()[-600:]}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--bin", required=True)
+    parser.add_argument("--bin", help="a cmux binary; without it, --cargo-build")
+    parser.add_argument("--cargo-build", action="store_true", help="build cmux-tui from this checkout and use it")
     parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--apps", default="claude-desktop,codex")
     opts = parser.parse_args()
+    if not opts.bin:
+        if not opts.cargo_build:
+            parser.error("pass --bin PATH or --cargo-build")
+        opts.bin = cargo_bin(Path(__file__).resolve().parents[2])
+    print(f"DESKTOP-LINK bin {opts.bin}")
     samples: dict[tuple[str, str], list[float]] = {}
     with tempfile.TemporaryDirectory(prefix="desktop-link-bench-") as root:
         env = scratch_home(Path(root))
