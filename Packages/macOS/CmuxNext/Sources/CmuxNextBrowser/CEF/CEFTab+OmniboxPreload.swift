@@ -10,7 +10,8 @@ public import Foundation
 extension CEFTab: BrowserOmniboxPreloading {
     @discardableResult
     public func omniboxPreload(text: String, matches: [OmniboxPreloadMatch]) -> OmniboxPreloadAction {
-        guard let browserID, let shim = runtime.shim, preloads, !matches.isEmpty else { return .unavailable }
+        guard let browserID, let shim = runtime.shim, preloads, let first = matches.first,
+              Self.preloads(under: navigationGuard, opening: first.url) else { return .unavailable }
         let urls = matches.map { strdup($0.url.absoluteString) }
         defer { urls.forEach { free($0) } }
         let pointers: [UnsafePointer<CChar>?] = urls.map { $0.map { UnsafePointer<CChar>($0) } }
@@ -33,8 +34,14 @@ extension CEFTab: BrowserOmniboxPreloading {
     }
 
     private var preloads: Bool {
-        runtime.forkAPIVersion >= CEFTab.omniboxPreloadForkAPI && !isAgentDriven && navigationGuard == .none
+        runtime.forkAPIVersion >= CEFTab.omniboxPreloadForkAPI && !isAgentDriven
             && !runtime.signInCallbacks.isSignInTab(self)
+    }
+
+    /// Whether a tab whose store has `navigationGuard` may preload `url` (its default match). The
+    /// fork keeps a prerender's navigations from the shim's OnBeforeBrowse, so the guard never sees them.
+    static func preloads(under navigationGuard: BrowserNavigationGuard, opening url: URL) -> Bool {
+        navigationGuard == .none
     }
 
     /// The first fork API with omnibox preloading (manaflow-ai/cef CMUX-API.md).
