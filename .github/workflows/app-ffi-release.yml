@@ -70,6 +70,7 @@ on:
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-motion/**"
       - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-engine/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
       - "cmux-tui/crates/cmux-sdk-ffi/**"
