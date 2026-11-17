@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43983156642",
+  "recorded_at": "2026-11-17T00:01:36Z",
+  "reason": "image inputs changed in e609a295c99f616a99d3785836c7b035909c0d20..cf2673061ff5fbc6c6ccea8c8a2db702a3c187f6",
+  "dry_run": false,
+  "cmux_tui": "2c70cdb725afa790e72099d69f3953a2ddf6c8cc",
+  "fixes": [
+    {
+      "sha": "cf2673061ff5fbc6c6ccea8c8a2db702a3c187f6",
+      "mergedAt": "2026-11-16T15:53:41-08:00",
+      "subject": "cloud-vm-image smoke: judge daemon-listening from create-done; replace clones the provider never finished (#44790)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-17T00:01:36Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
