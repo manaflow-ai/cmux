@@ -66,7 +66,6 @@ fn drain_queued<E, R, N>(
         match rx.try_recv() {
             Ok(ev) => send_event(ev),
             Err(broadcast::error::TryRecvError::Lagged(dropped)) => {
-                resync();
                 send_notice(dropped);
             }
             Err(_) => break,
