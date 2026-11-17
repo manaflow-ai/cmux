@@ -122,8 +122,8 @@ nonisolated enum GlyphMask {
     /// relaunches (an M4 Pro Mac mini, `ChromeLabel.updateLayer` under `CA::Transaction::commit`).
     /// Only smoothed stems read it, so with smoothing off this draws nothing. `main` writes the smoothing
     /// default before the launch warm-up starts, so ``ProcessFontSmoothing/chrome`` (what chrome text draws
-    /// in) is already this
-    /// process's value. Plain `NSFont` faces, not `Typography`'s cached ones, so it runs on any thread.
+    /// in) is already this process's value. Plain `NSFont` faces, not `Typography`'s cached ones, so it
+    /// runs on any thread.
     static func warmStems() {
         let smoothing = ProcessFontSmoothing.chrome
         guard smoothing.smoothsStems else { return }
