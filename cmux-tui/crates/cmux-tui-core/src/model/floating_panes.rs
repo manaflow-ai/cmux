@@ -8,9 +8,12 @@
 //!
 //! Until the layout projection reads this list, a floating pane keeps its tiled rectangle and each client shows
 //! it tiled.
+//!
+//! The quick terminal (`quick-terminal-v1`) is the entry of the list that has the mark. A hidden quick terminal
+//! never has the focus: each focus of it shows it, and each settle of the list shows the one that has the focus.
 
 use cmux_layout_reducer::floating_panes::{
-    self as rules, FloatFrame, FloatMode, FloatRefusal, Floating,
+    self as rules, FloatFrame, FloatMode, FloatRefusal, Floating, Quick,
 };
 
 use super::{LayoutColumn, Node, Screen, ScreenLayoutSnapshot};
@@ -46,6 +49,21 @@ impl Screen {
         rules::normalized(&root.pane_ids_vec(), &kept)
     }
 
+    /// [`Self::settled_floating_panes`] for a layout whose focus is on `active`: a hidden quick terminal that
+    /// has the focus shows and comes to the front (`quick-terminal-v1`).
+    pub(crate) fn settled_floating_panes_with_focus(
+        root: &Node,
+        columns: &[LayoutColumn],
+        list: &[Floating<PaneId>],
+        active: PaneId,
+    ) -> Vec<Floating<PaneId>> {
+        let settled = Self::settled_floating_panes(root, columns, list);
+        if settled.iter().any(|entry| entry.pane == active && entry.is_hidden()) {
+            return rules::raised(&root.pane_ids_vec(), &settled, &active);
+        }
+        settled
+    }
+
     /// The zoom of a layout whose floating panes are `floating`: a floating pane is never zoomed, so the zoom of
     /// one ends. The zoom request, each settle of a list and the load take the rule from here, for the panes of
     /// the live screen and for the panes of its stored record.
@@ -66,7 +84,12 @@ impl Screen {
     /// ends here, so an entry of a pane that became tiled by the rules never comes back. The zoom of a pane of
     /// the list ends ([`Self::zoom_beside_floating_panes`]).
     pub(crate) fn set_floating_panes(&mut self, floating: Vec<Floating<PaneId>>) {
-        self.floating = Self::settled_floating_panes(&self.root, &self.layout_columns, &floating);
+        self.floating = Self::settled_floating_panes_with_focus(
+            &self.root,
+            &self.layout_columns,
+            &floating,
+            self.active_pane,
+        );
         self.zoomed_pane = Self::zoom_beside_floating_panes(self.zoomed_pane, &self.floating);
     }
 
@@ -82,10 +105,42 @@ impl Screen {
     }
 
     /// Gives `pane` the focus of the screen. A floating pane that gets the focus comes to the front, as a focus
-    /// request does it.
+    /// request does it. A quick terminal that gets the focus shows, and its mark names the pane that had the
+    /// focus.
     pub(crate) fn set_active_pane(&mut self, pane: PaneId) {
-        self.active_pane = pane;
+        let previous = std::mem::replace(&mut self.active_pane, pane);
         self.raise_floating_pane(pane);
+        rules::focus_moved(&mut self.floating, &pane, &previous);
+    }
+
+    /// The quick terminal of the screen (`quick-terminal-v1`): its pane and its mark.
+    pub(crate) fn quick_terminal(&self) -> Option<(PaneId, Quick<PaneId>)> {
+        let list = self.floating_panes();
+        let entry = rules::quick_terminal(&list)?;
+        Some((entry.pane, entry.quick?))
+    }
+
+    /// Makes the floating `pane` the quick terminal of the screen, shown, with `from` as the pane that gets the
+    /// focus back at a hide. A screen that has a quick terminal keeps it.
+    pub(crate) fn mark_quick_terminal(&mut self, pane: PaneId, from: Option<PaneId>) {
+        self.floating =
+            rules::marked(&self.root.pane_ids_vec(), &self.floating, &pane, from.as_ref());
+    }
+
+    /// Hides the quick terminal. When it has the focus, the focus goes to the pane of its mark, else to
+    /// `fallback`; with neither, nothing changes. False when the screen has no quick terminal that shows.
+    pub(crate) fn hide_quick_terminal(&mut self, fallback: Option<PaneId>) -> bool {
+        let Some((pane, mark)) = self.quick_terminal().filter(|(_, mark)| !mark.hidden) else {
+            return false;
+        };
+        if self.active_pane == pane {
+            let Some(next) = mark.from.or(fallback).filter(|next| *next != pane) else {
+                return false;
+            };
+            self.set_active_pane(next);
+        }
+        self.floating = rules::hidden(&self.root.pane_ids_vec(), &self.floating);
+        true
     }
 
     /// Floats `pane`, puts it back into the tiled layout, or moves it, by `mode` and `frame`. False when the
@@ -121,6 +176,14 @@ impl Screen {
             && self.floating.iter().any(|entry| entry.pane == pane)
     }
 
+    /// Whether a focus of `pane` changes the list: a floating pane behind another comes to the front, and the
+    /// quick terminal that gets the focus shows and its mark names the pane that had the focus.
+    pub(crate) fn focus_changes_floating_panes(&self, pane: PaneId) -> bool {
+        self.floating_pane_is_behind(pane)
+            || (self.active_pane != pane
+                && self.floating.iter().any(|entry| entry.pane == pane && entry.quick.is_some()))
+    }
+
     /// Brings a floating `pane` to the front. False when the list did not change.
     pub(crate) fn raise_floating_pane(&mut self, pane: PaneId) -> bool {
         if !self.floating.iter().any(|entry| entry.pane == pane) {
@@ -147,8 +210,9 @@ impl ScreenLayoutSnapshot {
 
     /// Gives `pane` the focus of the snapshot, as [`Screen::set_active_pane`] does it.
     pub(crate) fn set_active_pane(&mut self, pane: PaneId) {
-        self.active_pane = pane;
+        let previous = std::mem::replace(&mut self.active_pane, pane);
         self.raise_floating_pane(pane);
+        rules::focus_moved(&mut self.floating, &pane, &previous);
     }
 
     /// Brings a floating `pane` to the front of the snapshot's list.

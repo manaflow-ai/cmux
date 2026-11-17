@@ -560,6 +560,9 @@ fn dispatch_command(
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
         Command::MoveColumn(params) => column_move::move_column(mux, client, params),
         Command::FloatPane(params) => floating_panes::float_pane(mux, client, actor, params),
+        Command::QuickTerminal(params) => {
+            floating_panes::quick_terminal(mux, client, actor, params)
+        }
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,

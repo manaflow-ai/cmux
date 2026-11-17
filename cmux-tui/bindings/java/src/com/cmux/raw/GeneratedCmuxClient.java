@@ -991,6 +991,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object quickTerminal(QuickTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.QUICK_TERMINAL, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ReadScreenResult readScreen(ReadScreenRequest request) throws CmuxException {
         Object result = execute(Commands.READ_SCREEN, request.toWire());
         return ReadScreenResult.fromWire(result);

@@ -4591,6 +4591,17 @@ class PutSessionRequest:
 
 
 @dataclass(frozen=True)
+class QuickTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/quick-terminal/request'
+    screen: Id
+    h: Union[float, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    w: Union[float, None, MissingType] = field(default=MISSING)
+    x: Union[float, None, MissingType] = field(default=MISSING)
+    y: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ReadScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/read-screen/request'
     surface: Id
@@ -7125,6 +7136,7 @@ __all__ = [
     'PutBlobRequest',
     'PutFrontendProjectionRequest',
     'PutSessionRequest',
+    'QuickTerminalRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
     'ReattachViewRequest',

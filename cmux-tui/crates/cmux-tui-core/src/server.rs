@@ -1926,6 +1926,8 @@ enum Command {
     MoveColumn(column_move::MoveColumnParams),
     /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
     FloatPane(floating_panes::FloatPaneParams),
+    /// `quick-terminal-v1`: make the quick terminal of a screen, show it with the focus, or hide it.
+    QuickTerminal(floating_panes::QuickTerminalParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -3089,10 +3091,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
-}
-
-fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
-    mux.with_state(|state| state.pane_of(id).is_some())
 }
 
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {

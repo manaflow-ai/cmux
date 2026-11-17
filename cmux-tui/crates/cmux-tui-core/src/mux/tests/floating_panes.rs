@@ -80,10 +80,7 @@ fn live_list(mux: &Mux) -> Vec<Floating<PanePublicId>> {
         state.workspaces[0].screens[0]
             .floating
             .iter()
-            .map(|entry| Floating {
-                pane: state.panes[&entry.pane].public_id.clone(),
-                frame: entry.frame,
-            })
+            .map(|entry| Floating::plain(state.panes[&entry.pane].public_id.clone(), entry.frame))
             .collect()
     })
 }
@@ -100,10 +97,7 @@ fn live_screen(mux: &Mux, screen: &ScreenPublicId) -> (Vec<Floating<PanePublicId
         let list = screen
             .floating
             .iter()
-            .map(|entry| Floating {
-                pane: state.panes[&entry.pane].public_id.clone(),
-                frame: entry.frame,
-            })
+            .map(|entry| Floating::plain(state.panes[&entry.pane].public_id.clone(), entry.frame))
             .collect::<Vec<_>>();
         let rows = screen.layout_columns.iter().map(|column| column.rows.len()).collect::<Vec<_>>();
         (list, rows)
@@ -124,10 +118,8 @@ fn floating_panes_persist_across_restart() {
     let low = restore_pane_id(3);
     let moved = FloatFrame { x: 100_000, y: 200_000, w: 400_000, h: 500_000 };
     let centered = FloatFrame { x: 200_000, y: 200_000, w: 600_000, h: 600_000 };
-    let expected = vec![
-        Floating { pane: right.clone(), frame: moved },
-        Floating { pane: low.clone(), frame: centered },
-    ];
+    let expected =
+        vec![Floating::plain(right.clone(), moved), Floating::plain(low.clone(), centered)];
     assert!(stored_list(&root, &session).is_empty(), "the fixture has no floating pane");
 
     let mux = open_restart_mux(&root, &session);
@@ -172,23 +164,17 @@ fn floating_pane_records_load_by_the_rules() {
     let (root, session) = seed("rules", |screen| {
         screen.floating = vec![
             // A pane that is not a pane of this screen: an older build closed it.
-            Floating { pane: restore_pane_id(77), frame: FloatFrame::centered(600_000, 600_000) },
+            Floating::plain(restore_pane_id(77), FloatFrame::centered(600_000, 600_000)),
             // A frame that reaches past the screen and is too small.
-            Floating {
-                pane: low.clone(),
-                frame: FloatFrame { x: 950_000, y: 0, w: 10, h: 400_000 },
-            },
-            Floating { pane: right.clone(), frame: FloatFrame::centered(500_000, 500_000) },
+            Floating::plain(low.clone(), FloatFrame { x: 950_000, y: 0, w: 10, h: 400_000 }),
+            Floating::plain(right.clone(), FloatFrame::centered(500_000, 500_000)),
             // A second entry of one pane: the table has one record for each pane, so it is not written.
-            Floating { pane: low.clone(), frame: FloatFrame::centered(300_000, 300_000) },
+            Floating::plain(low.clone(), FloatFrame::centered(300_000, 300_000)),
         ];
     });
     let expected = vec![
-        Floating { pane: low, frame: FloatFrame { x: 850_000, y: 0, w: 150_000, h: 400_000 } },
-        Floating {
-            pane: right,
-            frame: FloatFrame { x: 250_000, y: 250_000, w: 500_000, h: 500_000 },
-        },
+        Floating::plain(low, FloatFrame { x: 850_000, y: 0, w: 150_000, h: 400_000 }),
+        Floating::plain(right, FloatFrame { x: 250_000, y: 250_000, w: 500_000, h: 500_000 }),
     ];
     assert_eq!(stored_list(&root, &session), expected);
 

@@ -594,6 +594,9 @@ class GeneratedClientMixin:
     def put_session(self, session_id: str, transport: Union[JsonValue, None], *, capabilities: Union[JsonValue, None, MissingType] = MISSING, follow_with: Union[str, None, MissingType] = MISSING, machine_name: Union[str, None, MissingType] = MISSING, session_name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('put-session', PutSessionRequest(session_id=session_id, transport=transport, capabilities=capabilities, follow_with=follow_with, machine_name=machine_name, session_name=session_name))
 
+    def quick_terminal(self, screen: Id, *, h: Union[float, None, MissingType] = MISSING, mode: Union[str, None, MissingType] = MISSING, w: Union[float, None, MissingType] = MISSING, x: Union[float, None, MissingType] = MISSING, y: Union[float, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('quick-terminal', QuickTerminalRequest(screen=screen, h=h, mode=mode, w=w, x=x, y=y))
+
     def read_screen(self, surface: Id) -> ReadScreenResult:
         return self._invoke_command('read-screen', ReadScreenRequest(surface=surface))
 
@@ -1119,6 +1122,7 @@ GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_blob.__cmux_command__ = COMMANDS['put-blob']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
 GeneratedClientMixin.put_session.__cmux_command__ = COMMANDS['put-session']
+GeneratedClientMixin.quick_terminal.__cmux_command__ = COMMANDS['quick-terminal']
 GeneratedClientMixin.read_screen.__cmux_command__ = COMMANDS['read-screen']
 GeneratedClientMixin.read_scrollback.__cmux_command__ = COMMANDS['read-scrollback']
 GeneratedClientMixin.reattach_view.__cmux_command__ = COMMANDS['reattach-view']

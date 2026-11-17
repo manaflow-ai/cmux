@@ -489,6 +489,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "put-blob",
     "put-frontend-projection",
     "put-session",
+    "quick-terminal",
     "remote-host-app",
     "remote-host-call",
     "remote-host-config",

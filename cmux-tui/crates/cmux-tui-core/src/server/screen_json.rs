@@ -126,5 +126,9 @@ pub(crate) fn screen_layout_json(
     if !floating.is_empty() {
         value.insert("floating", floating_panes::floating_json(&floating));
     }
+    // `quick-terminal-v1`: the mark of the quick terminal. Only when the screen has one.
+    if let Some((pane, mark)) = screen.quick_terminal() {
+        value.insert("quick_terminal", floating_panes::quick_terminal_json(pane, mark));
+    }
     value
 }

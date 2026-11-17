@@ -11,7 +11,7 @@ fn frame(x: u32, y: u32, w: u32, h: u32) -> FloatFrame {
 }
 
 fn entry(pane: u8, frame: FloatFrame) -> Floating<u8> {
-    Floating { pane, frame }
+    Floating::plain(pane, frame)
 }
 
 fn panes_of(list: &[Floating<u8>]) -> Vec<u8> {
@@ -403,7 +403,7 @@ impl Oracle {
         let mut entries: Vec<(u64, Floating<u8>)> = self
             .floating
             .iter()
-            .map(|(pane, (frame, stamp))| (*stamp, Floating { pane: *pane, frame: *frame }))
+            .map(|(pane, (frame, stamp))| (*stamp, Floating::plain(*pane, *frame)))
             .collect();
         entries.sort_by_key(|(stamp, _)| *stamp);
         entries.into_iter().map(|(_, entry)| entry).collect()

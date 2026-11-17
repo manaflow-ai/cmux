@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362. */
+/* cmux-tui mux protocol 12, IR 892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8. */
 
 
 import type * as T from "./types.js";
@@ -2070,6 +2070,18 @@ export interface PutSessionRequest extends CmuxRequestBase {
 }
 export type PutSessionResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface QuickTerminalRequest extends CmuxRequestBase {
+  cmd: "quick-terminal";
+  "h"?: (number) | null;
+  "mode"?: (string) | null;
+  "screen": T.Id;
+  "w"?: (number) | null;
+  "x"?: (number) | null;
+  "y"?: (number) | null;
+}
+export type QuickTerminalResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface ReadScreenRequest extends CmuxRequestBase {
   cmd: "read-screen";
@@ -3276,6 +3288,7 @@ export type CmuxRequest =
   | PutBlobRequest
   | PutFrontendProjectionRequest
   | PutSessionRequest
+  | QuickTerminalRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
   | ReattachViewRequest
@@ -4939,6 +4952,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "quick-terminal": {
+    request: QuickTerminalRequest;
+    result: QuickTerminalResult;
+    authority: "control";
+    since: 12;
+    capability: "quick-terminal-v1";
     stream: null;
   };
   "read-screen": {

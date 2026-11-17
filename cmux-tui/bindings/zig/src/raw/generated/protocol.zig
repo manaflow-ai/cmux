@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362";
+pub const ir_sha256 = "892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8449,6 +8449,30 @@ pub fn putSession(client: anytype, request: PutSessionRequest) !wire.Decoded(Put
     );
 }
 
+pub const QuickTerminalRequest = struct {
+    h: wire.Field(f64) = .absent,
+    mode: wire.Field([]const u8) = .absent,
+    screen: Id,
+    w: wire.Field(f64) = .absent,
+    x: wire.Field(f64) = .absent,
+    y: wire.Field(f64) = .absent,
+};
+
+pub const QuickTerminalResult = JsonValue;
+
+pub fn quickTerminal(client: anytype, request: QuickTerminalRequest) !wire.Decoded(QuickTerminalResult) {
+    return client.callTyped(
+        QuickTerminalResult,
+        .{
+            .name = "quick-terminal",
+            .authority = "control",
+            .since = 12,
+            .capability = "quick-terminal-v1",
+        },
+        request,
+    );
+}
+
 pub const ReadScreenRequest = struct {
     surface: Id,
 };
@@ -12671,7 +12695,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 304;
+pub const command_count: usize = 305;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12867,6 +12891,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "quick-terminal", .authority = "control", .since = 12, .capability = "quick-terminal-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },

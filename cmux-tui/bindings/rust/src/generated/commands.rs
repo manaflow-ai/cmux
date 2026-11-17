@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362.
+// cmux-tui mux protocol 12, IR 892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2985,6 +2985,25 @@ pub type PutSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuickTerminalRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub h: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mode: Optional<String>,
+    pub screen: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub w: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub x: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub y: Optional<f64>,
+}
+
+#[rustfmt::skip]
+pub type QuickTerminalResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadScreenRequest {
     pub surface: T::Id,
 }
@@ -5524,6 +5543,10 @@ impl CmuxClient {
 
     pub fn put_session(&mut self, request: PutSessionRequest) -> Result<PutSessionResult> {
         self.execute(&PUT_SESSION_METADATA, &request)
+    }
+
+    pub fn quick_terminal(&mut self, request: QuickTerminalRequest) -> Result<QuickTerminalResult> {
+        self.execute(&QUICK_TERMINAL_METADATA, &request)
     }
 
     pub fn read_screen(&mut self, request: ReadScreenRequest) -> Result<T::ReadScreenResult> {

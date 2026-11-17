@@ -83,7 +83,7 @@ fn registry_with_a_floating_pane(root: &Path, session: &str) -> Vec<TabPublicId>
             zoomed_pane: None,
             auto_layout: None,
             viewport: RegistryViewport::default(),
-            floating: vec![Floating { pane: panes[1].clone(), frame: FRAME }],
+            floating: vec![Floating::plain(panes[1].clone(), FRAME)],
         }),
     ];
     for (ordinal, (pane, tab)) in (1u64..).zip(panes.iter().zip(&tabs)) {

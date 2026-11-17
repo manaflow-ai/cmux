@@ -235,6 +235,7 @@ public:
     [[nodiscard]] Result<JsonValue> put_blob(const PutBlobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> put_session(const PutSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> quick_terminal(const QuickTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScreenResult> read_screen(const ReadScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScrollbackResult> read_scrollback(const ReadScrollbackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReattachViewResult> reattach_view(const ReattachViewRequest& request, RequestOptions options = {});

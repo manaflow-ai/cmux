@@ -26,8 +26,19 @@
 //!
 //! Load reads the records of the screens that it loads, by their ids, in one
 //! statement: a load of one workspace reads no record of another workspace.
+//!
+//! The quick terminal (`quick-terminal-v1`) is the record with a mark: column
+//! `quick` (0 = a floating pane, 1 = the quick terminal and it shows, 2 = the
+//! quick terminal and it is hidden) and column `quick_from` (the pane that
+//! gets the focus back at a hide, or NULL). Each open adds the 2 columns to a
+//! table that has none, with no change of a record and no change of the
+//! schema version, so a build before the mark still opens the store: it names
+//! its 7 columns in each statement. Its write of a screen's list leaves the
+//! defaults (0, NULL): the quick terminal is a floating pane that shows then,
+//! and no pane is lost. Another value of `quick`, and a `quick_from` that is
+//! no pane id, read as no mark.
 
-use cmux_layout_reducer::floating_panes::{FloatFrame, Floating, normalized};
+use cmux_layout_reducer::floating_panes::{FloatFrame, Floating, Quick, normalized};
 
 use super::*;
 
@@ -44,11 +55,34 @@ pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
            PRIMARY KEY (screen_id, pane_id)
          );",
     )?;
+    let names = transaction
+        .prepare("SELECT name FROM pragma_table_info('resource_floating_panes')")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (column, definition) in MARK_COLUMNS {
+        if !names.iter().any(|name| name == column) {
+            transaction.execute_batch(&format!(
+                "ALTER TABLE resource_floating_panes ADD COLUMN {column} {definition};"
+            ))?;
+        }
+    }
     Ok(())
 }
 
-/// `(pane id, [x, y, w, h])` of every record, back to front.
-type Records = Vec<(String, [i64; 4])>;
+/// The columns of the mark of the quick terminal, which a table of a build before the mark does not have.
+const MARK_COLUMNS: [(&str, &str); 2] =
+    [("quick", "INTEGER NOT NULL DEFAULT 0"), ("quick_from", "TEXT")];
+
+/// `quick` of a record that is not the quick terminal, of one that shows, and of one that is hidden.
+const PLAIN: i64 = 0;
+const SHOWN: i64 = 1;
+const HIDDEN: i64 = 2;
+
+/// `(pane id, [x, y, w, h], quick, quick_from)` of one record.
+type Record = (String, [i64; 4], i64, Option<String>);
+
+/// Every record of a screen, back to front.
+type Records = Vec<Record>;
 
 /// The records the screen's list asks for. A second entry of one pane is left out, as the rules of the list
 /// drop it: the table has one record for each pane.
@@ -56,18 +90,27 @@ fn desired(screen: &RegistryScreen) -> Records {
     let mut records: Records = Vec::with_capacity(screen.floating.len());
     for entry in &screen.floating {
         let pane = entry.pane.to_string();
-        if records.iter().any(|(seen, _)| *seen == pane) {
+        if records.iter().any(|(seen, ..)| *seen == pane) {
             continue;
         }
         let frame = entry.frame;
-        records.push((pane, [frame.x, frame.y, frame.w, frame.h].map(i64::from)));
+        let quick = match &entry.quick {
+            None => PLAIN,
+            Some(mark) if mark.hidden => HIDDEN,
+            Some(_) => SHOWN,
+        };
+        let from =
+            entry.quick.as_ref().and_then(|mark| mark.from.as_ref()).map(ToString::to_string);
+        records.push((pane, [frame.x, frame.y, frame.w, frame.h].map(i64::from), quick, from));
     }
     records
 }
 
-/// The pane id and the four values of the record in `row`, whose pane id is at column `pane` and whose values
-/// follow it. `None` when the pane id is not a text or one of the values is not an integer.
-fn record(row: &rusqlite::Row<'_>, pane: usize) -> rusqlite::Result<Option<(String, [i64; 4])>> {
+/// The pane id, the four values and the mark of the record in `row`, whose pane id is at column `pane` and
+/// whose values follow it. `None` when the pane id is not a text or one of the four values is not an integer.
+/// A `quick` that is not an integer reads as -1, a value that no build writes, and a `quick_from` that is not a
+/// text reads as none: the record stays a floating pane, and [`matches`] is false for it.
+fn record(row: &rusqlite::Row<'_>, pane: usize) -> rusqlite::Result<Option<Record>> {
     let Ok(id) = row.get_ref(pane)?.as_str() else {
         return Ok(None);
     };
@@ -78,13 +121,25 @@ fn record(row: &rusqlite::Row<'_>, pane: usize) -> rusqlite::Result<Option<(Stri
         };
         *value = stored;
     }
-    Ok(Some((id.to_owned(), frame)))
+    let quick = row.get_ref(pane + 5)?.as_i64().unwrap_or(-1);
+    let from = row.get_ref(pane + 6)?.as_str().ok().map(str::to_owned);
+    Ok(Some((id.to_owned(), frame, quick, from)))
+}
+
+/// The mark of a record with `quick` and `quick_from`: none for a value that is not [`SHOWN`] or [`HIDDEN`].
+fn stored_mark(quick: i64, from: Option<String>) -> Option<Quick<PanePublicId>> {
+    let hidden = match quick {
+        SHOWN => false,
+        HIDDEN => true,
+        _ => return None,
+    };
+    Some(Quick { hidden, from: from.and_then(|from| PanePublicId::parse(from).ok()) })
 }
 
 /// The screen's records, back to front. `None` when one of them is not valid ([`record`]).
 fn stored(connection: &Connection, screen_id: &str) -> anyhow::Result<Option<Records>> {
     let mut statement = connection.prepare(
-        "SELECT pane_id, x, y, w, h FROM resource_floating_panes
+        "SELECT pane_id, x, y, w, h, quick, quick_from FROM resource_floating_panes
          WHERE screen_id = ?1 ORDER BY position",
     )?;
     let records = statement
@@ -109,11 +164,12 @@ pub(super) fn write(transaction: &Transaction<'_>, screen: &RegistryScreen) -> a
         "DELETE FROM resource_floating_panes WHERE screen_id = ?1",
         params![screen.public_id.as_str()],
     )?;
-    for (position, (pane, [x, y, w, h])) in desired(screen).into_iter().enumerate() {
+    for (position, (pane, [x, y, w, h], quick, from)) in desired(screen).into_iter().enumerate() {
         transaction.execute(
-            "INSERT INTO resource_floating_panes(screen_id, pane_id, position, x, y, w, h)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![screen.public_id.as_str(), pane, position as i64, x, y, w, h],
+            "INSERT INTO resource_floating_panes(
+               screen_id, pane_id, position, x, y, w, h, quick, quick_from)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![screen.public_id.as_str(), pane, position as i64, x, y, w, h, quick, from],
         )?;
     }
     Ok(())
@@ -136,7 +192,7 @@ pub(super) fn overlay(
     let ids = screens.iter().map(|screen| screen.public_id.as_str()).collect::<Vec<_>>();
     let ids = serde_json::to_string(&ids)?;
     let mut statement = connection.prepare(
-        "SELECT screen_id, pane_id, x, y, w, h FROM resource_floating_panes
+        "SELECT screen_id, pane_id, x, y, w, h, quick, quick_from FROM resource_floating_panes
          WHERE screen_id IN (SELECT value FROM json_each(?1))
          ORDER BY screen_id, position",
     )?;
@@ -155,8 +211,12 @@ pub(super) fn overlay(
         let Some((index, screen)) = found else {
             continue;
         };
-        let entry = record.and_then(|(pane, frame)| {
-            Some(Floating { pane: PanePublicId::parse(pane).ok()?, frame: stored_frame(frame)? })
+        let entry = record.and_then(|(pane, frame, quick, from)| {
+            Some(Floating {
+                pane: PanePublicId::parse(pane).ok()?,
+                frame: stored_frame(frame)?,
+                quick: stored_mark(quick, from),
+            })
         });
         let Some(entry) = entry else {
             eprintln!("cmux-tui: ignoring a floating pane record of {screen_id}: it is not valid");

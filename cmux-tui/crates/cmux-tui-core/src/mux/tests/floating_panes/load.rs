@@ -14,7 +14,7 @@ fn stage(root: &Path, session: &str, sql: &str) {
 
 /// A record of `pane` with a frame in the middle of the screen.
 fn centered(pane: PanePublicId) -> Floating<PanePublicId> {
-    Floating { pane, frame: FloatFrame::centered(500_000, 500_000) }
+    Floating::plain(pane, FloatFrame::centered(500_000, 500_000))
 }
 
 /// The faults of one record: a REAL, a TEXT, two values that are not a `u32`, and a pane id that is a BLOB.
@@ -30,9 +30,7 @@ fn store_with_a_wrong_value(
     let low = restore_pane_id(3);
     let (root, session) = seed(name, |seeded| {
         seeded.floating = good.to_vec();
-        seeded
-            .floating
-            .push(Floating { pane: low.clone(), frame: FloatFrame::centered(300_000, 300_000) });
+        seeded.floating.push(Floating::plain(low.clone(), FloatFrame::centered(300_000, 300_000)));
     });
     stage(
         &root,
@@ -207,10 +205,7 @@ fn floating_pane_record_of_a_pane_that_never_floats_is_dropped_at_load() {
     let records = |panes: &[&PanePublicId]| {
         panes
             .iter()
-            .map(|pane| Floating {
-                pane: (*pane).clone(),
-                frame: FloatFrame::centered(500_000, 500_000),
-            })
+            .map(|pane| Floating::plain((*pane).clone(), FloatFrame::centered(500_000, 500_000)))
             .collect::<Vec<_>>()
     };
 
@@ -262,7 +257,7 @@ fn floating_pane_record_of_the_zoomed_pane_ends_the_zoom_at_load() {
     let (root, session) = seed("zoom", |screen| {
         assert_eq!(screen.zoomed_pane, Some(low.clone()), "the fixture zooms the low pane");
         screen.floating =
-            vec![Floating { pane: low.clone(), frame: FloatFrame::centered(500_000, 500_000) }];
+            vec![Floating::plain(low.clone(), FloatFrame::centered(500_000, 500_000))];
     });
 
     let stored = WorkspaceRegistry::open(&root, &session)
@@ -302,8 +297,8 @@ fn floating_panes_of_two_screens_load_each_on_its_own_screen() {
     });
     let moved = FloatFrame { x: 100_000, y: 200_000, w: 400_000, h: 500_000 };
     let wide = FloatFrame { x: 300_000, y: 100_000, w: 500_000, h: 600_000 };
-    let on_columns = vec![Floating { pane: restore_pane_id(3), frame: moved }];
-    let on_selected = vec![Floating { pane: restore_pane_id(5), frame: wide }];
+    let on_columns = vec![Floating::plain(restore_pane_id(3), moved)];
+    let on_selected = vec![Floating::plain(restore_pane_id(5), wide)];
 
     let mux = open_restart_mux(&root, &session);
     // The screen `selected` has one pane in the fixture: the product gives it a second column with a new pane.

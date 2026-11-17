@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362";
+inline constexpr std::string_view kProtocolIrSha256 = "892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -505,6 +505,7 @@ struct ProcessInfoRequest;
 struct PutBlobRequest;
 struct PutFrontendProjectionRequest;
 struct PutSessionRequest;
+struct QuickTerminalRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
 struct ReattachViewRequest;
@@ -4606,6 +4607,16 @@ struct PutSessionRequest {
     Field<std::string> session_name{};
     std::optional<JsonValue> transport{};
     friend bool operator==(const PutSessionRequest&, const PutSessionRequest&) = default;
+};
+
+struct QuickTerminalRequest {
+    Field<double> h{};
+    Field<std::string> mode{};
+    Id screen{};
+    Field<double> w{};
+    Field<double> x{};
+    Field<double> y{};
+    friend bool operator==(const QuickTerminalRequest&, const QuickTerminalRequest&) = default;
 };
 
 struct ReadScreenRequest {
@@ -9606,6 +9617,12 @@ template <>
 struct Codec<PutSessionRequest> {
     static Result<Json> encode(const PutSessionRequest& value);
     static Result<PutSessionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<QuickTerminalRequest> {
+    static Result<Json> encode(const QuickTerminalRequest& value);
+    static Result<QuickTerminalRequest> decode(const Json& value);
 };
 
 template <>

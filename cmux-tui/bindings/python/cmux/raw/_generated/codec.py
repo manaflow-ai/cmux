@@ -470,6 +470,7 @@ MODEL_BY_PATH = {
     'commands/put-blob/request': models.PutBlobRequest,
     'commands/put-frontend-projection/request': models.PutFrontendProjectionRequest,
     'commands/put-session/request': models.PutSessionRequest,
+    'commands/quick-terminal/request': models.QuickTerminalRequest,
     'commands/read-screen/request': models.ReadScreenRequest,
     'commands/read-scrollback/request': models.ReadScrollbackRequest,
     'commands/reattach-view/request': models.ReattachViewRequest,

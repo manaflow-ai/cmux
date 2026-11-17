@@ -490,6 +490,7 @@
       "put-blob",
       "put-frontend-projection",
       "put-session",
+      "quick-terminal",
       "read-screen",
       "read-scrollback",
       "reattach-view",
