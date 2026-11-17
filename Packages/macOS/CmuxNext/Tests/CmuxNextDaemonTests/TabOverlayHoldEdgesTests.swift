@@ -5,8 +5,8 @@ import Testing
 
 /// The edges of the hold of a pane's tab list while tab creations wait (`TabOverlayNetPublishTests` has the rule: a
 /// batch publishes only its net change to a pane's tab list, one time): 2 panes held in one batch, a batch that a
-/// reader starts inside a publication, the answer, the settlement and the rejection of one creation, a guessed tab,
-/// and the group spans at the hold's end.
+/// reader starts inside a publication, the answer and the rejection of one creation, a guessed tab, and the group
+/// spans at the hold's end.
 @MainActor
 struct TabOverlayHoldEdgesTests {
     typealias Rows = TabOverlayNetPublishTests
@@ -71,11 +71,12 @@ struct TabOverlayHoldEdgesTests {
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
 
-    /// Counts each change of a pane's tab list, and applies `inner` one time in the first change's own call: a batch
-    /// that starts inside a publication.
+    /// Counts each change of a pane's tab list, and runs `inner` one time in the first change's own call: a batch
+    /// that starts inside a publication. `innerReading` is the number that `inner` gave back.
     @MainActor final class ReaderThatApplies {
         var tabs = 0
-        var inner: (@MainActor () -> Void)?
+        var inner: (@MainActor () -> Int)?
+        var innerReading: Int?
 
         func track(_ pane: PaneModel) {
             withObservationTracking { _ = pane.tabs } onChange: {
@@ -84,7 +85,7 @@ struct TabOverlayHoldEdgesTests {
                     self.track(pane)
                     if let inner = self.inner {
                         self.inner = nil
-                        inner()
+                        self.innerReading = inner()
                     }
                 }
             }
@@ -92,10 +93,12 @@ struct TabOverlayHoldEdgesTests {
     }
 
     /// A reader of the first pane applies one more batch inside the first pane's publication. The second pane is
-    /// still held then: the inner batch does not take its hold and does not end it. Each hold ends one time: each
-    /// pane publishes the outer batch's tab one time, and each publishes the next batch again (no hold stays open).
-    /// The row reads no mirror report: a batch that starts inside a publication starts before the outer batch
-    /// recorded the mirror.
+    /// still held then: the inner batch does not take its hold and does not end it (at the inner batch's end the
+    /// second pane has published nothing). Each hold ends one time: each pane publishes the outer batch's tab one
+    /// time, and each publishes the next batch again (no hold stays open).
+    /// The row reads no mirror report: the inner batch adds its tab inside the outer batch's publication, after the
+    /// outer batch counted the confirmed tabs and before its check of that count, so in a Debug build that check
+    /// reports a changed count.
     @Test func aBatchThatAReaderStartsInsideAPublicationEndsEachHoldOneTime() throws {
         let store = Rows.store()
         _ = Self.creations(6, in: Rows.shownPane, of: store)
@@ -104,7 +107,10 @@ struct TabOverlayHoldEdgesTests {
         let second = try Self.pane("k001", of: store)
         let reader = ReaderThatApplies()
         let secondWrites = Rows.Writes()
-        reader.inner = { _ = store.apply(batch: [Rows.tabOpened(in: 5, sequence: 3)]) }
+        reader.inner = {
+            _ = store.apply(batch: [Rows.tabOpened(in: 5, sequence: 3)])
+            return secondWrites.tabs
+        }
         reader.track(first)
         secondWrites.track(second)
 
@@ -112,6 +118,7 @@ struct TabOverlayHoldEdgesTests {
         _ = store.apply(batch: [Rows.tabOpened(in: 0, sequence: 1), Rows.tabOpened(in: 1, sequence: 2)])
 
         #expect(reader.inner == nil, "the first pane's publication did not run: the inner batch did not start")
+        #expect(reader.innerReading == 0, "the inner batch ended the second pane's hold: \(reader.innerReading ?? -1) writes of its tab list at the inner batch's end")
         #expect(reader.tabs == 1, "the outer and the inner batch wrote the first pane's tab list \(reader.tabs) times, want 1")
         #expect(secondWrites.tabs == 1, "the outer and the inner batch wrote the second pane's tab list \(secondWrites.tabs) times, want 1")
         #expect(first.tabs.count == 8 && second.tabs.count == 8, "the panes list \(first.tabs.count) and \(second.tabs.count) tabs, want 8 and 8")
@@ -126,8 +133,10 @@ struct TabOverlayHoldEdgesTests {
     }
 
     /// The answer to one creation puts the daemon's tab in its stand-in's place: one write, and each stand-in that
-    /// still waits keeps its record. The answer's settlement changes no list: no write. A rejection of another
-    /// creation takes its stand-in out: one write.
+    /// still waits keeps its record. A rejection of another creation takes its stand-in out: one write.
+    /// The settlement step between them holds no rule of the hold: the answer names its creation, so the answer's
+    /// batch took the creation out of the intent log already. The settlement finds no intent and starts no lift;
+    /// the row reads only that it writes nothing.
     @Test func anAnswerItsSettlementAndARejectionEachPublishOnlyTheNetChange() throws {
         let store = Rows.store()
         let asks = Self.creations(Rows.waiting, in: Rows.shownPane, of: store)
