@@ -1,8 +1,10 @@
 import type { ReduceContext, RowReader, RowWrite } from "@cmux/ownership"
-import { CloudGroup, CloudGroupItem, GROUP_LINK_PREFIX, GROUP_WEB_LINK_PREFIX, GroupAddWorkspace, GroupArchive, GroupCreate, GroupId, GroupRename } from "@cmux/protocol"
+import { CloudGroup, CloudGroupItem, GROUP_LINK_PREFIX, GROUP_MAX_MEMBERS, GROUP_WEB_LINK_PREFIX, GroupAddWorkspace, GroupArchive, GroupCreate, GroupId, GroupMemberRemove, GroupMemberSet, GroupRename } from "@cmux/protocol"
 import { Schema } from "effect"
 import { decodeParams, reject } from "./common.ts"
 import type { TeamState } from "./team.ts"
+import { memberOf } from "./team-members.ts"
+import { roleHas } from "./team-roles.ts"
 
 /**
  * Cloud groups in TeamDO (plans/cmux-next/cloud-groups-DESIGN.md, slice 1). Rows only, the head is
@@ -21,7 +23,7 @@ export const TABLE_GROUP_MEMBER = "group_member"
 export const TABLE_GROUP_ITEM = "group_item"
 export const TABLE_GROUP_WS = "group_ws"
 export const GROUP_TABLES: ReadonlyArray<string> = [TABLE_GROUP, TABLE_GROUP_MEMBER, TABLE_GROUP_ITEM, TABLE_GROUP_WS]
-export const GROUP_OPS: ReadonlySet<string> = new Set(["group.create", "group.rename", "group.add_workspace", "group.archive"])
+export const GROUP_OPS: ReadonlySet<string> = new Set(["group.create", "group.rename", "group.add_workspace", "group.archive", "group.members.set", "group.members.remove"])
 /** Workspaces one group holds in slice 1; more is refused, never truncated. */
 export const GROUP_MAX_ITEMS = 500
 
@@ -58,6 +60,21 @@ export const groupView = (g: GroupRow, user: string): typeof CloudGroup.Type => 
 export const groupLinks = (id: string) => ({ link: `${GROUP_LINK_PREFIX}${id}`, web_link: `${GROUP_WEB_LINK_PREFIX}${id}` })
 
 const put = (table: string, key: string, row: unknown): RowWrite => ({ table, op: "upsert", key, n: null, row })
+const del = (table: string, key: string): RowWrite => ({ table, op: "delete", key })
+
+/**
+ * A group's members as group.members.* answer them: owners first, then by user id. A person who left
+ * the team (or became a guest) is listed inactive; every group read refuses them already (teamRead
+ * checks team membership and team.resources first), so their row grants nothing.
+ */
+export const groupMembers = (state: TeamState, rows: RowReader | undefined, g: GroupRow) =>
+  Object.entries(g.members)
+    .map(([user, role]) => {
+      const m = memberOf(state, rows, user)
+      return { user, role, display_name: m?.display_name ?? null, active: roleHas(m?.role, "team.resources") }
+    })
+    .sort((a, b) => (a.role === "owner" ? 0 : 1) - (b.role === "owner" ? 0 : 1) || (a.user < b.user ? -1 : 1))
+const ownerCount = (members: Readonly<Record<string, Role>>) => Object.values(members).filter((r) => r === "owner").length
 
 type Reduced = { ok: true; state: TeamState; value: unknown; changed?: boolean; writes?: ReadonlyArray<RowWrite> } | ReturnType<typeof reject>
 
@@ -127,6 +144,37 @@ export const reduceGroup = (state: TeamState, op: string, params: unknown, ctx: 
       const g = prior ? o.g : { ...o.g, item_count: o.g.item_count + 1, next_position: o.g.next_position + 1 }
       const writes = [put(TABLE_GROUP_ITEM, `${o.g.id}:${ws}`, item), ...(prior ? [] : [put(TABLE_GROUP_WS, ws, { group: o.g.id }), put(TABLE_GROUP, g.id, g)])]
       return { ok: true, state, value, writes }
+    }
+    case "group.members.set": {
+      const d = decodeParams<typeof GroupMemberSet.params.Type>(GroupMemberSet, params)
+      if (!d.ok) return d
+      const o = owned(ctx, d.value.group)
+      if (!o.ok) return o
+      const target = d.value.user
+      // Only a member of this team who may use its resources (cloud-groups-DESIGN.md 6.1: guests later).
+      if (!roleHas(memberOf(state, ctx.rows, target)?.role, "team.resources")) return reject("group.member_not_in_team", "only a member of this team (not a guest) can join its cloud groups")
+      const prior = o.g.members[target]
+      if (prior === d.value.role) return { ok: true, state, value: { group: o.g.id, members: groupMembers(state, ctx.rows, o.g) }, changed: false }
+      if (prior === undefined && Object.keys(o.g.members).length >= GROUP_MAX_MEMBERS) return reject("validation.invalid", `a cloud group holds at most ${GROUP_MAX_MEMBERS} members`)
+      const members = { ...o.g.members, [target]: d.value.role }
+      if (ownerCount(members) === 0) return reject("group.last_owner", "a cloud group keeps at least one owner; make someone else owner first")
+      const g = { ...o.g, members }
+      return { ok: true, state, value: { group: g.id, members: groupMembers(state, ctx.rows, g) }, writes: [put(TABLE_GROUP, g.id, g), put(TABLE_GROUP_MEMBER, `${target}:${g.id}`, { group: g.id, role: d.value.role })] }
+    }
+    case "group.members.remove": {
+      const d = decodeParams<typeof GroupMemberRemove.params.Type>(GroupMemberRemove, params)
+      if (!d.ok) return d
+      const target = d.value.user
+      // A member may leave on their own; anyone else is removed by an owner.
+      const g0 = groupOf(ctx.rows, d.value.group)
+      const self = g0 !== undefined && target === user && roleIn(g0, user) !== undefined
+      const o = self ? { ok: true as const, g: g0! } : owned(ctx, d.value.group)
+      if (!o.ok) return o
+      if (o.g.members[target] === undefined) return { ok: true, state, value: { group: o.g.id, members: groupMembers(state, ctx.rows, o.g) }, changed: false }
+      const { [target]: _gone, ...members } = o.g.members
+      if (ownerCount(members) === 0) return reject("group.last_owner", "a cloud group keeps at least one owner; make someone else owner first")
+      const g = { ...o.g, members }
+      return { ok: true, state, value: { group: g.id, members: groupMembers(state, ctx.rows, g) }, writes: [put(TABLE_GROUP, g.id, g), del(TABLE_GROUP_MEMBER, `${target}:${g.id}`)] }
     }
     default:
       return reject("validation.invalid", `unknown op ${op}`)

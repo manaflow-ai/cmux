@@ -52,6 +52,7 @@ import AppKit
             let view = GroupLineView()
             view.frame = line.frame.offsetBy(dx: -block.minX, dy: -block.minY)
             view.isBlock = line.isBlock
+            view.rail = line.localRail
             view.color = line.color
             view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)

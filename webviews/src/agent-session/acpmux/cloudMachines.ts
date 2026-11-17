@@ -13,7 +13,21 @@ import { activeTeamFromReply, type ActiveTeamTag } from "./TeamTag";
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
 /// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
 /// machine left paused for 30 days is deleted unless it resumes; absent when the server does not say.
-export type CloudMachine = { id: string; name: string; stage: string; evictAt?: number };
+export type CloudMachine = { id: string; name: string; stage: string; evictAt?: number; size?: CloudMachineSize };
+/// A machine's size as its record says it (`cloudMachine.list` `size`): vCPUs, memory and disk, each
+/// absent when the record does not say. The composer's machine card names it (MachineCard.tsx).
+export type CloudMachineSize = { cpu?: number; memoryMb?: number; diskMb?: number };
+
+/// The `size` of a list row: only the positive whole numbers it carries; none when it has none.
+export function cloudMachineSize(raw: unknown): CloudMachineSize | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const size: CloudMachineSize = {};
+  for (const key of ["cpu", "memoryMb", "diskMb"] as const) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) size[key] = value;
+  }
+  return Object.keys(size).length > 0 ? size : undefined;
+}
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
@@ -72,13 +86,16 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
   if (value?.signedIn !== true || value.loaded !== true || !Array.isArray(value.machines)) return [];
   const machines: CloudMachine[] = [];
   for (const raw of value.machines.slice(0, MAX_ROWS)) {
-    const { id, name, stage, evictAt } = (raw ?? {}) as Record<string, unknown>;
+    const { id, name, stage, evictAt, size: rawSize } = (raw ?? {}) as Record<string, unknown>;
     if (typeof id !== "string" || !id || typeof name !== "string" || !name || typeof stage !== "string") continue;
-    machines.push(
-      typeof evictAt === "number" && Number.isFinite(evictAt) && evictAt > 0
-        ? { id, name, stage, evictAt }
-        : { id, name, stage },
-    );
+    const size = cloudMachineSize(rawSize);
+    machines.push({
+      id,
+      name,
+      stage,
+      ...(typeof evictAt === "number" && Number.isFinite(evictAt) && evictAt > 0 ? { evictAt } : {}),
+      ...(size ? { size } : {}),
+    });
   }
   return machines;
 }
