@@ -537,8 +537,7 @@ fn the_next_owner_says_in_its_start_line_that_the_writer_before_it_ended_late() 
     let mux = held.finish();
     // The writer's thread ends after its commit. The test waits for that
     // end here, so the bound of the release does not decide its result.
-    let writer_ended =
-        mux.journal_ingress.writer_ended_by(std::time::Instant::now() + WRITER_THREAD_WAIT);
+    let writer_ended = mux.journal_ingress.writer_ended_by(Instant::now() + WRITER_THREAD_WAIT);
     assert!(writer_ended, "setup: the journal writer did not end after its commit");
     mux.shutdown();
     mux.release_ownership(&root.join("control.sock"));
