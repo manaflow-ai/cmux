@@ -81,6 +81,8 @@ OWN_REPOSITORY = {
         "clean_merge_tree fetches only into a scratch `git init --bare` temporary directory it just made",
     "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
+    "cmux-tui/scripts/sync_bench.py":
+        "fetch_repo and build_here fetch only into repositories they `git init` under the bench root",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }
