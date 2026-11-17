@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
@@ -65,5 +66,69 @@ import Testing
         }
         _ = try #require(hidden, "SETUP: no frame of \(Self.frames) hid the closing pane")
         #expect(bare.isEmpty, "the closing pane shows with an empty tab bar in the frames \(bare) after the key")
+    }
+
+    /// A move of a pane's last tab into another pane: the tab shows in one tab bar only, the new one.
+    ///
+    /// The old pane leaves as after a close, but its tab is not gone: the new tab bar shows it. So the old tab bar must
+    /// not show it until the frame that hides the old pane, as it shows a closed tab until then.
+    ///
+    /// The store is offline, so the test makes the move's turn in its three steps, as `TabMoves.move` makes them with a
+    /// daemon: the departure, the move's intent in the store, the departure's close of the pane. Then the jobs that
+    /// follow a key's turn, each by its one call: the two panes take the store's state, and each tab bar follows its
+    /// model.
+    @Test(.timeLimit(.minutes(1)))
+    func aPanesLastTabMovedToAnotherPaneShowsInOneBarOnly() async throws {
+        let app = try await Fixture()
+        defer { app.close() }
+        app.content.layoutModel.newColumnWidthModeOverride = .fitScreen
+        app.content.applyCurrent()
+        app.settle()
+
+        let leaving = try app.pane(2), target = try app.pane(1)
+        let old = leaving.view.stripView, new = target.view.stripView
+        let moved = try #require(leaving.pane.tabs.first, "SETUP: the pane has no tab in the store")
+        try #require(leaving.pane.tabs.count == 1, "SETUP: the pane has \(leaving.pane.tabs.count) tabs, not 1")
+        let tab = StripTabID(moved.id)
+        old.syncFromModel()
+        new.syncFromModel()
+        try #require(old.isShownInWindow && new.isShownInWindow, "SETUP: a tab bar does not count as shown in its window")
+        try #require(old.cells[tab] != nil && new.cells[tab] == nil, "SETUP: before the move the tab is not in the old tab bar only")
+        let host = try #require(app.root.context.hosts[leaving.layoutPaneID], "SETUP: the pane has no host in the layout")
+        try #require(host.superview != nil && !host.isHiddenOrHasHiddenAncestor, "SETUP: the pane does not show before the move")
+
+        // The move's turn.
+        let leave = TabMoves.depart(moved, into: target.pane, from: leaving, services: app.services)
+        app.store.intend(.moveTab(surface: moved.surface, toPane: target.pane.handle, index: target.pane.tabs.count), transaction: .generate())
+        _ = leave(true) { _ in }
+        try #require(app.content.layoutModel.isClosing(leaving.layoutPaneID), "SETUP: the move's turn did not show the old pane's close")
+        try #require(host.superview != nil && !host.isHidden, "SETUP: the move's own turn hid the old pane, so no frame shows it after the key")
+        // The jobs that follow the turn.
+        leaving.apply(leaving.snapshot())
+        target.apply(target.snapshot())
+        try #require(leaving.stripModel.tabs.isEmpty, "SETUP: after the move the old tab bar's model has the tab")
+        try #require(target.stripModel.tabs.contains { $0.id == tab }, "SETUP: after the move the new tab bar's model does not have the tab")
+        old.syncFromModel()
+        new.syncFromModel()
+        #expect(new.cells[tab] != nil, "after the move's turn the new tab bar does not show the moved tab")
+        #expect(old.cells[tab] == nil, "after the move's turn the moved tab shows in two tab bars")
+
+        // Each frame tick until the one that hides the old pane: the tab shows in the new tab bar only.
+        var both: [Int] = []
+        var hidden: Int?
+        for frame in 1...Self.frames {
+            _ = app.root.advanceFrame(ClosedPaneContentStaysUntilLandingTests.dt)
+            if host.isHidden || host.superview == nil {
+                hidden = frame
+                break
+            }
+            old.syncFromModel()
+            new.syncFromModel()
+            if old.cells[tab] != nil { both.append(frame) }
+        }
+        _ = try #require(hidden, "SETUP: no frame of \(Self.frames) hid the old pane")
+        #expect(both.isEmpty, "the moved tab shows in two tab bars in the frames \(both) after the move")
+        new.syncFromModel()
+        #expect(new.cells[tab] != nil, "after the frame that hides the old pane the new tab bar does not show the moved tab")
     }
 }
