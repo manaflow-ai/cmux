@@ -7,23 +7,21 @@ reading, cmuxterm-hq `metric hot_verify_share`).
 
 Each read is one `gh api` call and never waits or retries: the step runs with the workflow's token, and a step that
 sleeps in a loop on it spends the budget every workflow shares (tests/test_ci_no_github_token_polling.py). A read that
-fails exits 1, and the plan then looks at nothing.
+fails exits 1, and the plan then looks anyway (an unknown answer is not a receipt).
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
-import gh_pages  # noqa: E402
 
 # Must equal hot-verify-ci.py's MARKER_PREFIX (test_hot_verify_ci.py checks it).
 MARKER_PREFIX = "<!-- cmux-hot-verify "
 REPO = "manaflow-ai/cmux"
+# scripts/ci/gh_pages.py's page size and cap.
+PER_PAGE = 100
+MAX_PAGES = 30
 
 
 def read(*args: str) -> str:
@@ -37,10 +35,16 @@ def has_receipt(pr: int, repo: str = REPO) -> bool:
     body = read(f"repos/{repo}/pulls/{int(pr)}", "--jq", '.body // ""')
     if any(line.startswith(MARKER_PREFIX) for line in body.splitlines()):
         return True
-    # One bounded page per call (scripts/ci/gh_pages.py), never gh api's paginate flag: that is one unbounded
-    # call the gh quota wrapper refuses (tests/test_gh_pages.py).
-    comments = gh_pages.items(lambda url: json.loads(read(url)), f"repos/{repo}/issues/{int(pr)}/comments")
-    return any(str((comment or {}).get("body") or "").startswith(MARKER_PREFIX) for comment in comments)
+    # One line per comment: whether its body starts with the marker. One bounded page per call, never gh's
+    # paginate flag (the gh quota wrapper refuses it; scripts/ci/gh_pages.py): a page short of PER_PAGE is the last.
+    for page in range(1, MAX_PAGES + 1):
+        found = read(f"repos/{repo}/issues/{int(pr)}/comments?per_page={PER_PAGE}&page={page}", "--jq",
+                     f'.[] | (.body // "") | startswith("{MARKER_PREFIX}")').splitlines()
+        if any(line.strip() == "true" for line in found):
+            return True
+        if len(found) < PER_PAGE:
+            return False
+    raise RuntimeError(f"PR {pr} has more than {MAX_PAGES * PER_PAGE} comments; a list cut short is no answer")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     a = parser.parse_args(argv)
     try:
         print(f"receipt={'true' if has_receipt(a.pr, a.repo) else 'false'}")
-    except (RuntimeError, OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
         print(f"hot-verify-receipt: {error}", file=sys.stderr)
         return 1
     return 0

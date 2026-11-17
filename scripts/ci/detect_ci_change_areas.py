@@ -905,20 +905,21 @@ def ci_helper_areas(
                     runners = _files_naming(root, referrer)
                     if runners is None:
                         return every_area(f"could not search for {referrer}")
-                    # The test itself, documentation and a Python file (a test
-                    # or a scripts/ file) that names it only in a comment or
-                    # docstring do not run it (docs/ci/cmux-next-tiers.md, a
-                    # route test naming its own path as a routing input, and
-                    # scripts/cmux-next/tests/test_build_names.py's comment
-                    # once run-script-tests.py ran that file, #44759, made
-                    # these fail open).
+                    # The test itself, documentation and a Python test that
+                    # names it only in a comment or docstring do not run it
+                    # (docs/ci/cmux-next-tiers.md and a route test naming its
+                    # own path as a routing input made these fail open).
                     runners = [
                         runner for runner in runners
                         if runner != referrer
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
-                        and not (runner.endswith(".py")
+                        # So does a script under scripts/ (scripts/cmux-next/tests/
+                        # test_build_names.py names tests/test_script_module_loads.py
+                        # in a comment; #44759 made that fail open for every helper
+                        # that test reaches).
+                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a

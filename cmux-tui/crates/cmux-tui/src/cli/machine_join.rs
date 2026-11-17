@@ -1470,9 +1470,6 @@ pub(super) fn merge_rows(
 }
 
 /// How long `machine list` waits for acpmux's own machines (`acp host ls`), a local read.
-// A stalled daemon never holds `machine list`: past this the list keeps the platform's rows and says on stderr
-// that acpmux's machines are missing (merge_peers).
-// timeout: a local read that fails open (above)
 const PEER_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// `result` with the machines acpmux reaches itself added (`acpmux machine add HOST`), each a

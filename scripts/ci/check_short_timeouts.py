@@ -48,7 +48,7 @@ RUST_TIMEOUT_CALL = re.compile(r"(?:tokio::time::timeout|\.timeout\s*\(|\bwait_t
 # called next to it; a name that also says TIMEOUT, BUDGET or DEADLINE is still judged as one.
 RUST_CONST_DECL = re.compile(r"\b(?:const|static)\s+(\w+)\s*:")
 RUST_GATE_NAME = re.compile(r"TIMEOUT|BUDGET|DEADLINE", re.I)
-RUST_PACE_NAME = re.compile(r"BACKOFF|RETRY|RECONNECT|RESTART|FIRST_WAIT|POLL|INTERVAL|NOTE", re.I)
+RUST_PACE_NAME = re.compile(r"BACKOFF|RETRY|RECONNECT|RESTART|FIRST_WAIT|POLL|INTERVAL|NOTE|PAUSE|EVERY", re.I)
 
 TS_HARD_TIMEOUT = re.compile(
     rf"\b(?:[A-Za-z_]*timeout(?:Ms|_ms)|[A-Za-z_]*deadline)\b\s*(?:\??\s*:\s*[^=,;]+)?(?:=|:)[^;\n]*?({NUM})\b",
@@ -103,6 +103,16 @@ def _value(number: str, unit: str) -> float:
     return value if unit in {"milliseconds", "millis"} else value * 1000
 
 
+def _rust_test_file(rel: str) -> bool:
+    """A Rust file only a test build compiles: ``*_tests.rs``, or any file in a ``tests`` or
+    ``*_tests`` folder (``#[cfg(test)] mod outbound_queue_tests;`` whose cases are files)."""
+
+    if not rel.endswith(".rs"):
+        return False
+    folders = rel.split("/")[:-1]
+    return rel.endswith("_tests.rs") or any(f == "tests" or f.endswith("_tests") for f in folders)
+
+
 def _commented(lines: list[str], line: int) -> bool:
     return any(TIMEOUT_COMMENT.search(lines[i]) for i in (line, line - 1) if 0 <= i < len(lines))
 
@@ -110,15 +120,6 @@ def _commented(lines: list[str], line: int) -> bool:
 def _hit(hits: list[dict], pattern: str, line: int, source: str, lines: list[str]) -> None:
     if not _commented(lines, line - 1):
         hits.append({"pattern": pattern, "line": line, "source": source.strip()})
-
-
-def _rust_test_file(rel: str) -> bool:
-    """A `foo_tests.rs` module, or a file of its `foo_tests/` directory (its submodules, test code too)."""
-
-    if not rel.endswith(".rs"):
-        return False
-    parts = rel.split("/")
-    return parts[-1].endswith("_tests.rs") or any(part.endswith("_tests") for part in parts[:-1])
 
 
 def scan_source(text: str, rel: str) -> list[dict]:

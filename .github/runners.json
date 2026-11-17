@@ -339,7 +339,7 @@
     },
     "cmux-next-tab-switch.yml#frames": {
       "class": "apple-gui",
-      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the display measurement to the controller with cmux-ci run"
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the display measure to the controller with cmux-ci run"
     },
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",

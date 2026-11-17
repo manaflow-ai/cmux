@@ -29,11 +29,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any, Callable, Mapping
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import deadline_http  # noqa: E402  - each call ends by its deadline (tests/test_ci_no_bare_urlopen.py)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import deadline_http  # noqa: E402
 
 BUILD_JOB = "build xcframework"
 RESCUE_MINUTES = 20.0  # coordinator (claude-sr2-coord), 2026-11-17: "If still unplaced after 20 min, it goes to Blacksmith"
@@ -75,7 +74,9 @@ def _api(method: str, path: str, token: str, body: Mapping[str, Any] | None = No
         f"{API}/{path}", method=method, data=None if body is None else json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux/app-ffi-rescue"})
-    _, raw, _ = deadline_http.request(request, 30, raise_errors=True)
+    # deadline_http bounds the whole call, not each socket read (tests/test_ci_no_bare_urlopen.py); an HTTP error
+    # status still raises urllib's HTTPError, as urlopen did.
+    _status, raw, _headers = deadline_http.request(request, 30, raise_errors=True)
     return json.loads(raw) if raw else None
 
 
