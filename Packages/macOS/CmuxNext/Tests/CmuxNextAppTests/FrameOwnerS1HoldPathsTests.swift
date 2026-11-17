@@ -175,7 +175,8 @@ struct FrameOwnerS1HoldPathsTests {
     /// `PaneHostView.endKeyResizeHold`). The change is one commit: the areas let go at once and the key spring lands with
     /// it, so nothing is on a spring after the change's turn. The one frame tick that shows the change puts every pane at
     /// its rest rect and every strip on its pane; no frame after it moves, nothing holds and each content is at its
-    /// area's size.
+    /// area's size. A split shows at the first frame tick. A zoom shows at the tick at which the dim that comes over the
+    /// other pane is at its end: until then each tick asks for the next one and no pane is on a spring.
     @Test(arguments: Takeover.allCases)
     func aSplitOrZoomTakingOverAKeySpringLetsTheAreasGo(_ takeover: Takeover) throws {
         let rig = Rig(Self.pair)
@@ -194,8 +195,17 @@ struct FrameOwnerS1HoldPathsTests {
         let held = rig.provider.views.filter { $0.value.contentHost.isHolding }.keys.map(\.rawValue).sorted()
         #expect(held.isEmpty, "the \(takeover.rawValue) did not end the key hold of \(held)")
         #expect(!screen.hasMotion && !screen.holdsContentForKeyResize, "the \(takeover.rawValue) left the key spring running")
-        // The one frame tick that shows the change.
-        #expect(!rig.root.advanceFrame(1.0 / 120), "the frame that shows the \(takeover.rawValue) left something moving")
+        // The frame ticks up to the one that shows the change, which asks for no more: none before it for a split, the
+        // dim's for a zoom.
+        var waited = 0
+        while waited < 40, rig.root.advanceFrame(1.0 / 120) {
+            waited += 1
+            #expect(!screen.hasMotion, "tick \(waited) of the \(takeover.rawValue), before it shows, put a pane on a spring")
+        }
+        switch takeover {
+        case .split: #expect(waited == 0, "the frame that shows the split left something moving")
+        case .zoom: #expect(waited < 40, "the zoom did not show in the 40 frame ticks after its key")
+        }
         rig.root.layoutSubtreeIfNeeded()
         var strays = rig.strayStrips("the frame that shows the \(takeover.rawValue)")
         for pane in screen.paneFrames.keys {
