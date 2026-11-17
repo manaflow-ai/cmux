@@ -41,6 +41,9 @@ public struct AgentCLIHybridBenchRoot: View {
     public var body: some View {
         NavigationStack {
             TerminalScreen(model: bench.model)
+                // On screen, as the app's page says it (`TerminalTabPage`): without it the
+                // page counts as hidden, and its Mac grid changes wait for it to come back.
+                .onAppear { bench.model.setPageShown(true) }
         }
         .overlay(alignment: .top) {
             // Only once the bench is done: the UI test waits for it to exist.
@@ -53,6 +56,18 @@ public struct AgentCLIHybridBenchRoot: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .bottom) {
+            // A still's grid on screen now (`TerminalBenchProbe.Geometry`), kept current
+            // through a rotation or a trip to the background (the pixel matrix reads it).
+            if !bench.geometry.isEmpty {
+                Text(bench.geometry)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("hybrid-bench.geometry")
+                    .accessibilityLabel(bench.geometry)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+            }
+        }
         .task { await bench.run() }
     }
 }
@@ -61,10 +76,13 @@ public struct AgentCLIHybridBenchRoot: View {
 final class AgentCLIHybridBench {
     let model: TerminalModel
     private(set) var result = ""
+    /// In still mode: the grid's geometry on screen as one line of JSON, refreshed.
+    private(set) var geometry = ""
     private let daemon: HybridBenchDaemon
     private let probe = TerminalBenchProbe()
     private let hybrid: Bool
     private let mode: String
+    private let terminal: DaemonTerminalSession
 
     init() {
         let defaults = UserDefaults.standard
@@ -73,8 +91,8 @@ final class AgentCLIHybridBench {
         hybrid = mode == "hybrid" || mode == "lean"
         // The setting the session reads at attach (off unless this run is hybrid).
         defaults.set(hybrid, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
-        let session = defaults.string(forKey: "CmuxMobileHybridBenchFile")
-            .flatMap { FileManager.default.contents(atPath: $0) }
+        let session = (Self.sessionFromEnvironment() ?? defaults.string(forKey: "CmuxMobileHybridBenchFile")
+            .flatMap { FileManager.default.contents(atPath: $0) })
             .flatMap { BenchSession($0) }
         daemon = HybridBenchDaemon(session: session, hybrid: hybrid, lean: mode == "lean")
         let daemon = daemon
@@ -83,10 +101,22 @@ final class AgentCLIHybridBench {
             open: { DaemonClient(channel: daemon.main, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
             openInput: { DaemonClient(channel: daemon.lane, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) }
         )
+        self.terminal = terminal
         model = TerminalModel(session: terminal, artifactSource: MockArtifactSource(), title: "hybrid bench")
     }
 
     private func log(_ text: String) { NSLog("[hybrid-bench] %@", text) }
+
+    /// The environment variable a UI test hands the session in: the session file, LZFSE
+    /// compressed, base64. On a device the app cannot read the test runner's files, so the
+    /// pixel matrix sends the session itself (`-CmuxMobileHybridBenchFile` reads a path).
+    nonisolated static let sessionEnvironmentKey = "CMUX_HYBRID_BENCH_SESSION_LZFSE"
+
+    static func sessionFromEnvironment() -> Data? {
+        guard let text = ProcessInfo.processInfo.environment[sessionEnvironmentKey],
+              let packed = Data(base64Encoded: text) else { return nil }
+        return try? (packed as NSData).decompressed(using: .lzfse) as Data
+    }
 
     /// `-CmuxMobileHybridBenchStillMs T`: stop at the daemon's frame of `T` ms (from the
     /// session's start) and hold the screen: the lean frames up to that frame, or the PTY bytes
@@ -130,7 +160,31 @@ final class AgentCLIHybridBench {
             let (daemon, attachMs) = (daemon, session.attachMs)
             await Task.detached { await daemon.play(until: stillMs, from: 0, attachMs: attachMs, fast: true) }.value
             _ = await settledScreen(clock)
-            finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent])
+            // A Mac grid change that came within a claim's wait is held that long
+            // (`TerminalReclaimHold`): the still is the screen once it shows.
+            try? await clock.sleep(for: TerminalReclaimHold.reclaimWait + .milliseconds(200))
+            _ = await settledScreen(clock)
+            // `-CmuxMobileHybridBenchNoEdgeBlur`: the bar's blur shows nothing that scrolled
+            // above the grid over its first row (lean frames carry no scrollback).
+            if CommandLine.arguments.contains("-CmuxMobileHybridBenchNoEdgeBlur") {
+                probe.hideScrollEdgeEffects?()
+                _ = await settledScreen(clock)
+            }
+            // `-CmuxMobileHybridBenchPan end`: a grid wider than the phone shows its last column.
+            if UserDefaults.standard.string(forKey: "CmuxMobileHybridBenchPan") == "end" {
+                probe.pan?(true)
+                _ = await settledScreen(clock)
+            }
+            geometry = Self.geometryLine(probe.readGeometry?(), alternate: terminal.isAlternateScreen)
+            finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent,
+                    "attaches": daemon.attaches, "session": terminal.benchState])
+            // Nothing moves from here on, but the page can (a rotation, the background and
+            // back): the geometry follows it until the test ends the app.
+            while !Task.isCancelled {
+                try? await clock.sleep(for: .milliseconds(200))
+                let line = Self.geometryLine(probe.readGeometry?(), alternate: terminal.isAlternateScreen)
+                if line != geometry { geometry = line }
+            }
             return
         }
         // The rest of the session at its recorded pace, paused at each moment.
@@ -171,6 +225,22 @@ final class AgentCLIHybridBench {
             "moments": moments,
         ]
         finish(summary)
+    }
+
+    /// The grid on screen as one line of JSON (points): `grid` and `cursor` as [x, y, width,
+    /// height], `window` [width, height], `scale`, `fullScreen` (the page's full-screen app
+    /// layout) and `alternate` (the session's alternate screen flag).
+    static func geometryLine(_ geometry: TerminalBenchProbe.Geometry?, alternate: Bool) -> String {
+        guard let geometry else { return "{\"error\":\"no geometry\"}" }
+        func rect(_ r: CGRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { (Double($0) * 100).rounded() / 100 } }
+        var object: [String: Any] = [
+            "grid": rect(geometry.grid), "window": [Double(geometry.window.width), Double(geometry.window.height)],
+            "scale": Double(geometry.scale), "fullScreen": geometry.fullScreen, "alternate": alternate,
+            "cell": [Double(geometry.cell.width), Double(geometry.cell.height)],
+        ]
+        if let cursor = geometry.cursor { object["cursor"] = rect(cursor) }
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "" }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// The screen once nothing changed for 300 ms (at most 5 s).
@@ -265,7 +335,9 @@ struct BenchSession {
     let rows: Int
     let durationMs: Int
     /// PTY chunks: ms from the start, bytes.
-    let pty: [(atMs: Int, data: Data)]
+    /// PTY chunks, and the terminal's size changes among them (`resized`: the new size, the
+    /// replay the daemon sends with it, in `data`).
+    let pty: [(atMs: Int, data: Data, resized: (columns: Int, rows: Int)?)]
     /// The daemon's `agent-cli-frame` events: ms from the start, the event.
     let frames: [(atMs: Int, event: [String: Any])]
     let attachMs: Int
@@ -276,6 +348,9 @@ struct BenchSession {
     /// frame (``attachLean``) and the rest.
     let leanFrames: [(atMs: Int, event: [String: Any])]
     let attachLean: [String: Any]
+    /// The bytes an agent CLI's viewer gets before the attach's keyframe: the switch to the
+    /// alternate screen when the session is on it then.
+    let attachBefore: Data?
     let attachShown: String
     let moments: [Moment]
 
@@ -293,9 +368,15 @@ struct BenchSession {
         self.rows = rows
         durationMs = duration
         self.pty = pty.compactMap { pair in
-            guard pair.count == 2, let at = pair[0] as? Int,
-                  let bytes = (pair[1] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
-            return (at, bytes)
+            guard pair.count == 2, let at = pair[0] as? Int else { return nil }
+            // A size change: `{"cols", "rows", "replay"}` (the export's `resized`).
+            if let resized = pair[1] as? [String: Any] {
+                guard let columns = resized["cols"] as? Int, let rows = resized["rows"] as? Int,
+                      let replay = (resized["replay"] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
+                return (at, replay, (columns, rows))
+            }
+            guard let bytes = (pair[1] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
+            return (at, bytes, nil)
         }
         self.frames = frames.compactMap { pair in
             guard pair.count == 2, let at = pair[0] as? Int, let event = pair[1] as? [String: Any] else { return nil }
@@ -310,6 +391,7 @@ struct BenchSession {
             guard pair.count == 2, let at = pair[0] as? Int, let event = pair[1] as? [String: Any] else { return nil }
             return (at, event)
         }
+        attachBefore = (attach["before"] as? String).flatMap { Data(base64Encoded: $0) }
         attachShown = attach["shown"] as? String ?? ""
         self.moments = moments.compactMap { object in
             guard let name = object["name"] as? String, let at = object["t_ms"] as? Int else { return nil }
@@ -324,7 +406,7 @@ struct BenchSession {
         let bytes = switch mode {
         case "hybrid": frames.reduce(0) { $0 + HybridBenchDaemon.line($1.event).count }
         case "lean": leanFrames.reduce(HybridBenchDaemon.line(attachLean).count) { $0 + HybridBenchDaemon.line($1.event).count }
-        default: pty.reduce(0) { $0 + HybridBenchDaemon.outputLine($1.data).count }
+        default: pty.reduce(0) { $0 + HybridBenchDaemon.ptyLine($1).count }
         }
         if mode == "lean" {
             return Double(bytes) / max(Double(durationMs - attachMs) / 1000, 0.001)
@@ -345,6 +427,10 @@ final class HybridBenchDaemon: @unchecked Sendable {
     private let lock = NSLock()
     private var _attachAt: CFTimeInterval?
     private var _attachBytes = 0
+    /// `attach-surface` requests answered. Every one gets the attach moment's screen, so a
+    /// reattach after the play moved on draws later frames on an older screen: a still
+    /// reports it (`attaches`) instead of passing as the session.
+    private var _attaches = 0
     private var _streamed = 0
     private var _declaredHybrid = false
     private var nextPTY = 0
@@ -353,6 +439,7 @@ final class HybridBenchDaemon: @unchecked Sendable {
 
     var attachAt: CFTimeInterval? { lock.withLock { _attachAt } }
     var attachBytes: Int { lock.withLock { _attachBytes } }
+    var attaches: Int { lock.withLock { _attaches } }
     var streamedBytes: Int { lock.withLock { _streamed } }
     var declaredHybrid: Bool { lock.withLock { _declaredHybrid } }
 
@@ -365,7 +452,10 @@ final class HybridBenchDaemon: @unchecked Sendable {
         if let session {
             let attachFrame = session.attachFrame["frame"] as? Int ?? 0
             nextPTY = session.pty.firstIndex { $0.atMs > session.attachMs } ?? session.pty.count
-            nextFrame = lean ? 0 : session.frames.firstIndex { ($0.event["frame"] as? Int ?? 0) > attachFrame } ?? session.frames.count
+            // Frames after the attach's; a switch of screens (`output`, no frame) after its moment.
+            nextFrame = lean ? 0 : session.frames.firstIndex { entry in
+                (entry.event["frame"] as? Int).map { $0 > attachFrame } ?? (entry.atMs > session.attachMs)
+            } ?? session.frames.count
         }
     }
 
@@ -377,6 +467,13 @@ final class HybridBenchDaemon: @unchecked Sendable {
 
     static func outputLine(_ bytes: Data) -> Data {
         line(["event": "output", "surface": 1, "data": bytes.base64EncodedString()])
+    }
+
+    /// A PTY chunk as `output`, or a size change as the daemon's `resized` with its replay.
+    static func ptyLine(_ entry: (atMs: Int, data: Data, resized: (columns: Int, rows: Int)?)) -> Data {
+        guard let size = entry.resized else { return outputLine(entry.data) }
+        return line(["event": "resized", "surface": 1, "cols": size.columns, "rows": size.rows,
+                     "replay": entry.data.base64EncodedString()])
     }
 
     private func request(_ line: Data, on channel: FloodChannel?) {
@@ -405,8 +502,11 @@ final class HybridBenchDaemon: @unchecked Sendable {
             lock.withLock {
                 _attachAt = CACurrentMediaTime()
                 _attachBytes = first.count
+                _attaches += 1
             }
-            channel.push([first, reply])
+            // On the alternate screen the daemon tells an agent CLI's viewer the switch first.
+            let before = hybrid ? session.attachBefore.map(Self.outputLine) : nil
+            channel.push((before.map { [$0] } ?? []) + [first, reply])
         default:
             channel.push([reply])
         }
@@ -432,7 +532,7 @@ final class HybridBenchDaemon: @unchecked Sendable {
                     return nil
                 }
                 defer { nextPTY += 1 }
-                return (session.pty[nextPTY].atMs, Self.outputLine(session.pty[nextPTY].data))
+                return (session.pty[nextPTY].atMs, Self.ptyLine(session.pty[nextPTY]))
             }
             guard let next else { return }
             let due = from + Double(next.atMs - attachMs) / 1000

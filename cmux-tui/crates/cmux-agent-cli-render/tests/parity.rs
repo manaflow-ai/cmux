@@ -570,12 +570,31 @@ fn live_screen(term: &mut ghostty_vt::Terminal) -> (Grid, vt::Cursor) {
             .collect();
         slot.resize(usize::from(cols), Cell::default());
     }
-    let cursor = frame.cursor.map_or(vt::Cursor::default(), |c| vt::Cursor {
-        x: c.x,
-        y: c.y,
-        visible: true,
-    });
+    // As the daemon reads it (`HybridViewer::screen`): a hidden cursor keeps its place.
+    let cursor = match frame.cursor {
+        Some(c) => vt::Cursor { x: c.x, y: c.y, visible: true },
+        None => term.cursor_position().map_or(vt::Cursor::default(), |(x, y)| vt::Cursor {
+            x,
+            y,
+            visible: false,
+        }),
+    };
     (grid, cursor)
+}
+
+/// The daemon's frame check (`HybridViewer::frame_now`): the frame that changes the cells,
+/// else, when only the cursor moved since the frame before (`sent`), one that changes none.
+fn daemon_frame(
+    hybrid: &mut HybridStream,
+    real: &Grid,
+    cursor: vt::Cursor,
+    sent: &mut vt::Cursor,
+    at_ms: u64,
+) -> Option<cmux_agent_cli_render::stream::Frame> {
+    let frame =
+        hybrid.update(real, at_ms).or_else(|| (cursor != *sent).then(|| hybrid.still(at_ms)))?;
+    *sent = cursor;
+    Some(frame)
 }
 
 struct Streamed {
@@ -653,12 +672,15 @@ fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
     let key = hybrid.keyframe(0);
     deliver(&key, vt::Cursor::default(), &mut encoder, &mut decoder, &mut phone, &mut out);
     let mut dropped = false;
+    let mut sent = vt::Cursor::default();
     let mut send = |now: u64,
                     mac: &mut ghostty_vt::Terminal,
                     phone: &mut ghostty_vt::Terminal,
                     out: &mut Streamed| {
         let (real, cursor) = live_screen(mac);
-        let Some(frame) = hybrid.update(&real, now - start) else { return };
+        let Some(frame) = daemon_frame(&mut hybrid, &real, cursor, &mut sent, now - start) else {
+            return;
+        };
         let offline = drop.is_some_and(|(from, to)| now - start >= from && now - start < to);
         if offline {
             dropped = true;
@@ -752,9 +774,19 @@ fn b64(bytes: &[u8]) -> String {
 
 /// A frame as the daemon sends it (`agent-cli-frame`, `HybridViewer::event` in cmux-tui-core).
 fn frame_event(frame: &cmux_agent_cli_render::stream::Frame, cursor: vt::Cursor) -> Value {
+    sized_frame_event(frame, cursor, COLS, ROWS)
+}
+
+/// [`frame_event`] at a grid of `cols` × `rows`.
+fn sized_frame_event(
+    frame: &cmux_agent_cli_render::stream::Frame,
+    cursor: vt::Cursor,
+    cols: u16,
+    rows: u16,
+) -> Value {
     json!({
         "event": "agent-cli-frame", "surface": 1, "stream": STREAM_ID, "frame": frame.frame,
-        "base": frame.base, "cols": COLS, "rows": ROWS, "data": b64(&frame.data),
+        "base": frame.base, "cols": cols, "rows": rows, "data": b64(&frame.data),
         "cursor_x": cursor.x, "cursor_y": cursor.y, "cursor_visible": cursor.visible,
     })
 }
@@ -766,32 +798,86 @@ struct BenchStream {
     frames: Vec<Value>,
     shown: String,
     cursor: vt::Cursor,
+    /// The cursor the newest frame carried.
+    sent: vt::Cursor,
+    cols: u16,
+    rows: u16,
+    /// The screen the viewer's terminal was told it is on (the alternate one or not).
+    alternate: bool,
 }
 
 impl BenchStream {
     fn check(&mut self, mac: &mut ghostty_vt::Terminal, at_ms: u64) {
         let (real, cursor) = live_screen(mac);
-        if let Some(frame) = self.hybrid.update(&real, at_ms) {
-            self.frames.push(json!([at_ms, frame_event(&frame, cursor)]));
+        if let Some(frame) = daemon_frame(&mut self.hybrid, &real, cursor, &mut self.sent, at_ms) {
+            self.frames
+                .push(json!([at_ms, sized_frame_event(&frame, cursor, self.cols, self.rows)]));
         }
         self.cursor = cursor;
         self.shown = mac.viewport_text().unwrap();
+    }
+
+    /// The terminal changed size: a keyframe at the new size at once, as the daemon's
+    /// `HybridViewer::resized` sends it (and [`PhoneRun::resize`] replays it).
+    fn resized(&mut self, mac: &mut ghostty_vt::Terminal, cols: u16, rows: u16, at_ms: u64) {
+        (self.cols, self.rows) = (cols, rows);
+        self.hybrid.resize(cols, rows);
+        let (real, cursor) = live_screen(mac);
+        self.hybrid.update(&real, at_ms);
+        let key = self.hybrid.keyframe(at_ms);
+        self.frames.push(json!([at_ms, sized_frame_event(&key, cursor, cols, rows)]));
+        self.sent = cursor;
+        self.cursor = cursor;
+        self.shown = mac.viewport_text().unwrap();
+    }
+
+    /// After a write: a switch of screens reaches an agent CLI's viewer as the daemon's
+    /// `HybridViewer::follow_modes` sends it (#44052 F1), the switch as `output` bytes, then a
+    /// keyframe of the screen switched to. True when it switched (the held frame goes: the
+    /// keyframe has it).
+    fn follow_screen(&mut self, mac: &mut ghostty_vt::Terminal, at_ms: u64) -> bool {
+        let alternate = mac.active_screen() == ghostty_vt::Screen::Alternate;
+        if alternate == self.alternate {
+            return false;
+        }
+        self.alternate = alternate;
+        // A frame at T is the screen of the bytes written before T (the bench's still plays
+        // the PTY bytes before its time); these hold the write at `at_ms`, so they go 1 ms on.
+        let at_ms = at_ms + 1;
+        let switch: &[u8] = if alternate { b"\x1b[?1049h" } else { b"\x1b[?1049l" };
+        self.frames.push(json!([at_ms, {"event": "output", "surface": 1, "data": b64(switch)}]));
+        let (real, cursor) = live_screen(mac);
+        self.hybrid.update(&real, at_ms);
+        let key = self.hybrid.keyframe(at_ms);
+        self.frames.push(json!([at_ms, sized_frame_event(&key, cursor, self.cols, self.rows)]));
+        self.sent = cursor;
+        self.cursor = cursor;
+        self.shown = mac.viewport_text().unwrap();
+        true
     }
 }
 
 /// A session as the phone's in-app bench (`AgentCLIHybridBench`, cmux-next-ios) replays it:
 /// its PTY chunks, the daemon's `agent-cli-frame` events paced as the daemon paces them, what
-/// a viewer attaching at the `working` moment gets each way (the `vt-state` replay of the
-/// screen, or the stream's keyframe), and at every moment the real screen's text (`text`) and
-/// the text a hybrid viewer shows then, as of the newest frame check (`shown`). Written only
-/// when `HYBRID_EXPORT_DIR` names a directory.
+/// a viewer attaching at the `working` moment (else the session's second moment) gets each way
+/// (the `vt-state` replay of the screen, or the stream's keyframe), and at every moment the real
+/// screen's text (`text`) and the text a hybrid viewer shows then, as of the newest frame check
+/// (`shown`). A size change (`pty.jsonl`'s `resize` lines) is a `pty` entry
+/// `{"cols", "rows", "replay"}` (the daemon's `resized` event with its replay) and a keyframe
+/// at the new size among the frames. Written only when `HYBRID_EXPORT_DIR` names a directory.
 fn export(session: &Session) -> Value {
     let origin = std::time::Instant::now();
     let at = |ms: u64| origin + std::time::Duration::from_millis(ms);
     let ms = |due: std::time::Instant| u64::try_from((due - origin).as_millis()).unwrap();
     let start = session.chunks.first().unwrap().0;
     let end = session.moments.last().unwrap().1;
-    let attach = session.moments.iter().find(|(name, _)| name == "working").unwrap().1;
+    let attach = session
+        .moments
+        .iter()
+        .find(|(name, _)| name == "working")
+        .or_else(|| session.moments.get(1))
+        .unwrap()
+        .1;
     let mut mac = terminal();
     let mut pacer = FramePacer::default();
     let mut stream = BenchStream {
@@ -799,6 +885,10 @@ fn export(session: &Session) -> Value {
         frames: Vec::new(),
         shown: String::new(),
         cursor: vt::Cursor::default(),
+        sent: vt::Cursor::default(),
+        cols: COLS,
+        rows: ROWS,
+        alternate: false,
     };
     let first = stream.hybrid.keyframe(0);
     stream.frames.push(json!([0, frame_event(&first, vt::Cursor::default())]));
@@ -822,25 +912,55 @@ fn export(session: &Session) -> Value {
                     .replay
                     .into_self_contained_bytes();
                 let key = stream.hybrid.keyframe(moment - start);
+                // On the alternate screen the switch goes first, as the daemon's
+                // `HybridViewer::screen_before_first_frame` sends it.
+                let before = stream.alternate.then(|| b64(b"\x1b[?1049h"));
                 attached = Some(json!({
                     "t_ms": moment - start, "pty": b64(&replay), "text": text,
-                    "hybrid": frame_event(&key, stream.cursor), "shown": stream.shown,
+                    "hybrid": sized_frame_event(&key, stream.cursor, stream.cols, stream.rows),
+                    "shown": stream.shown, "before": before,
                 }));
             }
             next_moment += 1;
         }
     };
-    for (t, bytes) in session.chunks.iter().filter(|(t, _)| *t <= end) {
-        while let Some(due) = pacer.due().filter(|due| *due <= at(*t)) {
+    let mut events: Vec<SessionEvent<'_>> = session
+        .chunks
+        .iter()
+        .map(|(t, bytes)| (*t, Some(bytes.as_slice()), (0, 0)))
+        .chain(session.resizes.iter().map(|(t, c, r)| (*t, None, (*c, *r))))
+        .filter(|(t, _, _)| *t <= end)
+        .collect();
+    events.sort_by_key(|(t, _, _)| *t);
+    for (t, bytes, (cols, rows)) in events {
+        while let Some(due) = pacer.due().filter(|due| *due <= at(t)) {
             // In time order: the moments before this frame check see the screen without it.
             note_moments(ms(due), &mut mac, &stream, &mut moments);
             stream.check(&mut mac, ms(due) - start);
             pacer.sent(due);
         }
-        note_moments(*t, &mut mac, &stream, &mut moments);
-        mac.vt_write(bytes);
-        pty.push(json!([t - start, b64(bytes)]));
-        pacer.wrote(at(*t));
+        note_moments(t, &mut mac, &stream, &mut moments);
+        match bytes {
+            Some(bytes) => {
+                mac.vt_write(bytes);
+                pty.push(json!([t - start, b64(bytes)]));
+                pacer.wrote(at(t));
+                if stream.follow_screen(&mut mac, t - start) {
+                    pacer = FramePacer::default();
+                }
+            }
+            None => {
+                mac.resize(cols, rows, 8, 16).unwrap();
+                let replay = mac
+                    .vt_replay_tail_theme_portable_with_aliases(4 << 20, 0)
+                    .unwrap()
+                    .replay
+                    .into_self_contained_bytes();
+                pty.push(json!([t - start, {"cols": cols, "rows": rows, "replay": b64(&replay)}]));
+                pacer = FramePacer::default();
+                stream.resized(&mut mac, cols, rows, t - start);
+            }
+        }
     }
     if let Some(due) = pacer.due() {
         note_moments(ms(due), &mut mac, &stream, &mut moments);
@@ -863,16 +983,28 @@ fn export(session: &Session) -> Value {
             y: u16::try_from(event["cursor_y"].as_u64().unwrap()).unwrap(),
             visible: event["cursor_visible"].as_bool().unwrap(),
         };
-        let f = encoder.encode(STREAM_ID, COLS, ROWS, &frame, cursor).unwrap();
+        let dim = |key: &str| u16::try_from(event[key].as_u64().unwrap()).unwrap();
+        let f = encoder.encode(STREAM_ID, dim("cols"), dim("rows"), &frame, cursor).unwrap();
         json!({"event": "agent-cli-lean", "surface": 1, "f": b64(&f)})
     };
     let attach_frame = attached["hybrid"]["frame"].as_u64().unwrap();
+    let attach_ms = attached["t_ms"].as_u64().unwrap();
     let lean_attach = lean(&attached["hybrid"]);
+    // A switch of screens (`output`) reaches a lean viewer as it is.
     let lean_frames: Vec<Value> = stream
         .frames
         .iter()
-        .filter(|entry| entry[1]["frame"].as_u64().unwrap() > attach_frame)
-        .map(|entry| json!([entry[0], lean(&entry[1])]))
+        .filter(|entry| match entry[1]["frame"].as_u64() {
+            Some(frame) => frame > attach_frame,
+            None => entry[0].as_u64().unwrap() > attach_ms,
+        })
+        .map(|entry| {
+            if entry[1]["event"] == "output" {
+                entry.clone()
+            } else {
+                json!([entry[0], lean(&entry[1])])
+            }
+        })
         .collect();
     let mut attached = attached;
     attached["lean"] = lean_attach;
@@ -883,15 +1015,78 @@ fn export(session: &Session) -> Value {
     })
 }
 
+/// A session written for the phone's pixel matrix (`AgentCLIHybridPixelMatrixUITests`,
+/// cmux-next-ios), not recorded: `tests/fixtures/pixel-matrix/make_fixture.py` writes its PTY
+/// bytes. Text in the first and last column of every row, a line wrapped over three rows, wide
+/// glyphs (CJK, emoji, a flag, fullwidth) placed at the right edge so they wrap, a box-drawing
+/// full-screen app on the alternate screen with a header and footer bar, the cursor moved
+/// inside it and to the last column, and the primary screen back after it.
+const PIXEL_MATRIX: &str = "pixel-matrix";
+
 #[test]
 fn export_sessions_for_the_phone_bench() {
     let Some(dir) = std::env::var_os("HYBRID_EXPORT_DIR") else { return };
-    for dir_name in [CLAUDE, CODEX, OPENCODE] {
+    for dir_name in [CLAUDE, CODEX, OPENCODE, SHELL, PIXEL_MATRIX] {
         let out = export(&load(dir_name));
         let path = Path::new(&dir).join(format!("{dir_name}.json"));
         std::fs::write(&path, serde_json::to_vec(&out).unwrap()).unwrap();
         println!("wrote {}", path.display());
     }
+}
+
+/// The bench's PTY side, the pixel matrix's reference: a viewer fed the attach's `vt-state`
+/// replay, then the PTY bytes after it (a `resized` entry: a fresh terminal at the new size fed
+/// its replay, as the phone's mirror resets), shows the Mac's screen at every moment after the
+/// attach.
+#[test]
+fn the_bench_pty_side_rebuilds_the_macs_screen() {
+    let decode =
+        |v: &Value| base64::engine::general_purpose::STANDARD.decode(v.as_str().unwrap()).unwrap();
+    let sized = |cols: u16, rows: u16| {
+        let mut term =
+            ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.resize(cols, rows, 8, 16).unwrap();
+        term
+    };
+    let mut wrong = Vec::new();
+    for dir_name in [SHELL, PIXEL_MATRIX, CODEX] {
+        let out = export(&load(dir_name));
+        let attach = out["attach"]["t_ms"].as_u64().unwrap();
+        let mut phone = terminal();
+        phone.vt_write(&decode(&out["attach"]["pty"]));
+        let at = |entry: &Value| entry[0].as_u64().unwrap();
+        let entries = out["pty"].as_array().unwrap();
+        let mut next = entries.iter().position(|e| at(e) > attach).unwrap_or(entries.len());
+        for moment in out["moments"].as_array().unwrap() {
+            let t = moment["t_ms"].as_u64().unwrap();
+            if t <= attach {
+                continue;
+            }
+            while next < entries.len() && at(&entries[next]) < t {
+                let data = &entries[next][1];
+                if data.is_string() {
+                    phone.vt_write(&decode(data));
+                } else {
+                    let dim = |key: &str| u16::try_from(data[key].as_u64().unwrap()).unwrap();
+                    phone = sized(dim("cols"), dim("rows"));
+                    phone.vt_write(&decode(&data["replay"]));
+                }
+                next += 1;
+            }
+            let shown = phone.viewport_text().unwrap();
+            let want = moment["text"].as_str().unwrap();
+            if shown != want {
+                let line = shown.lines().zip(want.lines()).position(|(a, b)| a != b);
+                println!(
+                    "{dir_name} {}: the PTY side differs from line {line:?}\n--- PTY\n{shown}\n--- Mac\n{want}",
+                    moment["name"]
+                );
+                wrong.push(format!("{dir_name} {}", moment["name"]));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "the bench's PTY side is not the Mac's screen at {wrong:?}");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1045,6 +1240,8 @@ struct PhoneRun {
     start: u64,
     tables: ParityTables,
     steps: Vec<Value>,
+    /// The cursor the newest frame carried.
+    sent: vt::Cursor,
 }
 
 impl PhoneRun {
@@ -1103,13 +1300,16 @@ impl PhoneRun {
             "cursor": [cursor.x, cursor.y, cursor.visible], "screen": screen,
         }));
         self.applied = frame.frame;
+        self.sent = cursor;
     }
 
     /// A frame check at `now`, as the daemon's pacer makes it.
     fn check(&mut self, now: u64) {
         let (real, cursor) = live_screen(&mut self.mac);
         let at = now - self.start;
-        let Some(frame) = self.hybrid.update(&real, at) else { return };
+        let Some(frame) = daemon_frame(&mut self.hybrid, &real, cursor, &mut self.sent, at) else {
+            return;
+        };
         if self.offline(now) {
             self.dropped = true;
             return;
@@ -1179,6 +1379,7 @@ fn phone_parity(name: &'static str, session: &Session) -> Value {
         start,
         tables: ParityTables::default(),
         steps: Vec::new(),
+        sent: vt::Cursor::default(),
     };
     // The attach: the daemon's first frame is a keyframe of the screen then.
     let (real, cursor) = live_screen(&mut run.mac);
