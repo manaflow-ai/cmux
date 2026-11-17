@@ -127,8 +127,10 @@ pub(crate) fn operation_scope(
             workspaces.insert(id);
         }
     };
-    let pane_workspace =
-        |pane: PaneId| state.screen_of(pane).map(|(workspace, _)| state.workspaces[workspace].id);
+    let pane_workspace = |pane: PaneId| {
+        let (workspace, _) = state.screen_of(pane)?;
+        state.workspaces.get(workspace).map(|workspace| workspace.id)
+    };
     let screen_workspace = |screen: &ScreenPublicId| {
         indexes.screens.get(screen).and_then(|screen| indexes.screen_workspace.get(screen)).copied()
     };
