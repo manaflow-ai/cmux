@@ -5,8 +5,10 @@
  *
  *   health -> create -> running -> listed -> first exec -> agent CLIs present
  *   -> named terminal over WebSocket (first prompt) -> a background process
- *   -> pause -> paused -> exec refused while paused -> resume -> running
- *   -> the background process survived (memory kept) -> the same terminal
+ *   -> pause -> paused -> resume -> running -> the background process survived
+ *   (memory kept) -> pause again -> an exec with no resume wakes the VM and finds
+ *   the process still alive
+ *   -> the same terminal
  *   reattaches and runs a command -> delete -> 404 -> gone from the list.
  *
  * It lives outside workers/cmux-vm so changing it never redeploys the Worker
@@ -725,9 +727,9 @@ try {
       result["memoryKeptOnExecWake"] = String(field(whilePaused.body, "stdout") ?? "").trim() === "alive";
       if (result["memoryKeptOnExecWake"] !== true) failed.push("memoryKeptOnExecWake");
     } else {
-      // A provider that refuses exec on a paused VM instead of waking it: note it, resume, go on.
-      note(`exec on a paused VM answered ${whilePaused.status}; it no longer wakes the VM`);
-      expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume (after exec)");
+      // The exec failed; it may still have woken the VM. awake() resumes only a VM that is still paused.
+      note(`exec on a paused VM answered ${whilePaused.status}, expected it to wake the VM and answer 200`);
+      await awake(id);
     }
     await timed("runningAfterExecWake", () => waitForState(id, "running", 3 * 60_000));
   }
