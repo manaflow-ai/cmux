@@ -1305,6 +1305,79 @@ fn the_store_examples_list_and_install_for_the_user() {
     assert_eq!(ok(&removed)["app"]["state"]["installed"], false, "{removed}");
 }
 
+/// A first-party store app (`first-party-apps/<name>` with a `STORE` marker and no
+/// `BUNDLED` one, the widgets) is not committed into the app's resources: the build writes
+/// it with `scripts/cmux-next/sync-app-runtime.sh --store` into `AppPlatform/store`, the
+/// folder the Mac app hands its daemon as `CMUX_APPS_DIRS`. Run the way a build runs it, on a
+/// fixture made from the Quick Links package with a manifest v2 `cmux-app.json`, the package
+/// lands in `store/` and the daemon lists it in `apps.catalog.list`, not installed, beside the
+/// STORE samples; a BUNDLED app with a STORE marker stays out of `store/`.
+#[test]
+fn a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed() {
+    let apps = Apps::new("fp-store");
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let quick_links = repo.join("samples/apps/quick-links");
+    let first_party = apps.dir.join("fp-src");
+    for (dir, markers) in
+        [("store-fixture", &["STORE"][..]), ("bundled-fixture", &["STORE", "BUNDLED"][..])]
+    {
+        let app = first_party.join(dir);
+        std::fs::create_dir_all(&app).unwrap();
+        let mut manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(quick_links.join("cmux-app.v2.json")).unwrap(),
+        )
+        .unwrap();
+        manifest["id"] = json!(format!("cmux/{dir}"));
+        std::fs::write(app.join("cmux-app.json"), serde_json::to_string_pretty(&manifest).unwrap())
+            .unwrap();
+        let status =
+            Command::new("cp").arg("-R").arg(quick_links.join("dist")).arg(&app).status().unwrap();
+        assert!(status.success());
+        for marker in markers {
+            std::fs::write(app.join(marker), "").unwrap();
+        }
+    }
+    let platform = apps.dir.join("platform");
+    let out = Command::new("bash")
+        .arg(repo.join("scripts/cmux-next/sync-app-runtime.sh"))
+        .arg("--store")
+        .env("CMUX_APP_FIRST_PARTY_DIR", &first_party)
+        .env("CMUX_APP_PLATFORM_DIR", &platform)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "sync --store: {}", String::from_utf8_lossy(&out.stderr));
+    let store = platform.join("store");
+    assert!(store.join("store-fixture/cmux-app.v2.json").is_file(), "the store package");
+    assert!(store.join("store-fixture/dist/main.js").is_file(), "its script");
+    assert!(
+        !store.join("bundled-fixture").exists(),
+        "a BUNDLED app is a default app, not a store one"
+    );
+    assert!(store.join("standup/cmux-app.v2.json").is_file(), "the STORE samples are there too");
+    // The folder the Mac app hands its daemon.
+    std::fs::remove_dir(apps.dir.join("bundled")).unwrap();
+    std::fs::rename(&store, apps.dir.join("bundled")).unwrap();
+    apps.start();
+
+    let mut agent = apps.agent();
+    let reply = agent.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
+    let rejected = ok(&reply)["lines"].as_array().cloned().unwrap_or_default();
+    assert!(rejected.is_empty(), "no store package is rejected: {rejected:?}");
+    let reply = agent.v2("apps.catalog.list", json!({}), json!({}));
+    let catalog = v2_ok(&reply).clone();
+    let row = listing(&catalog, "cmux/store-fixture");
+    assert_eq!(
+        (row["hide_only"].clone(), row["install"].clone()),
+        (json!(false), Value::Null),
+        "{row}"
+    );
+    listing(&catalog, "manaflow-ai/standup");
+    assert!(
+        catalog["listings"].as_array().unwrap().iter().all(|r| r["app"] != "cmux/bundled-fixture"),
+        "{catalog}"
+    );
+}
+
 /// `cmux apps list` and `cmux apps info` read the store from the CLI with
 /// no Mac app (a self-hosted Linux host included): the examples with their
 /// tier and install state, `--installed` for the installed apps only, and a
