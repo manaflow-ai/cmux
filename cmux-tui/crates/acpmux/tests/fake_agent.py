@@ -1418,6 +1418,22 @@ def handle_prompt(rid, params):
     # then redelivers the answer under a new messageId. "codex-retry-after-tool"
     # finishes the message with a tool call before the retry notice;
     # "codex-retry-after-subagent" has a subagent end there instead.
+    # "codex-signed-out": Codex whose model API refuses its sign-in: it reconnects with no bound
+    # ("Reconnecting... N", a 403 that says the login needs renewing) until session/cancel (at
+    # most 30 s), then answers cancelled.
+    if text == "codex-signed-out":
+        detail = ("unexpected status 403 Forbidden: subrouter: pinned account \"a@example.com\" is unusable: "
+                  "its credential needs re-login (refresh token invalid or expired); re-add it with 'sr add codex'.")
+        for n in range(1, 601):
+            if sid in cancelled:
+                break
+            update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                "message": f"Reconnecting... {n}", "willRetry": True, "additionalDetails": detail,
+                "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": 403}}}}}})
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+        return
     if text.startswith("codex-retry"):
         after_tool = text == "codex-retry-after-tool"
         after_subagent = text == "codex-retry-after-subagent"
