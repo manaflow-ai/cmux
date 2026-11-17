@@ -46,7 +46,7 @@ install_host() {
 make_patch() {
   local out="$1" top base idx
   top="$(git rev-parse --show-toplevel)" || die "run from a cmux checkout"
-  git -C "$top" fetch -q origin feat-cmux-next 2>/dev/null || true
+  if command -v git-fetch-once >/dev/null; then git-fetch-once -C "$top" -q origin feat-cmux-next || true; else git -C "$top" fetch -q origin feat-cmux-next 2>/dev/null || true; fi
   base="$(git -C "$top" merge-base HEAD origin/feat-cmux-next)" || die "no merge base with origin/feat-cmux-next"
   idx="$(mktemp)"
   cp "$(git -C "$top" rev-parse --git-path index)" "$idx"
