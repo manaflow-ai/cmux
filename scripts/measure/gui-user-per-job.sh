@@ -188,7 +188,7 @@ static NSDictionary *session(void) {
   f[@"kc_default_status"] = @(ks);
   if (ks == 0 && kc) {
     char path[1024]; UInt32 len = sizeof(path);
-    if (SecKeychainGetPath(kc, &len, path) == 0) f[@"kc_default_path"] = [[NSString alloc] initWithBytes:path length:len encoding:NSUTF8StringEncoding];
+    if (SecKeychainGetPath(kc, &len, path) == 0) f[@"kc_default_path"] = [[NSString alloc] initWithBytes:path length:len encoding:NSUTF8StringEncoding] ?: @"";
     CFRelease(kc);
   }
   // pasteboard: does this account write the console user's general pasteboard?
@@ -272,7 +272,7 @@ compile=(xcrun clang -fobjc-arc -O1 -o "$APP/Contents/MacOS/gup" "$WORK/gup.m" -
   -framework ApplicationServices -framework Security -framework CoreGraphics)
 if [[ $EUID -eq 0 && -n "$build_user" && "$build_user" != root ]]; then
   chown -R "$build_user" "$WORK/Gup.app" "$WORK/gup.m"
-  sudo -u "$build_user" "${compile[@]}" >"$WORK/build.log" 2>&1
+  sudo -u "$build_user" -H "${compile[@]}" >"$WORK/build.log" 2>&1
 else
   "${compile[@]}" >"$WORK/build.log" 2>&1
 fi
