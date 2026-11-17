@@ -245,6 +245,75 @@ struct ProjectPanelFindFocusTests {
             "Cmd+F from a text field the project panel does not own must keep its previous target"
         )
     }
+
+    /// After Cmd+F focused the filter, moving pane focus to a terminal must
+    /// move keyboard input with it. A terminal leaves a text editor that
+    /// holds first responder alone, so the project panel has to give its
+    /// filter's editor up when the workspace hands focus to another panel.
+    @Test(.exclusiveAppContext, arguments: [ProjectPanelTab.files, ProjectPanelTab.buildSettings])
+    func paneNavigationToTerminalTakesKeyboardFocusFromFilter(tab: ProjectPanelTab) async throws {
+        let scene = try await SplitPaneFilterScene.make(tab: tab)
+        defer { scene.tearDown() }
+        let window = scene.window
+
+        try #require(
+            scene.appDelegate.performFindShortcutInActiveMainWindow(preferredWindow: window),
+            "Cmd+F must be handled by the focused project panel"
+        )
+        let filterFocused = await Harness.settle(window) { scene.filterOwnsFocus }
+        try #require(filterFocused, "Cmd+F must leave the filter field editing")
+
+        scene.manager.movePaneFocus(direction: .left)
+        try #require(
+            scene.workspace.focusedPanelId == scene.terminalPanel.id,
+            "Pane navigation must make the terminal the focused panel"
+        )
+
+        let released = await Harness.settle(window) { !scene.filterOwnsFocus }
+        #expect(released, "Moving pane focus to a terminal must take keyboard focus out of the project filter")
+        let terminalFocused = await Harness.settle(window) {
+            scene.terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        #expect(terminalFocused, "After pane navigation to a terminal, typing must reach that terminal")
+    }
+
+    /// Bonsplit keeps a pane's unselected tabs mounted and invisible, so a
+    /// second project tab's filter sits exactly where the selected tab's
+    /// does. Only the selected tab may claim the focused filter: a hidden
+    /// tab that claimed it would give that focus up whenever the workspace
+    /// asked it to yield to the selected tab.
+    @Test(.exclusiveAppContext)
+    func hiddenProjectTabDoesNotClaimOrYieldTheSelectedTabsFilter() async throws {
+        let scene = try await SplitPaneFilterScene.make(tab: .files, hiddenSibling: true)
+        defer { scene.tearDown() }
+        let window = scene.window
+        let hidden = try #require(scene.hiddenSibling)
+        let hiddenFrame = hidden.filterField.convert(hidden.filterField.bounds, to: nil)
+        let selectedFrame = scene.filterField.convert(scene.filterField.bounds, to: nil)
+        try #require(
+            hiddenFrame == selectedFrame,
+            "Precondition: the hidden tab's filter must sit where the selected tab's does (\(hiddenFrame) vs \(selectedFrame))"
+        )
+
+        try #require(window.makeFirstResponder(scene.filterField), "The selected tab's filter must accept focus")
+        let filterFocused = await Harness.settle(window) { scene.filterOwnsFocus }
+        try #require(filterFocused, "The selected tab's filter must be editing")
+        let responder = try #require(window.firstResponder)
+
+        #expect(
+            scene.panel.ownedFocusIntent(for: responder, in: window) == .project(.navigator),
+            "The selected project tab must claim its focused filter"
+        )
+        #expect(
+            hidden.panel.ownedFocusIntent(for: responder, in: window) == nil,
+            "A hidden project tab must not claim the selected tab's filter"
+        )
+        #expect(
+            !hidden.panel.yieldFocusIntent(.project(.navigator), in: window),
+            "A hidden project tab has no keyboard focus to yield"
+        )
+        #expect(scene.filterOwnsFocus, "A hidden project tab must not take focus out of the selected tab's filter")
+    }
 }
 
 /// A loaded project panel in an app main window, with its filter field
@@ -306,20 +375,7 @@ private final class SidebarFocusedFilterScene {
             focus: true
         ))
         panel.activeTab = tab
-        // A unique filter text tells this panel's field apart from the other
-        // text fields in the window; it is cleared once the field is found.
-        let marker = "cmux-project-filter-\(UUID().uuidString)"
-        setFilterText(marker, on: panel, tab: tab)
-        var found: NSTextField?
-        _ = await Harness.settle(window) {
-            found = Harness.editableTextFields(in: window.contentView?.superview ?? window.contentView)
-                .first { $0.stringValue == marker }
-            return found != nil
-        }
-        let filterField = try #require(found, "The \(tab) filter field must mount in the main window")
-        setFilterText("", on: panel, tab: tab)
-        let cleared = await Harness.settle(window) { filterField.stringValue.isEmpty }
-        try #require(cleared, "Clearing the marker must reach the filter field")
+        let filterField = try await Harness.mountedFilterField(of: panel, tab: tab, in: window)
         try #require(workspace.focusedPanelId == panel.id, "The project panel must be the focused panel")
 
         // The right sidebar's Files view owns keyboard focus, as after a click in it.
@@ -351,16 +407,123 @@ private final class SidebarFocusedFilterScene {
         window.close()
         try? FileManager.default.removeItem(at: fixtureRoot)
     }
+}
 
-    private static func setFilterText(_ text: String, on panel: ProjectPanel, tab: ProjectPanelTab) {
-        switch tab {
-        case .files:
-            panel.filesSearchText = text
-        case .buildSettings:
-            panel.settingsSearchText = text
-        case .targets, .schemes:
-            Issue.record("The \(tab) tab has no filter field")
+/// Two panes side by side in an app main window: a terminal on the left and,
+/// on the right, a loaded project panel that is the workspace's focused panel,
+/// with its filter field mounted.
+@MainActor
+private final class SplitPaneFilterScene {
+    /// A second project panel kept as an unselected tab of the right pane.
+    struct HiddenSibling {
+        let panel: ProjectPanel
+        let filterField: NSTextField
+    }
+
+    let appDelegate: AppDelegate
+    let window: NSWindow
+    let manager: TabManager
+    let workspace: Workspace
+    let terminalPanel: TerminalPanel
+    let panel: ProjectPanel
+    let filterField: NSTextField
+    let hiddenSibling: HiddenSibling?
+    private let fixtureRoot: URL
+
+    private init(
+        appDelegate: AppDelegate,
+        window: NSWindow,
+        manager: TabManager,
+        workspace: Workspace,
+        terminalPanel: TerminalPanel,
+        panel: ProjectPanel,
+        filterField: NSTextField,
+        hiddenSibling: HiddenSibling?,
+        fixtureRoot: URL
+    ) {
+        self.appDelegate = appDelegate
+        self.window = window
+        self.manager = manager
+        self.workspace = workspace
+        self.terminalPanel = terminalPanel
+        self.panel = panel
+        self.filterField = filterField
+        self.hiddenSibling = hiddenSibling
+        self.fixtureRoot = fixtureRoot
+    }
+
+    /// `hiddenSibling` first opens another project panel in the right pane,
+    /// on the same project tab, so it ends up as an unselected tab there.
+    static func make(tab: ProjectPanelTab, hiddenSibling: Bool = false) async throws -> SplitPaneFilterScene {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try Harness.writeFixtureProject()
+        let windowId = appDelegate.createMainWindow()
+        var succeeded = false
+        defer {
+            // A requirement that throws below must not leak the window or the fixture.
+            if !succeeded {
+                appDelegate.windowForMainWindowId(windowId)?.close()
+                try? FileManager.default.removeItem(at: fixture.root)
+            }
         }
+        let window = try #require(appDelegate.windowForMainWindowId(windowId))
+        window.makeKeyAndOrderFront(nil)
+        await AppKitTestEventPump().drain()
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalId = try #require(workspace.focusedPanelId)
+        let terminalPanel = try #require(workspace.terminalPanel(for: terminalId))
+        let rightTerminal = try #require(
+            workspace.newTerminalSplit(from: terminalId, orientation: .horizontal),
+            "The workspace must split into two panes"
+        )
+        let rightPane = try #require(workspace.paneId(forPanelId: rightTerminal.id))
+
+        var sibling: HiddenSibling?
+        if hiddenSibling {
+            let siblingPanel = try #require(workspace.newProjectSurface(
+                inPane: rightPane,
+                projectPath: fixture.projectURL.path,
+                focus: true
+            ))
+            siblingPanel.activeTab = tab
+            sibling = HiddenSibling(
+                panel: siblingPanel,
+                filterField: try await Harness.mountedFilterField(of: siblingPanel, tab: tab, in: window)
+            )
+        }
+        let panel = try #require(workspace.newProjectSurface(
+            inPane: rightPane,
+            projectPath: fixture.projectURL.path,
+            focus: true
+        ))
+        panel.activeTab = tab
+        let filterField = try await Harness.mountedFilterField(of: panel, tab: tab, in: window)
+        try #require(workspace.focusedPanelId == panel.id, "The project panel must be the focused panel")
+
+        succeeded = true
+        return SplitPaneFilterScene(
+            appDelegate: appDelegate,
+            window: window,
+            manager: manager,
+            workspace: workspace,
+            terminalPanel: terminalPanel,
+            panel: panel,
+            filterField: filterField,
+            hiddenSibling: sibling,
+            fixtureRoot: fixture.root
+        )
+    }
+
+    func tearDown() {
+        window.close()
+        try? FileManager.default.removeItem(at: fixtureRoot)
+    }
+
+    /// Whether the focused project panel's filter is being edited and holds
+    /// the window's first responder.
+    var filterOwnsFocus: Bool {
+        filterField.currentEditor().map { window.firstResponder === $0 } ?? false
     }
 }
 
@@ -607,6 +770,40 @@ private final class Harness {
             fields.append(contentsOf: editableTextFields(in: subview))
         }
         return fields
+    }
+
+    /// Finds `panel`'s filter field among the text fields of an app main
+    /// window. A unique filter text tells the field apart from the window's
+    /// other text fields; it is cleared once the field is found.
+    static func mountedFilterField(
+        of panel: ProjectPanel,
+        tab: ProjectPanelTab,
+        in window: NSWindow
+    ) async throws -> NSTextField {
+        let marker = "cmux-project-filter-\(UUID().uuidString)"
+        setFilterText(marker, on: panel, tab: tab)
+        var found: NSTextField?
+        _ = await settle(window) {
+            found = editableTextFields(in: window.contentView?.superview ?? window.contentView)
+                .first { $0.stringValue == marker }
+            return found != nil
+        }
+        let filterField = try #require(found, "The \(tab) filter field must mount in the main window")
+        setFilterText("", on: panel, tab: tab)
+        let cleared = await settle(window) { filterField.stringValue.isEmpty }
+        try #require(cleared, "Clearing the marker must reach the filter field")
+        return filterField
+    }
+
+    private static func setFilterText(_ text: String, on panel: ProjectPanel, tab: ProjectPanelTab) {
+        switch tab {
+        case .files:
+            panel.filesSearchText = text
+        case .buildSettings:
+            panel.settingsSearchText = text
+        case .targets, .schemes:
+            Issue.record("The \(tab) tab has no filter field")
+        }
     }
 
     /// Writes the synthetic project that loads under a fresh temporary root.
