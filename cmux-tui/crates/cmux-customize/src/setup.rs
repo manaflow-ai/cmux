@@ -475,12 +475,12 @@ pub struct ExportHeader {
 }
 
 impl Customize {
-    fn receipts_path(&self) -> PathBuf {
+    fn setup_receipts_path(&self) -> PathBuf {
         self.roots().state_dir.join("setups.json")
     }
 
-    fn read_receipts(&self) -> Result<ReceiptsFile, Error> {
-        match std::fs::read_to_string(self.receipts_path()) {
+    fn read_setup_receipts(&self) -> Result<ReceiptsFile, Error> {
+        match std::fs::read_to_string(self.setup_receipts_path()) {
             Ok(text) => serde_json::from_str(&text)
                 .map_err(|_| Error::Setup("setups.json is not readable".to_owned())),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -490,16 +490,16 @@ impl Customize {
         }
     }
 
-    fn write_receipts(&self, file: &ReceiptsFile) -> Result<(), Error> {
+    fn write_setup_receipts(&self, file: &ReceiptsFile) -> Result<(), Error> {
         let mut text = serde_json::to_string_pretty(file).map_err(std::io::Error::other)?;
         text.push('\n');
-        cmux_config::fsio::write_atomic(&self.receipts_path(), text.as_bytes())?;
+        cmux_config::fsio::write_atomic(&self.setup_receipts_path(), text.as_bytes())?;
         Ok(())
     }
 
     /// The installed setups, newest first.
     pub fn setups(&self) -> Result<Vec<Receipt>, Error> {
-        Ok(self.read_receipts()?.setups)
+        Ok(self.read_setup_receipts()?.setups)
     }
 
     /// The installed setup `which` names: its reference (any form), or id.
@@ -514,10 +514,10 @@ impl Customize {
     /// Keeps `receipt`, replacing one for the same repo.
     pub fn record_setup(&self, receipt: Receipt) -> Result<(), Error> {
         let _lock = self.store().lock()?;
-        let mut file = self.read_receipts()?;
+        let mut file = self.read_setup_receipts()?;
         file.setups.retain(|old| old.reference.key() != receipt.reference.key());
         file.setups.insert(0, receipt);
-        self.write_receipts(&file)
+        self.write_setup_receipts(&file)
     }
 
     /// Checks `setup` whole, writing nothing, and says what it would change.
@@ -708,9 +708,9 @@ impl Customize {
             }
         }
         let _lock = self.store().lock()?;
-        let mut file = self.read_receipts()?;
+        let mut file = self.read_setup_receipts()?;
         file.setups.retain(|old| old.reference.key() != receipt.reference.key());
-        self.write_receipts(&file)?;
+        self.write_setup_receipts(&file)?;
         Ok(Removed { id: receipt.id.clone(), library, actions, kept_actions })
     }
 
