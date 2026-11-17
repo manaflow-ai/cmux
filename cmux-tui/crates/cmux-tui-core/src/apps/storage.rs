@@ -176,4 +176,73 @@ mod tests {
             "validation.invalid"
         );
     }
+
+    /// An owner that released its session writes no store of it (decision
+    /// of 2026-11-17). The apps' storage is a database of the session
+    /// folder: after the release the next owner has it, so a `set` of the
+    /// owner before is refused and the database keeps its keys.
+    ///
+    /// The row takes the owner's own supervisor and makes the two last calls
+    /// of an app's write path (`calls.rs`): the supervisor's storage, then
+    /// the op. An app's whole request needs an installed app with a host
+    /// process: that is not in the row.
+    #[test]
+    fn a_set_after_the_session_release_of_its_owner_is_refused() {
+        const APP: &str = "cmux/a";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-apps-storage-release-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "apps-storage-release";
+        let options = crate::SurfaceOptions {
+            terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(
+                &root, session,
+            )),
+            ..crate::SurfaceOptions::default()
+        };
+        let mux = crate::Mux::open_persistent(session, options, &root).unwrap();
+        let folder = mux.session_state_directory().expect("a session on disk has its folder");
+        let supervisor = mux.control_clients.apps().get_or_init(&mux);
+        let set = |key: &str| {
+            let params = json!({ "key": key, "value": 1 });
+            supervisor
+                .storage()
+                .as_ref()
+                .map(|storage| storage.call(APP, "app.storage.set", &params))
+        };
+        let before = set("before");
+        let on_disk = folder.join("apps-storage.sqlite").exists();
+        mux.shutdown();
+        let release = format!("{:?}", mux.release_ownership(&root.join("control.sock")));
+        let after = set("after");
+        let keys = supervisor
+            .storage()
+            .as_ref()
+            .map(|storage| storage.call(APP, "app.storage.keys", &json!({})));
+        drop(supervisor);
+        drop(mux);
+        crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(
+            before,
+            Some(Ok(Value::Null)),
+            "setup: the owner's `set` before its stop did not store the key"
+        );
+        assert!(on_disk, "setup: the apps' storage is not a file of the session folder");
+        assert_eq!(
+            release, "Released",
+            "setup: an owner whose threads all ended did not give its session up"
+        );
+        assert_eq!(
+            after.map(|said| said.map_err(|error| error.code)),
+            Some(Err("operation.failed")),
+            "after its release returned, a `set` of the owner was not refused: the apps' \
+             storage is a database of the session, which the next owner has from then on"
+        );
+        assert_eq!(
+            keys,
+            Some(Ok(json!(["before"]))),
+            "the apps' storage does not have the keys that it had when the release returned"
+        );
+    }
 }
