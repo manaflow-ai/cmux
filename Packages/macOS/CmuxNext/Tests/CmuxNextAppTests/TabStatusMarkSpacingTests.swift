@@ -76,7 +76,9 @@ import Testing
         let form = TabChromeVisibility.resolve(
             width: hovered.bounds.width, isPinned: false, isSelected: false, isHovered: true,
             hasStatus: true, style: hovered.style, metrics: m)
-        let origin = try #require(form.closeButtonOriginX(pillWidth: hovered.bounds.width, metrics: m))
+        // The cell lays out in its pill (`TabStripMetrics.pillFrame`), as the hit target does.
+        let pill = hovered.backgroundLayer.frame
+        let origin = try #require(form.closeButtonOriginX(pillWidth: pill.width, metrics: m))
         #expect(abs(origin - drawn.minX) <= 0.5, "the x's target starts at \(origin), the x draws at \(drawn.minX)")
 
         let rest = Self.cell(busy: true, placement: .mirrorAll)
