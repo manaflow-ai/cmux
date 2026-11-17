@@ -584,20 +584,22 @@ unsafe fn init(
     Ok(())
 }
 
-/// A keyframe (a new instance's first frame, or a forced one) codes with frame skipping off,
-/// so its bits never enter the skip buffer. OpenH264 v2.6.0 codes a new instance's first IDR
-/// at one QP from a bits-per-pixel table (RcCalculateIdrQp), whatever it costs: a dense 1080p
-/// desktop at the 8 Mbit/s start rate came to ~760 KB, 0.77 s of the rate. The skip buffer
-/// holds half a second of the rate (SKIP_RATIO), so it dropped every frame after that keyframe
-/// until the excess drained: 16 frames, ~270 ms in which a new share's first key presses
-/// showed nothing, and 6 frames after a keyframe the viewer asks for. A smaller keyframe does
-/// not fix it: coded at an eighth of the rate, the table's QP reaches 35, the top of screen
+/// A new instance's first frame (the share's start keyframe, or the one after a usage move)
+/// codes with frame skipping off, so its bits never enter the skip buffer. OpenH264 v2.6.0
+/// codes a new instance's first IDR at one QP from a bits-per-pixel table (RcCalculateIdrQp),
+/// whatever it costs: a dense 1080p desktop at the 8 Mbit/s start rate came to ~760 KB, 0.77 s
+/// of the rate. The skip buffer holds half a second of the rate (SKIP_RATIO), so it dropped
+/// every frame after that keyframe until the excess drained: 16 frames, ~270 ms in which a new
+/// share's first key presses showed nothing. A smaller keyframe does not fix it: coded at an eighth of the rate, the table's QP reaches 35, the top of screen
 /// usage's range, and screen text shrank only 22 %; a session-wide QP floor capped steady
 /// quality. The keyframe's bits still count against the rate controller's eight-frame budget,
 /// which carries the overshoot, so it repays them by coding every other frame for a while
-/// instead of none, and the rate holds as before (tests/start_keyframe.rs).
-fn keyframe_codes_with_skip_off(opts: &OpenH264Options, force_idr: bool, fresh: bool) -> bool {
-    opts.frame_skip && (force_idr || fresh)
+/// instead of none, and the rate holds as before (tests/start_keyframe.rs). A keyframe forced
+/// on a running instance (the viewer's recovery after loss) keeps skipping: on a lossy link
+/// the frames skipped after it are bits the link can't carry, and coding them raised key p95
+/// on the wifi-away profile.
+fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
+    opts.frame_skip && fresh
 }
 
 impl H264Encoder for OpenH264 {
@@ -623,7 +625,7 @@ impl H264Encoder for OpenH264 {
             bPsnrU: false,
             bPsnrV: false,
         };
-        let skip_off = keyframe_codes_with_skip_off(&self.opts, force_idr, self.motion.fresh);
+        let skip_off = keyframe_codes_with_skip_off(&self.opts, self.motion.fresh);
         if skip_off {
             self.set_frame_skip(false);
         }
