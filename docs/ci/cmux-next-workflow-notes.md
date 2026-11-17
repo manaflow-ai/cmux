@@ -3832,3 +3832,13 @@ This job holds the push compile slot and has a 60 minute limit. The capture (8 m
 most) and its manifest upload (2) start only while the job, timed from its own start, is
 under 40 minutes; with no jobs read the decide step's start stands in, and an unknown
 start skips it. A skipped capture is taken by the next landing.
+
+## note-408
+
+Above `STACK_SLOT:` in `.github/workflows/cmux-next.yml`.
+
+A same-repository pull request labelled `stack-blocker` (a base-red repair, or a PR a stack waits on) runs its Mac
+jobs on the std minis' nightly slot, which no other PR job asks for, so it skips the side label's queue
+(side_lane_placement.STACK_SLOT; glaeda's runner hook admits it there and ranks it right after nightly jobs). Attempt
+1 only: a rescue re-run is placed as before. The label is read from the run's own payload, so adding it takes effect
+on the PR's next push.
