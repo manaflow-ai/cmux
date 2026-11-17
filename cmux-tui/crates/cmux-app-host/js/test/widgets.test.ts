@@ -219,6 +219,27 @@ describe("widget-weather", () => {
     expect(reads[1]).toContain("&daily=weather_code,temperature_2m_max,temperature_2m_min")
   })
 
+  test("units changed while a read is out: the card reads again and shows the new units", async () => {
+    const h = host("widget-weather", { size: "small", place: "Lisbon", units: "celsius" })
+    let release: () => void = () => {}
+    const urls: string[] = []
+    h.handlers["net.fetch"] = (p) => {
+      urls.push(p.url)
+      if (p.url.startsWith("https://geocoding-api.open-meteo.com/")) return fetched({ results: [{ name: "Lisbon", latitude: 38.72, longitude: -9.14 }] })
+      const f = p.url.includes("fahrenheit")
+      const body = { ...forecastBody, current: { ...forecastBody.current, temperature_2m: f ? 65.1 : 18.4 } }
+      return f ? fetched(body) : new Promise((resolve) => (release = () => resolve(fetched(body))))
+    }
+    h.mount("m", "renderWeather")
+    await h.settle()
+    h.global.__cmuxAppSetSettings(JSON.stringify({ size: "small", place: "Lisbon", units: "fahrenheit" }))
+    await h.settle()
+    release()
+    await h.settle(15)
+    expect(urls.filter((u) => u.includes("fahrenheit"))).toHaveLength(1)
+    expect(texts(h)[1]).toBe("65°")
+  })
+
   test("no place: a field asks for one, and nothing is read", async () => {
     const h = host("widget-weather", {})
     h.mount("m", "renderWeather")
@@ -276,6 +297,14 @@ describe("widget-calendar", () => {
     expect(texts(h)).toEqual(["MONDAY", "16", "Design review", "Now, until 14:35"])
   })
 
+  test("an event still running from yesterday says Now, with no day before it", async () => {
+    const h = host("widget-calendar", { size: "medium" })
+    h.handlers["system_calendar.events"] = () => ok({ access: "granted", events: [ev("night", "Night shift", -16, 17)] })
+    h.mount("m", "renderCalendar")
+    await h.settle()
+    expect(texts(h).slice(2)).toEqual(["Night shift", "Now, until 15:05"])
+  })
+
   test("access turned off says where to turn it on", async () => {
     const h = calendar("medium", "denied")
     h.mount("m", "renderCalendar")
@@ -322,6 +351,37 @@ describe("widget-todo", () => {
     again.mount("m", "renderTodo")
     await again.settle()
     expect(texts(again)).toEqual(["To-do", "4", "Book flights", "Water the plants", "Renew passport", "Call the bank"])
+  })
+
+  test("an item added before the saved list arrives is added to it, never saved over it", async () => {
+    const h = host("widget-todo", { size: "medium" })
+    let release: (v: unknown) => void = () => {}
+    const saves: Array<Array<{ text: string }>> = []
+    h.handlers["app.storage.get"] = () => new Promise((resolve) => (release = () => resolve(ok(ITEMS.slice(0, 2)))))
+    h.handlers["app.storage.set"] = (p) => (saves.push(p.value), ok())
+    h.mount("m", "renderTodo")
+    await h.settle()
+    h.dispatch("m", find(h, (n) => n.type === "TextField"), "submit", { text: "Buy milk" })
+    await h.settle()
+    expect(saves).toEqual([])
+    release(null)
+    await h.settle()
+    expect(saves.at(-1)!.map((i) => i.text)).toEqual(["Reply to the design thread", "Book flights", "Buy milk"])
+    expect(texts(h).slice(0, 2)).toEqual(["To-do", "3"])
+  })
+
+  test("a failed read saves nothing over the list; the next change reads it again first", async () => {
+    const h = host("widget-todo", { size: "medium" })
+    let fail = true
+    const saves: unknown[] = []
+    h.handlers["app.storage.get"] = () => (fail ? { ok: false, body: { code: "operation.failed", message: "disk busy" } } : ok(ITEMS.slice(0, 1)))
+    h.handlers["app.storage.set"] = (p) => (saves.push(p.value), ok())
+    h.mount("m", "renderTodo")
+    await h.settle()
+    fail = false
+    h.dispatch("m", find(h, (n) => n.type === "TextField"), "submit", { text: "Buy milk" })
+    await h.settle()
+    expect((saves.at(-1) as Array<{ text: string }>).map((i) => i.text)).toEqual(["Reply to the design thread", "Buy milk"])
   })
 
   test("an empty or broken saved list is an empty list that says so", async () => {
