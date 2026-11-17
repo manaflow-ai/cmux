@@ -281,3 +281,123 @@ test("with the list still out, a host that opens: the hold's reply gives the row
     resetChatRowsReceiver();
   }
 });
+
+// A New Tab's first send (issue 44964): the switch starts a session, then opens it. The daemon refuses
+// the brand-new chat's sub, so the store falls it to v1 while the open's hold is still out; the fall
+// opens the chat again, as v1, and that open attaches it. The switch's open is of the same chat, so it
+// resolves it: never undefined, which the switch reads as "cmux did not start a session".
+test("a new chat whose sub is refused while its hold is out: the open resolves the chat", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { mockSessions } = await import("./mockFixture");
+  const { setNativeHost } = await import("./native");
+  const { resetChatRowsState } = await import("./rows/chatSource");
+  resetChatRowsState();
+  const a = mockSessions[0]!.sessionId;
+  const asked: { to: string; method: string; params: any }[] = [];
+  const sids = new Map<string, string>();
+  let started = "";
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  setNativeHost(async (method, params) => {
+    asked.push({ to: "host", method, params });
+    if (method !== "chat.rows.open") return null;
+    sids.set(String(params.chat), String(params.sid));
+    return { sid: params.sid };
+  });
+  class Held extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = async (method, params) => {
+        asked.push({ to: "daemon", method, params });
+        if (method !== "_acpmux/attach" || params.hold !== true) return answer(method, params);
+        // The new chat's hold answers only once the test lets it.
+        if (params.sessionId === started) await held;
+        const page = (await answer(method, { sessionId: params.sessionId })) as any;
+        return { session: page.session, lastSeq: page.lastSeq, presence: {}, readThrough: null, hold: true };
+      };
+    }
+  }
+  const client = (await AcpmuxDirectClient.connect(
+    { ...mockHost, sessionId: a },
+    () => {},
+    undefined,
+    () => new Held() as unknown as WebSocket,
+  )) as any;
+  const feed = (changes: string[]) =>
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
+  try {
+    await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
+    started = (await client.startSession("claude")) as string;
+    expect(started).toBeTruthy();
+    const opening: Promise<string | undefined> = client.select(started);
+    await settle(() =>
+      asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === started && ask.params.hold),
+    );
+    feed([JSON.stringify({ kind: "chatError", sid: sids.get(started)!, method: "sub", id: null, code: "invalid_request" })]);
+    // The fall opens the chat again, as v1.
+    await settle(() =>
+      asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === started && !ask.params.hold),
+    );
+    release();
+    const got = await opening;
+    expect(got).toBe(started);
+    expect(client.selectedSessionId).toBe(started);
+    expect(await client.shownAndAttached(started)).toBe(true);
+  } finally {
+    release();
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
+
+// The switch's start (issue 44964, the create path): a selection that moves while `session/new` is
+// out (a fall's open again, a list's fallback) must not drop the session the switch started, which
+// left it running with no tab and the switch saying "cmux did not start a session".
+test("a switch's start survives a selection that moved while session/new was out", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { mockSessions } = await import("./mockFixture");
+  const { setNativeHost } = await import("./native");
+  const { resetChatRowsState } = await import("./rows/chatSource");
+  resetChatRowsState();
+  const [a, b] = mockSessions.map((session) => session.sessionId);
+  const asked: { method: string; params: any }[] = [];
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  setNativeHost(async () => null);
+  class Starting extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = async (method, params) => {
+        asked.push({ method, params });
+        if (method === "session/new") await held;
+        return answer(method, params);
+      };
+    }
+  }
+  const client = (await AcpmuxDirectClient.connect(
+    { ...mockHost, sessionId: a },
+    () => {},
+    undefined,
+    () => new Starting() as unknown as WebSocket,
+  )) as any;
+  try {
+    await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
+    const starting: Promise<string | undefined> = client.startSession("claude");
+    await settle(() => asked.some((ask) => ask.method === "session/new"));
+    await client.select(b!);
+    release();
+    const started = await starting;
+    expect(started).toBeTruthy();
+    expect(asked.some((ask) => ask.method === "_acpmux/kill")).toBe(false);
+  } finally {
+    release();
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
