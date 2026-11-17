@@ -67,7 +67,9 @@ package struct WebKitGestureFreeEvaluation {
     }
 
     /// The script's completion value (main frame), as `WebKitTab.evaluate` returns it.
+    /// Throws ``BrowserTabError/frozen`` on a suspended page (`WKWebView.cmuxIsSuspended`), where WebKit raises.
     package func evaluate(_ script: String, in world: WKContentWorld) async throws -> BrowserJSValue {
+        guard !webView.cmuxIsSuspended else { throw BrowserTabError.frozen }
         switch path(in: world) {
         case .contentWorld?:
             let send = unsafeBitCast(webView.method(for: Self.contentWorldSelector), to: ContentWorldSend.self)
@@ -85,6 +87,7 @@ package struct WebKitGestureFreeEvaluation {
 
     /// `body` run as an async function with named `arguments` (main frame), what it resolves to.
     package func callAsync(_ body: String, arguments: [String: Any], in world: WKContentWorld) async throws -> BrowserJSValue {
+        guard !webView.cmuxIsSuspended else { throw BrowserTabError.frozen }
         guard functionPath() == .asyncFunction else { throw BrowserTabError.unsupported("a function call without a user gesture") }
         let send = unsafeBitCast(webView.method(for: Self.asyncFunctionSelector), to: AsyncFunctionSend.self)
         return try await answer {
@@ -93,7 +96,7 @@ package struct WebKitGestureFreeEvaluation {
     }
 
     /// Fire and forget: a script whose answer nobody reads (a clear, an exit); an engine without a
-    /// gesture-free path runs nothing.
+    /// gesture-free path, or a suspended page, runs nothing.
     package func run(_ script: String, in world: WKContentWorld) {
         Task { _ = try? await evaluate(script, in: world) }
     }

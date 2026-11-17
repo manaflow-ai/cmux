@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { createAcpmuxDebug, type AcpmuxDebug } from "../../src/agent-session/acpmux/debug";
+import * as acpmuxPerfModule from "../../src/agent-session/acpmux/perf";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { received } from "../../src/agent-session/acpmux/incomingFixture";
 import { turnView, turnViewFrom, type TurnView } from "../../src/agent-session/acpmux/conversation/turns";
@@ -169,6 +170,12 @@ function Transcript() {
   );
 }
 createRoot(root).render(<Transcript />);
+// The pane's own measuring object, for a bench to enable and read. A dev server serves perf.ts at
+// its source URL, so a bench used to `import("/src/agent-session/acpmux/perf.ts")`; a build has no
+// such route (the module is inside a chunk), and that import failed with "Failed to fetch
+// dynamically imported module", which is why a production run printed no numbers. The page hands it
+// over instead, the same object the pane itself uses.
+(window as unknown as { __acpmuxPerf: typeof acpmuxPerfModule }).__acpmuxPerf = acpmuxPerfModule;
 (window as unknown as { __debug: AcpmuxDebug }).__debug = createAcpmuxDebug({
   replaceRows(rows) {
     current = rows;
