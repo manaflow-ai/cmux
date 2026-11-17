@@ -35,11 +35,13 @@ extension TerminalController: ControlFeedContext {
 
     @MainActor
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] {
-        FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly).map { item in
+        let isoFormatter = ISO8601DateFormatter()
+        return FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly).map { item in
             // `FeedSocketEncoding.itemDict` only ever produces valid JSON
             // (strings, bools, arrays, nested dicts), so the bridge never fails;
             // the empty-object fallback exists solely to keep the map total.
-            JSONValue(foundationObject: FeedSocketEncoding.itemDict(item)) ?? .object([:])
+            JSONValue(foundationObject: FeedSocketEncoding.itemDict(item, isoFormatter: isoFormatter))
+                ?? .object([:])
         }
     }
 }

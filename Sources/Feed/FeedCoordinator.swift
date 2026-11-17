@@ -2010,8 +2010,12 @@ enum FeedSocketEncoding {
         return dict
     }
 
-    static func itemDict(_ item: WorkstreamItem) -> [String: Any] {
-        let isoFormatter = ISO8601DateFormatter()
+    /// Encodes one Feed item for the socket.
+    ///
+    /// A caller that encodes a list creates one `isoFormatter` and passes it
+    /// for every item. Creating the formatter costs far more than using it,
+    /// and `feed.list` encodes the whole Feed on the main thread.
+    static func itemDict(_ item: WorkstreamItem, isoFormatter: ISO8601DateFormatter) -> [String: Any] {
         var dict: [String: Any] = [
             "id": item.id.uuidString,
             "workstream_id": item.workstreamId,
