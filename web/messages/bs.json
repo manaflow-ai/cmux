@@ -2319,6 +2319,12 @@
           "harness": "Harness agenta na kojem radi Chief: claude (Claude Code) ili codex (Codex).",
           "model": "Model koji se prosljeđuje harnessu. Ostavite prazno za zadanu vrijednost harnessa.",
           "effort": "Napor rezonovanja koji se prosljeđuje harnessu, npr. low, medium ili high. Ostavite prazno za zadanu vrijednost harnessa."
+        },
+        "surfaceTabBar": {
+          "description": "Postavke tipografije i rasporeda trake s karticama za surface.",
+          "widthMode": "Kako surface kartice dijele traku s karticama panela. \"fixed\" zadržava vlastitu širinu svake kartice do maxTabWidth; \"fill\" razvlači kartice tako da ravnomjerno dijele traku, a jedna kartica zauzima cijelu traku. U oba načina traka se pomiče kada kartice ne stanu.",
+          "maxTabWidth": "Najveća širina jedne surface kartice u tačkama kada je widthMode \"fixed\". Duži naslovi se skraćuju.",
+          "height": "Visina trake s karticama za surface u tačkama. Zadana vrijednost odgovara naslovnoj traci prozora."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

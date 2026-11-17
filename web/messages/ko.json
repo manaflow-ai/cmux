@@ -2319,6 +2319,12 @@
           "harness": "Chief가 실행되는 에이전트 하네스: claude(Claude Code) 또는 codex(Codex).",
           "model": "하네스에 전달할 모델. 비워 두면 하네스 기본값을 사용합니다.",
           "effort": "하네스에 전달할 추론 강도(예: low, medium, high). 비워 두면 하네스 기본값을 사용합니다."
+        },
+        "surfaceTabBar": {
+          "description": "서피스 탭 막대의 글꼴 및 레이아웃 설정입니다.",
+          "widthMode": "서피스 탭이 창 분할 영역의 탭 막대를 나누는 방식입니다. \"fixed\"는 각 탭을 maxTabWidth까지 고유한 너비로 유지하고, \"fill\"은 탭을 늘려 막대를 균등하게 나누며 탭이 하나뿐이면 막대 전체를 채웁니다. 두 모드 모두 탭이 다 들어가지 않으면 막대를 스크롤합니다.",
+          "maxTabWidth": "widthMode가 \"fixed\"일 때 서피스 탭 하나의 최대 너비(포인트)입니다. 더 긴 제목은 잘립니다.",
+          "height": "서피스 탭 막대의 높이(포인트)입니다. 기본값은 창 제목 표시줄과 같습니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

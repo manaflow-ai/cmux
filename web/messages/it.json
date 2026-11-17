@@ -2319,6 +2319,12 @@
           "harness": "Harness dell’agente su cui gira Chief: claude (Claude Code) o codex (Codex).",
           "model": "Modello passato all’harness. Lascia vuoto per usare il predefinito dell’harness.",
           "effort": "Sforzo di ragionamento passato all’harness, ad esempio low, medium o high. Lascia vuoto per usare il predefinito dell’harness."
+        },
+        "surfaceTabBar": {
+          "description": "Impostazioni di tipografia e layout della barra delle schede delle surface.",
+          "widthMode": "Come le schede delle surface si dividono la barra delle schede di un pannello. \"fixed\" mantiene ogni scheda alla propria larghezza, fino a maxTabWidth; \"fill\" allarga le schede in modo che si dividano la barra in parti uguali, e una scheda singola occupa l'intera barra. In entrambe le modalità la barra scorre quando le schede non ci stanno.",
+          "maxTabWidth": "Larghezza massima di una scheda di surface, in punti, quando widthMode è \"fixed\". I titoli più lunghi vengono troncati.",
+          "height": "Altezza della barra delle schede delle surface, in punti. Il valore predefinito corrisponde alla barra del titolo della finestra."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

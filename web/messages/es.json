@@ -2319,6 +2319,12 @@
           "harness": "Entorno de agente en el que se ejecuta Chief: claude (Claude Code) o codex (Codex).",
           "model": "Modelo que se pasa al entorno. Déjalo vacío para usar el predeterminado del entorno.",
           "effort": "Esfuerzo de razonamiento que se pasa al entorno, como low, medium o high. Déjalo vacío para usar el predeterminado del entorno."
+        },
+        "surfaceTabBar": {
+          "description": "Ajustes de tipografía y diseño de la barra de pestañas de las surfaces.",
+          "widthMode": "Cómo comparten las pestañas de las surfaces la barra de pestañas de un panel. \"fixed\" mantiene cada pestaña con su propio ancho, hasta maxTabWidth; \"fill\" estira las pestañas para que se repartan la barra por igual, y una sola pestaña ocupa toda la barra. En ambos modos la barra se desplaza cuando las pestañas no caben.",
+          "maxTabWidth": "Ancho máximo de una pestaña de surface, en puntos, cuando widthMode es \"fixed\". Los títulos más largos se truncan.",
+          "height": "Altura de la barra de pestañas de las surfaces, en puntos. El valor predeterminado coincide con la barra de título de la ventana."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

@@ -2319,6 +2319,12 @@
           "harness": "Agent-harness, som Chief kører på: claude (Claude Code) eller codex (Codex).",
           "model": "Model, der sendes til harnessen. Lad stå tom for at bruge harnessens standard.",
           "effort": "Ræsonneringsindsats, der sendes til harnessen, f.eks. low, medium eller high. Lad stå tom for at bruge harnessens standard."
+        },
+        "surfaceTabBar": {
+          "description": "Indstillinger for typografi og layout af fanelinjen for surfaces.",
+          "widthMode": "Hvordan surface-faner deler en rudes fanelinje. \"fixed\" giver hver fane dens egen bredde op til maxTabWidth; \"fill\" strækker fanerne, så de deler linjen ligeligt, og en enkelt fane fylder hele linjen. I begge tilstande ruller linjen, når fanerne ikke er plads til.",
+          "maxTabWidth": "Største bredde på én surface-fane i punkter, når widthMode er \"fixed\". Længere titler afkortes.",
+          "height": "Højden på fanelinjen for surfaces i punkter. Standardværdien svarer til vinduets titellinje."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

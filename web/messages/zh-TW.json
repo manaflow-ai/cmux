@@ -2319,6 +2319,12 @@
           "harness": "Chief 使用的代理執行框架：claude（Claude Code）或 codex（Codex）。",
           "model": "傳遞給執行框架的模型。留空則使用執行框架的預設值。",
           "effort": "傳遞給執行框架的推理強度，例如 low、medium 或 high。留空則使用執行框架的預設值。"
+        },
+        "surfaceTabBar": {
+          "description": "Surface 分頁列的字體與版面設定。",
+          "widthMode": "Surface 分頁如何分配窗格的分頁列。\"fixed\" 讓每個分頁維持自身寬度，最多為 maxTabWidth；\"fill\" 拉伸分頁，使其平均分配分頁列，只有一個分頁時佔滿整個分頁列。兩種模式下，分頁放不下時分頁列都可以捲動。",
+          "maxTabWidth": "widthMode 為 \"fixed\" 時，單一 Surface 分頁的最大寬度（單位為點）。較長的標題會被截斷。",
+          "height": "Surface 分頁列的高度（單位為點）。預設值與視窗標題列一致。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

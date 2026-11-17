@@ -3577,6 +3577,12 @@
           "harness": "Agent harness Chief runs on: claude (Claude Code) or codex (Codex).",
           "model": "Model passed to the harness. Leave empty to use the harness default.",
           "effort": "Reasoning effort passed to the harness, such as low, medium, or high. Leave empty to use the harness default."
+        },
+        "surfaceTabBar": {
+          "description": "Surface tab bar typography and layout settings.",
+          "widthMode": "How surface tabs share a pane's tab bar. \"fixed\" keeps each tab at its own width up to maxTabWidth; \"fill\" stretches the tabs so they split the bar evenly, and a single tab spans it. Both scroll when the tabs do not fit.",
+          "maxTabWidth": "Largest width of one surface tab in points when widthMode is \"fixed\". Longer titles are truncated.",
+          "height": "Surface tab bar height in points. The default matches the window titlebar."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

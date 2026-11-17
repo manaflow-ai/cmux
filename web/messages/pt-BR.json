@@ -2319,6 +2319,12 @@
           "harness": "Ambiente de agente em que o Chief roda: claude (Claude Code) ou codex (Codex).",
           "model": "Modelo passado ao ambiente. Deixe vazio para usar o padrão do ambiente.",
           "effort": "Esforço de raciocínio passado ao ambiente, como low, medium ou high. Deixe vazio para usar o padrão do ambiente."
+        },
+        "surfaceTabBar": {
+          "description": "Configurações de tipografia e layout da barra de abas das surfaces.",
+          "widthMode": "Como as abas das surfaces dividem a barra de abas de um painel. \"fixed\" mantém cada aba com a própria largura, até maxTabWidth; \"fill\" estica as abas para que dividam a barra igualmente, e uma aba sozinha ocupa a barra inteira. Nos dois modos, a barra rola quando as abas não cabem.",
+          "maxTabWidth": "Largura máxima de uma aba de surface, em pontos, quando widthMode é \"fixed\". Títulos mais longos são truncados.",
+          "height": "Altura da barra de abas das surfaces, em pontos. O padrão acompanha a barra de título da janela."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

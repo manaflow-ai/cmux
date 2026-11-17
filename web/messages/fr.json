@@ -2319,6 +2319,12 @@
           "harness": "Environnement d’agent sur lequel Chief s’exécute : claude (Claude Code) ou codex (Codex).",
           "model": "Modèle transmis à l’environnement. Laissez vide pour utiliser la valeur par défaut de l’environnement.",
           "effort": "Effort de raisonnement transmis à l’environnement, par exemple low, medium ou high. Laissez vide pour utiliser la valeur par défaut de l’environnement."
+        },
+        "surfaceTabBar": {
+          "description": "Réglages de typographie et de disposition de la barre d'onglets des surfaces.",
+          "widthMode": "Façon dont les onglets des surfaces se partagent la barre d'onglets d'un panneau. \"fixed\" garde chaque onglet à sa propre largeur, jusqu'à maxTabWidth ; \"fill\" étire les onglets pour qu'ils se partagent la barre à parts égales, et un onglet seul occupe toute la barre. Dans les deux modes, la barre défile quand les onglets ne tiennent pas.",
+          "maxTabWidth": "Largeur maximale d'un onglet de surface, en points, lorsque widthMode vaut \"fixed\". Les titres plus longs sont tronqués.",
+          "height": "Hauteur de la barre d'onglets des surfaces, en points. La valeur par défaut correspond à la barre de titre de la fenêtre."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

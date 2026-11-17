@@ -2319,6 +2319,12 @@
           "harness": "Chief'in çalıştığı aracı altyapısı: claude (Claude Code) veya codex (Codex).",
           "model": "Altyapıya iletilen model. Altyapının varsayılanını kullanmak için boş bırakın.",
           "effort": "Altyapıya iletilen akıl yürütme çabası; örneğin low, medium veya high. Altyapının varsayılanını kullanmak için boş bırakın."
+        },
+        "surfaceTabBar": {
+          "description": "Surface sekme çubuğunun yazı tipi ve yerleşim ayarları.",
+          "widthMode": "Surface sekmelerinin bir bölmenin sekme çubuğunu nasıl paylaştığı. \"fixed\" her sekmeyi maxTabWidth değerine kadar kendi genişliğinde tutar; \"fill\" sekmeleri çubuğu eşit paylaşacak şekilde genişletir ve tek bir sekme çubuğun tamamını kaplar. İki modda da sekmeler sığmadığında çubuk kaydırılır.",
+          "maxTabWidth": "widthMode \"fixed\" olduğunda tek bir surface sekmesinin punto cinsinden en büyük genişliği. Daha uzun başlıklar kısaltılır.",
+          "height": "Surface sekme çubuğunun punto cinsinden yüksekliği. Varsayılan değer pencerenin başlık çubuğuyla aynıdır."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

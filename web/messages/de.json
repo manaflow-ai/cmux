@@ -2319,6 +2319,12 @@
           "harness": "Agent-Harness, auf dem Chief läuft: claude (Claude Code) oder codex (Codex).",
           "model": "An das Harness übergebenes Modell. Leer lassen, um den Standard des Harness zu verwenden.",
           "effort": "An das Harness übergebener Denkaufwand, z. B. low, medium oder high. Leer lassen, um den Standard des Harness zu verwenden."
+        },
+        "surfaceTabBar": {
+          "description": "Typografie- und Layout-Einstellungen der Tab-Leiste für Surfaces.",
+          "widthMode": "Wie sich die Surface-Tabs die Tab-Leiste eines Bereichs teilen. \"fixed\" behält für jeden Tab die eigene Breite bis maxTabWidth bei; \"fill\" dehnt die Tabs, sodass sie die Leiste gleichmäßig aufteilen, und ein einzelner Tab füllt die ganze Leiste. In beiden Modi scrollt die Leiste, wenn die Tabs nicht hineinpassen.",
+          "maxTabWidth": "Maximale Breite eines Surface-Tabs in Punkten, wenn widthMode \"fixed\" ist. Längere Titel werden gekürzt.",
+          "height": "Höhe der Tab-Leiste für Surfaces in Punkten. Der Standardwert entspricht der Titelleiste des Fensters."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

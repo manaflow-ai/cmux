@@ -2319,6 +2319,12 @@
           "harness": "harness ភ្នាក់ងារដែល Chief ដំណើរការ៖ claude (Claude Code) ឬ codex (Codex)។",
           "model": "ម៉ូដែលដែលបញ្ជូនទៅ harness។ ទុកទទេដើម្បីប្រើលំនាំដើមរបស់ harness។",
           "effort": "កម្រិតខិតខំវែកញែកដែលបញ្ជូនទៅ harness ដូចជា low, medium ឬ high។ ទុកទទេដើម្បីប្រើលំនាំដើមរបស់ harness។"
+        },
+        "surfaceTabBar": {
+          "description": "ការកំណត់ពុម្ពអក្សរ និងប្លង់នៃរបារផ្ទាំង surface។",
+          "widthMode": "របៀបដែលផ្ទាំង surface ចែករំលែករបារផ្ទាំងនៃផ្ទាំងបំបែក។ \"fixed\" រក្សាផ្ទាំងនីមួយៗនៅទទឹងផ្ទាល់ខ្លួនរហូតដល់ maxTabWidth; \"fill\" ពង្រីកផ្ទាំងឱ្យចែករបារស្មើៗគ្នា ហើយផ្ទាំងតែមួយនឹងពេញរបារទាំងមូល។ ក្នុងរបៀបទាំងពីរ របារអាចរំកិលបាន នៅពេលផ្ទាំងមិនសមល្មម។",
+          "maxTabWidth": "ទទឹងធំបំផុតនៃផ្ទាំង surface មួយ គិតជាចំណុច នៅពេល widthMode ជា \"fixed\"។ ចំណងជើងដែលវែងជាងនេះនឹងត្រូវកាត់ខ្លី។",
+          "height": "កម្ពស់នៃរបារផ្ទាំង surface គិតជាចំណុច។ តម្លៃលំនាំដើមស្មើនឹងរបារចំណងជើងនៃបង្អួច។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

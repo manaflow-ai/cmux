@@ -2320,6 +2320,12 @@
           "harness": "Uprząż agenta, na której działa Chief: claude (Claude Code) lub codex (Codex).",
           "model": "Model przekazywany do uprzęży. Pozostaw puste, aby użyć domyślnego.",
           "effort": "Wysiłek rozumowania przekazywany do uprzęży, np. low, medium lub high. Pozostaw puste, aby użyć domyślnego."
+        },
+        "surfaceTabBar": {
+          "description": "Ustawienia typografii i układu paska kart surface.",
+          "widthMode": "Sposób, w jaki karty surface dzielą pasek kart panelu. \"fixed\" zachowuje własną szerokość każdej karty, maksymalnie do maxTabWidth; \"fill\" rozciąga karty tak, by dzieliły pasek po równo, a pojedyncza karta zajmuje cały pasek. W obu trybach pasek przewija się, gdy karty się nie mieszczą.",
+          "maxTabWidth": "Największa szerokość jednej karty surface w punktach, gdy widthMode ma wartość \"fixed\". Dłuższe tytuły są skracane.",
+          "height": "Wysokość paska kart surface w punktach. Wartość domyślna odpowiada pasku tytułu okna."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

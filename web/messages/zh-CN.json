@@ -2319,6 +2319,12 @@
           "harness": "Chief 使用的代理运行框架：claude（Claude Code）或 codex（Codex）。",
           "model": "传递给运行框架的模型。留空则使用运行框架的默认值。",
           "effort": "传递给运行框架的推理强度，例如 low、medium 或 high。留空则使用运行框架的默认值。"
+        },
+        "surfaceTabBar": {
+          "description": "Surface 标签栏的字体与布局设置。",
+          "widthMode": "Surface 标签如何分配窗格的标签栏。\"fixed\" 让每个标签保持自身宽度，最多为 maxTabWidth；\"fill\" 拉伸标签，使其平均分配标签栏，只有一个标签时占满整个标签栏。两种模式下，标签放不下时标签栏都可以滚动。",
+          "maxTabWidth": "widthMode 为 \"fixed\" 时，单个 Surface 标签的最大宽度（单位为点）。更长的标题会被截断。",
+          "height": "Surface 标签栏的高度（单位为点）。默认值与窗口标题栏一致。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
