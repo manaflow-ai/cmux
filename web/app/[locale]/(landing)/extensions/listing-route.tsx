@@ -5,7 +5,6 @@ import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { type Listing, loadAuthorListings, loadListing } from "@/app/extensions/_lib/registry";
 import {
-  GITHUB_HOST,
   type ListingKind,
   type ListingRoute,
   installDeeplink,
@@ -59,8 +58,8 @@ export async function ListingRoutePage({ kind, params }: { kind: ListingKind; pa
       </div>
     );
   }
-  // "More by" reads the GitHub author index; an owner on another host has none (refs.ts authorPath).
-  const others = listing.host === GITHUB_HOST ? ((await loadAuthorListings(listing.owner)) ?? []) : [];
+  // "More by" asks for the owner on the listing's own host, so a same-named account elsewhere never shows.
+  const others = (await loadAuthorListings(listing.owner, listing.host)) ?? [];
   const more = others.filter((other) => listingPath(other, other.kind) !== listingPath(listing, kind));
   return (
     <div className="min-h-screen">

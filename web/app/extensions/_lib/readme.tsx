@@ -14,13 +14,26 @@ const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 // A trailing slash names a folder; anything else is a file (GitHub redirects a blob URL of a folder to its tree).
 const DIRECTORY_HINT = /\/$/;
 
+/** A path segment with its percent-escapes decoded once (the URL builders encode it again), or null when it cannot be one segment. */
+function decodeSegment(segment: string): string | null {
+  try {
+    const decoded = decodeURIComponent(segment);
+    return decoded.includes("/") || decoded.includes("\\") ? null : decoded;
+  } catch {
+    return null;
+  }
+}
+
 /** Joins a repo-relative URL onto the listing's directory; a leading `/` means the repo root. */
 function repoRelativePath(source: ReadmeSource, href: string): string | null {
   const [pathPart] = href.split(/[?#]/, 1);
   if (!pathPart) return null;
   const rootRelative = pathPart.startsWith("/");
   const parts = rootRelative || !source.path ? [] : source.path.split("/");
-  for (const segment of pathPart.split("/")) {
+  for (const raw of pathPart.split("/")) {
+    // Decoded before the checks, so an encoded "%2e%2e" climbs (and is refused) like "..".
+    const segment = decodeSegment(raw);
+    if (segment === null) return null;
     if (segment === "" || segment === ".") continue;
     if (segment === "..") {
       if (parts.length === 0) return null;
@@ -56,10 +69,11 @@ export function rewriteReadmeUrl(source: ReadmeSource, href: string, kind: "link
   if (resolved === null) return null;
   // The path is resolved against the repo root here; the URL builders add the listing path, so pass it from the root.
   const root: ReadmeSource = { ...source, path: "" };
-  if (kind === "image") return repositoryRawUrl(root, source.commit, resolved);
-  const hash = value.includes("#") ? value.slice(value.indexOf("#")) : "";
+  // The query and fragment are kept as written (e.g. `?plain=1`, `?sanitize=true`, `#usage`).
+  const suffix = value.slice(value.split(/[?#]/, 1)[0]!.length);
+  if (kind === "image") return `${repositoryRawUrl(root, source.commit, resolved)}${suffix}`;
   const isDirectory = resolved === "" || DIRECTORY_HINT.test(value.split(/[?#]/, 1)[0]!);
-  return `${repositoryTreeUrl(root, source.commit, resolved, isDirectory ? "tree" : "blob")}${hash}`;
+  return `${repositoryTreeUrl(root, source.commit, resolved, isDirectory ? "tree" : "blob")}${suffix}`;
 }
 
 export function Readme({ source, markdown }: { source: ReadmeSource; markdown: string }) {

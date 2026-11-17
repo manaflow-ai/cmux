@@ -173,10 +173,9 @@ export async function ListingIndexBody({
 
 /** The extensions index shows every tier (plugins, themes, snippets and setups); /setups shows setups only. */
 export async function loadIndexListings(kind: ListingKind): Promise<Listing[] | null> {
-  const [extensions, setups] = await Promise.all([
-    kind === "extension" ? loadAllListings("extension") : Promise.resolve<Listing[]>([]),
-    loadAllListings("setup"),
-  ]);
+  // /setups reads setups only, so an unreachable registry shows "could not be loaded", not "no listings yet".
+  if (kind === "setup") return loadAllListings("setup");
+  const [extensions, setups] = await Promise.all([loadAllListings("extension"), loadAllListings("setup")]);
   if (extensions === null && setups === null) return null;
   return [...(extensions ?? []), ...(setups ?? [])];
 }

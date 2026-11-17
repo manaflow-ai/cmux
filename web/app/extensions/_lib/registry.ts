@@ -1,4 +1,5 @@
 import { cacheLife } from "next/cache";
+import { unstable_rethrow } from "next/navigation";
 import { readLimitedBody } from "./limited-body";
 import { GITHUB_HOST, type ListingKey, type ListingKind, installReference, isValidKey } from "./refs";
 
@@ -329,6 +330,8 @@ export async function loadListing(kind: ListingKind, key: ListingKey): Promise<L
   try {
     return await fetchListing(kind, key);
   } catch (error) {
+    // Next's own signals (a prerender that ended, a 404, a redirect) are not a registry outage.
+    unstable_rethrow(error);
     console.error("extensions.registry_unavailable", error);
     return null;
   }
@@ -339,16 +342,18 @@ export async function loadAllListings(kind: ListingKind): Promise<Listing[] | nu
   try {
     return await fetchAllListings(kind);
   } catch (error) {
+    unstable_rethrow(error);
     console.error("extensions.registry_unavailable", error);
     return null;
   }
 }
 
 /** Like fetchAuthorListings, but null when the registry is unreachable. */
-export async function loadAuthorListings(owner: string): Promise<Listing[] | null> {
+export async function loadAuthorListings(owner: string, host = GITHUB_HOST): Promise<Listing[] | null> {
   try {
-    return await fetchAuthorListings(owner);
+    return await fetchAuthorListings(owner, host);
   } catch (error) {
+    unstable_rethrow(error);
     console.error("extensions.registry_unavailable", error);
     return null;
   }

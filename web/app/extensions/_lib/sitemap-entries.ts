@@ -31,7 +31,9 @@ export function extensionSitemapEntries(extensions: readonly Listing[] | null, s
     const path = authorPath(listing);
     if (!path) continue;
     const key = path.toLowerCase();
-    authors.set(key, [...(authors.get(key) ?? []), listing]);
+    const group = authors.get(key);
+    if (group) group.push(listing);
+    else authors.set(key, [listing]);
   }
   for (const owned of authors.values()) {
     const date = newest(owned);
