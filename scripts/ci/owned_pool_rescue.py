@@ -6031,16 +6031,22 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused", first_seen=seen)
         log(result)
-        if nightly_left(result) or result.startswith(PUSH_TIP_LEFT) or (
+        # A dispatched watch (Target.dispatched) of a run the open head keeps looks again, like a push run left at its
+        # tip: a watch dates a job's wait from its own first sighting, so a run queued for hours meets the long owned
+        # wait (long_owned_wait()) only OWNED_REPLACE_SECONDS into the watch. Run 44018861106's dispatched watch
+        # (2026-11-17 15:46Z) answered "not rescued: PR #44757 is open at the run's head" at its first look and ended.
+        open_head_left = target.dispatched and OPEN_HEAD_RULE in result and REFUSAL_LEFT not in result
+        if nightly_left(result) or result.startswith(PUSH_TIP_LEFT) or open_head_left or (
                 outcome == "refused" and REFUSAL_LEFT in result and clock() < deadline):
             # A sibling started after the look: watch on, as before, until nothing else runs or the watch ends.
-            # A push run left at its tip is looked at again every FAILOVER_LOOK_SECONDS: its label may go quiet
-            # (the failover), or a newer push may supersede it (superseded_push_cancel()). A refusal not re-run now
-            # (REFUSAL_LEFT) is watched on until the run ends, when its failed jobs are re-run.
+            # A push run left at its tip, and a dispatched run its open head keeps, is looked at again every
+            # FAILOVER_LOOK_SECONDS: its label may go quiet or its wait grow long (the failover), or a newer push may
+            # supersede it (superseded_push_cancel()). A refusal not re-run now (REFUSAL_LEFT) is watched on until the
+            # run ends, when its failed jobs are re-run.
             if clock() >= deadline:
                 return ("stopped: watch limit reached with a started nightly still running"
                         if result.startswith(NIGHTLY_BUSY) else f"stopped: watch limit reached; {result}")
-            if result.startswith(PUSH_TIP_LEFT):
+            if result.startswith(PUSH_TIP_LEFT) or open_head_left:
                 sleep(FAILOVER_LOOK_SECONDS)
             outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep, log=log,
                                     deadline=deadline, floor_seconds=effective_seconds, seen=seen,

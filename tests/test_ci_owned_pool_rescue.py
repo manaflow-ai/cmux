@@ -8462,6 +8462,51 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         self.assertEqual((code, api.calls), (0, ["run"]))
         self.assertIn("not watched: attempt 2 of a delivery build", summary)
 
+    def test_a_dispatched_watch_looks_again_until_the_long_owned_wait_places_the_run_again(self):
+        # Run 44018861106's dispatched watch (2026-11-17 15:46Z, after #45601): its fast tier had waited on
+        # glaeda-side-std-xcode-26.6 since 07:49Z, but a watch dates a wait from its own first sighting, so the
+        # first look found no long owned wait. The watch answered "not rescued: PR #44757 is open at the run's
+        # head" and ended. A dispatched watch now looks again every FAILOVER_LOOK_SECONDS until the failover places
+        # the run again or the watch limit ends it.
+        for dispatched in (True, False):
+            with self.subTest(dispatched=dispatched):
+                clock, api, target = self.busy_side_world(3, workflow=self.BOT_PLACED,
+                                                          extra={"dispatched": dispatched})
+                # As run 44018861106 was: no job of the attempt red (a red `checks` keeps assess() from calling the
+                # queue a rescue, so the watch would look on by itself), and live jobs carry ids, which a watch keys
+                # its first sightings by (watch()'s first_seen).
+                rows = [{**row, "conclusion": "success"} if row.get("conclusion") == "failure" else row
+                        for row in api.jobs_at(0)]
+                api.jobs_at = api.rerun_jobs = with_ids(lambda seconds, rows=rows: [dict(row) for row in rows])
+                lines = []
+                with unittest.mock.patch("sys.stdout", io.StringIO()):
+                    result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now,
+                                           sleep=clock.sleep, log=lines.append, side_seconds=30)
+                if not dispatched:
+                    # Any other watch still ends at its first open-head answer: the sweeper takes the run up again.
+                    assert_left_at_open_head(self, api, "\n".join(lines), number=27797)
+                    self.assertEqual(result, "done")
+                    continue
+                self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (result, lines))
+                self.assertNotIn("rerun", api.calls)
+                self.assertNotIn("rerun-failed", api.calls)
+                self.assertGreaterEqual(api.first_cancel, rescue.OWNED_REPLACE_SECONDS,
+                                        "dated from the watch's first look")
+                self.assertLess(api.first_cancel, target.watch_limit)
+
+    def test_a_dispatched_watch_of_a_run_with_a_running_job_ends_at_its_limit_with_nothing_cancelled(self):
+        clock, api, target = self.busy_side_world(4, workflow=self.BOT_PLACED, extra={"dispatched": True})
+        rows = api.jobs_at(0)
+        rows.append(job("cmux-next swift test", status="in_progress", labels=[SIDE_STD], runner="mini-3"))
+        api.jobs_at = api.rerun_jobs = with_ids(lambda seconds, rows=rows: [dict(row) for row in rows])
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=lambda _: None, side_seconds=30)
+        self.assertNotIn("cancel", api.calls, result)
+        self.assertFalse([call for call in api.calls if call.startswith("rerun")], api.calls)
+        self.assertTrue(result.startswith("stopped: watch limit reached"), result)
+        self.assertLessEqual(clock.seconds, target.watch_limit + rescue.RESCUE_GRACE_SECONDS + 600)
+
     # cmux-next.yml's fast tier as feat-cmux-next has it: its runs-on reads the placement's light_jobs on the attempt
     # the placement ran (a re-run's light move lands on the light label, #18147).
     LIGHT_FIXTURE = CMUX_NEXT_FIXTURE.replace(
