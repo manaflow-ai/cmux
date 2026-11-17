@@ -23,7 +23,8 @@ import VideoToolbox
 ///   host before cmux#44978).
 ///
 /// The report and the rendered card (one row per case under the source) print as
-/// `color-card:` lines; `COLOR_CARD_PNG=1` also prints the PNG as one base64 line.
+/// `color-card:` lines, and the PNG as one base64 `color-card-png:` line (the fleet returns logs,
+/// not files, from a failing run).
 @MainActor @Suite(.serialized) struct RemoteColorCardTests {
     static let width = 512
     static let height = 96
@@ -134,7 +135,7 @@ import VideoToolbox
 
         func finish(bound: Int) {
             for line in lines { print("color-card: \(line)") }
-            if ProcessInfo.processInfo.environment["COLOR_CARD_PNG"] == "1", let png = RemoteColorCardTests.png(rows) {
+            if let png = RemoteColorCardTests.png(rows) {
                 print("color-card-png: \(png.base64EncodedString())")
             }
             for (name, max) in worst {
