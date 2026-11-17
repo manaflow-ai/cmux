@@ -266,7 +266,9 @@ export default function CmuxCloudDpaPage() {
           and meeting chat messages; questions and requests typed to the
           notetaker; model call requests and answers; calendar
           event details; code and other
-          content in connected tools and cloud machines; memory.
+          content in connected tools and cloud machines, including mirror
+          copies of git repositories with their commit history (names and email
+          addresses of commit authors); memory.
         </li>
         <li>
           Special categories: Customer Personal Data can include special
