@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 869,
-    "mcp": 785
+    "verbs": 874,
+    "mcp": 790
   },
   "nouns": [
     {
@@ -1237,6 +1237,25 @@
       ]
     },
     {
+      "noun": "closed",
+      "verbs": [
+        {
+          "command": "cmux closed clear",
+          "title": "Clear Recently Closed…",
+          "id": "closed.clear",
+          "mcp": true,
+          "mcpTool": "app_closed_clear"
+        },
+        {
+          "command": "cmux closed delete",
+          "title": "Delete Recently Closed Item…",
+          "id": "closed.delete",
+          "mcp": true,
+          "mcpTool": "app_closed_delete"
+        }
+      ]
+    },
+    {
       "noun": "cloud",
       "verbs": [
         {
@@ -1850,6 +1869,18 @@
       ]
     },
     {
+      "noun": "errors",
+      "verbs": [
+        {
+          "command": "cmux errors clear",
+          "title": "Clear Error Journal",
+          "id": "errors.clear",
+          "mcp": true,
+          "mcpTool": "app_errors_clear"
+        }
+      ]
+    },
+    {
       "noun": "extension",
       "verbs": [
         {
@@ -1959,6 +1990,13 @@
           "id": "history.open",
           "mcp": true,
           "mcpTool": "app_history_open"
+        },
+        {
+          "command": "cmux history remove-site",
+          "title": "Remove Site from History…",
+          "id": "history.removeSite",
+          "mcp": true,
+          "mcpTool": "app_history_remove_site"
         },
         {
           "command": "cmux history reopen",
@@ -3202,6 +3240,18 @@
           "id": "remote.removeGroup",
           "mcp": true,
           "mcpTool": "app_remote_remove_group"
+        }
+      ]
+    },
+    {
+      "noun": "room",
+      "verbs": [
+        {
+          "command": "cmux room unpin",
+          "title": "Unpin Workspace from Space",
+          "id": "workspace.unpinFromSpace",
+          "mcp": true,
+          "mcpTool": "app_room_unpin"
         }
       ]
     },
