@@ -1060,6 +1060,22 @@ mod tests {
         assert!(typed_at("é", "éZ", "Z", at(1, 0)), "UTF-16 offsets");
     }
 
+    /// Live, Safari and Chrome: an empty ProseMirror or Lexical editor reads
+    /// "\n" (its empty paragraph) before typing and "Zq9 x" (or "Zq9 x\n\n")
+    /// after: the text landed; the break was the placeholder's.
+    #[test]
+    fn typed_text_shows_in_a_rich_editor_whose_empty_paragraph_was_a_break() {
+        let at = |location, length| CFRange { location, length };
+        assert!(typed_at("\n", "Zq9 x", "Zq9 x", at(0, 0)), "ProseMirror");
+        assert!(typed_at("\n", "Zq9 x", "Zq9 x", at(1, 0)), "caret after the break");
+        assert!(typed_at("\n", "Zq9 x\n\n", "Zq9 x", at(0, 0)), "Lexical");
+        assert!(typed_at("ab\n", "abZ\n", "Z", at(2, 0)));
+        assert!(!typed_at("\n", "Zq9 xZq9 x", "Zq9 x", at(0, 0)), "typed twice");
+        assert!(!typed_at("\n", "\n", "Zq9 x", at(0, 0)), "nothing typed");
+        assert!(!typed_at("ab\n", "Zab\n", "Z", at(2, 0)), "landed elsewhere");
+        assert!(!typed_at("\n", "a\nb", "a\nb\n", at(0, 0)), "text with its own breaks stays exact");
+    }
+
     /// A calculator digit: exactly one text changed, a display that took
     /// the digit; two changed texts, none, or another digit say nothing.
     #[test]
