@@ -81,8 +81,10 @@ public final class PanePanel: NSPanel, FocusRouting, UnderOverlayWindow {
 
     /// Gives the keys to the window of `pane` in the family of `window` (an app window and its pane panels): the
     /// panel that shows `pane`, else `window`. Only while a window of that family has the keys: no other window
-    /// and no other app loses them.
+    /// and no other app loses them. Not in a press of a pointer button: the press chose the window that has the
+    /// keys, and the pane under it gets the focus by the press itself.
     public static func moveKeys(in window: NSWindow?, toPane pane: String?) {
+        if let press = NSApp?.currentEvent?.type, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(press) { return }
         guard let window, let key = NSApp?.keyWindow else { return }
         let panels = (window.childWindows ?? []).compactMap { $0 as? PanePanel }
         guard key === window || panels.contains(where: { $0 === key }) else { return }
