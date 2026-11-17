@@ -19,6 +19,26 @@ public struct OmnibarDebugSnapshot: Sendable, Equatable {
     public var highlighted: Int?
     /// What Copy would put on the pasteboard now (nothing is written).
     public var copyText: String?
+    /// Omnibox preloading: whether a tab preloads for this omnibar, the last request's text and
+    /// default match, what the tab answered (prerender, preconnect, none, unavailable) and the last
+    /// end sent (the opened URL, and whether the predictor learned from it).
+    public var preloadBound = false
+    public var preloadText: String?
+    public var preloadDefault: String?
+    public var preloadAction: String?
+    public var preloadEndOpened: String?
+    public var preloadEndLearn: Bool?
+
+    /// The preload fields as `debug.omnibar`'s `preload` object (absent values left out).
+    public var preloadReport: [String: String] {
+        var report = ["bound": preloadBound ? "true" : "false"]
+        report["text"] = preloadText
+        report["default"] = preloadDefault
+        report["action"] = preloadAction
+        report["end_opened"] = preloadEndOpened
+        report["end_learn"] = preloadEndLearn.map { $0 ? "true" : "false" }
+        return report
+    }
 }
 
 /// A synthesized mouse gesture over the omnibar text (`debug.mouse`).
@@ -51,7 +71,7 @@ extension AddressBarView {
         case .editing: "editing"
         case .committing: "committing"
         }
-        return OmnibarDebugSnapshot(
+        var snapshot = OmnibarDebugSnapshot(
             phase: phase,
             hasFocus: state.hasFocus,
             elided: state.elided,
@@ -64,6 +84,20 @@ extension AddressBarView {
             highlighted: presentation.highlighted,
             copyText: OmnibarReducer.copyContent(of: state, resolver: suggestionEngine.resolver)?.text
         )
+        snapshot.preloadBound = controller.preloader != nil
+        snapshot.preloadText = controller.lastPreload?.text
+        snapshot.preloadDefault = controller.lastPreload?.matches.first?.url.absoluteString
+        snapshot.preloadAction = controller.lastPreloadAction.map { action in
+            switch action {
+            case .prerender: "prerender"
+            case .preconnect: "preconnect"
+            case .none: "none"
+            case .unavailable: "unavailable"
+            }
+        }
+        snapshot.preloadEndOpened = controller.lastPreloadEnd?.opened?.absoluteString
+        snapshot.preloadEndLearn = controller.lastPreloadEnd?.learn
+        return snapshot
     }
 
     /// Dispatches a press (and drag) and release over the omnibar text the

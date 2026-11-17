@@ -27,6 +27,10 @@ import Foundation
     private(set) weak var preloader: (any BrowserOmniboxPreloading)?
     /// The last request sent: an unchanged one (a caret move, a hover) is not sent again.
     private(set) var lastPreload: OmnibarPreloadRequest?
+    /// What the tab answered for `lastPreload` (`debug.omnibar`'s `preload`).
+    private(set) var lastPreloadAction: OmniboxPreloadAction?
+    /// The last end sent: the opened URL and whether the predictor learned from it (`debug.omnibar`).
+    private(set) var lastPreloadEnd: (opened: URL?, learn: Bool)?
 
     /// The omnibar now belongs to `tab`'s page: the page it leaves forgets an edit in progress unlearned.
     func setPreloader(_ tab: (any BrowserOmniboxPreloading)?) {
@@ -162,6 +166,7 @@ import Foundation
         if let ending = OmnibarPreloadRequest.ending(effects, input: input, popupWasOpen: popupWasOpen) {
             if lastPreload != nil || ending.opened != nil {
                 preloader.omniboxPreloadEnded(opened: ending.opened, learn: ending.learn)
+                lastPreloadEnd = ending
             }
             lastPreload = nil
             return
@@ -175,7 +180,7 @@ import Foundation
         }
         guard let request = OmnibarPreloadRequest.current(state), request != lastPreload else { return }
         lastPreload = request
-        preloader.omniboxPreload(text: request.text, matches: request.matches)
+        lastPreloadAction = preloader.omniboxPreload(text: request.text, matches: request.matches)
     }
 
     private func run(_ effect: OmnibarEffect) {
