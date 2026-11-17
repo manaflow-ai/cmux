@@ -92,7 +92,7 @@ require_submodule_refs() { # SRC DIR
       rm -rf -- "$probe"
       continue
     fi
-    effective="$(git ls-remote --get-url "$url" 2>/dev/null || echo "$url")"
+    effective="$(git ls-remote --get-url "$url")" || effective="$url" # reads config only, never the remote
     if [[ "$effective" != "$url" ]] && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
       git "${stall[@]}" -C "$probe" fetch --quiet --no-tags --depth 1 --filter=tree:0 "$url" "$sha" 2>/dev/null; then
       why="this host's mirror $effective lacks it but $url has it: refresh the mirror"
