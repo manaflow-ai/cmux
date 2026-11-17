@@ -8,6 +8,8 @@
 //   streaming_text.<cadence>.script_p95_ms       p95 of each streaming frame's script (streaming-text.clock.ts)
 //   streaming_text.<cadence>.work_p95_ms         the same with the layout each frame forced
 //   streaming_text.<cadence>.closed_rerenders    committed renders of a closed block after its first
+// PROFILE=1 builds the page unminified and takes a CPU profile of each round's stream, then prints
+// the functions with the most self time (summed over rounds), to say where a frame's script went.
 //   bun bench/streaming-text-frames.bench.ts [--rounds 3] [--cadences claude,codex] [--dev]
 /// <reference types="bun" />
 import { chromium } from "./browsers";
@@ -21,18 +23,36 @@ const flag = (name: string) => {
 };
 const ROUNDS = Number(flag("--rounds") ?? 3);
 const CADENCES = (flag("--cadences") ?? "claude,codex").split(",");
+const PROFILE = process.env.PROFILE === "1";
+
+type ProfileNode = { id: number; callFrame: { functionName: string; url: string; lineNumber: number } };
+type Profile = { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] };
+/// Self time per function (name, file and line), in ms, added into `into`.
+function selfTimes(profile: Profile, into: Map<string, number>): void {
+  const names = new Map(
+    profile.nodes.map((node) => {
+      const file = node.callFrame.url.split("/").pop() ?? "";
+      return [node.id, `${node.callFrame.functionName || "(anonymous)"} ${file}:${node.callFrame.lineNumber + 1}`];
+    }),
+  );
+  profile.samples.forEach((id, index) => {
+    const name = names.get(id)!;
+    into.set(name, (into.get(name) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+  });
+}
 
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 };
 
-const served = await serveBenchPage("/test/browser/streaming-text.html");
+const served = await serveBenchPage("/test/browser/streaming-text.html", { unminified: PROFILE });
 const browser = await chromium.launch({ headless: true });
 try {
   const label = served.dev ? " (dev)" : "";
   for (const cadence of CADENCES) {
     const reports: StreamReport[] = [];
+    const self = new Map<string, number>();
     for (let round = 0; round < ROUNDS; round += 1) {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 } });
       await page.addInitScript(() => {
@@ -45,6 +65,12 @@ try {
       await page.waitForFunction(
         () => document.fonts.status === "loaded" && (document.querySelector(".acpmux-scroll")?.scrollHeight ?? 0) > 0,
       );
+      const cdp = PROFILE ? await page.context().newCDPSession(page) : undefined;
+      if (cdp) {
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+        await cdp.send("Profiler.start");
+      }
       const report = (await page.evaluate(
         (cadence) =>
           (
@@ -52,10 +78,12 @@ try {
           ).__streamingText.run({ cadence }),
         cadence,
       )) as StreamReport;
+      if (cdp) selfTimes(((await cdp.send("Profiler.stop")) as { profile: Profile }).profile, self);
       await page.close();
       reports.push(report);
       console.log(
         `round ${round + 1} ${cadence}: script p95 ${report.work.scriptMs.p95} ms, work p95 ${report.work.totalMs.p95} ms, ` +
+          `script total ${report.work.scriptTotalMs} ms over ${report.work.busyFrames} busy frames, ` +
           `closed ${report.markdown.closed}, rerenders ${report.markdown.rerenders}, frames ${report.work.frames}`,
       );
     }
@@ -65,6 +93,9 @@ try {
       closed_rerenders: median(reports.map((r) => r.markdown.rerenders)),
     };
     for (const [name, value] of Object.entries(rows)) console.log(`streaming_text.${cadence}.${name}${label} ${value}`);
+    if (PROFILE)
+      for (const [name, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 25))
+        console.log(`profile ${cadence} ${(ms / ROUNDS).toFixed(1).padStart(7)} ms/round  ${name}`);
   }
 } finally {
   await browser.close();

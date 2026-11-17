@@ -495,6 +495,9 @@ function analyze(
     work: {
       frames: work.length,
       scriptMs: stats(working.map((frame) => frame.scriptMs)),
+      /// All the script the stream cost, and the frames that ran any (over half a millisecond).
+      scriptTotalMs: round2(working.reduce((sum, frame) => sum + frame.scriptMs, 0)),
+      busyFrames: working.filter((frame) => frame.scriptMs > 0.5).length,
       layoutMs: stats(working.map((frame) => frame.layoutMs)),
       totalMs: stats(work),
       heaviest: heaviest && {
