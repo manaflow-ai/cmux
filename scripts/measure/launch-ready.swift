@@ -134,7 +134,14 @@ var row: [String: Any] = [
     // wait for Home (home.chief_owner_ready, home.chief_create_replied, ...) can be named; every launch keeps
     // the launch steps (dfl.*), Home's (home.*) and every region the first window reveals (reveal.*): a launch that
     // opens on a pane, not Home, is timed by reveal.pane, so a relaunch's cache read and its first region show too.
-    "marks": marks.filter { label == "prime" || keep.contains($0.key) || $0.key.hasPrefix("dfl.") || $0.key.hasPrefix("home.") || $0.key.hasPrefix("reveal.") },
+    // It also keeps what the first window waits on before it shows: the bundled CLI's `cloud env get`
+    // (cloud_env.*), the app delegate's steps (app.*), the daemon's snapshot read (daemon.*) and the launch
+    // snapshot's own steps (launch_snapshot*). Only the prime launch had them, so a relaunch could not say how long
+    // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
+    "marks": marks.filter { mark in
+        label == "prime" || keep.contains(mark.key)
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot"].contains { mark.key.hasPrefix($0) }
+    },
     "all_marks": marks.count,
     // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
