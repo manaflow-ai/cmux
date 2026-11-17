@@ -1785,8 +1785,11 @@ async fn serve_connection_from(
                     }
                 };
                 if hub.request_stop.is_cancelled() {
+                    // The reader knows this request was not admitted or spawned. Preserve the
+                    // ordered v1 refusal so a caller may retry it on the successor daemon.
                     drop(slot);
-                    break;
+                    conn.send(&Message::err(id, crate::hub::shutting_down_before_create()));
+                    continue;
                 }
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
