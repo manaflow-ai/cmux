@@ -135,8 +135,9 @@ final class TerminalDockInsetUITests: XCTestCase {
         _ = assertNoInset(probe, "reattaching")
 
         // Reconnect, from the page menu (no layout space while the link is down).
-        app.buttons["Page Menu"].firstMatch.tap()
-        let reconnect = app.buttons["Reconnect"].firstMatch
+        // A terminal's title pill opens its page menu (its leading glyph is hidden).
+        pill.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let reconnect = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reconnect")).firstMatch
         XCTAssertTrue(reconnect.waitForExistence(timeout: 5), "Reconnect in the page menu\n\(app.debugDescription)")
         attach(app, "3-page-menu-reconnect")
         reconnect.tap()
