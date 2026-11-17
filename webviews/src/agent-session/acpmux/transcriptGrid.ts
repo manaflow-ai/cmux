@@ -1,5 +1,6 @@
 // The virtual stack reads the same declarative lengths as the generated CSS grid tokens.
 import grid from "../../../../schemas/layout-grid/layout-grid.json";
+import { ROW_METRIC } from "./rowMetric";
 
 export const gridLength = (name: string): number => {
   const metric = grid.metrics.find((value) => value.name === name);
@@ -19,8 +20,9 @@ export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 export const TRANSCRIPT_FOOTER_GAP = gridLength("gap-footer");
 export const TRANSCRIPT_FOOTER_CONTROL = gridLength("transcript-footer-control");
 /// A one-line row's height: a step row, a status row, the live line in a run (conversation.css
-/// `--cv-tool-row-height` at the default density, "One-line row pitch", #29965).
-export const TRANSCRIPT_LINE_ROW = 22;
+/// `--cv-tool-row-height` at the default density, "One-line row pitch", #29965): the shared row
+/// metric, rowMetric.ts ROW_METRIC.
+export const TRANSCRIPT_LINE_ROW = ROW_METRIC.height;
 
 /// The live line right under a step or status row (model.ts `isLiveStep`, MARK_LIVE_STEP): its box and the gap over
 /// it, set here and nowhere else. model.ts places it with these, conversation.css draws it through the custom

@@ -68,7 +68,19 @@
      2026-11-01: "doesn't make sense for these to be spaced differently"). #27580 drew them on the
      28 list row with a 24 block gap between each, about 50 apart (Leo, 2026-11-02: "well now
      there's sometimes too much spacing between tool calls"). */
-  --cv-tool-row-height: 22px;
+  /* The shared row metric (rowMetric.ts ROW_METRIC; Leo, 2026-11-17, on a chat whose rows had grown
+     apart: "these are too big"): every one-line activity row, whatever its kind, is this tall, its
+     words this size (one under the prose, so a list of work reads under the replies), a session chip
+     no taller than its words, and its glyph this size in the 16 icon column. No row kind sets a
+     height, size or chip of its own: test/transcript-row-metric-tokens.test.ts holds these to
+     rowMetric.ts and test/transcript-activity-row-density.test.ts measures every kind. */
+  --cv-tool-row-height: 20px;
+  --cv-row-font-size: calc(var(--cv-font-size) - 1px);
+  --cv-row-chip-height: 16px;
+  --cv-row-glyph: 14px;
+  /* "Worked for"'s rule: this much under its words and this much over the next row. */
+  --cv-worked-rule-above: 2px;
+  --cv-worked-rule-below: 6px;
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
   --cv-disclosure-slot: var(--grid-transcript-icon-box);
@@ -114,7 +126,7 @@
      group: the tool rows' line, so every one-line row is one height (Leo, 2026-11-01: "doesn't make
      sense for these to be spaced differently", #29965). */
   --cv-message-line: var(--cv-tool-row-height);
-  --cv-message-subhead: 22px; /* a sender's head inside that group */
+  --cv-message-subhead: var(--cv-tool-row-height); /* a sender's head inside that group */
   --cv-message-preview-line: 18px; /* a message row's first line, under it (messageLineLook.ts) */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row */
   --cv-disclosure-line-height: var(--cv-tool-row-height);
@@ -2439,7 +2451,7 @@ pre.cv-math-source {
   align-items: center;
   gap: var(--grid-gap);
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   line-height: 20px;
   letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-activity-text);
@@ -3030,7 +3042,7 @@ pre.cv-math-source {
   gap: var(--grid-base);
   margin: 0;
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
@@ -3212,6 +3224,12 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   width: var(--cv-row-icon);
   height: var(--cv-glyph-line);
   margin-right: calc(var(--cv-row-icon-gap) - var(--cv-tool-gap));
+}
+/* The row's glyph is the shared metric's (rowMetric.ts `glyph`), centred in the 16 icon column, so
+   it stays in proportion to the row's words; the column and the words' start do not move. */
+.cv-tool__icon > svg {
+  width: var(--cv-row-glyph);
+  height: var(--cv-row-glyph);
 }
 .cv-tool__text {
   flex: 0 1 auto;
@@ -4474,7 +4492,7 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-received {
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
   /* The transcript's text tone, as every message row between agents (AgentMessageRow.css "One line,
@@ -7818,7 +7836,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 
 /* "Worked for 22s ›" (Lucas, 2026-11-06, Codex parity): the whole line lights under the
    pointer, its time too. Its rule sits between its words and the next row, the reply or
-   the fold's rows: 4 under the line, 8 over the next row, and no stack gap after it
+   the fold's rows: --cv-worked-rule-above under the line, --cv-worked-rule-below over the next row (rowMetric.ts; Leo, 2026-11-17: "these are too big"), and no stack gap after it
    (transcriptGrid.ts MARK_WORKED; Lucas, 2026-11-07; Leo, 2026-11-09: "we need to reduce the
    after"). model.ts `WORKED_GAP_PT` estimates the room.
    Its chevron is every row's (`.cv-rotor`). */
@@ -7826,9 +7844,9 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
 }
 .cv-worked.has-divider.is-toggle {
-  height: calc(var(--cv-tool-row-height) + var(--grid-gap-foot));
-  padding-bottom: var(--grid-gap-foot);
-  margin-bottom: var(--grid-gap);
+  height: calc(var(--cv-tool-row-height) + var(--cv-worked-rule-above));
+  padding-bottom: var(--cv-worked-rule-above);
+  margin-bottom: var(--cv-worked-rule-below);
 }
 /* The command line after a named action, in the dim tone (commandLabel.experiment.ts
    "verbs-command"): what ran, under what it did. */

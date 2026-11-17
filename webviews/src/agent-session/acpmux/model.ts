@@ -1652,13 +1652,17 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
             ? MARK_STATUS
             : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
-/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
-/// #29965), `--cv-tool-row-height`.
+/// One-line activity rows sit flush, one shared row metric apart top to top (rowMetric.ts
+/// ROW_METRIC through transcriptGrid.ts TRANSCRIPT_LINE_ROW, `--cv-tool-row-height`;
+/// design/chat-transcript.md "One-line row pitch", #29965).
 const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
-/// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
-/// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
-const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
+/// The room around "Worked for"'s rule (rowMetric.ts: `ruleAbove` under its words, `ruleBelow` over
+/// the next row), conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
+const WORKED_GAP_PT = ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow;
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// A call in an opened run: its row and the grid base between a run's calls (`.cv-tools` gap,
+/// transcriptSpacing.ts call-pitch), the estimate for a call whose drawn height is not yet known.
+const callRow = () => toolRowHeight() + gridLength("base") * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
 /// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
@@ -1694,7 +1698,7 @@ function noteHeight(text: string | undefined, width: number): number {
 }
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
-  if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
+  if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : callRow();
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   const message = agentMessage(tool);
@@ -1702,7 +1706,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
-    if (!subsession) return 26;
+    if (!subsession) return callRow();
     // Each card (cardHeight), a finished one's reply under it (replyHeight), and the Raw toggle's row.
     if ((subsession.tool === "wait" || subsession.tool === "list") && !subsession.running)
       return Math.max(
@@ -1736,7 +1740,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
     case "fetch":
       return toolRowHeight() + (webSources(tool).length ? 28 : 0);
     default:
-      return 26;
+      return callRow();
   }
 }
 /// Whether a call sends another agent a message (toolGroups.ts `SentEntry`): cheap checks first.
@@ -2812,7 +2816,7 @@ function measuredRowHeight(
           : member.id;
       if (!row.pendingMessages.flat && member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
         senders.add(from);
-        height += 22;
+        height += toolRowHeight();
       }
       // A Stop-held queued message's lead note sits above its received line. Keep the
       // virtualized group estimate in sync with `.cv-received__queued-head`'s 18px line.
@@ -2857,7 +2861,8 @@ function measuredRowHeight(
     const whole = shown ? textHeight(shown, Math.max(80, width - 44), receivedPrepared) : lineHeight;
     const cut = card && whole > CLAMPED_LINES * lineHeight + 1;
     const lines = cut && !opened ? CLAMPED_LINES * lineHeight : whole;
-    const details = opened && message.raw.trim() !== text ? 24 : 0;
+    // Opened, Details' 24px line, and where it was sent from (SentFromLine.tsx) on one row over it.
+    const details = (opened && message.raw.trim() !== text ? 24 : 0) + (opened && row.sentFrom ? toolRowHeight() : 0);
     return finish(line + 2 + 4 + 16 + lines + (cut ? CLAMP_MORE_HEIGHT : 0) + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(lineRow());
@@ -3748,6 +3753,7 @@ import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
 import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
+import { ROW_METRIC } from "./rowMetric";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import { planOpen } from "./conversation/planOpen";
 
