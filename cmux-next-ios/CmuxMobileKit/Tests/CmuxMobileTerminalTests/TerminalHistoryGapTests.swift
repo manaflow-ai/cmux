@@ -13,13 +13,27 @@ import Testing
     @Test func aReaderNearTheGapNeedsNewerRowsFromAboveAndTheNewestFromBelow() {
         let gap = TerminalHistoryGap(shift: 100, windowRows: 4_000)
         // Reading the middle of the window: nothing.
-        #expect(gap.need(visibleTop: 2_000, visibleBottom: 2_040) == nil)
+        #expect(gap.need(visibleTop: 2_000, visibleBottom: 2_040, movingDown: true) == nil)
         // Coming down to within a screen of the window's end.
-        #expect(gap.need(visibleTop: 4_030, visibleBottom: 4_070) == .newer)
-        #expect(gap.need(visibleTop: 4_080, visibleBottom: 4_120) == .newer)
+        #expect(gap.need(visibleTop: 4_030, visibleBottom: 4_070, movingDown: true) == .newer)
+        #expect(gap.need(visibleTop: 4_080, visibleBottom: 4_120, movingDown: true) == .newer)
         // Coming up from the Mac's screen to the gap.
-        #expect(gap.need(visibleTop: 4_120, visibleBottom: 4_160) == .newest)
+        #expect(gap.need(visibleTop: 4_120, visibleBottom: 4_160, movingDown: false) == .newest)
         // On the Mac's screen, well below the gap: nothing.
-        #expect(gap.need(visibleTop: 4_300, visibleBottom: 4_340) == nil)
+        #expect(gap.need(visibleTop: 4_300, visibleBottom: 4_340, movingDown: false) == nil)
+    }
+
+    /// Simulator run 8f9f55310f87a97be78b36cd: a reader flinging up to line 1
+    /// passed near the gap (a replay not yet placed, or the window's end on
+    /// the way up) and moved the window back down 40 times, so the page
+    /// ended on the Mac's screen instead of line 1. Newer rows are only for a
+    /// reader coming down, the newest only for one coming up.
+    @Test func onlyAReaderComingDownMovesTheWindowDown() {
+        let gap = TerminalHistoryGap(shift: 100, windowRows: 4_000)
+        // Going up past the window's end: nothing.
+        #expect(gap.need(visibleTop: 4_030, visibleBottom: 4_070, movingDown: false) == nil)
+        #expect(gap.need(visibleTop: 4_080, visibleBottom: 4_120, movingDown: false) == nil)
+        // Going down on the Mac's screen, just below the gap: nothing.
+        #expect(gap.need(visibleTop: 4_120, visibleBottom: 4_160, movingDown: true) == nil)
     }
 }

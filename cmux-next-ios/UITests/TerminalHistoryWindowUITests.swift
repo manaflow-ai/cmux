@@ -50,6 +50,9 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         XCTAssertEqual(top.window, 0, "the mirror holds a window from line 1: \(caption.label)")
         XCTAssertGreaterThan(top.skipped, 0, "the rows between the window and the screen stay on the Mac: \(caption.label)")
         XCTAssertLessThanOrEqual(top.maxHeld, 10_000, "no replay held more than 10,000 of the 30,000 rows: \(caption.label)")
+        // Going up never moves the window back down (run 8f9f55310f87a97be78b36cd:
+        // 40 steps down on the way up, 98 fetches, the page left on the Mac's screen).
+        XCTAssertEqual(top.down, 0, "going up never moved the window toward the screen: \(caption.label)")
         // The page's very top: row 000000.
         for _ in 0..<6 { fling(app, from: 0.2, to: 0.7) }
         attach(app, "3-line-1")
