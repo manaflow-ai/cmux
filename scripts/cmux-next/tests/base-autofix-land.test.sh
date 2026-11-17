@@ -282,5 +282,10 @@ setup
 run > "$tmp/out" 2>&1 || fail "a repair that is only a Swift rewrite failed: $(cat "$tmp/out")"
 [[ "$(remote_tip)" == "$base" ]] || fail "a repair that is only a Swift rewrite moved the branch"
 [[ "$(git -C "$tmp/remote.git" show "base-autofix-sources:$setting")" == "setting rewritten" ]] || fail "the only-Swift repair went to no proposal"
+# The next run makes the same rewrite again: the proposal branch (and its pull request's CI) stays.
+proposal="$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)"
+(cd "$tmp/bot" && echo "setting rewritten" > "$setting" && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "made again")
+run > "$tmp/out" 2>&1 || fail "the same Swift rewrite again failed: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)" == "$proposal" ]] || fail "the same Swift rewrite moved the proposal branch"
 
 echo "PASS: base autofix makes a held repair again on the moved tip and lands it, a bounded number of times, without the push token"

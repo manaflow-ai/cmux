@@ -830,6 +830,8 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
+          # base-autofix-land.sh opens the pull request for Swift rewrites it cannot compile (as package-deps-heal does).
+          permission-pull-requests: write
 
       - name: Push the repairs
         if: steps.commit.outputs.changed == 'true'

@@ -103,9 +103,98 @@ main() {
     ! grep -qE "$action_exports" <<<"$1"
   }
 
+  # Swift the repair rewrote (the namespace lint's rewrites, base-autofix.sh 1f') is code the app
+  # compiles, and this job has no compile check. 8f33d7030473 pushed such a rewrite (an enum another
+  # file imported with `import enum` became a struct) straight onto feat-cmux-next, and the Release
+  # compile was red on every push after it (run 44005736927). So a rewritten Swift file never lands
+  # on BRANCH from here: it goes, as made, to SOURCES_BRANCH on the commit the repair was made at,
+  # with a pull request whose CI compiles it, and the rest of the repair lands as before.
+  # Package.swift is not a rewrite (the FFI pin writes it through its own path).
+  sources_branch="${CMUX_BASE_AUTOFIX_SOURCES_BRANCH:-base-autofix-sources}"
+  with_token() { # <command...>: the push credentials for this one command only
+    if [[ -n "$token" ]]; then
+      local auth
+      auth="$(printf 'x-access-token:%s' "$token" | base64 -w0)"
+      env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+        GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" GH_TOKEN="$token" "$@"
+    else
+      "$@"
+    fi
+  }
+  propose_sources() { # <base> <paths>: the rewrite as a commit on <base>, pushed to SOURCES_BRANCH, with its pull request
+    local on="$1" paths="$2" path entry tree commit previous number path_list
+    local idx="$work/sources-index"
+    rm -f "$idx"
+    GIT_INDEX_FILE="$idx" git read-tree "$on"
+    while IFS= read -r path; do
+      entry="$(git ls-tree HEAD -- "$path")"
+      if [[ -n "$entry" ]]; then
+        GIT_INDEX_FILE="$idx" git update-index --add --cacheinfo "$(awk '{print $1 "," $3}' <<<"${entry%%$'\t'*}"),$path"
+      else
+        GIT_INDEX_FILE="$idx" git update-index --force-remove -- "$path"
+      fi
+    done <<<"$paths"
+    tree="$(GIT_INDEX_FILE="$idx" git write-tree)"
+    commit="$(git commit-tree "$tree" -p "$on" -m "chore(next): base autofix Swift rewrites at ${on:0:12}" \
+      -m "$(sed 's/^/- namespace rewrite in /' <<<"$paths")" \
+      -m "scripts/cmux-next/base-autofix-land.sh: ${RUN_URL:-} could not compile these, so they wait for this pull request's CI instead of landing on $branch.")"
+    # The same rewrite again (every base push makes it while it waits) leaves the branch, and its CI, alone.
+    previous="$(git ls-remote "$remote" "refs/heads/$sources_branch" 2>/dev/null | cut -f1)"
+    if [[ -n "$previous" ]] && git fetch --quiet --no-tags "$remote" "$previous" 2>/dev/null \
+      && [[ "$(git diff --name-only "$previous^" "$previous" 2>/dev/null)" == "$(sort <<<"$paths")" ]] \
+      && mapfile -t path_list <<<"$paths" && git diff --quiet "$previous" "$commit" -- "${path_list[@]}"; then
+      echo "The Swift rewrites already wait on $sources_branch (${previous:0:12}) for their pull request's compile."
+      return 0
+    fi
+    if ! with_token git push --quiet --force "$remote" "$commit:refs/heads/$sources_branch"; then
+      echo "::warning title=Base autofix Swift rewrites::could not push them to $sources_branch; they are left out of $branch and the next run makes them again" >&2
+      return 0
+    fi
+    echo "Left the Swift rewrites out of $branch: they wait on $sources_branch (${commit:0:12}) for a pull request whose CI compiles them."
+    if [[ -z "${GITHUB_REPOSITORY:-}" ]] || ! command -v gh >/dev/null; then
+      echo "::warning title=Base autofix Swift rewrites::open the pull request for $sources_branch into $branch by hand"
+      return 0
+    fi
+    number="$(with_token gh pr list --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" --state open \
+      --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+    [[ -z "$number" ]] || { echo "Its pull request #$number compiles the new head."; return 0; }
+    if ! with_token gh pr create --repo "$GITHUB_REPOSITORY" --base "$branch" --head "$sources_branch" \
+      --title "chore(next): base autofix Swift rewrites" \
+      --body "The base autofix rewrote these Swift files (the namespace lint's safe rewrites) and could not compile them, so they wait here for this pull request's CI instead of landing on $branch (8f33d7030473 broke the Release compile that way). Made by ${RUN_URL:-the base autofix}; a newer run replaces the head.
+
+$(sed 's/^/- /' <<<"$paths")
+
+## Changelog
+
+none" >/dev/null; then
+      echo "::warning title=Base autofix Swift rewrites::could not open the pull request for $sources_branch into $branch; open it by hand"
+    fi
+    return 0
+  }
+  split_sources() { # <base>: moves the Swift HEAD rewrote out of HEAD; 1 when nothing is left to push
+    local on="$1" paths path message
+    paths="$(git diff --name-only "$on" HEAD -- '*.swift' | grep -Ev '(^|/)Package\.swift$' || true)"
+    [[ -n "$paths" ]] || return 0
+    propose_sources "$on" "$paths"
+    message="$(git log -1 --format=%B HEAD | grep -vF -f <(printf '%s\n' "$paths") || true)"
+    while IFS= read -r path; do
+      if git cat-file -e "$on:$path" 2>/dev/null; then
+        git checkout --quiet "$on" -- "$path"
+      else
+        git rm --quiet --cached -- "$path" && rm -f -- "$path"
+      fi
+    done <<<"$paths"
+    if git diff --cached --quiet "$on"; then
+      git reset --quiet --hard "$on"
+      return 1
+    fi
+    git commit --quiet --amend -m "$message"
+  }
+
   push() { # <base> [<settings made at>] [<action exports made at>] -> the push's status; its held files in $work/held
     local auth status=0
     : > "$work/held"
+    split_sources "$1" || return 0
     if [[ -n "$token" ]]; then
       auth="$(printf 'x-access-token:%s' "$token" | base64 -w0)"
       env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
