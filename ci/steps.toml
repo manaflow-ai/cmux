@@ -20,8 +20,9 @@
 [budget]
 # 362 since #42337 (12 webview test shards in 2 matrices of ci-web.yml, 8 more jobs than the 354 that
 # #42368 counted); 353 since #42540 (react-apps-base-check one job, not 12; react-apps-base-early 2);
-# 355 since #42867 (billing.yml: billing and ios-billing, the Billing lane, money-critical; they move
-# into the step table's linux and ios jobs once those run).
+# 355 since #42867 (billing.yml: billing and ios-billing, the Billing lane, money-critical). The two
+# jobs and this +2 were approved by the user (Aziz) on 2026-11-16, pending Leo's step-table
+# migration, which folds them into the step table's linux and ios jobs and lowers this again.
 pr_jobs = 355
 target_pr_jobs = 8
 
