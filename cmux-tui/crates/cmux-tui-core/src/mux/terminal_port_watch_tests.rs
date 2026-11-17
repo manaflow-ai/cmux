@@ -67,11 +67,15 @@ fn cmux_next_an_idle_port_watch_worker_does_not_keep_a_dropped_mux() {
     };
     let mux = open();
     mux.reconcile_terminal_ports();
-    // The reconcile pass ran and the worker is in its idle wait.
+    // The reconcile pass ran and the worker gave its mux back. The worker
+    // takes its mux before it takes the request, with the watch locked, so a
+    // taken request with one mux left, read under that lock, is a pass that
+    // ended.
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let state = mux.terminal_port_watch.lock();
-        if state.worker && !state.reconcile && state.last_pass.is_some() {
+        let pass_ran = state.worker && !state.reconcile && state.last_pass.is_some();
+        if pass_ran && Arc::strong_count(&mux) == 1 {
             break;
         }
         drop(state);
