@@ -386,6 +386,10 @@ async function run(name: string, engine: BrowserType) {
       );
       if (drawn && drawn.paint - ask.settledAt < 1000) {
         askToDrawn.push(drawn.paint - ask.askAt);
+        // One line a page: bench/transcript-scroll-up-ab.sh pools them over repeats.
+        console.log(
+          `transcript-scroll-up ${name} page ${askToDrawn.length} askToDrawn ${round2(drawn.paint - ask.askAt)}`,
+        );
         drawnAsks.push({ askAt: ask.askAt, settledAt: ask.settledAt, drawnAt: drawn.paint });
       } else undrawnAsks += 1;
     }
