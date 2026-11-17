@@ -30,6 +30,16 @@ function firstVisible(layout: GeometrySource, top: number): number {
   return Math.max(0, geometryOf(layout).upperBoundTop(Math.max(0, top)) - 1);
 }
 
+/// The id of the row at the view's top at `top` in `layout`: the row a scroll-anchored change keeps in
+/// place (the layout watch's anchor, conversation/layoutWatch.ts).
+export function anchorRowId(
+  layout: GeometrySource,
+  rows: readonly Pick<AcpmuxRow, "id">[],
+  top: number,
+): string | undefined {
+  return rows[firstVisible(layout, top)]?.id;
+}
+
 // A prepend moves old rows by the count added; a stream keeps their indices. Check both in O(1),
 // then a bounded neighborhood for an update that changed both ends in the same commit.
 function movedIndex(

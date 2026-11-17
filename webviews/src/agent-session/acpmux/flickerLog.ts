@@ -24,6 +24,9 @@
 // - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
 //   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
 //   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.
+// - `layout-unexplained`: something in view moved or reflowed with no input, append or declared move
+//   (conversation/layoutWatch.ts, dev and nightly builds): `inv` the motion model's invariant (I1..I10),
+//   `cause` (mount, unmount, resize, reflow), `dy` the pixels it went, `frame` the watch's frame number.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
 // second after the last one, never a loop that runs while the page is still.
@@ -252,6 +255,21 @@ export function noteTranscriptReplace(cause: string, blank: boolean, n: number):
 /// `why` names what hides it, `h` the row's height; nothing before startFlickerLog.
 export function noteReplyUnpainted(why: string, h: number): void {
   log?.record("reply-unpainted", { why, h });
+}
+
+/// An unexplained layout change (conversation/layoutWatch.ts), with no row id; nothing before startFlickerLog.
+export function noteLayoutUnexplained(event: {
+  invariant: string;
+  cause: string;
+  deltaPx: number;
+  frame: number;
+}): void {
+  log?.record("layout-unexplained", {
+    inv: event.invariant,
+    cause: event.cause,
+    dy: event.deltaPx,
+    frame: event.frame,
+  });
 }
 
 /// Ids of drawn things (`row:<id>`, `tool:<call id>`) unmounted in the commit now running: one that

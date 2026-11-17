@@ -861,6 +861,8 @@ import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 import { dismissFocusRing } from "../../ui/focusModality";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
+import { installLayoutWatch, layoutWatchWanted } from "./conversation/layoutWatch";
+import { noteLayoutUnexplained } from "./flickerLog";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 
@@ -8459,6 +8461,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setPreviewHost(host.transport === "preview");
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        // The layout watch (conversation/layoutWatch.ts): on in dev and nightly builds, off in Release.
+        {
+          const scheme =
+            typeof host.linkScheme === "string" ? host.linkScheme : mock ? FALLBACK_LINK_SCHEME : undefined;
+          const dev = import.meta.env?.DEV === true || (scheme?.startsWith("cmux-dev") ?? false);
+          installLayoutWatch(window, { wanted: layoutWatchWanted(scheme, dev), dev, record: noteLayoutUnexplained });
+        }
         if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(

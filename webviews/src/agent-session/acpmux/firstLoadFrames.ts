@@ -6,8 +6,8 @@
 // and layout shifted"). Pure, so test/first-load-frames.test.ts checks it without a browser.
 
 /// A transcript row in view in a painted frame: its id (`data-row-id`) and its top edge, in CSS
-/// pixels from the viewport's top.
-export type FrameRow = { id: string; top: number };
+/// pixels from the viewport's top, and its height where the reader measured it.
+export type FrameRow = { id: string; top: number; height?: number };
 
 /// What one painted frame showed, read from the layer on top: the chat's drawn copy while it shows
 /// (chatSnapshot/paint.ts), else the live page.

@@ -62,7 +62,8 @@ import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
-import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { anchorRowId, fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { layoutWatch } from "./conversation/layoutWatch";
 import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
@@ -5085,6 +5086,12 @@ function TranscriptView({
         if (held?.found || (held && !canLoadOlder)) heldPlace.current = undefined;
         const nextTop = held ? held.top : kept;
         if (nextTop !== undefined && (clamped || held !== undefined || nextTop !== logicalTop)) {
+          // Older rows landed above (or rows above changed height): a declared move whose anchor, the
+          // row at the view's top, stays on its pixel (conversation/layoutWatch.ts).
+          layoutWatch.expect(rows[0]?.id !== oldRows[0]?.id ? "prepend-older" : "anchor-correct", {
+            anchor: anchorRowId(old, oldRows, logicalTop),
+            ms: 300,
+          });
           writeAnchorScrollTop(node, nextTop);
           // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
@@ -5118,6 +5125,8 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
+        // The chat opens at its anchor or its latest row: a declared move (conversation/layoutWatch.ts).
+        layoutWatch.expect(at < 0 ? "open-at-latest" : "open-from-anchor", { ms: 300 });
         if (at < 0) node.scrollTop = top;
         else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
@@ -5410,6 +5419,12 @@ function TranscriptView({
         watchTurnFold(fold, host, read, foldGhosts.current, () => {
           if (turnFold.current === fold) turnFold.current = undefined;
         });
+      // A declared move (conversation/layoutWatch.ts): the rows under the line fold; the clicked line
+      // holds unless whole rows come or go at the very bottom, where the thread slides.
+      layoutWatch.expect("fold-toggle", {
+        anchor: stack ? undefined : id,
+        ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+      });
       onToggleActivity(id, foldCovers(clicked));
     },
     [onToggleActivity],
