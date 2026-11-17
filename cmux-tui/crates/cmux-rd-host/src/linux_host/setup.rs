@@ -162,6 +162,25 @@ pub const DISPLAY_UNIT: &str = "cmux-screen-display.service";
 pub const HOST_UNIT: &str = "cmux-screen-host.service";
 const HOST_UNIT_TEXT: &str = include_str!("../../systemd/cmux-screen-host.service");
 
+/// The host unit for a machine with no graphical session: the same service, started by the user
+/// manager itself. Not a drop-in over [`HOST_UNIT_TEXT`]: systemd cannot empty a dependency list
+/// (`Requisite=`, `PartOf=`, `After=`) from a drop-in, so the desktop unit's
+/// `Requisite=graphical-session.target` would refuse every start on a headless machine.
+pub fn headless_host_unit() -> String {
+    let mut text = String::new();
+    for line in HOST_UNIT_TEXT.lines() {
+        match line.split_once('=') {
+            Some(("PartOf" | "After" | "Requisite", "graphical-session.target")) => continue,
+            Some(("WantedBy", "graphical-session.target")) => {
+                text.push_str("WantedBy=default.target")
+            }
+            _ => text.push_str(line),
+        }
+        text.push('\n');
+    }
+    text
+}
+
 /// `cmux-screen-display.service` for display `:display` run by `xvfb` (an absolute path).
 pub fn display_unit(xvfb: &Path, display: u32) -> String {
     format!(
@@ -188,18 +207,14 @@ pub fn display_of_unit(text: &str) -> Option<u32> {
     exec.split_whitespace().find_map(|w| w.strip_prefix(':')?.parse().ok())
 }
 
-/// The host unit's drop-in for a virtual display: the host runs without a graphical session
-/// and captures the virtual display, which it starts when a share or an app needs it
+/// The host unit's drop-in for a virtual display: the host ([`headless_host_unit`]) captures
+/// the virtual display, which it starts when a share or an app needs it
 /// ([`ensure_virtual_display`]), not with itself.
 pub fn host_virtual_drop_in(display: u32) -> String {
     format!(
         "# Written by `cmux-rd linux-host enable`: this machine has no graphical session, so the\n\
          # host shares the virtual display :{display} (cmux-screen-display.service), started\n\
          # when a share or an app launch needs it.\n\
-         [Unit]\n\
-         PartOf=\n\
-         Requisite=\n\
-         \n\
          [Service]\n\
          Environment=DISPLAY=:{display} XDG_SESSION_TYPE=x11 {VIRTUAL_DISPLAY_ENV}=:{display}\n"
     )
@@ -346,7 +361,8 @@ pub fn set_up_virtual_display() -> Res<u32> {
 /// lingering for a virtual display, so the host outlives the ssh session (warns if it cannot).
 pub fn install_host(virtual_display: bool) -> Res<()> {
     let dir = user_unit_dir()?;
-    write_if_changed(&dir.join(HOST_UNIT), HOST_UNIT_TEXT)?;
+    let text = if virtual_display { headless_host_unit() } else { HOST_UNIT_TEXT.to_owned() };
+    write_if_changed(&dir.join(HOST_UNIT), &text)?;
     systemctl(&["daemon-reload"])?;
     systemctl(&["enable", HOST_UNIT])?;
     if !virtual_display {
@@ -457,8 +473,8 @@ mod tests {
         assert_eq!(display_of_unit(&unit), Some(101));
         assert_eq!(display_of_unit("[Service]\nExecStart=/usr/bin/Xvfb\n"), None);
         let drop_in = host_virtual_drop_in(101);
-        // Not bound to a graphical session that never starts here.
-        assert!(drop_in.contains("PartOf=\nRequisite=\n"));
+        // A drop-in cannot empty a dependency list, so it names none.
+        assert!(!drop_in.contains("[Unit]"), "{drop_in}");
         // Started on demand, not with the host.
         assert!(!drop_in.contains("Requires="), "{drop_in}");
         assert!(drop_in
@@ -515,5 +531,14 @@ mod tests {
     fn the_installed_host_unit_is_the_repositorys() {
         assert!(HOST_UNIT_TEXT.contains("ExecStart=%h/.local/bin/cmux-rd linux-host run"));
         assert!(HOST_UNIT_TEXT.contains("RestartPreventExitStatus=78"));
+        // Headless: nothing ties it to a graphical session (machine-join e2e run 44048019385
+        // failed its start with "A dependency job for cmux-screen-host.service failed"), and the
+        // user manager starts it.
+        let headless = headless_host_unit();
+        assert!(!headless.contains("graphical-session"), "{headless}");
+        assert!(headless.contains("\nWantedBy=default.target\n"), "{headless}");
+        assert!(headless.contains("ExecStart=%h/.local/bin/cmux-rd linux-host run\n"));
+        assert!(headless.contains("RestartPreventExitStatus=78\n"));
+        assert!(HOST_UNIT_TEXT.contains("Requisite=graphical-session.target"));
     }
 }
