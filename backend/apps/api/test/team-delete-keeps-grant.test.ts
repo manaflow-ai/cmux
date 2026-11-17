@@ -133,6 +133,16 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "max" })
   })
 
+  it("a deleted team's cmux NEXT grant is carried like a classic one, and ranks against the owner's grant", async () => {
+    const t = await ownedTeamWithGrant("next_max")
+    t.w.userVmPlans.set(t.stackUser, "pro")
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect((await carried(t.team))?.vm_plan).toBe("next_max")
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "next_max" })
+    t.w.userVmPlans.set(t.stackUser, "max")
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "max" })
+  })
+
   it("records nothing for a team without a grant", async () => {
     const t = await ownedTeamWithGrant(null)
     expect((await deleteInStack(t)).status).toBe(200)

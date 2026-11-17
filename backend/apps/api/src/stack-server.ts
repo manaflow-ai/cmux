@@ -1,3 +1,4 @@
+import { grantRank } from "./cloud-vm-plan.ts"
 import { PERSONAL_TENANT_METADATA_KEY } from "./team-vm-api-personal-stack.ts"
 import type { Env } from "./env.ts"
 
@@ -23,7 +24,7 @@ export interface StackServer {
    * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
    * inference-plans.ts), null when absent or not a string. `vm_plan` is its operator Cloud grant
-   * (client_read_only_metadata.cmuxVmPlan, cloud-plan.ts cloudPlanId), read for Cloud machine limits only.
+   * (client_read_only_metadata.cmuxVmPlan and cmuxNextVmPlan combined, readCloudVmGrant), read for Cloud machine limits only.
    * `next_plan` is its client_read_only_metadata.cmuxNextPlan (nextPlanId), reported to the Cloud service
    * only: it never makes a team paid.
    */
@@ -46,7 +47,7 @@ export interface StackServer {
    * nextPlanId). Optional: a server without it is read with getUserPlan and has no next_plan.
    */
   getUserPlans?(userId: string): Promise<{ readonly plan: string | null; readonly next_plan: string | null } | "user_gone">
-  /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan, as metadata text), null when absent; `gone` for USER_NOT_FOUND. Cloud machine limits only. */
+  /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan and cmuxNextVmPlan combined, readCloudVmGrant), null when absent; `gone` for USER_NOT_FOUND. Cloud machine limits only. */
   getUserVmPlan(userId: string): Promise<{ readonly vm_plan: string | null } | { readonly gone: true }>
   /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
@@ -116,6 +117,31 @@ export const readVmPlanOverride = (metadata: unknown): string | null => {
   const value = (metadata as Record<string, unknown>).cmuxVmPlan
   if (value === undefined || value === null) return null
   return typeof value === "string" && value.length <= 64 ? value : ""
+}
+
+/**
+ * The record's cmux NEXT operator grant, `cmuxNextVmPlan` from client_read_only_metadata only: a NEXT plan id
+ * (trimmed, lowercased) exactly, else null. Any other value is ignored, never a restriction.
+ */
+const readNextVmPlanOverride = (metadata: unknown): string | null => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>).cmuxNextVmPlan
+  return typeof value === "string" ? nextPlanId(value.trim().toLowerCase()) : null
+}
+
+/**
+ * The effective operator Cloud grant of one sign-in record (a user's or a shared team's), the `vm_plan` cmux NEXT
+ * Cloud reads. A record may hold a classic grant (`cmuxVmPlan`, readVmPlanOverride: a classic id, a restriction such
+ * as "free", or a legacy NEXT id) and a cmux NEXT grant (`cmuxNextVmPlan`) at once. No NEXT grant: the classic value
+ * unchanged. No classic value: the NEXT grant. Both: the higher by grantRank, the NEXT grant at an equal rank (so a
+ * classic restriction never hides a NEXT grant).
+ */
+export const readCloudVmGrant = (metadata: unknown): string | null => {
+  const classic = readVmPlanOverride(metadata)
+  const next = readNextVmPlanOverride(metadata)
+  if (next === null) return classic
+  if (classic === null) return next
+  return grantRank(classic) > grantRank(next) ? classic : next
 }
 
 /**
@@ -208,7 +234,7 @@ export const stackServer = (
       // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
       const meta = r.server_metadata
       const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
-      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), next_plan: readOnlyNextPlan(r.client_read_only_metadata), vm_plan: readVmPlanOverride(r.client_read_only_metadata), vm_personal_tenant, vm_personal_tenant_visible: vmTenantVisible(r.client_read_only_metadata) }
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), next_plan: readOnlyNextPlan(r.client_read_only_metadata), vm_plan: readCloudVmGrant(r.client_read_only_metadata), vm_personal_tenant, vm_personal_tenant_visible: vmTenantVisible(r.client_read_only_metadata) }
     },
     markVmPersonalTenantVisible: async (teamId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown; server_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
@@ -231,7 +257,7 @@ export const stackServer = (
     },
     getUserVmPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
-      return isGone(r) ? { gone: true as const } : { vm_plan: readVmPlanOverride(r.client_read_only_metadata) }
+      return isGone(r) ? { gone: true as const } : { vm_plan: readCloudVmGrant(r.client_read_only_metadata) }
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []
