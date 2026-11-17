@@ -237,8 +237,9 @@ test("an early attach the open dropped while its switch was out, for a chat no l
   const proto = AcpmuxDirectClient.prototype as any;
   const askEarly = proto.askEarly;
   let opening: any;
+  const caught = (client: unknown) => (opening = client);
   proto.askEarly = function (this: unknown) {
-    opening = this;
+    caught(this);
     return askEarly.call(this);
   };
   let listed = () => {};
