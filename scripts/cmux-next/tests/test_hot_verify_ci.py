@@ -600,6 +600,52 @@ class Workflow(unittest.TestCase):
                     self.assertIn("reached-git", said, (done.stderr, said))
                     self.assertFalse(out.exists() and "eligible=false" in out.read_text())
 
+    def look_steps(self) -> list[str]:
+        """The look job's `run: |` scripts, each through the line before its next step."""
+        block, scripts = self.job_block("look"), []
+        for i, line in enumerate(block):
+            if line.strip() == "run: |":
+                indent = len(line) - len(line.lstrip()) + 2
+                end = next((j for j in range(i + 1, len(block)) if block[j].strip()
+                            and len(block[j]) - len(block[j].lstrip()) < indent), len(block))
+                scripts.append(textwrap.dedent("\n".join(block[i + 1:end])))
+        return scripts
+
+    def test_a_look_that_stops_waiting_cancels_its_queued_fleet_step(self) -> None:
+        # 2026-11-17 13:49Z: 49 hot-verify steps queued on the fleet, at least 23 of them from runs whose look had
+        # already given up (exit 75 after --queue-timeout leaves the step queued "keeping its place") and whose
+        # `look again` had queued a second one. Those orphans run later and are never posted.
+        step = "0123456789abcdef01234567"
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-look-")))
+        (scratch / "bin").mkdir()
+        calls = scratch / "client-calls"
+        client = scratch / "bin" / "cmux-ci"
+        client.write_text("#!/bin/bash\necho \"$*\" >> \"$CALLS\"\n"
+                          f"if [[ $1 == run ]]; then echo 'submitted step {step}'; exit 75; fi\n"
+                          "[[ $1 == cancel ]] && exit 0\nexit 1\n")
+        client.chmod(0o755)
+        curl = scratch / "bin" / "curl"
+        curl.write_text("#!/bin/bash\nwhile [[ $# -gt 0 ]]; do [[ $1 == -o ]] && { shift; printf '{\"commit\": \"%s\"}' "
+                        f"{HEAD} > \"$1\"; }}; shift; done\n")
+        curl.chmod(0o755)
+        temp, out, summary = scratch / "temp", scratch / "out", scratch / "summary"
+        temp.mkdir()
+        env = {**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "CALLS": str(calls),
+               "CMUX_CI_CLIENT": str(client), "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(out),
+               "GITHUB_STEP_SUMMARY": str(summary), "CONTROLLER": "http://controller", "PR": "7",
+               "HEAD_SHA": HEAD, "GITHUB_RUN_ID": "99", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "test"}
+        scripts = self.look_steps()
+        done = subprocess.run(["bash", "-c", scripts[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        self.assertNotEqual(done.returncode, 0)  # no look result is never green
+        self.assertIn(f"cancel {step}", calls.read_text(), (done.stdout, done.stderr))
+        # A job cancelled while it waits (a newer push's run, the 75 min limit) cancels its step too.
+        self.assertTrue(any("cancelled()" in line for line in self.job_block("look")), "no step runs on cancel")
+        calls.unlink()
+        (temp / "look.log").write_text(f"submitted step {step}\n")
+        done = subprocess.run(["bash", "-c", scripts[-1]], cwd=ROOT, env=env, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(f"cancel {step}", calls.read_text())
+
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
         self.assertIn("workflow_dispatch:", text)

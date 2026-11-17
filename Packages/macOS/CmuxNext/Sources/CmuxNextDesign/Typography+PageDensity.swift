@@ -35,7 +35,9 @@ public extension Typography {
     static var pageChatTextScale: CGFloat {
         let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
         let drawn = DensityPreset.cozy.tokens.bodySize
-        let body = DesignSettings.shared.overrides[.chromeFontSize] ?? max(Metrics.tokens.bodySize, drawn)
+        // A density's own chat text scale (the Density Playground's `chatTextScale`) sets the density's part exactly.
+        let densityBody = Metrics.tokens.tokens["chatTextScale"].map { drawn * CGFloat($0) } ?? max(Metrics.tokens.bodySize, drawn)
+        let body = DesignSettings.shared.overrides[.chromeFontSize] ?? densityBody
         return body / drawn * interfaceScale
     }
     /// The person's own text scale for the chats, over Default's: Text Size and a chrome font size set in Settings,
@@ -46,4 +48,7 @@ public extension Typography {
         let body = DesignSettings.shared.overrides[.chromeFontSize] ?? drawn
         return body / drawn * interfaceScale
     }
+    /// The Home (iMessage-style) chat's size from the density: 1 at every built-in, which never scales it, or a custom
+    /// density's `homeTextScale` (the Density Playground). The Chief chat's transcript zooms by it with Agent Chat Zoom.
+    static var homeChatDensityScale: CGFloat { Metrics.tokens.tokens["homeTextScale"].map { CGFloat($0) } ?? 1 }
 }
