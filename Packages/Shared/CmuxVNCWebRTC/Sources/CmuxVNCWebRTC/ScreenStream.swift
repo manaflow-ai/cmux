@@ -3,6 +3,7 @@ import CoreGraphics
 import CoreVideo
 import Foundation
 import Network
+import os
 import VideoToolbox
 import WebRTC
 
@@ -291,13 +292,15 @@ public protocol ScreenSourceProbe: Sendable {
 /// later check reads another, until ``stop()``. Its owner checks on a tick
 /// it already runs and on frames that arrive while not live, so there is no
 /// observer and no timer of its own.
-// crash-allow: `last` and `stopped` are read and written only under `lock`.
-public final class ScreenSourceMonitor: @unchecked Sendable {
+public final class ScreenSourceMonitor: Sendable {
+    private struct State {
+        var last: ScreenSourceState?
+        var stopped = false
+    }
+
     private let probe: any ScreenSourceProbe
     private let changed: @Sendable (ScreenSourceState) -> Void
-    private let lock = NSLock()
-    private var last: ScreenSourceState?
-    private var stopped = false
+    private let current = OSAllocatedUnfairLock(initialState: State())
 
     public init(probe: any ScreenSourceProbe, changed: @escaping @Sendable (ScreenSourceState) -> Void) {
         self.probe = probe
@@ -305,22 +308,22 @@ public final class ScreenSourceMonitor: @unchecked Sendable {
     }
 
     /// The state the last check read; nil before the first.
-    public var state: ScreenSourceState? { lock.withLock { last } }
+    public var state: ScreenSourceState? { current.withLock { $0.last } }
 
     public func check() {
         // Read under the lock: two checks at once never report an older reading last.
-        let report = lock.withLock { () -> ScreenSourceState? in
-            guard !stopped else { return nil }
+        let report = current.withLock { [probe] state -> ScreenSourceState? in
+            guard !state.stopped else { return nil }
             let now = probe.read()
-            guard last != now else { return nil }
-            last = now
+            guard state.last != now else { return nil }
+            state.last = now
             return now
         }
         if let report { changed(report) }
     }
 
     public func stop() {
-        lock.withLock { stopped = true }
+        current.withLock { $0.stopped = true }
     }
 }
 
