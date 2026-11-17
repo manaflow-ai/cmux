@@ -11,6 +11,8 @@
 //!   Installed. `catalog.get` also answers the versions and What's New, and
 //!   `catalog.sections` the store's shelves (apps/store_sections.rs).
 //! - `installed.list`: the installed apps with their state and grants.
+//! - `updates.list` and `update`: the Community (git) apps' updates
+//!   (apps/community.rs); `update` installs through `install`.
 //! - `set`: every field (`enabled`, `hidden`, `sandboxed`) only from the
 //!   user, in both directions (D55 as amended, APPS-ENABLE-ORIGIN): agents
 //!   must not change what the user sees or what an app may do.
@@ -306,7 +308,11 @@ struct InstallState {
     sandboxed: bool,
     source: Source,
     version: Option<String>,
-    update: Option<String>,
+    /// The version an update brings: a Community (git) app whose row in the
+    /// cached index names another reviewed commit (`apps.updates.list`).
+    /// Filled by `installed.list` only; catalog apps ship with cmux and are
+    /// always current.
+    update: Option<AvailableUpdate>,
     /// Why the app is not running when it should: `off: safe mode`, or
     /// `failed: <reason>` (apps/safe_mode.rs). Absent when nothing holds it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -318,6 +324,13 @@ struct InstallState {
     /// mount over its op-batch rate gets 1 batch a second) or `paused`
     /// (`apps.resume` starts it again).
     budget: &'static str,
+}
+
+/// `state.update`: `{version, commit}` (the page reads `version`).
+#[derive(Debug, Serialize)]
+struct AvailableUpdate {
+    version: String,
+    commit: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -463,7 +476,7 @@ fn matches(package: &Package, query: &str) -> bool {
         .any(|field| field.to_lowercase().contains(&query))
 }
 
-/// Whether App Store op `op` changes the install mirror (`set`, `install`,
+/// Whether App Store op `op` changes the install mirror (`set`, `install`, `update`,
 /// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`): the wire admits
 /// it only from the verified cmux app connection (Gate A2), whatever origin
 /// it claims.
@@ -472,6 +485,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
         op.strip_prefix("cmux.").unwrap_or(op),
         "apps.set"
             | "apps.install"
+            | "apps.update"
             | "apps.uninstall"
             | "apps.hidden.set"
             | "apps.grant.set"
@@ -506,6 +520,11 @@ impl Supervisor {
             "apps.installed.list" => {
                 params::<InstalledListParams>(args).and_then(|_| to_value(self.installed_list()))
             }
+            // Community (git) app updates (community.rs), from the cached index.
+            "apps.updates.list" => {
+                params(args).and_then(|p| to_value(self.community_updates_list(p)?))
+            }
+            "apps.update" => params(args).and_then(|p| self.community_update(client, p, origin)),
             "apps.set" => params(args).and_then(|p| self.store_set(client, p, origin)),
             "apps.install" => {
                 params(args).and_then(|p| self.store_install_deploy(client, p, origin))
@@ -604,6 +623,8 @@ impl Supervisor {
     }
 
     fn installed_list(&self) -> InstalledListResult {
+        // A file read and the community lock: before the supervisor lock.
+        let updates = self.community_updates_cached();
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let apps = inner
             .mirror
@@ -613,6 +634,10 @@ impl Supervisor {
             .map(|(app, record)| {
                 let mut row = installed_app(app, record, inner.catalog.packages.get(app));
                 annotate(&inner, app, Some(&mut row.state));
+                row.state.update = updates.get(app).map(|update| AvailableUpdate {
+                    version: update.version.clone(),
+                    commit: update.commit.clone(),
+                });
                 row.instance = self.instance_json(app);
                 row
             })
@@ -692,7 +717,7 @@ impl Supervisor {
     /// deploy + pin, `deploy.rs`): the target is checked against the manifest
     /// before anything installs; the install commits, then the runner starts
     /// off the request and the answer carries the instance as `deploying`.
-    fn store_install_deploy(
+    pub(super) fn store_install_deploy(
         &self,
         client: u64,
         p: super::deploy::InstallParams,
