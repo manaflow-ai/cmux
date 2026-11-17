@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { CloudStartView } from "./CloudStartView";
-import { currentCloudPlan, refreshCloudMachines, setCloudPlanForTest } from "./cloudMachines";
+import { currentCloudPlan, readCloudPlanFresh, refreshCloudMachines, setCloudPlanForTest } from "./cloudMachines";
 import { cloudPlanFromReply, cloudPlanHoldsSend, cloudSizeLocked, type CloudPlanView } from "./cloudPlans";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { cloudStartEnded, cloudStartPlanHeld, type CloudStartProgress } from "./cloudStartProgress";
@@ -108,6 +108,29 @@ test("the plan of a list reply: only an explicit none holds a send; unknown, act
   await read({ signedIn: true, loaded: true, machines: [], plan: { state: "none" } });
   await refreshCloudMachines(() => Promise.reject(new Error("refused")));
   expect(currentCloudPlan().state).toBe("unknown");
+});
+
+test("a fresh plan read asks the app past its kept read, and a plain read asked before it never overwrites it", async () => {
+  const asked: unknown[] = [];
+  const answer = (plan: unknown) => (_method: string, params?: Record<string, unknown>) => {
+    asked.push(params);
+    return Promise.resolve({ signedIn: true, loaded: true, machines: [], plan });
+  };
+  expect(await readCloudPlanFresh(answer({ state: "active", id: "pro", max_size: "lg" }))).toEqual(PRO);
+  expect(asked).toEqual([{ fresh: true }]);
+  expect(currentCloudPlan()).toEqual(PRO);
+  // A refused read, or no app to ask, never holds a send.
+  expect(await readCloudPlanFresh(() => Promise.reject(new Error("refused")))).toEqual(cloudPlanFromReply({}));
+  expect(
+    await readCloudPlanFresh(() => Promise.reject(Object.assign(new Error("down"), { code: "native.not_connected" }))),
+  ).toEqual(cloudPlanFromReply({}));
+  // A plain read (the app's kept, older answer) lands after a fresh one asked later: the fresh answer stays.
+  let landOld: (reply: unknown) => void = () => undefined;
+  const plain = refreshCloudMachines(() => new Promise((done) => (landOld = done)));
+  expect(await readCloudPlanFresh(answer({ state: "active", id: "max", max_size: "2xl" }))).toEqual(MAX);
+  landOld({ signedIn: true, loaded: true, machines: [], plan: { state: "none" } });
+  await plain;
+  expect(currentCloudPlan()).toEqual(MAX);
 });
 
 test("a send held for want of a plan and the platform's refusal both show the pricing card in the start's place", () => {

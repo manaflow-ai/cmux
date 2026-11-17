@@ -257,34 +257,68 @@ function publishAccount(next: boolean | undefined): void {
 /// account's machines and signed-in state cannot be trusted after it. With no app to ask (outside
 /// the app, or while its bridge reconnects: `native.not_connected`) the list is left as it was.
 export function refreshCloudMachines(call: Call = postNative): Promise<void> {
+  return inFlight ?? track(readList(call, false));
+}
+
+/// The plan as the server says it now (`cloudMachine.list {fresh: true}`: the app reads the plan again, past the
+/// minute it keeps an active one), published as any list read is. A Send the last plan would hold, and the pricing
+/// card's read back from checkout, ask this. A refused read, or no app to ask, is `unknown`: it never holds a send.
+export function readCloudPlanFresh(call: Call = postNative): Promise<CloudPlanView> {
+  const read = readList(call, true);
+  void track(read);
+  return read;
+}
+
+/// Each list read's turn, and the latest fresh read's: a plain read asked before a fresh one publishes nothing after it.
+let readTurn = 0;
+let freshTurn = 0;
+
+/// One `cloudMachine.list` read: publishes its answer (unless a reset or a later fresh read superseded it) and
+/// resolves to the plan it read, `unknown` when it failed.
+function readList(call: Call, fresh: boolean): Promise<CloudPlanView> {
   const asked = generation;
-  inFlight ??= call("cloudMachine.list", {})
-    .then((reply) => {
-      if (asked === generation) {
-        const signedIn = cloudSignedInFromReply(reply);
+  const turn = ++readTurn;
+  if (fresh) freshTurn = turn;
+  const current = () => asked === generation && turn >= freshTurn;
+  return call("cloudMachine.list", fresh ? { fresh: true } : {}).then(
+    (reply) => {
+      const signedIn = cloudSignedInFromReply(reply);
+      const plan = signedIn ? cloudPlanFromReply(reply) : UNKNOWN_PLAN;
+      if (current()) {
         const list = cloudMachinesFromReply(reply);
         keepSignedIn(signedIn);
         publishAccount(signedIn);
         const answer = reply as { team?: unknown; teams?: unknown } | null | undefined;
         publishTeam(signedIn ? activeTeamFromReply(answer?.team, answer?.teams) : undefined);
-        publishPlan(signedIn ? cloudPlanFromReply(reply) : UNKNOWN_PLAN);
+        publishPlan(plan);
         publish(list);
       }
-    })
-    .catch((error: unknown) => {
-      if ((error as { code?: unknown } | null)?.code === "native.not_connected") return;
-      if (asked === generation) {
+      return plan;
+    },
+    (error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code === "native.not_connected") return UNKNOWN_PLAN;
+      if (current()) {
         keepSignedIn(undefined);
         publishAccount(undefined);
         publishTeam(undefined);
         publishPlan(UNKNOWN_PLAN);
         publish([]);
       }
-    })
+      return UNKNOWN_PLAN;
+    },
+  );
+}
+
+/// The read the page's other reads wait on (`inFlight`), until it lands.
+function track(read: Promise<CloudPlanView>): Promise<void> {
+  const asked = generation;
+  const done: Promise<void> = read
+    .then(() => undefined)
     .finally(() => {
-      if (asked === generation) inFlight = undefined;
+      if (asked === generation && inFlight === done) inFlight = undefined;
     });
-  return inFlight;
+  inFlight = done;
+  return done;
 }
 
 /// The app's word that the account's active team changed (`AgentPaneCloudMachines.teamChangeScript`).

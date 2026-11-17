@@ -11,6 +11,8 @@ extension AgentPaneModel {
     func subscribeToCloudPlan(_ plan: String) -> [String: Any] {
         guard Self.subscribablePlans.contains(plan), let onRunAction else { return Self.unsupported("cloud.plan.subscribe") }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        // The plan may change now (a checkout, Pro to Max): the next list reads it again.
+        cloudMachines?.planReads.forget()
         switch onRunAction("palette.pro.upgrade", ["source": "cloudRefusal", "plan": plan]) {
         case .ran: return AgentPaneReply.success(["opened": true])
         case .refused(let reason): return Self.refused(reason)

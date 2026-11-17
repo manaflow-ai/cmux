@@ -35,11 +35,38 @@ struct AgentPaneCloudPlanTests {
         #expect(await planReads.read(account: me, now: start + .seconds(61), get) == pro && reads == 2)
         #expect(await planReads.read(account: ["someone-else", nil], now: start + .seconds(62), get) == pro && reads == 3)
 
+        // A gating answer is never kept: a `none` is read again on the next call, so a plan bought a moment ago shows at once.
+        var noneReads = 0
+        let none = { () async throws -> JSONValue in noneReads += 1; return .object(["plan_state": .string("none")]) }
+        let noPlan = AgentPaneCloudPlanReads(), them: [String?] = ["u-none", nil]
+        #expect(await noPlan.read(account: them, now: start, none) == .init(state: .noPlan) && noneReads == 1)
+        #expect(await noPlan.read(account: them, now: start + .seconds(1), none) == .init(state: .noPlan) && noneReads == 2)
+        // Bought in the meantime: the next read sees it, then keeps it.
+        #expect(await noPlan.read(account: them, now: start + .seconds(2), get) == pro && reads == 4)
+        #expect(await noPlan.read(account: them, now: start + .seconds(3), none) == pro && noneReads == 2)
+        // forget() drops the kept active plan (Subscribe, or a fresh list): Pro to Max is seen at once.
+        noPlan.forget()
+        #expect(await noPlan.read(account: them, now: start + .seconds(4), none) == .init(state: .noPlan) && noneReads == 3)
+
         let machines = AgentPaneCloudMachines()
         machines.list = { .init(signedIn: true, loaded: true, machines: [], plan: pro) }
         let value = try #require(await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
         let plan = try #require(value["plan"] as? [String: Any])
         #expect(plan["state"] as? String == "active" && plan["id"] as? String == "pro" && plan["max_size"] as? String == "lg")
+        // `fresh: true` drops the kept read before the list reads the plan; a plain list keeps it.
+        #expect(AgentPaneRequest(body: ["method": "cloudMachine.list", "params": ["fresh": true]]) == .cloudMachine(.freshList))
+        #expect(AgentPaneRequest(body: ["method": "cloudMachine.list", "params": ["fresh": false]]) == .cloudMachine(.list))
+        #expect(AgentPaneRequest(body: ["method": "cloudMachine.list", "params": ["fresh": "yes"]]) == .unsupported("cloudMachine.list"))
+        #expect(AgentPaneRequest(body: ["method": "cloudMachine.list", "params": ["fresh": true, "x": 1]]) == .unsupported("cloudMachine.list"))
+        #expect(AgentPaneRequest(body: ["method": "cloudMachine.recoveryList", "params": ["fresh": true]]) == .unsupported("cloudMachine.recoveryList"))
+        let kept = machines.planReads
+        machines.list = { .init(signedIn: true, loaded: true, machines: [], plan: await kept.read(account: me, get)) }
+        let before = reads
+        _ = await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())
+        _ = await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())
+        #expect(reads == before + 1)
+        _ = await AgentPaneCloudMachineRequest.freshList.reply(machines, gestures: AgentPaneUserGestures())
+        #expect(reads == before + 2)
         // Signed out: unknown, whatever was cached.
         machines.list = { .init(signedIn: false, loaded: false, machines: [], plan: .init(state: .noPlan)) }
         let out = try #require(await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
@@ -77,6 +104,19 @@ struct AgentPaneCloudPlanTests {
         let opened = await model.respond(to: .cloudPlanSubscribe(plan: "max"))
         #expect((opened["value"] as? [String: Any])?["opened"] as? Bool == true)
         #expect(ran.map(\.0) == ["palette.pro.upgrade"] && ran.first?.1 == ["source": "cloudRefusal", "plan": "max"])
+
+        // Subscribe drops the kept plan read: the plan read back from checkout is the server's, not a minute old.
+        let machines = AgentPaneCloudMachines()
+        model.cloudMachines = machines
+        var reads = 0
+        let get = { () async throws -> JSONValue in reads += 1; return .object(["plan_state": .string("active"), "plan_id": .string("pro")]) }
+        _ = await machines.planReads.read(account: ["u-sub", nil], get)
+        _ = await machines.planReads.read(account: ["u-sub", nil], get)
+        #expect(reads == 1)
+        model.transport.gestures.record()
+        _ = await model.respond(to: .cloudPlanSubscribe(plan: "max"))
+        _ = await machines.planReads.read(account: ["u-sub", nil], get)
+        #expect(reads == 2)
     }
 
     @Test func aRepositoryStartIsSizedFromTheReposList() throws {

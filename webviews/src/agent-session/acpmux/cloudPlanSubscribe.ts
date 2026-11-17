@@ -1,10 +1,10 @@
 // The pricing card's Subscribe (CloudStartView): `cloud.plan.subscribe { plan }` has the host open the plan's
 // checkout in the browser (`{ opened: true }`). Back from the browser, the page becomes the key one again
-// (pageKey.ts, as githubRepos.ts waits for GitHub) and the plan is read again (`cloudMachine.list`); once it
+// (pageKey.ts, as githubRepos.ts waits for GitHub) and the plan is read again (`cloudMachine.list {fresh: true}`); once it
 // admits the held start (`ready`), the start goes again by itself, once. Otherwise the card stays as it is and
 // the next return reads again. No timers, no polls.
 import { useSyncExternalStore } from "react";
-import { currentCloudPlan, refreshCloudMachines } from "./cloudMachines";
+import { readCloudPlanFresh } from "./cloudMachines";
 import type { CloudPlanId, CloudPlanView } from "./cloudPlans";
 import { translate } from "./i18n";
 import { postNative } from "./native";
@@ -28,13 +28,13 @@ export function createCloudPlanSubscribe({
   call = postNative,
   watchKey = watchPageKey,
   isKey = pageIsKey,
-  readPlan = () => refreshCloudMachines().then(currentCloudPlan),
+  readPlan = () => readCloudPlanFresh(),
   onReady = () => undefined,
 }: {
   call?: Call;
   watchKey?: (run: () => void) => () => void;
   isKey?: () => boolean;
-  /// Reads the plan again (the app's `cloudMachine.list`).
+  /// Reads the plan again, fresh (the app's `cloudMachine.list {fresh: true}`): the app keeps no gating answer.
   readPlan?: () => Promise<CloudPlanView>;
   /// The plan now admits the held start: it goes again (App's retry), once.
   onReady?: () => void;

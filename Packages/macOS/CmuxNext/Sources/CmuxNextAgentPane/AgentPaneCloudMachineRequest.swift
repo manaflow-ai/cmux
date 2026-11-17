@@ -7,6 +7,8 @@ public import Foundation
 /// refused); a machine id is checked here and again by the App against the machines it loaded.
 ///
 /// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?, size?: {cpu?, memoryMb?, diskMb?}}]}`, read-only.
+///   `cloudMachine.list {fresh: true}` (``freshList``) reads the Cloud plan again, past the kept read: a Send the plan
+///   would hold, and the pricing card's re-read back from checkout, never act on a minute-old plan.
 ///   `stage` is the machine's `CloudMachineStage` name (`ready`, `paused`, `connecting`, …);
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.recoveryList {}` -> the same inventory, refreshed for a disconnected chat.
@@ -27,6 +29,8 @@ public import Foundation
 /// Attach its scope-add credit, so the Enter of a prompt that wakes the machine still sends it).
 public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case list
+    /// The list with the Cloud plan read again (`fresh: true`), not the kept read (``AgentPaneCloudPlanReads``).
+    case freshList
     case recoveryList
     case open(id: String)
     case resume(id: String)
@@ -48,6 +52,9 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     init?(method: String, params: [String: Any]?) {
         let params = params ?? [:]
         switch method {
+        case "cloudMachine.list" where Set(params.keys) == ["fresh"]:
+            guard let fresh = params["fresh"] as? Bool else { return nil }
+            self = fresh ? .freshList : .list
         case "cloudMachine.list", "cloudMachine.recoveryList":
             guard params.isEmpty else { return nil }
             self = method == "cloudMachine.list" ? .list : .recoveryList
@@ -77,7 +84,7 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     var method: String {
         switch self {
         case .recoveryList: "cloudMachine.recoveryList"
-        case .list: "cloudMachine.list"
+        case .list, .freshList: "cloudMachine.list"
         case .open: "cloudMachine.open"
         case .resume: "cloudMachine.resume"
         case .attach: "cloudMachine.attach"
@@ -295,8 +302,9 @@ extension AgentPaneCloudMachineRequest {
     @MainActor
     func reply(_ machines: AgentPaneCloudMachines?, gestures: AgentPaneUserGestures) async -> [String: Any] {
         switch self {
-        case .list, .recoveryList:
+        case .list, .freshList, .recoveryList:
             guard let list = (self == .recoveryList ? machines?.recoveryList : machines?.list) else { return AgentPaneModel.unsupported(method) }
+            if self == .freshList { machines?.planReads.forget() }
             let inventory = await list()
             let rows: [[String: Any]] = inventory.machines.prefix(Self.maximumListed).map { machine in
                 var row: [String: Any] = ["id": machine.id, "name": machine.name, "stage": machine.stage]

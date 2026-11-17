@@ -259,6 +259,7 @@ import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMac
 import {
   cloudMachineAsleep,
   currentCloudPlan,
+  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
@@ -5119,6 +5120,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudHeldOnPage = useRef(false);
   const cloudPageHeld = cloudWaitsForCheck && cloudHeldOnPage.current && !sandbox.unread;
   const sendToCloudLatest = useRef<typeof sendToCloud>(() => false);
+  /// The send held for the plan goes now (the plan read fresh admits it), once: the prompt taken from the composer as a
+  /// Send that went at once would, unless the person changed it meanwhile.
+  const sendHeldForPlan = (held: NonNullable<typeof cloudPlanHeld.current>) => {
+    cloudPlanHeld.current = undefined;
+    const handle = composerHandle.current;
+    const stillShown = !held.fromPage && heldPromptShown(handle?.draft(), held.shown);
+    setCloudStart(undefined);
+    const went = sendToCloudLatest.current(held.text, held.attachments, held.start, held.fromPage, stillShown, true);
+    if (went === true && stillShown) handle?.take();
+  };
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
@@ -5127,6 +5138,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// A held send going (`cloudAfterCheck`): whether the chat composer still shows the prompt as it
     /// was held. Edited meanwhile, the composer keeps the edit and the start takes nothing from it.
     heldStillShown?: boolean,
+    /// The plan was just read fresh and does not hold this send (`cloudPlanHeld`): it goes without another read.
+    planRead = false,
   ): string | boolean => {
     const refused = cloudPageRefusal({ offerable: cloudOfferable, checked: sandbox.checked });
     if (refused === "cloud_chat_starting") return translate("cloudStart.chatStartingHere");
@@ -5161,19 +5174,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return false;
     }
     if (cloudStartPending.current) return false;
-    // The account has no Cloud plan (`cloudMachine.list` `plan.state` `none`; `unknown` and an older app's reply never
-    // hold): nothing goes, and the pricing card shows in the start's place. The prompt stays where it was typed, and
-    // goes by itself once the plan is on (`cloudPlanReady`).
-    if (cloudPlanHoldsSend(currentCloudPlan())) {
-      cloudPlanHeldTurn.current += 1;
-      cloudPlanHeld.current = {
+    // The last read says the account has no Cloud plan (`cloudMachine.list` `plan.state` `none`; `unknown` and an
+    // older app's reply never hold): nothing goes yet, the prompt stays where it was typed, and the plan is read again
+    // fresh (it may have been bought since, here or on the website). Still `none`: the pricing card shows in the
+    // start's place, and the prompt goes by itself once the plan is on (`cloudPlanReady`). Anything else, a failed
+    // read included: the send goes now.
+    if (!planRead && cloudPlanHoldsSend(currentCloudPlan())) {
+      const turn = ++cloudPlanHeldTurn.current;
+      const held = {
         text,
         attachments,
         start,
         fromPage,
         ...(fromPage ? {} : { shown: composerHandle.current?.draft() }),
       };
-      setCloudStart(cloudStartPlanHeld(`plan-held-${cloudPlanHeldTurn.current}`, text, start.cwd));
+      cloudPlanHeld.current = held;
+      void readCloudPlanFresh().then((plan) => {
+        // The card went, another chat shows, or a newer Send replaced this one: nothing to do.
+        if (cloudPlanHeld.current !== held) return;
+        if (cloudPlanHoldsSend(plan)) setCloudStart(cloudStartPlanHeld(`plan-held-${turn}`, text, start.cwd));
+        else sendHeldForPlan(held);
+      });
       return false;
     }
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
@@ -5205,12 +5226,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // went at once would, unless the person changed it meanwhile.
       const held = cloudPlanHeld.current;
       if (held) {
-        cloudPlanHeld.current = undefined;
-        const handle = composerHandle.current;
-        const stillShown = !held.fromPage && heldPromptShown(handle?.draft(), held.shown);
-        setCloudStart(undefined);
-        const went = sendToCloud(held.text, held.attachments, held.start, held.fromPage, stillShown);
-        if (went === true && stillShown) handle?.take();
+        sendHeldForPlan(held);
         return;
       }
       // The platform's refusal (no plan, or a machine larger than the plan includes): the same start again, once.

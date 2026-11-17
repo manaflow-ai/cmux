@@ -2,7 +2,7 @@
 // pricing card offers, and the machine sizes in plain words. Only an explicit `none` gates a Cloud send:
 // `unknown`, and a reply with no `plan` (an older app), never do, so a company or stub team is never
 // locked out by the page; the answer is always the server's, never read from a plan's name here.
-//   cloudMachine.list   {}                  -> { …, plan: { state, id, max_size } }
+//   cloudMachine.list   { fresh?: true }    -> { …, plan: { state, id, max_size } } (fresh: read again, not kept)
 //   cloud.plan.subscribe { plan: pro | max } -> { opened: true } (the host runs the upgrade with that plan)
 // A start the platform refuses for its size (`cloud_size_locked`) carries what it needed and what the plan
 // allows (`details`); the card names the needed size in vCPU and memory, never the ladder's name.

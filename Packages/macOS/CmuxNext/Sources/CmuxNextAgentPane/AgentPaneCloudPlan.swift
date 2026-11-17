@@ -87,23 +87,29 @@ extension AgentPaneCloudMachines {
     }
 }
 
-/// The last plan read, for one account at a time: kept by the App-wide ``AgentPaneCloudMachines``.
+/// The last `active` plan read, for one account at a time: kept by the App-wide ``AgentPaneCloudMachines``. A `none`
+/// or `unknown` (the answers that gate or could) is never kept: the next read asks the server again, so a plan bought
+/// a moment ago is seen at once.
 @MainActor public final class AgentPaneCloudPlanReads {
     private var kept: (account: [String?], plan: AgentPaneCloudMachines.Plan, at: ContinuousClock.Instant)?
 
     public init() {}
 
-    /// The plan of `account` (its user and team), from `get` (`cloud.plan.get`) at most once per `age`: an
-    /// open picker reads the list every few seconds. A failed read is `unknown` and is not kept.
+    /// The plan of `account` (its user and team), from `get` (`cloud.plan.get`); an `active` answer is reused for
+    /// `age` (an open picker reads the list every few seconds). A failed read is `unknown`.
     public func read(account: [String?]?, age: Duration = .seconds(60), now: ContinuousClock.Instant = .now,
                      _ get: () async throws -> JSONValue) async -> AgentPaneCloudMachines.Plan {
         guard let account else { return .unknown }
         if let kept, kept.account == account, now - kept.at < age { return kept.plan }
         guard let reply = try? await get() else { return .unknown }
         let plan = AgentPaneCloudMachines.Plan(planGet: reply)
-        kept = (account, plan, now)
+        if plan.state == .active { kept = (account, plan, now) } else { kept = nil }
         return plan
     }
+
+    /// Drops the kept read: the next ``read(account:age:now:_:)`` asks the server (a Subscribe, which may change the
+    /// plan, or a page that needs the plan as it is now: `cloudMachine.list {fresh: true}`).
+    public func forget() { kept = nil }
 }
 
 /// The start card's plan refusal (webviews CloudStartView.tsx).
