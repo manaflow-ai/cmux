@@ -36,7 +36,8 @@
 #                head cost that comes from overlapping the quit before it from one the head pays anyway. Default 0.
 
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
-#                above preflight_cpu=N % CPU (default 30) fails the step with LR-HOT-HOST and exit 5. preflight=0 skips it.
+#                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
+#                LR-HOT-HOST and exit 5. preflight=0 skips it.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -143,7 +144,7 @@ main() {
   [[ "$late" == 0 ]] || sides+=(late)
 
   # A system indexer busy now (mediaanalysisd, Spotlight) voids every launch: fail in ~10 s, not after the run.
-  if [[ "$preflight" == 1 ]]; then bash "$out/preflight.sh" "$preflight_cpu" || { echo "LR-FAIL hot host: a system indexer is above ${preflight_cpu}% CPU (preflight=0 skips this check)"; exit 5; }; fi
+  if [[ "$preflight" == 1 ]]; then bash "$out/preflight.sh" "$preflight_cpu" || { echo "LR-FAIL hot host: a system indexer above ${preflight_cpu}% CPU or cmux-ci's noisy mark (preflight=0 skips this check)"; exit 5; }; fi
   for side in "${sides[@]}"; do
     local mount="$out/mnt-$side" image="$side"
     [[ "$side" != late ]] || image=head # the late side runs the head's build

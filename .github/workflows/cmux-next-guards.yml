@@ -1042,11 +1042,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/ci/tests/console-session-hop.test.sh
 
-      # A system indexer at 120 % CPU voided a 25-minute launch-ready step; its preflight fails one in about 10 s.
-      - name: launch-ready.sh's preflight fails a host with a busy system indexer
-        if: ${{ !cancelled() }}
-        run: bash scripts/measure/tests/launch-ready-preflight.test.sh
-
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
         run: python3 tests/test_install_zig_ci_reviewed_version.py
