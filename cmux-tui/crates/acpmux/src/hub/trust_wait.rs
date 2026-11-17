@@ -195,24 +195,26 @@ impl Hub {
     /// the person answered the card this raises on `parent` (see the module docs). In a Web turn
     /// of `parent` an auto-trust rule is no answer. The Ok is whether a decision trusts the folder
     /// (a person's, an agent's own, or cmux's for a folder it made), not an auto-trust rule alone:
-    /// only then is a worktree made from it recorded as trusted (`trust_made_worktree`).
+    /// only then is a worktree made from it recorded as trusted (`trust_made_worktree`). None:
+    /// `parent`'s full access lent its trust ([`Hub::inherits_parent_trust`]); no decision, and the
+    /// folder walk after the card does not apply.
     pub(super) async fn ensure_folder_trusted(
         self: &Arc<Self>,
         parent: &Arc<Session>,
         cwd: &Path,
         harness: &str,
         short: &str,
-    ) -> Result<bool, RpcError> {
-        let Some(paths) = self.trust_gate() else { return Ok(false) };
+    ) -> Result<Option<bool>, RpcError> {
+        let Some(paths) = self.trust_gate() else { return Ok(Some(false)) };
         let family = self.trust_family(harness).await;
         let web = Self::web_turn(parent);
         let asked = cwd.to_string_lossy().into_owned();
         let key = match self.trust_level_of(&paths, &asked, &family).await {
-            Ok(read) if passes(&read, web) => return Ok(!read.by_rule_only()),
+            Ok(read) if passes(&read, web) => return Ok(Some(!read.by_rule_only())),
             // No decision of its own, so nothing is recorded and a worktree made from it is not
             // recorded as trusted either.
             Ok(read) if self.inherits_parent_trust(&paths, parent, &read, web).await => {
-                return Ok(false);
+                return Ok(None);
             }
             Ok(read) => read.cwd,
             Err(crate::trust::Failure::Invalid(message)) => {
@@ -264,7 +266,7 @@ impl Hub {
             if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
                 // Trusted elsewhere (the pane's question, another card): this card is moot, and
                 // the guard takes it away.
-                return Ok(decided);
+                return Ok(Some(decided));
             }
             tokio::select! {
                 outcome = &mut *answer => {
@@ -286,7 +288,7 @@ impl Hub {
         // one withdrawn after Not now is declined too. A card the person answered goes by its
         // own answer: Trust on it wins over a Not now on another start's card.
         if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
-            return Ok(decided);
+            return Ok(Some(decided));
         }
         let answered = outcome.pointer("/outcome/optionId").and_then(Value::as_str).is_some();
         if !answered && self.trust_waits.declined_recently(&key) {
@@ -294,7 +296,7 @@ impl Hub {
         }
         self.trust_card_answered(&paths, &key, &outcome).await?;
         // Trust wrote the person's decision.
-        Ok(true)
+        Ok(Some(true))
     }
 
     /// Whether a sub-session start takes `parent`'s trust instead of a card (Leo, 2026-10-24, on a
