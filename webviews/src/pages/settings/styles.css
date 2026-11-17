@@ -2878,7 +2878,7 @@ button.menu-disclosure {
 }
 
 /* The row as the layout draws it (RowPreview): a sidebar row on the surface, sample values in its
-   lines, the name in body text and the items muted, joined by a dot (Herdr's rows). */
+   lines, the name in body text and the items muted, joined by a dot. */
 .row-layout-preview-row,
 .row-layout-marks,
 .row-layout-line {

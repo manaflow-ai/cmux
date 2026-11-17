@@ -816,7 +816,7 @@ function LayoutEditor({
 
 /**
  * The row as this layout draws it, with sample values: the icon, the name and line one's items,
- * then each further line, its items joined by a dot (Herdr's rows), the progress bar under them.
+ * then each further line, its items joined by a dot, the progress bar under them.
  */
 function RowPreview({ layout }: { layout: Layout }) {
   const has = (slot: Slot) => layout.slots.has(slot);
