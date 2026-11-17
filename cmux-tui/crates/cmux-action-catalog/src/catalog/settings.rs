@@ -372,6 +372,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "updates.snooze",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.snooze", "Snooze Update Card…"),
+        keywords: &["update", "snooze", "remind", "remind me later", "later", "hide", "dismiss", "close", "card", "nightly", "version"],
+        category: "settings",
+        symbol: "clock.badge.xmark",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::UPDATE_SNOOZE],
+        cli_name: "action updates-snooze",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "app.try.run",
         group: GROUP,
         title: t("ActionCatalog", "action.app.try.run", "Run a PR as This App…"),
