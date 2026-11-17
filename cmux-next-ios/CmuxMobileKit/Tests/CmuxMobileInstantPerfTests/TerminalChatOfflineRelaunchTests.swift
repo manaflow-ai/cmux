@@ -66,8 +66,12 @@ struct TerminalChatOfflineRelaunchTests {
         store.workspaces = [Workspace(id: "w", macID: "mac", title: "relay", directory: "/tmp/p",
                                       tabs: [terminal("s1", agent: "claude-code", session: "h-1")],
                                       lastActivityAt: Date())]
-        return WorkspaceTabsSource(store: store, workspaceID: "w", sessions: sessions,
-                                   creator: WorkspaceCreator(store: store, backend: backend))
+        let source = WorkspaceTabsSource(store: store, workspaceID: "w", sessions: sessions,
+                                         creator: WorkspaceCreator(store: store, backend: backend))
+        // The Terminal and Chat toggle is off by default on iOS since #45446; this is the toggle-on path,
+        // which read the default and so offered no chat face (base kit jobs 134162060756, 134382697039).
+        source.terminalChatToggleOn = { true }
+        return source
     }
 
     /// Turn `n` of chat `chat`: a prompt, its start, an answer, its result.
@@ -101,9 +105,9 @@ struct TerminalChatOfflineRelaunchTests {
     }
 
     static func waitUntil(_ timeout: Duration = .seconds(5), _ done: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
+        var deadline = AwakeDeadline(timeout)
         while !done() {
-            guard ContinuousClock.now < deadline else { return false }
+            guard deadline.hasTimeLeft() else { return false }
             try? await Task.sleep(for: .microseconds(200)) // test: polls the condition until a deadline
         }
         return true
