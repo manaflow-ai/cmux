@@ -115,7 +115,7 @@ public final class MacScreenPages {
     ///   - work: the app's blocking-work context. Permission probes run in a fresh async child.
     public init(store: MacScreenStore, work: BackgroundWork) {
         self.store = store
-        host = MacScreenShareHost()
+        host = MacScreenShareHost(work: work)
         hubHost = MacScreenHubHost(share: host)
         systemShortcuts = MacScreenSystemShortcuts(host: host)
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }
