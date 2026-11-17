@@ -176,11 +176,20 @@ struct TerminalLoadBench {
                     declaredWindow = (object["capabilities"] as? [String] ?? []).contains("attach-replay-history-window-v1")
                     return [reply()]
                 case "identify":
+                    // As cmux-tui's identify: its attach capabilities and the boot's generation.
                     return [reply(["capabilities": ["attach-initial-size", "size-lease-v1", "attach-replay-history-rows-v1",
-                                                    "attach-replay-history-window-v1"]])]
+                                                    "attach-replay-history-window-v1", "attach-identity-v1"],
+                                   "generation": "gen-1"])]
                 case "resolve-terminal":
                     return [reply(["surface": 7, "terminal_id": object["terminal_id"] ?? ""])]
                 case "attach-surface":
+                    // `attach-identity-v1`: the boot and the terminal, before any stream.
+                    if let generation = object["expected_generation"] as? String, generation != "gen-1" {
+                        return [(Self.line(["id": id, "ok": false, "error": "attachment_generation_mismatch"]), false)]
+                    }
+                    if let terminal = object["expected_terminal_id"] as? String, terminal != "term_load_bench" {
+                        return [(Self.line(["id": id, "ok": false, "error": "attachment_terminal_mismatch"]), false)]
+                    }
                     mac.noteAttach()
                     if let columns = object["cols"] as? Int, let rows = object["rows"] as? Int { grid = (columns, rows) }
                     allowance = object["replay_history_rows"] as? Int
@@ -336,6 +345,7 @@ struct TerminalLoadBench {
             open: { DaemonClient(channel: channels.make(mac, rtt: rtt), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
             openInput: { DaemonClient(channel: channels.make(mac, rtt: rtt), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) })
         daemon.reattachBackoff = []
+        daemon.macName = "Bench Mac"
         let session = TerminalSessionChoice.session(live: daemon, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         return Rig(mac: mac, page: Page(), daemon: daemon, session: session, channels: channels)
     }
