@@ -22,12 +22,14 @@ private typealias DaemonScreenID = CmuxNextDaemon.ScreenID
 /// shows both panes, and the control in the frame that shows the zoomed pane alone. For an unzoom: the control while
 /// the screen still shows the zoomed pane alone, and no control in the frame that shows both panes again.
 ///
-/// The store's zoom reaches the control through two observation tasks, which run after the action's turn
-/// (`PaneController.observe`, `PaneToolbar.init(pane:view:)`). Each test is one main-actor turn from the store's
-/// snapshot to its last expectation, so neither task runs in it. The test calls instead the two functions that apply
-/// the same store state to a pane directly (`PaneController.syncStripFromStore`, `PaneToolbar.refresh`; see
-/// `Shown.takeStoreZoom`). That these two calls stand in for one step of the two tasks is by a read of that code, not
-/// by a run.
+/// The control takes the zoom from the layout, in the pass that shows the change (`ScreenContentView.updateChrome`,
+/// `PaneContentView.setPaneShownZoomed`). It once took the store's zoom, through two observation tasks that run after
+/// the action's turn (`PaneController.observe`, `PaneToolbar.init(pane:view:)`), and so changed frames before the
+/// screen did. Each test is one main-actor turn from the store's snapshot to its last expectation, so neither task
+/// runs in it. The test calls instead the two functions that apply the store's state to a pane directly
+/// (`PaneController.syncStripFromStore`, `PaneToolbar.refresh`; see `Shown.takeStoreZoom`), so a control that
+/// follows the store again fails here. That these two calls stand in for one step of the two tasks is by a read of
+/// that code, not by a run.
 ///
 /// The test is the layout's clock (`DisplayLinkDriver.isManual`), as in `PaneCloseKeyTurnTests`, and no number of
 /// frames is an expectation. The app has a connection that never becomes ready, as in `PaneVerbsKeyTurnTests`, so
@@ -281,5 +283,41 @@ struct PaneZoomMarkFrameTests {
         #expect(bare.isEmpty,
                 "no Exit Zoom control in \(bare.count) frame(s) that still show the zoomed pane alone, from frame \(bare.first ?? 0); the unzoom shows in frame \(unzoom.number)")
         #expect(shown.exitZoom == nil, "the frame that shows both panes again still shows the Exit Zoom control")
+    }
+
+    /// A page that has the whole window (its fullscreen) shows its pane alone, as a zoom does, and the store has no
+    /// zoom (`LayoutMapping.Result.presenting`, `LayoutScreen.presented`). No Exit Zoom control comes with it, and
+    /// none stays when the page gives the window back. The test sets the flag that the window sets on the page's pane
+    /// (`PaneController.presentsPage`, `WindowController+FullScreen`); it has no page and no full screen window.
+    @Test func aPageWithTheWholeWindowShowsNoExitZoomControl() async throws {
+        let services = Self.makeServices()
+        defer { services.daemon.shutdownConnection() }
+        try await Self.connect(services)
+        // One main-actor turn from here to the end of the test: no `await`.
+        let controller = try #require(Self.open(services), "SETUP: no window opened")
+        defer { Self.close(controller) }
+        let shown = try Shown(controller, services)
+        try #require(shown.shows(shown.left) && shown.shows(shown.right), "SETUP: the screen does not show both panes at rest")
+        try #require(shown.exitZoom == nil, "SETUP: a pane that is not zoomed shows an Exit Zoom control")
+
+        shown.left.presentsPage = true
+        try #require(shown.layoutZooms && !shown.storeZooms,
+                     "SETUP: the layout model does not show the page's pane alone, or the store has a zoom: layout \(shown.layoutZooms), store \(shown.storeZooms)")
+        shown.layOut()
+        #expect(shown.exitZoom == nil, "the turn that gives the page the whole window shows an Exit Zoom control")
+        let stepped = shown.firstFrame(where: { !shown.shows(shown.right) }, noting: { shown.exitZoom != nil })
+        let alone = try #require(stepped, "SETUP: no frame of \(Self.frames) showed the page's pane alone")
+        #expect(alone.flawed.isEmpty, "an Exit Zoom control shows in \(alone.flawed.count) frame(s) before the page's pane shows alone")
+        #expect(shown.exitZoom == nil, "the frame that shows the page's pane alone shows an Exit Zoom control")
+        try #require(shown.rests(), "SETUP: the layout did not come to rest in 240 frames with the page's pane alone")
+        shown.layOut()
+        #expect(shown.exitZoom == nil, "the page's pane, alone and at rest, shows an Exit Zoom control")
+
+        shown.left.presentsPage = false
+        try #require(!shown.layoutZooms, "SETUP: the layout model still shows the page's pane alone after the page gave the window back")
+        let back = shown.firstFrame(where: { shown.shows(shown.right) }, noting: { shown.exitZoom != nil })
+        let both = try #require(back, "SETUP: no frame of \(Self.frames) showed both panes again")
+        #expect(both.flawed.isEmpty, "an Exit Zoom control shows in \(both.flawed.count) frame(s) before both panes show again")
+        #expect(shown.exitZoom == nil, "the frame that shows both panes again shows an Exit Zoom control")
     }
 }

@@ -128,8 +128,9 @@ final class PaneToolbar {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
-        // The pane's own workspace, not a store scan: this runs for every pane.
-        let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
+        // The zoom that the pane's screen shows (`PaneContentView.setPaneShownZoomed`), not the store's: the store has a
+        // zoom from its key, frames before the screen shows it.
+        let zoomed = pane.stripModel.zoomsSelected
         guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no pins, not a stale bar.

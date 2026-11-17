@@ -26,11 +26,9 @@ extension ScreenContentView {
         }
         let multiple = paneFrames.count > 1
         let style = context.style
-        let ringAllowed = (multiple || style.focusRing.showsForSinglePane)
-            && style.focusIndicator.marksBorder
-            // Only the person's keys earn the ring: a click, a scroll, Escape or a move nobody keyed
-            // (an agent, the CLI, a new pane) leaves none (`LayoutModel.focusRingEarned`).
-            && context.model.focusRingEarned
+        // Only the person's keys earn the ring: a click, a scroll, Escape or a move nobody keyed
+        // (an agent, the CLI, a new pane) leaves none (`LayoutModel.focusRingEarned`).
+        let ringAllowed = (multiple || style.focusRing.showsForSinglePane) && style.focusIndicator.marksBorder && context.model.focusRingEarned
         let dim = style.inactiveDim(dimsInactive: dimsInactive)
         // The flash is the ring's: Focus Ring off (`focusRing.enabled`) turns it off too.
         let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value && style.focusRing.enabled,
@@ -54,6 +52,8 @@ extension ScreenContentView {
                 focused: isFocused, flashesFocus: flashes,
                 animated: animated
             )
+            // The pane's zoom marks come with this ask, so with the pass that shows a zoom. Not for a page's fullscreen.
+            if !zoomDim.presentsPage { (host.content as? PaneContentChrome)?.setPaneShownZoomed(zoomed) }
         }
     }
 
