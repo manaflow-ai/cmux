@@ -14,10 +14,10 @@ import Testing
     }
 
     @Test func aDevCopyKeepsItsOwnProfiles() {
-        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-a") == support.path + "/com.cmuxterm.app.debug--copy-a/Chromium")
-        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-b") == support.path + "/com.cmuxterm.app.debug--copy-b/Chromium")
-        #expect(Self.root("com.cmuxterm.app.debug.my-tag", tag: "my-tag") == support.path + "/com.cmuxterm.app.debug.my-tag/Chromium")
-        #expect(Self.root("com.cmuxterm.app.nightly", tag: nil) == support.path + "/com.cmuxterm.app.nightly/Chromium")
-        #expect(Self.root("com.cmuxterm.app", tag: nil) == support.path + "/com.cmuxterm.app/Chromium")
+        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-a") == Self.support.path + "/com.cmuxterm.app.debug--copy-a/Chromium")
+        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-b") == Self.support.path + "/com.cmuxterm.app.debug--copy-b/Chromium")
+        #expect(Self.root("com.cmuxterm.app.debug.my-tag", tag: "my-tag") == Self.support.path + "/com.cmuxterm.app.debug.my-tag/Chromium")
+        #expect(Self.root("com.cmuxterm.app.nightly", tag: nil) == Self.support.path + "/com.cmuxterm.app.nightly/Chromium")
+        #expect(Self.root("com.cmuxterm.app", tag: nil) == Self.support.path + "/com.cmuxterm.app/Chromium")
     }
 }
