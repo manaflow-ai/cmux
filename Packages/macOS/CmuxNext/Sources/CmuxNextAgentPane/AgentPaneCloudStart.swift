@@ -18,6 +18,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The page said the chat has no project (cloudRun.ts `cloudStartFolder`): nothing is copied,
     /// and the chat starts in the machine's own folder for chats. Never with ``cwd``.
     public var home = false
+    /// The GitHub repository (`owner/name`) the page named as the chat's folder (`cwd: github:owner/name`): the
+    /// machine clones it and the chat starts there (``cloneRepository(on:machineName:size:report:)``). Never with ``cwd``.
+    public var repository: String?
     public var harness: String?
     public var model: String?
     /// The permission mode the person picked for the chat before its first send; nil: the machine's
@@ -93,11 +96,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let gestureTicket = params?["gestureTicket"]
         if let gestureTicket, (gestureTicket as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let cwd = params?["cwd"]
-        if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
+        let repository = (cwd as? String).flatMap(AgentPaneGitHubFolder.repository)
+        if let cwd, repository == nil, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
-        self.home = home as? Bool ?? false
+        self.init(task: task, cwd: repository == nil ? cwd as? String : nil, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
+        (self.home, self.repository) = (home as? Bool ?? false, repository)
         self.team = team
         self.replacesChat = replacesChat
         self.mode = mode

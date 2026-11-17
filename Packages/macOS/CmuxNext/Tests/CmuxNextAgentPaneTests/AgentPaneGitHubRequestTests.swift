@@ -25,10 +25,12 @@ struct AgentPaneGitHubRequestTests {
         #expect(AgentPaneRequest.gitHub(.repos(query: "secret")).description == "github.repos.list")
     }
 
+    @MainActor final class Asked { var query: String?? }
+
     static func gitHub(status: (String, String?) = ("ready", "all"), connect: AgentPaneGitHubConnect = .opened,
                        repos: Result<CloudGitHubRepos, CloudGitHubRepos.Failure> = .success(.init(repos: [], truncated: false)),
-                       asked: @escaping (String?) -> Void = { _ in }) -> AgentPaneGitHub {
-        AgentPaneGitHub(status: { (state: status.0, reposScope: status.1) }, connect: { connect }, repos: { asked($0); return repos })
+                       asked: Asked = Asked()) -> AgentPaneGitHub {
+        AgentPaneGitHub(status: { (state: status.0, reposScope: status.1) }, connect: { connect }, repos: { asked.query = .some($0); return repos })
     }
 
     @Test func statusAnswersStateAndScope() async {
@@ -51,11 +53,11 @@ struct AgentPaneGitHubRequestTests {
     }
 
     @Test func reposListTheRowsAndMapNoInstallation() async {
-        var asked: String?
+        let asked = Asked()
         let listed = CloudGitHubRepos(repos: [.init(fullName: "acme/api", isPrivate: true, defaultBranch: "main"),
                                               .init(fullName: "acme/web", isPrivate: false, defaultBranch: nil)], truncated: true)
-        let reply = await AgentPaneGitHubRequest.repos(query: "ac").reply(Self.gitHub(repos: .success(listed), asked: { asked = $0 })) { false }
-        #expect(asked == "ac")
+        let reply = await AgentPaneGitHubRequest.repos(query: "ac").reply(Self.gitHub(repos: .success(listed), asked: asked)) { false }
+        #expect(asked.query == .some("ac"))
         let value = reply["value"] as? [String: Any]
         let rows = value?["repos"] as? [[String: Any]]
         #expect(rows?.map { $0["full_name"] as? String } == ["acme/api", "acme/web"])

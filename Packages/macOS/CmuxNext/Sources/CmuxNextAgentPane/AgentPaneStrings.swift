@@ -360,3 +360,15 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .module)
     }
 }
+
+extension AgentPaneCloudRepositoryRefusal {
+    /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
+    nonisolated static func needsAccessMessage(_ repository: String) -> String {
+        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .module), repository)
+    }
+
+    /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.
+    nonisolated static func failedMessage(_ repository: String) -> String {
+        String(format: String(localized: "agentPane.github.cloneFailed", defaultValue: "Cloud could not clone %@. Retry.", bundle: .module), repository)
+    }
+}
