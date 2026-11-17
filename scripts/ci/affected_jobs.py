@@ -299,10 +299,11 @@ class Placement:
         return unplaced(path, self.packages, self.every_input)
 
 
-def placement(job_id: str, tree: git_tree.GitTree, root: Path = ROOT) -> Placement:
-    """JOB_ID's Placement at TREE's commit, with the map read from ROOT. Raises git_tree.Unreadable (ValueError on a
-    manifest it cannot parse, KeyError on a job the map lacks) when the graph cannot be read: run the job then."""
-    workspace_inputs, jobs = load_map((root / MAP).read_text(encoding="utf-8"))
+def placement(job_id: str, tree: git_tree.GitTree, root: Path = ROOT, map_text: str | None = None) -> Placement:
+    """JOB_ID's Placement at TREE's commit, with the map read from ROOT (or MAP_TEXT). Raises git_tree.Unreadable
+    (ValueError on a manifest it cannot parse, KeyError on a job the map lacks) when the graph cannot be read: run the
+    job then."""
+    workspace_inputs, jobs = load_map(map_text if map_text is not None else (root / MAP).read_text(encoding="utf-8"))
     job = next((j for j in jobs if j.id == job_id), None)
     if job is None:
         raise KeyError(f"{MAP} lists no job {job_id}")
@@ -392,8 +393,12 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
     - its workflow's trigger, when it filters by `paths:` (push and pull_request alike), lists every input of the job:
       a path filter that misses an input never starts the job its change can break (hq
       docs/handbook/test-input-outside-the-path-filter.md); `affected_jobs.py paths --workflow WF` prints them;
-    - the workflow has the job, and the job's `if:` reads the router's output for it (`outputs.KEY != 'false'`);
-    - every script, test or local action its steps name is one of its inputs."""
+    - the workflow has the job, and the job's `if:` reads the router's output for it (`outputs.KEY != 'false'`), or
+      the output of the router that decides it (`router_output`: `outputs.KEY == 'true'`);
+    - every script, test or local action its steps name is one of its inputs, or one its router routes by another
+      rule (`routed_elsewhere`);
+    - a job that fetches binaries built under a reuse key (`binaries_key`) holds every key input outside the crate
+      graph (check_binaries_key)."""
     workspace_inputs, jobs = load_map((root / MAP).read_text(encoding="utf-8"))
     graph = Graph(tree, workspace_inputs, jobs)
     problems = []
