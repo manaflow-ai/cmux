@@ -12,6 +12,13 @@
   (make the throwaway key first: swift ../keys.swift generate DIR; it prints the public key for --pubkey)
   upd.py rpc SOCK METHOD [JSON]
   upd.py detach LOG CMD...   start CMD in its own session (survives the reach call), print pid
+  upd.py install-cold APP DST --bundle-id ID
+      the skipped pre-warm arm: put a copy of APP in place at DST by a rename on DST's volume, as Sparkle's
+      installer does, but never exec'd, and remove the app's pre-warm marker, so the next launch is a new copy's
+      first exec with no pre-warm (`prewarm_reason` reads `no_record`).
+  upd.py launches ID [N]
+      the last N (default 3) lines of the app's launch-times.jsonl, one JSON line each with the marks the
+      comparison reads.
 """
 import json, os, plistlib, subprocess, sys, time
 
@@ -132,6 +139,43 @@ def rpc(a):
     print(buf.decode())
 
 
+def support_dir(bundle_id):
+    return os.path.expanduser(f"~/Library/Application Support/{bundle_id}")
+
+
+def install_cold(a):
+    app, dst = a[0].rstrip("/"), a[1].rstrip("/")
+    opts = dict(zip(a[2::2], a[3::2]))
+    # Copy beside DST (same volume), then two renames: the installed copy is the new inode, as after Sparkle's
+    # RENAME_SWAP, but no process has run from it. ditto, not cp: it keeps the signature's extended attributes.
+    staged, old = dst + ".cold-new", dst + ".cold-old"
+    for leftover in (staged, old):
+        if os.path.exists(leftover):
+            run(["/bin/rm", "-rf", leftover])
+    run(["/usr/bin/ditto", app, staged])
+    if os.path.exists(dst):
+        os.rename(dst, old)
+    os.rename(staged, dst)
+    if os.path.exists(old):
+        run(["/bin/rm", "-rf", old])
+    marker = os.path.join(support_dir(opts["--bundle-id"]), "launch-prewarm")
+    had_marker = os.path.exists(marker)
+    if had_marker:
+        os.remove(marker)
+    print(json.dumps({"installed": dst, "from": app, "removed_marker": had_marker}))
+
+
+def launches(a):
+    path = os.path.join(support_dir(a[0]), "launch-times.jsonl")
+    with open(path) as f:
+        lines = [line for line in f if line.strip()]
+    keys = ("started_at", "build", "pre_main_ms", "main_ms", "first_window_frame_ms", "home_first_page_ms",
+            "prewarmed", "prewarm_reason", "first_launch_of_build")
+    for line in lines[-int(a[1]) if len(a) > 1 else -3:]:
+        record = json.loads(line)
+        print(json.dumps({k: record.get(k) for k in keys}))
+
+
 if __name__ == "__main__":
     cmd, rest = sys.argv[1], sys.argv[2:]
     if cmd == "detach":
@@ -144,4 +188,4 @@ if __name__ == "__main__":
             os.execvp(rest[1], rest[1:])
         print(pid)
     else:
-        {"prep": prep, "publish": publish, "rpc": rpc}[cmd](rest)
+        {"prep": prep, "publish": publish, "rpc": rpc, "install-cold": install_cold, "launches": launches}[cmd](rest)

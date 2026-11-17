@@ -30,6 +30,17 @@ directory up. Every path is an argument.
     python3 upd.py detach LOG CMD...
         Starts CMD in its own session with output to LOG; prints the pid.
 
+    python3 upd.py install-cold APP DST --bundle-id ID
+        The skipped pre-warm arm: puts a copy of APP at DST by a rename on
+        DST's volume, as Sparkle's installer does, but no process has run
+        from it, and removes the app's pre-warm marker. The next launch is a
+        new copy's first exec with no pre-warm (`prewarm_reason` `no_record`).
+
+    python3 upd.py launches ID [N]
+        The last N (default 3) launch-times.jsonl lines, each cut to the marks
+        a comparison reads (pre_main_ms, first_window_frame_ms, prewarmed,
+        prewarm_reason, ...).
+
     python3 clones.py BUNDLE_ID APP
         Reads the Chromium code-sign clone folder for BUNDLE_ID and prints
         one JSON report of its regular files, matched by inode to APP's main
@@ -46,6 +57,21 @@ directory up. Every path is an argument.
 4. Build a delta against the old layout (`publish ... --delta-from 1
    --delta-file F`, with F made by Sparkle's delta tool from the build 1 and
    build 2 apps) and update build 1 again to check the delta path.
+
+## Pre-warm before and after (cmux#44980)
+
+One pair, same Mac, same build N+1 prepped once (`prep`), alternating which
+arm goes first; 10 pairs, each only below a 1-minute load of 8:
+
+- **pre-warmed:** install N, launch it, let the update to N+1 stage, wait
+  for `launch pre-warm of N+1 ... ms in all` in the update log (the marker
+  reads `full`), quit through Restart to Update, read `launches ID 1`.
+- **skipped:** install N, launch it, quit, `install-cold` N+1 over it,
+  launch it, read `launches ID 1`.
+
+Read each arm twice: the launch itself, and a relaunch after a 60 s run and
+quit. Compare `pre_main_ms` and `first_window_frame_ms`; `prewarm_reason`
+says which arm a line came from (`full` or `no_record`).
 
 ## What each check reads
 
