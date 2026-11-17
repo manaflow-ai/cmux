@@ -541,7 +541,7 @@ impl Hub {
             let cfg = self.config.read().await;
             // Any policy narrower than approve-all, however the chat got it, holds or the chat is
             // not created (`policy_mode.rs` `require_enforced`).
-            super::policy_mode::require_enforced(&session.meta(), &cfg)?;
+            super::policy_mode::require_enforced_as(&session.meta(), &cfg, true)?;
             self.note_unenforced_policy(&session, &cfg);
             Ok(())
         })
@@ -637,10 +637,33 @@ impl Hub {
         if session.stops.load(Ordering::SeqCst) != stops || session.purging.load(Ordering::SeqCst) {
             return Err(stopped_while_starting());
         }
+        // A start its policy refused, with nothing it depends on changed since, fails as it did and
+        // starts nothing (`policy_mode.rs` `RefusalLatch`): no harness, no log line per wake.
+        let refusal_key = super::policy_mode::refusal_key(
+            &session.meta(),
+            self.config.read().await.permission_policy,
+            &profile.launch_digest,
+        );
+        if let Some(e) = session.policy_refusal.held(&refusal_key) {
+            return Err(e);
+        }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
         let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
             Ok(child) => child,
+            Err(e) if super::policy_mode::is_unenforceable(&e) => {
+                // Keyed by the chat as the refused start left it (its agent reports its mode).
+                let key = super::policy_mode::refusal_key(
+                    &session.meta(),
+                    self.config.read().await.permission_policy,
+                    &profile.launch_digest,
+                );
+                if session.policy_refusal.hold(key, &e) {
+                    tracing::warn!(session = %session.id, "not started until its policy, mode or harness changes or the person writes to it: {}", e.message);
+                }
+                self.wake_ended(session, wake, Some(&e));
+                return Err(e);
+            }
             Err(e) => {
                 self.wake_ended(session, wake, Some(&e));
                 return Err(e);

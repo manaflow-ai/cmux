@@ -1201,7 +1201,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
         )
         .await
         .unwrap_err();
-    assert!(err.contains("cannot be enforced"), "{err}");
+    assert!(err.contains("start it with `--policy approve-all`"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }
