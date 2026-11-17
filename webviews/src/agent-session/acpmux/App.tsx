@@ -22,6 +22,7 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
+import { holdComposerPlace } from "./composer/composerHandover";
 import { chatOnThisMac, chatPlace, chatMachine as chatMachineOf } from "./chatMachine";
 import {
   CONNECT_ACTIONS,
@@ -12330,11 +12331,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             {harnessCard}
           </Notice>
         ) : (
-          <Notice
-            id="switch"
-            tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
-            when={snapshot.switching && snapshot.switching.phase !== "starting"}
-          >
+          <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
             <SwitchNotice
               switching={snapshot.switching}
               // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
@@ -13722,7 +13719,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           newTabGeneration === page &&
                           (allowReconnect || directClient.current === client);
                       },
+                      // The chat's composer glides from where New Tab's drew (composer/composerHandover.ts).
                       leave: () => {
+                        holdComposerPlace();
                         // Kept until the start opens a chat or fails (`startLeftNewTab`).
                         startLeftNewTab.current = newTab;
                         setNewTabStartFailure(undefined);
