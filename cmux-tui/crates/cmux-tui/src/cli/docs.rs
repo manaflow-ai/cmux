@@ -267,7 +267,13 @@ pub(super) const GUIDES: &[Guide] = &[
         return {pages: 10, done: false};` \
         Read a value out of a window: `const t = await cu.get_ui_tree({window_id}); return \
         cu.find(t, {role: \"text\", name: /total/i})?.value;` \
-        Return small values (the one field you need), not whole trees.",
+        Return small values (the one field you need), not whole trees. \
+        A fixed run of steps on one window can also be one `cu.batch({window_id, actions})`: \
+        each step gets its own outcome; `require: \"confirmed\"` stops the batch unless that \
+        step read back; `{action: \"wait_for\", target: {role: \"sheet\"}}` waits for a sheet \
+        (or `until: \"disappears\"`, `value_equals`, `value_contains`); `target: {role, label}` \
+        acts on an element by what it is, refused when two match. The reply's results list \
+        every step (done, failed or not_run) and stopped_at says which step stopped it.",
     },
 ];
 

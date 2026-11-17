@@ -97,6 +97,10 @@ pub struct FakeDesktop {
     pub tree: Mutex<Option<Element>>,
     /// Trees walked so far.
     pub walks: Mutex<u32>,
+    /// (walk number, tree): from that walk on (counting every walk from 1),
+    /// `tree` is that tree (an app whose sheet opens, or whose element is
+    /// replaced, a few reads after an action).
+    pub trees_from_walk: Mutex<Vec<(u32, Element)>>,
     /// The element limit the latest walk was asked for.
     pub last_max_nodes: Mutex<usize>,
     /// Where the effect of the next inputs must show ([`ActionOutcome::shows`]).
@@ -211,6 +215,7 @@ impl FakeDesktop {
             installed: Mutex::new(vec![("Terminal".into(), "com.apple.Terminal".into())]),
             tree: Mutex::new(None),
             walks: Mutex::new(0),
+            trees_from_walk: Mutex::new(Vec::new()),
             last_max_nodes: Mutex::new(0),
             reframed: Mutex::new(Vec::new()),
             shows: Mutex::new(None),
@@ -594,7 +599,23 @@ impl Desktop for FakeDesktop {
         true
     }
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
-        *lock(&self.walks) += 1;
+        let walk = {
+            let mut walks = lock(&self.walks);
+            *walks += 1;
+            *walks
+        };
+        {
+            let mut pending = lock(&self.trees_from_walk);
+            let due: Vec<Element> = pending
+                .iter()
+                .filter(|(from, _)| *from <= walk)
+                .map(|(_, tree)| tree.clone())
+                .collect();
+            pending.retain(|(from, _)| *from > walk);
+            if let Some(tree) = due.into_iter().last() {
+                *lock(&self.tree) = Some(tree);
+            }
+        }
         *lock(&self.last_max_nodes) = options.max_nodes;
         if let Some(mut root) = lock(&self.tree).clone() {
             self.known(window_id)?;

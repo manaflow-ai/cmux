@@ -285,7 +285,10 @@ pub const WAIT_DEFAULT: Duration = Duration::from_millis(2000);
 pub const WAIT_MAX: Duration = Duration::from_secs(100);
 /// The most actions one `batch` runs.
 pub const BATCH_MAX: usize = 20;
-/// The tools a `batch` may run.
+/// The longest one `batch` runs: its waits and `wait_for` timeouts together
+/// are refused past it before anything runs, and no step starts after it.
+pub const BATCH_TIME_MAX: Duration = Duration::from_secs(120);
+/// The tools a `batch` may run (and `wait_for`, which only a batch has).
 const BATCHABLE: &[&str] =
     &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait"];
 
@@ -700,7 +703,7 @@ impl Engine {
         let mut stopped = stop::stopped_in_flight(acted);
         // A batch says how far it got, and the focus guard's report (a focus it
         // put back) stays with the call.
-        for key in ["completed", "of", "focus"] {
+        for key in ["completed", "of", "stopped_at", "results", "focus"] {
             if let Some(value) = out.body.get(key) {
                 stopped.body[key] = value.clone();
             }
@@ -1513,167 +1516,6 @@ impl Engine {
         }
     }
 
-    /// `batch`: OpenAI's `actions` array. Runs up to [`BATCH_MAX`] actions on
-    /// one window in order, each checked like its own call, stops at the first
-    /// failure, and returns one state at the end (the batch's `settle`). The
-    /// batch is one call: a retried `call_id` runs none of it again.
-    fn batch(
-        &self,
-        ctx: &CallContext,
-        args: &Value,
-    ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
-        let window_id = need(args, "window_id")?.to_string();
-        let actions = args
-            .get("actions")
-            .and_then(Value::as_array)
-            .filter(|a| !a.is_empty())
-            .ok_or_else(|| ToolOutput::error("invalid_arguments", "actions is required"))?;
-        if actions.len() > BATCH_MAX {
-            return Err(ToolOutput::error(
-                "invalid_arguments",
-                format!("a batch runs at most {BATCH_MAX} actions"),
-            ));
-        }
-        let mut results = Vec::new();
-        // Steps that acted, kept whole until the batch's own settle: their
-        // outcomes are decided after it (their index in `results`, what
-        // their read-back showed right after them, and what they acted on).
-        let mut acted: Vec<(usize, ToolOutput, Option<bool>, String)> = Vec::new();
-        let mut acted_on: Option<TargetApp> = None;
-        let mut failed: Option<ToolOutput> = None;
-        for (index, action) in actions.iter().enumerate() {
-            // Checkpoint: the person's Stop ends the batch between two steps.
-            if let Err(stopped) = self.stops.check(&ctx.session) {
-                failed = Some(stopped);
-                break;
-            }
-            let Some(name) = action.get("action").and_then(Value::as_str) else {
-                failed = Some(ToolOutput::error(
-                    "invalid_arguments",
-                    format!("action {index} has no \"action\""),
-                ));
-                break;
-            };
-            let Some(tool) = tools::find(name).filter(|_| BATCHABLE.contains(&name)) else {
-                failed = Some(ToolOutput::error(
-                    "invalid_arguments",
-                    format!("action {index}: {name:?} cannot run in a batch"),
-                ));
-                break;
-            };
-            let mut step = action.clone();
-            if let Some(map) = step.as_object_mut() {
-                map.remove("action");
-                map.insert("window_id".into(), json!(window_id));
-                if name == "wait" {
-                    // A wait inside a batch only waits; the state comes once, at the end.
-                    let ms = map
-                        .get("ms")
-                        .and_then(Value::as_f64)
-                        .or_else(|| map.get("duration").and_then(Value::as_f64).map(|s| s * 1000.0))
-                        .unwrap_or(WAIT_DEFAULT.as_millis() as f64)
-                        .clamp(0.0, WAIT_MAX.as_millis() as f64);
-                    (self.sleep)(Duration::from_millis(ms.round() as u64));
-                    results
-                        .push(json!({"action": name, "ok": true, "waited_ms": ms.round() as u64}));
-                    continue;
-                }
-                if let Some(settle) = args.get("settle") {
-                    map.entry("settle").or_insert(settle.clone());
-                }
-            }
-            match self.dispatch(tool, ctx, &step) {
-                Ok((done, app)) => {
-                    self.write_audit(ctx, name, app.as_ref(), &done);
-                    if done.is_error {
-                        failed = Some(done);
-                        break;
-                    }
-                    // Its read-back now, right after the step (a later step
-                    // must not confirm it); its outcome is decided after the
-                    // batch's settle, below.
-                    if done.body.get("evidence").is_some() {
-                        let now = done
-                            .body
-                            .get("expect")
-                            .and_then(|e| {
-                                serde_json::from_value::<crate::desktop::Expect>(e.clone()).ok()
-                            })
-                            .and_then(|e| self.desktop.peek_back(&e));
-                        acted.push((results.len(), done.clone(), now, batch_target(&step)));
-                    }
-                    results.push(json!({"action": name, "ok": true, "result": done.body}));
-                    acted_on = app.or(acted_on);
-                }
-                Err(refused) => {
-                    self.write_audit(ctx, name, None, &refused);
-                    failed = Some(refused);
-                    break;
-                }
-            }
-        }
-        let completed = results.len();
-        if let Some(failure) = &failed {
-            results.push(json!({
-                "action": actions.get(completed).and_then(|a| a.get("action")).cloned(),
-                "ok": false,
-                "code": failure.code,
-                // Errors carry their text as `error` (ToolOutput::error);
-                // without it an agent sees only a code and gives up.
-                "message": failure.body.get("error").or_else(|| failure.body.get("message")).cloned(),
-            }));
-        }
-        let mut out = ToolOutput::ok(json!({
-            "completed": completed,
-            "of": actions.len(),
-            "stopped": failed.is_some(),
-            "results": results,
-        }));
-        // The batch's own settle; only an adaptive one is a real settle.
-        let mut settled_ms = None;
-        if let Some(app) = &acted_on
-            && args.get("observe").and_then(Value::as_bool) != Some(false)
-        {
-            let mode = self.settle_mode(args);
-            settled_ms = self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
-        }
-        // Every step through the one confirm rule, its read-back read after
-        // that settle (none: a step is at most delivered); the route's
-        // internal keys go.
-        let targets: Vec<String> = acted.iter().map(|(_, _, _, t)| t.clone()).collect();
-        for (n, (index, mut done, now, target)) in acted.into_iter().enumerate() {
-            // Confirmed needs the read-back to have held right after its own
-            // step too, and no later step to have acted on the same target
-            // (its effect could be what the read-back sees).
-            let touched_later = targets[n + 1..].iter().any(|t| roles_overlap(t, &target));
-            if now != Some(true) || touched_later {
-                let why = if touched_later {
-                    "a later step in the batch acted on the same element or view"
-                } else {
-                    "the effect did not read back right after this step"
-                };
-                if done.body.get("evidence") == Some(&json!("confirmed")) {
-                    done.body["evidence"] = json!("delivered");
-                }
-                let mut note =
-                    done.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
-                crate::outcome::append(&mut note, why);
-                done.body["note"] = json!(note);
-                // The read-back after the settle may not upgrade it either.
-                if let Some(body) = done.body.as_object_mut() {
-                    body.remove("expect");
-                }
-            }
-            self.attach_outcome(&mut done, settled_ms, None, None, None);
-            if let Some(body) = done.body.as_object_mut() {
-                body.remove("shows");
-                body.remove("expect");
-            }
-            out.body["results"][index]["result"] = done.body;
-        }
-        Ok((out, acted_on))
-    }
-
     /// The call's `settle` argument, else the setting.
     fn settle_mode(&self, args: &Value) -> SettleMode {
         args_str(args, "settle").and_then(SettleMode::parse).unwrap_or(self.config().settle)
@@ -2212,21 +2054,6 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     )
 }
 
-/// What a batch step acts on: its element, else the window (a point, keys
-/// or typing may reach any element of it).
-fn batch_target(step: &Value) -> String {
-    if let Some(id) = step.get("element_id").and_then(Value::as_str) {
-        return format!("element:{id}");
-    }
-    "window".into()
-}
-
-/// Whether two batch targets may be the same thing: the same element, or
-/// either is the window or a point in it (which may be any element).
-fn roles_overlap(a: &str, b: &str) -> bool {
-    a == b || a == "window" || b == "window"
-}
-
 /// The record written before the outcome is decided: as [`retry_record`],
 /// with a confirmed route downgraded to delivered and the outcome uncertain
 /// (a restart before the outcome must not return a confirmed it never got).
@@ -2258,6 +2085,9 @@ fn retry_record(out: &ToolOutput) -> String {
 #[path = "engine_observe.rs"]
 mod observe_glue;
 
+#[path = "engine_batch.rs"]
+mod batch_glue;
+
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
@@ -2273,3 +2103,7 @@ mod menus_tests;
 #[cfg(test)]
 #[path = "engine_observe_tests.rs"]
 mod observe_tests;
+
+#[cfg(test)]
+#[path = "engine_batch_tests.rs"]
+mod batch_tests;

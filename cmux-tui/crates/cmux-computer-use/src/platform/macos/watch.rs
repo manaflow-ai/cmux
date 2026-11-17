@@ -8,7 +8,7 @@
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use super::ax::Ax;
@@ -41,6 +41,8 @@ const NOTIFICATIONS: &[&str] = &[
 /// What the callback writes to (its refcon).
 struct Sink {
     signals: Arc<Mutex<Signals>>,
+    /// Woken on every signal ([`Watch::wait_for_signal`]).
+    changed: Arc<Condvar>,
     target: u32,
     start: Instant,
 }
@@ -72,6 +74,8 @@ unsafe extern "C" fn on_signal(
     }
     *s.kinds.entry(name).or_insert(0) += 1;
     s.last_ms = Some(sink.start.elapsed().as_millis() as u64);
+    drop(s);
+    sink.changed.notify_all();
 }
 
 /// How long the action waits for the observer to register: a stalled app
@@ -129,6 +133,7 @@ impl Drop for Place {
 /// A running watch (see the module notes).
 pub(super) struct AxWatch {
     signals: Arc<Mutex<Signals>>,
+    changed: Arc<Condvar>,
     stop: Arc<AtomicBool>,
     listening: bool,
     started: Instant,
@@ -142,12 +147,13 @@ impl AxWatch {
     /// the window. Returns once the observer is registered (or failed).
     pub(super) fn start(pid: i32, target: u32) -> AxWatch {
         let signals = Arc::new(Mutex::new(Signals::default()));
+        let changed = Arc::new(Condvar::new());
         let stop = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<bool>();
-        let (sig, stp) = (signals.clone(), stop.clone());
+        let (sig, woke, stp) = (signals.clone(), changed.clone(), stop.clone());
         let started = Instant::now();
         let Some(place) = Place::take(pid) else {
-            return AxWatch { signals, stop, listening: false, started, thread: None };
+            return AxWatch { signals, changed, stop, listening: false, started, thread: None };
         };
         // The place moves into the thread and is given back when it ends
         // (a panic included); a thread that could not start gives it back
@@ -156,7 +162,7 @@ impl AxWatch {
             .name("cu-ax-watch".into())
             .spawn(move || {
                 let _place = place;
-                run(pid, target, sig, stp, ready_tx, started);
+                run(pid, target, sig, woke, stp, ready_tx, started);
             })
             .ok();
         let ready = thread.as_ref().map(|_| ready_rx.recv_timeout(REGISTER_BUDGET));
@@ -169,7 +175,7 @@ impl AxWatch {
             }
             None => (false, None),
         };
-        AxWatch { signals, stop, listening, started, thread }
+        AxWatch { signals, changed, stop, listening, started, thread }
     }
 }
 
@@ -177,11 +183,12 @@ fn run(
     pid: i32,
     target: u32,
     signals: Arc<Mutex<Signals>>,
+    changed: Arc<Condvar>,
     stop: Arc<AtomicBool>,
     ready: std::sync::mpsc::Sender<bool>,
     start: Instant,
 ) {
-    let sink = Box::new(Sink { signals, target, start });
+    let sink = Box::new(Sink { signals, changed, target, start });
     let refcon = &*sink as *const Sink as *mut c_void;
     let (Some(app), Some(mode)) = (Ax::application(pid), Cf::string("com.cmuxterm.cu.watch"))
     else {
@@ -245,6 +252,14 @@ impl Watch for AxWatch {
     }
     fn listening(&self) -> bool {
         self.listening
+    }
+    fn wait_for_signal(&self, seen: u32, limit: Duration) -> bool {
+        let s = self.signals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (s, _) = self
+            .changed
+            .wait_timeout_while(s, limit, |s| s.total() <= seen)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        s.total() > seen
     }
 }
 

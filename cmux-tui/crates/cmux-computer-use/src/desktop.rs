@@ -474,6 +474,12 @@ pub trait Watch: Send {
     fn signals(&self) -> Signals;
     /// Whether the watch is really listening (the app took the observer).
     fn listening(&self) -> bool;
+    /// Blocks until the app sends a signal past `seen` (a [`Signals::total`])
+    /// or `limit` passes; true when one came. The default cannot block and
+    /// answers at once, so a caller sleeps the rest itself.
+    fn wait_for_signal(&self, _seen: u32, _limit: std::time::Duration) -> bool {
+        false
+    }
 }
 
 /// One desktop. Calls block; the engine runs them off any UI thread.

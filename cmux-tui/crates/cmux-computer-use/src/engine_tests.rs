@@ -482,17 +482,17 @@ fn a_batch_step_goes_through_the_confirm_rule() {
         "batch",
         &json!({"window_id": "1", "actions": [{"action": "set_value", "element_id": "e1", "value": "x"}]}),
     );
-    let step = &out.body["results"][0]["result"];
+    let step = &out.body["results"][0];
+    assert_eq!(step["status"], "done", "{}", out.body);
     assert_eq!(step["evidence"], "delivered", "{}", out.body);
     assert!(step.get("expect").is_none() && step.get("shows").is_none(), "{}", out.body);
 }
 
-/// Review of 2d96f16 (3): batch steps are read back after the batch's own
-/// adaptive settle (a step that reads back is confirmed); with observe false
-/// there is no settle, so every step is at most delivered.
+/// Each acting step settles on its own and is read back after that settle,
+/// whatever the batch's `observe` (which only decides the batch's state).
 #[test]
-fn batch_steps_are_read_back_after_the_batch_settle() {
-    for (observe, evidence) in [(true, "confirmed"), (false, "delivered")] {
+fn batch_steps_are_read_back_after_their_own_settle() {
+    for observe in [true, false] {
         let d = Arc::new(FakeDesktop::standard());
         let (e, _) = settling_engine(d);
         let out = e.call(
@@ -501,31 +501,22 @@ fn batch_steps_are_read_back_after_the_batch_settle() {
             &json!({"window_id": "1", "observe": observe,
                     "actions": [{"action": "set_value", "element_id": "e1", "value": "x"}]}),
         );
-        let step = &out.body["results"][0]["result"];
-        assert_eq!(step["evidence"], evidence, "observe {observe}: {}", out.body);
+        let step = &out.body["results"][0];
+        assert_eq!(step["evidence"], "confirmed", "observe {observe}: {}", out.body);
+        assert_eq!(step["outcome"], "confirmed", "observe {observe}: {}", out.body);
         assert!(step.get("expect").is_none(), "{}", out.body);
+        assert_eq!(out.body.get("state").is_some(), observe, "{}", out.body);
     }
 }
 
-/// Review of d890b98 (1): a batch step is confirmed only when its read-back
-/// held right after its own step as well as after the batch's settle (a
-/// later step's effect must not confirm it), and not when a later step acted
-/// on the same element.
+/// Review of d890b98 (1): a later step's effect must not confirm an earlier
+/// one. Each step's outcome is decided after its own settle, before the next
+/// step runs, so two steps on the same element are each judged on their own.
 #[test]
 fn a_batch_step_is_not_confirmed_by_a_later_step() {
-    // Not shown right after its step: delivered, whatever the batch end shows.
     let d = Arc::new(FakeDesktop::standard());
-    *d.holds_after_step.lock().unwrap() = Some(false);
-    let (e, _) = settling_engine(d);
-    let out = e.call(
-        &ctx(None),
-        "batch",
-        &json!({"window_id": "1", "actions": [{"action": "set_value", "element_id": "e1", "value": "x"}]}),
-    );
-    assert_eq!(out.body["results"][0]["result"]["evidence"], "delivered", "{}", out.body);
-    // A later step on the same element: the earlier one is capped.
-    let d = Arc::new(FakeDesktop::standard());
-    let (e, _) = settling_engine(d);
+    *d.confirms_on_reread.lock().unwrap() = Some(false);
+    let (e, _) = settling_engine(d.clone());
     let out = e.call(
         &ctx(None),
         "batch",
@@ -534,8 +525,11 @@ fn a_batch_step_is_not_confirmed_by_a_later_step() {
             {"action": "set_value", "element_id": "e1", "value": "y"}
         ]}),
     );
-    assert_eq!(out.body["results"][0]["result"]["evidence"], "delivered", "{}", out.body);
-    assert_eq!(out.body["results"][1]["result"]["evidence"], "confirmed", "{}", out.body);
+    // The first read back nothing after its own settle: it stays delivered,
+    // even though nothing stops a later read from showing a value.
+    assert_eq!(out.body["results"][0]["evidence"], "delivered", "{}", out.body);
+    assert_eq!(out.body["results"][0]["read_back"], "failed", "{}", out.body);
+    assert_eq!(out.body["results"][1]["evidence"], "delivered", "{}", out.body);
 }
 
 /// Review of 02ca109 (follow-up): without an adaptive settle (observe false)
@@ -1249,6 +1243,9 @@ fn batch_stops_at_the_first_failure_and_refuses_what_cannot_batch() {
     assert_eq!(out.body["completed"], 1);
     assert_eq!(out.body["stopped"], true);
     assert_eq!(out.body["results"][1]["code"], "invalid_arguments");
+    assert_eq!(out.body["results"][1]["status"], "failed");
+    assert_eq!(out.body["results"][2]["status"], "not_run");
+    assert_eq!(out.body["stopped_at"]["step"], 1);
     assert_eq!(d.events().len(), 1);
     let out = e.call(
         &ctx(None),
@@ -1330,7 +1327,7 @@ fn a_batch_step_that_fails_says_why() {
         ]}),
     );
     let result = &out.body["results"][0];
-    assert_eq!(result["ok"], false, "{:?}", out.body);
+    assert_eq!(result["status"], "failed", "{:?}", out.body);
     let message = result["message"].as_str().unwrap_or_default();
     assert!(
         message.contains("nonsense"),

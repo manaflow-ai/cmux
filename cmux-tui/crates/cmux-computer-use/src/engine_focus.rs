@@ -364,7 +364,7 @@ fn asks_foreground(tool: &str, args: &Value) -> bool {
     let Some(actions) = args.get("actions").and_then(Value::as_array) else { return false };
     let acting: Vec<&Value> = actions
         .iter()
-        .filter(|a| a.get("action").and_then(Value::as_str) != Some("wait"))
+        .filter(|a| !matches!(a.get("action").and_then(Value::as_str), Some("wait" | "wait_for")))
         .collect();
     !acting.is_empty()
         && acting.iter().all(|a| step_fg(a.get("action").and_then(Value::as_str).unwrap_or(""), a))

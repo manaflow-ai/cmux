@@ -77,6 +77,45 @@ acting tool (60 characters at most); the tag stays for the session's later
 calls. Without one, the tag is the agent's cmux workspace name. When the tag
 shows is `computerUse.cursorTag` (`hover`, `always`, `never`).
 
+## Batch
+
+`batch` (`engine_batch.rs`) runs up to `BATCH_MAX` (20) steps on one window in
+one call. It is a fixed list: no loops and no conditions beyond each step's
+guard; a scripting sandbox was considered and decided against.
+
+- Every step is checked before any runs (its action, `require`, `target`, its
+  wait). A malformed step means nothing runs. The waits and `wait_for`
+  timeouts together are at most `BATCH_TIME_MAX` (120 s), and no step starts
+  after it (`batch_time_limit`).
+- An acting step runs through `dispatch` like its own call: policy, the
+  guards, the desktop's caret and web gates and priming scope, and the focus
+  guard (the batch is guarded once, as a whole). It then settles on its own
+  (adaptive, its own AX watch) and gets its own outcome from its own read-back,
+  pixels (against the previous step's capture), elements (against the
+  previous step's tree) and what changed outside the window. Its outcome is
+  decided before the next step runs, so a later step can never confirm it.
+- `require`: `confirmed` stops the batch unless the step's outcome is
+  confirmed; `not_no_effect` stops it on `no_effect`; `no_error` (default)
+  only on an error. A step that stops the batch is `done` with
+  `require_met: false`; every step after it is `not_run`; `stopped_at` gives
+  the step, code (`requirement_not_met`, `wait_timeout`, an error's own code,
+  `stopped_by_person`, `batch_time_limit`) and reason.
+- `wait_for` waits for an element (an id, or a `target`) to appear or
+  disappear, or for its value to equal or contain a text. It reads the
+  window again whenever the app's AXObserver watch reports a signal (after
+  the burst ends), every 500 ms as a backstop (not every change sends a
+  signal), or every 150 ms when the app cannot be watched, within its timeout.
+  The person's Stop ends it at its next read.
+- `target: {role, label, text}` is resolved when its step runs, from a fresh
+  read of the window (read wider when the default read is cut short). Exactly
+  one match is recorded as shown and acted on through the same use-time
+  fingerprint check as an id (`stale_element` when it changed in between);
+  several matches are `ambiguous_element`, none `target_not_found`.
+- The batch's own state at the end compares with the agent's last look and
+  screenshot from before the batch; the steps' captures never become what the
+  agent is said to have seen, and pixel coordinates in later steps still map
+  through the agent's own screenshot.
+
 ## Policy
 
 One decision function (`policy::decide`) runs for every route: a local agent, the
