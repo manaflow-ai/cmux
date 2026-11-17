@@ -24,14 +24,15 @@ extension DaemonService {
     /// The one capability gate's reason for an action that needs
     /// `capability` on this machine (`ActionRegistry.bind(requires:)`, the
     /// sidebar and every handler use it). Never the capability id: before
-    /// the daemon answers, it says the service is starting; on a Cloud
-    /// machine, update that machine; locally, restart cmux when this tree's
-    /// daemon serves the capability (the running one is older), else the
+    /// the daemon answers, it says the service is starting; on another
+    /// machine, update cmux on that machine (named); locally, the service is
+    /// out of date when this tree's daemon serves the capability (a person's
+    /// run restarts it and runs again: ``DaemonUpdateRetry``), else the
     /// feature is not in this build.
     public func missingCapabilityMessage(_ capability: String) -> String {
         if isLocal, startup.isUnavailable { return RefusalStrings.daemonUnavailable }
         if identity == nil { return isLocal ? RefusalStrings.daemonConnecting : CloudStrings.notConnected }
-        return isLocal ? RefusalStrings.needsDaemonCapability(capability) : RefusalStrings.updateCloudMachine
+        return isLocal ? RefusalStrings.needsDaemonCapability(capability) : RefusalStrings.updateMachine(identity?.machineName ?? machineID)
     }
 
     /// The home daemon may still bring personal state: it has not answered

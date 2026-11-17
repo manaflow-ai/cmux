@@ -179,7 +179,7 @@ public final class DaemonConnectingView: NSView {
     private static func plainReason(_ error: DaemonError) -> String? {
         switch error {
         case .binaryNotFound: DaemonRecoveryStrings.reinstall
-        case .unsupportedProtocol: RefusalStrings.restartToUpdateDaemon
+        case .unsupportedProtocol: RefusalStrings.daemonOutdated
         case .missingCapabilities, .sessionRestoreTimedOut: RefusalStrings.describe(error)
         case .endpointBlocked(let reason): reason
         case .wrongApp, .invalidSessionName: nil
