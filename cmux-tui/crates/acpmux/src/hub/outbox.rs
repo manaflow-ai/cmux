@@ -374,7 +374,8 @@ impl Outbox {
             return;
         }
         // A change whose write failed waits in memory for the next write: this is one, even when
-        // no journal was started yet (the book's lock is never taken under the disk's).
+        // no journal was started yet. Read before the disk's lock: a write takes the book's under
+        // it.
         let changes = self.book().changes;
         {
             let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());

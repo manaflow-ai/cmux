@@ -59,7 +59,8 @@ pub enum Enqueued {
 pub struct OutboxOracle {
     memory: Vec<Entry>,
     durable: Vec<Entry>,
-    /// A change since the last write that succeeded.
+    /// Memory holds a change no write took. An update counts even when it leaves the message as
+    /// it was (its time changed); a refused send does not (it is gone again).
     unsaved: bool,
     disk_ok: bool,
 }
@@ -115,11 +116,13 @@ impl OutboxOracle {
             state: State::Queued,
             attempts: 0,
         });
+        let before = self.unsaved;
         if self.write() {
             Enqueued::New(id.to_owned())
         } else {
-            // Not kept means not sent.
+            // Not kept means not sent, and it leaves nothing to write.
             self.memory.pop();
+            self.unsaved = before;
             Enqueued::Refused
         }
     }
