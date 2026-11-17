@@ -103,35 +103,62 @@ function sharedClock(name: string, every: number, aligned = false) {
 }
 
 /** One timer for timestamp labels, at the nearest actual text change. Removing the last label
- * removes its timer; hidden pages catch up once before choosing a new deadline. */
+ * removes its timer; hidden pages catch up once before choosing a new deadline. A label that mounts
+ * or unmounts touches the timer only when it moves the wake: one due no sooner than the armed
+ * deadline (an older row paged in on a scroll up) joins without a timer of its own, and one leaving
+ * lets the timer wake as armed, where the tick finds nothing due and picks the next deadline. */
 const deadlines = new Set<{ notify: () => void; next: () => number; at: number }>();
 let stopDeadlines: (() => void) | undefined;
+/** The deadline the armed timer wakes at (Infinity: none due), undefined before the first arm. */
+let wakeAt: number | undefined;
+const tickDeadlines = () => {
+  for (const label of deadlines) {
+    if (label.at > Date.now()) continue;
+    label.at = label.next();
+    label.notify();
+  }
+};
+const nextWake = () => {
+  let earliest = Infinity;
+  for (const label of deadlines) if (label.at < earliest) earliest = label.at;
+  wakeAt = earliest;
+  return earliest - Date.now() + 5;
+};
 function scheduleDeadlines() {
   stopDeadlines?.();
   stopDeadlines = undefined;
+  wakeAt = undefined;
   if (deadlines.size === 0) return;
-  const tick = () => {
-    for (const label of deadlines) {
-      if (label.at > Date.now()) continue;
-      label.at = label.next();
-      label.notify();
-    }
-  };
-  stopDeadlines = visibleInterval(
-    "relative-time",
-    tick,
-    () => Math.min(...Array.from(deadlines, (label) => label.at)) - Date.now() + 5,
-    { onShow: tick, subscribers: () => deadlines.size },
-  );
+  stopDeadlines = visibleInterval("relative-time", tickDeadlines, nextWake, {
+    onShow: tickDeadlines,
+    subscribers: () => deadlines.size,
+  });
+}
+
+/** Labels due sooner than the armed wake, mounted in one commit (rows drawn oldest first), move the
+ * timer once, after the commit. */
+let rearmQueued = false;
+function rearmSoon() {
+  if (rearmQueued) return;
+  rearmQueued = true;
+  queueMicrotask(() => {
+    rearmQueued = false;
+    if (deadlines.size > 0) scheduleDeadlines();
+  });
 }
 
 export function subscribePageDeadline(notify: () => void, next: () => number): () => void {
   const label = { notify, next, at: next() };
   deadlines.add(label);
-  scheduleDeadlines();
+  // A hidden page arms nothing; showing it picks the earliest deadline of every label then.
+  if (!stopDeadlines) scheduleDeadlines();
+  else if (pageDocument()?.visibilityState !== "hidden" && (wakeAt === undefined || label.at < wakeAt)) {
+    wakeAt = label.at;
+    rearmSoon();
+  }
   return () => {
-    deadlines.delete(label);
-    scheduleDeadlines();
+    if (!deadlines.delete(label)) return;
+    if (deadlines.size === 0) scheduleDeadlines();
   };
 }
 

@@ -315,6 +315,10 @@ export class IdleTracker {
   private current: IdleMark = {};
   private kept: string | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /// When the waiting write is due (IDLE_KEEP_MS after the last change), and whether a change came
+  /// after the timer was armed: a hand scroll's steps move the deadline, not the timer.
+  private due = 0;
+  private movedSinceArm = false;
   /// The place row's index where it was last found (`settle`'s lookup hint).
   readonly hint = { current: -1 };
 
@@ -362,13 +366,30 @@ export class IdleTracker {
   keepSoon(): void {
     if (!this.enabled || !this.sessionId) return;
     if (JSON.stringify(keptIdle(this.current)) === this.kept) return;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.keepNow(), IDLE_KEEP_MS);
+    this.due = Date.now() + IDLE_KEEP_MS;
+    if (this.timer !== undefined) {
+      this.movedSinceArm = true;
+      return;
+    }
+    this.arm(IDLE_KEEP_MS);
   }
+
+  private arm(wait: number): void {
+    this.movedSinceArm = false;
+    this.timer = setTimeout(this.wake, wait);
+  }
+
+  /// The timer's wake: a change after it was armed waits out the rest of its IDLE_KEEP_MS.
+  private readonly wake = () => {
+    this.timer = undefined;
+    const left = this.due - Date.now();
+    if (this.movedSinceArm && left > 0) this.arm(left);
+    else this.keepNow();
+  };
 
   /// Keeps the stretch now when what is kept changed, and drops the write waiting.
   keepNow(): void {
-    clearTimeout(this.timer);
+    if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
     if (!this.enabled || !this.sessionId) return;
     const key = JSON.stringify(keptIdle(this.current));
