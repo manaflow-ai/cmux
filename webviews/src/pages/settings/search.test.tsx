@@ -1,4 +1,5 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { act } from "react";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 import { configureKeyStyle } from "../../ui/keyStyle";
@@ -199,3 +200,40 @@ test("Vim and Emacs move through the rows as Up and Down do; Standard keeps toda
   await fire(search(page), "keydown", { key: "Escape", code: "Escape" });
   expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("privacy");
 });
+
+// Leo, 2026-11-15: "I want people to not accidentally soft lock themselves and like have good
+// recovery options". From Vim or Emacs, the Settings page gets back to Standard with keys alone:
+// the search field still types (no letter is taken as a list key), Return opens the Key Style
+// row on its menu button, and the menu picks Standard by keys.
+for (const style of ["vim", "emacs"]) {
+  test(`${style}: keys alone set Key Style back to Standard from the Settings search`, async () => {
+    page = await styledPage(style);
+    const field = search(page);
+    for (const key of "key style") {
+      const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      field.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    await changeValue(field, "key style");
+    expect(resultKeys(page)).toContain("app.keyStyle");
+    await fire(field, "keydown", { key: "Enter" });
+    const button = document.activeElement as HTMLElement;
+    expect(button.closest("[data-row-key]")?.getAttribute("data-row-key")).toBe("app.keyStyle");
+    // Return on a focused button: the browser sends the keydown, then a keyboard click (detail 0).
+    const pressReturn = async (element: HTMLElement) => {
+      await fire(element, "keydown", { key: "Enter" });
+      await act(async () => {
+        element.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }));
+      });
+    };
+    await pressReturn(button);
+    const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    expect(items().length).toBe(3);
+    const standard = items().find((item) => /standard/i.test(item.textContent ?? ""))!;
+    // The menu's own keys (Home, then Return), which no key style changes.
+    await fire(document.activeElement ?? button, "keydown", { key: "Home" });
+    expect(document.activeElement === standard || standard.hasAttribute("data-highlighted")).toBe(true);
+    await pressReturn(standard);
+    expect(ops(page.provider, "cmux.settings.set")).toContainEqual({ key: "app.keyStyle", value: "standard" });
+  });
+}
