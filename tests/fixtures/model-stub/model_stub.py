@@ -17,6 +17,8 @@ the same answer. Past the last step the last step repeats. A step is one of:
                                      Bash, or Codex's exec_command, shell or local_shell;
   {"tool": {"name": N, "input": {...}}}  one call to a named tool, verbatim (for OpenAI, "arguments" may stand in
                                      for "input").
+Any step may also carry "pause": S (0 to 10 seconds): the stub waits that long before it answers with the step, so a
+turn of tool calls with no shell in them (a Read, which no policy asks a person about) still runs at a set pace.
 Text and commands are templates: {{nonce}} is --nonce, {{result.N}} is the text of the conversation's Nth tool
 result (from 0, trimmed), and {{result.N~REGEX}} is the first group of REGEX (case-insensitive, dot matches
 newline) in that text, or "" when it does not match (a REGEX cannot end in "}"). {{prompt}} and {{prompt~REGEX}}
@@ -57,7 +59,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 # Bump on any change a script or a test could notice (wire shapes, template grammar, log fields).
-STUB_VERSION = 3  # 2: {{prompt}} templates; 3: per-turn scripts ("turns")
+STUB_VERSION = 4  # 2: {{prompt}} templates; 3: per-turn scripts ("turns"); 4: a step's "pause"
 
 DEFAULT_SCRIPT: dict[str, Any] = {"version": 1, "steps": [{"text": "Stub reply {{nonce}}."}]}
 # Codex's exec_command result starts with a header (Chunk ID, Wall time, exit code, token count) before "Output:";
@@ -106,6 +108,9 @@ def check_steps(path: str, steps: list[Any]) -> None:
             raise ValueError(f"{path}: step {i}: a tool step is {{\"tool\": {{\"name\": ..., \"input\": {{...}}}}}}")
         if ("text" in step and not isinstance(step["text"], str)) or ("shell" in step and not isinstance(step["shell"], str)):
             raise ValueError(f"{path}: step {i}: text and shell are strings")
+        pause = step.get("pause", 0)
+        if isinstance(pause, bool) or not isinstance(pause, (int, float)) or not 0 <= pause <= 10:
+            raise ValueError(f"{path}: step {i}: pause is a number of seconds from 0 to 10")
         for m in _TEMPLATE.finditer(json.dumps(step)):
             if m.group(3) is not None:
                 try:
@@ -359,6 +364,7 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
 
         def anthropic(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(anthropic_results(body), row["tools"])
+            time.sleep(step.get("pause", 0))
             content, stop = self.anthropic_content(i, step, row["tools"], results)
             stub.log({"protocol": "anthropic", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {}), **({"turn": turn} if turn is not None else {})})
             model = body.get("model") or "stub-model"
@@ -400,6 +406,7 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
 
         def openai(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(openai_results(body), row["tools"])
+            time.sleep(step.get("pause", 0))
             item = self.openai_item(i, step, row["tools"], results)
             stub.log({"protocol": "openai", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {}), **({"turn": turn} if turn is not None else {})})
             rid = f"resp_stub_{uuid.uuid4().hex[:12]}"

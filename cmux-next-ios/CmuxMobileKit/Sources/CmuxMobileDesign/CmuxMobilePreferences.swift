@@ -13,8 +13,15 @@ public enum CmuxMobilePreferences {
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
         /// terminal's Jump to bottom row above the composer.
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
-        /// Settings → Transport → Ultra Mode on Cellular; read at each dial (`FFIMacLinkDialer`).
-        public static let ultraOnCellular = "cmuxMobile.settings.ultraOnCellular"
+        /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
+        public static let ultra = "cmuxMobile.settings.ultra"
+        /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
+        /// the app's keepalive timers (`KeepaliveBeat.defaultsKey`, the same key).
+        public static let alignKeepalives = "cmuxMobile.settings.alignKeepalives"
+        /// Settings → Transport → Agent CLI Screen Changes (off by default): a Claude Code,
+        /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
+        /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
+        public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).

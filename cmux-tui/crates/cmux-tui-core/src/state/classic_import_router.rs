@@ -559,9 +559,17 @@ pub(crate) fn dispatch(
     mux: &std::sync::Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    dispatch_in(mux, request, Places::from_env())
+}
+
+/// [`dispatch`] under `places` (a test's own home instead of the daemon's).
+pub(crate) fn dispatch_in(
+    mux: &std::sync::Arc<Mux>,
+    request: ParsedResourceRequest,
+    places: Option<Places>,
+) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
     mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
-    let places = Places::from_env();
     match request.envelope.operation {
         ResourceOperation::ClassicImportPlan => {
             let bundle_id = required(&request.fields, "bundle_id")?;

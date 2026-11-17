@@ -407,6 +407,9 @@ impl RenderService {
         if let Some(omitted) = value.history_rows_omitted {
             write!(writer, ",\"history_rows_omitted\":{omitted}")?;
         }
+        if let Some(skipped) = value.history_rows_skipped {
+            write!(writer, ",\"history_rows_skipped\":{skipped}")?;
+        }
         writer.write_all(b"}")?;
         Ok(writer.finish())
     }
@@ -466,6 +469,7 @@ impl RenderService {
                 kitty_state,
                 colors,
                 pending_sequence,
+                history_rows_omitted,
             } => {
                 write!(
                     writer,
@@ -484,6 +488,10 @@ impl RenderService {
                 .map_err(json_error_to_io)?;
                 if shape.pending_sequence {
                     write_pending_sequence_json(&mut writer, pending_sequence)?;
+                }
+                // A viewer's own history window (`replay_history_rows`).
+                if let Some(omitted) = history_rows_omitted {
+                    write!(writer, ",\"history_rows_omitted\":{omitted}")?;
                 }
                 writer.write_all(b"}")?;
             }

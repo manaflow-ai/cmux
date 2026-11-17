@@ -20,6 +20,9 @@ mod unstarted_prompt;
 // The waiting records and the order a restore reads, indexed (`restore_queue`).
 #[path = "queue_waiting.rs"]
 mod queue_waiting;
+// A new daemon rebuilds each queue from its log (`restore_queue`).
+#[path = "queue_restore.rs"]
+mod queue_restore;
 
 // `_acpmux/queue_approve` and `_acpmux/queue_decline`: a person's prompt waits for the owner.
 #[path = "queue_approve.rs"]
@@ -64,6 +67,11 @@ pub struct QueuedPrompt {
     pub(super) resume: bool,
     /// Send now into the running turn (`queue_edit.rs`): its waiting task steers it.
     pub(super) steer: bool,
+    /// The person's steer that came while no turn showed yet: another prompt held the turn
+    /// (`Session::turn_claimed`, its agent starting, its uploads read) and it queued behind it.
+    /// It steers into that turn once it shows, as it would have had it come a moment later
+    /// (Leo, 2026-11-14: "but all my things should be steer by default in the app?").
+    pub(super) steer_on_start: bool,
     /// Waited behind a turn that failed (`pause_queue`): it waits until the queue is resumed.
     pub(super) held: bool,
     /// A person's prompt that waits for the owner (`author.rs` `approval`, `queue_approve.rs`):
@@ -187,6 +195,9 @@ pub(super) struct Slot<'a> {
     /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
     /// queue; it waits for the lock, and `check_cut` decides after.
     pub(super) after_turn: bool,
+    /// [`QueuedPrompt::steer_on_start`]: the person's steer to an agent that steers, sent before
+    /// the turn it is for showed.
+    pub(super) steer_on_start: bool,
 }
 
 /// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
@@ -308,6 +319,11 @@ impl Hub {
             // A watched chat takes no prompt until it is taken over (`watch.rs`).
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
+            }
+            // A chat handing its conversation to a terminal takes no new prompt: the terminal
+            // does, once the turn ends (`release_to_watch.rs`).
+            None if session.releasing.load(Ordering::SeqCst) => {
+                return Err(Err(super::release_to_watch::releasing_error()));
             }
             // A lane's report to a parent whose close has begun: refused, never reopening it
             // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
@@ -568,6 +584,13 @@ impl Hub {
                     return Err(answer);
                 }
                 Wait::Steer => {
+                    // The person's steer that came before its turn showed, not a Send now.
+                    let on_start = session
+                        .queue
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .iter()
+                        .any(|q| q.turn_id == turn_id && q.steer_on_start && !q.steer);
                     let run = match self.take_queued(session, p.prompt_id, &turn_id) {
                         Ok(Some(run)) => run,
                         Ok(None) => continue,
@@ -581,7 +604,8 @@ impl Hub {
                             return Err(answer);
                         }
                     };
-                    let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
+                    let answer =
+                        self.steer_queued(session, run, p.client, p.prompt_id, on_start).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
                     if let Err(e) = &answer {
                         let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
@@ -596,12 +620,16 @@ impl Hub {
 
     /// Runs a queued prompt sent now (`queue_edit.rs` `send_now`) as a steer under its own prompt
     /// id, so its `session/prompt` answers how it ran. A turn that ended meanwhile leaves it next.
+    /// `on_start`: the person's steer that queued only because no turn showed yet
+    /// ([`QueuedPrompt::steer_on_start`]): it was never asked to stop a turn, so one that ended
+    /// meanwhile leaves it queued again, stopping nothing.
     pub(super) async fn steer_queued(
         self: &Arc<Self>,
         session: &Arc<Session>,
         run: Arc<PromptRun>,
         client: &str,
         prompt_id: &str,
+        on_start: bool,
     ) -> Answer {
         let (control, trust_gate) = (run.control, run.trust_gate);
         let digest = super::digest::inbox_digest::is_digest(run.provenance.as_ref());
@@ -621,7 +649,7 @@ impl Hub {
             trust_gate,
             // An inbox digest whose turn ended first waits behind the person's prompts
             // (`enqueue`), and stops no turn.
-            interrupt: !digest,
+            interrupt: !digest && !on_start,
             provenance,
             message_sender: run.message_sender.clone(),
             agent: run.agent.clone(),
@@ -811,6 +839,7 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer: false,
+                steer_on_start: p.steer_on_start,
                 held: stop_held,
                 awaiting_owner,
                 revision: 0,
@@ -882,12 +911,27 @@ impl Hub {
             let done = session.restore_done.notified();
             tokio::pin!(done);
             done.as_mut().enable();
-            let steer = session
-                .queue
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .iter()
-                .any(|q| q.turn_id == turn_id && q.steer && !q.awaiting_owner);
+            // The person's steer that came before its turn showed goes in once that turn's own
+            // prompt is written (`steer_end.rs` wakes the queue then): written before it, the steer
+            // would reach the agent ahead of the prompt it steers. Never into a verified trigger's
+            // turn, which takes no steer (`turns.rs`).
+            let turn_runs = session.turn().is_some_and(|t| {
+                !t.trigger
+                    && session
+                        .unwritten_prompt
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .as_ref()
+                        .is_none_or(|(unwritten, _)| *unwritten != t.turn_id)
+            });
+            let steer =
+                session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().any(
+                    |q| {
+                        q.turn_id == turn_id
+                            && (q.steer || (q.steer_on_start && turn_runs && !q.held))
+                            && !q.awaiting_owner
+                    },
+                );
             // A chat being moved sends nothing into its turn; an abort lets it steer again.
             if steer && session.moving().is_none() {
                 return Wait::Steer;
@@ -1346,368 +1390,6 @@ impl Hub {
         Some(queued)
     }
 
-    pub(super) fn restore_queue(&self, session: &Arc<Session>) {
-        self.restore_queue_only(session, None);
-    }
-
-    /// [`Self::restore_queue`]; with `only`, a live chat takes back just that logged prompt and
-    /// nothing else is rebuilt (its inbox, agent pairs, branch and move state are live already).
-    pub(super) fn restore_queue_only(&self, session: &Arc<Session>, only: Option<&str>) {
-        // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
-        // chat's threads stay readable.
-        if only.is_none() {
-            self.restore_inbox(session);
-        }
-        if session.meta().status == SessionStatus::Closed {
-            return;
-        }
-        let mut waiting = queue_waiting::Waiting::default();
-        let mut order = queue_waiting::Order::default();
-        let mut held: std::collections::HashSet<String> = Default::default();
-        // Of those, the ones whose hold let them go by themselves (`queue_paused` `retrying`): a
-        // record without the field, from an older daemon, held every prompt for Resume.
-        let mut retrying: std::collections::HashSet<String> = Default::default();
-        // The revision the owner approved, by the queued prompt's turn id (`queue_approve.rs`):
-        // its incarnation, never its client-chosen prompt id, which a later prompt may reuse.
-        let mut approved: HashMap<String, Value> = Default::default();
-        // A begun move not yet ended (`transfer_out.rs` `restored_moving`), until `imported`.
-        let mut moving: Option<String> = None;
-        // What a paused agent pair held here, what its releases took, its pauses and resumes,
-        // and the prompt ids that reached the session (`agent_pairs.rs`).
-        let mut pair_records: Vec<EventRecord> = Vec::new();
-        let mut recorded: std::collections::HashSet<String> = Default::default();
-        let mut unstarted = lost_start::Unstarted::default();
-        let mut direct = unstarted_prompt::Unstarted::default();
-        let mut digests = queue_waiting::Digests::default();
-        let mut branch = session.meta().git_branch;
-        // And what was changed here but is not in the journal yet (`kept_unstored`).
-        let scanned =
-            self.scan_kinds_and_kept(session, Self::QUEUE_KINDS, &mut |e: EventRecord| {
-                for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
-                    waiting.remove_turn(Some(&turn_id));
-                    order.remove(&prompt_id);
-                }
-                digests.read(&e);
-                direct.read(&e);
-                let turn_id = e.msg.get("turnId");
-                // Queued or run again under another turn id (a daemon that had not restored it
-                // took its id as new): that copy is the prompt's, so this one does not run too.
-                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
-                    && let Some(id) = e.msg.get("promptId")
-                {
-                    waiting.remove_other_turns(id, turn_id);
-                }
-                if matches!(e.kind.as_str(), "queued" | "user_message")
-                    && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
-                {
-                    recorded.insert(id.to_owned());
-                }
-                match e.kind.as_str() {
-                    "git" if e.dir == "mux" => {
-                        branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
-                    }
-                    "queued" => {
-                        // A restart's or a move's continuation of a cut turn goes ahead of what
-                        // waited behind that turn, also when the daemon stopped before its
-                        // `queue_order` (`restart_resume.rs`); a later reorder still holds.
-                        if super::auto_resume::Cut::queued(
-                            e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str),
-                        ) && let Some(id) = e.msg.get("promptId")
-                        {
-                            order.prioritize_restart(id);
-                        }
-                        // An accepted prompt a restart put back (`unstarted_prompt.rs`) stays at
-                        // the head across a second restart before it ran.
-                        if e.msg.get("restored").and_then(Value::as_str) == Some("unstarted")
-                            && let Some(id) = e.msg.get("promptId")
-                        {
-                            order.prioritize_restart(id);
-                        }
-                        // An inbox digest holds the queue's order with it in it, as its
-                        // `queue_order` record does.
-                        if super::digest::inbox_digest::is_digest_record(&e.msg)
-                            && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
-                        {
-                            order.set(ids.iter());
-                            unstarted.lead(&mut order);
-                        }
-                        // Put back after a failed turn (`requeue_joined`): this copy replaces
-                        // the one the turn took (an inbox digest's message is still waiting).
-                        if e.msg.get("requeued") == Some(&Value::Bool(true)) {
-                            waiting.remove_turn(turn_id);
-                        }
-                        waiting.push(e);
-                    }
-                    "agent_pair_held"
-                    | "agent_pair_released"
-                    | "agent_pair_dropped"
-                    | "agent_pair_paused"
-                    | "agent_pair_resumed" => pair_records.push(e),
-                    // The daemon's own records only: an agent's update may carry any kind.
-                    "transfer_out" if e.dir == "mux" => {
-                        moving = e.msg.get("transferId").and_then(Value::as_str).map(str::to_owned)
-                    }
-                    "transfer_aborted" | "imported" if e.dir == "mux" => moving = None,
-                    // Left the queue for a turn that has not started (`lost_start.rs`): its
-                    // `queued` record stays waiting, so later records apply to it, and it goes
-                    // back ahead of the queue.
-                    "dequeued" | "user_message" if unstarted.holds(turn_id) => {
-                        unstarted.lead(&mut order);
-                    }
-                    // Taken into an inbox digest: it waits until that digest's turn starts
-                    // (`queue_waiting.rs` `Digests`).
-                    "dequeued" if e.msg.get("digestPromptId").is_some() => {}
-                    "dequeued" | "queue_removed" | "queue_declined" | "user_message"
-                    | "turn_started" => {
-                        waiting.remove_turn(turn_id);
-                    }
-                    "queue_approved" => {
-                        if let Some(turn) = turn_id.and_then(Value::as_str) {
-                            approved.insert(turn.to_owned(), e.msg.clone());
-                        }
-                    }
-                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones;
-                    // its `_meta.provenance` keeps its sender and names its editor (`editedBy`).
-                    "queue_updated" => {
-                        // A revision never goes back: a log from before edits were logged under
-                        // the queue lock may hold an older edit after a newer one, and the newer
-                        // one is the words the queue had (and an approval may name).
-                        let revision = e.msg.get("revision").and_then(Value::as_u64);
-                        let stale = |had: Option<&Value>| {
-                            matches!((revision, had.and_then(Value::as_u64)), (Some(new), Some(had)) if new < had)
-                        };
-                        if let Some(q) =
-                            waiting.first_of_turn(turn_id).filter(|q| !stale(q.msg.get("revision")))
-                        {
-                            for k in [
-                                "text",
-                                "prompt",
-                                "control",
-                                "trustGate",
-                                "inlineParts",
-                                "displayParts",
-                                "images",
-                                "pasted",
-                                // An edit of a prompt that waits for the owner waits again.
-                                "awaitingOwner",
-                                "revision",
-                            ] {
-                                if let Some(value) = e.msg.get(k) {
-                                    q.msg[k] = value.clone();
-                                } else if let Some(fields) = q.msg.as_object_mut() {
-                                    fields.remove(k);
-                                }
-                            }
-                            if let Some(meta) =
-                                q.msg.get_mut("_meta").and_then(Value::as_object_mut)
-                            {
-                                meta.remove("provenance");
-                                // The person rewrote it: no longer another session's message.
-                                meta.remove(crate::prompt_provenance::MESSAGE_META);
-                            }
-                            if let Some(p) = e.msg.pointer("/_meta/provenance") {
-                                let kept = json!({"provenance": p});
-                                crate::no_panic::JsonExt::set(&mut q.msg, "_meta", kept);
-                            }
-                            // The person's now (`digest.rs`), and no sender's to replace.
-                            if let Some(fields) = q.msg.as_object_mut() {
-                                fields.remove("fromAgent");
-                                fields.remove("class");
-                                fields.remove("supersede");
-                            }
-                        }
-                    }
-                    "queue_paused" => {
-                        let ids = |k: &str| {
-                            let ids = e.msg.get(k).and_then(Value::as_array).into_iter().flatten();
-                            ids.filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>()
-                        };
-                        let (now_held, now_retrying) = (ids("held"), ids("retrying"));
-                        // The newest hold of each says whether it retries.
-                        for id in &now_held {
-                            retrying.remove(id);
-                        }
-                        held.extend(now_held);
-                        retrying.extend(now_retrying);
-                    }
-                    // `resume_held` names the prompts it resumed; `resume_queue` resumes them all.
-                    "queue_resumed" => match e.msg.get("promptIds").and_then(Value::as_array) {
-                        Some(ids) => ids.iter().filter_map(Value::as_str).for_each(|id| {
-                            held.remove(id);
-                        }),
-                        None => held.clear(),
-                    },
-                    "queue_order" => {
-                        // Sent now (`put_next`): no longer held.
-                        if e.msg.get("next") == Some(&Value::Bool(true))
-                            && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
-                        {
-                            held.remove(id);
-                        }
-                        let ids = e.msg.get("order").and_then(Value::as_array);
-                        order.set(ids.into_iter().flatten());
-                        unstarted.lead(&mut order);
-                    }
-                    _ => {}
-                }
-                true
-            });
-        if only.is_none() {
-            if scanned.is_ok() {
-                self.restore_git_branch(session, branch);
-            }
-            self.restore_agent_pairs(&session.id, pair_records, &recorded);
-            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-                transfer_out::restored_moving(scanned.is_ok(), moving);
-        }
-        // Accepted direct prompts whose turn never started go back first (`unstarted_prompt.rs`).
-        if scanned.is_ok() && only.is_none() {
-            for e in self.requeue_unstarted(session, direct.finish()) {
-                order.prioritize_restart(e.msg.get("promptId").unwrap_or(&Value::Null));
-                waiting.push(e);
-            }
-        }
-        // An inbox digest whose turn never started gives its messages back in its place.
-        digests.finish(&mut waiting, &mut order, |id, order| {
-            unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
-        });
-        let mut waiting = waiting.into_records();
-        if scanned.is_err() || waiting.is_empty() {
-            return;
-        }
-        // The last reorder holds (a prompt that left the queue for its turn went back ahead of
-        // it); a prompt queued after it keeps its place at the end.
-        // An inbox digest's messages share its place, in their order (`Digests::rank`).
-        waiting.sort_by_key(|q| {
-            let id = q.msg.get("promptId");
-            (unstarted.key(id, &order).unwrap_or_else(|| order.key(id)), digests.rank(id))
-        });
-        // A prompt that left the queue for its turn runs first, as it would have.
-        for id in unstarted.prompts() {
-            held.remove(id);
-        }
-        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-        let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
-        let mut restored_any = false;
-        for e in waiting {
-            let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-            let (prompt_id, turn_id, text) = (field("promptId"), field("turnId"), field("text"));
-            // Restored already: a second pass (a chat settled after adoption, `log_load.rs`)
-            // adds only what the first did not see.
-            if prompt_id.is_empty()
-                || turn_id.is_empty()
-                || only.is_some_and(|only| only != prompt_id)
-                || queue.iter().any(|q| q.prompt_id == prompt_id)
-            {
-                continue;
-            }
-            // A record from before the prompt was logged has its text only.
-            let blocks = match e.msg.get("prompt").and_then(Value::as_array) {
-                Some(blocks) => blocks.clone(),
-                None => vec![json!({"type": "text", "text": text})],
-            };
-            let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
-            let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
-            let cloud_mobile = e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
-            let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
-            // An inbox notice is never run again: what it carried is new again (`inbox.rs`).
-            if super::inbox::is_notice(provenance.as_ref()) {
-                continue;
-            }
-            let mut restored_message_opts = PromptOptions::default();
-            super::message_events::restore_message_options(
-                &mut restored_message_opts,
-                provenance.as_ref(),
-            );
-            // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
-            let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
-            let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
-            // A record from before classes: an agent's message is a result (`prompt_class.rs`).
-            let class = crate::prompt_class::of_message(
-                crate::prompt_class::recorded(&e.msg),
-                agent.is_some(),
-            );
-            let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
-            // Its approval counts for this incarnation at the revision the owner saw, which an
-            // edit since replaced.
-            // A record from before revisions is revision 0.
-            let revision = e.msg.get("revision").and_then(Value::as_u64).unwrap_or(0);
-            let approval = approved
-                .get(&turn_id)
-                .filter(|a| a.get("revision").and_then(Value::as_u64) == Some(revision));
-            // A link guest's prompt waits whatever its record says (`author::awaits_owner`): one
-            // an older writer recorded unmarked never runs unapproved after a restart.
-            let awaiting_owner = (e.msg.get("awaitingOwner") == Some(&Value::Bool(true))
-                || crate::author::awaits_owner(provenance.as_ref()))
-                && approval.is_none();
-            restored.push((prompt_id.clone(), turn_id.clone()));
-            let display_parts = e.msg.get("displayParts").cloned();
-            let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
-            // The person's prompt a hold kept for Resume waits for it again (`waits_for_resume`); an
-            // older daemon's hold names none that retry, and its agent messages and notices still do.
-            let waits_for_resume = held.contains(&prompt_id)
-                && !retrying.contains(&prompt_id)
-                && agent.is_none()
-                && !super::inbox::is_notice(provenance.as_ref());
-            queue.push(QueuedPrompt {
-                prompt_id: prompt_id.clone(),
-                turn_id,
-                client: field("client"),
-                preview: short_text(super::inbox::relay_body(&text), 200),
-                queued_at: e.at,
-                withdraw: Arc::new(Notify::new()),
-                run: Arc::new(approved_rules(
-                    PromptRun {
-                        size: size.into(),
-                        blocks,
-                        display_parts,
-                        control,
-                        trust_gate,
-                        cloud_mobile,
-                        provenance,
-                        agent,
-                        class,
-                        supersede,
-                        // A restored prompt names no machine: it does not run a chat out of its
-                        // policy's mode (`Hub::full_access_hold`).
-                        full_access_device: None,
-                        message_id: restored_message_opts.message_id,
-                        message_sender: restored_message_opts.message_sender,
-                    },
-                    approval,
-                )),
-                restored: true,
-                resume: true,
-                steer: false,
-                retries: if waits_for_resume { PERSON_RETRIES } else { 0 },
-                held: held.contains(&prompt_id),
-                awaiting_owner,
-                revision,
-                declined: Default::default(),
-                sent_now: false,
-                joined: Arc::new(StdMutex::new(None)),
-                requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
-            });
-            restored_any = true;
-            session.queued.fetch_add(1, Ordering::SeqCst);
-            ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
-        }
-        let restored_count = queue.len();
-        drop(restored);
-        drop(ledger);
-        drop(queue);
-        // A visible attach may have answered before this background log restore. Publish one
-        // durable change notice so session_changed publishes the current queue summary. It must
-        // not persist an order captured before dropping the lock: a concurrent enqueue may have
-        // already written a newer order. This notice has no replay effect. A second restore adds
-        // no prompt and emits nothing.
-        if restored_any {
-            self.append(session, "mux", "queue_restored", json!({}));
-        }
-        tracing::info!(session = %session.id, queued = restored_count, "restored queued prompts");
-    }
-
     /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any
     /// turn recovered from an agent host). Called at daemon start, after adoption, and after an
     /// import. A chat whose log is read later resumes its own (`log_load.rs`).
@@ -1840,6 +1522,18 @@ pub(super) fn closing(session: &Session) -> bool {
 pub(super) fn closing_error() -> RpcError {
     RpcError::invalid_params("the session is closing or closed: it takes no prompt")
         .with_data(json!({"reason": "session.closing", "closing": true}))
+}
+
+/// What a queue restore that ended quiet carries into the next one (`Hub::restore_queue_after`,
+/// `restore_point.rs`): the branch, the held prompts and the order. Every other part of the read
+/// was empty at that seq.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QueueCarry {
+    pub(crate) git_branch: Option<String>,
+    pub(crate) held: Vec<String>,
+    pub(crate) retrying: Vec<String>,
+    pub(crate) order: Value,
 }
 
 /// The `queue_removed` record of `removed`, with the fields of `why`.

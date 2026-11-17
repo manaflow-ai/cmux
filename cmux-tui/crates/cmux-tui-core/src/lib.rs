@@ -33,6 +33,7 @@ pub mod remote_host;
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
 mod chief_registry;
+mod command_context;
 mod conversation_drafts;
 mod conversation_live;
 mod conversation_search;
@@ -43,6 +44,7 @@ use cmux_tui_util::debug_spans;
 pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
+pub mod device_setup;
 pub mod diagnostics;
 mod event_bus;
 pub mod feed_client;
@@ -185,10 +187,10 @@ pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
-    DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
-    NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
+    DiagnosticReporter, Direction, FloatPaneError, FloatPaneOutcome, GraphicsStatus,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
+    Mux, MuxEvent, NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY,
+    NotificationEvent, NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
     ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,

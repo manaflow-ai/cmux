@@ -1596,9 +1596,12 @@ class Wiring(unittest.TestCase):
                                .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
                     last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
                     for attempt in ("1", "2", "3", "4")[:int(last)]:
+                        # Blacksmith macOS on: with it off (cmux-next.yml's vars.CI_BLACKSMITH_MACOS,
+                        # docs/ci/cmux-next-workflow-notes.md#note-350) the owned label is the only route.
                         context = github_context("pull_request", ref="refs/pull/1/merge",
                                                  CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
-                                                 CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6")
+                                                 CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6",
+                                                 CI_BLACKSMITH_MACOS="on")
                         context["github"].update(
                             repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor="github-actions[bot]",
                             workflow_ref=f"manaflow-ai/cmux/.github/workflows/{path.name}@refs/pull/1/merge",

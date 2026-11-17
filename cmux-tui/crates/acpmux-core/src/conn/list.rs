@@ -1,11 +1,14 @@
 //! The list source owns delivery and resumes. No replay prefix is retained.
-use super::{ConnError, ConnectionMetrics, Offer, OfferSink, Source};
-use crate::hub::{Hub, ListReceiver, RawRead};
+use super::{ConnError, ConnectionMetrics, Later, Offer, OfferSink, Reply, Source};
+use crate::hub::{Hub, HubError, ListReceiver, RawRead, Relayed};
 use crate::wire::{Cursor, Frame, FrameKind, Page, ReplayMark, Sub};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
+
+#[cfg(test)]
+mod replay_tests;
 
 #[derive(Default)]
 struct Held {
@@ -23,6 +26,7 @@ impl Held {
 }
 struct Task {
     view: Option<crate::wire::ListView>,
+    window_out: Arc<AtomicBool>,
     held: Arc<Held>,
     resume: watch::Sender<Cursor>,
     join: tokio::task::JoinHandle<()>,
@@ -35,6 +39,7 @@ impl Drop for Task {
 
 pub struct HubSource {
     hub: Arc<Hub>,
+    peer: bool,
     scope: cmux_scope::Scope,
     tasks: Mutex<HashMap<String, Task>>,
     metrics: Mutex<Option<Arc<ConnectionMetrics>>>,
@@ -43,7 +48,19 @@ impl HubSource {
     pub fn new(hub: Arc<Hub>) -> Self {
         Self {
             hub,
+            peer: false,
             scope: cmux_scope::Scope::new("v2 list connection"),
+            tasks: Mutex::new(HashMap::new()),
+            metrics: Mutex::new(None),
+        }
+    }
+
+    pub fn for_peer(hub: Arc<Hub>) -> Self {
+        hub.enable_peer_history();
+        Self {
+            hub,
+            peer: true,
+            scope: cmux_scope::Scope::new("v2 peer list connection"),
             tasks: Mutex::new(HashMap::new()),
             metrics: Mutex::new(None),
         }
@@ -63,71 +80,120 @@ impl HubSource {
     pub fn task_count(&self) -> usize {
         self.tasks.lock().map_or(0, |tasks| tasks.len())
     }
+
+    /// The view of the sub a local page is asked on: a page needs its sid held, and a folders
+    /// page a window already out.
+    fn held_view(&self, page: &Page) -> Result<Option<crate::wire::ListView>, ConnError> {
+        let tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
+        let task =
+            tasks.get(&page.sid).ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
+        if task.view == Some(crate::wire::ListView::Folders)
+            && !task.window_out.load(Ordering::Acquire)
+        {
+            return Err(HubError::InvalidPage.into());
+        }
+        Ok(task.view)
+    }
 }
 
 impl Source for HubSource {
-    fn ready<'a>(&'a self, request: &'a crate::wire::Request) -> super::ReadyFuture<'a> {
-        Box::pin(async move {
-            let folders = match request {
-                crate::wire::Request::Sub(sub) => sub.view == Some(crate::wire::ListView::Folders),
-                crate::wire::Request::Page(page) => {
-                    page.view == Some(crate::wire::ListView::Folders)
-                }
-                _ => false,
-            };
-            if folders {
-                self.hub.wait_hydrated().await?;
-            }
-            Ok(())
-        })
-    }
-
     fn subscribe(
         &self,
         sub: &Sub,
         _person: Option<&[u8]>,
         sink: Arc<dyn OfferSink>,
     ) -> Result<(), ConnError> {
-        let delivery = open(&self.hub, sub)?;
+        if sub.view == Some(crate::wire::ListView::Folders) {
+            self.hub.validate_folder_sub(sub)?;
+        }
         if let Ok(mut metrics) = self.metrics.lock() {
             *metrics = Some(sink.metrics());
         }
-        let (resume, rx) = watch::channel(delivery.cursor);
-        // The window (or first replay frame) is queued before a task can offer live data.
-        if !matches!(sink.offer(&sub.sid, delivery.first, delivery.cursor), Offer::Taken) {
-            return Ok(());
-        }
-        delivery.receiver.reposition(delivery.cursor.0);
+        let (resume, rx) = watch::channel(Cursor(0));
+        let held = Arc::new(Held::default());
+        let window_out = Arc::new(AtomicBool::new(false));
+        let folders = sub.view == Some(crate::wire::ListView::Folders);
+        let join = if folders {
+            let hub = self.hub.clone();
+            let sub = sub.clone();
+            let sink = sink.clone();
+            let held = held.clone();
+            let window_out = window_out.clone();
+            self.scope.spawn(folder_task(hub, sub, sink, rx, held, window_out))
+        } else {
+            let delivery = open(&self.hub, sub, self.peer)?;
+            // The window (or first replay frame) is queued before a task can offer live data.
+            if !matches!(sink.offer(&sub.sid, delivery.first, delivery.cursor), Offer::Taken) {
+                return Ok(());
+            }
+            delivery.receiver.reposition(delivery.cursor.0);
+            let mut resumed = sub.clone();
+            resumed.anchor = None;
+            self.scope.spawn(pump(
+                self.hub.clone(),
+                resumed,
+                sink,
+                delivery.receiver,
+                delivery.mode,
+                rx,
+                held.clone(),
+                self.peer,
+            ))
+        };
         let mut tasks = self
             .tasks
             .lock()
             .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
-        let held = Arc::new(Held::default());
-        // The anchor selects only the initial viewport. Every later resume
-        // has no anchor; if retained history is insufficient it opens the head.
-        let mut resumed = sub.clone();
-        resumed.anchor = None;
-        let join = self.scope.spawn(pump(
-            self.hub.clone(),
-            resumed,
-            sink,
-            delivery.receiver,
-            delivery.mode,
-            rx,
-            held.clone(),
-        ));
-        tasks.insert(sub.sid.clone(), Task { view: sub.view, resume, join, held });
+        tasks.insert(sub.sid.clone(), Task { view: sub.view, window_out, resume, join, held });
         Ok(())
     }
     fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
-        let held_view = self
-            .tasks
-            .lock()
-            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?
-            .get(&page.sid)
-            .map(|task| task.view)
-            .ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
+        // A peer's `all` or `keys` page needs no sub (decision 266); its `live` walk does.
+        if self.peer && page.view != Some(crate::wire::ListView::Live) {
+            return Ok(self.hub.peer_page(page)?);
+        }
+        let held_view = self.held_view(page)?;
+        if self.peer {
+            return Ok(self.hub.peer_page(page)?);
+        }
         Ok(self.hub.page_for_view(page, held_view)?)
+    }
+
+    /// A local page that names another origin (row 8b): the relay answers it when it takes
+    /// that origin now, and [`Source::page`] at once otherwise.
+    fn later(&self, request: Later<'_>, _person: Option<&[u8]>, reply: Reply) -> Option<Reply> {
+        let Later::Page(page) = request else { return Some(reply) };
+        // A peer's pages, and a page whose sid is not held, are answered (or refused) at once.
+        if self.peer || self.held_view(page).is_err() {
+            return Some(reply);
+        }
+        let Some(relayed) = self.hub.relayed_page(page) else { return Some(reply) };
+        match relayed {
+            Err(error) => {
+                let code = match error {
+                    HubError::InvalidPage | HubError::InvalidParams(_) => "invalid_params",
+                    _ => "request_failed",
+                };
+                reply.error(code, &error.to_string());
+            }
+            Ok(Relayed::Done(frame)) => reply.answer(frame),
+            Ok(Relayed::Busy) => reply.error(
+                crate::hub::RELAY_BUSY,
+                "the origin has the most relayed requests in flight; ask again",
+            ),
+            Ok(Relayed::Sent(relayed)) => {
+                self.scope.spawn(async move {
+                    match relayed.answer().await {
+                        Ok(frame) => reply.answer(frame),
+                        Err(error) => reply.error(&error.code, &error.message),
+                    }
+                });
+            }
+        }
+        None
     }
 
     fn resume(&self, sid: &str, cursor: Cursor) {
@@ -165,17 +231,61 @@ struct Delivery {
     mode: Mode,
 }
 
-fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
+async fn folder_task(
+    hub: Arc<Hub>,
+    mut sub: Sub,
+    sink: Arc<dyn OfferSink>,
+    mut resume: watch::Receiver<Cursor>,
+    held: Arc<Held>,
+    window_out: Arc<AtomicBool>,
+) {
+    if hub.wait_hydrated().await.is_err() {
+        sink.fail(&sub.sid);
+        return;
+    }
+    loop {
+        let Ok(delivery) = open(&hub, &sub, false) else {
+            sink.fail(&sub.sid);
+            return;
+        };
+        match held.offer(sink.as_ref(), &sub.sid, delivery.first, delivery.cursor) {
+            Offer::Taken => {
+                window_out.store(true, Ordering::Release);
+                delivery.receiver.reposition(delivery.cursor.0);
+                sub.anchor = None;
+                pump(hub, sub, sink, delivery.receiver, delivery.mode, resume, held, false).await;
+                return;
+            }
+            Offer::NotFed => {
+                held.paused.store(true, Ordering::Release);
+                if resume.changed().await.is_err() {
+                    return;
+                }
+                sub.cursor = Some(*resume.borrow_and_update());
+                sub.edition = Some(0);
+            }
+            Offer::Dropped { .. } | Offer::UnknownSubscription => return,
+        }
+    }
+}
+
+fn open(hub: &Hub, sub: &Sub, peer: bool) -> Result<Delivery, ConnError> {
     if sub.view != Some(crate::wire::ListView::Folders)
         && sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
         && let Some(cursor) = sub.cursor
-        && let Some(target) = hub.resume_target(cursor.0)?
+        && let Some(target) =
+            if peer { hub.peer_resume_target(cursor.0)? } else { hub.resume_target(cursor.0)? }
     {
-        let receiver = hub.subscribe_replay(sub, cursor.0)?;
+        let mut receiver = if peer {
+            hub.subscribe_replay_peer(sub, cursor.0)?
+        } else {
+            hub.subscribe_replay(sub, cursor.0)?
+        };
         if target == cursor.0 {
+            receiver.clear_replay_snapshot();
             return Ok(Delivery {
                 receiver,
-                first: raw_frame(&sub.sid, Some(ReplayMark::End), &[], cursor.0)?
+                first: raw_frame(&sub.sid, Some(ReplayMark::End), &[])?
                     .map_err(ConnError::InvalidRequest)?,
                 cursor,
                 mode: Mode::Live,
@@ -184,14 +294,18 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
         let max_bytes = raw_budget(&sub.sid, Some(ReplayMark::Replay))?;
         if let Some(RawRead::Span(span)) = receiver.try_next_raw(Some(target), max_bytes) {
             let final_frame = span.last_seq >= target;
+            if final_frame {
+                receiver.clear_replay_snapshot();
+            }
             let mode = if final_frame { Mode::Live } else { Mode::Replay(target) };
             let mark = final_frame.then_some(ReplayMark::End).or(Some(ReplayMark::Replay));
-            let frame = raw_frame(&sub.sid, mark, &span.bytes, span.last_seq)?
-                .map_err(ConnError::InvalidRequest)?;
-            return Ok(Delivery { receiver, first: frame, cursor: Cursor(span.last_seq), mode });
+            let frame =
+                raw_frame(&sub.sid, mark, &span.bytes)?.map_err(ConnError::InvalidRequest)?;
+            let first = frame;
+            return Ok(Delivery { receiver, first, cursor: Cursor(span.last_seq), mode });
         }
     }
-    let subscription = hub.subscribe(sub)?;
+    let subscription = if peer { hub.subscribe_peer(sub)? } else { hub.subscribe(sub)? };
     // The frame and cursor come from ONE snapshot. Never substitute a second read.
     subscription.receiver.reposition(subscription.cursor);
     Ok(Delivery {
@@ -202,11 +316,7 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
     })
 }
 
-fn raw_parts(
-    sid: &str,
-    replay: Option<ReplayMark>,
-    cursor: u64,
-) -> Result<(Vec<u8>, Vec<u8>), ConnError> {
+fn raw_parts(sid: &str, replay: Option<ReplayMark>) -> Result<(Vec<u8>, Vec<u8>), ConnError> {
     let encoded_sid = serde_json::to_vec(sid)
         .map_err(|error| ConnError::InvalidRequest(format!("invalid list sid: {error}")))?;
     let mut prefix = br#"{"sid":"#.to_vec();
@@ -217,13 +327,12 @@ fn raw_parts(
         prefix.extend_from_slice(br#","replay":"#);
         prefix.extend_from_slice(&encoded_replay);
     }
-    prefix.extend_from_slice(format!(",\"cursor\":{cursor}").as_bytes());
     prefix.extend_from_slice(br#","ops":["#);
     Ok((prefix, b"]}".to_vec()))
 }
 
 fn raw_budget(sid: &str, replay: Option<ReplayMark>) -> Result<usize, ConnError> {
-    let (prefix, suffix) = raw_parts(sid, replay, u64::MAX)?;
+    let (prefix, suffix) = raw_parts(sid, replay)?;
     Ok(crate::wire::MAX_REPLAY_FRAME_BYTES
         .saturating_sub(5)
         .saturating_sub(prefix.len())
@@ -234,10 +343,9 @@ fn raw_frame(
     sid: &str,
     replay: Option<ReplayMark>,
     ops: &[u8],
-    cursor: u64,
 ) -> Result<Result<Frame, String>, ConnError> {
     let replay_present = replay.is_some();
-    let (prefix, suffix) = raw_parts(sid, replay, cursor)?;
+    let (prefix, suffix) = raw_parts(sid, replay)?;
     let mut payload = Vec::with_capacity(prefix.len() + ops.len() + suffix.len());
     payload.extend_from_slice(&prefix);
     payload.extend_from_slice(ops);
@@ -250,6 +358,7 @@ fn raw_frame(
     Ok(Ok(frame))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn pump(
     hub: Arc<Hub>,
     mut sub: Sub,
@@ -258,13 +367,22 @@ async fn pump(
     mut mode: Mode,
     mut resume: watch::Receiver<Cursor>,
     held: Arc<Held>,
+    peer: bool,
 ) {
     loop {
         if resume.has_changed().unwrap_or(false) {
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow_and_update());
             sub.edition = Some(0);
-            let Ok(delivery) = open(&hub, &sub) else {
+            if sub.view == Some(crate::wire::ListView::Folders) {
+                // Credit resumes this live sid from its last accepted step.
+                // A new sub still always starts with a window; only a tail
+                // overrun below needs to replace this sid's existing window.
+                receiver.reposition(sub.cursor.unwrap_or_default().0);
+                mode = Mode::Live;
+                continue;
+            }
+            let Ok(delivery) = open(&hub, &sub, peer) else {
                 sink.fail(&sub.sid);
                 return;
             };
@@ -276,7 +394,10 @@ async fn pump(
                     receiver = delivery.receiver;
                     mode = delivery.mode;
                 }
-                Offer::NotFed => mode = Mode::Paused,
+                Offer::NotFed => {
+                    receiver.clear_replay_snapshot();
+                    mode = Mode::Paused;
+                }
                 _ => return,
             }
             continue;
@@ -289,7 +410,15 @@ async fn pump(
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow());
             sub.edition = Some(0);
-            let Ok(delivery) = open(&hub, &sub) else {
+            if sub.view == Some(crate::wire::ListView::Folders) {
+                // Credit resumes this live sid from its last accepted step.
+                // A new sub still always starts with a window; only a tail
+                // overrun below needs to replace this sid's existing window.
+                receiver.reposition(sub.cursor.unwrap_or_default().0);
+                mode = Mode::Live;
+                continue;
+            }
+            let Ok(delivery) = open(&hub, &sub, peer) else {
                 sink.fail(&sub.sid);
                 return;
             };
@@ -332,7 +461,7 @@ async fn pump(
         let result = match read {
             RawRead::Lagged => {
                 sub.cursor = None;
-                match open(&hub, &sub) {
+                match open(&hub, &sub, peer) {
                     Ok(delivery) => {
                         receiver = delivery.receiver;
                         Ok((delivery.first, delivery.cursor, delivery.mode))
@@ -352,7 +481,7 @@ async fn pump(
                     _ => None,
                 };
                 let next = if final_frame { Mode::Live } else { mode };
-                raw_frame(&sub.sid, replay, &span.bytes, span.last_seq)
+                raw_frame(&sub.sid, replay, &span.bytes)
                     .and_then(|frame| frame.map_err(ConnError::InvalidRequest))
                     .map(|frame| (frame, Cursor(span.last_seq), next))
             }
@@ -364,9 +493,17 @@ async fn pump(
         match held.offer(sink.as_ref(), &sub.sid, frame, cursor) {
             Offer::Taken => {
                 receiver.reposition(cursor.0);
+                if matches!(next, Mode::Live) {
+                    receiver.clear_replay_snapshot();
+                }
                 mode = next;
             }
-            Offer::NotFed => mode = Mode::Paused,
+            Offer::NotFed => {
+                // Credit resumes by opening a fresh receiver at its cursor.
+                // Nothing in this paused generation needs the replay bytes.
+                receiver.clear_replay_snapshot();
+                mode = Mode::Paused;
+            }
             _ => return,
         }
     }

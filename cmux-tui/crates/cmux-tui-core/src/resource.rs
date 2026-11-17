@@ -194,6 +194,8 @@ pub enum ResourceOperation {
     GitDiff,
     #[serde(rename = "git.files.list")]
     GitFilesList,
+    #[serde(rename = "git.fingerprint")]
+    GitFingerprint,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
     #[serde(rename = "git.push")]
@@ -416,6 +418,12 @@ pub enum ResourceOperation {
     AgentMessageRelease,
     #[serde(rename = "agent.message.unsend")]
     AgentMessageUnsend,
+    #[serde(rename = "chat.list")]
+    ChatList,
+    #[serde(rename = "chat.mark_read")]
+    ChatMarkRead,
+    #[serde(rename = "chat.pin")]
+    ChatPin,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -552,6 +560,12 @@ pub enum ResourceOperation {
     PaletteUsageForget,
     #[serde(rename = "palette.rank")]
     PaletteRank,
+    #[serde(rename = "theme.scheme.convert")]
+    ThemeSchemeConvert,
+    #[serde(rename = "theme.scheme.export")]
+    ThemeSchemeExport,
+    #[serde(rename = "theme.scheme.from_image")]
+    ThemeSchemeFromImage,
     #[serde(rename = "stash.create")]
     StashCreate,
     #[serde(rename = "stash.list")]

@@ -175,7 +175,7 @@ test("a repository's chat lists its project by name, its path only in the toolti
     },
   });
   // One project row: no folder the tool calls touched, and no path text.
-  const buttons = [...environment.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row")];
+  const buttons = [...environment.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row[title]")];
   expect(buttons.map((button) => button.textContent)).toEqual(["cmux"]);
   expect(environment.textContent).not.toContain("~/Projects");
   for (const touched of ["cmux-app-screenshots", "leo-workspace", "glaeda", "scratch"])
@@ -211,8 +211,11 @@ test("a scratchpad chat lists only its machine: no folder row and no Save", asyn
     onOpenFolder: () => undefined,
     onSaveEnvironment: () => undefined,
   });
-  expect(environment.textContent).toBe(`studio-mac${translate("composer.envLocal")}`);
-  expect(environment.querySelector("button")).toBeNull();
+  expect(environment.querySelector("[data-machine]")?.textContent).toBe(`studio-mac${translate("composer.envLocal")}`);
+  expect(environment.querySelector(".acpmux-session-info-row[title]")).toBeNull();
+  expect([...environment.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    translate("sessionInfo.environment.shareScreen"),
+  ]);
 });
 
 // Leo, 2026-10-31: "WHY IS THERE NOTHING THAT TELLS ME IF IT'S LOCAL OR IF". The
@@ -366,14 +369,16 @@ test("an attached repository matching the folder repository is the project row, 
   expect(container.textContent).toContain("other/tools");
 });
 
-test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
+test("without folder actions the project is plain text; sharing still has its session-bound action", async () => {
   const base = chat(projectsRows);
   const environment = await renderSessionInfo({
     summary: { ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined },
     machineName: "studio-mac",
     rows: projectsRows,
   });
-  expect(environment.querySelector("button")).toBeNull();
+  expect([...environment.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    translate("sessionInfo.environment.shareScreen"),
+  ]);
   expect(environment.querySelector("a")).toBeNull();
   expect(environment.querySelector("li[title]")?.getAttribute("title")).toBe(`${HOME}/Projects`);
   expect(environment.textContent).not.toContain("glaeda");

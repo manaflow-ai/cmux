@@ -35,7 +35,7 @@ final class TerminalKeyboardTUIFitUITests: XCTestCase {
             demo = probe.label
             for step in ["tui.", "show0", "hide0"] where demo.hasPrefix(step) && !shot.contains(step) {
                 // The keyboard's animation and the resize settle are over by
-                // then; the next step is 1.6 s after this one.
+                // then; the next step is 2.5 s after this one.
                 RunLoop.current.run(until: Date().addingTimeInterval(1.0))
                 attach(app, step == "tui." ? "vim-keyboard-down" : step == "show0" ? "vim-keyboard-up" : "vim-keyboard-down-again")
                 shot.insert(step)

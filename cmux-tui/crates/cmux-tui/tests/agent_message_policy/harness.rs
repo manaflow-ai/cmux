@@ -565,6 +565,15 @@ impl Daemon {
             .sum()
     }
 
+    /// The lifecycle of terminal `terminal` (`resolve-terminal`): `adopting`
+    /// while a daemon that started again has not yet adopted the terminal.
+    pub fn lifecycle(&self, terminal: &str) -> String {
+        let resolved = self
+            .legacy(json!({"id": 1, "cmd": "resolve-terminal", "terminal_id": terminal}))
+            .expect("resolve-terminal");
+        resolved["data"]["lifecycle"].as_str().unwrap_or_default().to_owned()
+    }
+
     /// A terminal in `workspace` whose child writes its launch credential to
     /// a file and then runs `then` (a shell command); its id and credential.
     pub fn agent_terminal(&self, workspace: &str, then: &str) -> (String, String) {

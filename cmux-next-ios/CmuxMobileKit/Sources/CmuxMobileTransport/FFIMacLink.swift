@@ -6,15 +6,17 @@ import Foundation
 public struct FFIMacLinkDialer: MacLinkDialer {
     public init() {}
 
-    /// Settings → Transport → Ultra Mode on Cellular (`CmuxMobilePreferences.Key.ultraOnCellular`,
-    /// the same `UserDefaults` key; this module does not link CmuxMobileDesign). Rust decides the
-    /// mode from it and the network (`set_cellular_path`).
-    static func ultraOnCellular(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "cmuxMobile.settings.ultraOnCellular")
+    /// Settings → Transport → Ultra mode (`CmuxMobilePreferences.Key.ultra`, the same
+    /// `UserDefaults` key; this module does not link CmuxMobileDesign): "off", "auto" or
+    /// "always". Rust reads anything else as Auto, and caps Auto on cellular (`set_cellular_path`).
+    static func ultra(_ defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: "cmuxMobile.settings.ultra") ?? "auto"
     }
 
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
+        // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
+        KeepaliveBeat.applySettingToCore()
         do {
             let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
@@ -25,7 +27,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
                                         noVideoLane: endpoint.browserVideoOnChannel,
-                                        ultraOnCellular: Self.ultraOnCellular()),
+                                        ultra: Self.ultra()),
                 observer: observer
             )
             return FFIMacLink(handle: handle, transport: transport, observer: observer)
@@ -35,7 +37,9 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+        // The signaling socket opened here reads the setting at its ticks.
+        KeepaliveBeat.applySettingToCore()
+        return await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
 
@@ -82,6 +86,10 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     }
 
     var connectedPath: LinkPathKind? { handle.path().kind }
+
+    var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
+
+    var trafficAgo: Duration? { .milliseconds(handle.trafficAgoMs()) }
 
     var timings: [(String, Double)] {
         handle.timings().map { ($0.name, $0.millis) }

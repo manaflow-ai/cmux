@@ -57,6 +57,14 @@ struct CatalogGetParams {
 #[serde(deny_unknown_fields)]
 struct InstalledListParams {}
 
+/// `apps.local.reload`: one local app, or every one when `app` is absent.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalReloadParams {
+    #[serde(default)]
+    app: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetParams {
@@ -169,6 +177,10 @@ struct InstallState {
     /// `apps.rollback` can restore the last version that loaded and
     /// mounted (apps/rollback.rs).
     can_rollback: bool,
+    /// The budget ladder's step (apps/budget.rs): `normal`, `slowed` (a
+    /// mount over its op-batch rate gets 1 batch a second) or `paused`
+    /// (`apps.resume` starts it again).
+    budget: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,6 +247,7 @@ fn state(record: &Record, package: Option<&Package>) -> InstallState {
         update: None,
         run_state: None,
         can_rollback: false,
+        budget: "normal",
     }
 }
 
@@ -272,6 +285,7 @@ fn annotate(inner: &super::supervisor::Inner, app: &str, state: Option<&mut Inst
         let (run_state, can_rollback) = Supervisor::run_facts(inner, app);
         state.run_state = run_state;
         state.can_rollback = can_rollback;
+        state.budget = Supervisor::budget_step_locked(inner, app).as_str();
     }
 }
 
@@ -323,6 +337,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
             | "apps.hidden.set"
             | "apps.grant.set"
             | "apps.grant.revoke"
+            | "apps.community.synced.put"
     )
 }
 
@@ -337,6 +352,13 @@ impl Supervisor {
         origin: Origin,
     ) -> Result<Value, ApiError> {
         match op.strip_prefix("cmux.").unwrap_or(op) {
+            // The Community source (community.rs): `{source: "community"}`.
+            "apps.catalog.list" | "apps.catalog.get" if super::community::wants(&args) => {
+                self.community_call(op, args)
+            }
+            "apps.community.installs" | "apps.community.synced.put" => {
+                self.community_call(op, args)
+            }
             "apps.catalog.list" => params(args).and_then(|p| to_value(self.catalog_list(p)?)),
             "apps.catalog.get" => params(args).and_then(|p| to_value(self.catalog_get(p)?)),
             "apps.installed.list" => {
@@ -350,6 +372,11 @@ impl Supervisor {
                 params(args).and_then(|p| self.store_install(client, p, origin, false))
             }
             "apps.rollback" => params(args).and_then(|p| self.rollback(p, origin)),
+            "apps.resume" => params(args).and_then(|p| self.resume(p, origin)),
+            // The app's Reload Custom Views (palette, an error card's Reload):
+            // the same forced read as `apps-reload` (`cmux ext reload`).
+            "apps.local.reload" => params::<LocalReloadParams>(args)
+                .and_then(|p| self.reload_local_now(p.app.as_deref())),
             other => self.panel_call(client, other, args, origin).unwrap_or_else(|| {
                 Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op")))
             }),

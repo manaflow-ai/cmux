@@ -131,6 +131,10 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             await window.cmuxPaintFrame();
             // The wheel glide read its 1s step at the wheel; the send's ride reads the standard step.
             node.style.setProperty("--agent-motion-move", "180ms");
+            // The product's send step is currently 0ms, so pin the fixture to a visible ride clock.
+            // This checks that an unfinished wheel never pulls the send ride back, independent of the
+            // chosen product duration (the wheel clock above is pinned for the same reason).
+            node.style.setProperty("--agent-motion-send", "180ms");
             await window.cmuxAcpmuxActions!["chat.send"]!({ text: "Wheel ownership" });
             const gaps: number[] = [];
             for (let i = 0; i < 60; i++) {

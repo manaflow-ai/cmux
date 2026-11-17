@@ -126,9 +126,11 @@ mod apps {
                 "clock-weather",
                 "command-button",
                 "design-links",
+                "media-player",
                 "my-prs",
                 "pane",
                 "sidebar-section",
+                "start-page",
                 "starter",
                 "threads"
             ]

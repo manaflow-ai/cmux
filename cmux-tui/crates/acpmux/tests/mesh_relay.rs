@@ -62,6 +62,7 @@ fn quick() -> RelayOptions {
         backoff_first: Duration::from_millis(100),
         backoff_cap: Duration::from_millis(400),
         max_in_flight: 4,
+        on_reconnect: None,
     }
 }
 

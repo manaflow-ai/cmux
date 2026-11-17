@@ -16,19 +16,29 @@ import CoreGraphics
 ///   (`DaemonTerminalInbound.resetMirror(alternate:)`), so this cannot
 ///   resize the PTY back and forth.
 public struct TerminalTUISizing: Equatable, Sendable {
-    /// The composer stack's top when the keyboard last settled above its
-    /// resting place (nil: the keyboard is down).
-    public private(set) var settledStackTop: CGFloat?
-    /// Whether the rows follow `settledStackTop` (a TUI was showing when the
+    /// How far the keyboard lifted the composer stack above its resting place
+    /// when it last settled (nil: the keyboard is down). A distance, not a
+    /// page position: a later dock or page change moves the resting top, and
+    /// the rows follow it (a kept position gave a TUI rows under the
+    /// composer, or a band of black above it).
+    public private(set) var keyboardLift: CGFloat?
+    /// Whether the rows follow `keyboardLift` (a TUI was showing when the
     /// keyboard settled, or started since).
     public private(set) var followsKeyboard = false
 
     public init() {}
 
     /// The keyboard finished showing or hiding; `stackTop` is the composer
-    /// stack's top now, `restingStackTop` its top with the keyboard down.
-    public mutating func keyboardSettled(stackTop: CGFloat, restingStackTop: CGFloat, isTUI: Bool) {
-        settledStackTop = stackTop < restingStackTop - 0.5 ? stackTop : nil
+    /// stack's top now, `restingStackTop` its top with the keyboard down,
+    /// `keyboardShown` whether the soft keyboard is on screen, docked.
+    ///
+    /// Only a shown keyboard lifts the stack. With the keyboard down a gap
+    /// between the two tops is the page's own layout catching up (a tab's
+    /// insets arriving after its first settle left the stack 8 pt above the
+    /// resting top it was measured against), never a lift: kept as one, it
+    /// cost a full-screen app in a tab a row until the keyboard next came.
+    public mutating func keyboardSettled(stackTop: CGFloat, restingStackTop: CGFloat, keyboardShown: Bool, isTUI: Bool) {
+        keyboardLift = keyboardShown && stackTop < restingStackTop - 0.5 ? restingStackTop - stackTop : nil
         followsKeyboard = isTUI
     }
 
@@ -42,9 +52,10 @@ public struct TerminalTUISizing: Equatable, Sendable {
         followsKeyboard = false
     }
 
-    /// The rows for the PTY.
+    /// The rows for the PTY: toolbar to the composer, lifted by the settled
+    /// keyboard for a TUI.
     public func rows(restingStackTop: CGFloat, chromeTop: CGFloat, cellHeight: CGFloat) -> Int {
-        let bottom = (followsKeyboard ? settledStackTop : nil) ?? restingStackTop
+        let bottom = restingStackTop - (followsKeyboard ? keyboardLift ?? 0 : 0)
         return max(1, Int(floor((bottom - chromeTop) / max(1, cellHeight))))
     }
 }

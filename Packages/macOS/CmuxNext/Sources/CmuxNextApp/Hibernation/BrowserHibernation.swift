@@ -29,7 +29,7 @@ import os
 /// hibernate event is sent only while the page is still hidden with the
 /// same generation, so a page the user selects meanwhile is never touched.
 ///
-/// Long before that, a hidden Chromium page freezes after
+/// Long before that, a hidden Chromium or WebKit page freezes after
 /// `browser.freezeHiddenTabs` seconds (30 by default) to save power, and
 /// thaws when it shows, when an agent drives it, or before it hibernates.
 ///
@@ -138,7 +138,7 @@ final class BrowserHibernation {
     var uncoveredWakes = 0
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
-    /// The page's freeze control (a seam for tests; Chromium pages only in the app).
+    /// The page's freeze control (a seam for tests; Chromium and WebKit pages in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
 
     /// When the person showed each tab lately (the ranking's `recentFocusCount`).
@@ -309,7 +309,7 @@ final class BrowserHibernation {
     }
 
     func forget(_ key: String) {
-        agentPages?.forget(key)
+        agentPages?.pages.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
         agentUsedAt[key] = nil
@@ -535,6 +535,8 @@ final class BrowserHibernation {
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
+            // A command thawed it outside this planner (`WebKitTab.resumeIfSuspended`): it freezes again.
+            if let tab = cache.browsers[candidate.key]?.tab, (freezer(tab) as? any BrowserFreezeReporting)?.isFrozen == false { frozen.remove(candidate.key) }
             guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
                   let tab = cache.browsers[candidate.key]?.tab, freezer(tab) != nil else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
@@ -603,7 +605,18 @@ final class BrowserHibernation {
             return
         }
         frozen.insert(key)
+        (page as? any BrowserFreezeReporting)?.onFrozenPageLost = { [weak self] in self?.frozenPageLost(key) }
         cache?.trace(key, "frozen")
+    }
+
+    /// A frozen page's process ended: WebKit keeps it suspended for good and raises on every call into it
+    /// (#44019), so it is discarded with the history it holds and restores in a new page when shown.
+    private func frozenPageLost(_ key: String) {
+        guard frozen.remove(key) != nil, let cache, cache.lifecycle.phase(key) == .mountedHidden, !probing.contains(key),
+              let state = (cache.browsers[key]?.tab as? any BrowserHibernationSource)?.hibernationState() else { return }
+        prepared[key] = (state, nil, "frozen-page-lost")
+        discardedByUser.remove(key)
+        cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
     }
 
     /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or
@@ -855,12 +868,8 @@ final class BrowserHibernation {
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
-            // The tab's speaker (sound outside the document too, issue 38062), or media its mute silences (cx-d0d.24).
-            let sounding = tab.state.media.map { $0.isSounding || ($0.isPlaying && tab.state.isAudioMuted) } ?? false
-            // A video in Picture in Picture plays on in its floating window, paused or muted alike.
-            let floating = tab.state.media?.isPictureInPicture == true
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: sounding || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
+            return PageProbe(playingMedia: PageProbe.tabPlays(tab.state.media, muted: tab.state.isAudioMuted) || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
@@ -869,18 +878,6 @@ final class BrowserHibernation {
         }
     }
 
-    /// A page that did not answer. It used to count as playing, so a page too busy to answer
-    /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
-    /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
-    /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
-    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
-    static func unanswered(_ tab: any BrowserTab) -> PageProbe {
-        let media = tab.state.media
-        let playing = media.map { $0.isSounding || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
-        return PageProbe(playingMedia: playing, answered: false)
-    }
-}
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
+    /// A page that did not answer (`PageProbe.unanswered`).
+    static func unanswered(_ tab: any BrowserTab) -> PageProbe { .unanswered(media: tab.state.media, muted: tab.state.isAudioMuted) }
 }

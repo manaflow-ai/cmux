@@ -112,6 +112,16 @@ final class ChatTranscriptBuilder {
     let diffs: ChatDiffCache
     private var memos: [String: Memo] = [:]
     private var parses: [String: MarkdownStreamParse] = [:]
+    /// Each answer's block rows as last built, by its parse's key: the blocks its next parse leaves
+    /// as they were (`MarkdownStreamParse.unchangedDisplayed`) keep these rows.
+    private var blockRows: [String: BlockRows] = [:]
+    private struct BlockRows {
+        var messageID: String
+        var turnID: String
+        /// The first block's gap (what came before the answer sets it).
+        var firstGap: Double
+        var rows: [ChatRow]
+    }
     private var generation = 0
     /// The chat's senders' tones: each session that sent a message, from when the chat first heard
     /// from it (`AgentTones`, as the Mac tones a chat's agents).
@@ -120,6 +130,8 @@ final class ChatTranscriptBuilder {
     private var senderTones: [String: Int] = [:]
     /// Turns built (tests: one per changed turn, not one per turn per update).
     private(set) var turnBuilds = 0
+    /// Rows made for built turns (tests: a token makes the rows it changed, not its turn's).
+    private(set) var rowsMade = 0
 
     init(diffs: ChatDiffCache) {
         self.diffs = diffs
@@ -159,6 +171,7 @@ final class ChatTranscriptBuilder {
         if memos.count > turns.count + 8 {
             let live = Set(turns.map(\.id))
             memos = memos.filter { live.contains($0.key) }
+            blockRows = blockRows.filter { live.contains($0.value.turnID) }
         }
         return out
     }
@@ -219,6 +232,8 @@ final class ChatTranscriptBuilder {
     private func buildTurn(_ turn: AgentTurn, context: ChatTurnContext) -> (rows: [ChatRow], waitsForDiff: Bool) {
         var rows: [ChatRow] = []
         var waits = false
+        // Answer rows taken as they were from the last build (`blockRows`).
+        var reused = 0
         let turnID = turn.id
         var nextGap = 16.0
         func add(_ id: String, _ kind: ChatRow.Kind, gap: Double? = nil) {
@@ -271,9 +286,24 @@ final class ChatTranscriptBuilder {
                 var parse = parses[key] ?? MarkdownStreamParse()
                 parse.update(ask?.rest ?? markdown, isStreaming: running && isLastRow)
                 parses[key] = parse
-                for (blockIndex, block) in parse.displayed.enumerated() {
-                    add("\(row.id)#\(block.id)", .block(messageID: messageID, block: block), gap: blockIndex == 0 ? nil : 12)
+                // The blocks the update left as they were keep their rows: a streamed token makes
+                // the one or two rows at the answer's end, not one per block of the answer.
+                let firstGap = nextGap
+                var answerRows: [ChatRow] = []
+                if let made = blockRows[key], made.messageID == messageID, made.turnID == turnID, made.firstGap == firstGap {
+                    answerRows = Array(made.rows.prefix(parse.unchangedDisplayed))
                 }
+                reused += answerRows.count
+                answerRows.reserveCapacity(parse.displayed.count)
+                for (blockIndex, block) in parse.displayed.enumerated().dropFirst(answerRows.count) {
+                    answerRows.append(ChatRow(id: "\(row.id)#\(block.id)", turnID: turnID, kind: .block(messageID: messageID, block: block),
+                                              gap: blockIndex == 0 ? firstGap : 12))
+                }
+                if !answerRows.isEmpty {
+                    rows += answerRows
+                    nextGap = 10
+                }
+                blockRows[key] = BlockRows(messageID: messageID, turnID: turnID, firstGap: firstGap, rows: answerRows)
                 if let ask {
                     let answer = context.nextPrompt.map { ask.chosenAnswer($0) }
                     add("n-\(row.id)", .nextStep(ask, answer: answer, canAnswer: answer == nil && context.isLast))
@@ -340,6 +370,7 @@ final class ChatTranscriptBuilder {
         case .running:
             break
         }
+        rowsMade += rows.count - reused
         return (rows, waits)
     }
 }

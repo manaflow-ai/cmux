@@ -20,12 +20,6 @@ const src = path.resolve(import.meta.dir, "../src");
 const ALLOWED = new Map<string, string>([
   // The Markdown viewer's diagram fallback: one `pre` per diagram, in its own page.
   ['pages/markdown/styles.css .md-code-diagram:has(.md-diagram[data-state="error"]) pre', "one pre per diagram"],
-  // The composer foot's chips: `:nth-child(n + 2 of :not(.acpmux-access))` says the same without a sibling
-  // rule, but jsdom (the cursor and pill tests' cascade) does not support `of`. Follow-up: name the chips.
-  [
-    "agent-session/acpmux/composerLocation.css .acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access)",
-    "composer foot chips, jsdom has no :nth-child(of)",
-  ],
   // Home's stage beside an open sheet: the stage's children are components with no shared class yet.
   // Follow-up: key them on a stage attribute the page sets when a sheet is open.
   ["pages/home-channels/ledger.css .lg-stage:has(> .lg-sheet) > :not(.lg-sheet)", "Home page, stage children"],

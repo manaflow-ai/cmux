@@ -210,23 +210,27 @@ impl SurfaceHandle {
         }
     }
 
-    /// Whether the terminal holds DEC private `mode` now; `None` for a
-    /// surface with no terminal. Reads only: unlike [`Self::with_terminal`],
-    /// nothing is synchronized from the terminal afterwards. A mirror lock
-    /// poisoned by a panic elsewhere still answers: a mode read never
-    /// writes the terminal.
-    pub fn with_terminal_mode(&self, mode: u16) -> Option<bool> {
+    /// The synchronized update (DEC private mode 2026) the program holds
+    /// open now, by its start count
+    /// ([`ghostty_vt::Terminal::synchronized_update_starts`]); `None` when
+    /// it holds none or the surface has no terminal. Reads only: unlike
+    /// [`Self::with_terminal`], nothing is synchronized from the terminal
+    /// afterwards. A mirror lock poisoned by a panic elsewhere still
+    /// answers: a mode read never writes the terminal.
+    pub fn synchronized_update(&self) -> Option<u64> {
+        self.read_terminal(|term| {
+            term.mode(crate::app::synchronized_output::SYNCHRONIZED_OUTPUT_MODE, false)
+                .then(|| term.synchronized_update_starts())
+        })
+        .flatten()
+    }
+
+    fn read_terminal<R>(&self, f: impl FnOnce(&Terminal) -> R) -> Option<R> {
         match self {
-            SurfaceHandle::Local(surface, _) => {
-                surface.with_terminal(|term| term.mode(mode, false))
+            SurfaceHandle::Local(surface, _) => surface.with_terminal(|term| f(term)),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(f(&surface.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner)))
             }
-            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => Some(
-                surface
-                    .term
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .mode(mode, false),
-            ),
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }

@@ -1,0 +1,40 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-recent-prs",
+  "name": { "en": "Recent PRs" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: the pull requests you touched lately, open and merged, newest first, in a sidebar section." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "arrow.triangle.pull" },
+  "categories": ["sidebar", "git"],
+  "keywords": ["github", "pull requests", "recent", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderRecentPRs",
+      "title": { "en": "Recent PRs" },
+      "symbol": "arrow.triangle.pull",
+      "options": { "defaultRegion": "top", "maxRows": 12 }
+    }
+  },
+  "scopes": {
+    "integration:github:read": "Read your pull requests through your connected GitHub account, without seeing its token.",
+    "actions:run": "Open a pull request in a browser tab when you click it."
+  },
+  "optionalScopes": {
+    "net:api.github.com": "Without a connected account, read the public pull requests of the GitHub login in this extension's settings."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "hours": { "type": "integer", "title": "Look back (hours)", "minimum": 1, "maximum": 720, "default": 72 },
+      "login": { "type": "string", "title": "GitHub login (public fallback)", "default": "" }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

@@ -231,8 +231,9 @@
      bubble keeps its proportions to its text at every density (Lucas 2026-11-13); model.ts userBubblePadding
      mirrors it. */
   /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
-     the text scale has beyond it: below Default it shrinks with the text, above it the grid has already grown. */
-  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+     the chat's text scale has beyond it (--cmux-chat-text-scale: Default's at Compact, user 2026-11-16, so the
+     bubble is Default's there too). */
+  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
   --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;
@@ -382,6 +383,15 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   pointer-events: none;
+}
+/* One line in the corner, never broken over the play glyph; a bubble too narrow for it clear of the
+   glyph drops it (composer/videoLengthFit.ts; Leo, 2026-11-11: "this preview, the time is on the
+   wrong place ... we should never be able to see this"). */
+.cv-user__video-length {
+  white-space: nowrap;
+}
+[data-length-clipped] > .cv-user__video-length {
+  display: none;
 }
 /* A video nothing can play (Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop
    up anymore :("): it says so over its whole tile, in the play glyph's place, on the length's scrim. */
@@ -663,13 +673,26 @@
 .cv-user:not(:hover, :focus-within) .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
   opacity: 0;
 }
-.cv-user__actions .cv-message-footer-row > .cv-user__pending-state {
+/* Four classes: the age's rule (.cv-user__time, later in this file) is three and made this slot
+   inline-block, so its flex centring and gap never applied: the clock sat on the words' baseline,
+   2px from them (Leo, 2026-11-14: "this is misaligned"). The clock is centred on the words' line
+   box and one icon-label gap (--cv-row-icon-gap, as every transcript row) from them. */
+.cv-user__actions .cv-message-footer-row > .cv-user__time.cv-user__pending-state {
   display: inline-flex;
   align-items: center;
-  gap: var(--grid-half-step);
+  gap: var(--cv-row-icon-gap);
   margin: 0;
+  padding-inline: 0;
   color: var(--cv-text-muted);
+  line-height: var(--cv-footer-control-slot);
   user-select: none;
+}
+/* The age's hidden width-keeper (.cv-user__time::before) would be a flex item here, and a gap. */
+.cv-user__actions .cv-message-footer-row > .cv-user__time.cv-user__pending-state::before {
+  content: none;
+}
+.cv-user__pending-state > svg {
+  flex: none;
 }
 /* Gallery variant B (`data-prompt-pending-look="clock"`): the clock alone; the state's
    aria-label still names it. Variant C (`"dim"`): the words, and the bubble's text muted until it lands. */
@@ -1037,8 +1060,9 @@
    age's hover box and its tooltip never move (Leo, 2026-11-08: "sometimes the just now and whatever,
    it becomes a bit weird ... Sometimes that one, like, flashes or flickers a bit"). Before, the box
    grew by a word's width when "just now" turned into "1 minute ago", and the tooltip over it jumped.
-   The width it keeps is its first hour's widest words ("59 minutes ago", MessageTime's
-   data-age-widest) laid out in the row's own font as a hidden zero-height line, never a guessed
+   The width it keeps is its first hour's widest words (every wording that hour writes, one per line
+   in MessageTime's data-age-widest: "59 minutes ago" in English, "22 minuty temu" in Polish) laid
+   out in the row's own font as a hidden zero-height block, never a guessed
    em count: a fixed 8em fit one machine's font and was 2.75 short on another's, so the box still
    grew at "59 minutes ago". A longer age (a day's, another language's) still takes its own width. */
 .cv-user__actions .cv-message-footer-row > .cv-user__time {
@@ -1053,6 +1077,7 @@
   overflow: hidden;
   height: 0;
   visibility: hidden;
+  white-space: pre;
   content: attr(data-age-widest);
 }
 /* At the end of another agent's message line its age comes straight before Copy. */
@@ -3405,9 +3430,15 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
     transition: transform var(--cv-fold-duration) var(--cv-fold-ease, var(--agent-ease-out, ease-out));
   }
 }
-/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) snaps it too, as the
-   fold's body does (fold.ts foldMotion.duration). */
-:root:is([data-agent-move="instant"], [data-agent-motion="off"]) .cv-rotor {
+/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) and the app's motion
+   gate (`data-cmux-motion`, ui/motion/motionMode.ts) snap it too, as the fold's body does (fold.ts). */
+:root:is(
+    [data-agent-move="instant"],
+    [data-agent-motion="off"],
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"]
+  )
+  .cv-rotor {
   transition: none;
 }
 /* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
@@ -3812,6 +3843,7 @@ button.cv-video-frames__frame:focus-visible {
   font-variant-numeric: tabular-nums;
   line-height: 16px;
   letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
   pointer-events: none;
 }
 
@@ -4223,12 +4255,16 @@ button.cv-video-frames__frame:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The command after "Ran" in the row's own font and size, as the Codex app draws it (Lucas,
+   2026-11-14: "the commands from a terminal command 'Ran' should be the same font"). The opened Shell
+   block keeps the code font. */
 .cv-command__line {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
   font-style: normal;
-  font-weight: 400;
-  font-size: calc(var(--cv-font-size) * 12.5 / 14);
+  /* The row's own line box, so a large text size never lets the line out of its row. */
   line-height: calc(var(--cv-font-size) * 20 / 14);
-  font-family: var(--cv-mono);
 }
 .cv-command__meta {
   display: flex;
@@ -5612,7 +5648,12 @@ a.cv-sha:focus-visible {
 .cv-turn-error {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2);
+  gap: var(--transient-surface-gap);
+}
+.ui-transient-error {
+  /* Error cards are the inline member of Notice: their recovery-specific layout remains intact,
+     while material, spacing and action roles are shared with transient notices. */
+  --glass-tint: var(--transient-surface-veil);
 }
 .cv-turn-error__cause {
   display: flex;
@@ -5650,10 +5691,11 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error__primary {
   border-color: transparent;
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  background: var(--transient-action-fill);
+  color: var(--transient-action-ink);
 }
 .cv-turn-error__primary:hover {
-  background: color-mix(in srgb, var(--agent-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg));
 }
 /* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
 /* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
@@ -5737,6 +5779,8 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card {
   padding: var(--grid-cards-padding);
+  /* Transcript cards keep the established grid geometry (12px), while their material and actions
+     follow the transient role. */
   border-radius: var(--grid-cards-radius);
 }
 .cv-turn-error--rail {
@@ -6641,12 +6685,27 @@ a.cv-sha:focus-visible {
   syntax: "*";
   inherits: false;
 }
+/* The rows beside the bottom stack (besideStack.ts): written on the scroller as the stack moves, and
+   read by its mask alone, so a write restyles the scroller and none of its rows. */
+@property --acpmux-beside-images {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-beside-sizes {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-beside-positions {
+  syntax: "*";
+  inherits: false;
+}
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
-.acpmux-scroll[data-fade-bottom] {
-  --acpmux-fade-bottom: 18px;
-}
+/* No soft edge above the composer: rows keep full ink down to the stack's top and stop there, as
+   the Codex app's do under its composer (Lucas, 2026-11-17: "remove the fade and just make it white
+   like how codex does it", of a line and its icons washed out at the composer's corner). The mask
+   still hides the rows under the stack; `--acpmux-fade-bottom` stays 0. */
 /* Jump to latest keeps its own glass. It does not widen the transcript's soft edge: a 56px band
    washed out almost three lines above the composer (Leo, 2026-10-27). */
 /* Find in Chat's bar sits in the top band. The band keeps fading the rows under the header while it
@@ -6686,27 +6745,33 @@ a.cv-sha:focus-visible {
   -webkit-mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
@@ -6721,44 +6786,52 @@ a.cv-sha:focus-visible {
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
     linear-gradient(#000, #000),
-    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent)),
+    var(--acpmux-beside-images, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
     var(--cv-inset) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
     var(--cv-inset) 100%,
-    var(--acpmux-find-hole-size, 0px 0px);
+    var(--acpmux-find-hole-size, 0px 0px),
+    var(--acpmux-beside-sizes, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
     0 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
     0 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
 }
 .acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
   mask-position:
     0 0,
     100% 0,
     100% 0,
-    var(--acpmux-find-hole-position, 0 0);
+    var(--acpmux-find-hole-position, 0 0),
+    var(--acpmux-beside-positions, 0 0);
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
@@ -7654,7 +7727,8 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
-   Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
+   Claude's and ChatGPT's, placed where no transcript text is under it, the selection's own included
+   (above or below the selection, selectionReplyPlace). It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone.
    Its label reads over anything under it (Leo 2026-11-07: "this reply, it has too little opacity
    here"): the chip is glass with a veil of the theme's solid surface (--glass-surface) at
@@ -7669,9 +7743,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   z-index: var(--layer-dropdown);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding-inline: 8px 12px;
+  /* Its frame follows Text Size as its label (--text-control) does (--ui-px, ui/popupSurface.css):
+     a 28 px pill at 16 pt clipped the label's descenders (Leo 2026-11-12: "it doesn't follow"). */
+  gap: calc(4 * var(--ui-px, 1px));
+  height: calc(28 * var(--ui-px, 1px));
+  /* Bounded to the window (fixed: 100% is the viewport), with an 8-px-per-side margin at the Text Size. */
+  max-width: calc(100% - 16 * var(--ui-px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-inline: calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px, 1px));
   border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
@@ -7681,13 +7761,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
-  line-height: 20px;
+  line-height: calc(20 * var(--ui-px, 1px));
   white-space: nowrap;
   cursor: default;
   user-select: none;
 }
 .cv-selection-reply[data-look="icon"] {
-  width: 28px;
+  width: calc(28 * var(--ui-px, 1px));
   padding: 0;
   justify-content: center;
 }
@@ -7955,4 +8035,67 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
+}
+
+/* Every time and duration label in the chat is one line: a reply's or a prompt's time, a Worked for
+   or a command's time, a subagent's or a background task's (Leo, 2026-11-14: "these times are still
+   bad and going to next lines!", of a sent video's "0:01" broken into "0:0" over "1"; the video
+   lengths themselves are composer/videoLengthFit.ts's, #41494). Each is a short run of tabular
+   digits that never breaks; test/time-labels-one-line.test.ts finds every such class in the chat's
+   CSS and fails on one no rule keeps on one line. */
+.cv-turn-time,
+.cv-user__time,
+.cv-time-hover,
+.cv-worked__time,
+.cv-worked__label-time,
+.cv-command__time,
+.cv-activity__time,
+.cv-waterfall__time,
+.cv-agentmsg__time,
+.cv-subagent__time,
+.cv-subagents__time,
+.cv-subagent-done__time,
+.cv-shimmer__lit-time,
+.acpmux-running-tray__time,
+.acpmux-agent-line__time,
+.acpmux-done-mark__time,
+.acpmux-bg__time,
+.acpmux-bg-card__time,
+.acpmux-agents-list__time,
+.acpmux-queued-video-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A prompt's pending note starts where its bubble's text starts (Leo, 2026-11-14: "this is
+   misaligned"). The row hangs under the bubble out of flow, anchored right; with a bubble the body
+   becomes the row's box (the bubble's width) and the row starts one bubble padding in, still
+   anchored right and as wide as its words when they are wider than the bubble's text. */
+.cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
+  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
+  display: block;
+  position: relative;
+  align-self: flex-end;
+  max-width: 70%;
+}
+.cv-user__body:has(> .cv-user__actions--pending) > .cv-user__bubble {
+  max-width: none;
+}
+.cv-user .cv-user__body:has(> .cv-user__bubble) > .cv-user__actions.cv-user__actions--pending {
+  right: calc(-1 * var(--cv-action-inset));
+  width: max-content;
+  min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
+  justify-content: flex-start;
+}
+
+/* A read's file name (ReadLabel.tsx): underlined under the pointer, as the Codex app's is; its full
+   path shows as the pane's tooltip. */
+.cv-tool__file {
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+}
+.cv-tool__file:hover {
+  text-decoration-color: currentColor;
 }

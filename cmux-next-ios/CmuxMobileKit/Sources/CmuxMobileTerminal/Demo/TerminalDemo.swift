@@ -45,8 +45,15 @@ public struct TerminalDemoRoot: View {
                 .accessibilityIdentifier("debug.terminal-demo")
         }
         .task {
-            // The host grid demo is a still: no scripted phases.
-            guard TerminalHostGridDemoSession.requestedSpec == nil else { return }
+            // The host grid demo is a still: no scripted phases. Its page's
+            // layout goes in the step label, for UI tests.
+            guard TerminalHostGridDemoSession.requestedSpec == nil else {
+                for _ in 0..<20 {
+                    try? await ContinuousClock().sleep(for: .milliseconds(250))
+                    model.demoNote = "hostgrid " + (model.controller?.debugState ?? "-")
+                }
+                return
+            }
             let phases = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?
                 .split(separator: ",").map(String.init)
             await TerminalDemoDriver(model: model).run(phases: phases)
@@ -227,15 +234,18 @@ struct TerminalDemoDriver {
         }
         let before = model.ptyResizesSent
         note("tui.rz\(before)")
-        // Keyboard down, vim settled: the UI test's first screenshot.
-        await wait(1.6)
+        // Keyboard down, vim settled: the UI test's first screenshot. Each
+        // step outlasts the keyboard's animation, the 250 ms resize settle and
+        // the UI test's screenshot on a slow simulator host: a toggle before
+        // the last one settled reverses it and sends no resize.
+        await wait(2.5)
         for round in 0..<5 {
             note("show\(round)")
             model.toggleKeyboard()
-            await wait(1.6)
+            await wait(2.5)
             note("hide\(round)")
             model.toggleKeyboard()
-            await wait(1.6)
+            await wait(2.5)
         }
         await wait(0.5)
         note("done.rz\(before)-\(model.ptyResizesSent)")

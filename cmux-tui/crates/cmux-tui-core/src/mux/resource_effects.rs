@@ -317,25 +317,53 @@ impl Mux {
         )
     }
 
-    /// [`Self::commit_ordinary_surface_projection`] for the view of the terminal `terminal_id`
-    /// of a host, which an adoption placed: its placement is in one workspace.
+    /// The commit of the views of the terminal `terminal_id` of a host, which an adoption
+    /// placed: the scoped projection of each workspace that shows the terminal, in the order of
+    /// the workspace list. One terminal can have a view in 2 or more workspaces
+    /// (`terminal.project`), and a scope of the first view alone left the other workspaces to a
+    /// later commit. The full projection when no workspace shows the terminal and above
+    /// [`resource_content::CHANGED_WORKSPACES_MAX`] workspaces.
     #[track_caller]
     pub(super) fn commit_placed_terminal_projection(
         &self,
         operation: &'static str,
         terminal_id: &str,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_ordinary_surface_projection(
-            &Actor::Daemon,
+        let mutation = WorkspaceMutation::local("cmux-tui", Actor::Daemon);
+        let result = serde_json::json!({});
+        let fingerprint = serde_json::json!({"operation":operation,"result":result});
+        self.commit_resource_mutation_plan(
+            &mutation,
             operation,
-            |state| {
-                let shown = state.surfaces.values().find(|surface| {
-                    let host = surface.terminal_host_identity();
-                    host.is_some_and(|identity| identity.terminal_id == terminal_id)
-                });
-                shown.map(|surface| surface.id)
+            &fingerprint,
+            None,
+            None,
+            |state, registry| {
+                let shown = state
+                    .surfaces
+                    .values()
+                    .filter(|surface| {
+                        let host = surface.terminal_host_identity();
+                        host.is_some_and(|identity| identity.terminal_id == terminal_id)
+                    })
+                    .filter_map(|surface| state.pane_of(surface.id))
+                    .filter_map(|pane| state.screen_of(pane))
+                    .map(|(workspace, _)| workspace)
+                    .collect::<BTreeSet<usize>>();
+                let workspaces = shown
+                    .into_iter()
+                    .filter_map(|index| state.workspaces.get(index))
+                    .map(|workspace| workspace.public_id.clone())
+                    .collect::<Vec<_>>();
+                let scoped = !workspaces.is_empty()
+                    && workspaces.len() <= resource_content::CHANGED_WORKSPACES_MAX;
+                let projection = if scoped {
+                    self.changed_workspaces_projection_locked(registry, state, &workspaces, result)?
+                } else {
+                    self.resource_effect_projection_locked(registry, state, result)?
+                };
+                Ok(projection_plan(projection))
             },
-            serde_json::json!({}),
         )
     }
 

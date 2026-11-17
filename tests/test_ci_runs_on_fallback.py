@@ -889,7 +889,8 @@ class RunsOnFallbackTests(unittest.TestCase):
         expression = runs_on_text(fast)
         retry = expression.index("needs.macos-placement.outputs.retry_runner")
         deferred = expression.index("needs.macos-placement.outputs.deferred_runner")
-        legacy = expression.index("vars.CI_SIDE_LANE_RUNNER")
+        # The legacy owned fallback, not the Blacksmith macOS off switch's side-lane read (note-350).
+        legacy = expression.index("vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER")
         self.assertLess(retry, deferred)
         self.assertLess(deferred, legacy)
         self.assertIn(".github/workflows/cmux-next.yml", rescued_paths())

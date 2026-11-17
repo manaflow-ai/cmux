@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -76,6 +76,30 @@ struct DemoDriver {
             // CMUX-489: Home's Mac is not connected; the rows this phone kept show under the
             // top bar (no link is dialed: the mock store marks the Mac's link failed).
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.tab = .home
+        case "retry-home-failed":
+            // The link is up, but the last read failed: kept rows, "Couldn't refresh · last known".
+            MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            MacHomeFeed.shared.setProblemForDemo("The Mac didn't answer.")
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .connected
+            shell.tab = .home
+        case "retry-home-unreachable-empty", "retry-home-asleep-empty":
+            // Nothing kept: Workspaces' empty state ("Can't connect to …", or "… is offline").
+            MacHomeFeed.shared.seedStressRows(count: 0, macID: "mac-studio")
+            if name == "retry-home-asleep-empty" {
+                shell.store.teams = shell.store.teams.map { team in
+                    var team = team
+                    team.macs = team.macs.map { mac in
+                        var mac = mac
+                        if mac.id == "mac-studio" { mac.isOnline = false }
+                        return mac
+                    }
+                    return team
+                }
+            }
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
             shell.tab = .home
@@ -479,7 +503,7 @@ struct DemoDriver {
         await pause(1.8)
         tabs.post(.exit)
         await pause(1.8)
-        // Reopen: starts on its opening tab again (the layout's top-left pane's), not the browser tab used last.
+        // Reopen: back on the browser tab left on screen (Leo 2026-11-14).
         shell.workspacesPath = [ws]
         await pause(2.6)
         tabs.post(.exit)
@@ -775,9 +799,10 @@ struct DemoDriver {
         demoLog.info("demo step: \(name, privacy: .public)")
     }
 
-    /// A workspace opens on its layout's top-left pane's active tab (user 2026-11-11): ws-cmux
-    /// laid out as zsh | (Claude, docs) with the right pane focused on the Mac and docs the last
-    /// tab used on this phone. Open (zsh), switch to docs, leave, open again (zsh again).
+    /// A workspace first opens on its layout's top-left pane's active tab (user 2026-11-11), and
+    /// opened again in the same launch on the tab left on screen (Leo 2026-11-14): ws-cmux laid
+    /// out as zsh | (Claude, docs) with the right pane focused on the Mac. Open (zsh), switch to
+    /// docs, leave, open again (docs).
     private func workspaceOpenTopLeft() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
@@ -788,7 +813,6 @@ struct DemoDriver {
             WorkspaceLayout.Pane(id: 1, tabIDs: ["t-zsh"], activeTabID: "t-zsh"),
         ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
         store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
-        store.noteOpened(tabID: "t-docs", in: ws.id)
         shell.tab = .workspaces
         await pause(1.6)
         step("open")

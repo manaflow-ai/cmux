@@ -370,6 +370,30 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "app.try.run",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.run", "Run a PR as This App…"),
+        hint: Some(t("ActionCatalog", "action.app.try.run.hint", "Swap this app to a pull request, branch or commit, with no checkout or build. Undo Last PR Run puts it back.")),
+        keywords: &["try", "pr", "pull request", "branch", "commit", "sha", "hot swap", "swap", "run", "test", "nightly", "build"],
+        category: "settings",
+        symbol: "arrow.triangle.pull",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::APP_TRY_TARGET],
+        cli_name: "action app-try-run",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "app.try.undo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.app.try.undo", "Undo Last PR Run"),
+        keywords: &["try", "undo", "pr", "pull request", "put back", "revert", "roll back", "hot swap", "swap"],
+        category: "settings",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action app-try-undo",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.pro.upgrade",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.pro.upgrade", "Upgrade to cmux Pro"),
@@ -913,6 +937,34 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Every toast style with every kind of toast, light and dark; Pick sets the style of every toast and
+    // prompt (Lawrence 2026-11-13: "make a swift playground for me to pick my favorite").
+    Action {
+        id: "debug.toastPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastPlayground", "Toast Playground"),
+        keywords: &["toast", "toasts", "prompt", "notice", "style", "variants", "gallery", "playground", "pick", "debug"],
+        category: "settings",
+        symbol: "rectangle.stack.badge.play",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every dialog keycap style on a real dialog card's buttons, rest, hover and pressed, light and dark (Lawrence
+    // 2026-11-16 on the quit dialog's esc and return chips: "come up with more variations").
+    Action {
+        id: "debug.keycapPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.keycapPlayground", "Keycap Playground"),
+        keywords: &["keycap", "keycaps", "shortcut", "key hint", "dialog", "button", "variants", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "keyboard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-keycap-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -958,6 +1010,18 @@ pub static ACTIONS: &[Action] = &[
         symbol: "slider.horizontal.3",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-sidebar-row-tuner",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.densityOverlayPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.densityOverlayPlayground", "Density Overlay Playground"),
+        keywords: &["density", "overlay", "helium", "chrome", "browser", "tab bar", "omnibar", "pixel", "diff", "compare", "tune", "debug"],
+        category: "settings",
+        symbol: "square.on.square.dashed",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-density-overlay-playground",
         is_debug_only: true,
         ..Action::DEFAULT
     },

@@ -21,6 +21,9 @@ pub enum GraphicsStatus {
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
+    /// The authenticated cmux Remote worker's screen device identity changed.
+    /// Delivered only to trusted local app subscribers.
+    ScreenDeviceChanged(Option<String>),
     /// New output arrived in a surface (coalesced; cleared when rendered).
     SurfaceOutput(SurfaceId),
     /// A surface's runtime changed size.
@@ -144,6 +147,11 @@ pub enum MuxEvent {
     FeedReportsChanged {
         revision: u64,
     },
+    /// The Cloud pushed a GitHub change for this person, or whether it can push them moved
+    /// (`live`), over the feed socket (feed_client.rs). Apps hear it as `github.changed`.
+    GitHubChanged {
+        live: Option<bool>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
@@ -225,6 +233,12 @@ pub enum MuxEvent {
     /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
     /// it only to a page relay whose page hears it (page-router.json `events`).
     TasksChanged(Arc<Value>),
+    /// The chats `chat.list` answers changed (`chat_index.rs`): the index's
+    /// new revision. Apps hear it as `chat.changed` (apps/routing.rs); raw
+    /// `subscribe` clients do not get it.
+    ChatsChanged {
+        revision: u64,
+    },
     /// Every workspace is gone.
     Empty,
 }

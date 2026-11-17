@@ -10,6 +10,16 @@ public import CmuxNextDesignTokens
 public protocol ToolbarEdgeHosting: AnyObject {
     /// The edge the row sits on; setting it moves the row.
     var toolbarPosition: ToolbarPosition { get set }
+    /// Whether the omnibar row shows now: false while the person hid it (Toggle Omnibar), in pane fullscreen, or for
+    /// a page with no bar. The pane leaves the tab row's divider out over a shown row at its top
+    /// (`TabStripView.meetsToolbar`).
+    var showsToolbarRow: Bool { get }
+}
+
+extension ToolbarEdgeHosting {
+    /// The omnibar row shows at the top, right under a tab strip on top: the pane leaves the tab row's divider out
+    /// there (`TabStripView.meetsToolbar`), so the tabs and the omnibar read as one surface.
+    public var showsToolbarRowAtTop: Bool { toolbarPosition == .top && showsToolbarRow }
 }
 
 extension NSView {

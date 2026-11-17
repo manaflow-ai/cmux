@@ -19,7 +19,7 @@ final class IconPickerPanel: ActiveAppKeyPanel {
         level = .floating
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
-        let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        let card = Glass.makeMenuPanel(content: content)
         card.frame = NSRect(origin: .zero, size: size)
         adoptPopupStyle(card: card)
         onKeyElsewhere = { [weak self] in self?.onDismiss?() }

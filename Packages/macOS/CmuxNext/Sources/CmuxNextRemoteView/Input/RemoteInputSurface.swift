@@ -48,6 +48,11 @@ public final class RemoteInputSurface {
     /// The view to place over the picture; it takes the keyboard on click.
     public var view: NSView { capture }
 
+    /// The pane's one cursor over `video` (cap `cursor`); the owner feeds it the remote cursor.
+    package func cursorCoordinator(video: RemoteVideoView) -> RemoteCursorCoordinator {
+        RemoteCursorCoordinator(video: video, capture: capture)
+    }
+
     /// Where the picture sits in `view` (stream pixels to points).
     public var geometry: () -> RemoteViewGeometry? {
         get { capture.geometry }

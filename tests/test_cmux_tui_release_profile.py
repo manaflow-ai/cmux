@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""cmux-tui release builds use fat LTO and one codegen unit.
+"""cmux-tui release builds use thin LTO and one codegen unit.
 
 Every cmux-tui tree build compiles this profile, and NEXT nightly waits on the
-tree. Thin LTO with 16 codegen units for cmux-tui, cmux-tui-core and acpmux
-made the stripped cmux-tui binary 24% larger (105.9 -> 131.7 MB) in #27830.
-Fat LTO is the size baseline; its release-link cost is checked by the Linux
-build and startup measurements for the change that enables it.
+tree. Leo chose thin over fat on 2026-11-14 ("yes"): on one fleet Mac the
+shipped aarch64-apple-darwin build took 653 s against 871 s, for a stripped
+binary 16.8 MB larger (116.5 -> 133.3 MB). Thin LTO with 16 codegen units made
+it 24% larger in #27830, so cmux-tui, cmux-tui-core and acpmux keep one unit.
 
+The build workflow's `lto: fat` input means "the Cargo.toml release profile".
 One exception, and only one: the Cloud machine channel's own copy of the Linux
-binaries (cmux-tui-artifacts.yml build-linux) builds with thin LTO
-(cmux-tui-build-package.yml `lto: thin`), named machine-channel-* and uploaded
-only to cmux-tui/<sha>/machine/. Every other caller of the build workflow, and
-so every shipped app, npm, PyPI, release, R2 and tree artifact, keeps the fat
-profile. ChannelOnlyThinTest checks that.
+binaries (cmux-tui-artifacts.yml build-linux) builds with `lto: thin`
+(cmux-tui-build-package.yml: release LTO off), named machine-channel-* and
+uploaded only to cmux-tui/<sha>/machine/. Every other caller of the build
+workflow, and so every shipped app, npm, PyPI, release, R2 and tree artifact,
+keeps the Cargo.toml profile. ChannelOnlyThinTest checks that.
 
 cmux-tui-artifacts.yml's build calls take what they build (lto, target_set,
 artifact_prefix, include_windows, windows_acpmux) from
@@ -41,8 +42,8 @@ class CmuxTuiReleaseProfileTest(unittest.TestCase):
         manifest = tomllib.loads((ROOT / "cmux-tui/Cargo.toml").read_text(encoding="utf-8"))
         self.release = manifest["profile"]["release"]
 
-    def test_release_profile_uses_fat_lto(self):
-        self.assertEqual(self.release.get("lto"), "fat")
+    def test_release_profile_uses_thin_lto(self):
+        self.assertEqual(self.release.get("lto"), "thin")
         self.assertEqual(self.release.get("codegen-units"), 1)
 
     def test_heavy_crates_get_one_codegen_unit(self):

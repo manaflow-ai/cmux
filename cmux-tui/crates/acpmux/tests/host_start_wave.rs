@@ -57,6 +57,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         cwd_pin: None,
         orphan_exit: None,
         prompt_suggestions_managed: None,
+        holder: None,
     }
 }
 

@@ -76,8 +76,8 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | SocketWriter | Daemon | queued writes | error | 0-byte write counted as progress | fixed: failure |
 | LineTransport reader | Daemon | blocking read | EOF/error | ok | reviewed; request deadlines are DemandTimers |
 | WindowStateStore CAS | Daemon | save | 3 retries | bounded | reviewed |
-| MobileIrxHost accept cycle | Mobile | endpoint ready | stop | **nil accept restarted at once with failures reset** | fixed: 250 ms-60 s, 10 cycles, then relay-state events (no red test: no seam in IrxEndpointSupervisor) |
-| MobileIrxHost endpoint activation | Mobile | start | success | 5 s-300 s forever | fixed: 8 attempts, relay change cuts short |
+| MobileIrxHost accept cycle | Mobile | endpoint ready | stop | **nil accept restarted at once with failures reset** | fixed: 250 ms-60 s, 10 cycles, then relay-state events (no red test: no seam in IrxEndpointSupervisor); host removed 2026-11-13 |
+| MobileIrxHost endpoint activation | Mobile | start | success | 5 s-300 s forever | fixed: 8 attempts, relay change cuts short; host removed 2026-11-13 |
 | UnixSocketLane empty read | Mobile | read | final/error | empty non-final delivery looped the splice pump | fixed: ends the stream |
 | ConfigFileWatcher | Settings | kqueue vnode on file and directory | stop | ok: already event-driven (no wait-for-file loop; it watches the nearest existing ancestor) | ok |
 | CEFMessagePump | Browser | CEF schedule + fixed fallback | never | **30 Hz / 1 Hz forever** | fixed by the pump agent (23289d1437c): demand-driven. With fork API 7 (cef cmux.7) it wakes only when CEF asks (`SafetyNet.none`); older pins keep a finite one-shot follow-up chain (CEFPumpTimer.swift, wakeup-allow) |

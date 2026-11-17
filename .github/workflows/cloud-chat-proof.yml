@@ -25,6 +25,10 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # private key (leo-workspace tools/dev-build-try) to seed its NEXT DEV app with. No password leaves.
 # signin_account: guest mints the second staging account's session instead (cmux-cloud-capture-guest@manaflow.dev,
 # CMUX_DOGFOOD_GUEST_STACK_*, cloud-capture-provision.yml journey-guest), for the guest side of a two-account test.
+# signin_backend: production mints the production agent account's session instead (owner only; the signin-prod
+# job, environment cmux-next-cloud-journey) on the production Stack project, so a cmux NIGHTLY on a fleet Mac and a
+# Linux screen host (`cmux-rd linux-host enable --stack-token-file`) sign in to the same account: the Mac-to-Linux
+# screen sharing proof (Leo, 2026-11-16: "Isn't screen sharing from Mac to Linux the whole point?").
 # paused_capture: no chat, staging only, build=tagged only (it reads the page through the debug build's
 # `debug.page`): cloud-chat-proof.py --paused-capture makes one machine named after the run, pauses it with
 # `cloud pause-machine`, opens the Cloud page, fails unless the machine's row says "a month while paused"
@@ -32,9 +36,11 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # images as cloud-paused-price-staging and kills the machine, as the chat proof kills its own.
 # Claude login: nobody answers the start's login question in CI (cmux-cloud-start-core harness_login.rs), so the
 # chat and matrix lines pass --grant-claude-login (the launched app's own scratch cmux.json says yes to the one-time
-# consent a Release-rules build, build=published, waits for) and --login none (no login copied: Claude runs on the
-# machine's team mode, the SR2/CodeRouter gateway; a DEV build, build=tagged, takes it where it would refuse with
-# needs-login-choice, and it decides before the consent too). Both reach a Claude chat only, never a Codex one.
+# consent a Release-rules build, build=published, waits for), --cache-claude-login (the repository's
+# CLAUDE_CODE_OAUTH_TOKEN, the agent test account's `claude setup-token` login, becomes the signed-in account's cached
+# Claude login for the run, stored as the app stores one and removed at the end) and --login pass (the start copies
+# that login to its own machine: install-cached on build=tagged, after the consent on build=published). --login none
+# copied nothing and left Claude signed out on a team the gateway does not serve (run 42940662878). Claude chats only.
 on:
   workflow_dispatch:
     inputs:
@@ -66,6 +72,12 @@ on:
         default: owner
         type: choice
         options: [owner, guest]
+      signin_backend:
+        description: "With signin_pubkey: staging (the DEV app's project) or production (the NIGHTLY's project; owner only)"
+        required: false
+        default: staging
+        type: choice
+        options: [staging, production]
       request_id:
         description: Names the run (its run-name), so the requester (a sign-in, the nightly dispatcher on main) finds it
         required: false
@@ -101,7 +113,7 @@ concurrency:
 
 jobs:
   signin:
-    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != ''
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != '' && inputs.signin_backend != 'production'
     # Holds the stack pair: an ephemeral Blacksmith Linux runner, never an owned pool (cloud-newlink-e2e.yml).
     environment:
       name: cmux-next-vm-image-dev
@@ -151,6 +163,52 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+
+  signin-prod:
+    # The production agent account's session (signin_backend: production). Its own job because a job has one
+    # environment and the production pair lives only in cmux-next-cloud-journey. Owner only: production has no guest.
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != '' && inputs.signin_backend == 'production'
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+
+      - name: Mint and encrypt the production session
+        env:
+          PUBKEY_B64: ${{ inputs.signin_pubkey }}
+          SIGNIN_ACCOUNT: ${{ inputs.signin_account || 'owner' }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNIN_ACCOUNT" != owner ]; then
+            echo "::error::signin_backend production mints the owner account only"; exit 1
+          fi
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
+            echo "::error::the production agent Stack pair is missing from this job's environment"; exit 1
+          fi
+          case "$PUBKEY_B64" in *[!A-Za-z0-9+/=]*) echo "::error::signin_pubkey is not base64"; exit 1;; esac
+          printf '%s' "$PUBKEY_B64" | base64 -d > "$RUNNER_TEMP/pub.pem"
+          openssl rsa -pubin -in "$RUNNER_TEMP/pub.pem" -noout
+          python3 -I scripts/cmux-next/dev-signin-token.py --backend production \
+            --pubkey "$RUNNER_TEMP/pub.pem" --out "$RUNNER_TEMP/session"
+
+      - name: Upload the encrypted session
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dev-signin-session
+          path: |
+            ${{ runner.temp }}/session/session.enc
+            ${{ runner.temp }}/session/key.enc
+          if-no-files-found: error
+          retention-days: 1
   resolve:
     # The published DEV release is a moving tag. Resolve its zip once here, as a plain output (an asset
     # id and its sha256, no secret), so both proof jobs download and verify the same bytes.
@@ -472,6 +530,8 @@ jobs:
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
@@ -479,7 +539,7 @@ jobs:
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$credentials" \
-            --grant-claude-login --login none \
+            --grant-claude-login --cache-claude-login --login pass \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
 
       - name: Staging paused price capture
@@ -506,13 +566,15 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-staging"
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -705,6 +767,8 @@ jobs:
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
@@ -712,7 +776,7 @@ jobs:
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
             --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
-            --grant-claude-login --login none \
+            --grant-claude-login --cache-claude-login --login pass \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
 
       - name: Prod Cloud workspace matrix
@@ -720,13 +784,15 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-prod"
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 

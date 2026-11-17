@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAgentChat
 import CmuxMobileDesign
+import CmuxMobileModel
 import Observation
 import QuartzCore
 import SwiftUI
@@ -105,14 +106,32 @@ final class AgentCardRasterizer: NSObject {
     /// Pictures drawn (tests and the rig's log).
     private(set) var renders = 0
 
-    init(limit: Int = 30) {
+    /// Built cards on screen now, per feed (`setShown`; a grid card and its long-press preview
+    /// are two): a memory warning keeps their pictures.
+    private var shown: [ObjectIdentifier: Int] = [:]
+
+    init(limit: Int = 30, memoryPressure: MemoryPressure = .shared) {
         self.limit = limit
         super.init()
-        NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning),
-                                               name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressure() }
     }
 
-    @objc private func memoryWarning() { held = nil }
+    /// A memory warning: the thumbnails held for the card waiting go, and so does every
+    /// picture no card on screen shows (about 1.6 MB each). A card built again asks for its
+    /// picture (`AgentTabCard`) and shows the live preview until it is drawn, as a card never
+    /// drawn does; the cards on screen keep theirs, so nothing the person sees changes.
+    func relieveMemoryPressure() {
+        held = nil
+        for id in drawn where shown[id] == nil { owners.removeValue(forKey: id)?.raster = nil }
+        drawn.removeAll { shown[$0] == nil }
+    }
+
+    /// A built card is on screen (`AgentTabCard` appeared) or left it.
+    func setShown(_ feed: AgentCardFeed, _ shown: Bool) {
+        let id = ObjectIdentifier(feed)
+        let count = (self.shown[id] ?? 0) + (shown ? 1 : -1)
+        self.shown[id] = count > 0 ? count : nil
+    }
 
     /// Whether a waiting card holds thumbnails now (tests).
     var holdsThumbnails: Bool { held != nil }
@@ -220,6 +239,7 @@ final class AgentCardRasterizer: NSObject {
         queue.removeAll { $0.feed === feed }
         drawn.removeAll { $0 == id }
         owners[id] = nil
+        shown[id] = nil
         if held?.id == id { held = nil }
     }
 
@@ -276,7 +296,9 @@ struct AgentTabCard: View {
                 AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset)
             }
         }
-        // Asked again when its picture is dropped (the cache's oldest goes).
+        .onAppear { rasterizer.setShown(feed, true) }
+        .onDisappear { rasterizer.setShown(feed, false) }
+        // Asked again when its picture is dropped (the cache's oldest goes, or a memory warning).
         .onChange(of: PictureRequest(key: key, drawn: feed.raster?.key == key), initial: true) { _, request in
             guard !request.drawn else { return }
             // A key that cannot be drawn: the old picture goes (the card is live until it can).

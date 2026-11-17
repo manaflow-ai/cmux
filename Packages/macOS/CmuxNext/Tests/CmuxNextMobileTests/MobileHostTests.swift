@@ -379,6 +379,34 @@ import Testing
         #expect(themed["terminal"] as? [String] == withTerminal.terminal)
     }
 
+    /// The rest of the Mac's look rides the same line as `look`, only the fields set, in the shape
+    /// `cmux-mobile-host` `appearance.rs` `sanitize_look` reads; none set sends no `look`.
+    @Test func appearanceLineCarriesTheLookFieldsThatAreSet() throws {
+        let palette = (0..<8).map { String(format: "#%02x%02x%02x", $0, $0, $0) }
+        var shown = MobileHostAppearance(background: "#000000", foreground: "#ffffff", palette: palette)
+        let bare = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.appearanceLine(shown)) as? [String: Any])
+        #expect(bare["look"] == nil)
+        shown.look = MobileHostAppearance.Look()
+        let empty = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.appearanceLine(shown)) as? [String: Any])
+        #expect(empty["look"] == nil)
+        shown.look = MobileHostAppearance.Look(
+            chromeStyle: "two-tone", hue: 0.25, saturation: 1.5, glassTransparency: 0.4, sidebarSurface: "separate",
+            terminalFontFamily: "JetBrains Mono", terminalFontSize: 13, chatColors: ["sent": "#0A84FF", "receivedText": "#FFFFFF"],
+            groupPalette: "gradient")
+        let object = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.appearanceLine(shown)) as? [String: Any])
+        let look = try #require(object["look"] as? [String: Any])
+        #expect(look["chrome_style"] as? String == "two-tone")
+        #expect(look["hue"] as? Double == 0.25)
+        #expect(look["saturation"] as? Double == 1.5)
+        #expect(look["glass_transparency"] as? Double == 0.4)
+        #expect(look["sidebar_surface"] as? String == "separate")
+        let font = try #require(look["terminal_font"] as? [String: Any])
+        #expect(font["family"] as? String == "JetBrains Mono")
+        #expect(font["size"] as? Double == 13)
+        #expect(look["chat"] as? [String: String] == ["sent": "#0A84FF", "received_text": "#FFFFFF"])
+        #expect(look["groups"] as? [String: String] == ["palette": "gradient"])
+    }
+
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
         let base = try #require(URL(string: "https://cmuxMobile.test"))
         let log = RequestLog()

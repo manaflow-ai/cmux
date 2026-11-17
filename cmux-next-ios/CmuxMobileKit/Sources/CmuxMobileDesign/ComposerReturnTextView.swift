@@ -111,11 +111,21 @@ open class ComposerReturnTextView: UITextView {
     /// After an edit: a draft taller than the field keeps the caret line in
     /// view; one that fits stays at its top.
     public func followCaret() {
-        if textOverflows {
-            scrollRangeToVisible(selectedRange)
-        } else {
+        if !textOverflows {
             pinToTop()
+        } else if NSMaxRange(selectedRange) >= (text as NSString? ?? "").length {
+            // Typing at the end: the field's bottom inset shows below the last
+            // line, as it does at rest (scrollRangeToVisible stops at the
+            // caret, leaving the line flush against the field's bottom edge).
+            pinToBottom()
+        } else {
+            scrollRangeToVisible(selectedRange)
         }
+    }
+
+    private func pinToBottom() {
+        let bottom = max(-adjustedContentInset.top, contentSize.height + adjustedContentInset.bottom - bounds.height)
+        if contentOffset.y != bottom { contentOffset.y = bottom }
     }
 
     private func pinToTop() {
@@ -164,7 +174,7 @@ open class ComposerReturnTextView: UITextView {
         insertingLineBreak = true
         defer { insertingLineBreak = false }
         insertText("\n")
-        scrollRangeToVisible(selectedRange)
+        followCaret()
     }
 
     @objc private func hardwareReturn() { perform(returnPolicy.action(hardware: true)) }

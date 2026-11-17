@@ -9,10 +9,7 @@ import CmuxNextDaemon
 extension AppServices {
     /// Strip items of `paneKey`'s page tabs.
     func localTabItems(in paneKey: String, hiding closed: Set<String>) -> [StripTabItem] {
-        let previews = settings?.snapshot.previewFeatures == true
-        return pages.tabIDs(in: paneKey).filter {
-            !closed.contains($0) && (previews || !InternalPageTabStore.isPreviewPage(LocalPageTab.page(of: $0)?.rawValue))
-        }.map(pages.stripItem)
+        pages.tabIDs(in: paneKey).filter { !closed.contains($0) }.map(pages.stripItem)
     }
 
     /// Tab `id` on `pane`'s machine when `pane` may mirror it (`DaemonStore.mirrorSource`: one kind of window, incognito or normal; it fails closed).

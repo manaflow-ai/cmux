@@ -2,7 +2,8 @@
 
 use crate::Entry;
 use crate::text::{
-    CharClass, FoldedText, Query, char_class, has_prefix, is_lu, js_trim, title_is_query,
+    CharClass, FoldedText, Query, char_class, has_prefix, is_lu, js_trim, mask_of, title_is_query,
+    whole_key,
 };
 
 pub(crate) const TITLE_WEIGHT: i64 = 100;
@@ -47,21 +48,42 @@ pub(crate) const DEMOTION: i64 = 3;
 pub(crate) struct Field {
     pub text: FoldedText,
     pub weight: i64,
+    /// The title field's [`whole_key`], prepared once so a keystroke compares without allocating
+    /// (empty for the other fields).
+    pub whole: String,
+}
+
+/// Whether the row's whole title is the query ([`title_is_query`] over prepared text).
+pub(crate) fn title_is(fields: &[Field], query: &Query) -> bool {
+    !query.whole.is_empty() && fields.first().is_some_and(|title| title.whole == query.whole)
 }
 
 pub(crate) fn fields_for(entry: &Entry) -> Vec<Field> {
-    let mut fields = vec![Field { text: FoldedText::new(&entry.title), weight: TITLE_WEIGHT }];
+    let mut fields = vec![Field {
+        text: FoldedText::new(&entry.title),
+        weight: TITLE_WEIGHT,
+        whole: whole_key(&entry.title),
+    }];
     if !entry.keywords.is_empty() {
         fields.push(Field {
             text: FoldedText::new(&entry.keywords.join(" ")),
             weight: KEYWORD_WEIGHT,
+            whole: String::new(),
         });
     }
     if let Some(subtitle) = entry.subtitle.as_deref().filter(|text| !text.is_empty()) {
-        fields.push(Field { text: FoldedText::new(subtitle), weight: SUBTITLE_WEIGHT });
+        fields.push(Field {
+            text: FoldedText::new(subtitle),
+            weight: SUBTITLE_WEIGHT,
+            whole: String::new(),
+        });
     }
     if let Some(accessory) = entry.accessory.as_deref().filter(|text| !text.is_empty()) {
-        fields.push(Field { text: FoldedText::new(accessory), weight: ACCESSORY_WEIGHT });
+        fields.push(Field {
+            text: FoldedText::new(accessory),
+            weight: ACCESSORY_WEIGHT,
+            whole: String::new(),
+        });
     }
     fields
 }
@@ -75,7 +97,7 @@ struct TokenMatch {
 fn substring_start(
     needle: &[char],
     folded: &[char],
-    bonuses: &[i64],
+    bonuses: &[u8],
     require_boundary: bool,
 ) -> Option<usize> {
     if needle.is_empty() || needle.len() > folded.len() {
@@ -86,7 +108,7 @@ fn substring_start(
     })
 }
 
-fn window_score(token: &[char], folded: &[char], bonuses: &[i64], start: usize, end: usize) -> i64 {
+fn window_score(token: &[char], folded: &[char], bonuses: &[u8], start: usize, end: usize) -> i64 {
     let mut score = 0;
     let mut token_index = 0;
     let mut previous_match: i64 = -2;
@@ -94,7 +116,7 @@ fn window_score(token: &[char], folded: &[char], bonuses: &[i64], start: usize, 
     let mut index = start;
     while index <= end && token_index < token.len() {
         if folded[index] == token[token_index] {
-            let mut bonus = bonuses[index];
+            let mut bonus = i64::from(bonuses[index]);
             if index as i64 == previous_match + 1 {
                 bonus = bonus.max(run_bonus);
                 score += 5;
@@ -311,6 +333,119 @@ fn typo_correction(query: &Query, title: &FoldedText) -> Option<Query> {
     (typos > 0).then(|| Query::new(&corrected.join(" ")))
 }
 
+/// The shortest stem a word is cut to.
+const MINIMUM_STEM: usize = 3;
+
+/// Whether `word` ends with the ASCII `suffix` and keeps at least [`MINIMUM_STEM`] letters before it.
+fn ends_with(word: &[char], suffix: &str) -> bool {
+    word.len().saturating_sub(suffix.len()) >= MINIMUM_STEM
+        && word.iter().rev().copied().take(suffix.len()).eq(suffix.chars().rev())
+}
+
+/// `word` without its last `count` letters.
+fn cut(word: &[char], count: usize) -> &[char] {
+    word.get(..word.len().saturating_sub(count)).unwrap_or(word)
+}
+
+/// A folded word without one English inflection: a plural `s` or `es`, then one of `ing`,
+/// `ion`, `ed`, `er` or a final `e` ("sharing", "shared", "shares" and "share" are all "shar").
+fn stem(word: &[char]) -> &[char] {
+    let mut word = word;
+    if ends_with(word, "es") && !ends_with(word, "ses") {
+        word = cut(word, 2);
+    } else if ends_with(word, "s") && !ends_with(word, "ss") {
+        word = cut(word, 1);
+    }
+    for suffix in ["ing", "ion", "ed", "er", "e"] {
+        if ends_with(word, suffix) {
+            return cut(word, suffix.len());
+        }
+    }
+    word
+}
+
+/// Whether `head` (not empty) starts a word of `text`.
+fn starts_a_word(head: &[char], text: &FoldedText) -> bool {
+    !head.is_empty()
+        && text
+            .folded
+            .windows(head.len())
+            .zip(&text.bonus)
+            .any(|(window, &bonus)| bonus >= 7 && window == head)
+}
+
+/// The title word that shares `token`'s stem, if any ([`FoldedText::words`] without allocating).
+fn stem_word<'t>(token: &[char], title: &'t FoldedText) -> Option<&'t [char]> {
+    let want = stem(token);
+    let mut start = None;
+    for index in 0..=title.original.len() {
+        let delimiter =
+            title.original.get(index).is_none_or(|&c| char_class(c) == CharClass::Delimiter);
+        match (start, delimiter) {
+            (None, false) => start = Some(index),
+            (Some(from), true) => {
+                if let Some(word) = title.folded.get(from..index)
+                    && stem(word) == want
+                {
+                    return Some(word);
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The query with each token that starts no title word replaced by the title word it shares a
+/// stem with ("screen share" reads "screen sharing" for the title "Screen Sharing"). None when a
+/// token matches neither way, or no token needed a stem.
+fn stem_correction(query: &Query, title: &FoldedText) -> Option<Query> {
+    let tokens = || query.tokens.iter().zip(&query.token_masks);
+    let mut stemmed = false;
+    for (token, &mask) in tokens() {
+        // Either way the token's first letters start a title word: a token that starts a word
+        // does, and a shared stem keeps at least MINIMUM_STEM letters. Most rows fail here, before
+        // any substring search.
+        let head = token.get(..MINIMUM_STEM).unwrap_or(token);
+        let head_mask = mask_of(head);
+        if title.mask & head_mask != head_mask
+            || !token.first().is_some_and(|first| title.initials.contains(first))
+            || !starts_a_word(head, title)
+        {
+            return None;
+        }
+        if token_level(token, mask, title) == 3 {
+            continue;
+        }
+        if token.len() < MINIMUM_STEM || stem_word(token, title).is_none() {
+            return None;
+        }
+        stemmed = true;
+    }
+    if !stemmed {
+        return None;
+    }
+    let corrected: Vec<String> = tokens()
+        .map(|(token, &mask)| {
+            let word = (token_level(token, mask, title) != 3)
+                .then(|| stem_word(token, title))
+                .flatten()
+                .unwrap_or(token);
+            word.iter().collect()
+        })
+        .collect();
+    Some(Query::new(&corrected.join(" ")))
+}
+
+/// The stem-corrected query when every corrected token starts a title word: such a row reaches
+/// [`match_tier::TITLE_WORDS`], never more, so a stem match never passes the typed words.
+fn stem_match(entry: &Entry, query: &Query, fields: &[Field]) -> Option<Query> {
+    let corrected = stem_correction(query, &fields.first()?.text)?;
+    let tier = text_tier(entry, &corrected, fields, false, false)?.tier;
+    (tier >= match_tier::TITLE_WORDS).then_some(corrected)
+}
+
 fn is_whole_word(token: &[char], text: &FoldedText) -> bool {
     text.words().iter().any(|word| word.as_slice() == token)
 }
@@ -366,11 +501,12 @@ fn text_tier<'q>(
     query: &'q Query,
     fields: &[Field],
     allows_typo: bool,
+    allows_stem: bool,
 ) -> Option<TierMatch<'q>> {
     let title = &fields[0].text;
     let tiered = |tier: i64| Some(TierMatch { tier, query: QueryRef::Original(query) });
     let title_has_letters = title.mask & query.mask == query.mask;
-    if title_has_letters && title_is_query(&entry.title, &query.raw) {
+    if title_has_letters && title_is(fields, query) {
         return tiered(match_tier::WHOLE_TITLE);
     }
     if entry.enters_scope == Some(true)
@@ -396,6 +532,13 @@ fn text_tier<'q>(
         {
             return tiered(match_tier::TITLE_WORDS);
         }
+    }
+    // Every token starts a title word once inflections are cut ("share" for "Sharing").
+    if allows_stem && let Some(corrected) = stem_match(entry, query, fields) {
+        return Some(TierMatch {
+            tier: match_tier::TITLE_WORDS,
+            query: QueryRef::Corrected(corrected),
+        });
     }
     if query.tokens.len() == 1
         && query.joined.len() >= 2
@@ -429,7 +572,7 @@ pub(crate) fn entry_tier<'q>(
     fields: &[Field],
     allows_typo: bool,
 ) -> Option<TierMatch<'q>> {
-    let mut found = text_tier(entry, query, fields, allows_typo);
+    let mut found = text_tier(entry, query, fields, allows_typo, true);
     if let Some(by_id) = action_id_tier(id, query)
         && found.as_ref().is_none_or(|current| by_id > current.tier)
     {

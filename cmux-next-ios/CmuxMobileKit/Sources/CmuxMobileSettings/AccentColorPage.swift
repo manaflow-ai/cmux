@@ -64,7 +64,7 @@ private struct MatchMacRow: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("settings.accentColor.matchMac")
     }
@@ -95,7 +95,7 @@ private struct AccentRow: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("settings.accentColor.\(accent.rawValue)")
     }

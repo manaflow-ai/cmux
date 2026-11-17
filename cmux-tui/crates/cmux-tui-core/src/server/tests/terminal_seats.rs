@@ -8,9 +8,10 @@ use std::os::unix::net::UnixStream;
 
 use super::*;
 use crate::diagnostics::{
-    ClientKind, ConnectionStats, HostSeating, LongConnectionsFull, SeatedTerminal,
+    ClientKind, ConnectionStats, HostSeating, KeptHost, LongConnectionsFull, SeatedTerminal,
 };
 use crate::platform::transport::Stream;
+use crate::process_resources::{ProcessStart, process_start};
 use crate::server::listen::ServedSession;
 use crate::server::terminal_admission::{
     admit, admit_session, admit_session_by, parent_process, peer_session,
@@ -540,6 +541,31 @@ fn the_parent_of_a_process_is_the_systems() {
     assert_eq!(parent_process(std::process::id()), u32::try_from(parent).ok());
 }
 
+/// The parent of a process is read whatever bytes the name of its program
+/// has. The system keeps 15 bytes of that name.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_parent_is_read_for_each_program_name() {
+    use std::os::unix::process::CommandExt;
+    let dir = std::env::temp_dir().join(format!("cmux-parent-name-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // 8 characters of 2 bytes: byte 15 is the first half of the last one.
+    let program = dir.join("\u{e9}".repeat(8));
+    std::os::unix::fs::symlink("/bin/sleep", &program).unwrap();
+    let mut child = std::process::Command::new(&program).arg0("sleep").arg("30").spawn().unwrap();
+    let line = std::fs::read(format!("/proc/{}/stat", child.id())).unwrap();
+    let parent = parent_process(child.id());
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        std::str::from_utf8(&line).is_err(),
+        "setup: the name was not cut inside a character: {}",
+        String::from_utf8_lossy(&line)
+    );
+    assert_eq!(parent, Some(std::process::id()), "the parent of a child of this test");
+}
+
 /// A burst of 300 terminals whose hosts the daemon starts, each with one
 /// event stream that its process opens before the terminal has its seat.
 /// The counts, with no clock:
@@ -702,4 +728,183 @@ fn a_daemon_whose_ended_children_lose_their_ids_seats_no_host() {
     assert_eq!(seated_with_no_parent_read(&connections, SESSION), None);
     drop((outside, inside));
     assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// The start of this daemon in the tests of a kept host. A kept host started
+/// before it.
+const DAEMON_STARTED: Option<ProcessStart> = Some(ProcessStart(9));
+
+/// The read of a process's start that a test gives.
+type StartOf = fn(u32) -> Option<ProcessStart>;
+
+/// A host that an earlier daemon started has its seat from this daemon's
+/// start. A client whose session's leader is the host's child is in the
+/// host's terminal before the adoption gives the terminal the seat of its
+/// session. The counts: one read of the host's start for the seat, one for
+/// each look of a client under the host, none for a client under another
+/// parent or with a seat of its session.
+#[test]
+fn a_client_under_a_kept_host_is_its_terminals_before_the_adoption_ends() {
+    static READS: AtomicU64 = AtomicU64::new(0);
+    fn start_of(process: u32) -> Option<ProcessStart> {
+        READS.fetch_add(1, Ordering::SeqCst);
+        (process == HOST).then_some(ProcessStart(7))
+    }
+    let connections = Arc::new(ConnectionStats::default());
+    let seating = HostSeating::of(connections.clone(), Some("terminal-1"));
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None, "no host has a seat");
+    let host = KeptHost::read_by(HOST, DAEMON_STARTED, start_of);
+    assert_eq!(READS.swap(0, Ordering::SeqCst), 1, "one read of the host's start for the seat");
+    let host_seat = seating.seat_kept(host);
+    assert!(!connections.terminal_seated(SESSION), "the terminal has no seat of its own yet");
+
+    let (first, _first_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (1, 1, 0), "the connection is in the terminals' lane");
+    assert_eq!(READS.swap(0, Ordering::SeqCst), 1, "one read of the start for the lane");
+    let terminal = Some(SeatedTerminal { id: Some(Arc::from("terminal-1")) });
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), terminal);
+    assert_eq!(READS.swap(0, Ordering::SeqCst), 1, "one read of the start for the class");
+
+    // The child of a process that has no seat, a process with no parent that
+    // the daemon can read, and the host's own session are outside clients.
+    let (other, _other_client) = connect_under(&connections, SESSION + 1, Some(HOST + 1));
+    let (orphan, _orphan_client) = connect_under(&connections, SESSION + 2, None);
+    let (host, _host_client) = connect_under(&connections, HOST, Some(1));
+    assert_eq!(held(&connections), (4, 1, 0));
+    assert_eq!(connections.seated_terminal(SESSION + 1, |_| Some(HOST + 1)), None);
+    assert_eq!(READS.swap(0, Ordering::SeqCst), 0, "no start is read for a parent with no seat");
+
+    // The adoption: the terminal takes the seat of its session, and then the
+    // host's seat ends.
+    let seat = connections.seat_terminal(Some(SESSION), Some("terminal-1"));
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION).as_deref(), Some("terminal-1"));
+    drop(host_seat);
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION).as_deref(), Some("terminal-1"));
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION + 1), None, "no host has a seat");
+    assert_eq!(READS.load(Ordering::SeqCst), 0, "no start is read after the adoption");
+    drop((first, other, orphan, host, seat));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// The seat of a kept host is for the process that had the host's start. A
+/// process that has the host's process id at the accept and another start,
+/// or no start that the daemon can read, is not the host: its child is an
+/// outside client.
+#[test]
+fn a_process_with_a_kept_hosts_id_and_another_start_is_not_the_host() {
+    static START: AtomicU64 = AtomicU64::new(7);
+    fn start_of(_process: u32) -> Option<ProcessStart> {
+        Some(ProcessStart(START.load(Ordering::SeqCst))).filter(|start| start.0 != 0)
+    }
+    let connections = Arc::new(ConnectionStats::default());
+    let seating = HostSeating::of(connections.clone(), Some("terminal-1"));
+    let host_seat = seating.seat_kept(KeptHost::read_by(HOST, DAEMON_STARTED, start_of));
+    let terminal = Some(SeatedTerminal { id: Some(Arc::from("terminal-1")) });
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), terminal, "the host");
+
+    // The host ended, and a process that started later has its process id.
+    START.store(12, Ordering::SeqCst);
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), None);
+    let (later, _later_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (1, 0, 0), "the child of the later process is outside");
+
+    // No process has the id.
+    START.store(0, Ordering::SeqCst);
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), None);
+    let (gone, _gone_client) = connect_under(&connections, SESSION + 1, Some(HOST));
+    assert_eq!(held(&connections), (2, 0, 0), "the child of no process is outside");
+
+    // The count is live: the same looks while the host has its start.
+    START.store(7, Ordering::SeqCst);
+    let (inside, _inside_client) = connect_under(&connections, SESSION + 2, Some(HOST));
+    assert_eq!(held(&connections), (3, 1, 0), "the host's child is its terminal's");
+    drop(host_seat);
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION + 2), None, "the seat ended");
+    drop((later, gone, inside));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// A process is a kept host only when the daemon reads its start and that
+/// start is before the daemon's own. A process that started with the daemon
+/// or after it, a process with no start that the daemon can read, and each
+/// process for a daemon that does not read its own start have no seat.
+#[test]
+fn a_process_that_did_not_start_before_the_daemon_is_no_kept_host() {
+    fn started_at_9(_process: u32) -> Option<ProcessStart> {
+        Some(ProcessStart(9))
+    }
+    fn no_start(_process: u32) -> Option<ProcessStart> {
+        None
+    }
+    let connections = Arc::new(ConnectionStats::default());
+    let seating = HostSeating::of(connections.clone(), Some("terminal-1"));
+    let not_kept: [(Option<ProcessStart>, StartOf, &str); 4] = [
+        (Some(ProcessStart(9)), started_at_9, "it started with the daemon"),
+        (Some(ProcessStart(8)), started_at_9, "it started after the daemon"),
+        (None, started_at_9, "the daemon does not read its own start"),
+        (Some(ProcessStart(9)), no_start, "the daemon does not read its start"),
+    ];
+    for (daemon_started, start_of, why) in not_kept {
+        let host = KeptHost::read_by(HOST, daemon_started, start_of);
+        // The question of a child of that process: a seat names the terminal.
+        let unseated = seating.seat_kept(host);
+        assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), None, "{why}");
+        drop(unseated);
+        assert!(host.is_none(), "{why}");
+    }
+
+    // The count is live: the same process for a daemon that started later.
+    let host = KeptHost::read_by(HOST, Some(ProcessStart(10)), started_at_9);
+    let seated = seating.seat_kept(host);
+    let (inside, _inside_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (1, 1, 0), "the kept host's seat: its terminal's");
+
+    // A terminal with no session to seat it seats no kept host.
+    let unseated = HostSeating::default().seat_kept(host);
+    drop((seated, unseated));
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None);
+    drop(inside);
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// One host has one terminal. Two seats for one process name two: one of
+/// them is wrong, so the process names no terminal while one of the two
+/// seats is there.
+#[test]
+fn two_seats_for_one_kept_host_name_no_terminal() {
+    fn started_at_7(_process: u32) -> Option<ProcessStart> {
+        Some(ProcessStart(7))
+    }
+    let connections = Arc::new(ConnectionStats::default());
+    let host = KeptHost::read_by(HOST, DAEMON_STARTED, started_at_7);
+    let first = HostSeating::of(connections.clone(), Some("terminal-1")).seat_kept(host);
+    let terminal = Some(SeatedTerminal { id: Some(Arc::from("terminal-1")) });
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), terminal, "one seat");
+
+    let second = HostSeating::of(connections.clone(), Some("terminal-2")).seat_kept(host);
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), None, "two seats");
+    drop(first);
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), None, "one of two is left");
+    let (outside, _outside_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (1, 0, 0), "no terminal: an outside client");
+    drop(second);
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None, "no host has a seat");
+
+    // The count is live: one seat for the process after the two ended.
+    let again = HostSeating::of(connections.clone(), Some("terminal-2")).seat_kept(host);
+    let terminal = Some(SeatedTerminal { id: Some(Arc::from("terminal-2")) });
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), terminal);
+    drop((again, outside));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// The start that the daemon reads is the system's: this test's process has
+/// one, and each read gives the same. A process is no kept host of itself:
+/// it did not start before its own start.
+#[test]
+fn the_start_of_a_process_is_read_and_stays() {
+    let own = process_start(std::process::id());
+    assert!(own.is_some(), "this process has a start");
+    assert_eq!(process_start(std::process::id()), own);
+    assert!(KeptHost::read(std::process::id()).is_none());
 }
