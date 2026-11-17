@@ -42,6 +42,7 @@ on:
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
       - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
