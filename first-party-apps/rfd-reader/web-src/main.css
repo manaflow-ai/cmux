@@ -187,3 +187,38 @@ body[data-variant="focus"] .prose { font-size: 16px; line-height: 1.7; }
   body[data-variant="directory"] #app { grid-template-columns: 260px 1fr; }
   .blocks .blk { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Header fields (state, RFD, authors, updated, access) and links, as a document's front page. */
+.docnum .state { margin-right: 6px; vertical-align: 1px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, max-content)); column-gap: 28px; row-gap: 6px; margin: 4px 0 10px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.fields .field { min-width: 0; }
+.fields dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); }
+.fields dd { margin: 1px 0 0; font-size: 13px; }
+.fields .access { font: 12px ui-monospace, monospace; padding: 0 6px; border-radius: 4px; background: var(--raise2); }
+.links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-bottom: 6px; }
+.links a { color: var(--accent); text-decoration: none; cursor: pointer; }
+.links .link-recording::before { content: "▶ "; font-size: 10px; }
+.links .link-discussion::before { content: "💬 "; font-size: 11px; }
+
+/* Contents: the body sections, numbered. */
+.toc { font-size: 13px; }
+.toc-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); margin-bottom: 4px; }
+.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: sec; }
+.toc li.d2 { counter-increment: sec; }
+.toc li.d2::before { content: counter(sec) ". "; color: var(--text2); font-variant-numeric: tabular-nums; }
+.toc li.d3 { padding-left: 1.4em; font-size: 12.5px; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover { color: var(--accent); }
+
+/* A: contents as a row under the header (the margin holds comments). */
+body[data-variant="directory"] .toc { max-width: var(--measure); margin: 0 0 18px; padding: 8px 12px; background: var(--raise); border-radius: 8px; }
+body[data-variant="directory"] .toc li.d3 { display: none; }
+body[data-variant="directory"] .toc ol { display: flex; flex-wrap: wrap; gap: 2px 16px; }
+/* B: contents as a sticky rail left of the text. */
+body[data-variant="index"] .docbody { display: grid; grid-template-columns: 190px minmax(0, 1fr); column-gap: 28px; align-items: start; }
+body[data-variant="index"] .toc { position: sticky; top: 0; padding-top: 4px; }
+body[data-variant="index"] .toc li { padding: 2px 0; }
+/* C: contents like a book's, under the title. */
+body[data-variant="focus"] .toc { max-width: var(--measure); margin: 0 auto 22px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+body[data-variant="focus"] .toc li { padding: 1px 0; }
+body[data-variant="focus"] .fields, body[data-variant="focus"] .links, body[data-variant="focus"] .docmeta { max-width: var(--measure); }

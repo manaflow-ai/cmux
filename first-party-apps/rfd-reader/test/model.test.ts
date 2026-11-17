@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { blockForLine, byUpdated, jump, newFileUrl, newRfdText, nextNumber, parseFrontMatter, parseRfdName, renderBlocks, rfdOfHref, rfdRefs, search, threads, toRfd } from "../web-src/model"
+import { blockForLine, byUpdated, jump, linkKind, newFileUrl, newRfdText, nextNumber, templateBody, toc, TEMPLATE_BODY, parseFrontMatter, parseRfdName, renderBlocks, rfdOfHref, rfdRefs, search, threads, toRfd } from "../web-src/model"
 import { Source, type Host } from "../web-src/source"
-import { COMMENTS, FILES, PR_FILE, answer } from "../preview/fixtures"
+import { COMMENTS, FILES, PR_FILE, TEMPLATE, answer } from "../preview/fixtures"
 
 const all = () => [...Object.entries(FILES).map(([p, f]) => toRfd(p, f.sha, f.text, f.date)!), toRfd(PR_FILE.path, PR_FILE.sha, PR_FILE.text)!]
 
@@ -38,7 +38,7 @@ describe("rendering", () => {
     for (const b of blocks) {
       const first = lines[b.from - 1]
       // The block's first file line is in its HTML (headings and paragraphs keep their words).
-      const word = first.replace(/[#|`*-]/g, " ").trim().split(/\s+/)[0]
+      const word = first.replace(/^\s*\d+\./, "").replace(/[#|`*-]/g, " ").trim().split(/\s+/)[0]
       if (word) expect(b.html).toContain(word)
     }
     expect(blocks[0].heading).toEqual({ depth: 1, text: "RFD 0002: An access ladder for agents" })
@@ -62,8 +62,8 @@ describe("review comments", () => {
   test("threads keep replies and drop outdated comments", () => {
     const ts = threads(COMMENTS as never, PR_FILE.path)
     expect(ts.map((t) => [t.line, t.comments.length])).toEqual([
-      [15, 2],
-      [26, 1],
+      [18, 2],
+      [43, 1],
     ])
     expect(threads(COMMENTS as never, "docs/rfd/other.md")).toEqual([])
   })
@@ -72,9 +72,9 @@ describe("review comments", () => {
     const r = toRfd(PR_FILE.path, PR_FILE.sha, PR_FILE.text)!
     const blocks = renderBlocks(r)
     const lines = PR_FILE.text.split("\n")
-    expect(lines[14]).toContain("pull requests start the same way")
-    expect(blocks[blockForLine(blocks, 15)].html).toContain("fifty clean")
-    expect(blocks[blockForLine(blocks, 26)].html).toContain("approve-all")
+    expect(lines[17]).toContain("pull requests start the same way")
+    expect(blocks[blockForLine(blocks, 18)].html).toContain("fifty clean")
+    expect(blocks[blockForLine(blocks, 43)].html).toContain("approve-all")
   })
 })
 
@@ -130,7 +130,7 @@ describe("the source", () => {
   test("lists the base branch and the RFDs on open pull requests", async () => {
     const { h } = host()
     const { rfds } = await new Source(h, { repo: "manaflow-ai/cmuxterm-hq", dir: "docs/rfd", branch: "main" }).index()
-    expect(rfds.map((r) => r.number).sort()).toEqual([1, 2, 3, 4])
+    expect(rfds.map((r) => r.number).sort()).toEqual([0, 1, 2, 3, 4])
     const two = rfds.find((r) => r.number === 2)!
     expect(two.pr?.number).toBe(12392)
     expect(rfds.find((r) => r.number === 1)!.updated).toBe("2026-11-10T18:00:00Z")
@@ -155,5 +155,33 @@ describe("the source", () => {
     expect((await src.comments(rfds.find((r) => r.number === 2)!)).pr).toBe(12392)
     expect(src.prOf(rfds.find((r) => r.number === 1)!)).toBe(12001)
     expect((await src.comments(rfds.find((r) => r.number === 3)!)).pr).toBeNull()
+  })
+})
+
+describe("the header and contents (RFD 26's shape)", () => {
+  test("access and links: the discussion, a recording, another RFD", () => {
+    const r = toRfd(PR_FILE.path, PR_FILE.sha, PR_FILE.text)!
+    expect(r.access).toBe("internal")
+    expect(r.links.map((l) => linkKind(l).kind)).toEqual(["discussion", "recording", "rfd"])
+    expect(linkKind(r.links[0]).label).toBe("Discussion #12392")
+    expect(linkKind("https://docs.example.com/x").label).toBe("docs.example.com")
+  })
+
+  test("contents lists the five body sections in order, with the options under theirs", () => {
+    const r = toRfd(PR_FILE.path, PR_FILE.sha, PR_FILE.text)!
+    expect(toc(renderBlocks(r)).filter((c) => c.depth === 2).map((c) => c.text)).toEqual(["Problem and context", "Options", "Goals", "The options against the goals", "Determination"])
+    expect(toc(renderBlocks(r)).filter((c) => c.depth === 3).map((c) => c.text)).toEqual(["Earned rungs", "Per-project policy"])
+  })
+
+  test("a new RFD starts from the repository's template body, else the built-in one", () => {
+    const body = templateBody(TEMPLATE.text)
+    expect(body.startsWith("## Problem and context")).toBe(true)
+    expect(body).toContain("Not under consideration:")
+    expect(body).not.toContain("# RFD NNNN")
+    expect(templateBody(undefined)).toBe(TEMPLATE_BODY)
+    const text = newRfdText({ number: 5, title: "T", state: "discussion", authors: [], template: body, today: "2026-11-17" })
+    const r = toRfd("docs/rfd/0005-t.md", "x", text)!
+    expect(r.access).toBe("internal")
+    expect(toc(renderBlocks(r)).filter((c) => c.depth === 2).length).toBe(5)
   })
 })

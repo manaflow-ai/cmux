@@ -8,6 +8,9 @@ import {
   blockForLine,
   byUpdated,
   jump,
+  linkKind,
+  templateBody,
+  toc,
   newFileUrl,
   newRfdText,
   nextNumber,
@@ -58,6 +61,12 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 }
 
 let rfds: RfdMeta[] = []
+/** RFD 0000, the template: not listed; its body is a new RFD's skeleton. */
+let template: RfdMeta | null = null
+const setIndex = (all: RfdMeta[]) => {
+  template = all.find((r) => r.number === 0) ?? null
+  rfds = all.filter((r) => r.number > 0)
+}
 let current: Rfd | null = null
 let stateFilter = new Set<string>()
 let textFilter = ""
@@ -146,21 +155,59 @@ function renderList() {
 function renderDoc(rfd: Rfd) {
   const blocks = renderBlocks(rfd)
   const doc = $("doc")
+  // The header: state badge and title, then the fields (state, number, authors, updated,
+  // access) and the links (the discussion PR, a recording, other RFDs, anything else).
+  const field = (label: string, ...value: (Node | string | null)[]) => el("div", { class: "field" }, el("dt", { textContent: label }), el("dd", {}, ...value))
+  const updated = rfd.pr?.updatedAt ?? rfd.updated
+  const links = rfd.links.map((url) => ({ url, ...linkKind(url) }))
+  if (rfd.pr && !links.some((l) => l.kind === "discussion" && l.url.endsWith(`/pull/${rfd.pr!.number}`))) links.unshift({ url: rfd.pr.url, kind: "discussion", label: `Discussion #${rfd.pr.number}` })
   const head = el(
     "div",
     { class: "dochead" },
-    el("div", { class: "docnum", textContent: `RFD ${pad(rfd.number)}` }),
+    el("div", { class: "docnum" }, stateChip(rfd.state), ` RFD ${pad(rfd.number)}`),
     el("h1", { textContent: rfd.title }),
     el(
-      "div",
-      { class: "docmeta" },
-      stateChip(rfd.state),
-      el("span", { textContent: rfd.authors.join(", ") }),
-      el("span", { class: "muted", textContent: `updated ${relTime(rfd.pr?.updatedAt ?? rfd.updated)}` }),
-      rfd.pr ? linkButton(`Discussion #${rfd.pr.number}`, rfd.pr.url) : null,
-      el("span", { id: "comment-count", class: "muted" }),
+      "dl",
+      { class: "fields" },
+      field("State", rfd.state),
+      field("RFD", String(rfd.number)),
+      field("Authors", rfd.authors.join(", ") || "—"),
+      field("Updated", el("time", { textContent: updated ? `${updated.slice(0, 10)} (${relTime(updated)})` : "—", title: updated })),
+      field("Access", el("span", { class: "access", textContent: rfd.access || "not stated" })),
     ),
+    links.length
+      ? el(
+          "div",
+          { class: "links" },
+          ...links.map((l) => {
+            if (l.kind === "rfd") {
+              const a = el("a", { href: l.url, class: "extlink", textContent: l.label })
+              return a
+            }
+            const a = linkButton(l.label, /^https?:/.test(l.url) ? l.url : `https://github.com/${source.config.repo}/blob/${source.config.branch}/${source.config.dir}/${l.url}`)
+            a.classList.add(`link-${l.kind}`)
+            return a
+          }),
+        )
+      : null,
+    el("div", { class: "docmeta" }, el("span", { id: "comment-count", class: "muted" })),
   )
+  const contents = toc(blocks)
+  const nav = contents.length
+    ? el(
+        "nav",
+        { class: "toc" },
+        el("div", { class: "toc-title", textContent: "Contents" }),
+        el(
+          "ol",
+          {},
+          ...contents.map((c) => {
+            const a = el("a", { href: `#${c.id}`, textContent: c.text, onclick: (e: MouseEvent) => (e.preventDefault(), document.getElementById(c.id)?.scrollIntoView({ block: "start" })) })
+            return el("li", { class: `d${c.depth}` }, a)
+          }),
+        ),
+      )
+    : null
   const body = el("div", { class: "prose blocks" })
   blocks.forEach((b, i) => {
     // The `# RFD N: Title` heading is already the page title.
@@ -174,8 +221,9 @@ function renderDoc(rfd: Rfd) {
     row.append(content, el("aside", { class: "margin" }))
     body.append(row)
   })
+  decorateLinks(head)
   decorateLinks(body)
-  doc.replaceChildren(head, body)
+  doc.replaceChildren(head, el("div", { class: "docbody" }, nav, body))
   doc.scrollTop = 0
 }
 
@@ -445,6 +493,9 @@ async function showNew() {
   $("new-number").textContent = pad(n)
   const authors = $<HTMLInputElement>("new-authors")
   if (!authors.value) authors.value = await source.login().catch(() => "")
+  // The body starts as the repository's template (RFD 0000), so every RFD has the same sections.
+  const body = $<HTMLTextAreaElement>("new-body")
+  if (!body.value.trim()) body.value = templateBody(template ? (await source.rfd(template).catch(() => null))?.body : undefined)
   $<HTMLDialogElement>("new-dialog").showModal()
   $("new-title").focus()
 }
@@ -509,13 +560,13 @@ listKeys($("jump-input"), $("jump-results"), pickJump)
 /** Read the list: the kept copy first (instant), then GitHub (cheap when nothing changed). */
 async function refresh(first: boolean) {
   if (first) {
-    rfds = await source.cachedIndex().catch(() => [])
+    setIndex(await source.cachedIndex().catch(() => []))
     if (rfds.length) renderList()
   }
   status(`Reading ${source.config.repo}/${source.config.dir}…`)
   try {
     const { rfds: fresh, missingFolder } = await source.index()
-    rfds = fresh
+    setIndex(fresh)
     renderList()
     status(missingFolder && rfds.length === 0 ? `${source.config.dir} is not on ${source.config.branch} yet; RFDs in open pull requests show here.` : `${rfds.length} RFDs · read ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`)
     if (current) {

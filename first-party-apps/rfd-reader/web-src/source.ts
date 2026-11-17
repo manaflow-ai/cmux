@@ -125,12 +125,13 @@ export class Source {
   /** The date of the newest commit to a file, kept by its blob sha. */
   private async lastCommitDate(path: string, sha: string): Promise<string> {
     const kept = await this.host.load<string>(`date:${sha}`)
-    if (kept) return kept
+    if (kept !== null) return kept
     const commits = await this.host
       .get<Array<{ commit: { committer: { date: string } } }>>(this.repoPath(`commits?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(this.config.branch)}&per_page=1`))
       .catch(() => [])
     const date = commits[0]?.commit.committer.date ?? ""
-    if (date) await this.host.save(`date:${sha}`, date).catch(() => undefined)
+    // Kept even when empty: a sha whose history is unreadable is not asked again.
+    await this.host.save(`date:${sha}`, date).catch(() => undefined)
     return date
   }
 

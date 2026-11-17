@@ -15,6 +15,8 @@ export interface RfdMeta {
   state: RfdState
   authors: string[]
   links: string[]
+  /** Who may read it (front matter `access`, e.g. `internal`); empty when the file does not say. */
+  access: string
   /** ISO date of the last change: front matter `last_updated`, else the newest commit or PR update. */
   updated: string
   /** The blob sha of the text read, the cache key of its body. */
@@ -91,6 +93,7 @@ export function toRfd(path: string, sha: string, text: string, fallbackUpdated =
     state: asText(data.state).toLowerCase() || "prediscussion",
     authors: asList(data.authors),
     links: asList(data.links),
+    access: asText(data.access),
     updated: asText(data.last_updated) || asText(data.updated) || fallbackUpdated,
     body,
     bodyLineOffset: lines,
@@ -294,20 +297,72 @@ export function nextNumber(rfds: RfdMeta[]): number {
   return rfds.reduce((m, r) => Math.max(m, r.number), 0) + 1
 }
 
-export function newRfdText(o: { number: number; title: string; state: string; authors: string[]; body?: string; today: string }): string {
+/**
+ * The body sections every RFD has, in order (`docs/rfd/0000-template.md` in the repository is
+ * the source; this is the fallback when it is missing).
+ */
+export const TEMPLATE_BODY = `## Problem and context
+
+## Options
+
+1. **Option A**: one line.
+2. **Option B**: one line.
+
+Not under consideration:
+
+- **Option C**: why, in one line.
+
+## Goals
+
+## The options against the goals
+
+### Option A
+
+### Option B
+
+## Determination
+`
+
+/** RFD 0000 is the template: its body, without front matter and title, is a new RFD's skeleton. */
+export function templateBody(templateText: string | undefined): string {
+  if (!templateText) return TEMPLATE_BODY
+  const body = parseFrontMatter(templateText).body.replace(/^\s*#\s+[^\n]*\n/, "").trim()
+  return body ? `${body}\n` : TEMPLATE_BODY
+}
+
+export function newRfdText(o: { number: number; title: string; state: string; authors: string[]; body?: string; template?: string; today: string }): string {
   const authors = o.authors.length ? o.authors.map((a) => `  - ${a}`).join("\n") : "  - "
   return `---
 state: ${o.state}
 authors:
 ${authors}
 last_updated: ${o.today}
+access: internal
 links: []
 ---
 
 # RFD ${pad(o.number)}: ${o.title}
 
-${o.body?.trim() || "## Problem and context\n\n## Proposal\n\n## Open questions\n"}
+${o.body?.trim() || (o.template ?? TEMPLATE_BODY).trim()}
 `
+}
+
+export type LinkKind = "discussion" | "recording" | "rfd" | "link"
+
+/** What a front matter link is, for the header: a pull request, a recording, another RFD or a link. */
+export function linkKind(url: string): { kind: LinkKind; label: string } {
+  const pr = /github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/.exec(url)
+  if (pr) return { kind: "discussion", label: `Discussion #${pr[1]}` }
+  if (/youtube\.com|youtu\.be|vimeo\.com|loom\.com|\.(mp4|mov|m4a|mp3|webm)(\?|$)|recording|episode|podcast/i.test(url)) return { kind: "recording", label: "Recording" }
+  const n = rfdOfHref(url)
+  if (n !== null) return { kind: "rfd", label: `RFD ${pad(n)}` }
+  const host = /^https?:\/\/([^/]+)/.exec(url)?.[1]
+  return { kind: "link", label: host ? host.replace(/^www\./, "") : url.split("/").pop() || url }
+}
+
+/** The table of contents: the body sections (level 2 headings), numbered, with their level 3s. */
+export function toc(blocks: Block[]): Array<{ id: string; text: string; depth: number }> {
+  return blocks.filter((b) => b.heading && b.id && (b.heading.depth === 2 || b.heading.depth === 3)).map((b) => ({ id: b.id!, text: b.heading!.text, depth: b.heading!.depth }))
 }
 
 /** GitHub's new-file page with the RFD filled in: committing it there on a new branch opens the pull request. */

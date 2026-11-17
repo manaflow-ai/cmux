@@ -99,8 +99,11 @@ export const PR_FILE = {
 authors:
   - claude (access lane)
 last_updated: 2026-11-17
+access: internal
 links:
-  - https://github.com/manaflow-ai/cmuxterm-hq/pull/12392`,
+  - https://github.com/manaflow-ai/cmuxterm-hq/pull/12392
+  - https://example.com/recordings/access-ladder.mp4
+  - 0001-rfd-process.md`,
     `# RFD 0002: An access ladder for agents
 
 ## Problem and context
@@ -108,9 +111,23 @@ links:
 Every chat gets a permission policy, set by hand. A new agent and one that has landed fifty clean
 pull requests start the same way, so people either approve too much too early or click Allow all day.
 
-## Proposal
+## Options
 
-An agent starts narrow and widens as it builds a record:
+1. **Earned rungs**: an agent widens as it builds a record.
+2. **Per-project policy**: one policy per repository, set once.
+
+Not under consideration:
+
+- **Allow all by default**: it removes the review the ladder exists for.
+
+## Goals
+
+1. A new agent asks before it edits.
+2. A proven agent stops asking for what it has done well before.
+
+## The options against the goals
+
+### Earned rungs
 
 | Rung | Allows |
 |---|---|
@@ -126,10 +143,13 @@ click on the session row. This builds on the process in RFD 0001.
 enum PolicySource { Set, Cleared, VmHost, Earned }
 \`\`\`
 
-## Open questions
+### Per-project policy
 
-- Should a promotion wait for a click, or happen on its own within the ceiling?
-- Does the rung follow the agent across machines?`,
+Meets the first goal and misses the second: a proven agent asks as often as a new one.
+
+## Determination
+
+Earned rungs, within the person's ceiling. Open: should a promotion wait for a click?`,
   ),
 }
 
@@ -157,8 +177,8 @@ export const COMMENTS = [
   {
     id: 1,
     path: PR_FILE.path,
-    line: 15,
-    start_line: 14,
+    line: 18,
+    start_line: 17,
     body: "Is 'fifty clean pull requests' the bar we want, or just an example? A number here will be read as the rule.",
     user: { login: "leo" },
     html_url: `https://github.com/${REPO}/pull/12392#discussion_r1`,
@@ -168,7 +188,7 @@ export const COMMENTS = [
     id: 2,
     in_reply_to_id: 1,
     path: PR_FILE.path,
-    line: 15,
+    line: 18,
     body: "An example. The proposal section has the real rule; I'll drop the number.",
     user: { login: "claude" },
     html_url: `https://github.com/${REPO}/pull/12392#discussion_r2`,
@@ -177,7 +197,7 @@ export const COMMENTS = [
   {
     id: 3,
     path: PR_FILE.path,
-    line: 26,
+    line: 43,
     body: "approve-all should still never reach an elevated scope. Worth saying here, not only in the guard section.",
     user: { login: "codex" },
     html_url: `https://github.com/${REPO}/pull/12392#discussion_r3`,
@@ -206,7 +226,7 @@ const b64 = (s: string) => {
 export function answer(path: string): unknown {
   const p = path.replace(`/repos/${REPO}/`, "")
   if (path === "/user") return { login: "leo" }
-  if (p.startsWith("contents/docs/rfd")) return Object.keys(FILES).map((f) => ({ name: f.split("/").pop(), path: f, sha: FILES[f].sha, type: "file" })).concat([{ name: "0002-agent-access-ladder", path: "docs/rfd/0002-agent-access-ladder", sha: "f".repeat(40), type: "dir" }] as never)
+  if (p.startsWith("contents/docs/rfd")) return [{ name: "0000-template.md", path: TEMPLATE.path, sha: TEMPLATE.sha, type: "file" }, ...Object.keys(FILES).map((f) => ({ name: f.split("/").pop(), path: f, sha: FILES[f].sha, type: "file" }))].concat([{ name: "0002-agent-access-ladder", path: "docs/rfd/0002-agent-access-ladder", sha: "f".repeat(40), type: "dir" }] as never)
   if (p.startsWith("pulls?")) return PULLS
   if (p.startsWith("pulls/12392/files")) return [{ filename: PR_FILE.path, sha: PR_FILE.sha, status: "added" }]
   if (p.startsWith("pulls/12392/comments")) return COMMENTS
@@ -214,7 +234,7 @@ export function answer(path: string): unknown {
   if (/^pulls\/\d+\/files/.test(p)) return []
   const blob = /^git\/blobs\/([0-9a-f]{40})$/.exec(p)
   if (blob) {
-    const text = blob[1] === PR_FILE.sha ? PR_FILE.text : Object.values(FILES).find((f) => f.sha === blob[1])?.text
+    const text = blob[1] === PR_FILE.sha ? PR_FILE.text : blob[1] === TEMPLATE.sha ? TEMPLATE.text : Object.values(FILES).find((f) => f.sha === blob[1])?.text
     if (text !== undefined) return { content: b64(text), encoding: "base64" }
   }
   if (p.startsWith("commits?")) {
@@ -223,4 +243,31 @@ export function answer(path: string): unknown {
     return f ? [{ commit: { committer: { date: f.date } } }] : []
   }
   throw Object.assign(new Error(`not.found: ${path}`), { code: "not.found" })
+}
+
+/** RFD 0000, the repository's template: not listed; a new RFD starts from its body. */
+export const TEMPLATE = {
+  path: "docs/rfd/0000-template.md",
+  sha: "0000000000000000000000000000000000000000",
+  text: rfd(
+    `state: prediscussion
+authors:
+  - your-name
+access: internal
+links:
+  - https://github.com/manaflow-ai/cmuxterm-hq/pull/NNNN`,
+    `# RFD NNNN: Title
+
+## Problem and context
+
+## Options
+
+Not under consideration:
+
+## Goals
+
+## The options against the goals
+
+## Determination`,
+  ),
 }
