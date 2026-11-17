@@ -77,11 +77,12 @@ runs are known by their workflow path and need one machine and one simulator.
 The pool is its online idle runners (pr_runner_pool.live_owned_free()) less
 the machines charged. Simulators are counted per mini, not per runner: every
 runner instance of a simulator mini carries SIM_LABEL (`<member>-glaeda`,
-`<member>-glaeda-K`), and the mini runs one simulator job at a time, so an
-idle runner says nothing about its simulator. The free simulators are the
-online SIM_LABEL minis of the pool that no running simulator job holds, at
-most CI_OWNED_POOL_SLOTS' SIM_LABEL entry less those held, less the
-simulators charged. Neither count goes below zero. live_placements() lists
+`<member>-glaeda-K`), and the mini runs a fixed number of simulator jobs at
+once (its slots, see Simulator slots; one by default), so an idle runner says
+nothing about its simulator. The free simulators are the free slots of the
+online SIM_LABEL minis of the pool (each mini's slots less its running
+simulator jobs), at most CI_OWNED_POOL_SLOTS' SIM_LABEL entry less the slots
+held, less the simulators charged. Neither count goes below zero. live_placements() lists
 the markers, reads the jobs of the runs they and age leave open (at most
 MAX_JOB_READS, newest first), and lists one more page of markers when a run
 read has a finished picker the first listing did not mark, so a picker that
@@ -122,7 +123,8 @@ package jobs fit in the pool keeps `runs_on` (the pool with SIM_LABEL) for
 ios-simulator-build and mobile-core-package's pool label, and its simulator
 matrix takes the label through `sim_runs_on`. ios-simulator-build stays off
 it: an isolated build holds no simulator token, and the sim-first runner,
-which exists for its mini's simulator job, refuses it. A job queued on the
+which exists for its mini's simulator job, refuses it (until glaeda
+advertises simulator slots; see Simulator slots). A job queued on the
 label counts as owned in hold() and takes no pool machine; the runners
 listing the live path already reads has the label, so this costs no request.
 While no runner carries the label (glaeda's simRunners not yet on in the
@@ -132,12 +134,28 @@ has ci-owned-pool-rescue.yml watch the jobs (owned_pool_rescue.job_pool()
 knows the label) and move one to retry_runs_on, unchanged, if no runner takes
 it.
 
+Simulator slots. A mini with N simulator token copies runs N simulator jobs
+at once, each on its own slot device (select_ios_simulator.py, from the
+job's GLAEDA_SIM_SLOT). The picker learns N from the runners listing it
+already reads, at no extra request: glaeda puts SIM_SLOTS_LABEL
+(`glaeda-sim-slots-<N>`) on the mini's runners, its SIM_LABEL runners and its
+sim-first runner alike. A mini whose runners carry none has one slot, as
+before; the largest N any of its runners carries wins. The label is a
+runner label only, never requested by a job. It is also glaeda's word that
+it classes ios-simulator-build as a simulator job (it takes a token copy, so
+the sim-first runner admits it): while an online sim-first runner carries the
+label, a test-ios.yml run that does not fit the usual route may put
+ios-simulator-build on the sim-first label too (`build_runs_on`), keeping only
+mobile-core-package on the pool. Without the label nothing changes.
+
 Simulator capacity. glaeda puts SIM_LABEL (`glaeda-ios-sim`) on the runners of
 minis that have an iOS simulator role and an iOS 26.x runtime, and runs one
-simulator job at a time on each such mini (a second is refused). Its count is
+simulator job per slot on each such mini (one more is refused). Its cap is
 CI_OWNED_POOL_SLOTS' SIM_LABEL entry (`{"glaeda-ios-sim": 2}`, read by
-pr_runner_pool.capability_slots()), one simulator job per machine; without the
-entry the lane never takes the fleet on its own. What is taken comes from the
+pr_runner_pool.capability_slots()), simulator jobs at once: one per machine
+while every mini has one slot, so slots beyond that are used only once the
+entry is raised to the fleet's total; without the entry the lane never takes
+the fleet on its own. What is taken comes from the
 queue janitor's snapshot, which counts every queued or running job carrying
 the label and each run's capability marker (queue_janitor.capability_marker),
 plus every test-ios.yml and ios-screenshots.yml run created since the snapshot
@@ -251,6 +269,22 @@ WAITING = frozenset({"queued", "waiting", "pending", "requested"})
 MARKER_PAGES = 3
 # A glaeda runner's name: `<member>-glaeda`, or `<member>-glaeda-K` for instance K.
 RUNNER_INSTANCE_SUFFIX = re.compile(r"-glaeda(?:-\d+)?$")
+# A runner label glaeda puts on every runner of a mini with N simulator slots
+# (see Simulator slots). Absent: one slot, and ios-simulator-build stays off
+# the sim-first runners.
+SIM_SLOTS_LABEL = re.compile(r"glaeda-sim-slots-([1-9][0-9]?)")
+
+
+def runner_labels(runner: Mapping[str, Any]) -> set[str]:
+    """A runners-API runner's label names."""
+    return {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+
+
+def sim_slots(runner: Mapping[str, Any]) -> int | None:
+    """The simulator slots a runner's SIM_SLOTS_LABEL gives its mini, or None without one."""
+    counts = [int(match.group(1)) for label in runner_labels(runner)
+              if (match := SIM_SLOTS_LABEL.fullmatch(label))]
+    return max(counts) if counts else None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -273,7 +307,9 @@ MAX_SIM_JOBS = 2
 # The lanes whose `runs_on` serves only jobs glaeda classes as simulator or
 # simulator-step, the only jobs its sim-first runner takes (it refuses the
 # rest; see Sim-first runners): the capture. test-ios's `runs_on` serves
-# ios-simulator-build, so its simulator matrix reads `sim_runs_on` instead.
+# ios-simulator-build, so its simulator matrix reads `sim_runs_on` instead, and
+# the build reads `build_runs_on`, the sim-first label only once glaeda admits
+# it there (Simulator slots).
 SIM_FIRST_LANES = ("screenshots",)
 
 
@@ -285,6 +321,8 @@ class LiveFree:
     sim: int
     # Minis with an online idle sim-first runner, less the same charges (see Sim-first runners).
     sim_first: int = 0
+    # An online sim-first runner carries SIM_SLOTS_LABEL: it admits ios-simulator-build (see Simulator slots).
+    sim_first_builds: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -304,6 +342,8 @@ class Route:
     persistent: bool
     # glaeda's sim-first label for the simulator jobs alone, when they take it (see Sim-first runners).
     sim_label: str = ""
+    # ios-simulator-build takes sim_label too (see Simulator slots).
+    sim_build: bool = False
 
     @property
     def runs_on(self) -> str:
@@ -319,6 +359,11 @@ class Route:
     def sim_runs_on(self) -> str:
         """runs-on as JSON for test-ios.yml's simulator matrix: the sim-first label, else runs_on."""
         return json.dumps([self.sim_label]) if self.sim_label else self.runs_on
+
+    @property
+    def build_runs_on(self) -> str:
+        """runs-on as JSON for test-ios.yml's ios-simulator-build: the sim-first label when admitted, else runs_on."""
+        return json.dumps([self.sim_label]) if self.sim_label and self.sim_build else self.runs_on
 
     @property
     def package_runs_on(self) -> str:
@@ -474,6 +519,12 @@ def resolve(
                 log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
                     f"{needed} needed; {load.live.sim_first} {sim_first} free -> {sim_first}")
                 return Route(sim_first, retry_label(default), True, sim_label=sim_first)
+            if lane == "test-ios" and load.live.sim_first_builds and load.live.pool >= jobs - 1:
+                # glaeda admits ios-simulator-build there (Simulator slots): only the package job keeps the pool.
+                log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
+                    f"{needed} needed; {load.live.sim_first} {sim_first} free -> {pools[0]} for the package job, "
+                    f"build and simulator jobs on {sim_first}")
+                return Route(pools[0], retry_label(default), True, sim_label=sim_first, sim_build=True)
             if lane == "test-ios" and load.live.pool >= jobs:
                 # The build and package jobs keep the pool; the simulator matrix takes the sim-first label.
                 log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
@@ -619,6 +670,8 @@ class Hold:
     sims: int = 0
     # Minis whose simulator one of its running simulator jobs holds.
     sim_hosts: frozenset[str] = frozenset()
+    # The mini of each running simulator job, once per job (a mini may have several slots).
+    sim_jobs_on: tuple[str, ...] = dataclasses.field(default=(), compare=False)
 
 
 def settled_off(run: Mapping[str, Any]) -> bool:
@@ -684,8 +737,11 @@ def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool:
         # Still picking, or placed owned with no macOS job yet.
         return need
     sims = [job for job in owned if SIM_JOB.fullmatch(str(job.get("name") or ""))]
-    # ios-simulator-build: SIM_LABEL for the runtime, but no simulator of its own.
-    builds = [job for job in owned if job not in sims and SIM_LABEL in job_labels(job)]
+    # ios-simulator-build: SIM_LABEL for the runtime, but no simulator of its own;
+    # or the sim-first label, where glaeda gives it a simulator slot (Simulator slots).
+    first_builds = [job for job in owned if job not in sims
+                    and any(pr_runner_pool.sim_first(label) for label in job_labels(job))]
+    builds = [job for job in owned if job not in sims and SIM_LABEL in job_labels(job)] + first_builds
     waiting = [job for job in owned if job.get("status") != "completed" and not on_runner(job)]
     failed = any(job.get("status") == "completed" and job.get("conclusion") != "success" for job in builds)
     # Simulator jobs GitHub has not created yet: the matrix follows a
@@ -696,12 +752,16 @@ def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool:
     pooled = [job for job in waiting
               if not any(pr_runner_pool.sim_first(label) for label in job_labels(job))]
     waiting_rest = sum(1 for job in pooled if job not in sims and job not in builds)
-    running_builds = sum(1 for job in builds if on_runner(job))
+    running_builds = sum(1 for job in builds if on_runner(job) and job not in first_builds)
     # Now: every waiting job takes a machine. After the build: the rest still
     # waiting, the simulator jobs, less the machine the running build frees.
-    machines = max(len(pooled), waiting_rest + sum(1 for job in pooled if job in sims) + to_come - running_builds, 0)
+    # A build on the sim-first label means its matrix follows it there: no pool machine.
+    machines = max(len(pooled), waiting_rest + sum(1 for job in pooled if job in sims)
+                   + (0 if first_builds else to_come) - running_builds, 0)
+    slot_holders = [job for job in sims + first_builds if on_runner(job)]
     return Hold(machines=machines, sims=waiting_sims + to_come,
-                sim_hosts=frozenset(runner_host({"name": job["runner_name"]}) for job in sims if on_runner(job)))
+                sim_hosts=frozenset(runner_host({"name": job["runner_name"]}) for job in slot_holders),
+                sim_jobs_on=tuple(runner_host({"name": job["runner_name"]}) for job in slot_holders))
 
 
 def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[Mapping[str, Any]], *,
@@ -722,23 +782,33 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
     if not mine:
         raise RuntimeError(f"no runner carries {pool}")
     idle = pr_runner_pool.live_owned_free(mine, (pool,))
+    # Each mini's simulator slots: the largest SIM_SLOTS_LABEL any of its runners carries, else one.
+    slots: dict[str, int] = {}
+    for runner in runners:
+        count = sim_slots(runner)
+        if count is not None:
+            slots[runner_host(runner)] = max(count, slots.get(runner_host(runner), 1))
     sim_hosts = {runner_host(runner) for runner in mine if runner.get("status") == "online"
-                 and SIM_LABEL in {str(item.get("name")) for item in runner.get("labels") or []
-                                   if isinstance(item, Mapping)}}
+                 and SIM_LABEL in runner_labels(runner)}
     holds = [hold(run, (jobs or {}).get(run.get("id")), pool, placements, now) for run in recent]
-    held = sim_hosts & frozenset().union(*(item.sim_hosts for item in holds))
-    sim_room = max(0, min(len(sim_hosts - held), capacity - len(held)))
+    running: dict[str, int] = {}
+    for host in (host for item in holds for host in item.sim_jobs_on):
+        running[host] = running.get(host, 0) + 1
+    held = sum(min(running.get(host, 0), slots.get(host, 1)) for host in sim_hosts)
+    open_slots = sum(max(0, slots.get(host, 1) - running.get(host, 0)) for host in sim_hosts)
+    sim_room = max(0, min(open_slots, capacity - held))
     charged = sum(item.sims for item in holds)
-    # One sim-first runner per mini, offline while its simulator is taken; a
-    # running simulator job's mini is left out in case the listing lags it.
-    first_hosts = {runner_host(runner) for runner in runners
-                   if sim_first_label and runner.get("status") == "online" and not runner.get("busy")
-                   and sim_first_label in {str(item.get("name")) for item in runner.get("labels") or []
-                                           if isinstance(item, Mapping)}}
-    first_hosts -= frozenset().union(*(item.sim_hosts for item in holds))
+    # One sim-first runner per mini, offline while its simulators are all taken;
+    # a mini whose running simulator jobs fill its slots is left out in case the
+    # listing lags it.
+    first = [runner for runner in runners if sim_first_label and runner.get("status") == "online"
+             and sim_first_label in runner_labels(runner)]
+    first_hosts = {runner_host(runner) for runner in first if not runner.get("busy")}
+    first_hosts -= {host for host, count in running.items() if count >= slots.get(host, 1)}
     return LiveFree(pool=max(0, idle[pool] - sum(item.machines for item in holds)),
                     sim=max(0, sim_room - charged),
-                    sim_first=max(0, len(first_hosts) - charged))
+                    sim_first=max(0, len(first_hosts) - charged),
+                    sim_first_builds=any(sim_slots(runner) is not None for runner in first))
 
 
 def run_jobs_read(client: Any, runs: Sequence[Mapping[str, Any]], placements: Placements | None,
@@ -853,6 +923,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         for key, value in {"label": label, "retry_label": label if not persistent else SMALL_RUNNER,
                            "runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
                            "sim_runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
+                           "build_runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
                            "package_runs_on": json.dumps(label), "retry_runs_on": json.dumps(SMALL_RUNNER if persistent else label),
                            "persistent": str(persistent).lower(), "jobs": str(lane_jobs),
                            "sim_jobs": str(1 if persistent else 0)}.items():
@@ -912,6 +983,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(f"retry_label={route.retry_label}")
     print(f"runs_on={route.runs_on}")
     print(f"sim_runs_on={route.sim_runs_on}")
+    print(f"build_runs_on={route.build_runs_on}")
     print(f"package_runs_on={route.package_runs_on}")
     print(f"retry_runs_on={route.retry_runs_on}")
     print(f"persistent={'true' if route.persistent else 'false'}")
