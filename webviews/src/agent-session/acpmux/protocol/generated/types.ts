@@ -423,6 +423,12 @@ export interface EventsParams {
    * or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
    */
   subagent?: (string | null);
+  /**
+   * With `beforeSeq`: the page begins at its oldest turn start when older records remain, so
+   * one read is one page of whole turns and its first seq is the next cursor
+   * (`EventPage::starting_at_turn`, capability `events-whole-turns-v1`).
+   */
+  wholeTurns?: (boolean | null);
 }
 
 export type EventsResult = {

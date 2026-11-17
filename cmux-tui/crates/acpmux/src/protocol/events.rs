@@ -134,6 +134,10 @@ pub struct EventsParams {
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
     pub subagent: Option<String>,
+    /// With `beforeSeq`: the page begins at its oldest turn start when older records remain, so
+    /// one read is one page of whole turns and its first seq is the next cursor
+    /// (`EventPage::starting_at_turn`, capability `events-whole-turns-v1`).
+    pub whole_turns: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

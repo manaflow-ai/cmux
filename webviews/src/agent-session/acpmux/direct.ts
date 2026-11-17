@@ -519,6 +519,9 @@ const PROMPT_INDEX_BYTES = 256 * 1024;
 /// Pages read ahead of the reader once an older read lands (`readOlderAhead`): the next ask at the top
 /// is answered from memory while the reader reads down through what just landed.
 const OLDER_AHEAD_PAGES = 4;
+/// The daemon begins an older page at its oldest turn start when asked (`wholeTurns`, acpmux
+/// capabilities.rs `WHOLE_TURN_PAGES`): one read is one page of whole turns (`olderPage`).
+export const WHOLE_TURN_PAGES_CAPABILITY = "events-whole-turns-v1";
 /// Pages a read through a seq (`loadThrough`: a jump to the unread line or a rail tick) asks for
 /// at once, each for its own stretch of seqs (`readWindow`), so a jump far back waits on about one
 /// round trip instead of one per page.
@@ -4234,6 +4237,7 @@ export class AcpmuxDirectClient {
       );
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
+      this.wholeTurnsRefused = false;
       this.sessionPages.follows = this.capabilities?.has(LIST_FOLLOW_CAPABILITY) === true;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
@@ -15380,6 +15384,8 @@ export class AcpmuxDirectClient {
   /// Older pages read ahead of the reader (`readOlderAhead`), by the `beforeSeq` each was asked with, for
   /// the chat, visit, held history and paging epoch they were read in (`olderKey`).
   private olderAhead?: { key: string; pages: Map<number, Promise<any>> };
+  /// The host refused an older read naming `wholeTurns` (`olderPage`): this connection asks without.
+  private wholeTurnsRefused = false;
   /// The records an older page read but did not land (`fetchOlder` keeps whole turns, so the end
   /// of a turn further back waits): `before` is the oldest seq read, `from` the held records' first
   /// seq they end at. The next ask reads on from `before` and lands them with its page, so no read
@@ -15403,15 +15409,30 @@ export class AcpmuxDirectClient {
       ahead!.pages.delete(before);
       return kept;
     }
-    return this.typed("_acpmux/events", {
-      sessionId,
-      beforeSeq: before,
-      limit: rest ? OLDER_REST_PAGE_RECORDS : OLDER_PAGE_RECORDS,
-      maxBytes: rest ? OLDER_REST_PAGE_BYTES : OLDER_PAGE_BYTES,
-      // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
-      // than the attach's page comes with the older page that holds it, on a local acpmux as at
-      // attach (three kinds, within a remote cmux-tui's eight either way).
-      kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
+    const read = (wholeTurns: boolean) =>
+      this.typed("_acpmux/events", {
+        sessionId,
+        beforeSeq: before,
+        limit: rest ? OLDER_REST_PAGE_RECORDS : OLDER_PAGE_RECORDS,
+        maxBytes: rest ? OLDER_REST_PAGE_BYTES : OLDER_PAGE_BYTES,
+        ...(wholeTurns && { wholeTurns: true }),
+        // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
+        // than the attach's page comes with the older page that holds it, on a local acpmux as at
+        // attach (three kinds, within a remote cmux-tui's eight either way).
+        kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
+      });
+    // A daemon that names WHOLE_TURN_PAGES_CAPABILITY begins the page at its oldest turn start
+    // (acpmux hub/paging.rs `EventPage::starting_at_turn`): the page lands whole in one read and its
+    // first seq is the next cursor, so nothing is carried to the next ask (`olderCarry`) and the
+    // pages read ahead chain on from it. An older daemon is not sent it, and a relay that drops it
+    // (a remote machine's wire) answers the page as before: the carry keeps the turn whole there.
+    // A host whose params rule does not take it yet (a daemon newer than its app) refuses the read
+    // as malformed: it is read again without, and this connection asks without from then on.
+    if (!this.capabilities?.has(WHOLE_TURN_PAGES_CAPABILITY) || this.wholeTurnsRefused) return read(false);
+    return read(true).catch((error: unknown) => {
+      if ((error as { code?: unknown } | undefined)?.code !== "transport.intent_invalid") throw error;
+      this.wholeTurnsRefused = true;
+      return read(false);
     });
   }
   /// Reads the next OLDER_AHEAD_PAGES older pages after an older read lands, one after another, and

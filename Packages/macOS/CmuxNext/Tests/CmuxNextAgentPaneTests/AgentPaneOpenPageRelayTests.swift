@@ -35,9 +35,10 @@ struct AgentPaneOpenPageRelayTests {
         let openParams = try #require((try JSONSerialization.jsonObject(with: Data(opened.utf8)) as? [String: Any])?["params"] as? [String: Any])
         #expect(openParams["maxBytes"] as? Int == 131072)
 
-        // As webviews direct.ts fetchOlder(): an older page as the reader scrolls up.
+        // As webviews direct.ts olderPage(): an older page as the reader scrolls up, whole turns
+        // from a daemon that names events-whole-turns-v1.
         let older = Self.request(id: 2, method: "_acpmux/events", params: """
-            {"sessionId":"s","beforeSeq":500,"limit":400,"maxBytes":262144,"kinds":["transcript"]}
+            {"sessionId":"s","beforeSeq":500,"limit":400,"maxBytes":262144,"kinds":["transcript"],"wholeTurns":true}
             """)
         try #require(await transport.send(connection: id, frames: [older]) == nil, "the pane refused an older page")
         _ = await inbox.frame(containing: #""id":2"#)

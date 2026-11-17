@@ -652,6 +652,31 @@ pub struct EventPage {
     pub has_more: bool,
 }
 
+/// A prompt that starts a turn: acpmux's own `user_message`, not a steer into a running turn.
+pub(crate) fn starts_turn(rec: &EventRecord) -> bool {
+    rec.dir == "mux"
+        && rec.kind == "user_message"
+        && rec.msg.get("steer") != Some(&Value::Bool(true))
+}
+
+impl EventPage {
+    /// An older page as `_acpmux/events` `wholeTurns` answers it: with older records before it, it
+    /// begins at its oldest turn start, and the records before that start (the end of a turn
+    /// further back) are left for the next page, whose cursor is that start's seq. So one read is
+    /// one page of whole turns: the reader neither reads on until a turn starts nor carries the cut
+    /// records to its next ask (webviews `direct.ts` `olderCarry`, which an older acpmux still
+    /// leaves it). A page that holds no turn start, inside one long turn, goes whole, as does the
+    /// log's first page (nothing older to end a turn).
+    pub fn starting_at_turn(&mut self) {
+        if !self.has_more {
+            return;
+        }
+        if let Some(start) = self.events.iter().position(starts_turn).filter(|&at| at > 0) {
+            self.events.drain(..start);
+        }
+    }
+}
+
 impl Hub {
     /// Read a page of matching records with `after < seq < before`.
     /// `newest` picks the last `limit` of them instead of the first. A page

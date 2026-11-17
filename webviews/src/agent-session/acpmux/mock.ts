@@ -250,6 +250,16 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 /// tool call (a log or an edit) after every `toolEvery` deltas.
 export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
 
+/// An older page as acpmux answers `wholeTurns` (hub/paging.rs `starting_at_turn`): with older records
+/// before it, it begins at its oldest turn start, so the next page's cursor is that prompt's seq.
+/// A page that holds no turn start (one long turn) goes whole.
+function wholeTurnsPage(page: { events: EventRecord[]; hasMore: boolean }) {
+  const opens = (event: EventRecord) =>
+    event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
+  const start = page.hasMore ? page.events.findIndex(opens) : -1;
+  return { ...page, events: start > 0 ? page.events.slice(start) : page.events };
+}
+
 /// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
 /// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
 function subagentOwns(event: EventRecord, id: string): boolean {
@@ -817,7 +827,9 @@ export class MockAcpmuxSocket {
         return { name };
       }
       case "_acpmux/events":
-        return this.page(target, params);
+        return params.wholeTurns === true && params.beforeSeq !== undefined
+          ? wholeTurnsPage(this.page(target, params))
+          : this.page(target, params);
       case "_acpmux/attachment": {
         // Only an image the session's own log names, as acpmux reads it.
         const id = String(params.id ?? "");
