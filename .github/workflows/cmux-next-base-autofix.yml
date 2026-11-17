@@ -371,7 +371,11 @@ jobs:
       # Skipped (that area did not change) counts as current.
       verified: ${{ steps.actions.outcome != 'failure' }}
       settings_verified: ${{ steps.settings.outcome != 'failure' }}
+    # NEXT's cache writer (feat-cmux-next only): the fresh action exports go to cmux-ci-cache-next for
+    # the pull requests on the commit they were made at (judge-action-exports.sh --publish).
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
@@ -463,9 +467,11 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # A pull request on the commit they were made at reads them from R2 instead of building that
-      # commit to judge its stale exports (scripts/cmux-next/judge-action-exports.sh, cmux-next.yml
-      # note-389). They hold the exports that differ from the run's commit; the rest are its own.
+      # A pull request on the commit they were made at (or any commit with the same generator inputs)
+      # reads them from R2 instead of building that commit to judge its stale exports
+      # (scripts/cmux-next/judge-action-exports.sh): that base build was 16 to 32 min of daemon-test
+      # in 28 of 68 pull request runs (2026-11-16..17). They hold the exports that differ from the
+      # run's commit; the rest are its own. Only this feat-cmux-next push job writes; pull requests read.
       - name: Keep the fresh action exports for pull requests on that commit
         if: steps.actions.outcome == 'success' && steps.actions.outputs.made_at != ''
         continue-on-error: true

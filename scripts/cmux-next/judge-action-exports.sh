@@ -29,12 +29,13 @@
 # testing the base's binaries. This mirrors check-settings-exports.sh.
 #
 # A fresh export is a function of the generator inputs alone (the rule above), so it is kept by their
-# key (`--inputs-key REV`: the git trees of GENERATOR_INPUTS at REV) in a local directory,
-# CACHE/KEY/<repository path> plus CACHE/KEY/.complete (CMUX_ACTION_EXPORTS_CACHE, default a temporary
-# one), backed by R2: in CI a key the directory lacks is read from the public bucket
-# (CMUX_ACTION_EXPORTS_R2_URL; empty turns R2 off), and a run of a feat-cmux-next commit itself (a push,
-# or a base tier or tip dispatch with no same_tree_sha), whose step alone gets the bucket's
-# credentials, uploads the keys it learns (HEAD's fresh export, and the base's when it built it). When the base parent's key is there, the base's
+# key (`--inputs-key REV`: the git trees of GENERATOR_INPUTS at REV, less the exports) in a local
+# directory, CACHE/KEY/<repository path> plus CACHE/KEY/.complete (CMUX_ACTION_EXPORTS_CACHE, default a
+# temporary one), backed by R2: in CI a key the directory lacks is read from the public bucket
+# (CMUX_ACTION_EXPORTS_R2_URL; empty turns R2 off). The base autofix's Mac exports job, a feat-cmux-next
+# push job in the next-cache-writer environment, uploads each export it makes (`--publish`); a run that
+# has the bucket's credentials on a feat-cmux-next ref that is not a pull request also uploads the keys
+# it learns (HEAD's fresh export, and the base's when it built it). When the base parent's key is there, the base's
 # fresh export is read from it and nothing is built: that build was 16 to 32 min of the daemon-test
 # job in 28 of the 68 pull request runs that checked the generated files there (2026-11-16..17), and
 # with the job's cold build it ran the job past its 60 min timeout in 12 of them. A pull request never
@@ -57,13 +58,24 @@ EXPORTS=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md)
 GENERATOR_INPUTS=(Packages plans/cmux-next scripts/cmux-next/regenerate-action-contracts.sh)
 
 # The key of REV's fresh export: its generator inputs' object ids ("-" for one REV lacks), hashed.
+# The exports themselves are left out (plans/cmux-next holds them): the base autofix's commit that
+# lands fresh exports keeps the key of the commit they were made at, so a pull request on either
+# reads the same entry.
 inputs_key() {
-  local rev="$1" path ids=""
+  local rev="$1" path ids="" output_path inside
   git -C "$root" cat-file -e "$rev^{commit}" 2>/dev/null || return 1
   for path in "${GENERATOR_INPUTS[@]}"; do
-    ids+="$path $(git -C "$root" rev-parse -q --verify "$rev:$path" 2>/dev/null || echo -)"$'\n'
+    inside=()
+    for output_path in "${EXPORTS[@]}"; do [[ "$output_path" != "$path"/* ]] || inside+=("$output_path"); done
+    if ((${#inside[@]})); then
+      ids+="$path $(git -C "$root" ls-tree -r --full-tree "$rev" -- "$path" \
+        | awk -F '\t' -v skip="${inside[*]}" 'BEGIN { n = split(skip, a, " "); for (i = 1; i <= n; i++) s[a[i]] = 1 } !($2 in s)' \
+        | git hash-object --stdin)"$'\n'
+    else
+      ids+="$path $(git -C "$root" rev-parse -q --verify "$rev:$path" 2>/dev/null || echo -)"$'\n'
+    fi
   done
-  printf 'v1\n%s' "$ids" | git hash-object --stdin
+  printf 'v2\n%s' "$ids" | git hash-object --stdin
 }
 if [[ "${1:-}" == --inputs-key ]]; then inputs_key "${2:?--inputs-key REV}"; exit; fi
 

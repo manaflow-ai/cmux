@@ -168,6 +168,14 @@ products_are_heads "(k)"
 # The same base again: no build, the same verdict.
 repo 's/^a$/A/' no 's/^e$/E/' yes
 [[ "$(bash "$script" --inputs-key HEAD^1)" == "$base_key" ]] || fail "(k) the same base inputs gave another key"
+# The exports are no input: the base autofix's commit that lands them keeps the key they were made
+# at, while any other change under plans/cmux-next moves it.
+git checkout -q --detach HEAD^1
+echo landed >> "$out" && git commit -qam "base autofix"
+[[ "$(bash "$script" --inputs-key HEAD)" == "$base_key" ]] || fail "(k) a commit that changed only the exports moved the key"
+echo note > plans/cmux-next/notes.md && git add plans/cmux-next/notes.md && git commit -qm "plan note"
+[[ "$(bash "$script" --inputs-key HEAD)" != "$base_key" ]] || fail "(k) a plans/cmux-next change kept the key"
+repo 's/^a$/A/' no 's/^e$/E/' yes
 : > "$tmp/builds"
 CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
   || fail "(k) failed from the cache: $(cat "$tmp/out.txt")"
@@ -203,7 +211,7 @@ GITHUB_ACTIONS=true CMUX_ACTION_EXPORTS_R2_URL="file://$tmp/bucket" CMUX_NEXT_JO
 [[ ! -s "$tmp/builds" ]] || fail "(k) built with the base's export in the bucket: $(cat "$tmp/out.txt")"
 grep -q 'came from the cache' "$tmp/out.txt" || fail "(k) no cache notice from the bucket: $(cat "$tmp/out.txt")"
 : > "$tmp/builds"
-GITHUB_ACTIONS= CMUX_ACTION_EXPORTS_R2_URL="file://$tmp/bucket" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
+GITHUB_ACTIONS='' CMUX_ACTION_EXPORTS_R2_URL="file://$tmp/bucket" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
   || fail "(k) failed outside CI: $(cat "$tmp/out.txt")"
 [[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(k) read the bucket outside CI"
 # --publish: the base autofix's exports made at a commit (a directory holding those that differ from a
