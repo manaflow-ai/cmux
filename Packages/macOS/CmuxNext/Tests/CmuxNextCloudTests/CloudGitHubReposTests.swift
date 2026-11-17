@@ -65,6 +65,24 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubApp.reposScope(status: 200, body: none) == nil)
     }
 
+    /// More repositories: a ready connection's installation settings, only on github.com, absent from an older Worker.
+    @Test func aReadyConnectionNamesItsInstallationSettings() {
+        func status(_ connection: String) -> Data { Self.body(#"{"configured":true,"app_slug":"cmux","connection":\#(connection)}"#) }
+        let user = status(#"{"status":"active","repos":null,"configure_url":"https://github.com/settings/installations/42"}"#)
+        let org = status(#"{"status":"active","repos":[],"configure_url":"https://github.com/organizations/acme-co/settings/installations/7"}"#)
+        #expect(CloudGitHubApp.configureURL(status: 200, body: user) == URL(string: "https://github.com/settings/installations/42"))
+        #expect(CloudGitHubApp.configureURL(status: 200, body: org) == URL(string: "https://github.com/organizations/acme-co/settings/installations/7"))
+        for connection in [#"{"status":"active","repos":null}"#, #"{"status":"active","configure_url":null}"#,
+                           #"{"status":"active","configure_url":"http://github.com/settings/installations/42"}"#,
+                           #"{"status":"active","configure_url":"https://github.com.evil.example/settings/installations/42"}"#,
+                           #"{"status":"active","configure_url":"https://user@github.com/settings/installations/42"}"#,
+                           #"{"status":"active","configure_url":"https://github.com/settings/installations/42/../../x"}"#,
+                           #"{"status":"active","configure_url":"https://github.com/login/oauth/authorize"}"#,
+                           #"{"status":"pending","configure_url":"https://github.com/settings/installations/42"}"#] {
+            #expect(CloudGitHubApp.configureURL(status: 200, body: status(connection)) == nil, "\(connection)")
+        }
+    }
+
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
 
     @Test func theConnectReplyOpensOnlyTheAppsInstallationPage() {

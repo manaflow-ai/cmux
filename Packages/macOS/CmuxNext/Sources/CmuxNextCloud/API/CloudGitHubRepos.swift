@@ -224,13 +224,14 @@ public struct CloudGitHubPicker {
         case unavailable
     }
 
-    /// `github.connect` for the team ``owner()`` names: the App's installation page from `integration.connect` in that
-    /// team (Settings' Connect GitHub asks in the active team, which can be another one).
+    /// `github.connect` for the team ``owner()`` names (Settings' Connect GitHub asks in the active team, which can be
+    /// another one): a connected team's installation settings, where the person adds repositories (More repositories);
+    /// else, or from an older Worker that names none, the App's installation page from `integration.connect` in that team.
     public func connect() async -> Connect {
         guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
               let status = await owner.client.person(path) else { return .unavailable }
         switch CloudGitHubApp(status: status.status, body: status.body) {
-        case .ready: return .connected
+        case .ready: if let settings = CloudGitHubApp.configureURL(status: status.status, body: status.body) { return .open(settings) }
         case .notConnected: break
         case .notConfigured, .unknown: return .unavailable
         }

@@ -53,6 +53,16 @@ public enum CloudGitHubApp: String, Equatable, Sendable {
         gitHubPage(raw, path: #"^/apps/[A-Za-z0-9-]+/installations/new$"#)
     }
 
+    /// A ready connection's installation settings (`connection.configure_url`), where the person adds repositories:
+    /// https://github.com/settings/installations/N, or /organizations/<org>/settings/installations/N. Nil when not
+    /// ready, when an older Worker does not say, or for any other page.
+    public static func configureURL(status: Int, body: Data) -> URL? {
+        guard CloudGitHubApp(status: status, body: body) == .ready,
+              let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let raw = (object["connection"] as? [String: Any])?["configure_url"] as? String else { return nil }
+        return gitHubPage(raw, path: #"^(/organizations/[A-Za-z0-9-]+)?/settings/installations/[0-9]+$"#)
+    }
+
     /// The `exp` of the signed `state` an installation page carries; nil when it carries none. Only a cache hint:
     /// the API verifies the state on completion.
     public static func authorizationExpiry(_ url: URL) -> Date? {
