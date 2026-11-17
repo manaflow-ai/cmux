@@ -20,10 +20,6 @@
             "key": "settings.statusIndicator.style.help",
             "text": "How sidebar rows, tabs and panes show work in progress."
           },
-          "summary": {
-            "key": "settings.statusIndicator.style.summary",
-            "text": "How work in progress shows"
-          },
           "kind": "choice",
           "swift_enum": {
             "name": "StatusIndicatorStyle",
@@ -229,10 +225,6 @@
           "help": {
             "key": "settings.status.inferCommandBusy.help",
             "text": "A shell command that runs a while shows as busy."
-          },
-          "summary": {
-            "key": "settings.status.inferCommandBusy.summary",
-            "text": "Mark long shell commands as busy"
           },
           "kind": "toggle",
           "default": false,

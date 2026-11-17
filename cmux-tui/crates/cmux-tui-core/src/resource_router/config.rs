@@ -399,7 +399,7 @@ mod tests {
         let parsed = edits(&fields(json!({"edits": [
             {"op": "set", "key": "appearance.chromeStyle", "value": "card"},
             {"op": "set_unset", "path": ["layout", "panePadding"], "value": 4},
-            {"op": "reset", "key": "appearance.backdropArt"},
+            {"op": "reset", "key": "agentPane.images.remote"},
             {"op": "reset_unchanged", "key": "appearance.backgroundBlur", "value": null},
             {"op": "set_exact", "key": "editor.wordWrap", "value": "off"},
         ]})))
@@ -480,18 +480,21 @@ mod tests {
         let rows = wire["rows"].as_array().expect("settings.schema lists rows");
         let row = rows
             .iter()
-            .find(|row| row["key"] == "appearance.backdropArt")
-            .expect("appearance.backdropArt is a schema row");
-        assert_eq!(row["summary"]["text"], "Painting behind the window", "{row}");
-        assert_eq!(row["summary"]["key"], "settings.appearance.backdropArt.summary", "{row}");
+            .find(|row| row["key"] == "agentPane.images.remote")
+            .expect("agentPane.images.remote is a schema row");
+        assert_eq!(row["summary"]["text"], "Sites can see that you read the reply", "{row}");
+        assert_eq!(row["summary"]["key"], "settings.agentPane.remoteImages.summary", "{row}");
         assert_ne!(row["summary"], row["help"], "the summary is not the help text");
 
         let schema = cmux_config::Schema::embedded();
-        let typed = schema.row("appearance.backdropArt").and_then(|row| row.summary.as_ref());
-        assert_eq!(typed.map(|text| text.text.as_str()), Some("Painting behind the window"));
+        let typed = schema.row("agentPane.images.remote").and_then(|row| row.summary.as_ref());
+        assert_eq!(
+            typed.map(|text| text.text.as_str()),
+            Some("Sites can see that you read the reply")
+        );
         assert_eq!(
             typed.and_then(|text| text.key.as_deref()),
-            Some("settings.appearance.backdropArt.summary")
+            Some("settings.agentPane.remoteImages.summary")
         );
         for row in &schema.rows {
             if let Some(summary) = &row.summary {

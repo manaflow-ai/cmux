@@ -42,7 +42,8 @@ test("off, the card hides the grants and Guided Setup offers to turn Computer Us
   expect(element.dataset.phase).toBe("off");
   expect(grants(element)).toEqual([]);
   expect(element.querySelector('[data-action="palette.computerUse.accessibility"]')).toBeNull();
-  expect(element.textContent).toContain("Turns on Computer Use and walks you through");
+  // Guided Setup carries no explainer line while off; its button says what it does.
+  expect(element.textContent).not.toContain("Turns on Computer Use and walks you through");
   await act(async () => element.querySelector<HTMLButtonElement>('[data-action="palette.computerUse.setup"]')!.click());
   await settle();
   expect(
@@ -93,7 +94,7 @@ test("a cmux build the legacy helper can't verify says legacy Computer Use is of
   };
   await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: state }));
   await settle();
-  expect(card(page.container)!.textContent).toContain("Legacy Computer Use is off");
+  expect(card(page.container)!.textContent).toContain("Legacy Computer Use needs a signed build");
   page.unmount();
 });
 

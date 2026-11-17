@@ -151,7 +151,6 @@ export function ChiefPetCard({
       {showPetToggle && (
         <>
           <div className="chief-pet-header" data-row-key={CHIEF_PET_ENABLED} tabIndex={-1}>
-            <p className="chief-pet-lede">{t("settingsPage.chiefPet.lede")}</p>
             <button
               type="button"
               className="button"

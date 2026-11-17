@@ -46,7 +46,6 @@ Two group cards, in the Settings card look (transparent groups, hairline rows, n
    - One muted, selectable line: `For <host, host>` when the request names sites.
    - One line: the private field (`type=password`, `autocomplete=off`, `spellcheck=false`, max
      320 px, placeholder "Paste the value"), Store (solid, off while the field is empty), Decline.
-   - One muted line: "Kept in the keychain. Never shown in chat."
    - An error line in danger ink under it when the host refused.
 2. **Keys** (`data-card="keys"`). One row per key: live first, then expired, then revoked; newest
    first within each.

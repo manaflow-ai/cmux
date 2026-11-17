@@ -23,7 +23,6 @@ export function VoiceInputCard() {
               <div className="row-title" id={labelId}>
                 {t("settingsWindow.chief.voiceInput.title")}
               </div>
-              <div className="row-help">{t("settingsWindow.chief.voiceInput.help")}</div>
             </div>
             <div className="row-control">
               <Switch

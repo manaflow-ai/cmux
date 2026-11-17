@@ -23,7 +23,6 @@ nonisolated enum FeedSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.group.githubInbox", "GitHub Inbox"),
                 help: SettingsText.keyed("settings.feed.github.enabled.summary", "Inbox shows your GitHub notifications"),
-                summary: SettingsText.keyed("settings.feed.github.enabled.summary", "Inbox shows your GitHub notifications"),
                 kind: .toggle,
                 default: .bool(FeedGitHubSettings.enabledDefault),
                 keywords: ["github", "inbox", "review", "pull request", "connection", "gh"]

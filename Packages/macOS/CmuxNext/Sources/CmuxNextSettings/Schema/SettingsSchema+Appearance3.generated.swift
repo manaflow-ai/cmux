@@ -82,7 +82,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
                 help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
-                summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
                 kind: .number(SettingNumber(InterfaceScaleSetting.range, step: 0.05, unit: .fraction, placeholder: InterfaceScaleSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
@@ -167,7 +166,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.focusIndicator", "Focused Pane"),
                 help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
-                summary: SettingsText.keyed("settings.appearance.focusIndicator.summary", "How the focused pane stands out"),
                 kind: .choice([
                     SettingChoice(FocusIndicator.border.rawValue, SettingsText.keyed("settings.choice.border", "Border")),
                     SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.keyed("settings.choice.tabs", "Tabs")),
@@ -183,7 +181,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
-                summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
                     SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.keyed("settings.choice.tonal", "Tonal")),
@@ -219,7 +216,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.chromeStyle", "Window Style"),
                 help: SettingsText.keyed("settings.appearance.chromeStyle.help", "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."),
-                summary: SettingsText.keyed("settings.appearance.chromeStyle.summary", "Card, lines and sidebar background"),
                 kind: .choice(ChromeStyleSetting.choices),
                 default: .string(ChromeStyleSetting.fallback.rawValue),
                 keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
@@ -230,7 +226,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.titleAreaTone", "Title Area"),
                 help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."),
-                summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "One color or a subtle tone for the title area"),
                 kind: .choice([
                     SettingChoice(TitleAreaTone.oneColor.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.oneColor", "One Color")),
                     SettingChoice(TitleAreaTone.subtleTone.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.subtleTone", "Subtle Tone")),
@@ -244,7 +239,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.titleAreaContrast", "Title Area Contrast"),
                 help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."),
-                summary: SettingsText.keyed("settings.appearance.titleAreaContrast.summary", "How much the title and tab bar stand apart"),
                 kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
                 default: .number(TitleAreaContrastSetting.fallback),
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
@@ -301,7 +295,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
                 help: SettingsText.keyed("settings.layout.paneSeparation.help", "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."),
-                summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
                 kind: .choice([
                     SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
                     SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),

@@ -21,10 +21,6 @@
             "key": "settings.feed.github.enabled.summary",
             "text": "Inbox shows your GitHub notifications"
           },
-          "summary": {
-            "key": "settings.feed.github.enabled.summary",
-            "text": "Inbox shows your GitHub notifications"
-          },
           "kind": "toggle",
           "default": false,
           "keywords": [

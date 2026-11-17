@@ -62,13 +62,6 @@ const MODE_TITLE: Record<WallpaperMode, string> = {
   sun: "settingsWindow.wallpaperSwitch.sun",
   rotate: "settingsWindow.wallpaperSwitch.rotate",
 };
-const MODE_HELP: Record<WallpaperMode, string> = {
-  off: "settingsWindow.wallpaperSwitch.offHelp",
-  appearance: "settingsWindow.wallpaperSwitch.appearanceHelp",
-  schedule: "settingsWindow.wallpaperSwitch.scheduleHelp",
-  sun: "settingsWindow.wallpaperSwitch.sunHelp",
-  rotate: "settingsWindow.wallpaperSwitch.rotateHelp",
-};
 const EVENT_TITLE: Record<string, string> = {
   time: "settingsWindow.wallpaperSwitch.atTime",
   dawn: "settingsWindow.wallpaperSwitch.dawn",
@@ -383,7 +376,7 @@ function summary(mode: WallpaperMode, values: WallpaperValues, choices: readonly
     case "sun":
       return pictureTitle(values.background, choices);
     default:
-      return t(MODE_HELP[mode]);
+      return "";
   }
 }
 
@@ -564,6 +557,8 @@ export function WallpaperSwitch({
     );
   }
 
+  // The menu design says what the mode picked in one line; no line explains a mode.
+  const line = design === "menu" ? summary(mode, values, choices) : "";
   return (
     <div className="wallpaper-switch" data-wallpaper-switch={mode} data-design={design}>
       <div className="wallpaper-line">
@@ -602,9 +597,7 @@ export function WallpaperSwitch({
           </fieldset>
         )}
       </div>
-      <p className="row-help wallpaper-help">
-        {design === "menu" ? summary(mode, values, choices) : t(MODE_HELP[mode])}
-      </p>
+      {line && <p className="row-help wallpaper-help">{line}</p>}
       {editor && <div className="wallpaper-editor">{editor}</div>}
     </div>
   );

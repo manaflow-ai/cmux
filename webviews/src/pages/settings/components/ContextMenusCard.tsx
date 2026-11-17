@@ -616,7 +616,6 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
               {t("settingsWindow.menus.reset")}
             </Button>
           </header>
-          <p className="row-help menus-help">{t("settingsWindow.menus.help")}</p>
           {failure ? (
             <p className="menus-failure" role="alert" data-failure="">
               {failure}

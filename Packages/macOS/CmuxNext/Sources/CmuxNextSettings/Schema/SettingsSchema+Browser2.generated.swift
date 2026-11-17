@@ -70,7 +70,6 @@ extension BrowserSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.browser.hibernation", "Hibernate Hidden Tabs"),
                 help: SettingsText.keyed("settings.browser.hibernation.help", "Frees memory; history and position are kept."),
-                summary: SettingsText.keyed("settings.browser.hibernation.summary", "Frees memory; history and scroll are kept"),
                 kind: .choiceOrNumber([
                     SettingChoice("moderate", SettingsText.keyed("settings.choice.after30Minutes", "After 30 Minutes")),
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),

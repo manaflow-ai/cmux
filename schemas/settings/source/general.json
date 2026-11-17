@@ -20,10 +20,6 @@
             "key": "settings.history.terminalCommands.help",
             "text": "Lists finished shell commands in History. Command lines can contain secrets."
           },
-          "summary": {
-            "key": "settings.history.terminalCommands.summary",
-            "text": "Shows finished commands in History"
-          },
           "kind": "toggle",
           "default": false,
           "keywords": [
@@ -89,10 +85,6 @@
           "help": {
             "key": "settings.navigation.historySteps.help",
             "text": "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."
-          },
-          "summary": {
-            "key": "settings.navigation.historySteps.summary",
-            "text": "What Go Back and Go Forward step through"
           },
           "kind": "choice",
           "choices": [
@@ -326,10 +318,6 @@
             "key": "settings.app.globalHotKey.help",
             "text": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
           },
-          "summary": {
-            "key": "settings.app.globalHotKey.summary",
-            "text": "Show or hide all windows from any app"
-          },
           "kind": "toggle",
           "default": false,
           "keywords": [
@@ -546,10 +534,6 @@
           "help": {
             "key": "settings.layout.fixedColumnWidth.help",
             "text": "A share of the window width, for Fixed Width new columns."
-          },
-          "summary": {
-            "key": "settings.layout.fixedColumnWidth.summary",
-            "text": "Share of the window width"
           },
           "kind": "number",
           "range": {
@@ -961,10 +945,6 @@
             "key": "settings.layout.rows.help",
             "text": "Off hides New Row and fits a column's existing rows into it without scrolling."
           },
-          "summary": {
-            "key": "settings.layout.rows.summary",
-            "text": "Rows of panes inside a column"
-          },
           "kind": "toggle",
           "default": true,
           "keywords": [
@@ -988,10 +968,6 @@
           "help": {
             "key": "settings.layout.focusFollowsMouse.help",
             "text": "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
-          },
-          "summary": {
-            "key": "settings.layout.focusFollowsMouse.summary",
-            "text": "Hovering or scrolling a pane focuses it"
           },
           "kind": "toggle",
           "default": false,
@@ -1021,10 +997,6 @@
             "key": "settings.layout.scrollAreas.help",
             "text": "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
           },
-          "summary": {
-            "key": "settings.layout.scrollAreas.summary",
-            "text": "Splits scroll instead of squashing"
-          },
           "kind": "toggle",
           "default": false,
           "keywords": [
@@ -1051,10 +1023,6 @@
           "help": {
             "key": "settings.layout.scrollModifier.help",
             "text": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."
-          },
-          "summary": {
-            "key": "settings.layout.scrollModifier.summary",
-            "text": "Command + Scroll moves columns and rows"
           },
           "kind": "choice",
           "choices": [
@@ -1107,10 +1075,6 @@
           "help": {
             "key": "settings.layout.pagesHandleCommandScroll.help",
             "text": "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
-          },
-          "summary": {
-            "key": "settings.layout.pagesHandleCommandScroll.summary",
-            "text": "Figma and Excalidraw keep Command + Scroll zoom"
           },
           "kind": "toggle",
           "default": true,

@@ -73,10 +73,6 @@
             "key": "settings.appearance.theme.help",
             "text": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
           },
-          "summary": {
-            "key": "settings.appearance.theme.summary",
-            "text": "Colors for terminals, and cmux unless App Theme is set"
-          },
           "kind": "theme",
           "swift_owner": "AppThemeSetting",
           "default": null,
@@ -109,10 +105,6 @@
           "help": {
             "key": "settings.appearance.appTheme.help",
             "text": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
-          },
-          "summary": {
-            "key": "settings.appearance.appTheme.summary",
-            "text": "Colors for the window, sidebar, tabs and pages"
           },
           "kind": "theme",
           "swift_owner": "ChromeThemeSetting",
@@ -196,10 +188,6 @@
             "key": "settings.appearance.rotateFavoriteThemes.help",
             "text": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."
           },
-          "summary": {
-            "key": "settings.appearance.rotateFavoriteThemes.summary",
-            "text": "Change to the next starred theme"
-          },
           "kind": "choice",
           "swift_owner": {
             "type": "ThemeFavoritesSetting",
@@ -255,10 +243,6 @@
           "help": {
             "key": "settings.appearance.accent.help",
             "text": "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."
-          },
-          "summary": {
-            "key": "settings.appearance.accent.summary",
-            "text": "Color of selection and focus"
           },
           "kind": "choice",
           "swift_owner": "AccentSetting",
@@ -355,10 +339,6 @@
             "key": "settings.appearance.themeFile.help",
             "text": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
           },
-          "summary": {
-            "key": "settings.appearance.themeFile.summary",
-            "text": "A look from ~/.config/cmux/themes"
-          },
           "kind": "text",
           "swift_owner": "ThemeFileSetting",
           "default": null,
@@ -387,10 +367,6 @@
           "help": {
             "key": "settings.appearance.highlightColor.help",
             "text": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."
-          },
-          "summary": {
-            "key": "settings.appearance.highlightColor.summary",
-            "text": "Color of selected text"
           },
           "kind": "color",
           "swift_owner": "HighlightColorSetting",
@@ -430,10 +406,6 @@
             "key": "settings.appearance.backdropArt.help",
             "text": "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
           },
-          "summary": {
-            "key": "settings.appearance.backdropArt.summary",
-            "text": "Painting behind the window"
-          },
           "kind": "choice",
           "swift_owner": "BackdropArtSetting",
           "choices": [
@@ -467,10 +439,6 @@
           "help": {
             "key": "settings.appearance.background.help",
             "text": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."
-          },
-          "summary": {
-            "key": "settings.appearance.background.summary",
-            "text": "Image behind your terminals"
           },
           "kind": "choice",
           "swift_owner": "BackdropSelectionSetting",
@@ -532,10 +500,6 @@
           "help": {
             "key": "settings.appearance.backgroundRotation.help",
             "text": "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."
-          },
-          "summary": {
-            "key": "settings.appearance.backgroundRotation.summary",
-            "text": "How often Shuffle changes the picture"
           },
           "kind": "choice_or_number",
           "swift_owner": {
@@ -697,10 +661,6 @@
             "key": "settings.appearance.backgroundDynamic.help",
             "text": "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."
           },
-          "summary": {
-            "key": "settings.appearance.backgroundDynamic.summary",
-            "text": "Follow light and dark, or the sun"
-          },
           "kind": "choice",
           "swift_owner": {
             "type": "BackdropSelectionSetting",
@@ -834,10 +794,6 @@
             "key": "settings.appearance.paneBackgrounds.help",
             "text": "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
           },
-          "summary": {
-            "key": "settings.appearance.paneBackgrounds.summary",
-            "text": "One background or one per pane"
-          },
           "kind": "choice",
           "swift_owner": "PaneBackgroundsSetting",
           "swift_enum": {
@@ -935,10 +891,6 @@
             "key": "settings.appearance.backgroundOpacity.help",
             "text": "How much of the theme color covers the material behind the window."
           },
-          "summary": {
-            "key": "settings.appearance.backgroundOpacity.summary",
-            "text": "Theme color over the backdrop"
-          },
           "kind": "number",
           "swift_owner": {
             "type": "WindowBackgroundSetting",
@@ -974,10 +926,6 @@
           "help": {
             "key": "settings.appearance.backgroundBlur.help",
             "text": "Unset, the window follows Ghostty's background-opacity and background-blur."
-          },
-          "summary": {
-            "key": "settings.appearance.backgroundBlur.summary",
-            "text": "Clear Glass shows the desktop through the wallpaper"
           },
           "kind": "choice",
           "swift_owner": {
@@ -1439,10 +1387,6 @@
             "key": "settings.appearance.interfaceSize.help",
             "text": "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
           },
-          "summary": {
-            "key": "settings.appearance.interfaceSize.summary",
-            "text": "Text size of tabs, sidebar and controls"
-          },
           "kind": "number",
           "swift_owner": "InterfaceScaleSetting",
           "range": {
@@ -1731,10 +1675,6 @@
             "key": "settings.appearance.focusIndicator.help",
             "text": "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."
           },
-          "summary": {
-            "key": "settings.appearance.focusIndicator.summary",
-            "text": "How the focused pane stands out"
-          },
           "kind": "choice",
           "swift_owner": {
             "type": "PaneFocusSettings",
@@ -1794,10 +1734,6 @@
           "help": {
             "key": "settings.focus.inactiveTabStyle.help",
             "text": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
-          },
-          "summary": {
-            "key": "settings.focus.inactiveTabStyle.summary",
-            "text": "How tabs in other panes tone down"
           },
           "kind": "choice",
           "swift_owner": {
@@ -1910,10 +1846,6 @@
             "key": "settings.appearance.chromeStyle.help",
             "text": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
           },
-          "summary": {
-            "key": "settings.appearance.chromeStyle.summary",
-            "text": "Card, lines and sidebar background"
-          },
           "kind": "choice",
           "swift_owner": "ChromeStyleSetting",
           "swift_enum": {
@@ -1955,10 +1887,6 @@
           "help": {
             "key": "settings.appearance.titleAreaTone.help",
             "text": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
-          },
-          "summary": {
-            "key": "settings.appearance.titleAreaTone.summary",
-            "text": "One color or a subtle tone for the title area"
           },
           "kind": "choice",
           "choices": [
@@ -2011,10 +1939,6 @@
           "help": {
             "key": "settings.appearance.titleAreaContrast.help",
             "text": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
-          },
-          "summary": {
-            "key": "settings.appearance.titleAreaContrast.summary",
-            "text": "How much the title and tab bar stand apart"
           },
           "kind": "number",
           "swift_owner": "TitleAreaContrastSetting",
@@ -2141,10 +2065,6 @@
           "help": {
             "key": "settings.layout.paneSeparation.help",
             "text": "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
-          },
-          "summary": {
-            "key": "settings.layout.paneSeparation.summary",
-            "text": "How panes are told apart"
           },
           "kind": "choice",
           "swift_owner": {

@@ -1919,13 +1919,6 @@ mark {
 
 /* Settings > Appearance > Density (DensityCard): tiles that draw each density at its own sizes.
    The --density-* sizes come from the density's tokens (density.ts), set inline per preview. */
-.density-help {
-  margin: 0 0 var(--page-size-10);
-  color: var(--muted-text);
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
 .density-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
@@ -2181,10 +2174,6 @@ mark {
 
 .menus-detail-spacer {
   flex: 1;
-}
-
-.menus-help {
-  margin: var(--ds-space-1) 0 var(--page-size-10);
 }
 
 /* Preview the same glass, rim and grid as the menu the person is arranging. */

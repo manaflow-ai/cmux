@@ -13,7 +13,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.theme", "Theme"),
                 help: SettingsText.keyed("settings.appearance.theme.help", "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."),
-                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for terminals, and cmux unless App Theme is set"),
                 kind: .theme,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
@@ -25,7 +24,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
                 help: SettingsText.keyed("settings.appearance.appTheme.help", "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."),
-                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for the window, sidebar, tabs and pages"),
                 kind: .theme,
                 default: .string(ChromeThemeSetting.fallback),
                 defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
@@ -57,7 +55,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.rotateFavoriteThemes", "Rotate Starred Themes"),
                 help: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.help", "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."),
-                summary: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.summary", "Change to the next starred theme"),
                 kind: .choice([
                     SettingChoice(ThemeRotation.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                     SettingChoice(ThemeRotation.launch.rawValue, SettingsText.keyed("settings.choice.eachLaunch", "Each Launch")),
@@ -72,7 +69,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.accent", "Accent"),
                 help: SettingsText.keyed("settings.appearance.accent.help", "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."),
-                summary: SettingsText.keyed("settings.appearance.accent.summary", "Color of selection and focus"),
                 kind: .choice([
                     SettingChoice(ThemeAccent.neutral.rawValue, SettingsText.keyed("settings.choice.accent.neutral", "Neutral")),
                     SettingChoice(ThemeAccent.theme.rawValue, SettingsText.keyed("settings.choice.accent.theme", "Theme Color")),
@@ -93,7 +89,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.themeFile", "Theme File"),
                 help: SettingsText.keyed("settings.appearance.themeFile.help", "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."),
-                summary: SettingsText.keyed("settings.appearance.themeFile.summary", "A look from ~/.config/cmux/themes"),
                 kind: .text,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
@@ -105,7 +100,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
                 help: SettingsText.keyed("settings.appearance.highlightColor.help", "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
-                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
                 kind: .color,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
@@ -125,7 +119,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
                 help: SettingsText.keyed("settings.appearance.backdropArt.help", "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."),
-                summary: SettingsText.keyed("settings.appearance.backdropArt.summary", "Painting behind the window"),
                 kind: .choice([
                     SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                 ] + BackdropArtSetting.artChoices),
@@ -138,7 +131,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
                 help: SettingsText.keyed("settings.appearance.background.help", "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."),
-                summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([
                     SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                     SettingChoice("daily", SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings")),
@@ -154,7 +146,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
                 help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."),
-                summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
                 kind: .choiceOrNumber([
                     SettingChoice(BackdropRotation.quarterHour.rawValue, SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
                     SettingChoice(BackdropRotation.hourly.rawValue, SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
@@ -201,7 +192,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backgroundDynamic", "Dynamic Wallpaper"),
                 help: SettingsText.keyed("settings.appearance.backgroundDynamic.help", "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."),
-                summary: SettingsText.keyed("settings.appearance.backgroundDynamic.summary", "Follow light and dark, or the sun"),
                 kind: .choice([
                     SettingChoice(BackdropDynamicMode.appearance.rawValue, SettingsText.keyed("settings.choice.backgroundFollowAppearance", "Light and Dark")),
                     SettingChoice(BackdropDynamicMode.time.rawValue, SettingsText.keyed("settings.choice.backgroundTimeOfDay", "Time of Day")),
@@ -247,7 +237,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.paneBackgrounds", "Pane Backgrounds"),
                 help: SettingsText.keyed("settings.appearance.paneBackgrounds.help", "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."),
-                summary: SettingsText.keyed("settings.appearance.paneBackgrounds.summary", "One background or one per pane"),
                 kind: .choice([
                     SettingChoice(PaneBackgroundMode.shared.rawValue, SettingsText.keyed("settings.choice.paneBackgrounds.shared", "One for the Window")),
                     SettingChoice(PaneBackgroundMode.perPane.rawValue, SettingsText.keyed("settings.choice.paneBackgrounds.perPane", "One per Pane")),
@@ -281,7 +270,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backgroundOpacity", "Opacity"),
                 help: SettingsText.keyed("settings.appearance.backgroundOpacity.help", "How much of the theme color covers the material behind the window."),
-                summary: SettingsText.keyed("settings.appearance.backgroundOpacity.summary", "Theme color over the backdrop"),
                 kind: .number(SettingNumber(WindowBackgroundSetting.opacityRange, step: 0.05, unit: .fraction, placeholder: WindowBackgroundSetting.opacityPlaceholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
@@ -293,7 +281,6 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backgroundBlur", "Material"),
                 help: SettingsText.keyed("settings.appearance.backgroundBlur.help", "Unset, the window follows Ghostty's background-opacity and background-blur."),
-                summary: SettingsText.keyed("settings.appearance.backgroundBlur.summary", "Clear Glass shows the desktop through the wallpaper"),
                 kind: .choice([
                     SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.keyed("settings.choice.frosted", "Frosted")),
                     SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),

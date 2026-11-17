@@ -45,7 +45,6 @@ extension GeneralSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
-                summary: SettingsText.keyed("settings.layout.fixedColumnWidth.summary", "Share of the window width"),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
                 default: .number(DefaultColumnWidthSetting.fallback),
                 keywords: ["width"]
@@ -171,7 +170,6 @@ extension GeneralSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.layout.rows", "Rows"),
                 help: SettingsText.keyed("settings.layout.rows.help", "Off hides New Row and fits a column's existing rows into it without scrolling."),
-                summary: SettingsText.keyed("settings.layout.rows.summary", "Rows of panes inside a column"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.rowsDefault),
                 keywords: ["row", "column", "scroll", "vertical"]
@@ -182,7 +180,6 @@ extension GeneralSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.layout.focusFollowsMouse", "Focus Follows Mouse"),
                 help: SettingsText.keyed("settings.layout.focusFollowsMouse.help", "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."),
-                summary: SettingsText.keyed("settings.layout.focusFollowsMouse.summary", "Hovering or scrolling a pane focuses it"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.focusFollowsMouseDefault),
                 keywords: ["focus", "scroll", "wheel", "trackpad", "pane", "follows mouse", "hover", "pointer"]
@@ -193,7 +190,6 @@ extension GeneralSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.layout.scrollAreas", "Scroll Areas"),
                 help: SettingsText.keyed("settings.layout.scrollAreas.help", "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."),
-                summary: SettingsText.keyed("settings.layout.scrollAreas.summary", "Splits scroll instead of squashing"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.scrollAreasDefault),
                 keywords: ["scroll", "area", "split", "squash", "dock", "horizontal", "overflow"]
@@ -204,7 +200,6 @@ extension GeneralSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.layout.scrollModifier", "Scroll Columns and Rows With"),
                 help: SettingsText.keyed("settings.layout.scrollModifier.help", "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."),
-                summary: SettingsText.keyed("settings.layout.scrollModifier.summary", "Command + Scroll moves columns and rows"),
                 kind: .choice([
                     SettingChoice(LayoutScrollModifier.command.rawValue, SettingsText.keyed("settings.choice.scrollModifierCommand", "Command + Scroll")),
                     SettingChoice(LayoutScrollModifier.noModifier.rawValue, SettingsText.keyed("settings.choice.scrollModifierNone", "Scroll Without a Modifier")),
@@ -218,7 +213,6 @@ extension GeneralSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.layout.pagesHandleCommandScroll", "Web Pages Get Command + Scroll First"),
                 help: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.help", "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."),
-                summary: SettingsText.keyed("settings.layout.pagesHandleCommandScroll.summary", "Figma and Excalidraw keep Command + Scroll zoom"),
                 kind: .toggle,
                 default: .bool(ColumnLayoutSettings.pagesHandleCommandScrollDefault),
                 keywords: ["scroll", "command", "zoom", "figma", "excalidraw", "browser", "web", "page", "columns", "pan"]

@@ -200,7 +200,6 @@ function KeyRequestForm({
           {t("settingsPage.keys.decline")}
         </Button>
       </div>
-      <div className="row-help">{t("settingsPage.keys.private")}</div>
       {error && (
         <div className="row-error" role="alert" data-key-request-error="">
           {error}

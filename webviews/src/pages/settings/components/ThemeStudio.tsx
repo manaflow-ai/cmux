@@ -312,7 +312,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 state={themeState}
                 id={ids.match}
                 title={t("settingsPage.theme.matchSystem")}
-                help={t("settingsPage.theme.matchSystemHelp")}
                 menu={themeMenu}
               >
                 <Switch
@@ -345,7 +344,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   onRevealed={markRevealed}
                   id={ids.theme}
                   title={t("settingsPage.theme.terminal")}
-                  help={t("settingsPage.theme.terminalHelp")}
                   menu={themeMenu}
                 >
                   {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
@@ -373,7 +371,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 state={appState}
                 id={ids.appMatch}
                 title={t("settingsPage.theme.matchSystem")}
-                help={appSpec ? t("settingsPage.theme.matchSystemHelp") : t("settingsPage.theme.appFollowsTerminal")}
+                help={appSpec ? undefined : t("settingsPage.theme.appFollowsTerminal")}
                 menu={appMenu}
               >
                 {/* While the app theme matches the terminal theme it follows the terminal's switch. */}
@@ -453,7 +451,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               settingKey={THEME_FILE_KEY}
               id={ids.themeFileOpen}
               title={t("settingsPage.theme.file.open")}
-              help={t("settingsPage.theme.file.openHelp")}
               menu={themeFileMenu}
             >
               <Button

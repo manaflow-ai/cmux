@@ -2314,10 +2314,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.history.terminalCommands.summary",
-        "text" : "Shows finished commands in History"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -2627,10 +2624,7 @@
         true
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.navigation.historySteps.summary",
-        "text" : "What Go Back and Go Forward step through"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -3493,10 +3487,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.app.globalHotKey.summary",
-        "text" : "Show or hide all windows from any app"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -4392,10 +4383,7 @@
         true
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.tabs.newTabApp.summary",
-        "text" : "An extension's New Tab page"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -5337,10 +5325,7 @@
         true
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.tabs.barOrder.summary",
-        "text" : "Which sits on top in a browser pane"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -7966,10 +7951,7 @@
         "1"
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.layout.fixedColumnWidth.summary",
-        "text" : "Share of the window width"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -11366,10 +11348,7 @@
         true
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.computerUse.driver.summary",
-        "text" : "Which helper runs Computer Use"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -11502,10 +11481,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.computerUse.livePreview.summary",
-        "text" : "Shows the app an agent uses in its chat"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -11640,10 +11616,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.freeModel.enabled.summary",
-        "text" : "Free AI model while signed out"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -17739,10 +17712,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.layout.rows.summary",
-        "text" : "Rows of panes inside a column"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -17879,10 +17849,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.layout.focusFollowsMouse.summary",
-        "text" : "Hovering or scrolling a pane focuses it"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -18018,10 +17985,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.layout.scrollAreas.summary",
-        "text" : "Splits scroll instead of squashing"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -18176,10 +18140,7 @@
         true
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.layout.scrollModifier.summary",
-        "text" : "Command + Scroll moves columns and rows"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -18318,10 +18279,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.layout.pagesHandleCommandScroll.summary",
-        "text" : "Figma and Excalidraw keep Command + Scroll zoom"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -21911,10 +21869,7 @@
         ]
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.chats.roots.summary",
-        "text" : "Extra folders to read chats from"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -24643,10 +24598,7 @@
         null
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.theme.summary",
-        "text" : "Colors for terminals, and cmux unless App Theme is set"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -24784,10 +24736,7 @@
         null
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.appTheme.summary",
-        "text" : "Colors for the window, sidebar, tabs and pages"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -25247,10 +25196,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.rotateFavoriteThemes.summary",
-        "text" : "Change to the next starred theme"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -25459,10 +25405,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.accent.summary",
-        "text" : "Color of selection and focus"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -25602,10 +25545,7 @@
         null
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.themeFile.summary",
-        "text" : "A look from ~/.config/cmux/themes"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -25747,10 +25687,7 @@
         0
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.highlightColor.summary",
-        "text" : "Color of selected text"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -27061,10 +26998,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.backdropArt.summary",
-        "text" : "Painting behind the window"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -28421,10 +28355,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.background.summary",
-        "text" : "Image behind your terminals"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -28597,10 +28528,7 @@
         "1"
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.backgroundRotation.summary",
-        "text" : "How often Shuffle changes the picture"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -31283,10 +31211,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.backgroundDynamic.summary",
-        "text" : "Follow light and dark, or the sun"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -31873,10 +31798,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.paneBackgrounds.summary",
-        "text" : "One background or one per pane"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -32298,10 +32220,7 @@
         "1"
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.backgroundOpacity.summary",
-        "text" : "Theme color over the backdrop"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -32471,10 +32390,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.backgroundBlur.summary",
-        "text" : "Clear Glass shows the desktop through the wallpaper"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -34250,10 +34166,7 @@
         "1"
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.interfaceSize.summary",
-        "text" : "Text size of tabs, sidebar and controls"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -35432,10 +35345,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.focusIndicator.summary",
-        "text" : "How the focused pane stands out"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -35595,10 +35505,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.focus.inactiveTabStyle.summary",
-        "text" : "How tabs in other panes tone down"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -35978,10 +35885,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.chromeStyle.summary",
-        "text" : "Card, lines and sidebar background"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -36140,10 +36044,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.titleAreaTone.summary",
-        "text" : "One color or a subtle tone for the title area"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -36291,10 +36192,7 @@
         "1"
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.titleAreaContrast.summary",
-        "text" : "How much the title and tab bar stand apart"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -36869,10 +36767,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.layout.paneSeparation.summary",
-        "text" : "How panes are told apart"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -44387,10 +44282,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.statusIndicator.style.summary",
-        "text" : "How work in progress shows"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -45480,10 +45372,7 @@
         null
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.status.inferCommandBusy.summary",
-        "text" : "Mark long shell commands as busy"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -53953,10 +53842,7 @@
         }
       ],
       "section" : "terminal",
-      "summary" : {
-        "key" : "settings.terminal.linkOpener.rules.summary",
-        "text" : "Rules for program links"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -63752,10 +63638,7 @@
         null
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.sidebar.minimal.summary",
-        "text" : "Buttons show only on hover"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -66093,10 +65976,7 @@
         null
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.sidebar.cards.tips.summary",
-        "text" : "A daily tip about a feature you haven't used"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -66235,10 +66115,7 @@
         null
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.sidebar.priorityView.enabled.summary",
-        "text" : "Agent chats that need you, at the top of the sidebar"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -66988,10 +66865,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.tabs.commandDigits.summary",
-        "text" : "Workspaces or tabs on Command-1 to 9"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -67142,10 +67016,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.sidebar.numbering.summary",
-        "text" : "What Command-1 to Command-9 go to"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -67444,10 +67315,7 @@
         true
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.sidebar.stepping.summary",
-        "text" : "What Command-Control-] and [ step through"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -84331,10 +84199,7 @@
         "1"
       ],
       "section" : "browser",
-      "summary" : {
-        "key" : "settings.browser.hibernation.summary",
-        "text" : "Frees memory; history and scroll are kept"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -89500,10 +89365,7 @@
         }
       ],
       "section" : "browser",
-      "summary" : {
-        "key" : "settings.browser.externalLinkPatterns.summary",
-        "text" : "Links that open in your default browser"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -95557,10 +95419,7 @@
         "1"
       ],
       "section" : "notifications",
-      "summary" : {
-        "key" : "settings.notifications.suppressWhileTyping.summary",
-        "text" : "No alerts from a pane you just typed in"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -95698,10 +95557,7 @@
         "1"
       ],
       "section" : "notifications",
-      "summary" : {
-        "key" : "settings.status.runNotifyMinimumSeconds.summary",
-        "text" : "Long runs notify when they finish"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -101438,10 +101294,7 @@
         null
       ],
       "section" : "notifications",
-      "summary" : {
-        "key" : "settings.feed.github.enabled.summary",
-        "text" : "Inbox shows your GitHub notifications"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [
@@ -101741,10 +101594,7 @@
         true
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.agentPane.outsideRoots.summary",
-        "text" : "File links outside the chat's folders"
-      },
+      "summary" : null,
       "surfaces" : {
         "cli" : {
           "aliases" : [

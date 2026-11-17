@@ -52,7 +52,6 @@ export function CloudEnvironmentsCard() {
   return (
     <section className="group" data-card="cloudEnvironments">
       <h3 className="group-title">{t("settingsPage.cloudEnvironments.title")}</h3>
-      <p className="row-help">{t("settingsPage.cloudEnvironments.help")}</p>
       {state && !state.available ? (
         <div className="row" data-environments-unavailable="">
           <span className="row-help">{t("settingsPage.cloudEnvironments.unavailable")}</span>

@@ -128,10 +128,6 @@
             "key": "settings.terminal.linkOpener.rules.help",
             "text": "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
           },
-          "summary": {
-            "key": "settings.terminal.linkOpener.rules.summary",
-            "text": "Rules for program links"
-          },
           "kind": "string_list",
           "default": [],
           "placeholder": {

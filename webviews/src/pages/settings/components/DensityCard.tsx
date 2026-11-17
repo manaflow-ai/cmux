@@ -194,7 +194,6 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
   return (
     <section className="group" data-card="density">
       <h3 className="group-title">{t("settings.appearance.density")}</h3>
-      <p className="density-help">{t("settings.appearance.density.help")}</p>
       <div
         className="density-tiles"
         // ui-allow: the density tiles are buttons in the ARIA radio pattern (see the tile below).

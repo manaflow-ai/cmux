@@ -375,10 +375,6 @@
             "key": "settings.notifications.suppressWhileTyping.help",
             "text": "A pane typed into this recently is marked read at once. 0 turns it off."
           },
-          "summary": {
-            "key": "settings.notifications.suppressWhileTyping.summary",
-            "text": "No alerts from a pane you just typed in"
-          },
           "kind": "number",
           "range": {
             "min": 0,
@@ -399,10 +395,6 @@
           "help": {
             "key": "settings.status.runNotifyMinimumSeconds.help",
             "text": "cmux status run notifies when the command took at least this long."
-          },
-          "summary": {
-            "key": "settings.status.runNotifyMinimumSeconds.summary",
-            "text": "Long runs notify when they finish"
           },
           "kind": "number",
           "range": {

@@ -14,23 +14,20 @@ import type { WorktreeProject } from "../store";
 import { t } from "../strings";
 
 type Command = "setup" | "run" | "teardown";
-const COMMANDS: { key: Command; label: string; help: string; placeholder: string }[] = [
+const COMMANDS: { key: Command; label: string; placeholder: string }[] = [
   {
     key: "setup",
     label: "settingsPage.worktreeSetup.setup",
-    help: "settingsPage.worktreeSetup.setupHelp",
     placeholder: "bun install",
   },
   {
     key: "run",
     label: "settingsPage.worktreeSetup.run",
-    help: "settingsPage.worktreeSetup.runHelp",
     placeholder: "bun run dev --port $CMUX_PORT",
   },
   {
     key: "teardown",
     label: "settingsPage.worktreeSetup.teardown",
-    help: "settingsPage.worktreeSetup.teardownHelp",
     placeholder: "",
   },
 ];
@@ -131,7 +128,6 @@ export function WorktreeSetupCard() {
   return (
     <section className="group" data-card="worktreeSetup">
       <h3 className="group-title">{t("settingsPage.worktreeSetup.title")}</h3>
-      <p className="row-help">{t("settingsPage.worktreeSetup.help")}</p>
       {unavailable ? (
         <div className="row" data-worktree-unavailable="">
           <span className="row-help">{t("settingsPage.worktreeSetup.unavailable")}</span>
@@ -174,7 +170,6 @@ export function WorktreeSetupCard() {
                 key={command.key}
                 id={command.key}
                 label={t(command.label)}
-                help={t(command.help)}
                 placeholder={repository[command.key] ?? command.placeholder}
                 repository={repository[command.key]}
                 value={draft[command.key]}
@@ -191,7 +186,6 @@ export function WorktreeSetupCard() {
             ))}
             <label className="worktree-setup-field" data-worktree-field="include">
               <span className="row-title">{t("settingsPage.worktreeSetup.include")}</span>
-              <span className="row-help">{t("settingsPage.worktreeSetup.includeHelp")}</span>
               <textarea
                 className="field font-mono"
                 aria-label={t("settingsPage.worktreeSetup.include")}
@@ -264,7 +258,6 @@ export function WorktreeSetupCard() {
 function CommandField({
   id,
   label,
-  help,
   placeholder,
   repository,
   value,
@@ -273,7 +266,6 @@ function CommandField({
 }: {
   id: Command;
   label: string;
-  help: string;
   placeholder: string;
   repository: string | undefined;
   value: string | undefined;
@@ -289,7 +281,6 @@ function CommandField({
   return (
     <label className="worktree-setup-field" data-worktree-field={id} data-source={state}>
       <span className="row-title">{label}</span>
-      <span className="row-help">{help}</span>
       <textarea
         className="field font-mono"
         aria-label={label}

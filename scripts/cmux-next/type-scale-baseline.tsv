@@ -29,7 +29,7 @@ webviews/src/pages/history/styles.css	size	6
 webviews/src/pages/keybindings/styles.css	size	11
 webviews/src/pages/markdown/styles.css	size	1
 webviews/src/pages/passwords/styles.css	size	6
-webviews/src/pages/settings/components/AgentHarnesses.tsx	size	16
+webviews/src/pages/settings/components/AgentHarnesses.tsx	size	15
 webviews/src/pages/settings/components/ThemePreview.tsx	size	1
 webviews/src/pages/shared/pageBase.css	size	1
 webviews/src/sidebar/AllChatsDesigns.css	size	3

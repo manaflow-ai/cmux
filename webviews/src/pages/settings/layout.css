@@ -1119,16 +1119,9 @@
 .chief-pet-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--ds-space-4);
   margin: 0 var(--page-size-2) var(--ds-space-3);
-}
-
-.chief-pet-lede {
-  margin: 0;
-  color: var(--muted-text);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .chief-pet-preview {

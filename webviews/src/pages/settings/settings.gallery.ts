@@ -289,6 +289,23 @@ export const heightChangingVariants: Record<string, SettingsPageVariant> = {
     ],
     note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
+  // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
+  // Shuffle Paintings opens the Rotate editor above the Opacity rows, which are in view.
+  "appearance-undo-bar": variant("personalization", {
+    focus: "personalization.background",
+    host: {
+      ...host,
+      derived: { "appearance.backgroundOpacity": 1 },
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Paintings"]'),
+      wait("[data-appearance-bar] [data-undo]:not([disabled])"),
+      { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
+    ],
+    note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+  }),
   "theme-file-refused": variant("theme", {
     allThemes: true,
     options: { values: { "appearance.theme": "Dracula" } },
@@ -605,22 +622,6 @@ Object.assign(variants, {
   "personalization-sounds": variant("personalization", {
     focus: "personalization.sounds",
     note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
-  }),
-  // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
-  "appearance-undo-bar": variant("personalization", {
-    focus: "personalization.background",
-    host: {
-      ...host,
-      derived: { "appearance.backgroundOpacity": 1 },
-      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
-    },
-    steps: [
-      wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Paintings"]'),
-      wait("[data-appearance-bar] [data-undo]:not([disabled])"),
-      { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
-    ],
-    note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
   // The floating bar's Presets menu open: Solid, Frosted, Glass and Clear, the current one checked.
   "appearance-presets": variant("appearance", {

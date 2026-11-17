@@ -292,7 +292,6 @@ extension NotificationSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.notifications.suppressWhileTyping", "Quiet After Typing"),
                 help: SettingsText.keyed("settings.notifications.suppressWhileTyping.help", "A pane typed into this recently is marked read at once. 0 turns it off."),
-                summary: SettingsText.keyed("settings.notifications.suppressWhileTyping.summary", "No alerts from a pane you just typed in"),
                 kind: .number(SettingNumber(NotificationPreferences.typingRange, step: 1, unit: .seconds)),
                 default: .number(NotificationPreferences.typingDefault),
                 keywords: []
@@ -303,7 +302,6 @@ extension NotificationSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.status.runNotifyMinimumSeconds", "Notify When a Run Takes"),
                 help: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.help", "cmux status run notifies when the command took at least this long."),
-                summary: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.summary", "Long runs notify when they finish"),
                 kind: .number(SettingNumber(StatusBehaviorSettings.runNotifyRange, step: 1, unit: .seconds)),
                 default: .number(StatusBehaviorSettings.runNotifyDefault),
                 keywords: []

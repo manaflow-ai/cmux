@@ -43,7 +43,6 @@ nonisolated enum TabSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.tabs.newTabApp", "New Tab App"),
                 help: SettingsText.keyed("settings.tabs.newTabApp.help", "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."),
-                summary: SettingsText.keyed("settings.tabs.newTabApp.summary", "An extension's New Tab page"),
                 kind: .text,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
@@ -122,7 +121,6 @@ nonisolated enum TabSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.tabs.barOrder", "Tab Bar and Browser Toolbar"),
                 help: SettingsText.keyed("settings.tabs.barOrder.help", "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."),
-                summary: SettingsText.keyed("settings.tabs.barOrder.summary", "Which sits on top in a browser pane"),
                 kind: .choice([
                     SettingChoice(TabBarOrder.aboveToolbar.rawValue, SettingsText.keyed("settings.choice.tabsAboveToolbar", "Tab Bar Above")),
                     SettingChoice(TabBarOrder.belowToolbar.rawValue, SettingsText.keyed("settings.choice.tabsBelowToolbar", "Tab Bar Below")),
