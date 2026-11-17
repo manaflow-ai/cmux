@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import enum CmuxNextControl.LaunchPriorChat
 public import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextDictation
@@ -232,7 +233,7 @@ public final class AgentPaneView: NSView {
             let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
             pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources, chatModel: model)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -422,7 +423,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -632,6 +633,9 @@ public final class AgentPaneView: NSView {
             openPanel?.warmWhenIdle()
             // The window's toasts stay clear of its composer.
             toastAvoidanceMoved()
+            // A chat (not a new tab's page) shown before the launch's pane region is ready: the restored front tab is a chat.
+            // Chats outside the focused pane wait for that region (`AgentTabStore.deferAtLaunch`); `cmux app launch-times`, CMUX-119.
+            if model.newTab == nil, !LaunchReveal.shared.isReady(.pane) { AgentPaneLaunchTimings.shared.mark(LaunchPriorChat.frontMark) }
         }
         applyTheme()
     }

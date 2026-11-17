@@ -6622,6 +6622,55 @@ class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
         self.assertIsNone(excuse.RERUN_ASK.search("the check said: please re-run this checker"))
 
 
+class GitHubQuotaRedIsInfra(unittest.TestCase):
+    """A red whose failed steps printed only GitHub's API rate-limit refusal (cmux#44387 at cf31af39, job
+    133700254405: `re-run the runs that deferred to the published tree` could not list its markers) is Infra, a
+    refusal naming the re-run, with the job green on base. Another error beside it keeps the comparison, and a base
+    red the same way still excuses it as the base's."""
+
+    NAME = "re-run the runs that deferred to the published tree"
+    STEP = "Re-run the runs that deferred to this tree"
+    QUOTA = ("##[error]tree f416335316d9 is published, but gh api repos/manaflow-ai/cmux/actions/artifacts?name=x "
+             "failed: gh: API rate limit exceeded for installation ID 175618676. (HTTP 403). Those commits have no "
+             "cmux-tui manifest until their runs are re-run (gh run rerun RUN).")
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def judge(self, *lines, base_red=False):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        base = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
+        if base_red:
+            github.logs[2] = log(self.NAME, self.STEP, *lines)
+        else:
+            base["conclusion"] = "success"
+            base["steps"] = [dict(step, conclusion="success") for step in base["steps"]]
+            github.base_runs[1]["conclusion"] = "success"
+            github.logs[2] = log(self.NAME, self.STEP, "Re-ran run 1 (feat-cmux-next, attempt 1).")
+        github.jobs[2] = base
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_quota_only_red_is_infra_with_base_green(self):
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*API rate limit exceeded.*needs a re-run"):
+            self.judge(self.QUOTA, self.EXIT)
+
+    def test_a_red_with_another_error_beside_the_quota_is_not_infra(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(self.QUOTA, "##[error]manifest mismatch: cmux-tui/abc/manifest.json holds other bytes", self.EXIT)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+
+    def test_a_base_red_the_same_way_is_still_compared(self):
+        try:
+            self.judge(self.QUOTA, self.EXIT, base_red=True)
+        except excuse.Refused as caught:
+            self.assertNotIsInstance(caught, excuse.Infra)
+
+    def test_only_the_quota_line_matches(self):
+        self.assertIsNotNone(excuse.GITHUB_QUOTA.search("gh: API rate limit exceeded for installation ID 1"))
+        self.assertIsNotNone(excuse.GITHUB_QUOTA.search("You have exceeded a secondary rate limit."))
+        self.assertIsNone(excuse.GITHUB_QUOTA.search("Deployment rate limited"))
+
+
 class WsCheckGitHub:
     """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
     for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""
@@ -10407,7 +10456,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
-    "asks_only_rerun", "warn_only_steps", "without_warn_only",
+    "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
@@ -10425,6 +10474,8 @@ RAW_LOG_READERS = {
     "failed_steps_log": "what a comment shows; never compared",
     "step_owners": "the one placer of a line in a step, read by the two above alone",
     "lines_of": "a parser of log lines",
+    "check_passed_in": "one line of the concurrent check runner's own (`<command>: ok, 22s`), read to refuse; "
+                       "compares nothing and excuses nothing",
     "unplaced_signature": "an unplaced log's whole-log signature, compared only on identity (UnplacedSignature)",
     "refused_at_setup": "a gate: only refuses",
     "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
@@ -10441,7 +10492,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -10629,6 +10680,87 @@ class UnplacedGitHub(FakeGitHub):
         self.jobs = {1: failed_job(1, 10, HEAD, name=name, step=step),
                      2: dict(failed_job(2, 20, BASE_SHA, name=name, step=step), conclusion=base_conclusion)}
         self.logs = {1: unplaced_log(name, step, *head_lines), 2: unplaced_log(name, step, *base_lines)}
+
+
+class SubCheckThePassedOnTheBase(unittest.TestCase):
+    """2026-11-16, cmux#44614 at fb973a17 and cmux#44622 at 071af5f5. Both heads' only red was 'cmux-next checks (god
+    files, concurrency, crash safety, l10n)', failing ./scripts/lint-ios-package-conventions.sh on three
+    namespace-type violations in files neither PR touches, which base commit f48280ea767 justified after their
+    merge-base. The base ran that lint and passed it (run 43891349325's log, `##[group]./scripts/
+    lint-ios-package-conventions.sh: ok, 22s`), so compared whole each head had error lines the base lacked, and both
+    reds read as the PRs' own with nothing said about the base merge that clears them."""
+
+    CHECKS = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    STEP = "Run the cmux-next checks"
+    LINT = "./scripts/lint-ios-package-conventions.sh"
+    HEAD_LINES = (f"##[error]title=check failed::{LINT}", f"##[error]{LINT}",
+                  "##[error]FAIL: convention violations found (ERROR lines above).")
+    # What the concurrent check runner prints for a check that passed, and the base's own red beside it.
+    PASSED = f"##[group]{LINT}: ok, 22s"
+    TIERS = ("##[error]FAIL: test_a_path_no_mac_build_reads_runs_no_mac_compile "
+             "(__main__.PullRequestTiers.test_a_path_no_mac_build_reads_runs_no_mac_compile)")
+
+    def github(self, head_lines=HEAD_LINES, base_lines=(PASSED, TIERS)):
+        github = UnplacedGitHub(self.CHECKS, self.STEP, head_lines, base_lines)
+        github.base_runs[1]["created_at"] = "2026-11-16T14:00:00Z"
+        return github
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_check_the_base_ran_and_passed_is_named_with_the_base_merge_that_clears_it(self):
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge(self.github())
+        said = str(raised.exception)
+        self.assertIn("ran scripts/lint-ios-package-conventions.sh", said)
+        self.assertIn("it passed there", said)
+        self.assertIn(f"merge feat-cmux-next into the branch", said)
+
+    def test_a_base_verdict_that_fails_the_same_lines_is_still_excused(self):
+        # The excuse path is untouched: nothing here adds or removes one.
+        said = self.judge(self.github(base_lines=self.HEAD_LINES))
+        self.assertIn("excused", said)
+        self.assertNotIn("it passed there", said)
+
+    def test_a_base_log_that_never_names_the_check_keeps_the_plain_refusal(self):
+        # Without the runner's `: ok` line the base log says nothing about the check: the whole-log refusal stands.
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge(self.github(base_lines=(self.TIERS,)))
+        said = str(raised.exception)
+        self.assertIn("compared whole", said)
+        self.assertNotIn("it passed there", said)
+
+    def test_a_source_path_in_a_compiler_error_is_no_sub_check(self):
+        # SUB_CHECK reads only a script a step runs, so a compile red keeps its own reading (and its own excuses).
+        self.assertEqual(excuse.sub_checks("##[error]webviews/src/pages/x.ts(12,3): error TS2304: Cannot find name"),
+                         frozenset())
+        self.assertEqual(excuse.sub_checks(f"##[error]{self.LINT} failed"),
+                         frozenset({"scripts/lint-ios-package-conventions.sh"}))
+
+    def test_no_base_evidence_at_all_says_nothing(self):
+        # Review F1: with no base verdict read there is nothing to name, and nothing to raise about.
+        self.assertIsNone(excuse.passed_on_base_verdict(REPO, "feat-cmux-next", self.CHECKS,
+                                                        excuse.UnplacedSignature(Counter(), Counter(), Counter(),
+                                                                                 frozenset(), ()),
+                                                        [], None))
+
+    def test_a_head_that_fails_more_besides_is_not_told_a_base_merge_clears_it(self):
+        # Review F2: a line naming another script (one the base did not pass) is work a base merge leaves, so the
+        # merge sentence is not said. A summary line naming no script is the passed check's own output and does not
+        # count against it, which the case above covers.
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge(self.github(head_lines=(*self.HEAD_LINES,
+                                               "##[error]./scripts/check-motion.sh: 2 ungated animations")))
+        said = str(raised.exception)
+        self.assertIn("it passed there", said)
+        self.assertIn("fails more besides", said)
+        self.assertNotIn("and the red goes", said)
+
+    def test_only_the_runners_ok_line_counts_as_passed(self):
+        # A step that merely echoes the script's name (its `Run` body, a usage line) never counts as having passed it.
+        self.assertTrue(excuse.check_passed_in(f"##[group]{self.LINT}: ok, 22s", "scripts/lint-ios-package-conventions.sh"))
+        self.assertFalse(excuse.check_passed_in(f"##[group]Run {self.LINT}", "scripts/lint-ios-package-conventions.sh"))
+        self.assertFalse(excuse.check_passed_in(f"{self.LINT}: ok, 22s", "scripts/lint-ios-package-conventions.sh"))
 
 
 class PrOnlyStepGitHub(FakeGitHub):
@@ -13690,6 +13822,75 @@ class MatrixLegsAreReadByTheirWorkflow(RealShapesOfNovember11):
         self.assertFalse(excuse._rendered_name_fits(None, "Reviewer path"))
 
 
+class AnExpressionNameBesideAnExactOneIsNotJob(RealShapesOfNovember11):
+    """cmux#44442 at 656af9e3 (2026-11-16; also #44349, #44164 at 276e7776): every red of 'cmux-next checks (god files,
+    concurrency, crash safety, l10n)' was refused with "its log does not map one to one onto its steps", then compared
+    whole. The log has one header per step and maps fine; workflow_step_names read no headers because cmux-next.yml's
+    cmux-scheme-compile is named by one expression and no text (`${{ inputs.dev_daily == true && 'cmux NEXT DEV
+    Release compile' || 'cmux app scheme compile (Debug)' }}`), which _rendered_name_fits says renders as any name,
+    so two workflow jobs were "named" JOB. A rendered name now names JOB only when no job is named JOB outright; beside
+    one, it is a job whose name is not read (its steps, if they fit, must give the same marks). Fixtures: the head's
+    job (run 43863447791, job 133335471692) and log trimmed to the runner's lines, every `##[` line and the failure
+    lines, stamps as served; both workflow jobs' steps at 656af9e3, each script cut to its first line."""
+
+    PATHS = {**RealShapesOfNovember11.PATHS, "cmux-44442-checks": ".github/workflows/cmux-next.yml"}
+    CASE = "cmux-44442-checks"
+    RED = ("Main-thread concurrency", "Motion and colour tokens",
+           "Script tests (pin-cmux-tui, embed-cef, ensure-cef store)", "Checks job structure")
+
+    def names(self, workflow=None):
+        job, text = self.fixture(self.CASE, "head")
+        github = self.github(self.CASE, (job, text), (job, text))
+        if workflow is not None:
+            github.blob = lambda repo, ref, wanted: workflow
+        return excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[self.CASE], github, {})
+
+    def test_the_checks_log_is_placed_with_its_red_checks_errored(self):
+        names = self.names()
+        self.assertIsNot(names, excuse.STEP_NAMES_UNKNOWN)
+        self.assertIsNotNone(names.headers)
+        for side in (False, True):
+            with self.subTest(base=side):
+                view = self.view(self.CASE, "head", base=side)
+                self.assertIsNot(view, excuse.UNPLACED)
+                sections = [(str(view.steps[k]["name"]), status) for k, status, _ in view.sections]
+                self.assertEqual(sections[-1], ("Fail on any red check", "failed"))
+                if side:  # a base keeps the checks its failed rollup names red (rollup_vouched)
+                    self.assertEqual({name for name, _ in sections[:-1]}, set(self.RED))
+                else:
+                    self.assertLessEqual(set(self.RED), {name for name, status in sections if status == "errored"})
+                _, _, errors = excuse.signature(view)
+                self.assertIn('python# -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"', errors)
+                self.assertIn("red check: Motion and colour tokens", errors)
+
+    def test_the_expression_job_is_what_unplaced_it(self):
+        # The workflow without cmux-scheme-compile reads the same headers as with it: that job alone was the cause.
+        workflow = (STEP_MAPPING_FIXTURES / f"{self.CASE}.yml").read_text()
+        self.assertTrue(excuse._rendered_name_fits(
+            "${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}",
+            "cmux-next checks (god files, concurrency, crash safety, l10n)"))
+        alone = self.names(workflow.split("  cmux-scheme-compile:\n", 1)[0])
+        self.assertIsNot(alone, excuse.STEP_NAMES_UNKNOWN)
+        self.assertEqual(alone.headers, self.names().headers)
+
+    def test_an_expression_job_whose_steps_fit_differently_still_reads_no_headers(self):
+        workflow = (STEP_MAPPING_FIXTURES / f"{self.CASE}.yml").read_text()
+        checks = workflow.split("  checks:\n", 1)[1].split("  cmux-scheme-compile:\n", 1)[0]
+        uses = "    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd\n"
+        self.assertIn(uses, checks)
+        twin = ("  twin:\n    name: ${{ inputs.x && 'a' || 'b' }}\n" + checks.split("    steps:\n", 1)[0].split(
+            "\n", 1)[1] + "    steps:\n" + checks.split("    steps:\n", 1)[1].replace(
+            uses, "    - name: Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd\n"
+                  "      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd\n", 1))
+        self.assertIs(self.names(workflow.replace("  checks:\n", twin + "  checks:\n", 1)), excuse.STEP_NAMES_UNKNOWN)
+
+    def test_two_jobs_named_job_outright_still_read_no_headers(self):
+        workflow = (STEP_MAPPING_FIXTURES / f"{self.CASE}.yml").read_text()
+        checks = workflow.split("  checks:\n", 1)[1].split("  cmux-scheme-compile:\n", 1)[0]
+        self.assertIs(self.names(workflow.replace("  checks:\n", "  twin:\n" + checks + "  checks:\n", 1)),
+                      excuse.STEP_NAMES_UNKNOWN)
+
+
 class AlignedStartsIsLinear(unittest.TestCase):
     """#41220's review F1: _aligned_starts rescanned the remaining headers from each candidate, so 10,000 same-second
     headers over 3 steps took 17.6 s to come back ambiguous, inside merge_hold on every red. It is one pass per step
@@ -13865,6 +14066,7 @@ SCANNERS = {
     "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
     "base_red_excuse._unwrapped": lambda f: excuse._unwrapped("(" * len(f.lines) + f.log + ")" * len(f.lines)),
     "failed_steps_log.lines_of": lambda f: excuse.lines_of(f.log),
+    "base_red_excuse.check_passed_in": lambda f: excuse.check_passed_in(f.log, "scripts/x.sh"),
     "failed_steps_log.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
                                               excuse.step_owners(f.job, f.flood, **UNKNOWN)),
     "failed_steps_log._live_red": lambda f: excuse._live_red(f.lines, 0, len(f.lines), opened=True),
@@ -13905,6 +14107,8 @@ SCANNERS = {
     "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
     "base_red_excuse.without_warn_only": lambda f: excuse.without_warn_only(f.view, {"x"}),
     "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
+    "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
+                                                   excuse.github_quota_only(f.base_view)),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),

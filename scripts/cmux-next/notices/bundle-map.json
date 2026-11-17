@@ -58,9 +58,29 @@
       "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote",
+      "what": "cmux Remote, the pinned team-signed host, Computer Use and Screen Sharing worker that Release builds embed (Packages/macOS/CmuxRemote and the Swift packages it uses; scripts/cmux-next/build-cmux-remote-dev.sh, cmux-remote-dev.pin.json). WebRTC and the Cua Driver SDK are the two dylibs beside it, not linked in",
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt"]
+    },
+    {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libWebRTC.dylib",
+      "what": "the same libwebrtc M154 as Contents/Frameworks/WebRTC.framework (stasel/WebRTC 154.0.0), shipped in cmux Remote as a plain dylib (build-cmux-remote-dev.sh); its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
+      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+    },
+    {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib",
+      "what": "the pinned upstream Cua Driver SDK (trycua/cua cua-driver-rs-v0.38.0, MIT, Rust; cua-driver-sdk.pin.json); its license and third-party notices are in cmux Remote's Contents/Resources/Licenses (build-cmux-remote-dev.sh)",
+      "notices": ["section:manual-cmux-cua-engine", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
       "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua",
       "what": "the Computer Use helper that onboarding grants Accessibility and Screen Recording to (manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin)",
       "notices": ["section:manual-cmux-cua-engine", "section:rust-cmux-cua", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
+      "path": "Contents/Library/* Screen Sharing.app/Contents/MacOS/cmux-screen-sharing",
+      "what": "the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): cmux-tui/crates/cmux-rd-host's cmux-rd with only the link feature, the same crates bin/cmux links in for `cmux rd serve` (cmux-tui/crates/cmux-tui depends on cmux-rd-host with default-features = false, features = [\"link\"]); the name is per channel (\"cmux NIGHTLY Screen Sharing.app\")",
+      "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux",
