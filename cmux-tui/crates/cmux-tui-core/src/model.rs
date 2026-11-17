@@ -629,6 +629,8 @@ impl Screen {
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
         self.set_floating_panes(snapshot.floating);
+        // The pane that has the focus now is the front pane, also in a list from before it got the focus.
+        self.raise_floating_pane(self.active_pane);
     }
 }
 
@@ -686,6 +688,8 @@ pub struct State {
     pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
+    /// The tab creations that have a place (`tab-create-place-v1`): one value for each copy.
+    pub(crate) tab_places: crate::mux::tab_strip::tab_place::SharedPlaceLists,
 }
 
 impl State {

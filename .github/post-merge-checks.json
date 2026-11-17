@@ -77,6 +77,10 @@
       "kind": "publish",
       "why": "a bot that heals package dependency pins on the base"
     },
+    "cmux-next-payload-advisories.yml": {
+      "kind": "publish",
+      "why": "a probe of upstream security advisories that keeps one issue open, not a verdict about the change"
+    },
     "cmux-next-terminal.yml": {
       "kind": "check",
       "why": "the Rust and Swift terminal suites run on every push and on no pull request"
@@ -128,14 +132,6 @@
     "git-mirror-bundle.yml": {
       "kind": "publish",
       "why": "publishes the git mirror bundle the fleet clones from"
-    },
-    "internal-token-prod.yml": {
-      "kind": "publish",
-      "why": "deploys the production internal token setting"
-    },
-    "internal-token-staging.yml": {
-      "kind": "publish",
-      "why": "deploys the staging internal token setting"
     },
     "ios-internal-nightly-trigger.yml": {
       "kind": "publish",

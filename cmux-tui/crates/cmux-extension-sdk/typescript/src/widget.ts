@@ -19,7 +19,9 @@ export const WIDGET_TILES: Readonly<Record<WidgetSize, readonly [number, number]
  * outlive the extension in `cmux.storage` under it); `settings` are the tile's own. `now()` is the
  * host's clock in Unix milliseconds: a render or effect that reads it redraws on each tick, which
  * the host sends on the minute (or the manifest's `refresh.everySeconds`, at least 60) and only
- * while the tile is shown. A resize remounts the widget at its new size.
+ * while the tile is shown. A resize remounts the widget at its new size. `locale` (BCP 47) and
+ * `timeZone` (IANA) are the person's, from the page: the sandbox has no Intl, so name the local
+ * zone with `timeZone` and get its offset from `cmux.time.zone(ctx.timeZone, ctx.now())`.
  */
 export type WidgetContext = {
   surface: "widget"
@@ -28,6 +30,8 @@ export type WidgetContext = {
   instance: string
   settings: Record<string, unknown>
   refresh: { everySeconds: number } | null
+  locale: string
+  timeZone: string
   now(): number
   /** True for a preview the Add Widget gallery draws: show sample data, write nothing. */
   preview?: boolean

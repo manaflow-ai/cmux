@@ -44,7 +44,7 @@ fn new_edit_reload(root: &Path, kind: &str, view: bool, bun: &Path) -> Result<Me
     let name = format!("hi-{kind}");
     let dir = root.join(&name);
     let new = format!("new {name} --kind {kind} --dir {}", dir.display());
-    let Request::New { name, kind: made, dir: Some(target) } = parse(&words(&new))? else {
+    let Request::New { name, kind: made, dir: Some(target), .. } = parse(&words(&new))? else {
         return Err(format!("ext {new} is not a new request"));
     };
     scaffold::scaffold(&target, &name, &made)?;
@@ -169,7 +169,8 @@ fn every_kind_is_made_on_the_shipped_sdk_and_passes_ext_dev_once() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(format!("hi-{kind}"));
         let new = format!("new hi-{kind} --kind {kind} --dir {}", dir.display());
-        let Ok(Request::New { name, kind: parsed, dir: Some(target) }) = parse(&words(&new)) else {
+        let Ok(Request::New { name, kind: parsed, dir: Some(target), .. }) = parse(&words(&new))
+        else {
             panic!("ext {new} does not parse")
         };
         scaffold::scaffold(&target, &name, &parsed).unwrap_or_else(|e| panic!("{kind}: {e}"));
