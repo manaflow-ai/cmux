@@ -2147,6 +2147,7 @@ class LateSnapshotStall(unittest.TestCase):
         self.assertEqual(result.jobs, none_placed(), result.why)
         self.assertIn(SMALL, result.fresh_stall)
         self.assertIn("has waited 179 min", result.why)
+        self.assertIn("queued at its 10 slots or more", result.why)  # 166 queued: both reasons named
         # A feed's compile stays off it too, as with a fresh reading (fresh_stalled()).
         feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
         self.assertEqual(cascade.place(feed, (), live, None, seen).jobs, none_placed())

@@ -976,11 +976,14 @@ def _place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int]
             # A label the snapshot, however old, shows dead is never that last resort.
             if SMALL in seen_dead(seen):
                 why += f"; `{SMALL}` is dead (nothing running, no job started in an hour)"
-            elif seen is not None and SMALL in queued_full(
+            elif SMALL in fresh_stall or seen is not None and SMALL in queued_full(
                     seen.snapshot, seen.observed_at or dt.datetime.now(dt.timezone.utc)):
-                why += f"; the snapshot shows `{SMALL}` queued at its {CAPACITY[SMALL]} slots or more"
-            elif SMALL in fresh_stall:
-                why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+                # Both reasons are named when both hold: a stalled wait and a queue at the slot count.
+                if SMALL in fresh_stall:
+                    why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+                if seen is not None and SMALL in queued_full(
+                        seen.snapshot, seen.observed_at or dt.datetime.now(dt.timezone.utc)):
+                    why += f"; the snapshot shows `{SMALL}` queued at its {CAPACITY[SMALL]} slots or more"
             else:
                 reason = ("no idle mini can take them" if saturated else "a feed's freshness waits on them")
                 return Placement({**empty, SMALL: fresh}, "",
