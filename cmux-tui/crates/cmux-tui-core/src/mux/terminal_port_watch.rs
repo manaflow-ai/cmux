@@ -435,8 +435,23 @@ impl Mux {
     /// worker holds the mux here: a wait would keep a mux that its owner
     /// dropped, and with it the session, for as long as the registry is busy.
     fn carry_stale_terminal_ports(&self) -> Option<Vec<String>> {
-        let registry =
-            self.workspace_registry.try_lock_free()?.unwrap_or_else(PoisonError::into_inner);
+        // A trace, not for a merge: each `trace` line of this function.
+        let trace = |step: &str| {
+            eprintln!(
+                "trace {} thread `{}`: the port watch's stale read: {step}",
+                crate::startup_timings::unix_now_ms(),
+                std::thread::current().name().unwrap_or("?")
+            );
+        };
+        trace("before the one try for the registry's lock");
+        let taken = self.workspace_registry.try_lock_free();
+        trace(if taken.is_some() {
+            "after the one try: it has the registry's lock"
+        } else {
+            "after the one try: the registry is busy, the request goes back"
+        });
+        let registry = taken?.unwrap_or_else(PoisonError::into_inner);
+        trace("before `read_state` (the take of the store's connection), with the registry's lock");
         let stale = registry.read_state(|connection| {
             let mut statement = connection.prepare(
                 "SELECT workspace_id, text FROM workspace_status_entries
@@ -447,6 +462,7 @@ impl Mux {
             })?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?)
         });
+        trace("after `read_state`, the registry's lock goes now");
         drop(registry);
         let stale = match stale {
             Ok(stale) => stale,

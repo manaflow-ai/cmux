@@ -573,8 +573,20 @@ impl RegistryConnection {
         deadline_guard.disarm();
         #[cfg(test)]
         if let Some((entered, release)) = after_commit_admission {
+            // A trace, not for a merge: the 2 stderr lines of this block.
+            eprintln!(
+                "trace {} thread `{}`: the journal writer: before its hold at the commit, with the \
+                 store's connection",
+                crate::startup_timings::unix_now_ms(),
+                std::thread::current().name().unwrap_or("?")
+            );
             entered.send(()).context("report journal commit-admission test hook")?;
             release.recv().context("release journal commit-admission test hook")?;
+            eprintln!(
+                "trace {} thread `{}`: the journal writer: after its hold, the commit comes now",
+                crate::startup_timings::unix_now_ms(),
+                std::thread::current().name().unwrap_or("?")
+            );
         }
         match tx.execute_batch("COMMIT") {
             Ok(()) => Ok(commits),

@@ -55,7 +55,20 @@ fn open_owner(root: &Path, session: &str) -> Arc<Mux> {
 /// The folder of the owner's session: its store, its lock files, its start
 /// lines.
 fn session_folder(owner: &Mux) -> std::path::PathBuf {
-    let store = owner.workspace_registry.lock().unwrap().session_journal_database_path();
+    // A trace, not for a merge: each `trace` line of this function. The one
+    // statement of the take and the read is 3 statements, with the same lock.
+    let trace = |step: &str| {
+        eprintln!(
+            "trace {} thread `{}`: the helper `session_folder`: {step}",
+            crate::startup_timings::unix_now_ms(),
+            std::thread::current().name().unwrap_or("?")
+        );
+    };
+    trace("before the take of the registry's lock");
+    let registry = owner.workspace_registry.lock().unwrap();
+    trace("after the take: it has the registry's lock");
+    let store = registry.session_journal_database_path();
+    drop(registry);
     store.as_deref().and_then(Path::parent).expect("a session on disk has its folder").to_path_buf()
 }
 
@@ -116,8 +129,21 @@ impl HeldWriter {
         at_the_commit
             .recv_timeout(WRITER_THREAD_WAIT)
             .expect("the journal writer did not reach its commit");
+        // A trace, not for a merge: the 2 stderr lines of this function.
+        eprintln!(
+            "trace {} thread `{}`: the fixture: the writer is at its commit, the wait for its end \
+             starts",
+            crate::startup_timings::unix_now_ms(),
+            std::thread::current().name().unwrap_or("?")
+        );
         // The step of a shutdown that waits for the writer's end.
         let joined = mux.journal_ingress.close_and_join();
+        eprintln!(
+            "trace {} thread `{}`: the fixture: the wait for the writer's end ran out: {}",
+            crate::startup_timings::unix_now_ms(),
+            std::thread::current().name().unwrap_or("?"),
+            joined.is_err()
+        );
         assert!(
             joined.is_err(),
             "setup: the owner's wait for its journal writer ran out, with the writer at its commit"
