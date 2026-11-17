@@ -571,6 +571,10 @@ export class MockSettingsProvider {
       },
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
+      "cmux.settings.machines.load": () => {
+        this.machineLoadReads += 1;
+        return this.machineLoads;
+      },
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
       "cmux.settings.tailnet.state": () => {
         this.onTailnetRead?.();
@@ -728,6 +732,7 @@ export class MockSettingsProvider {
       "cmux.settings.keys.answer",
       "cmux.settings.keys.decline",
       "cmux.settings.keys.revoke",
+      "cmux.settings.machines.load",
       "cmux.settings.tailnet.state",
       "cmux.settings.tailnet.start",
       "cmux.settings.tailnet.login",
@@ -983,6 +988,10 @@ export class MockSettingsProvider {
   /** Settings > Server > This Mac on Your Tailnet as acpmux answers the app's relay: signed out; null is
    * an acpmux with no tailnet. */
   tailnet: TailnetState | null = { state: "stopped" };
+  /** Settings > Machines' load rows as the app relays `_acpmux/peers` (`{peers: [{name, load}]}`); none by default. */
+  machineLoads: { peers: Array<{ name: string; load: unknown }> } = { peers: [] };
+  /** How many times the page read the load rows (tests: a list that is not shown never reads). */
+  machineLoadReads = 0;
   /** Every tailnet step the page asked for, in order (tests). */
   tailnetSteps: string[] = [];
 

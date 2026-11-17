@@ -1154,7 +1154,9 @@ impl Hub {
             "harnesses": cfg.harnesses.keys().collect::<Vec<_>>(),
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
-            "peers": self.peers(),
+            // Each with its load row (`placement::load_row`): the numbers and verdict every list of
+            // machines draws.
+            "peers": crate::placement::with_load_rows(self.peers(), crate::store::now_ms()),
             "remoteSessions": self.remote_sessions.read().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it

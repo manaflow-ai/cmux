@@ -724,6 +724,85 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     })
 }
 
+/// One machine's load row, the one every list of machines draws (the composer's machine picker,
+/// Settings > Machines; design/remote-spin-up.md 2.6), from its `Hub::peers` row at `now_ms`:
+/// `{"verdict": "room"|"busy"|"held"|"connecting"|"offline"|"unknown", "words", "room",
+/// "coresBusy", "cores", "ramFreeBytes", "live", "offlineMs"}` (each number or null). `words` is
+/// the verdict as the CLI says it ("room for 5", "busy", "offline 2 min"); a page words it from
+/// `verdict` and the numbers in its own language. The weighing is [`place`]'s, except that a
+/// machine the registry gives no `lanes` entry (a person's own machine, not a lane host) is
+/// sized by the defaults rather than refused: the row says how loaded it is, not whether
+/// dispatch may start a lane there. One row's weighing each, so 300 machines cost 300 rows.
+pub fn load_row(row: &Value, registry: Option<&Value>, now_ms: u64) -> Value {
+    let h = row.get("health").unwrap_or(&Value::Null);
+    let cores = reading(h, "/pressure/cores").or_else(|| reading(h, "/cpus"));
+    let busy = reading(h, "/load/0").map(|l| cores.map_or(l, |c| l.min(c)));
+    let mut room = None;
+    let mut offline_ms = None;
+    let (verdict, words) = if peer_down(row).is_some() {
+        let state = row.get("state").and_then(Value::as_str).unwrap_or("offline");
+        if matches!(state, "connecting" | "reconnecting" | "restarting") {
+            ("connecting", "connecting".to_owned())
+        } else {
+            let since =
+                row.get("downSince").or_else(|| row.get("lastSeen")).and_then(Value::as_u64);
+            offline_ms = since.map(|t| now_ms.saturating_sub(t));
+            let words = offline_ms
+                .map_or_else(|| "offline".to_owned(), |ms| format!("offline {}", ago(ms)));
+            ("offline", words)
+        }
+    } else {
+        let name = row.get("name").and_then(Value::as_str).unwrap_or_default();
+        let lanes = lane_hosts_at(registry, now_ms)
+            .and_then(|hosts| registry_lanes(&hosts, name))
+            .filter(Value::is_object)
+            .map_or_else(Lanes::default, |l| Lanes::from_registry(&l));
+        let c =
+            Candidate { name: name.to_owned(), local: false, health: h.clone(), health_at: None };
+        let w = weigh(&c, Some(lanes));
+        room = w.room;
+        match (&w.refused, w.room) {
+            (Some(_), _) if !w.load => ("held", "held".to_owned()),
+            (Some(_), _) => ("busy", "busy".to_owned()),
+            (None, Some(r)) => ("room", format!("room for {r:.0}")),
+            (None, None) => ("unknown", "no reading".to_owned()),
+        }
+    };
+    json!({
+        "verdict": verdict,
+        "words": words,
+        "room": room,
+        "coresBusy": busy.map(|b| (b * 10.0).round() / 10.0),
+        "cores": cores,
+        "ramFreeBytes": reading(h, "/ram/freeBytes"),
+        "live": h.get("liveSessions").and_then(Value::as_u64),
+        "offlineMs": offline_ms,
+    })
+}
+
+/// How long `ms` is in the load row's words: "2 min", "3 h", "4 d"; under a minute, "now".
+fn ago(ms: u64) -> String {
+    match ms / 60_000 {
+        0 => "now".to_owned(),
+        min @ 1..=59 => format!("{min} min"),
+        min @ 60..=1439 => format!("{} h", min / 60),
+        min => format!("{} d", min / 1440),
+    }
+}
+
+/// `rows` (`Hub::peers`) each with its [`load_row`] as `load`, as `_acpmux/status` and
+/// `_acpmux/peers` answer them: one read of the registry for the whole list.
+pub fn with_load_rows(mut rows: Vec<Value>, now_ms: u64) -> Vec<Value> {
+    let registry = load_registry();
+    for row in rows.iter_mut() {
+        let load = load_row(row, registry.as_ref(), now_ms);
+        if let Some(o) = row.as_object_mut() {
+            o.insert("load".into(), load);
+        }
+    }
+    rows
+}
+
 #[cfg(test)]
 #[path = "placement_tests.rs"]
 mod tests;

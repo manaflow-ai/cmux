@@ -434,6 +434,8 @@ enum RemoteMachinesStrings {
             parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .module), disk))
         }
         if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .module), at: 0) }
+        // Placement's verdict as the picker and Settings > Machines read it (acpmux `peers[].load.words`).
+        else if let verdict = r.verdict { parts.append(verdict) }
         return parts.joined(separator: " · ")
     }
     /// What VoiceOver reads for a machine's room row: the machine, then its room.

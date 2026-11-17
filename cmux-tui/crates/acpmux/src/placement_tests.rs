@@ -550,6 +550,88 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
     assert_eq!(host(&v, "vm")["refused"], "not connected (reconnecting)", "{v:#}");
 }
 
+/// A connected peer row as `Hub::peers` lists it, with a reading.
+fn peer_row(name: &str, health: Value) -> Value {
+    json!({"name": name, "connected": true, "state": "connected", "health": health})
+}
+
+#[test]
+fn a_load_row_gives_every_list_the_same_numbers_and_verdict() {
+    let now = 10_000_000;
+    // Idle: 31 GB free over the defaults (4 reserved, 2 per lane) is room for 13, but 16 cores
+    // with load 2 is room for 14 and disk 200 GB for 63, so RAM decides.
+    let idle = load_row(&peer_row("gcp-3", health(31.0, 16, 2.0, 200.0, 1)), None, now);
+    assert_eq!(idle["verdict"], "room");
+    assert_eq!(idle["words"], "room for 13");
+    assert_eq!(idle["room"], 13.0);
+    assert_eq!(idle["coresBusy"], 2.0);
+    assert_eq!(idle["cores"], 16.0);
+    assert_eq!(idle["ramFreeBytes"], 31.0 * GB);
+    assert_eq!(idle["live"], 1);
+    // Busy: load past the cores leaves no room; cores busy never reads more than the cores.
+    let busy = load_row(&peer_row("box", health(31.0, 8, 12.4, 200.0, 6)), None, now);
+    assert_eq!((busy["verdict"].as_str(), busy["words"].as_str()), (Some("busy"), Some("busy")));
+    assert_eq!(busy["coresBusy"], 8.0);
+    // An over-budget verdict is busy too, whatever the room.
+    let mut over = health(31.0, 16, 2.0, 200.0, 0);
+    over["pressure"]["ok"] = json!(false);
+    assert_eq!(load_row(&peer_row("box", over), None, now)["verdict"], "busy");
+    // Offline: how long, from when the link went down.
+    let mut gone = peer_row("old", health(31.0, 16, 2.0, 200.0, 0));
+    gone["connected"] = json!(false);
+    gone["state"] = json!("offline");
+    gone["downSince"] = json!(now - 2 * 60_000 - 5_000);
+    let off = load_row(&gone, None, now);
+    assert_eq!(
+        (off["verdict"].as_str(), off["words"].as_str()),
+        (Some("offline"), Some("offline 2 min"))
+    );
+    assert_eq!(off["offlineMs"], 125_000);
+    assert!(off["room"].is_null());
+    gone["state"] = json!("reconnecting");
+    assert_eq!(load_row(&gone, None, now)["words"], "connecting");
+    // No reading: unknown, never room.
+    let unread =
+        load_row(&json!({"name": "new", "connected": true, "state": "connected"}), None, now);
+    assert_eq!(
+        (unread["verdict"].as_str(), unread["words"].as_str()),
+        (Some("unknown"), Some("no reading"))
+    );
+}
+
+#[test]
+fn a_load_row_sizes_a_machine_the_registry_has_no_lanes_for_by_the_defaults() {
+    // `place` refuses a host with no lanes entry; the load row still says how loaded it is.
+    let r = registry();
+    let row = load_row(&peer_row("ci-mini", health(31.0, 16, 2.0, 200.0, 0)), Some(&r), 0);
+    assert_eq!(row["words"], "room for 13");
+    // A registry host is sized by its own entry: big reserves 8 and takes 4 per lane.
+    let big = load_row(&peer_row("big-box", health(31.0, 16, 2.0, 200.0, 0)), Some(&r), 0);
+    assert_eq!(big["words"], "room for 5");
+}
+
+#[test]
+fn a_held_host_reads_held_and_offline_words_grow_to_hours_and_days() {
+    let r = json!({"machines": {"h": {"hold": "a capture", "lanes": {}}}});
+    assert_eq!(
+        load_row(&peer_row("h", health(31.0, 16, 2.0, 200.0, 0)), Some(&r), 0)["words"],
+        "held"
+    );
+    assert_eq!(ago(59_999), "now");
+    assert_eq!(ago(3 * 3_600_000), "3 h");
+    assert_eq!(ago(4 * 86_400_000), "4 d");
+}
+
+#[test]
+fn every_peer_row_carries_its_load_row() {
+    let rows = with_load_rows(
+        vec![peer_row("a", health(31.0, 16, 2.0, 200.0, 0)), json!({"name": "b"})],
+        0,
+    );
+    assert_eq!(rows[0]["load"]["verdict"], "room");
+    assert_eq!(rows[1]["load"]["verdict"], "offline");
+}
+
 #[test]
 fn a_loaded_local_machine_says_why_and_the_pick_names_its_room() {
     // This machine is over its budget; a peer has room. The reply says both, so the composer can

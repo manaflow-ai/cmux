@@ -1334,6 +1334,8 @@ export type SettingsOps = {
   "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
   /** Native: this Mac's tailnet node; null when acpmux has no tailnet or did not take the person's proof. */
   "cmux.settings.tailnet.state": [Record<string, never>, TailnetState | null];
+  /** Native: each machine's load row from acpmux `_acpmux/peers` (`peers[].load`); Settings > Machines reads it while it shows. */
+  "cmux.settings.machines.load": [Record<string, never>, { peers: Array<{ name: string; load: unknown }> }];
   /** Native, the person's click: starts the node; a saved login resumes, else it reports `needs_login`. */
   "cmux.settings.tailnet.start": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: a fresh sign-in page for a running node that is not signed in. */

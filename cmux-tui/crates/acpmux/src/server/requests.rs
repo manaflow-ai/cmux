@@ -2591,7 +2591,9 @@ async fn dispatch_request_with_identity(
             }
             Ok(json!({"policy":policy.to_string()}))
         }
-        "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/peers" => Ok(json!({
+            "peers": crate::placement::with_load_rows(hub.peers(), crate::store::now_ms())
+        })),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,

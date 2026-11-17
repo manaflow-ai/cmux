@@ -40,6 +40,9 @@ public nonisolated struct AcpmuxPeerList: Sendable {
         public var diskFreeGB: Int?
         /// The machine's own budget says it is over (load, memory pressure, swap).
         public var over: Bool
+        /// Placement's verdict in words ("room for 5"), as acpmux words it for every list of machines
+        /// (`peers[].load.words`, placement.rs `load_row`); nil from an older daemon.
+        public var verdict: String?
 
         public init(ramFreeGB: Int, coresBusy: Int, cores: Int, diskFreeGB: Int?, over: Bool) {
             (self.ramFreeGB, self.coresBusy, self.cores, self.diskFreeGB, self.over) = (ramFreeGB, coresBusy, cores, diskFreeGB, over)
@@ -77,6 +80,18 @@ public nonisolated struct AcpmuxPeerList: Sendable {
         return Self.peers(result)
     }
 
+    /// Each peer's name and load row (`peers[].load`, cmux-tui acpmux placement.rs `load_row`) of a
+    /// `_acpmux/peers` answer, as JSON text `{"peers": [{name, load}]}`: what Settings > Machines draws,
+    /// the same reading the composer's machine picker words. Nothing else of a row (never its URL).
+    @concurrent public func loadRows(deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> String {
+        let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/peers", deadline: deadline)
+        let rows: [[String: Any]] = (result["peers"] as? [[String: Any]] ?? []).compactMap { peer in
+            guard let name = peer["name"] as? String, !name.isEmpty, let load = peer["load"] as? [String: Any] else { return nil }
+            return ["name": name, "load": load]
+        }
+        return String(decoding: try JSONSerialization.data(withJSONObject: ["peers": rows]), as: UTF8.self)
+    }
+
     /// The peers of a `_acpmux/peers` answer (`{peers: [{name, connected, health}]}`); `healthAt`
     /// is left out, so a reading with the same numbers leaves the list equal. A `ws://`/`wss://` peer is
     /// a Cloud machine by its source (as `cmux device list` decides): it keeps the cloud, whatever its VM
@@ -87,7 +102,9 @@ public nonisolated struct AcpmuxPeerList: Sendable {
             let url = (peer["url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let cloud = url.map { $0.hasPrefix("ws://") || $0.hasPrefix("wss://") } ?? false
             let symbol = cloud ? nil : (peer["health"] as? [String: Any])?["deviceSymbol"] as? String
-            return Peer(name: name, connected: peer["connected"] as? Bool ?? false, resources: Resources.parse(peer["health"]),
+            var resources = Resources.parse(peer["health"])
+            resources?.verdict = (peer["load"] as? [String: Any])?["words"] as? String
+            return Peer(name: name, connected: peer["connected"] as? Bool ?? false, resources: resources,
                         url: url, symbol: symbol.flatMap { $0.isEmpty ? nil : $0 })
         }
     }

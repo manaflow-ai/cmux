@@ -100,6 +100,7 @@ fn redact_peer_row(peer: &mut Value) {
     if let Some(row) = peer.as_object_mut() {
         row.remove("health");
         row.remove("healthAt");
+        row.remove("load");
     }
 }
 
