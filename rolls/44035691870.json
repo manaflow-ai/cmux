@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44035691870",
+  "recorded_at": "2026-11-17T07:17:43Z",
+  "reason": "cmux-tui 5d7bde5b2b72 changes the image's cmux-tui (pinned 80bc54c761e6)",
+  "dry_run": false,
+  "cmux_tui": "5d7bde5b2b721987085fc2f30e35f0910f7239e9",
+  "fixes": [
+    {
+      "sha": "5d7bde5b2b721987085fc2f30e35f0910f7239e9",
+      "mergedAt": "2026-11-16T22:43:39-08:00",
+      "subject": "Screen Sharing: the Mac's screen-share plan views a Windows PC from the device hub (#44499)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T07:17:43Z",
+    "snapshot_id": "sh-1c0775890da64d45a76604df476d8eeb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44035691870): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "33ea71d29b3a0968fe3eecd997241d379180b073",
+    "image": "cloud-native-auto-5d7bde5b-44035691870-1",
+    "revision": "ci-44035691870-1",
+    "at": "2026-11-17T07:17:43Z"
+  },
+  "rolled_back": false
+}
