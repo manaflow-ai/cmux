@@ -286,19 +286,19 @@ fn keyed(kind: LayoutOpKind) -> LayoutOp {
 /// I1 (stated without the crate's checker), I2 and I3, no reliance on the
 /// `Reject::Invariant` safety net, and I5 for every applied op.
 fn check_op(state: &LayoutState, op: &LayoutOp) -> bool {
-    let after = match apply(state, op) {
-        Ok((after, _)) => after,
+    // `apply` is this copy plus `apply_mut`; one copy serves both outcomes.
+    let mut after = state.clone();
+    match apply_mut(&mut after, op) {
+        Ok(_) => {}
         Err(Reject::Invariant(violations)) => {
             panic!("valid state reached the invariant check: {op:?} on {state:?}: {violations:?}")
         }
         Err(_) => {
             // A rejection in place puts back everything the op changed.
-            let mut in_place = state.clone();
-            assert!(apply_mut(&mut in_place, op).is_err(), "{op:?} on {state:?}");
-            assert_eq!(&in_place, state, "a rejected {op:?} changed the state");
+            assert_eq!(&after, state, "a rejected {op:?} changed the state");
             return false;
         }
-    };
+    }
     // The whole-state check: `state` is valid, so `apply_mut`'s scoped check
     // accepting the op (above) must mean this finds nothing either.
     let whole = introduced_violations_creating(
