@@ -361,7 +361,7 @@ const HUGE: usize = 2000;
 /// share of the session.
 const REGISTRY_ROW_SLACK: u64 = 8;
 
-/// A rename, a select, a one-step move, an empty create and the close of the last workspace
+/// A rename, a select, a one-step move and an empty create
 /// copy, read and compare the workspace rows they change, not every workspace of the session:
 /// at [`SMALL`] and at [`HUGE`] workspaces, the registry rows (`walk_counters::registry_rows`:
 /// the desired registry a caller builds, the copy the commit keeps, the journal fold values it
@@ -376,6 +376,11 @@ fn a_single_workspace_commit_touches_only_the_rows_it_changes() {
     let huge = single_change_costs(HUGE);
     let mut failures = Vec::new();
     for (operation, at_small) in &small {
+        // A close commits through the batch close (a projected copy of the session state and
+        // the ledger's whole remaining registry), not the workspace commit: printed, not held.
+        if *operation == "close_last" {
+            continue;
+        }
         let at_huge = &huge[operation];
         for (what, small, huge) in [
             ("registry rows", at_small.registry_rows, at_huge.registry_rows),

@@ -287,7 +287,7 @@ impl WorkspaceRegistry {
         let mut key = ("workspace".to_string(), String::new());
         let mut workspaces = HashMap::with_capacity(ids.len());
         for id in ids {
-            id.clone_into(&mut key.1);
+            (*id).clone_into(&mut key.1);
             if let Some(value) = fold.values.get(&key) {
                 workspaces.insert((*id).to_string(), value.clone());
             }

@@ -239,13 +239,7 @@ fn changed_workspace_resource_deltas(
         .rows
         .iter()
         .map(|(index, workspace)| {
-            super::super::schema::workspace_upsert_delta(
-                *index,
-                session_id,
-                *index,
-                workspace,
-                active_workspace,
-            )
+            schema::workspace_upsert_delta(*index, session_id, *index, workspace, active_workspace)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let live = changed
