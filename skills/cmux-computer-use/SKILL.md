@@ -63,6 +63,44 @@ return await cu.screenshot({window_id});
 - A refused call throws; its error has the code (see below). No timers: use
   `cu.wait({window_id, ms})`.
 
+## One window, several steps: batch
+
+When the steps are fixed (no loop, no condition), `batch` runs up to 20 of
+them on one window in one call, each checked like its own call, and returns
+one state at the end:
+
+```json
+{"window_id": "12345", "actions": [
+  {"action": "press_key", "keys": "cmd+s"},
+  {"action": "wait_for", "target": {"role": "sheet"}, "timeout_ms": 5000},
+  {"action": "set_value", "target": {"role": "text_field", "label": "Save As"},
+   "value": "notes", "require": "confirmed"},
+  {"action": "click", "target": {"role": "button", "label": "Save"}}
+]}
+```
+
+- Every acting step settles on its own and gets its own `outcome`
+  (`confirmed`, `no_effect`, `uncertain`), `outcome_reason`, `read_back` and
+  `changes` (what changed in the window during that step) in `results`.
+- `require: "confirmed"` stops the batch unless the step read back;
+  `"not_no_effect"` stops it when the step did nothing; by default only an
+  error stops it. `stopped_at` names the step and why; later steps are
+  `not_run`, never reported as done.
+- `wait_for` waits for an element (`element_id` or `target`) to appear, to
+  disappear (`until: "disappears"`), or for its value (`value_equals`,
+  `value_contains`), at most `timeout_ms` (default 10000, at most 100000). It
+  reads the window again whenever the app reports a change. A timeout stops
+  the batch. Values are compared as the tree reads them: a long value (a
+  document) is cut at about 2000 characters, so wait on a shorter element. A batch's waits add up to at most 120 s.
+- `target: {role, label, text}` names an element by what it is instead of its
+  id, so a step can act on what an earlier step opened. `label` is the whole
+  name (any case), `text` part of the name or value. Two matches are refused
+  (`ambiguous_element`), never guessed; an element replaced since it was found
+  is `stale_element`.
+- `perform_action` steps name their accessibility action as `perform`
+  (`"perform": "press"`), since `action` names the step.
+- A malformed step anywhere means nothing in the batch runs.
+
 Your input never takes the person's focus or moves their pointer: it goes to
 the window in the background, and a blue cmux cursor shows them where you act.
 `delivery: "foreground"` is only for a step that cannot work in the background,

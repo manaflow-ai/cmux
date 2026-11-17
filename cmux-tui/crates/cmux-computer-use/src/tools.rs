@@ -286,12 +286,42 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "batch",
         access: Access::Act,
-        description: "Run several actions on one window in order (at most 20), stopping at the first failure, and get one state at the end. Each action is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\" | \"wait\", ...that tool's arguments without window_id}. Use it for steps you are sure of, such as click a field, type, press Return.",
+        description: "Run up to 20 steps on one window in order, in one call, and get one state at the end. A step is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\", ...that tool's arguments without window_id}, {\"action\": \"wait\", \"ms\": N}, or {\"action\": \"wait_for\", ...}. Every acting step is checked and run like its own call (settings, deny list, guards, never the person's focus) and gets its own outcome after its own settle. Steps: \"require\": \"confirmed\" stops the batch unless that step's outcome is confirmed (read back); \"not_no_effect\" stops it when the step did nothing; by default only an error stops it. \"target\": {\"role\", \"label\", \"text\"} instead of element_id names an element by what it is (label: the whole name, any case; text: part of the name or value), found when the step runs, so a step can act on what an earlier step opened; two matches are refused (ambiguous_element), never guessed. wait_for waits until an element (element_id or target) appears (default), disappears (\"until\": \"disappears\"), or its value equals (\"value_equals\") or contains (\"value_contains\") a text, reading the window again on every change the app reports, for at most timeout_ms (default 10000, at most 100000); a timeout stops the batch. The waits of one batch add up to at most 120 s. The reply's results lists every step: done (outcome, outcome_reason, read_back, changes: what changed in the window during that step), failed (code, message), or not_run; stopped_at names the step that stopped the batch and why. Nothing is checked or run when any step is malformed. No loops or conditions: for those, call the tools one at a time. A perform_action step names its accessibility action as \"perform\" (\"action\" is the step's). Example: [{\"action\": \"press_key\", \"keys\": \"cmd+s\"}, {\"action\": \"wait_for\", \"target\": {\"role\": \"sheet\"}}, {\"action\": \"set_value\", \"target\": {\"role\": \"text_field\", \"label\": \"Save As\"}, \"value\": \"notes\", \"require\": \"confirmed\"}, {\"action\": \"click\", \"target\": {\"role\": \"button\", \"label\": \"Save\"}}].",
         schema: || {
+            let target = json!({
+                "type": "object",
+                "description": "An element by what it is, instead of element_id: found when the step runs, refused when none or several match.",
+                "properties": {
+                    "role": {"type": "string", "description": "As get_ui_tree shows it: button, text_field, sheet, ..."},
+                    "label": {"type": "string", "description": "The element's whole name, any case."},
+                    "text": {"type": "string", "description": "Part of its name or value, any case."}
+                },
+                "additionalProperties": false
+            });
             obj(
                 json!({
                     "window_id": window_id(),
-                    "actions": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}}
+                    "actions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "action": {"type": "string", "enum": ["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait", "wait_for"]},
+                                "require": {"type": "string", "enum": ["confirmed", "not_no_effect", "no_error"], "description": "Acting steps: when this step stops the batch. confirmed: unless its outcome is confirmed. not_no_effect: when its outcome is no_effect. no_error (default): only on an error."},
+                                "target": target,
+                                "element_id": {"type": "string"},
+                                "perform": {"type": "string", "description": "perform_action: the accessibility action (press, confirm, ...), since action names the step."},
+                                "until": {"type": "string", "enum": ["appears", "disappears"], "description": "wait_for: appears (default) or disappears."},
+                                "value_equals": {"type": "string", "description": "wait_for: until the element's value is exactly this."},
+                                "value_contains": {"type": "string", "description": "wait_for: until the element's value contains this."},
+                                "timeout_ms": {"type": "number", "minimum": 0, "maximum": 100000, "description": "wait_for: the longest it waits (default 10000); a timeout stops the batch."},
+                                "ms": {"type": "number", "minimum": 0, "maximum": 100000, "description": "wait: how long."}
+                            },
+                            "required": ["action"]
+                        }
+                    }
                 }),
                 &["window_id", "actions"],
             )
@@ -341,7 +371,7 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Element ids stay the same across looks. App menu commands are in the tree's menu bar: click a menu's id to list its items, then click the item to run it. Every action returns the window after acting: what changed since your last look (+ added, ~ changed, - removed, windows opened or closed) and a screenshot when it changed. Read it before you say a step worked: \"No change\" means the action did nothing visible, so try another way instead of reporting it done. Work in the background first: it never takes the person's focus or pointer, a blue cmux cursor shows them where you act, and it works for nearly everything. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Element ids stay the same across looks. App menu commands are in the tree's menu bar: click a menu's id to list its items, then click the item to run it. Every action returns the window after acting: what changed since your last look (+ added, ~ changed, - removed, windows opened or closed) and a screenshot when it changed. Read it before you say a step worked: \"No change\" means the action did nothing visible, so try another way instead of reporting it done. For a fixed run of steps on one window (open a sheet, wait for it, fill it, save), batch does them in one call: each step reports its own outcome, wait_for waits for an element or value, target names an element by role and label, and require: \"confirmed\" stops at a step that did not read back. Work in the background first: it never takes the person's focus or pointer, a blue cmux cursor shows them where you act, and it works for nearly everything. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
 
 #[cfg(test)]
 mod tests {
@@ -376,5 +406,22 @@ mod tests {
         assert_eq!(safe_tag("Fix\nthe\tbuild").as_deref(), Some("Fix the build"));
         assert_eq!(safe_tag(" \u{7} "), None);
         assert_eq!(safe_tag(&"y".repeat(61)).map(|t| t.chars().count()), Some(60));
+    }
+
+    /// The batch schema names every step field an agent can use.
+    #[test]
+    fn the_batch_schema_lists_its_step_fields() {
+        let s = find("batch").unwrap().schema();
+        let step = &s["properties"]["actions"]["items"]["properties"];
+        assert_eq!(s["properties"]["actions"]["maxItems"], crate::engine::BATCH_MAX);
+        for key in
+            ["action", "require", "target", "until", "value_equals", "value_contains", "timeout_ms"]
+        {
+            assert!(step[key].is_object(), "{key}");
+        }
+        let actions = step["action"]["enum"].as_array().unwrap();
+        assert!(actions.contains(&json!("wait_for")));
+        assert_eq!(step["require"]["enum"], json!(["confirmed", "not_no_effect", "no_error"]));
+        assert_eq!(step["target"]["additionalProperties"], false);
     }
 }

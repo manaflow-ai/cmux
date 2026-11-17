@@ -244,7 +244,12 @@ impl Engine {
     /// agent was shown under `n` (same role, label, kind of value, place and
     /// ancestors). Anything else is refused as stale, so an id that moved to
     /// another element can never be acted on.
-    fn check_shown(&self, session: &str, window: &Window, n: u32) -> Result<(), ToolOutput> {
+    pub(super) fn check_shown(
+        &self,
+        session: &str,
+        window: &Window,
+        n: u32,
+    ) -> Result<(), ToolOutput> {
         let now = lock(&self.observe.ids).window(&window.id).and_then(|w| w.fingerprint(n));
         let then = lock(&self.observe.shown)
             .get(&(session.to_string(), window.id.clone()))
@@ -268,7 +273,7 @@ impl Engine {
     }
 
     /// The outline the agent last saw of a window.
-    fn last_seen(&self, session: &str, window_id: &str) -> Option<outline::Outline> {
+    pub(super) fn last_seen(&self, session: &str, window_id: &str) -> Option<outline::Outline> {
         lock(&self.observe.seen)
             .get(&(session.to_string(), window_id.to_string()))
             .map(|(_, o)| o.clone())
@@ -305,7 +310,7 @@ impl Engine {
     /// The windows over `window_id` that opened or closed since `before`
     /// (bg-fix's `window_ids_over`: sheets, panels and popovers, another
     /// process's Save panel too).
-    fn window_changes(&self, window_id: &str, before: &[String]) -> Vec<String> {
+    pub(super) fn window_changes(&self, window_id: &str, before: &[String]) -> Vec<String> {
         let Some(after) = self.window_ids_over_target(window_id) else { return Vec::new() };
         let mut lines = Vec::new();
         for id in after.iter().filter(|id| !before.contains(id)) {
