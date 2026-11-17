@@ -36,8 +36,22 @@ import VideoToolbox
     ]
 
     /// The card as RGB, row-major.
-    static let card: [[UInt8]] = (0..<height).flatMap { y in
-        (0..<width).map { x in y < rampRows ? [UInt8(x / 2), UInt8(x / 2), UInt8(x / 2)] : patches[x / 64].1 }
+    static let card: [[UInt8]] = makeCard()
+
+    static func makeCard() -> [[UInt8]] {
+        var out: [[UInt8]] = []
+        out.reserveCapacity(width * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                if y < rampRows {
+                    let value = UInt8(x / 2)
+                    out.append([value, value, value])
+                } else {
+                    out.append(patches[x / 64].1)
+                }
+            }
+        }
+        return out
     }
 
     enum Matrix: String, CaseIterable {
@@ -126,7 +140,9 @@ import VideoToolbox
                         sum[c] += d
                     }
                 }
-                let mean = sum.map { String(format: "%.2f", Double($0) / Double(points.count)) }
+                let mean: [String] = sum.map { (total: Int) -> String in
+                    String(format: "%.2f", Double(total) / Double(points.count))
+                }
                 lines.append("  \(region.padding(toLength: 18, withPad: " ", startingAt: 0)) R \(max[0]) / \(mean[0])  G \(max[1]) / \(mean[1])  B \(max[2]) / \(mean[2])")
                 caseWorst = Swift.max(caseWorst, max.max() ?? 0)
             }
@@ -146,9 +162,14 @@ import VideoToolbox
 
     /// Interior points of each region (8 px in from patch edges), the ramp first.
     static let regions: [(String, [Int])] = {
-        var out: [(String, [Int])] = [("grey ramp 0..255", (0..<256).map { (rampRows / 2) * width + $0 * 2 })]
+        var ramp: [Int] = []
+        for step in 0..<256 { ramp.append((rampRows / 2) * width + step * 2) }
+        var out: [(String, [Int])] = [("grey ramp 0..255", ramp)]
         for (index, patch) in patches.enumerated() {
-            let points = (rampRows + 8..<height - 8).flatMap { y in (index * 64 + 8..<index * 64 + 56).map { y * width + $0 } }
+            var points: [Int] = []
+            for y in (rampRows + 8)..<(height - 8) {
+                for x in (index * 64 + 8)..<(index * 64 + 56) { points.append(y * width + x) }
+            }
             out.append((patch.0, points))
         }
         return out
@@ -230,7 +251,10 @@ import VideoToolbox
             for col in 0..<width {
                 let p = card[row * width + col]
                 let o = row * stride + col * 4
-                (base[o], base[o + 1], base[o + 2], base[o + 3]) = (p[2], p[1], p[0], 255)
+                base[o] = p[2]
+                base[o + 1] = p[1]
+                base[o + 2] = p[0]
+                base[o + 3] = 255
             }
         }
         CVPixelBufferUnlockBaseAddress(bgra, [])
@@ -263,7 +287,7 @@ import VideoToolbox
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_YCbCrMatrix, value: matrix.key)
         let frames = 12
         for index in 0..<frames {
-            let force = index == frames - 1 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
+            let force: CFDictionary? = index == frames - 1 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
             VTCompressionSessionEncodeFrame(
                 session, imageBuffer: nv12, presentationTimeStamp: CMTime(value: CMTimeValue(index), timescale: 30),
                 duration: .invalid, frameProperties: force, infoFlagsOut: nil) { _, _, sample in
@@ -272,12 +296,12 @@ import VideoToolbox
         }
         VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
         let sample = try #require(collected.all.last)
-        let annexB = try annexB(sample)
-        let parsed = RemoteAnnexB().parse(annexB, codec: .h264)
+        let bytes = try Self.annexB(sample)
+        let parsed = RemoteAnnexB().parse(bytes, codec: .h264)
         let format = try #require(RemoteVideoFormat.formatDescription(codec: .h264, parameterSets: parsed.parameterSets))
         func ext(_ key: CFString) -> String { (CMFormatDescriptionGetExtension(format, extensionKey: key) as? String) ?? "untagged" }
         let full = (CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_FullRangeVideo) as? Bool) ?? false
-        return Stream(annexB: annexB, transfer: ext(kCMFormatDescriptionExtension_TransferFunction),
+        return Stream(annexB: bytes, transfer: ext(kCMFormatDescriptionExtension_TransferFunction),
                       matrix: ext(kCMFormatDescriptionExtension_YCbCrMatrix), fullRange: full)
     }
 
@@ -303,7 +327,8 @@ import VideoToolbox
         CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes.count, destination: &bytes)
         var offset = 0
         while offset + 4 <= bytes.count {
-            let length = bytes[offset..<offset + 4].reduce(0) { $0 << 8 | Int($1) }
+            var length = 0
+            for byte in bytes[offset..<(offset + 4)] { length = (length << 8) | Int(byte) }
             out.append(contentsOf: [0, 0, 0, 1])
             out.append(contentsOf: bytes[offset + 4..<min(bytes.count, offset + 4 + length)])
             offset += 4 + length
@@ -338,13 +363,26 @@ import VideoToolbox
         commands.waitUntilCompleted()
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         target.getBytes(&bytes, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
-        return (0..<width * height).map { [bytes[$0 * 4 + 2], bytes[$0 * 4 + 1], bytes[$0 * 4]] }
+        var out: [[UInt8]] = []
+        out.reserveCapacity(width * height)
+        for index in 0..<(width * height) {
+            let o = index * 4
+            out.append([bytes[o + 2], bytes[o + 1], bytes[o]])
+        }
+        return out
     }
 
     /// The rows (each the card's size) stacked into one PNG.
     static func png(_ rows: [[[UInt8]]]) -> Data? {
         var bytes: [UInt8] = []
-        for row in rows { for p in row { bytes += [p[0], p[1], p[2], 255] } }
+        for row in rows {
+            for p in row {
+                bytes.append(p[0])
+                bytes.append(p[1])
+                bytes.append(p[2])
+                bytes.append(255)
+            }
+        }
         let data = Data(bytes)
         guard let provider = CGDataProvider(data: data as CFData),
               let space = CGColorSpace(name: CGColorSpace.sRGB),
