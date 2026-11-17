@@ -303,6 +303,75 @@ class MainTests(unittest.TestCase):
         self.assertNotIn("::error", out)
 
 
+IOS = "glaeda-ios-sim+glaeda-std-xcode-26.6"
+
+
+def dispatches(github: FakeGitHub) -> list:
+    return [(body or {}).get("inputs", {}).get("run_id") for method, path, body in github.calls
+            if method == "POST" and path.endswith("/actions/workflows/ci-owned-pool-rescue.yml/dispatches")]
+
+
+class RescueTests(unittest.TestCase):
+    """cmux#45115 (2026-11-17): glaeda-ios-sim+glaeda-std-xcode-26.6 unserved 539 minutes, 16 jobs queued, every
+    carrier held off by its mini's gate; the alert opened an issue and NOW paged it, and nothing moved a job."""
+
+    def stuck_ios(self, run: int, created: float) -> dict:
+        entry = job(label="glaeda-std-xcode-26.6", created=created, name="ios-simulator-build")
+        entry["labels"] = ["glaeda-std-xcode-26.6", "glaeda-ios-sim"]
+        entry["run_id"], entry["run_attempt"] = run, 1
+        return entry
+
+    def test_a_label_starved_past_thirty_minutes_starts_each_stuck_runs_rescue(self) -> None:
+        runs = [{"id": 11}, {"id": 12}, {"id": 13}]
+        jobs = {11: [self.stuck_ios(11, 231)], 12: [self.stuck_ios(12, 90)], 13: [self.stuck_ios(13, 20)]}
+        found = starved_labels.starved(runs, jobs, now=NOW)
+        github = FakeGitHub([dict(search_item(IOS, 45115), body="old")])
+        lines = starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        # the two runs stuck past 30 minutes, oldest first; the 20-minute one waits for its own 30
+        self.assertEqual(dispatches(github), ["11", "12"])
+        self.assertTrue(any("started run 11's rescue" in line for line in lines), lines)
+        patch = next(body for method, path, body in github.calls if method == "PATCH" and path.endswith("/45115"))
+        self.assertEqual(sorted(starved_labels.rescued_runs(patch["body"])), [11, 12])
+
+    def test_a_run_already_rescued_is_not_dispatched_again_within_the_repeat(self) -> None:
+        found = starved_labels.starved([{"id": 11}], {11: [self.stuck_ios(11, 231)]}, now=NOW)
+        body = f"x\n\n<!-- starved-rescue: 11@{iso(10)} -->"
+        github = FakeGitHub([dict(search_item(IOS, 45115), body=body)])
+        starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(dispatches(github), [])
+        github = FakeGitHub([dict(search_item(IOS, 45115), body=f"<!-- starved-rescue: 11@{iso(230)} -->")])
+        starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(dispatches(github), ["11"])
+
+    def test_a_label_starved_under_thirty_minutes_only_alerts(self) -> None:
+        found = starved_labels.starved([{"id": 11}], {11: [self.stuck_ios(11, 25)]}, now=NOW)
+        self.assertEqual(len(found), 1)
+        github = FakeGitHub([])
+        starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(dispatches(github), [])
+        self.assertEqual(github.opened(), 1)
+
+    def test_a_refused_dispatch_never_fails_the_alert(self) -> None:
+        class Refusing(FakeGitHub):
+            def request(self, method, path, body=None):
+                if path.endswith("/dispatches"):
+                    raise RuntimeError("POST dispatches failed (403)")
+                return super().request(method, path, body)
+        found = starved_labels.starved([{"id": 11}], {11: [self.stuck_ios(11, 231)]}, now=NOW)
+        github = Refusing([])
+        lines = starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(github.opened(), 1)
+        self.assertTrue(any("could not start run 11's rescue" in line for line in lines), lines)
+
+    def test_the_sweep_caps_its_dispatches(self) -> None:
+        runs = [{"id": n} for n in range(20, 40)]
+        jobs = {n: [self.stuck_ios(n, 100 + n)] for n in range(20, 40)}
+        found = starved_labels.starved(runs, jobs, now=NOW)
+        github = FakeGitHub([])
+        starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(len(dispatches(github)), starved_labels.RESCUE_RUNS_PER_SWEEP)
+
+
 class WorkflowTests(unittest.TestCase):
     def test_sweeps_are_serialized_and_never_cancelled_mid_reconcile(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
