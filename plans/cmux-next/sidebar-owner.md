@@ -1,5 +1,7 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-17 (theme-flourish-settings, ask-cbefa8bcf5): Sidebar-Look: Leo, 2026-11-17: "ok i feel like a [character] theme necessarily has to have lots of [character] wallpapers among other flourishes". A theme may set a sidebar header picture (`appearance.sidebarHeader.dark` / `.light`, written by a community theme's install from cmux-theme.json `header`): an aspect-filled picture under the titlebar row, inset `Metrics.space2` with `Metrics.panelCornerRadius` corners, height width x 0.36 clamped to 64-140 pt, the list below it moved down by that height (`SidebarView+HeaderArt`). Its image comes from the shared `BackdropImageStore` cache, decoded off the main thread. Unset (the default): no view and the layout is unchanged.
+
 - 2026-11-16 (ask-035c65b611): Sidebar-Look: no workspace row draws a screen button, on any machine kind. Leo, on the
   Share icon every row drew: "WHY CANT IT JUST BE REVERTED". This reverts the row screen slot #43516 added (b16877b72ce
   had dropped only This Mac's rows); Share and View screen stay on machine headers and in the palette. The 2026-11-13

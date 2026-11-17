@@ -189,6 +189,9 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 package.themes.join(", "),
                 package.art.images.len()
             );
+            if !package.art.applied.is_empty() {
+                human.push_str(&format!("\n  applied: {}", package.art.applied.join(", ")));
+            }
             if !package.art.pending.is_empty() {
                 human.push_str(&format!(
                     "\n  not applied yet (no cmux setting): {}",
@@ -201,6 +204,7 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 "id": package.id,
                 "themes": package.themes,
                 "images": package.art.images,
+                "applied": package.art.applied,
                 "pending": package.art.pending,
             });
             ok(global, &value, &human)
@@ -408,6 +412,9 @@ fn install(
         if !package.art.images.is_empty() {
             human.push_str(&format!("; {} images", package.art.images.len()));
         }
+        if !package.art.applied.is_empty() {
+            human.push_str(&format!("\n  applied: {}", package.art.applied.join(", ")));
+        }
         if !package.art.pending.is_empty() {
             human.push_str(&format!(
                 "\n  not applied yet (no cmux setting): {}",
@@ -428,6 +435,7 @@ fn install(
         "receipt": receipt,
         "themes": package.themes,
         "images": package.art.images.len(),
+        "applied": package.art.applied,
         "pending": package.art.pending,
         "change": change,
     });

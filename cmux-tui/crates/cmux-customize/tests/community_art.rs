@@ -122,9 +122,17 @@ fn wallpapers_install_into_the_config_folder_and_remove_takes_them_out() {
     let repo = twin(MARKER, &[]);
     let package = community::read_package(repo.path()).unwrap();
     assert_eq!(package.art.images.len(), 5);
-    for item in ["wallpapers.pane", "header", "flourishes.accentGlow", "flourishes.cursor.style"] {
-        assert!(package.art.pending.iter().any(|p| p == item), "{item} is pending");
+    for item in [
+        "wallpapers.pane",
+        "header",
+        "flourishes.accentGlow",
+        "flourishes.cursor.style",
+        "flourishes.cursor.blink",
+        "flourishes.tabClose",
+    ] {
+        assert!(package.art.applied.iter().any(|p| p == item), "{item} is applied");
     }
+    assert!(package.art.pending.is_empty(), "{:?}", package.art.pending);
     assert!(community::card("Install", &package, &receipt(&package), false).contains("5 images"));
 
     customize.community_put(&package, receipt(&package), true, "cli", 10).unwrap();
@@ -139,6 +147,7 @@ fn wallpapers_install_into_the_config_folder_and_remove_takes_them_out() {
     assert!(dark.contains("\"backgroundOpacity\": 0.4"), "the rest stays: {dark}");
     let light = fs::read_to_string(home.config("themes/twin-light.json")).unwrap();
     assert!(light.contains("\"file:../wallpapers/theme-alice-twin/light/a.jpg\""), "{light}");
+    flourishes_apply_through_each_theme_file(&home);
 
     // An update with fewer images replaces the folder.
     let marker = MARKER.replace(", \"wallpapers/dark/b.png\"", "");
@@ -207,4 +216,72 @@ fn a_refused_art_install_writes_nothing() {
     assert!(home.customize().community_put(&package, receipt(&package), true, "cli", 10).is_err());
     assert!(!home.config("wallpapers/theme-alice-twin").exists());
     assert!(!home.config("themes/twin.json").exists());
+}
+
+/// Each installed theme file carries the flourishes as settings: they load
+/// through the theme file reader (pictures resolved against the themes
+/// folder, at the installed art) and go when another theme file is picked.
+fn flourishes_apply_through_each_theme_file(home: &Home) {
+    use cmux_config::domains::Domains;
+    use cmux_config::schema::Schema;
+    use cmux_config::theme_file::ThemeFile;
+    use serde_json::json;
+
+    let themes = home.config("themes");
+    let art = home.config("wallpapers/theme-alice-twin");
+    for name in ["twin", "twin-light"] {
+        let text = fs::read_to_string(themes.join(format!("{name}.json"))).unwrap();
+        let file = ThemeFile::read(
+            name,
+            Some(Ok(text.as_str())),
+            &json!({}),
+            Some(&themes),
+            Schema::embedded(),
+            &Domains::default(),
+        );
+        assert!(file.diagnostics.is_empty(), "{name}: {:?}\n{text}", file.diagnostics);
+        let value = |key: &str| {
+            let path: Vec<String> = key.split('.').map(str::to_owned).collect();
+            file.values.iter().find(|(p, _)| *p == path).map(|(_, v)| v.clone())
+        };
+        assert_eq!(value("appearance.accentGlow.dark"), Some(json!("#39c5bb")), "{text}");
+        assert_eq!(value("appearance.accentGlow.radius"), Some(json!(24)));
+        assert_eq!(value("appearance.accentGlow.opacity"), Some(json!(0.35)));
+        assert_eq!(value("terminal.cursorStyle"), Some(json!("bar")));
+        assert_eq!(value("terminal.cursorBlink"), Some(json!("on")));
+        assert_eq!(value("appearance.tabClose.from"), Some(json!("#39c5bb")));
+        assert_eq!(value("appearance.tabClose.toDark"), Some(json!("#ff5f87")));
+        assert_eq!(
+            value("appearance.tabClose.toLight"),
+            Some(json!("#ff5f87")),
+            "light falls back to dark"
+        );
+        assert_eq!(value("appearance.tabClose.interpolation"), Some(json!("oklab")));
+        let header = format!("file:{}", art.join("header/dark.webp").display());
+        assert_eq!(value("appearance.sidebarHeader.dark"), Some(json!(header)));
+        let pane = format!("file:{}", art.join("pane/dark/p.webp").display());
+        assert_eq!(value("appearance.paneArt.dark"), Some(json!([pane])));
+        assert_eq!(value("appearance.paneArt.light"), None, "the marker lists no light pane art");
+    }
+}
+
+#[test]
+fn a_theme_files_own_flourish_value_wins() {
+    let own = r##"{ "name": "Twin", "appearance": { "background": "folder:../wallpapers/dark", "accentGlow": { "dark": "#112233" } }, "terminal.cursorStyle": "block" }"##;
+    let repo = twin(MARKER, &[("themes/twin.json", own.as_bytes())]);
+    let package = community::read_package(repo.path()).unwrap();
+    let dark = &package.profile.files["themes/twin.json"];
+    assert!(dark.contains("#112233") && !dark.contains("\"#39c5bb\""), "{dark}");
+    assert!(dark.contains("\"block\"") && !dark.contains("\"bar\""), "{dark}");
+    assert!(dark.contains("\"radius\": 24"), "the parts it does not set still come: {dark}");
+}
+
+#[test]
+fn a_theme_without_flourishes_writes_none() {
+    let marker = r##"{ "cmuxTheme": 1, "id": "alice/twin", "name": "Twin", "description": "Teal.",
+      "wallpapers": { "dark": ["wallpapers/dark/a.webp", "wallpapers/dark/b.png"], "light": ["wallpapers/light/a.jpg"] } }"##;
+    let repo = twin(marker, &[]);
+    let package = community::read_package(repo.path()).unwrap();
+    assert!(package.art.settings.is_empty() && package.art.applied.is_empty());
+    assert_eq!(package.profile.files["themes/twin.json"], DARK, "the theme file is as written");
 }

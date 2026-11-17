@@ -137,6 +137,9 @@ fn kind_schema(row: &Row) -> Value {
             return json!({ "anyOf": [choice(choices), path] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
+        Validation::Domain(DomainKind::BackdropPictures) => {
+            return json!({ "type": "array", "items": picture() });
+        }
         Validation::Domain(DomainKind::BackdropSchedule) => {
             return json!({
                 "type": "object",

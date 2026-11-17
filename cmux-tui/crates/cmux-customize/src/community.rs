@@ -309,6 +309,8 @@ fn theme_profile(
     let schema = Schema::embedded();
     let mut files = BTreeMap::new();
     let mut names = Vec::new();
+    // The flourishes, header and pane art as settings each theme file carries.
+    let flourishes = art::settings(art, entry);
     for path in &paths {
         let name = path
             .strip_prefix("themes/")
@@ -318,6 +320,7 @@ fn theme_profile(
         let text = read_text(dir, path, theme_file::MAXIMUM_BYTES as u64)?
             .ok_or_else(|| refuse(format!("{path}: not in the repository")))?;
         let text = art::rewrite(&text, path, entry, art)?;
+        let text = art::with_settings(&text, path, &flourishes)?;
         let themes_dir = dir.join(theme_file::FOLDER_NAME);
         let file = ThemeFile::read(
             name,

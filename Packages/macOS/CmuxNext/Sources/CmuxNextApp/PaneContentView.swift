@@ -138,7 +138,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             }
         }
         paneBackgroundsObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
+            for await _ in ObservationStream({ (DesignSettings.shared.paneBackgrounds, DesignSettings.shared.flourishes.paneArt) }) { self?.paintPaneBackdrop() }
         }
         placementObservation = Task { [weak self] in
             for await (position, order, toolbar) in ObservationStream({

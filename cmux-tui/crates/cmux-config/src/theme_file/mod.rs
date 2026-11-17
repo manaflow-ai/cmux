@@ -69,11 +69,13 @@ const LOOK_PREFIXES: [&str; 7] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and the sidebar's
-/// shape and edges.
-const LOOK_KEYS: [&str; 6] = [
+/// Look keys outside those prefixes: the terminal font and cursor, and the
+/// sidebar's shape and edges.
+const LOOK_KEYS: [&str; 8] = [
     "terminal.fontFamily",
     "terminal.fontSize",
+    "terminal.cursorStyle",
+    "terminal.cursorBlink",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
@@ -403,13 +405,15 @@ impl<'a> Reader<'a> {
         if !is_look(row) {
             return self.refuse(&row.key, Some(written), "a theme file sets only look settings");
         }
-        let value = if matches!(
-            row.validation,
-            Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
-        ) {
-            self.picture(written)
-        } else {
-            written.clone()
+        let value = match (&row.validation, written) {
+            (
+                Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture),
+                _,
+            ) => self.picture(written),
+            (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) => {
+                Value::Array(items.iter().map(|item| self.picture(item)).collect())
+            }
+            _ => written.clone(),
         };
         if let Err(refusal) = accepts(row, &value, self.domains) {
             return self.refuse(&row.key, Some(&value), &expectation(&refusal));

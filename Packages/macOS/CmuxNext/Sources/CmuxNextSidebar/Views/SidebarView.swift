@@ -80,12 +80,12 @@ public final class SidebarView: NSView {
     let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = OverlayScrollView()
     let belowScroll = OverlayScrollView()
-    /// Fade the bands' rows out at an edge while more are hidden there.
-    // Built in the sections setup (no IUOs).
+    /// Fade the bands' rows out at an edge while more are hidden there; built in the sections setup (no IUOs).
     lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
     lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
-    /// The hairline between the top band and the list (quiet look). The
-    /// footer has none (SIDEBAR-FOOTER-MINIMAL).
+    /// The theme's header picture (`appearance.sidebarHeader.*`, `SidebarView+HeaderArt`); nil makes no view.
+    var headerArt: BackdropPictureView?
+    /// The hairline between the top band and the list (quiet look). The footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// The +'s menu segment, right of the + as one split button (Lawrence 2026-10-30: "the dropdown
@@ -388,8 +388,8 @@ public final class SidebarView: NSView {
         super.layout()
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.
-        // The list starts right under the titlebar row: no search field.
-        let y = titlebarHeight
+        // The list starts right under the titlebar row (and a theme's header picture under it): no search field.
+        let y = titlebarHeight + layoutHeaderArt(top: titlebarHeight, width: b.width)
 
         // Titlebar row: buttons trail the traffic lights at a stable frame.
         // Every control in the row centers on the traffic lights' line (the

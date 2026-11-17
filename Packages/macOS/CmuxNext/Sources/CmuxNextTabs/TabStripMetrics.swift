@@ -46,6 +46,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var badgeSize: CGFloat
     /// How a hovered tab's x takes its status's slot.
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
+    /// The theme's close button colors (`appearance.tabClose.*`); unset is today's.
+    public var closeColors = ThemeFlourishes.TabClose()
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -215,6 +217,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        closeColors = DesignSettings.shared.flourishes.tabClose
     }
 
     /// Token-derived metrics for the current density.
