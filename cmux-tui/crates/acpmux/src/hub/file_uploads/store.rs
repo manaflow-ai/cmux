@@ -89,10 +89,19 @@ pub(crate) fn record(dir: &Path) -> Option<Record> {
     Record::from_json(&serde_json::from_reader(file).ok()?)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many files [`sha256_of`] began to hash on this thread: a test's proof that a request
+    /// it ran hashed nothing.
+    pub(crate) static HASHED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Lowercase hex SHA-256 of the file at `path`, read 1 MiB at a time.
 pub(crate) fn sha256_of(path: &Path) -> std::io::Result<String> {
     use sha2::Digest;
     use std::io::Read;
+    #[cfg(test)]
+    HASHED.with(|n| n.set(n.get() + 1));
     let mut file = crate::config::private_state_file(path).map_err(std::io::Error::other)?;
     let mut hash = sha2::Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
