@@ -95,16 +95,25 @@ import Testing
         }
     }
 
+    /// Displays `label`'s layer as the next frame would (`updateLayer`); a test runner with no
+    /// window server frames does not display it on its own.
+    private func display(_ label: ChromeLabel) {
+        label.layer?.displayIfNeeded()
+        CATransaction.flush()
+    }
+
     /// A sidebar row's subtitle: the label draws again in the new smoothing, lighter when thin.
     @Test func chromeLabelDrawsAgainOnALiveChange() {
         withChrome(.subpixel) {
             let label = ChromeLabel(labelWithString: Self.text)
+            label.wantsLayer = true
             label.font = .systemFont(ofSize: TypeScale.Base.body)
             label.textColor = Self.ink
             label.frame = NSRect(x: 8, y: 30, width: 380, height: 20)
             let window = window(with: label)
             defer { window.close() }
             show(window)
+            display(label)
             let smoothed = Self.coverage(Self.labelMask(label)?.contents)
             let draws = label.glyphDraws
             #expect(smoothed > 0)
@@ -112,6 +121,7 @@ import Testing
             ProcessFontSmoothing.applyLive(.antialiased)
             #expect(label.needsDisplay, "a smoothing change marks every chrome label on screen")
             show(window)
+            display(label)
             let thin = Self.coverage(Self.labelMask(label)?.contents)
             #expect(label.glyphDraws == draws + 1, "the glyphs draw again in the new smoothing")
             #expect(thin > 0)
@@ -120,6 +130,7 @@ import Testing
             // Back: the first smoothing's image is drawn again, the same as before.
             ProcessFontSmoothing.applyLive(.subpixel)
             show(window)
+            display(label)
             #expect(Self.coverage(Self.labelMask(label)?.contents) == smoothed)
         }
     }
