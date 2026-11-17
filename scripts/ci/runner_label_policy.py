@@ -170,6 +170,7 @@ def side_lane_reason(label: str) -> str | None:
 # CAPABILITY_LABELS gives every root, side, gui and session runner from its host's measured shape.
 SIDE_LANE_LABELS_VARIABLE = "CI_SIDE_LANE_LABELS"
 SHARED_SIDE_LABEL = re.compile(r"glaeda-side-xcode-[0-9]+(?:\.[0-9]+)*")
+AWS_SIDE_LANE_PREFIX = "glaeda-aws-side-"
 CAPABILITY_LABEL = re.compile(r"glaeda-(?:ram-(?:16|48|96)|cores-(?:10|12|14|30)|display)")
 
 
@@ -186,9 +187,11 @@ def side_lane_labels_reason(value: str) -> str | None:
     if len(set(labels)) != len(labels):
         return "names a label twice"
     pools = [label for label in labels if SHARED_SIDE_LABEL.fullmatch(label) or (
-        label.startswith(SIDE_LANE_PREFIX) and side_lane_reason(label) is None)]
+        label.startswith(SIDE_LANE_PREFIX) and side_lane_reason(label) is None) or (
+        label.startswith(AWS_SIDE_LANE_PREFIX) and side_lane_reason(label) is None)]
     if len(pools) != 1:
-        return ("must name exactly one side pool label (glaeda-side-<class>-xcode-<version> or "
+        return ("must name exactly one side pool label (glaeda-side-<class>-xcode-<version>, "
+                "glaeda-aws-side-<class>-xcode-<version> or "
                 f"glaeda-side-xcode-<version>), not {len(pools)}")
     for label in labels:
         if label not in pools and not CAPABILITY_LABEL.fullmatch(label):
