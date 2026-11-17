@@ -26,6 +26,16 @@ public enum ActionTargetVisibility {
         ActionTargetTitles.setPaletteReason(id, in: registry) { quiet(ActionInvocation()) }
     }
 
+    /// Shows `shown`'s row in a target's context menu while `when` holds and `other`'s otherwise, so
+    /// a pair placed side by side reads as one row (the workspace row's Mark as Read or Mark as
+    /// Unread by its unread dot, #44931; `ContextMenuEssentials.exclusiveRows`). The palette, the CLI
+    /// and MCP keep both.
+    public static func showOne(_ shown: ActionID, else other: ActionID, in registry: ActionRegistry,
+                               when: @escaping @MainActor (ActionInvocation) -> Bool) {
+        hide(shown, in: registry) { !when($0) }
+        hide(other, in: registry, when: when)
+    }
+
     /// Whether the menu row of `id` is left out for `invocation`'s target.
     static func isHidden(_ id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) -> Bool {
         registry.action(for: id)?.targetHidden?(invocation) ?? false

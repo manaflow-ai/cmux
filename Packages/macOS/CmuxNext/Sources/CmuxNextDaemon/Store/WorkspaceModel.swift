@@ -116,6 +116,10 @@ public final class WorkspaceModel: Identifiable {
         return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
     }
 
+    /// Whether the sidebar row draws an unread dot: marked unread by hand, or a tab with an unread
+    /// notification (the workspace row menu's Mark as Read or Mark as Unread, #44931).
+    public var showsUnreadDot: Bool { markedUnread || unreadCount > 0 }
+
     /// Tabs with an unread marker, counted from the mirrored tabs, which
     /// every tab delta (an acknowledgement included) keeps current. The
     /// daemon rollup arrives only with workspace snapshots, so it goes stale

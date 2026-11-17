@@ -65,9 +65,9 @@ enum WorkspaceMetadataHandlers {
         })
 
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapability.notificationMarkUnread.rawValue, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapability.notificationMarkUnread.rawValue)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)
         })
+        ActionTargetVisibility.showOne("palette.markWorkspaceRead", else: "palette.markWorkspaceUnread", in: registry) { (try? context.workspace($0).model)?.showsUnreadDot ?? false }
     }
 
     private static func setColor(_ color: GroupColor?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {

@@ -120,10 +120,13 @@ import Testing
                 default: true
                 }
             }
+            // Rows of which the App shows one (Mark as Read or Unread, #44931) count once.
+            let shownIDs = Set(rows.compactMap { entry -> ActionID? in if case .action(let id) = entry { id } else { nil } })
+            let alternates = ContextMenuEssentials.exclusiveRows.map { $0.intersection(shownIDs).count }.reduce(0) { $0 + max($1 - 1, 0) }
             // A workspace row's and a tab's menu also have Copy ▸ (ContextMenuEssentials.copyFolder, Leo 2026-10-29).
             let cap = [.terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
             if !Self.countedAtItsBuilder.contains(context) {
-                #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
+                #expect(rows.count - alternates <= cap, "\(context) has \(rows.count - alternates) top-level rows")
             }
             for case .folder(let folder, let children) in entries {
                 let count = ContextMenuCatalog.shared.referencedIDs(children).count

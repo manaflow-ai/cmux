@@ -24,6 +24,11 @@ nonisolated enum ContextMenuEssentials {
     /// seven loose Copy rows on a tab and none on a workspace.
     static let copyFolder: [ContextMenuEntry] = [.folder(.copy, [])]
 
+    /// Top-level rows of which a menu shows at most one for its target: the App hides the others
+    /// (`ActionTargetVisibility`). Mark Workspace as Read shows on a row with an unread dot, Mark
+    /// Workspace as Unread on one without (#44931). A menu's row cap counts each set once.
+    static let exclusiveRows: [Set<ActionID>] = [["palette.markWorkspaceRead", "palette.markWorkspaceUnread"]]
+
     /// A choices row that always ends with this action, so its submenu shows with no choices
     /// too: Move to Group lists the groups, then New Group.
     static let choiceTrailers: [ActionID: ActionID] = ["moveWorkspaceToGroup": "workspace.moveToNewGroup"]
@@ -36,7 +41,10 @@ nonisolated enum ContextMenuEssentials {
         // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
         // Leo 2026-10-20: "like Chrome"). Duplicate remains in More so the workspace menu stays
         // within its twelve-row cap after the top-level Copy folder.
-        .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
+        // Mark as Read and Mark as Unread follow Pin, as in classic (#44931); the App shows the one
+        // that fits the row's unread dot (`exclusiveRows`), so the pair is one row on screen.
+        .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"),
+                                  .action("palette.markWorkspaceRead"), .action("palette.markWorkspaceUnread"), .choices("palette.workspaceColor"),
                                   .action("workspace.newBelow"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"], beforeMore: copyFolder),
