@@ -1118,7 +1118,6 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
-        "CMUXMobileCore",
         "CmuxTheme"
       ],
       "reads": [
@@ -1664,9 +1663,7 @@
         "CmuxNextDaemon",
         "CmuxNextWakeups"
       ],
-      "packages": [
-        "CMUXMobileCore"
-      ]
+      "packages": []
     },
     "CmuxNextMobileHost": {
       "kind": "regular",
@@ -1718,9 +1715,7 @@
         "CmuxMobileRPC",
         "CmuxMobileSSH"
       ],
-      "reads": [
-        "scripts/cmux-next/pin-cmux-tui.sh"
-      ]
+      "reads": []
     },
     "CmuxNextNotifications": {
       "kind": "regular",

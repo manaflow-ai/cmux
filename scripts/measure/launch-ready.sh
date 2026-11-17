@@ -15,7 +15,8 @@
 #                them (a terminal each), shows Home in the front window and quits with Keep Sessions (LR-SEED). The
 #                default, session=small, measures the priming launch's session (one window on Home).
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
-#                and print its main thread from process start to the window on screen (launch-ready-profile.py)
+#                and print its main thread from process start to the window on screen (launch-ready-profile.py); its
+#                SIDE-run1.samples.json.gz in report.tgz names a nightly's stripped frames offline with --dsym
 #   prerun=S     before each measured launch, one full run of the same copy and home that stays up S seconds after its
 #                window shows (1 to 600; 60 for "a launch after a 60 s full run"), then quits as the measured ones do.
 #                The time before main differs by case: 30 to 80 ms when launches follow each other closely, 600 to 1170
@@ -31,6 +32,10 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
+  # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
+  # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
+  LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
+  trap 'rm -rf "$LR_SOCKETS"' EXIT
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -148,7 +153,7 @@ probe() {
     recorder=$!
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
-  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" 2>>"$out/probe.log" | grep '^LR-RUN ')"
   if [[ -n "$recorder" ]]; then
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
@@ -166,10 +171,10 @@ probe() {
 # session and quits with Keep Sessions. The probe ends when the app does; its 600 s settle is only a backstop.
 seed() {
   local out="$1" side="$2" launch status probed
-  rm -f "$out/home-$side/app.sock" # the priming launch's: the seed waits for this launch's own socket
+  rm -f "$LR_SOCKETS/$side.sock" # the priming launch's: the seed waits for this launch's own socket
   probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
   launch=$!
-  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$out/home-$side/app.sock" \
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
     2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
   status=${PIPESTATUS[0]}
   wait "$launch"; probed=$?

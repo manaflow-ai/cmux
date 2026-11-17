@@ -1,5 +1,5 @@
 // The chat's turn as one phase, read from the snapshot alone, for every notice above the composer
-// that speaks about the live turn (the stuck banner, the automatic retry's line). Each used to read
+// that speaks about the live turn (the automatic retry's line). Each used to read
 // its own field of the chat's summary, and those fields are the daemon's word as of the last
 // summary the pane heard: with the pane's link down, that summary is frozen, so "the agent seems
 // stuck" showed beside "Reconnecting…", and "Automatically resumed (attempt 2)" stayed under a turn
@@ -14,17 +14,6 @@ export function turnPhase(snapshot: Pick<AcpmuxSnapshot, "connection" | "isWorki
   if (!linkUp(snapshot.connection)) return "offline";
   if (!snapshot.isWorking) return "idle";
   return snapshot.stopping ? "stopping" : "working";
-}
-
-/// What the stuck banner may say: the daemon's loop or silence diagnosis, only while the turn it is
-/// about runs and the pane hears the daemon. `silent` is the pane's own words for a silent turn.
-export function stuckNotice(
-  phase: TurnPhase,
-  summary: { loopEpisode?: { diagnosis?: string }; stalledSince?: number } | undefined,
-  silent: string,
-): string | undefined {
-  if (phase !== "working") return undefined;
-  return summary?.loopEpisode?.diagnosis || (summary?.stalledSince != null ? silent : undefined);
 }
 
 /// What the automatic retry's line may say: the daemon's wait for its next attempt while the pane
