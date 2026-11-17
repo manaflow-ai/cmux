@@ -6,10 +6,20 @@ export type HourCycle = "system" | "12h" | "24h"
 export type Face = "digital" | "analog"
 export type Size = "small" | "medium" | "large"
 
+/** The time's look (the options of the New Tab clock this widget replaces, cmux#44388). */
+export type FontChoice = "rounded" | "system" | "serif" | "mono" | "condensed"
+export type WeightChoice = "thin" | "light" | "regular" | "medium" | "semibold" | "bold" | "heavy"
+
 export interface Settings {
   hourCycle?: HourCycle
   cities?: string
   face?: Face
+  font?: FontChoice
+  weight?: WeightChoice
+  /** text, accent, muted, glass, or a #RRGGBB color. */
+  color?: string
+  /** The date over the time. */
+  date?: boolean
 }
 
 export interface ZoneInfo {
@@ -169,3 +179,33 @@ export const CITY_COUNT: Record<Size, number> = { small: 0, medium: 2, large: 4 
 export function sizeOf(value: unknown): Size {
   return value === "medium" || value === "large" ? value : "small"
 }
+
+const FONTS: readonly FontChoice[] = ["rounded", "system", "serif", "mono", "condensed"]
+const WEIGHTS: readonly WeightChoice[] = ["thin", "light", "regular", "medium", "semibold", "bold", "heavy"]
+const NAMED_COLORS: Record<string, string> = { text: "primary", accent: "accent", muted: "secondary", glass: "primary" }
+
+/** How the big time is drawn. `design` is the scene's font design (condensed has none yet: the system design). */
+export interface TimeStyle {
+  font: FontChoice
+  design: "rounded" | "default" | "serif" | "monospaced"
+  weight: WeightChoice
+  /** A scene color: a theme token or #RRGGBB. */
+  color: string
+  /** Glass: the theme's text, translucent. */
+  opacity: number
+}
+
+/** Reads the look settings; a value that is no choice reads as the default (rounded, heavy, the theme's text). */
+export function timeStyle(settings: Settings): TimeStyle {
+  const font = FONTS.includes(settings.font as FontChoice) ? (settings.font as FontChoice) : "rounded"
+  const weight = WEIGHTS.includes(settings.weight as WeightChoice) ? (settings.weight as WeightChoice) : "heavy"
+  const raw = typeof settings.color === "string" ? settings.color.trim() : ""
+  const hex = /^#[\da-f]{6}$/i.test(raw) ? raw.toUpperCase() : undefined
+  const named = raw.toLowerCase()
+  const color = hex ?? NAMED_COLORS[named] ?? "primary"
+  const design = font === "rounded" ? "rounded" : font === "serif" ? "serif" : font === "mono" ? "monospaced" : "default"
+  return { font, design, weight, color, opacity: !hex && named === "glass" ? 0.55 : 1 }
+}
+
+/** Whether the date shows over the time (on unless turned off). */
+export const showsDate = (settings: Settings) => settings.date !== false

@@ -4,11 +4,13 @@
 //   are from you, and Tomorrow or Yesterday when their day is not yours).
 // - large: the time with the date in words, then four cities.
 // - face "analog": a dial in small, four city dials in medium (Apple's World Clock widget).
+// - the time's font design, weight and color, and whether the date shows, are settings (the options
+//   of the New Tab clock this replaces, cmux#44388).
 // It imports nothing but the public SDK and asks no host for data: the zone rules come from
 // cmux.time.zone. The view redraws once a minute, just after the minute starts, from a one-shot
 // timer that arms the next; nothing runs between minutes.
 
-import { cmux, computed, ForEach, HStack, onCleanup, signal, Spacer, Text, VStack, ZStack, Circle, WIDGET_INSET, type View } from "cmux-extension-sdk"
+import { cmux, computed, ForEach, HStack, onCleanup, signal, Spacer, Text, untrack, VStack, ZStack, Circle, WIDGET_INSET, type View } from "cmux-extension-sdk"
 import {
   CITY_COUNT,
   cities,
@@ -17,8 +19,10 @@ import {
   localOffset,
   shortDate,
   shortWeekday,
+  showsDate,
   sizeOf,
   timeParts,
+  timeStyle,
   twelveHour,
   untilNextMinute,
   wall,
@@ -26,6 +30,7 @@ import {
   type City,
   type Settings,
   type Size,
+  type TimeStyle,
   type ZoneOf
 } from "./clock.ts"
 
@@ -44,15 +49,33 @@ const TIME_FONT: Record<Size, number> = { small: 50, medium: 56, large: 64 }
 
 const zoneOf: ZoneOf = (zone, at) => cmux.time.zone(zone, at)
 
+/**
+ * The font design (rounded, serif, mono) on a text. A host whose scene has `fontDesign` takes the
+ * live setting; an older one draws the system design, mono through `monospaced()` as read at mount.
+ */
+function withDesign(view: View, style: () => TimeStyle): View {
+  const designable = view as View & { fontDesign?: (v: () => string) => View }
+  if (typeof designable.fontDesign === "function") return designable.fontDesign(() => style().design)
+  return untrack(style).design === "monospaced" ? view.monospaced() : view
+}
+
 /** The time with its AM/PM beside it, small, on the baseline (the Lock Screen drops it; a widget keeps it). */
-function bigTime(time: () => string, period: () => string, hasPeriod: () => boolean, size: Size): View {
+function bigTime(time: () => string, period: () => string, hasPeriod: () => boolean, size: Size, style: () => TimeStyle): View {
+  const digits = Text(time)
+    .font(TIME_FONT[size])
+    .weight(() => style().weight)
+    .color(() => style().color)
+    .opacity(() => style().opacity)
+    .lineLimit(1)
+    .fixedSize("horizontal")
+    .contentTransition("numericText")
   return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
-    Text(time).font(TIME_FONT[size]).weight("heavy").lineLimit(1).fixedSize("horizontal").contentTransition("numericText"),
+    withDesign(digits, style),
     () => (hasPeriod() ? Text(period).font("headline").weight("bold").secondary() : null)
   ])
 }
 
-function cityRow(c: () => City, hasPeriod: () => boolean): View {
+function cityRow(c: () => City, hasPeriod: () => boolean, style: () => TimeStyle): View {
   return HStack({ spacing: 8, alignment: "center" }, [
     VStack({ spacing: 0, alignment: "leading" }, [
       Text(() => c().name).font("subheadline").weight("semibold").lineLimit(1),
@@ -60,7 +83,7 @@ function cityRow(c: () => City, hasPeriod: () => boolean): View {
     ]),
     Spacer(),
     HStack({ spacing: 2, alignment: "lastTextBaseline" }, [
-      Text(() => c().time).font("title3").weight("semibold").lineLimit(1).contentTransition("numericText"),
+      withDesign(Text(() => c().time).font("title3").weight("semibold").lineLimit(1).contentTransition("numericText"), style),
       () => (hasPeriod() ? Text(() => c().period).font("caption2").weight("semibold").secondary() : null)
     ])
   ])
@@ -144,6 +167,13 @@ function clockView(context: WidgetContext): View {
   const others = computed(() => cities(settings().cities, now(), twelve(), zoneOf, size === "medium" && settings().face === "analog" ? 3 : CITY_COUNT[size]))
   const time = () => parts().time
   const period = () => parts().period
+  const style = computed(() => timeStyle(settings()))
+  const dated = () => showsDate(settings())
+  /** The weekday in red over the short date (small and medium), unless the date is off. */
+  const dateStack = (): Array<() => View | null> => [
+    () => (dated() ? Text(() => weekday(here())).font("caption").weight("bold").color("danger") : null),
+    () => (dated() ? Text(() => shortDate(here())).font("title3").weight("semibold") : null)
+  ]
 
   if (settings().face === "analog") {
     if (size === "small") {
@@ -175,25 +205,23 @@ function clockView(context: WidgetContext): View {
 
   if (size === "small") {
     return VStack({ spacing: 0, alignment: "leading" }, [
-      Text(() => weekday(here())).font("caption").weight("bold").color("danger"),
-      Text(() => shortDate(here())).font("title3").weight("semibold"),
+      ...dateStack(),
       Spacer(),
-      bigTime(time, period, twelve, size)
+      bigTime(time, period, twelve, size, style)
     ])
   }
 
   const list = () =>
     VStack({ spacing: size === "large" ? 16 : 8, alignment: "leading" }, [
-      ForEach({ items: others, key: (c) => c.zone }, (c) => cityRow(c, twelve))
+      ForEach({ items: others, key: (c) => c.zone }, (c) => cityRow(c, twelve, style))
     ])
 
   if (size === "medium") {
     return HStack({ spacing: 16, alignment: "center" }, [
       VStack({ spacing: 0, alignment: "leading" }, [
-        Text(() => weekday(here())).font("caption").weight("bold").color("danger"),
-        Text(() => shortDate(here())).font("title3").weight("semibold"),
+        ...dateStack(),
         Spacer(),
-        bigTime(time, period, twelve, size)
+        bigTime(time, period, twelve, size, style)
       ]).frame({ minHeight: "infinity" }),
       list()
     ])
@@ -201,8 +229,8 @@ function clockView(context: WidgetContext): View {
 
   return VStack({ spacing: 20, alignment: "leading" }, [
     VStack({ spacing: 0, alignment: "leading" }, [
-      Text(() => dateLine(here())).font("headline").weight("semibold").secondary(),
-      bigTime(time, period, twelve, size)
+      () => (dated() ? Text(() => dateLine(here())).font("headline").weight("semibold").secondary() : null),
+      bigTime(time, period, twelve, size, style)
     ]),
     list()
   ])

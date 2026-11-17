@@ -1,6 +1,6 @@
 process.env.TZ = "America/Los_Angeles"
 import { describe, expect, test } from "bun:test"
-import { cities, city, dateLine, handAngles, localeIsTwelveHour, timeParts, twelveHour, untilNextMinute, wall, zonesFrom, type ZoneOf } from "../src/clock.ts"
+import { cities, city, dateLine, handAngles, localeIsTwelveHour, showsDate, timeParts, timeStyle, twelveHour, untilNextMinute, wall, zonesFrom, type ZoneOf } from "../src/clock.ts"
 
 // Monday, November 16, 2026, 9:41 AM in Los Angeles (PST, UTC-8).
 const AT = Date.UTC(2026, 10, 16, 17, 41, 12)
@@ -92,5 +92,27 @@ describe("cities", () => {
   test("a list you wrote is shown as written, without repeats", () => {
     expect(zonesFrom("Asia/Tokyo, Europe/London,\nAsia/Tokyo")).toEqual(["Asia/Tokyo", "Europe/London"])
     expect(cities("America/Los_Angeles, Asia/Tokyo", AT, true, zoneOf, 4).map((c) => c.name)).toEqual(["Los Angeles", "Tokyo"])
+  })
+})
+
+describe("the time's look (the New Tab clock's options, cmux#44388)", () => {
+  test("zero setup: rounded, heavy, the theme's text, with the date", () => {
+    expect(timeStyle({})).toEqual({ font: "rounded", design: "rounded", weight: "heavy", color: "primary", opacity: 1 })
+    expect(showsDate({})).toBe(true)
+    expect(showsDate({ date: false })).toBe(false)
+  })
+
+  test("every font, weight and color choice", () => {
+    expect(["rounded", "system", "serif", "mono", "condensed"].map((font) => timeStyle({ font: font as never }).design)).toEqual(["rounded", "default", "serif", "monospaced", "default"])
+    expect(timeStyle({ weight: "thin" }).weight).toBe("thin")
+    expect(timeStyle({ color: "accent" }).color).toBe("accent")
+    expect(timeStyle({ color: "muted" }).color).toBe("secondary")
+    expect(timeStyle({ color: "glass" })).toMatchObject({ color: "primary", opacity: 0.55 })
+    expect(timeStyle({ color: " #ff9500 " })).toMatchObject({ color: "#FF9500", opacity: 1 })
+  })
+
+  test("a value that is no choice reads as the default", () => {
+    expect(timeStyle({ font: "comic" as never, weight: "x" as never, color: "red" })).toMatchObject({ font: "rounded", weight: "heavy", color: "primary" })
+    expect(timeStyle({ color: "#fff" }).color).toBe("primary")
   })
 })

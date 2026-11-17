@@ -7,7 +7,7 @@
   },
   "version": "1.0.0",
   "description": {
-    "en": "The time in big, bold numbers under today's date, like the iPhone Lock Screen. Larger sizes add other cities, how far ahead or behind they are and whether it is already tomorrow there. Choose a 12 or 24 hour clock, your cities, or an analog face. Works as soon as you add it."
+    "en": "The time in big, bold numbers under today's date, like the iPhone Lock Screen. Larger sizes add other cities, how far ahead or behind they are and whether it is already tomorrow there. Pick 12 or 24 hours, your cities, the font, weight and color, or an analog face. Works as soon as you add it."
   },
   "publisher": {
     "name": "cmux",
@@ -90,6 +90,46 @@
           "analog"
         ],
         "default": "digital"
+      },
+      "font": {
+        "type": "string",
+        "title": "Font",
+        "description": "The time's typeface: rounded like the Lock Screen, the system font, serif, monospaced or condensed.",
+        "enum": [
+          "rounded",
+          "system",
+          "serif",
+          "mono",
+          "condensed"
+        ],
+        "default": "rounded"
+      },
+      "weight": {
+        "type": "string",
+        "title": "Weight",
+        "description": "How heavy the time's numbers are, from thin to heavy.",
+        "enum": [
+          "thin",
+          "light",
+          "regular",
+          "medium",
+          "semibold",
+          "bold",
+          "heavy"
+        ],
+        "default": "heavy"
+      },
+      "color": {
+        "type": "string",
+        "title": "Color",
+        "description": "The time's color: text (your theme's), accent, muted, glass (translucent), or a color like #FF9500.",
+        "default": "text"
+      },
+      "date": {
+        "type": "boolean",
+        "title": "Date",
+        "description": "Show the date over the time.",
+        "default": true
       }
     }
   },

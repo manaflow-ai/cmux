@@ -73,4 +73,15 @@ describe("clock widget", () => {
     // The fired one-shot armed the next (the fake host keeps fired timers in its list).
     expect([...host.timers.values()].at(-1)).toEqual({ ms: 60_000, repeat: false })
   })
+
+  test("the time's weight and color settings, and the date turned off", async () => {
+    const { ops } = await renderScene(source, { size: "small", settings: { font: "mono", weight: "thin", color: "#FF9500", date: false } })
+    expect(texts(ops)).toEqual(["9:41", "AM"])
+    const time = ops.find((op) => op.props?.text === "9:41")!
+    expect(time.props).toMatchObject({ weight: "thin", color: "#FF9500", opacity: 1 })
+    // mono: the scene's font design where the host has it, else monospaced.
+    expect(time.props?.fontDesign === "monospaced" || time.props?.monospaced === true).toBe(true)
+    const glass = (await renderScene(source, { size: "large", settings: { color: "glass" } })).ops.find((op) => op.props?.text === "9:41")!
+    expect(glass.props).toMatchObject({ color: "primary", opacity: 0.55, weight: "heavy" })
+  })
 })

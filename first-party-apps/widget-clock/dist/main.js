@@ -2455,15 +2455,36 @@
   function sizeOf(value) {
     return value === "medium" || value === "large" ? value : "small";
   }
+  var FONTS = ["rounded", "system", "serif", "mono", "condensed"];
+  var WEIGHTS = ["thin", "light", "regular", "medium", "semibold", "bold", "heavy"];
+  var NAMED_COLORS = { text: "primary", accent: "accent", muted: "secondary", glass: "primary" };
+  function timeStyle(settings) {
+    const font = FONTS.includes(settings.font) ? settings.font : "rounded";
+    const weight = WEIGHTS.includes(settings.weight) ? settings.weight : "heavy";
+    const raw = typeof settings.color === "string" ? settings.color.trim() : "";
+    const hex = /^#[\da-f]{6}$/i.test(raw) ? raw.toUpperCase() : undefined;
+    const named = raw.toLowerCase();
+    const color = hex ?? NAMED_COLORS[named] ?? "primary";
+    const design = font === "rounded" ? "rounded" : font === "serif" ? "serif" : font === "mono" ? "monospaced" : "default";
+    return { font, design, weight, color, opacity: !hex && named === "glass" ? 0.55 : 1 };
+  }
+  var showsDate = (settings) => settings.date !== false;
   var TIME_FONT = { small: 50, medium: 56, large: 64 };
   var zoneOf = (zone, at) => cmux.time.zone(zone, at);
-  function bigTime(time, period, hasPeriod, size) {
+  function withDesign(view, style) {
+    const designable = view;
+    if (typeof designable.fontDesign === "function")
+      return designable.fontDesign(() => style().design);
+    return untrack(style).design === "monospaced" ? view.monospaced() : view;
+  }
+  function bigTime(time, period, hasPeriod, size, style) {
+    const digits = Text(time).font(TIME_FONT[size]).weight(() => style().weight).color(() => style().color).opacity(() => style().opacity).lineLimit(1).fixedSize("horizontal").contentTransition("numericText");
     return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
-      Text(time).font(TIME_FONT[size]).weight("heavy").lineLimit(1).fixedSize("horizontal").contentTransition("numericText"),
+      withDesign(digits, style),
       () => hasPeriod() ? Text(period).font("headline").weight("bold").secondary() : null
     ]);
   }
-  function cityRow(c, hasPeriod) {
+  function cityRow(c, hasPeriod, style) {
     return HStack({ spacing: 8, alignment: "center" }, [
       VStack({ spacing: 0, alignment: "leading" }, [
         Text(() => c().name).font("subheadline").weight("semibold").lineLimit(1),
@@ -2471,7 +2492,7 @@
       ]),
       Spacer(),
       HStack({ spacing: 2, alignment: "lastTextBaseline" }, [
-        Text(() => c().time).font("title3").weight("semibold").lineLimit(1).contentTransition("numericText"),
+        withDesign(Text(() => c().time).font("title3").weight("semibold").lineLimit(1).contentTransition("numericText"), style),
         () => hasPeriod() ? Text(() => c().period).font("caption2").weight("semibold").secondary() : null
       ])
     ]);
@@ -2534,6 +2555,12 @@
     const others = computed(() => cities(settings().cities, now(), twelve(), zoneOf, size === "medium" && settings().face === "analog" ? 3 : CITY_COUNT[size]));
     const time = () => parts().time;
     const period = () => parts().period;
+    const style = computed(() => timeStyle(settings()));
+    const dated = () => showsDate(settings());
+    const dateStack = () => [
+      () => dated() ? Text(() => weekday(here())).font("caption").weight("bold").color("danger") : null,
+      () => dated() ? Text(() => shortDate(here())).font("title3").weight("semibold") : null
+    ];
     if (settings().face === "analog") {
       if (size === "small") {
         return VStack({ spacing: 6, alignment: "center" }, [
@@ -2555,30 +2582,28 @@
     }
     if (size === "small") {
       return VStack({ spacing: 0, alignment: "leading" }, [
-        Text(() => weekday(here())).font("caption").weight("bold").color("danger"),
-        Text(() => shortDate(here())).font("title3").weight("semibold"),
+        ...dateStack(),
         Spacer(),
-        bigTime(time, period, twelve, size)
+        bigTime(time, period, twelve, size, style)
       ]);
     }
     const list = () => VStack({ spacing: size === "large" ? 16 : 8, alignment: "leading" }, [
-      ForEach({ items: others, key: (c) => c.zone }, (c) => cityRow(c, twelve))
+      ForEach({ items: others, key: (c) => c.zone }, (c) => cityRow(c, twelve, style))
     ]);
     if (size === "medium") {
       return HStack({ spacing: 16, alignment: "center" }, [
         VStack({ spacing: 0, alignment: "leading" }, [
-          Text(() => weekday(here())).font("caption").weight("bold").color("danger"),
-          Text(() => shortDate(here())).font("title3").weight("semibold"),
+          ...dateStack(),
           Spacer(),
-          bigTime(time, period, twelve, size)
+          bigTime(time, period, twelve, size, style)
         ]).frame({ minHeight: "infinity" }),
         list()
       ]);
     }
     return VStack({ spacing: 20, alignment: "leading" }, [
       VStack({ spacing: 0, alignment: "leading" }, [
-        Text(() => dateLine(here())).font("headline").weight("semibold").secondary(),
-        bigTime(time, period, twelve, size)
+        () => dated() ? Text(() => dateLine(here())).font("headline").weight("semibold").secondary() : null,
+        bigTime(time, period, twelve, size, style)
       ]),
       list()
     ]);

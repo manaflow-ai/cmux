@@ -22,6 +22,13 @@ The tile's own settings (from the widget host), else the app's (Settings > Apps 
   London, Tokyo and Sydney, skipping the ones at your own offset so you never see your time twice;
   a list you write is shown as written. An unknown name shows "Unknown zone" in its row.
 - `face`: `digital` (default) or `analog` (small and medium).
+- `font`: `rounded` (default, the Lock Screen's), `system`, `serif`, `mono` or `condensed`, for the time.
+- `weight`: `thin`, `light`, `regular`, `medium`, `semibold`, `bold` or `heavy` (default).
+- `color`: `text` (default, the theme's), `accent`, `muted`, `glass` (the theme's text, translucent)
+  or a `#RRGGBB` color. Anything else reads as `text`.
+- `date`: the date over the time (default on).
+
+The look settings carry the options of the New Tab clock this widget replaced (cmux#44388).
 
 ## Cost
 
@@ -45,8 +52,9 @@ from `cmux.time.zone`.
 
 ## Platform gaps
 
-- No rounded font design in scene text (`.design("rounded")`): the Lock Screen and Apple's widgets
-  use SF Pro Rounded for the big time; here it is the system font, heavy.
+- Font design (rounded, serif) needs the scene's `fontDesign` (lane/scene-clock); on a host without it the
+  time draws in the system font (mono uses `monospaced()`). `condensed` has no scene font width yet: system.
+- Glass is a translucent text color; the New Tab clock's soft rim of light needs a scene text shadow.
 - `HStack` has no baseline alignment: AM/PM sits centered beside the big time, not on its baseline.
 - Shapes are square (`size` only; `frame` is ignored on `Circle`/`Capsule`/`Rectangle`): clock hands
   are drawn as rotated stacks with a background instead.

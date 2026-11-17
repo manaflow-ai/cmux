@@ -15,7 +15,11 @@ export const VARIANTS: Record<string, Render> = {
   large: { size: "large" },
   "small-analog": { size: "small", settings: { face: "analog" } },
   "medium-analog": { size: "medium", settings: { face: "analog" } },
-  "large-24h": { size: "large", settings: { hourCycle: "24h", cities: "Europe/Paris, Asia/Kolkata, Asia/Singapore, Pacific/Auckland" } }
+  "large-24h": { size: "large", settings: { hourCycle: "24h", cities: "Europe/Paris, Asia/Kolkata, Asia/Singapore, Pacific/Auckland" } },
+  // The look settings (the New Tab clock's options): rounded and serif draw once the scene has fontDesign.
+  "thin-glass": { size: "large", settings: { font: "system", weight: "thin", color: "glass" } },
+  "mono-accent": { size: "small", settings: { font: "mono", weight: "bold", color: "accent" } },
+  "serif-orange-no-date": { size: "medium", settings: { font: "serif", weight: "regular", color: "#FF9500", date: false } }
 }
 
 export async function buildScenes(): Promise<string> {

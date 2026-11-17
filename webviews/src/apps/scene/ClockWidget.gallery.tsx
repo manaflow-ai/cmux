@@ -78,6 +78,18 @@ export default componentEntry<Props>({
       note: "Settings: a 24-hour clock and cities the person typed (Paris, Kolkata, Singapore, Auckland), shown as written.",
       props: { variant: "large-24h" },
     },
+    "thin-glass": {
+      note: "Look settings (the New Tab clock's options): the system font, thin, in glass (the theme's text, translucent).",
+      props: { variant: "thin-glass" },
+    },
+    "mono-accent": {
+      note: "Look settings: monospaced and bold in the theme's accent.",
+      props: { variant: "mono-accent" },
+    },
+    "serif-orange-no-date": {
+      note: "Look settings: serif, regular, a #FF9500 color the person typed, the date off. Serif and rounded draw once the scene renderer has fontDesign.",
+      props: { variant: "serif-orange-no-date" },
+    },
     "all-sizes": {
       note: "Every size side by side, as the widget gallery offers them.",
       props: { all: true },
