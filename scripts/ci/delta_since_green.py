@@ -223,8 +223,12 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
         listed = ", ".join(policy[:3]) + (", ..." if len(policy) > 3 else "")
         raise Skip(f"the pull request changes CI policy ({listed}), which routes from its whole diff")
 
-    # Commits only, no trees: enough to read the chain's shape.
-    git.fetch("--filter=tree:0", f"--depth={MAX_CHAIN + 2}", git.remote, head_sha)
+    # Commits only, no trees: enough to read the chain's shape. Depth-limited
+    # only in a shallow checkout: --depth in a full clone (a developer's, or a
+    # worktree of one) writes .git/shallow and truncates history for every
+    # worktree sharing it.
+    depth = [f"--depth={MAX_CHAIN + 2}"] if git.is_shallow() else []
+    git.fetch("--filter=tree:0", *depth, git.remote, head_sha)
     chain = git.first_parent_chain(head_sha, MAX_CHAIN + 1)
     green, merges = find_green_head(chain, verdicts)
 

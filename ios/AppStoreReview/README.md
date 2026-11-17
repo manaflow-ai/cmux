@@ -25,7 +25,7 @@ Defaults:
 - Marketing version: `CMUX_IOS_APPSTORE_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
-- Entitlements: `Config/cmux-release.entitlements`
+- Entitlements: `Config/cmux-appstore-release.entitlements` (VPN-free App Store build; beta keeps `Config/cmux-release.entitlements`)
 - Review submission: not automatic
 
 The beta lane remains:

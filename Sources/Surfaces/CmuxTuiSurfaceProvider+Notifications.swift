@@ -69,6 +69,40 @@ extension CmuxTuiSurfaceProvider {
         #endif
     }
     // MARK: Agent hooks
+    /// The remote workspaces whose tabs show `terminalID` in the accepted graph,
+    /// in graph order. Hook routing and notification placement both use it.
+    nonisolated static func remoteWorkspaceIDs(showing terminalID: String, in state: CloudVMState) -> [String] {
+        state.tabs.compactMap { tab in
+            guard tab.contentID == terminalID,
+                  let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID) else { return nil }
+            return screen.workspaceID
+        }
+    }
+
+    /// Selects the pane for a mirrored hook from the terminal's catalog projections.
+    ///
+    /// `remoteWorkspaceIDs` are the remote workspaces the accepted daemon graph
+    /// shows the terminal in, in graph order. A projection in one of them wins;
+    /// otherwise a projection with no workspace identity (a legacy or restored
+    /// record) does. A terminal whose projections all name other workspaces
+    /// fails closed rather than sending the hook to an adjacent local pane.
+    nonisolated static func mirroredAgentHookProjection(
+        projections: [SurfaceProjection],
+        remoteWorkspaceIDs: [String]
+    ) -> SurfaceProjection? {
+        let remoteWorkspaceIDs = remoteWorkspaceIDs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !remoteWorkspaceIDs.isEmpty else { return projections.first }
+        for remoteWorkspaceID in remoteWorkspaceIDs {
+            if let projection = projections.first(where: { $0.remoteWorkspaceID == remoteWorkspaceID }) {
+                return projection
+            }
+        }
+        return projections.first { $0.remoteWorkspaceID == nil }
+    }
+
     /// Replays the session identity of Claude agents in `cmux ssh` panes into
     /// the local hook queue, so the Mac's hook pipeline knows the remote
     /// agent's session. Runs with every accepted state and every catalog
@@ -79,8 +113,14 @@ extension CmuxTuiSurfaceProvider {
         guard machine.isSSH else { return }
         let machine = self.machine
         let catalog = self.catalog
+        func remoteWorkspaceIDs(for terminalID: String) -> [String] {
+            Self.remoteWorkspaceIDs(showing: terminalID, in: state)
+        }
         func panel(for terminalID: String) -> SurfaceProjection? {
-            catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)).first
+            Self.mirroredAgentHookProjection(
+                projections: catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)),
+                remoteWorkspaceIDs: remoteWorkspaceIDs(for: terminalID)
+            )
         }
         let routable = Set(state.agents.map(\.terminalID).filter { panel(for: $0) != nil })
         let events = agentHookMirror.reconcile(agents: state.agents, routableTerminalIDs: routable)
@@ -110,14 +150,9 @@ extension CmuxTuiSurfaceProvider {
         CloudNotificationPlacementResolver(
             machine: machine,
             projections: { [catalog] in catalog.projections(of: $0) },
-            remoteWorkspaceID: { [weak self] terminalID in
-                guard let state = self?.cloudState else { return nil }
-                for tab in state.tabs where tab.contentID == terminalID {
-                    guard let pane = state.lookupIndex.pane(id: tab.paneID),
-                          let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
-                    return screen.workspaceID
-                }
-                return nil
+            remoteWorkspaceIDs: { [weak self] terminalID in
+                guard let state = self?.cloudState else { return [] }
+                return Self.remoteWorkspaceIDs(showing: terminalID, in: state)
             },
             boundWorkspaces: { [machineID] in
                 (AppDelegate.shared?.tabManager?.tabs ?? []).compactMap { workspace in

@@ -10,16 +10,20 @@ from __future__ import annotations
 
 import base64
 import getpass
+import importlib.util
 import json
 import re
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
 from .actions import describe
 
 REPO = "manaflow-ai/cmux"
 MEDIA_BRANCH = "pr-media"
+# The shared pre-push privacy check of every pr-media writer, relative to the repository root.
+PRIVACY_CHECK = "scripts/ci/pr_media_privacy.py"
 MARKER = "cmux-fuzz-signature"
 MAX_FRAMES = 10
 MAX_LISTED_STEPS = 40
@@ -108,10 +112,29 @@ def frames_for(finding_dir: Path) -> list[Path]:
     return frames
 
 
+def check_privacy(items: list[tuple[str, Path]], repo: str = REPO) -> None:
+    """Run scripts/ci/pr_media_privacy.py's pre-push check; fuzz/ is a bot's folder, so any hit refuses."""
+    path = Path(__file__).resolve().parents[3] / PRIVACY_CHECK
+    spec = importlib.util.spec_from_file_location("cmux_pr_media_privacy", path)
+    if not path.is_file() or spec is None or spec.loader is None:
+        raise RuntimeError(f"the pr-media privacy check {path} is missing; no frame is uploaded without it. "
+                           f"Add {PRIVACY_CHECK} and scripts/ci/pr_media_ocr.swift to the sparse checkout.")
+    privacy = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = privacy
+    spec.loader.exec_module(privacy)
+    try:
+        privacy.check_upload(items, repo)
+    except privacy.Refused as refused:
+        raise RuntimeError(str(refused)) from None
+
+
 def upload(frames: list[Path], folder: str, repo: str = REPO) -> list[str]:
     """Put the frames on the media branch under fuzz/<folder>/ (one folder per finding, so frames of two
     repros never mix) and return their raw URLs. A frame already there (an earlier, interrupted filing of this
-    same finding) is reused; a concurrent commit to the branch (409) is retried."""
+    same finding) is reused; a concurrent commit to the branch (409) is retried. Every frame goes through the
+    privacy check before the first one is put, and a hit refuses them all."""
+    if frames:
+        check_privacy([(f"fuzz/{folder}/{frame.name}", frame) for frame in frames], repo)
     urls = []
     for frame in frames:
         path = f"fuzz/{folder}/{frame.name}"

@@ -847,6 +847,15 @@ extension MobileHostAuthorizationTests {
         #expect(capabilities.contains("surface.focus.v1"))
         #expect(capabilities.contains("panel.artifact.v1"))
         #expect(Set(capabilities).isSuperset(of: [
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.mark_read",
+            "chief.stop",
+        ]))
+        #expect(Set(capabilities).isSuperset(of: [
             "workspace.task_create.v1",
             MobileHostService.terminalInputOrderedCapability,
             MobileHostService.caffeineControlCapability,
@@ -854,6 +863,37 @@ extension MobileHostAuthorizationTests {
             "notification.feed.v1",
         ]))
     }
+    @Test("Mobile Chief dispatch reuses the validated parser")
+    func mobileChiefDispatchReusesValidatedParser() async throws {
+        let missingText = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "chief-send",
+                method: "chief.send",
+                params: [:],
+                auth: nil
+            )
+        )
+        guard case let .failure(error) = missingText else {
+            Issue.record("Expected chief.send without text to fail validation")
+            return
+        }
+        #expect(error.code == "invalid_params")
+
+        let unknown = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "chief-unknown",
+                method: "chief.not_a_method",
+                params: [:],
+                auth: nil
+            )
+        )
+        guard case let .failure(error) = unknown else {
+            Issue.record("Expected an unknown chief method to fail")
+            return
+        }
+        #expect(error.code == "method_not_found")
+    }
+
     @Test func testWorkspaceChangesCapabilityFollowsFeatureFlag() {
         let enabled = MobileHostService.mobileHostCapabilities(includingWorkspaceChanges: true)
         let disabled = MobileHostService.mobileHostCapabilities(includingWorkspaceChanges: false)

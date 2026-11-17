@@ -394,6 +394,41 @@ import Testing
         #expect(closed.target(for: Self.notificationRow(terminalID: nil)) == nil)
     }
 
+    /// A terminal can show in several remote workspaces. Its row lands in
+    /// whichever of them is open on this Mac, not only the first one the graph
+    /// lists, matching how mirrored agent hooks are routed.
+    @MainActor @Test func usesEveryRemoteWorkspaceShowingTheTerminal() {
+        let opened = UUID(), openedPane = UUID()
+        let unrelated = UUID(), unrelatedPane = UUID()
+        let row = Self.notificationRow(terminalID: Self.terminalID)
+        let bound = CloudNotificationPlacementResolver(
+            machine: Self.machine,
+            projections: { _ in [] },
+            remoteWorkspaceIDs: { _ in ["remote-unopened", "remote-current"] },
+            boundWorkspaces: {
+                [CloudNotificationBoundWorkspace(workspaceID: opened, remoteWorkspaceID: "remote-current")]
+            }
+        )
+        #expect(bound.target(for: row)?.workspaceID == opened)
+        #expect(bound.target(for: row)?.panelID == nil)
+
+        let sortsFirst = SurfaceProjection(
+            resource: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: Self.terminalID),
+            workspaceID: unrelated, panelID: unrelatedPane, remoteWorkspaceID: "remote-other"
+        )
+        let matching = SurfaceProjection(
+            resource: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: Self.terminalID),
+            workspaceID: opened, panelID: openedPane, remoteWorkspaceID: "remote-current"
+        )
+        let projected = CloudNotificationPlacementResolver(
+            machine: Self.machine,
+            projections: { _ in [sortsFirst, matching] },
+            remoteWorkspaceIDs: { _ in ["remote-unopened", "remote-current"] },
+            boundWorkspaces: { [] }
+        )
+        #expect(projected.target(for: row)?.panelID == openedPane)
+    }
+
     @MainActor @Test func duplicateTerminalProjectionsUseTheCatalogsOrder() {
         let selected = UUID(), background = UUID(), selectedPane = UUID(), backgroundPane = UUID()
         let preferred = Self.projection(Self.terminalID, workspace: selected, panel: selectedPane)

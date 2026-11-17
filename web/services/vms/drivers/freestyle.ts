@@ -9,7 +9,7 @@ import {
   type SnapshotData,
 } from "freestyle";
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { NetworkRulePlan } from "../networkPolicy";
 import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgressTlsRules, isFreestyleTlsRuleLimit, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
 import { isIP } from "node:net";
@@ -17,7 +17,12 @@ import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import type { FreestyleClientFactory } from "./freestyleGuestCli";
+import { ProviderCreateCleanupError } from "./providerCreateCleanup";
+import { freestyleCreateCustomer, tagFreestyleCustomerOnWake } from "./freestyleCustomer";
+import { reportError } from "../../observability/report";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
+import { isProviderMachineGone } from "../providerErrors";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
@@ -47,6 +52,7 @@ import {
   ProviderTunnelNetworkOverlapError,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
+  type ResumeOptions,
   type SnapshotRef,
   type VmEdgeRule,
   type VMHandle,
@@ -73,6 +79,7 @@ import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp
 import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
+  shellQuote,
 } from "./cmuxTuiDaemon";
 export { preconnectFreestyle } from "./freestyleWarmup";
 export type { FreestylePreconnectOptions } from "./freestyleWarmup";
@@ -173,17 +180,23 @@ export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 /**
- * Every guest command the driver runs is administrative — systemd, sudoers, the
- * daemon install — so it runs as root. The 0.2 API's `linuxUser` default is
- * "the account holding uid 1000, or root in an image with no such account",
- * which on a cmux devbox image is the work user; leaving this off would run
- * the driver's own maintenance unprivileged. Sessions are a different thing:
- * the daemon drops to the work user itself (cmuxTuiLayoutSelector).
+ * Driver maintenance commands are administrative — systemd, sudoers, the
+ * daemon install — so they run as root. Public commands are separate: they use
+ * the provider's uid-1000 default and normalize HOME in freestyleExecCommand.
  */
 const GUEST_LINUX_USER = "root";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
+const CREATE_CLEANUP_TIMEOUT_MS = 15_000;
+/** One attempt allocates one VM; the bound keeps a bad answer from fanning out. */
+const CREATE_CLEANUP_LIST_LIMIT = 3;
+/**
+ * The create call's own deadline. It ends early enough that a failed create's
+ * cleanup (one lookup and up to CREATE_CLEANUP_LIST_LIMIT deletes) still runs
+ * inside the gateway's create deadline, whose failure path records the row.
+ */
+const CREATE_CALL_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS - (CREATE_CLEANUP_LIST_LIMIT + 1) * CREATE_CLEANUP_TIMEOUT_MS - 15_000;
 const SNAPSHOT_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
 /** Page size and ceiling for `listSnapshots`; a machine rarely has more than a handful. */
 const SNAPSHOT_LIST_PAGE = 100;
@@ -197,9 +210,28 @@ const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 const SCP_PREPARE_EXEC_TIMEOUT_MS = 20_000;
 /** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
+/** Metadata key tying a Freestyle VM to the one create call that asked for it. */
+export const FREESTYLE_CREATE_ATTEMPT_METADATA_KEY = "cmuxCreateAttempt";
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+
+/**
+ * Run a public VM command with the home directory belonging to the account
+ * Freestyle selected for the command. Older snapshots can leave HOME pointing
+ * at the base image's former uid-1000 home even after that account was renamed
+ * to cmux; resolving passwd at execution time fixes those machines without a
+ * reboot or image migration. The command itself remains a shell command, as it
+ * was before this wrapper was added.
+ */
+export function freestyleExecCommand(command: string): string {
+  return [
+    'cmux_exec_home="$(getent passwd "$(id -u)" | cut -d: -f6)"',
+    'case "$cmux_exec_home" in /*) ;; *) echo "cmux: unable to resolve the exec user home" >&2; exit 125 ;; esac',
+    'export HOME="$cmux_exec_home"',
+    `exec /bin/sh -c ${shellQuote(command)}`,
+  ].join('; ');
+}
 const FORK_DAEMON_LISTEN_TIMEOUT_SECONDS = 30;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
@@ -666,6 +698,84 @@ function isFreestyleExecNoExit(err: unknown): boolean {
     && /exec produced no exit/i.test(err.message);
 }
 
+type FreestyleCreateRequest = Parameters<Freestyle["vms"]["create"]>[0];
+type FreestyleCreated = Awaited<ReturnType<Freestyle["vms"]["create"]>>;
+
+/**
+ * `vms.create` can fail after Freestyle has already allocated the VM: a later
+ * boot phase fails, the response is lost, or the client deadline passes. The
+ * error carries no VM id, so the machine used to survive with no row pointing
+ * at it, and nothing ever deleted it. Tag every create with a one-off attempt
+ * id and, when the call throws, delete whatever Freestyle made under that tag.
+ */
+async function createTrackedFreestyleVm(
+  client: FreestyleClientFactory,
+  fs: Freestyle,
+  request: FreestyleCreateRequest,
+): Promise<FreestyleCreated> {
+  const attempt = randomUUID();
+  try {
+    return await fs.vms.create({
+      ...request,
+      metadata: { ...request.metadata, [FREESTYLE_CREATE_ATTEMPT_METADATA_KEY]: attempt },
+    });
+  } catch (err) {
+    await deleteFreestyleCreateAttempt(client, attempt, err);
+    throw err;
+  }
+}
+
+/**
+ * Delete the VMs a failed create attempt left. A VM that cannot be deleted
+ * fails the create as unconfirmed cleanup so the row keeps its id and the
+ * reconciler retries; a lookup that fails is logged, since nothing is known.
+ */
+async function deleteFreestyleCreateAttempt(client: FreestyleClientFactory, attempt: string, cause: unknown): Promise<void> {
+  let leaked: string[];
+  try {
+    const { vms } = await client(CREATE_CLEANUP_TIMEOUT_MS).vms.list({
+      metadata: `${FREESTYLE_CREATE_ATTEMPT_METADATA_KEY}:${attempt}`,
+      limit: CREATE_CLEANUP_LIST_LIMIT,
+    });
+    // Check the tag here too: a list that dropped the filter must not turn
+    // one failed create into deleting the account's other machines.
+    leaked = vms
+      .filter((vm) => vm.metadata?.[FREESTYLE_CREATE_ATTEMPT_METADATA_KEY] === attempt)
+      .map((vm) => vm.id);
+  } catch (lookupErr) {
+    // Nothing is known about the attempt's VM, so the row keeps no cleanup
+    // claim. Report the attempt id: an operator can find the VM by it with
+    // the same metadata filter.
+    reportError(
+      lookupErr,
+      { subsystem: "cloud_vm_alerts", code: "provider_create_cleanup_lookup_failed", operatorFault: true },
+      { tags: { create_attempt: attempt }, fingerprint: ["cmux-vm-freestyle-create-cleanup-lookup"] },
+    );
+    return;
+  }
+  for (const vmId of leaked) {
+    try {
+      await client(CREATE_CLEANUP_TIMEOUT_MS).vms.ref(vmId).delete();
+    } catch (cleanupErr) {
+      if (!isNotFound(cleanupErr)) throw new ProviderCreateCleanupError(vmId, cause, cleanupErr);
+    }
+  }
+}
+
+/**
+ * Roll back a VM that was created but failed to configure. A delete that does
+ * not confirm becomes unconfirmed cleanup, which keeps the provider id on the
+ * failed row for the reconciler, instead of a log line and a leaked machine.
+ */
+async function rollbackCreatedFreestyleVm(vm: Pick<Vm, "delete">, vmId: string, cause: unknown): Promise<never> {
+  try {
+    await vm.delete();
+  } catch (cleanupErr) {
+    if (!isNotFound(cleanupErr)) throw new ProviderCreateCleanupError(vmId, cause, cleanupErr);
+  }
+  throw cause;
+}
+
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
   return isFreestyleNetworkFull(err)
     ? new ProviderNetworkFullError("freestyle", `${operation}: private network has no free addresses`, err)
@@ -679,6 +789,15 @@ function tunnelRecoveryReason(err: unknown): string {
 
 function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
+}
+
+/**
+ * Freestyle's explicit answer that a machine does not exist. A "destroyed"
+ * status retires the machine's row, so a bare 404 (a gateway page, a moved
+ * endpoint) must not produce one.
+ */
+function isMachineGone(err: unknown): boolean {
+  return err instanceof FreestyleApiError && isProviderMachineGone(err);
 }
 
 /**
@@ -1108,17 +1227,17 @@ export class FreestyleProvider implements VMProvider {
         "cmux.vm.operation": "create",
         "cmux.vm.image": image,
         "cmux.vm.edge_rules": tlsRules?.length ?? 0,
-        "cmux.timeout_ms": CREATE_TIMEOUT_MS,
+        "cmux.timeout_ms": CREATE_CALL_TIMEOUT_MS,
       },
       async (span) => {
         try {
           const clientStartedAt = performance.now();
-          const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const fs = this.deps.client(CREATE_CALL_TIMEOUT_MS);
           const clientInitMs = Math.round((performance.now() - clientStartedAt) * 100) / 100;
           setSpanAttributes(span, { "cmux.vm.provider.client_init_ms": clientInitMs });
           const networkId = options.network?.id;
           const providerStartedAt = performance.now();
-          const { vm, vmId, data } = await fs.vms.create({
+          const { vm, vmId, data } = await createTrackedFreestyleVm(this.deps.client, fs, {
             snapshotId: image,
             displayName: "cmux Cloud VM",
             // Do not let an account/provider idle default turn a persistent
@@ -1132,6 +1251,7 @@ export class FreestyleProvider implements VMProvider {
               ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
               : {}),
             metadata: { cmux: "cloud" },
+            ...freestyleCreateCustomer(options.customer),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
@@ -1170,10 +1290,7 @@ export class FreestyleProvider implements VMProvider {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
             // the plan machine.
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
-            throw err;
+            return await rollbackCreatedFreestyleVm(vm, vmId, err);
           }
           return {
             provider: "freestyle" as const,
@@ -1264,7 +1381,7 @@ export class FreestyleProvider implements VMProvider {
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           return status;
         } catch (err) {
-          if (isNotFound(err)) return "destroyed";
+          if (isMachineGone(err)) return "destroyed";
           throw new ProviderError("freestyle", `getStatus(${vmId})`, err);
         }
       },
@@ -1288,7 +1405,7 @@ export class FreestyleProvider implements VMProvider {
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.pause_state": state });
           return state;
         } catch (err) {
-          if (isNotFound(err)) return "destroyed";
+          if (isMachineGone(err)) return "destroyed";
           throw new ProviderError("freestyle", `getPauseState(${vmId})`, err);
         }
       },
@@ -1330,7 +1447,15 @@ export class FreestyleProvider implements VMProvider {
     await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
   }
 
-  async resume(vmId: string): Promise<VMHandle> {
+  async detachCustomer(vmId: string): Promise<void> {
+    try {
+      await this.deps.client(CREATE_CLEANUP_TIMEOUT_MS).vms.ref(vmId).update({ customerId: null });
+    } catch (err) {
+      if (!isNotFound(err)) throw new ProviderError("freestyle", `detachCustomer(${vmId})`, err);
+    }
+  }
+
+  async resume(vmId: string, options?: ResumeOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
       "provider",
@@ -1365,8 +1490,19 @@ export class FreestyleProvider implements VMProvider {
               recordSpanError(span, policyError);
             }
           }
+          // Machines created before customer tagging carry no customer until
+          // the backfill reaches them; tag each one the first time it wakes.
+          // The wake has already succeeded, so the tag gets the short cleanup
+          // timeout: a stalled customer write must not outlast an outer
+          // deadline and roll back a machine that started.
+          const customerTag = await tagFreestyleCustomerOnWake(
+            this.deps.client(CREATE_CLEANUP_TIMEOUT_MS).vms.ref(vmId),
+            data,
+            options?.customer,
+            (error) => recordSpanError(span, error),
+          );
           const status = mapFreestyleState(data.state);
-          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
+          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status, "cmux.vm.customer_tag": customerTag });
           // A memory-preserving pause keeps the daemon; a cold boot (the VM had
           // stopped) relies on the baked systemd unit. Resume does no guest
           // work (see NO-WORK INVARIANT at the top of this file). The client's
@@ -1396,15 +1532,19 @@ export class FreestyleProvider implements VMProvider {
       }),
       async (span) => {
         try {
-          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
+          // A caller's signal (ExecOptions.signal) ends the request with it.
+          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS, opts?.signal);
           const vm = fs.vms.ref(vmId);
           // Public `vm exec` commands belong to the same account as Cloud
           // terminals and coding agents. Leaving `linuxUser` unset asks the
           // provider for its uid-1000 account (`cmux` on current images), while
           // preserving the provider's legacy fallback to root on older images.
-          // Driver maintenance stays explicitly root below, as does cmux's own
-          // guest maintenance that asks for it.
-          const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });
+          // Public commands use the provider's uid-1000 account and normalize
+          // its home. Driver maintenance and explicit root commands stay
+          // pinned to root.
+          const r = await vm.exec(opts?.asRoot
+            ? { command, timeoutMs, linuxUser: GUEST_LINUX_USER }
+            : { command: freestyleExecCommand(command), timeoutMs });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
@@ -1605,18 +1745,19 @@ export class FreestyleProvider implements VMProvider {
         "cmux.vm.operation": "restore",
         "cmux.snapshot.id": snapshotId,
         "cmux.vm.edge_rules": tlsRules?.length ?? 0,
-        "cmux.timeout_ms": CREATE_TIMEOUT_MS,
+        "cmux.timeout_ms": CREATE_CALL_TIMEOUT_MS,
       },
       async (span) => {
         try {
-          const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const fs = this.deps.client(CREATE_CALL_TIMEOUT_MS);
           const networkId = options?.network?.id;
-          const { vm, vmId, data } = await fs.vms.create({
+          const { vm, vmId, data } = await createTrackedFreestyleVm(this.deps.client, fs, {
             snapshotId,
             displayName: "cmux Cloud VM",
             automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
+            ...freestyleCreateCustomer(options?.customer),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
@@ -1631,10 +1772,7 @@ export class FreestyleProvider implements VMProvider {
           try {
             if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
           } catch (err) {
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
-            throw err;
+            return await rollbackCreatedFreestyleVm(vm, vmId, err);
           }
           return {
             provider: "freestyle" as const,

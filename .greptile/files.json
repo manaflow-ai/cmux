@@ -1,6 +1,13 @@
 {
   "files": [
     {
+      "path": "REVIEW.md",
+      "description": "Mistakes cmux review keeps catching, mined from review comments that led to fix commits. Check every PR against it.",
+      "scope": [
+        "**/*"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/cloud-persistent-session-and-early-input.md",
       "description": "Source-of-truth cmux review rule for one persistent Cloud session, immediate empty Ghostty runtime, and ordered early input.",
       "scope": [

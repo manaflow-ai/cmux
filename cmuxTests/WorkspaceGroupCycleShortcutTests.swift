@@ -31,6 +31,17 @@ struct WorkspaceGroupCycleShortcutTests {
 
     @Test func configuredActionsCycleMembersWithoutSelectingAnchor() async throws {
         let appDelegate = try #require(AppDelegate.shared)
+        let defaults = UserDefaults.standard
+        let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+        let originalChiefEnabled = defaults.object(forKey: chiefEnabledKey)
+        ChiefSettings.setEnabled(false, in: defaults)
+        defer {
+            if let originalChiefEnabled {
+                defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
+            } else {
+                defaults.removeObject(forKey: chiefEnabledKey)
+            }
+        }
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-workspace-group-cycle"
         )

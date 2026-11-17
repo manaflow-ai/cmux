@@ -44,9 +44,9 @@ cancels a stuck run before its own full re-run, and a re-run of failed jobs
 here would pre-empt it.
 
 A code or unknown job's failed steps also give its concrete failures
-(extract_failures: failed tests with file:line, compile errors, crashes,
-warning-budget overages, CLI help contract failures; system and cache `error:`
-noise dropped), and each gets an owner:
+(extract_failures: failed tests with file:line, bun's failed web tests with
+their file, compile errors, crashes, warning-budget overages, CLI help contract
+failures; system and cache `error:` noise dropped), and each gets an owner:
 
   yours             its file is one the pull request changes, or tests one
   also red on main  main's latest red full-suite run (the data main_full_suite.py
@@ -89,7 +89,10 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import pr_status  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
+import web_test_failure_census  # noqa: E402
+from test_touches_diff import RUNNER_FILES  # noqa: E402
 from pr_runner_pool import LAST_OWNED_ATTEMPT  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
@@ -175,6 +178,7 @@ SIGNATURES = (
     sig("guard-failed", CODE, r"^\s*FAIL\s+[\d.]+s\s", "a guard step failed"),
     sig("static-check-failed", CODE, r"^FAILED \S+ \(\d", "a static check failed"),
     sig("unittest-failure", CODE, r"^(?:FAIL|ERROR): test\w* \(", "a Python test failed"),
+    sig("bun-test-failure", CODE, r"^\(fail\) ", "a web test failed"),
 )
 
 
@@ -254,7 +258,8 @@ def classify_jobs(jobs: Iterable[Mapping], texts: Mapping[int, tuple[str, list[s
         if result["verdict"] == DERIVED:
             continue
         # A machine job's test failures are not evidence about the code (SIGNATURES).
-        result["failures"] = extract_failures(*text) if result["verdict"] != MACHINE else []
+        result["failures"] = extract_failures(*text, web_root=web_root(job.get("name"))) \
+            if result["verdict"] != MACHINE else []
         step = next((s.get("name") for s in job.get("steps") or [] if s.get("conclusion") in RED), None)
         if result["verdict"] == UNKNOWN:
             result["why"] = ("timed out" if job.get("conclusion") == "timed_out" else "no known signature") + (
@@ -312,6 +317,12 @@ MAX_FAILURE_MESSAGE_CHARS = 160
 MAX_CLI_DETAILS = 3
 
 
+def web_root(job_name: object) -> str:
+    """Where a job's bun test paths start: `web/` for a `web / Web tests (N/4)` shard (ci-web.yml runs
+    it in web/), "" (as printed) for any other job."""
+    return "web/" if web_test_failure_census.shard_of(str(job_name or "")) is not None else ""
+
+
 def repo_path(path: str) -> str:
     """A log's absolute source path relative to the repository, or as printed."""
     found = REPO_ROOTS.search(path)
@@ -342,10 +353,14 @@ def where(item: Mapping) -> str:
     return f"{name}:{item['line']}" if name and item.get("line") else name
 
 
-def extract_failures(text: str, annotations: Iterable[str] = ()) -> list[dict]:
-    """The concrete failures in one job's failed steps, deduplicated, at most MAX_FAILURES_PER_JOB."""
-    lines = [line.replace("\u200b", "").strip()
-             for failed, step in log_steps(text) if failed for line in step]
+def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str = "") -> list[dict]:
+    """The concrete failures in one job's failed steps, deduplicated, at most MAX_FAILURES_PER_JOB.
+
+    bun's `(fail) describe > test [ms]` lines are read by web_test_failure_census.parse_log, which
+    takes each test's file from the `##[group]tests/foo.test.ts:` header before it; `web_root` is
+    where those paths start (web_root()). A test bun names only in its closing summary keeps no file."""
+    failed_steps = [step for failed, step in log_steps(text) if failed]
+    lines = [line.replace("\u200b", "").strip() for step in failed_steps for line in step]
     lines += [a.strip() for note in annotations for a in str(note).splitlines()]
     found: list[dict] = []
     for index, line in enumerate(lines):
@@ -381,6 +396,9 @@ def extract_failures(text: str, annotations: Iterable[str] = ()) -> list[dict]:
                                          int(groups["line"]) if groups.get("line") else None,
                                          message=match["message"]))
                     break
+    for test in web_test_failure_census.parse_log("\n".join(line for step in failed_steps for line in step)):
+        found.append(failure("test", web_root + test["file"] if test["file"] else "", test=test["test"],
+                             message=test["message"] or "failed"))
     return dedupe(found)[:MAX_FAILURES_PER_JOB]
 
 
@@ -413,7 +431,9 @@ def owner(item: Mapping, changed: Iterable[str], main_keys: Iterable[str]) -> tu
     """(ownership, why) for one concrete failure.
 
     yours            its file is one the pull request changes, or it tests one
-                     (FooTests.swift and Foo.swift), or its suite is that file's
+                     (FooTests.swift and Foo.swift), or its suite is that file's; a
+                     web test's when the PR changes its runner (test_touches_diff's
+                     RUNNER_FILES: package.json, bun.lock, bunfig.toml, ...)
     also red on main main's latest completed full-suite run fails the same way
     new in this PR   otherwise: main does not show it, so it is most likely the PR's
     """
@@ -434,6 +454,10 @@ def owner(item: Mapping, changed: Iterable[str], main_keys: Iterable[str]) -> tu
             return YOURS, "a file this PR changes"
         if same:
             return YOURS, f"this PR changes {len(same)} files named {name}"
+    if item.get("kind") == "test" and path.startswith("web/"):
+        runner = sorted(RUNNER_FILES.intersection(changed))
+        if runner:
+            return YOURS, f"this PR changes the web test runner ({runner[0]})"
     if stem.endswith("Tests") and stem.removesuffix("Tests") in stems:
         return YOURS, f"tests {stem.removesuffix('Tests')}.swift, which this PR changes"
     if failure_key(item) in set(main_keys):
@@ -491,14 +515,31 @@ def macos_ran(jobs: Iterable[Mapping]) -> bool:
 # because of change routing (nothing for macOS, or an admitted compile reused), which is not a
 # gap: tests/test_ci_classify_failures.py pins the names to ci.yml.
 MACOS_PREREQUISITES = ("changes", "Fast static checks")
+STATIC_CHECKS_JOB = "Fast static checks"
+# Pull requests into this base run CI from its ci.yml, which skips `Fast static checks` (and so
+# `macos`) by design: cmux-next.yml owns their app checks. That skip is routing, not a gap, and a
+# green run there never needs its jobs read (tests/test_ci_classify_failures.py pins this to
+# feat-cmux-next's ci.yml when the branch is fetched).
+NEXT_BASE = "feat-cmux-next"
 
 
-def macos_blocked(jobs: Iterable[Mapping]) -> str:
+def run_base(run: Mapping, repo: str) -> str:
+    """The base branch of this repository's pull request in the workflow_run event, or ""."""
+    for pull in run.get("pull_requests") or []:
+        base = pull.get("base") or {}
+        if str((base.get("repo") or {}).get("url", "")).lower().endswith(f"/repos/{repo.lower()}"):
+            return str(base.get("ref") or "")
+    return ""
+
+
+def macos_blocked(jobs: Iterable[Mapping], base: str = "") -> str:
     """Why the macOS jobs could not run, or "" when they ran or routing skipped them."""
     jobs = list(jobs)
     if macos_ran(jobs):
         return ""
     found = {str(j.get("name")): str(j.get("conclusion") or j.get("status") or "missing") for j in jobs}
+    if base == NEXT_BASE and found.get(STATIC_CHECKS_JOB) == "skipped":
+        found[STATIC_CHECKS_JOB] = "success"
     return ", ".join(f"`{name}` {found.get(name, 'missing')}" for name in MACOS_PREREQUISITES
                      if found.get(name) != "success")
 
@@ -511,7 +552,18 @@ def classify_run(gh: GitHub, run: Mapping) -> dict:
     return {"run_id": int(run["id"]), "attempt": attempt,
             "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
             "conclusion": run.get("conclusion"), "jobs": classify_jobs(jobs, texts),
-            "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs)}
+            "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs, run_base(run, gh.repo))}
+
+
+def green_next_report(gh: GitHub, run: Mapping) -> dict | None:
+    """The report of a green run on a pull request into NEXT_BASE, without reading its jobs: no
+    failed job to show and the macOS jobs are skipped by routing there, so the jobs change
+    nothing. act() then reads only the comments, and stops there unless this bot reported before."""
+    if run.get("conclusion") != "success" or run_base(run, gh.repo) != NEXT_BASE:
+        return None
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": "success", "jobs": [], "macos_ran": False, "macos_blocked": ""}
 
 
 def run_pull(gh: GitHub, run: Mapping, pr: int | None = ...) -> tuple[int | None, dict]:  # type: ignore[assignment]
@@ -896,7 +948,21 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     return line
 
 
-def render_failures(jobs: list[Mapping]) -> list[str]:
+def import_graph_hint(jobs: list[Mapping], pr: object) -> list[str]:
+    """For a red web test the PR doesn't own by file or runner: the command that checks whether
+    the PR's code reaches it. This bot never fetches PR code, so it can't build the import graph."""
+    files = sorted({str(item["file"]) for job in jobs if job["verdict"] != MACHINE
+                    for item in job.get("failures") or []
+                    if item.get("kind") == "test" and str(item.get("file") or "").startswith("web/")
+                    and item.get("owner") != YOURS})
+    if not files or not pr:
+        return []
+    return ["", f"A web test can import code this PR changes without being one of its files: "
+                f"`python3 scripts/ci/web_test_verdict.py --pr {pr} --file {files[0]}` checks its import graph "
+                "(on Linux, in a sandbox) and its failures on other branches."]
+
+
+def render_failures(jobs: list[Mapping], pr: object = None) -> list[str]:
     rows = []
     for job in jobs:
         if job["verdict"] == MACHINE:
@@ -911,7 +977,7 @@ def render_failures(jobs: list[Mapping]) -> list[str]:
     out = ["", "Failures:", *rows[:MAX_RENDERED_FAILURES]]
     if len(rows) > MAX_RENDERED_FAILURES:
         out.append(f"- ... {len(rows) - MAX_RENDERED_FAILURES} more in the job logs")
-    return out
+    return out + import_graph_hint(jobs, pr)
 
 
 def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
@@ -942,7 +1008,7 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
                 out.append(f"| {name.replace('|', '/')} | **{job['verdict']}** | {job['why']}{where_} |")
             if len(jobs) > MAX_RENDERED_JOBS:
                 out.append(f"| ... {len(jobs) - MAX_RENDERED_JOBS} more | | |")
-            out += render_failures(jobs)
+            out += render_failures(jobs, report.get("pr"))
             evidence = [f"{job['name']}: {job['evidence']}" for job in jobs[:MAX_RENDERED_JOBS] if job["evidence"]]
             if evidence:
                 out += ["", "<details><summary>Matched log lines</summary>", "", fence("\n".join(evidence)),
@@ -981,11 +1047,12 @@ def mark_pending(writer: Writer, repo: str, pr: int, existing: list[dict], head:
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     if current is None:
         return False
-    body = str(current.get("body") or "")
+    body = pr_status.own_text(str(current.get("body") or ""), "attribution")
     old_head, _ = comment_head(body)
     if same_head(old_head, head):
         return False
-    upsert_comment(writer, repo, pr, MARKER, render_pending(head, run_url, old_head, body), existing)
+    upsert_comment(writer, repo, pr, MARKER, render_pending(head, run_url, old_head, body), existing,
+                   section="attribution")
     return True
 
 
@@ -1060,7 +1127,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         # is there (every workflow shares GITHUB_TOKEN's API budget; it ran out on 2026-10-06).
         pr = pr_number(gh, run)
         if pr:
-            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
             if not any(MARKER in str(c.get("body") or "") for c in existing):
                 if report.get("conclusion") == "success":
                     write_summary(render_comment(report, ""))
@@ -1073,7 +1140,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: no open pull request at this head"}
     # Only this workflow's own comment: anyone can post one carrying the marker.
     if existing is None:
-        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     head = str((pull.get("head") or {}).get("sha") or "")
     if head != report.get("head_sha"):
@@ -1085,6 +1152,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     if report.get("conclusion") == "cancelled" and not report["jobs"]:
         return {"pr": pr, "rerun": False, "line": "skipped: cancelled with no failed job"}
     report["merged"] = merged
+    report["pr"] = pr
     files = own_failures(gh, pr, report, None)
     now = now_utc()
     try:
@@ -1129,8 +1197,28 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
     quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") or rerun
     if current is not None or not quiet:
-        upsert_comment(writer, gh.repo, pr, MARKER, body, existing)
+        upsert_comment(writer, gh.repo, pr, MARKER, body, existing, section="attribution")
     return {"pr": pr, "rerun": rerun, "line": line}
+
+
+def moved_past(run: Mapping, pulled: tuple[int | None, dict]) -> bool:
+    """Whether act() could only skip this run or mark the comment pending: no open (or merged) pull
+    request, or one whose head moved past the run. main() then reads no jobs, logs or annotations
+    for it: a red run on an older head cost 5 to 7 calls on 2026-10-27, on the cmux-bot
+    installation's 5000 an hour, which ran out five hours in a row that night. act() still reads
+    the pull request again after classifying a run that was current: it may move or close while
+    the logs are read, and the re-run is decided on that later read."""
+    pr, pull = pulled
+    if not pr or (pull.get("state") != "open" and not pull.get("merged_at")):
+        return True
+    return str((pull.get("head") or {}).get("sha") or "") != str(run.get("head_sha") or "")
+
+
+def bare_report(run: Mapping) -> dict:
+    """The report of a run whose jobs were not read (moved_past()): act() only skips or marks pending."""
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": run.get("conclusion"), "jobs": [], "macos_ran": False, "macos_blocked": ""}
 
 
 def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
@@ -1141,7 +1229,7 @@ def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: not the open pull request's head"}
     # The comments first: without this bot's comment there is nothing to mark, and the pull
     # request is not read.
-    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
     if not any(MARKER in str(c.get("body") or "") for c in existing):
         return {"pr": pr, "rerun": False, "line": "nothing to mark"}
     pull = gh.pull(pr)
@@ -1184,7 +1272,9 @@ def main(argv: list[str]) -> int:
             print(json.dumps({"log": path, **classify_text(Path(path).read_text(errors="replace"))}))
         return 0
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    gh = GitHub(args.repo, token) if token else None
+    # READ_TOKEN (an App's, with its own budget) makes the reads; writes, the re-run above all,
+    # stay on GH_TOKEN (guard_attribution.GitHub).
+    gh = GitHub(args.repo, token, read_token=os.environ.get("READ_TOKEN") or "") if token else None
     run = load_run(gh, args.run_id)
     if gh is None:
         raise SystemExit("set GH_TOKEN")
@@ -1195,13 +1285,20 @@ def main(argv: list[str]) -> int:
         for entry in writer.log:
             print(entry)
         print(json.dumps(result))
-        print(f"api calls: {gh.calls}")
+        print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
         return 0
     if run.get("conclusion") not in ("success", "failure", "cancelled"):
         print(f"run {run.get('id')} concluded {run.get('conclusion')}; nothing to attribute")
         return 0
-    # A green run's jobs are read too (no logs): its macOS jobs may never have run.
-    report = classify_run(gh, run)
+    # A green run's jobs are read too (no logs): its macOS jobs may never have run. Into
+    # feat-cmux-next they never do, by design, so there the comments are read first instead.
+    # A red or cancelled run whose pull request has moved on or closed: its jobs and logs change
+    # nothing (moved_past()). Green runs read only the comments already (act()).
+    if (args.command == "act" and run.get("conclusion") != "success"
+            and moved_past(run, run_pull(gh, run))):
+        report = bare_report(run)
+    else:
+        report = (green_next_report(gh, run) if args.command == "act" else None) or classify_run(gh, run)
     if args.command == "classify":
         print(json.dumps(report, indent=2))
         return 0
@@ -1210,7 +1307,7 @@ def main(argv: list[str]) -> int:
     for entry in writer.log:
         print(entry)
     print(json.dumps({**result, "jobs": [(j["name"], j["verdict"], j["signature"]) for j in report["jobs"]]}))
-    print(f"api calls: {gh.calls}")
+    print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
     return 0
 
 

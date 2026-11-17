@@ -1,0 +1,104 @@
+name: nightly-next verdict
+# The durable canary verdict of one cmux NEXT build (docs/ci/nightly-next-train.md).
+# nightly-next-canary.yml dispatches it after each scheduled check of a feed
+# build; it writes verdicts/<build>.json next to the cmux NEXT appcast in R2
+# (https://files-next.cmux.com/nightly-next/next/verdicts/<build>.json). The
+# train's base is the newest feed build whose verdict is `pass`
+# (scripts/ci/nightly_next_train.py base). The Actions cache the canary keeps
+# is only its "already checked" marker; it expires, this does not.
+#
+# Trust: the run reads the build's commit itself (the build number is
+# `<nightly-next run id><attempt>`; that run's head on nightly-next), and a
+# `pass` counts only when canary_run is a scheduled nightly-next-canary.yml run
+# of this repository whose `canary <build>` job succeeded. `fail` and
+# `skipped` never make a build a base, so they are written as given.
+#
+# Run it on branch nightly-next; release-next, which holds the feed's R2
+# token, deploys only to that branch. GitHub registers a dispatch workflow
+# only from the default branch, so this file is on main too; a run there
+# does nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: cmux NEXT build number (digits)
+        required: true
+        type: string
+      verdict:
+        description: pass, fail or skipped
+        required: true
+        type: string
+      canary_run:
+        description: The nightly-next-canary.yml run that checked the build (its id)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: nightly-next-verdict-${{ inputs.build }}
+  cancel-in-progress: false
+
+env:
+  NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
+
+jobs:
+  write:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next'
+    environment: release-next
+    permissions:
+      actions: read
+      contents: read
+    # A literal ephemeral label: this job holds the feed's write token.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/nightly_next_train.py
+            scripts/ci/nightly_next_fix_forward.py
+            scripts/ci/nightly-next-guard.py
+            scripts/ci/upload-r2-object.py
+          sparse-checkout-cone-mode: false
+
+      - name: Check the verdict and write the document
+        id: doc
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ inputs.build }}
+          VERDICT: ${{ inputs.verdict }}
+          CANARY_RUN: ${{ inputs.canary_run }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/nightly_next_train.py verdict-check \
+            --repo "$GITHUB_REPOSITORY" --build "$BUILD" --verdict "$VERDICT" \
+            --canary-run "$CANARY_RUN" --out "verdict.json"
+          echo "key=${NIGHTLY_NEXT_R2_PREFIX}verdicts/${BUILD}.json" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the verdict
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY: ${{ steps.doc.outputs.key }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$KEY"
+          python3 scripts/ci/upload-r2-object.py \
+            --file verdict.json \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
+            --key "$KEY" \
+            --content-type "application/json" \
+            --cache-control "no-cache, no-store, must-revalidate"
+          {
+            echo "### nightly-next verdict"
+            echo
+            echo '```json'
+            cat verdict.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

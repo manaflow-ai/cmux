@@ -22,6 +22,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case mobilePairing
     case accountSignIn
     case cloudVPNSetup
+    case chief
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -72,6 +73,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.cloudVPNSetup.rawValue.lowercased() {
             self = .cloudVPNSetup
+            return
+        }
+        if rawValue.lowercased() == Self.chief.rawValue.lowercased() {
+            self = .chief
             return
         }
         throw DecodingError.dataCorruptedError(

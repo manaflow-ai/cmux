@@ -33,6 +33,9 @@ jobs:
         with:
           toolchain: 1.94.0
           components: clippy,rustfmt
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
         with:
           workspaces: coderouter

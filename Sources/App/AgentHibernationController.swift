@@ -81,10 +81,18 @@ final class AgentHibernationController {
     var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
+    var backgroundWorkDrainTimer: DispatchSourceTimer?
+    var backgroundWorkDrainCheckInFlight = false
+    var backgroundWorkDrainRejections: [AgentHibernationPanelKey: ClaudeBackgroundWorkDrain.Evidence] = [:]
+    /// The lifecycle change each journaled drain answered, keyed by pane.
+    var backgroundWorkDrainsJournaled: [AgentHibernationPanelKey: TimeInterval?] = [:]
     private init() {}
 
     func start() {
         AgentHibernationTrackingGate.setEnabled(true)
+        // Runs whether or not hibernation is on: the sidebar shows the same
+        // stale Waiting state either way.
+        startBackgroundWorkDrainTimer()
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
             return
@@ -104,6 +112,7 @@ final class AgentHibernationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        stopBackgroundWorkDrainTimer()
         memoryPressureEvaluation?.task.cancel()
         memoryPressureEvaluation = nil
         AgentHibernationTrackingGate.setEnabled(false)

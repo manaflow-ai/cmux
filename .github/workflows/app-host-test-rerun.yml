@@ -129,7 +129,7 @@ jobs:
     # Only products this repository's CI built, tested at a branch head of this
     # repository: a fork's commit or artifacts never run on an owned Mac.
     # glaeda's hook classes `rerun` as gui, and it takes its root itself.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner == 'blacksmith-6vcpu-macos-26' && (inputs.source_repository == github.repository && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner == 'blacksmith-6vcpu-macos-26' && (inputs.source_repository == github.repository && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26') || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -226,7 +226,7 @@ jobs:
           test -n "$framework_source"
           for dest in "$RUNNER_TEMP/cmux-app-host-package-frameworks" /private/tmp/cmux-app-host-package-frameworks; do
             mkdir -p "$dest"
-            rsync -aL "$(dirname "$framework_source")/" "$dest/"
+            rsync -aL --no-times "$(dirname "$framework_source")/" "$dest/"
           done
           # Source-backed test fixtures resolve #fileID through this stable
           # location, so baseline runs do not need the producer root.
@@ -349,7 +349,7 @@ jobs:
           find "$products/PackageFrameworks" -maxdepth 1 | head -n 5
           if [ -L "$products/PackageFrameworks" ]; then rm "$products/PackageFrameworks"; fi
           mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$RUNNER_TEMP/cmux-app-host-package-frameworks/" "$products/PackageFrameworks/"
+          rsync -aL --no-times "$RUNNER_TEMP/cmux-app-host-package-frameworks/" "$products/PackageFrameworks/"
           find "$products/PackageFrameworks" -maxdepth 1 -type d -name 'CmuxAgentJournal*_PackageProduct.framework' | grep -q .
           # The receipt binds the products to the revision they were built
           # from, so validate with that revision checked out; the plan job

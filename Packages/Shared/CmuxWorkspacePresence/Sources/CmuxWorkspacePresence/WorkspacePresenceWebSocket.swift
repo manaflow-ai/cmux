@@ -1,7 +1,7 @@
 import CMUXMobileCore
 import Foundation
 
-/// URLSession transport for the workspace-only presence protocol.
+/// Network.framework transport for the workspace-only presence protocol.
 public struct WorkspacePresenceWebSocket: WorkspacePresenceConnecting {
     private let baseURL: URL
 
@@ -9,9 +9,12 @@ public struct WorkspacePresenceWebSocket: WorkspacePresenceConnecting {
     /// - Parameter baseURL: Service origin; loopback HTTP is accepted for local proof.
     public init(baseURL: URL) { self.baseURL = baseURL }
 
+    /// Opens one cancellable presence connection.
     public func connect(scope: WorkspacePresenceScope, accessToken: String) async throws -> any WorkspacePresenceConnection {
         let request = try request(scope: scope, accessToken: accessToken)
-        return WorkspacePresenceSocket(request: request)
+        let socket = try WorkspacePresenceSocket(request: request)
+        await socket.startUpgradeTimeout(max(1, request.timeoutInterval))
+        return socket
     }
 
     /// Builds a bounded, credentialed upgrade request.

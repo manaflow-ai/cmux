@@ -99,7 +99,8 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         sessions[surfaceId, default: [:]][agentKey, default: [:]][sessionKey] = state
     }
 
-    func session(
+    /// One session's projection on a surface, or `nil` if it never reduced there.
+    public func session(
         surfaceId: String,
         agentKey: String,
         sessionKey: String

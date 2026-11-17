@@ -3,6 +3,7 @@ import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
 import CmuxWorkspaces
+import CmuxHomeCore
 import Foundation
 
 extension DockSplitStore {
@@ -164,7 +165,7 @@ extension DockSplitStore {
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         claudeBackgroundRestores: [UUID: ClaudeBackgroundAttachRestore]? = nil
     ) -> UUID? {
-        guard acceptsRestoredDisplay(snapshot) else { return nil }
+        guard acceptsRestoredDisplay(snapshot), snapshot.type != .chief || ChiefSettings.isEnabled else { return nil }
         if (!deferBrowserPanel || snapshot.type != .browser),
            let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),
@@ -238,6 +239,20 @@ extension DockSplitStore {
                 inPane: paneId,
                 excludingStableIdentities: excludingStableIdentities
             )
+        case .chief:
+            guard ChiefSettings.isEnabled, let chiefSnapshot = snapshot.chief else { return nil }
+            let panel = ChiefPanel(
+                id: panels[snapshot.id] == nil ? snapshot.id : UUID(),
+                conversationID: chiefSnapshot.conversationID.map(ConversationID.init(rawValue:))
+            )
+            guard attachSessionRestoredPanel(panel, snapshot: snapshot, inPane: paneId) != nil else {
+                return nil
+            }
+            if let stableSurfaceId = snapshot.stableSurfaceId,
+               !excludingStableIdentities.contains(stableSurfaceId) {
+                panel.adoptStableSurfaceId(stableSurfaceId)
+            }
+            return panel.id
         default:
             return nil
         }
@@ -764,6 +779,7 @@ extension DockSplitStore {
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,
             icon: panel.displayIcon,
+            iconAsset: panel is ChiefPanel ? ChiefPanel.iconAssetName : nil,
             kind: Self.surfaceKind(for: panel),
             isDirty: panel.isDirty,
             showsNotificationBadge: snapshot.isManuallyUnread,

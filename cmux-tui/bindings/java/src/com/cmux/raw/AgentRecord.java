@@ -14,6 +14,8 @@ public final class AgentRecord implements WireValue {
     private final String session;
     private final AgentSource source;
     private final AgentState state;
+    /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
+    private final Field<AgentState> status;
     private final UInt64 surface;
     private final UInt64 updatedAtMs;
 
@@ -24,6 +26,7 @@ public final class AgentRecord implements WireValue {
         this.source = Wire.nonNull(builder.source, "source");
         if (!builder.stateSet) throw new IllegalArgumentException("state is required");
         this.state = Wire.nonNull(builder.state, "state");
+        this.status = builder.status;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         if (!builder.updatedAtMsSet) throw new IllegalArgumentException("updated_at_ms is required");
@@ -35,6 +38,7 @@ public final class AgentRecord implements WireValue {
     public String session() { return session; }
     public AgentSource source() { return source; }
     public AgentState state() { return state; }
+    public Field<AgentState> status() { return status; }
     public UInt64 surface() { return surface; }
     public UInt64 updatedAtMs() { return updatedAtMs; }
 
@@ -47,6 +51,10 @@ public final class AgentRecord implements WireValue {
         builder.source(AgentSource.fromWire(rawSource));
         Object rawState = Wire.required(object, "state");
         builder.state(AgentState.fromWire(rawState));
+        Object rawStatus = Wire.optional(object, "status");
+        if (!Wire.isMissing(rawStatus)) {
+            builder.status(rawStatus == null ? null : AgentState.fromWire(rawStatus));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "AgentRecord.surface"));
         Object rawUpdatedAtMs = Wire.required(object, "updated_at_ms");
@@ -60,6 +68,7 @@ public final class AgentRecord implements WireValue {
         Wire.put(object, "session", session);
         Wire.put(object, "source", source);
         Wire.put(object, "state", state);
+        Wire.put(object, "status", status);
         Wire.put(object, "surface", surface);
         Wire.put(object, "updated_at_ms", updatedAtMs);
         return Collections.unmodifiableMap(object);
@@ -68,11 +77,11 @@ public final class AgentRecord implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentRecord that)) return false;
-        return Objects.equals(session, that.session) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(session, that.session) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(status, that.status) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(session, source, state, surface, updatedAtMs); }
+    public int hashCode() { return Objects.hash(session, source, state, status, surface, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentRecord" + toWire(); }
@@ -84,6 +93,7 @@ public final class AgentRecord implements WireValue {
         private boolean sourceSet;
         private AgentState state;
         private boolean stateSet;
+        private Field<AgentState> status = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private UInt64 updatedAtMs;
@@ -102,6 +112,10 @@ public final class AgentRecord implements WireValue {
         public Builder state(AgentState value) {
             this.state = value;
             this.stateSet = true;
+            return this;
+        }
+        public Builder status(AgentState value) {
+            this.status = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) && !CMUX_APPSTORE
 import Foundation
 import NetworkExtension
 import OSLog

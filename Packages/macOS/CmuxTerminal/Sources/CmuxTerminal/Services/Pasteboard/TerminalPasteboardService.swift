@@ -178,6 +178,12 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
             }
         }
 
+        // An empty payload carries nothing to paste; writing it would only
+        // wipe what the user copied. Remote programs send it as an OSC 52
+        // write (`ESC ] 52 ; c ; BEL`), which xterm defines as "clear".
+        let representations = representations.filter { !$0.string.isEmpty }
+        guard !representations.isEmpty else { return }
+
         switch location {
         case GHOSTTY_CLIPBOARD_STANDARD:
             _ = enqueueRepresentations(

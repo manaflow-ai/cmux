@@ -12,6 +12,23 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Screen export closes retained temporary-directory handles
+
+- Branch: `issue-21374-screen-export-fd-leak`
+  ([manaflow-ai/ghostty#275](https://github.com/manaflow-ai/ghostty/pull/275)).
+- Commits: `0d706c3c0` (regression test), `ef4f1570d` (fix), both based on
+  the cmux pin and the latter cherry-picked from upstream Ghostty #13644.
+- Summary: screen, scrollback, selection, and active-area exports now close
+  both the temporary directory and its parent handles after dispatching the
+  path, while retaining the directory contents for the consumer. `TempDir`
+  cleanup closes the parent handle after deleting the directory as well.
+- Coverage: `TempDir` tests assert that both handles are closed for delete and
+  retain cleanup, and that the retained directory remains usable.
+- Conflict notes: keep the `retain_tmp_dir` defer around `writeScreenFile` and
+  keep `TempDir.close(.retain)` exhaustive so every action path releases both
+  handles. The cmux pin must continue to use this branch until its change is
+  merged into fork `main`.
+
 ### Minimum contrast uses the host-painted background
 
 - Branch: `cmux-min-contrast-host-bg`

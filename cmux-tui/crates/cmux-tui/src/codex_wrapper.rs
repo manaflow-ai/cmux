@@ -37,7 +37,8 @@ pub(crate) fn invocation(args: &[OsString]) -> Option<&[OsString]> {
 pub(crate) fn run(args: &[OsString]) -> i32 {
     let messages = &crate::localization::catalog().agent_wrapper;
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let shim_dir = shim_directory();
+    let shim_dir =
+        current_executable().ok().and_then(|exe| crate::own_build_helpers::wrapper_shim_dir(&exe));
     let Some(codex) = find_real_codex(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
         return 127;
@@ -61,26 +62,17 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     126
 }
 
-/// PATH for pane processes: the Codex shim directory first, then the server's
-/// PATH. The Claude shim uses the same directory, so both are available from
-/// one environment entry.
-pub(crate) fn pane_path() -> Option<String> {
-    let dir = shim_directory()?;
-    let executable = current_executable().ok()?;
-    install_shim(&dir, &executable).ok()?;
-    path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?.into_string().ok()
-}
-
-fn shim_directory() -> Option<PathBuf> {
-    agent_hook_install::runtime_cmux_tui_data_home().map(|home| home.join("shims"))
-}
-
 fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
     Ok(executable.canonicalize().unwrap_or(executable))
 }
 
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
+    // A tool command of a Codex session in the shared daemon has the
+    // daemon's inherited environment, which names some other terminal.
+    if cmux_tui_core::platform::descends_from_codex_app_server_daemon() {
+        return Ok(None);
+    }
     let Some((socket, Some(terminal))) = crate::hook_helper::session_route() else {
         return Ok(None);
     };
@@ -138,11 +130,6 @@ fn path_without_shims(path: &OsStr, shim_dir: Option<&Path>) -> OsString {
     std::env::join_paths(kept).unwrap_or_else(|_| path.to_owned())
 }
 
-fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
-    let inherited = std::env::split_paths(path).filter(|dir| dir != shim_dir);
-    std::env::join_paths(std::iter::once(shim_dir.to_path_buf()).chain(inherited)).ok()
-}
-
 fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
     let Some(shim_dir) = shim_dir else { return false };
     dir == shim_dir
@@ -161,7 +148,8 @@ fn is_codex_shim(path: &Path) -> bool {
         })
 }
 
-fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
+/// Writes `<dir>/codex` (0700 in a 0700 directory) when its content changed.
+pub(crate) fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
     fs::create_dir_all(dir).context("create the shim directory")?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     let path = dir.join("codex");

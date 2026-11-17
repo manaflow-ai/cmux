@@ -130,6 +130,7 @@ MODEL_BY_PATH = {
     'types/Workspace': models.Workspace,
     'types/WorkspaceMutationResult': models.WorkspaceMutationResult,
     'types/ZoomPaneResult': models.ZoomPaneResult,
+    'commands/ack-tab-notifications/request': models.AckTabNotificationsRequest,
     'commands/apply-layout/request': models.ApplyLayoutRequest,
     'commands/attach-surface/request': models.AttachSurfaceRequest,
     'commands/browser-activate/request': models.BrowserActivateRequest,

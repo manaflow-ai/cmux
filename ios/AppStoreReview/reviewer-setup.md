@@ -83,6 +83,10 @@ Prior review resolutions:
   server-flagged Demo Mac and the prepared review Mac described below. The Demo
   Mac is available immediately after sign-in, while the prepared Mac verifies
   the live pairing path.
+- The rejection of submission 40f744df-e0fc-4782-9dac-aa0c79281b9f for the
+  system VPN API is resolved in this build. The App Store binary no longer
+  contains the CloudVPN packet tunnel extension or any Network Extension or
+  VPN entitlement, and the app no longer offers a system VPN.
 
 Demo account:
 - Use the demo account email in the App Review demo account field.

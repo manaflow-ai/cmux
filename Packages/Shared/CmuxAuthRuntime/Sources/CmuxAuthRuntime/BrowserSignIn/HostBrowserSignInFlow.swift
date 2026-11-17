@@ -175,6 +175,22 @@ public final class HostBrowserSignInFlow {
         let state = authCallbackState(from: url)
         if let attemptID = activeAttemptID, activeSessionContinuation != nil {
             guard HostBrowserIssuedCallbackStates.constantTimeEquals(state, activeCallbackState) else {
+                // A replaced attempt's browser tab can finish while the retry
+                // is still open; its kept state signs in and ends the retry.
+                if let state,
+                   callbackRouter.callbackPayload(from: url) != nil,
+                   issuedCallbackStates.consume(state) {
+                    log.log("auth.callback.external.routeToIssuedState attempt=\(attemptID)")
+                    let signedIn = await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
+                    if signedIn {
+                        resumeActiveSessionContinuation(
+                            returning: .cancelled(reason: "external_callback"),
+                            reason: "issuedStateCallback",
+                            expectedAttemptID: attemptID
+                        )
+                    }
+                    return signedIn
+                }
                 log.log("auth.callback.external.reject reason=stateMismatch attempt=\(attemptID)")
                 lastFailure = .invalidCallback
                 return false
@@ -182,12 +198,14 @@ public final class HostBrowserSignInFlow {
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
             cancelAttemptTimeout()
             cancelSlowSignInHint()
+            // Hold the session continuation while the callback validates.
+            // Safari can report the hosted session cancelled in that window;
+            // resuming then would end the attempt and drop these tokens as
+            // raced.
+            let continuation = takeActiveSessionContinuation()
             let signedIn = await completeCallback(url: url, attemptID: attemptID)
-            resumeActiveSessionContinuation(
-                returning: .cancelled(reason: "external_callback"),
-                reason: "externalCallback",
-                expectedAttemptID: attemptID
-            )
+            log.log("auth.browser.session.resume reason=externalCallback attempt=\(attemptID)")
+            continuation?.resume(returning: .cancelled(reason: "external_callback"))
             return signedIn
         }
         if let state {
@@ -289,7 +307,9 @@ public final class HostBrowserSignInFlow {
         if let activeAttemptID {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
-        cancelActiveAttempt()
+        // A user who retries because nothing seemed to happen may still finish
+        // the replaced attempt's browser tab; keep its state valid.
+        cancelActiveAttempt(keepingCallbackStates: true)
         activeAttemptSelectsAccount = selectAccount
         lastFailure = nil
         nextAttemptID &+= 1
@@ -379,6 +399,17 @@ public final class HostBrowserSignInFlow {
                     }
                     return
                 }
+                // Safari can finish the web handoff after the hosted session
+                // reports that it was cancelled or failed. Keep this attempt's
+                // state as a single-use external state, for as long as an
+                // abandoned attempt would live, before
+                // resuming the session continuation, so the callback is not
+                // lost in the gap between those two events.
+                if case .cancelled = result {
+                    self.preserveCallbackStateForLateCompletion(attemptID: attemptID, reason: "cancelled")
+                } else if case .failed = result {
+                    self.preserveCallbackStateForLateCompletion(attemptID: attemptID, reason: "failed")
+                }
                 self.resumeActiveSessionContinuation(returning: result, reason: "sessionCompletion", expectedAttemptID: attemptID)
             }
             let started = session.start()
@@ -420,9 +451,12 @@ public final class HostBrowserSignInFlow {
         isPresentingSignIn = false
     }
 
-    private func cancelActiveAttempt() {
+    private func cancelActiveAttempt(keepingCallbackStates: Bool = false) {
         if let activeAttemptID {
             log.log("auth.browser.attempt.cancel id=\(activeAttemptID)")
+        }
+        if keepingCallbackStates, let activeCallbackState {
+            issueCallbackState(activeCallbackState)
         }
         resumeActiveSessionContinuation(
             returning: .cancelled(reason: "attempt_cancelled"),
@@ -435,7 +469,9 @@ public final class HostBrowserSignInFlow {
         activeAttemptTask = nil
         handedOffAttemptID = nil
         activeCallbackState = nil
-        issuedCallbackStates.removeAll()
+        if !keepingCallbackStates {
+            issuedCallbackStates.removeAll()
+        }
         activeSession?.cancel()
         activeSession = nil
         isSigningIn = false
@@ -485,6 +521,12 @@ public final class HostBrowserSignInFlow {
         slowSignInHintTask?.cancel()
         slowSignInHintTask = nil
         signInIsSlow = false
+    }
+
+    private func preserveCallbackStateForLateCompletion(attemptID: UInt64, reason: String) {
+        guard activeAttemptID == attemptID, let state = activeCallbackState else { return }
+        issueCallbackState(state)
+        log.log("auth.browser.attempt.retainCallbackState id=\(attemptID) reason=\(reason)")
     }
 
     private func recordBrowserSessionFailure(reason: String, attemptID: UInt64) {
@@ -643,11 +685,9 @@ public final class HostBrowserSignInFlow {
             )
             return false
         }
-        if let state = authCallbackState(from: url) {
-            // Single use: the popup's state may also have been issued for the
-            // default-browser fallback.
-            issuedCallbackStates.remove(state)
-        }
+        // Single use, and retire every other kept state too: an older tab
+        // finished after this sign-in must not switch accounts unasked.
+        issuedCallbackStates.removeAll()
         lastFailure = nil
         return true
     }
@@ -657,6 +697,15 @@ public final class HostBrowserSignInFlow {
     private func issueCallbackState(_ state: String) {
         let lifetime = browserAttemptTimeout > 0 ? browserAttemptTimeout : 10 * 60
         issuedCallbackStates.issue(state, clock: clock, lifetime: .seconds(lifetime))
+    }
+
+    /// Detach the session continuation so later session completions, attempt
+    /// replacement and sign-out cannot resume it; the caller must resume it.
+    private func takeActiveSessionContinuation() -> CheckedContinuation<HostBrowserAuthSessionResult?, Never>? {
+        let continuation = activeSessionContinuation
+        activeSessionContinuation = nil
+        activeSessionContinuationAttemptID = nil
+        return continuation
     }
 
     private func resumeActiveSessionContinuation(

@@ -83,7 +83,7 @@ export function AppPricingContent({
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
-  const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
+  const showGo = isGo || goPlanEnabled;
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
   const requestOrigin = appPricingRequestOrigin(headersList);
   const cmuxScheme = validatedNativeCallbackScheme(
@@ -262,7 +262,7 @@ export function AppPricingContent({
         name={pricing.pro.name}
         surface="app_pricing"
         monthlyOnly={isGo}
-        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        initialInterval={firstParam(params.interval) === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         location="app_pricing"
@@ -294,7 +294,7 @@ export function AppPricingContent({
         pricing={MAX_PRICING_USD}
         surface="app_pricing"
         monthlyOnly={false}
-        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        initialInterval={firstParam(params.interval) === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={maxCheckoutHrefs}
         location="app_pricing"
@@ -552,6 +552,18 @@ type BillingBannerModel = {
   message: string;
   action?: { href: string; label: string };
 };
+
+/** The page's own sign-in link, built from the request before the page renders. */
+export function appPricingRequestSignInHref(
+  params: Record<string, string | string[] | undefined>,
+  headersList: Headers,
+): string {
+  const cmuxScheme = validatedNativeCallbackScheme(
+    firstParam(params.cmux_scheme),
+    appPricingRequest(headersList),
+  );
+  return appPricingSignInHref(cmuxScheme, params);
+}
 
 /// In-webview sign-in that also signs the native app in: Stack sign-in sets
 /// the webview's session cookies, then /handler/after-sign-in hands tokens to

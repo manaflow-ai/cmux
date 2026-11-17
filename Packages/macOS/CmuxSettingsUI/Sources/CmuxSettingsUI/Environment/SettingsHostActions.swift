@@ -55,6 +55,9 @@ public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     /// is persisted. Returning `false` keeps the previous cell untouched.
     func validateNotificationSoundFile(path: String) async -> Bool
 
+    /// Whether this build offers Chief; off hides its Settings card.
+    var isChiefAvailable: Bool { get }
+
     /// Deletes the user's browser history (visited-page suggestions,
     /// omnibar autocomplete cache). Idempotent.
     func clearBrowserHistory()
@@ -667,4 +670,9 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     /// package-only settings hosts.
     public func previewNotificationSound(value: String, customFilePath: String) {}
     public func browserHistoryEntryCount() -> Int? { nil }
+}
+
+public extension SettingsHostActions {
+    /// Fail-closed default for previews and package-only hosts.
+    var isChiefAvailable: Bool { false }
 }

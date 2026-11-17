@@ -55,3 +55,95 @@ describe("file reads of a missing path", () => {
     });
   }
 });
+
+// A file op on a paused machine wakes it through the shared resume preflight.
+// That preflight must judge the machine against the caller's current plan, not
+// the plan the row was created on: a legacy machine made on Free (no capacity
+// marker) on a team that is now on Team resumes as grandfathered, with no
+// active-limit re-gate, exactly as open and exec resume it. Judged as Free it
+// would be re-gated against the Free limits instead.
+describe("file op resume of a paused machine", () => {
+  test("uses the caller's current plan, not the row's create-time plan", async () => {
+    const skipActiveLimits: boolean[] = [];
+    let statusProbes = 0;
+    const paused = { ...row(), status: "paused", billingPlanId: "free" } as CloudVmRow;
+    const repo = {
+      findUserVm: () => Effect.succeed(paused),
+      markProviderObservedStatus: () => Effect.succeed(true),
+      recordUsageEvent: () => Effect.void,
+      reservePausedResume: (input: { skipActiveLimit?: boolean }) => {
+        skipActiveLimits.push(input.skipActiveLimit === true);
+        return Effect.succeed({ ...paused, status: "running" } as CloudVmRow);
+      },
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      getStats: () => Effect.succeed({ state: "awake", sampledAt: 0, cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
+      getStatus: () => {
+        statusProbes += 1;
+        return Effect.succeed(statusProbes === 1 ? "paused" : "running");
+      },
+      resume: (_provider: string, providerVmId: string) =>
+        Effect.succeed({ provider: "freestyle", providerVmId, status: "running", image: "sh-devbox", createdAt: 0 }),
+      statFile: () => Effect.succeed({ path: "/tmp/a", kind: "file", size: 0, mode: 0o644, modifiedAt: 0 }),
+    } as unknown as VmProviderGatewayShape;
+    const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider));
+    const exit = await Effect.runPromiseExit(
+      statVmFile({ ...caller, callerPlanId: "team", maxActiveVms: 40 }, "/tmp/a").pipe(Effect.provide(layer)) as Effect.Effect<unknown, unknown>,
+    );
+    expect(Exit.isSuccess(exit) ? "ok" : Cause.pretty(exit.cause)).toBe("ok");
+    expect(skipActiveLimits).toEqual([true]);
+  });
+
+  // When the stored size can be measured and repaired, the resume judges the
+  // machine on those dimensions against the caller's plan and the team's deal:
+  // a 32 GB machine is above the Team ceiling (grandfathered, no pool gate),
+  // but within a deal that allows 64 GB machines (gated on the deal's pool).
+  for (const [label, entitlementOverride, grandfathered] of [
+    ["above the Team ceiling without a deal", null, true],
+    ["within a 64 GB deal", { maxActiveVms: 40, poolVcpus: 320, poolMemoryMb: 655_360, maxMemoryMb: 65_536, planLabel: null, monthlyPriceCents: null }, false],
+  ] as const) {
+    test(`a measured 32 GB machine resumes on the caller's plan and deal: ${label}`, async () => {
+      const reservations: Array<{ skipActiveLimit: boolean; poolVcpus: number | null; poolMemoryMb: number | null }> = [];
+      const repaired: Array<{ vcpus: number; memoryMb: number }> = [];
+      let statusProbes = 0;
+      const paused = { ...row(), status: "paused", billingPlanId: "free" } as CloudVmRow;
+      const repo = {
+        findUserVm: () => Effect.succeed(paused),
+        markProviderObservedStatus: () => Effect.succeed(true),
+        recordUsageEvent: () => Effect.void,
+        setResourceReservation: (input: { reservation: { vcpus: number; memoryMb: number } }) => Effect.sync(() => {
+          repaired.push({ vcpus: input.reservation.vcpus, memoryMb: input.reservation.memoryMb });
+          return true;
+        }),
+        reservePausedResume: (input: { skipActiveLimit?: boolean; resourcePool?: { capacity: { vcpus: number; memoryMb: number } } | null }) => {
+          reservations.push({
+            skipActiveLimit: input.skipActiveLimit === true,
+            poolVcpus: input.resourcePool?.capacity.vcpus ?? null,
+            poolMemoryMb: input.resourcePool?.capacity.memoryMb ?? null,
+          });
+          return Effect.succeed({ ...paused, status: "running" } as CloudVmRow);
+        },
+      } as unknown as VmRepositoryShape;
+      const provider = {
+        getStats: () => Effect.succeed({ state: "awake", sampledAt: 0, cpus: 8, memoryTotalMb: 32_768, diskTotalMb: 32_768 }),
+        getStatus: () => {
+          statusProbes += 1;
+          return Effect.succeed(statusProbes === 1 ? "paused" : "running");
+        },
+        resume: (_provider: string, providerVmId: string) =>
+          Effect.succeed({ provider: "freestyle", providerVmId, status: "running", image: "sh-devbox", createdAt: 0 }),
+        statFile: () => Effect.succeed({ path: "/tmp/a", kind: "file", size: 0, mode: 0o644, modifiedAt: 0 }),
+      } as unknown as VmProviderGatewayShape;
+      const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider));
+      const exit = await Effect.runPromiseExit(
+        statVmFile({ ...caller, callerPlanId: "team", maxActiveVms: 40, entitlementOverride }, "/tmp/a").pipe(Effect.provide(layer)) as Effect.Effect<unknown, unknown>,
+      );
+      expect(Exit.isSuccess(exit) ? "ok" : Cause.pretty(exit.cause)).toBe("ok");
+      expect(repaired).toEqual([{ vcpus: 8, memoryMb: 32_768 }]);
+      expect(reservations).toHaveLength(1);
+      expect(reservations[0]?.skipActiveLimit).toBe(grandfathered);
+      expect(reservations[0]?.poolVcpus).toBe(grandfathered ? null : 320);
+      expect(reservations[0]?.poolMemoryMb).toBe(grandfathered ? null : 655_360);
+    });
+  }
+});

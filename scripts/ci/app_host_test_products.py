@@ -174,11 +174,14 @@ def restore(derived: Path, current: dict[str, str]) -> dict[str, str]:
     replacements = [(receipt["derived"], str(derived.resolve()))]
     replacements += [(receipt[key], current[key]) for key in ("checkout", "developer")]
     outputs = {}
+    rewrites = {}
     for scheme, manifest in manifests(products).items():
         value = map_strings(plistlib.loads(manifest.read_bytes()), replacements)
         validate_manifest(value, products)
-        manifest.write_bytes(plistlib.dumps(value))
+        rewrites[manifest] = plistlib.dumps(value)
         outputs[SCHEME_OUTPUTS[scheme]] = str(manifest.resolve())
+    for manifest, data in rewrites.items():
+        manifest.write_bytes(data)
     # The numeric-locale gate selects only GhosttyNumericLocaleTests and
     # disables parallel testing at invocation time. Its scheme has the same
     # app/test product contract as cmux-unit; tests lock that equivalence.

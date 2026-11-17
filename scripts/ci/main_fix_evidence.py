@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pathlib import Path
 
 RELEASE = "cmux-next Release compile (Xcode 26)"
@@ -38,6 +39,23 @@ class Refused(RuntimeError):
     """Evidence is insufficient to merge."""
 
 
+class RateLimited(Refused):
+    """A GitHub read hit the API rate limit; the message says when it resets."""
+
+
+def _rate_limit_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gh_rate_limit", Path(__file__).with_name("gh_rate_limit.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+PER_PAGE = 100
+# 5,000 entries: far above any check-run, job or file list the evidence reads.
+MAX_PAGES = 50
+
+
 class GitHub:
     def run(self, args: list[str]) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
@@ -55,18 +73,77 @@ class GitHub:
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Refused("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
+                message = errors.read(2000).decode(errors="replace")
+                rate = _rate_limit_module()
+                if rate.is_rate_limited(message):
+                    # Every later read would fail the same way: stop now and say when it resets.
+                    raise RateLimited(f"GitHub rate-limited `gh {args[0]}` ({message.strip()[:200]}); "
+                                      + rate.describe(rate.read_limits(), after_limit=True))
+                raise Refused("GitHub evidence request failed: " + message)
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False):
-        args = ["api", route]
-        if paginate:
-            args.extend(["--paginate", "--slurp"])
-        return json.loads(self.run(args))
+        if not paginate:
+            return json.loads(self.run(["api", route]))
+        # The gh-quota broker refuses --paginate, so page explicitly. Keep each
+        # response bounded. A page shorter than PER_PAGE is the last one, as in
+        # GitHub's own pagination, so a list that fits one page costs one request;
+        # an empty page also ends the list. MAX_PAGES bounds the walk: a reader
+        # that repeats a full page (a stale proxy, a test double) refuses instead
+        # of asking for pages forever (the CI fast guards hang, 2026-11-02).
+        split = urlsplit(route)
+        query = [(key, value) for key, value in parse_qsl(split.query, keep_blank_values=True)
+                 if key not in {"page", "per_page"}]
+        pages = []
+        for page in range(1, MAX_PAGES + 1):
+            page_route = urlunsplit((split.scheme, split.netloc, split.path,
+                                     urlencode(query + [("per_page", str(PER_PAGE)), ("page", str(page))]),
+                                     split.fragment))
+            document = json.loads(self.run(["api", page_route]))
+            if isinstance(document, list):
+                size = len(document)
+            elif isinstance(document, dict):
+                lists = [value for value in document.values() if isinstance(value, list)]
+                size = max((len(value) for value in lists), default=0)
+            else:
+                size = 0
+            if size == 0:
+                return pages
+            pages.append(document)
+            if size < PER_PAGE:
+                return pages
+        raise Refused(f"GitHub evidence for {split.path} has more than {MAX_PAGES} pages of {PER_PAGE}")
 
     def log(self, repo: str, job: dict) -> str:
-        return self.run(["run", "view", str(job["run_id"]), "--repo", repo,
-                         "--job", str(job["id"]), "--log"])
+        try:
+            log = self.run(["run", "view", str(job["run_id"]), "--repo", repo,
+                            "--job", str(job["id"]), "--log"])
+        except RateLimited:
+            raise
+        except Refused as error:
+            # A job that finished while its run goes on: gh serves no run log until the whole run
+            # completes (2026-10-24: the base tip's checks job, its run still compiling).
+            if "still in progress" not in str(error):
+                raise
+            log = ""
+        if log.strip():
+            return log
+        # gh 2.45 prints nothing here for today's log archives. The job's raw log has no step
+        # names; base_red_excuse.step_lines splits a log under UNKNOWN STEP by its `Run` groups.
+        raw = self.raw_log(repo, job)
+        return "".join(f"{job.get('name', '')}\tUNKNOWN STEP\t{line}\n" for line in raw.splitlines())
+
+    def raw_log(self, repo: str, job: dict) -> str:
+        route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
+        try:
+            # gh 2.70+ refuses to print a log's colour codes without this flag; older gh lacks it.
+            return self.run(["api", route, "--allow-escape-sequences"])
+        except RateLimited:
+            raise
+        except Refused as error:
+            if "unknown flag" not in str(error):
+                raise
+        return self.run(["api", route])
 
 
 def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
@@ -289,6 +366,9 @@ def main(argv: list[str] | None = None) -> int:
         strategy = "--merge" if args.merge else "--rebase" if args.rebase else "--squash"
         github.run(["pr", "merge", str(number), "--repo", repo, "--match-head-commit", posted["head"]["sha"], strategy])
         return 0
+    except RateLimited as error:
+        print(f"rate-limited: {error}\nrefusing to merge {args.ref}; rerun after the reset", file=sys.stderr)
+        return 3
     except (Refused, json.JSONDecodeError, KeyError) as error:
         print(f"not green: {error}\nrefusing to merge {args.ref}; wait with: glaeda-gh wait pr {args.ref}", file=sys.stderr)
         return 1

@@ -689,6 +689,7 @@ final class MachinesPanelViewModel: ObservableObject {
             machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
             machines = snapshots
             lastLimits = page.limits
+            plan = MachineSnapshotBuilder.planSnapshot(activeCount: page.activeMachineCount, limits: page.limits, machines: snapshots)
             // The page was read before any stream change recorded since it
             // started; replay those so a newer change is never undone.
             let streamed = streamChangesDuringRestRead ?? []
@@ -701,7 +702,7 @@ final class MachinesPanelViewModel: ObservableObject {
             refreshStats()
             refreshUsage()
             readCatalog()
-            plan = MachineSnapshotBuilder.planSnapshot(activeCount: page.activeMachineCount, limits: page.limits, machines: snapshots)
+
             lastErrorDescription = nil
             listProblem = nil
             initialTransientFailureCount = 0
@@ -843,6 +844,7 @@ final class MachinesPanelViewModel: ObservableObject {
             resourceReservation: streamed.resourceReservation ?? existing.resourceReservation,
             resourcePoolClaim: streamed.resourcePoolClaim ?? existing.resourcePoolClaim,
             usesResourcePool: streamed.usesResourcePool,
+            occupiesMachineSlot: streamed.occupiesMachineSlot,
             usage: streamed.usage,
             privateAddress: streamed.privateAddress,
             isPinned: streamed.isPinned
@@ -855,6 +857,8 @@ final class MachinesPanelViewModel: ObservableObject {
         guard isCloudEnabled() else { return }
         streamChangesDuringRestRead?.append((upserts, deletions, authoritative))
         let previous = resourceStats?.snapshot ?? [:]
+        let previousSavedCount = MachineSnapshotBuilder.activeCount(of: machines)
+        let previousQuotaCount = plan?.activeCount ?? previousSavedCount
         var rows = machines
         var index = machineIndexByID
         var upsertedIDs = Set<String>()
@@ -898,7 +902,15 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshStats()
         refreshUsage()
         readCatalog()
-        plan = MachineSnapshotBuilder.planSnapshot(activeCount: rows.count, limits: lastLimits, machines: rows)
+        let savedCount = MachineSnapshotBuilder.activeCount(of: rows)
+        // Preserve slots outside the visible scope while reflecting this stream's changes.
+        let quotaCount = max(savedCount, previousQuotaCount + min(0, savedCount - previousSavedCount))
+        plan = MachineSnapshotBuilder.planSnapshot(activeCount: quotaCount, limits: lastLimits, machines: rows)
+        if savedCount != previousSavedCount {
+            // A pending allocation may already be counted by REST before its first
+            // stream row appears. Reconcile that overlap with the canonical count.
+            recoverList()
+        }
         #if DEBUG
         cmuxDebugLog("cloud.machines.list stream upserts=\(upserts.count) deletions=\(deletions.count) authoritative=\(authoritative) count=\(rows.count)")
         #endif

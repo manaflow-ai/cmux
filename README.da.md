@@ -69,7 +69,7 @@ Sidebjælken viser git-branch, tilknyttet PR-status/nummer, arbejdsmappe, lytten
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> opretter et workspace til en fjernmaskine. Browserpaneler rutes gennem fjernnetværket, så localhost bare virker. Træk et billede ind i en fjernsession for at uploade via scp.
+<code>cmux ssh user@remote</code> opretter et workspace til en fjernmaskine. Angiv <code>--command 'omp "investigate auth"'</code> for at køre en indledende kommando én gang i dens første fjernterminal. Browserpaneler rutes gennem fjernnetværket, så localhost bare virker. Træk et billede ind i en fjernsession for at uploade via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 Ved første start kan macOS bede dig om at bekræfte åbning af en app fra en identificeret udvikler. Klik på **Åbn** for at fortsætte.
+
+### Shell-fuldførelse
+
+Homebrew-casken installerer fuldførelse til zsh, bash og fish. Start en ny shell efter installationen. Hvis den ikke indlæses, så tjek at Homebrews fuldførelsesmapper er koblet til din shell (se [Homebrews dokumentation om shell-fuldførelse](https://docs.brew.sh/Shell-Completion)).
+
+Hvis du installerede cmux på en anden måde, så tilføj den relevante linje til din shells opstartsfil, og start en ny shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## Hvorfor cmux?
 
@@ -387,7 +406,7 @@ Ja, cmux er gratis at bruge. Kildekoden er tilgængelig på [GitHub](https://git
 
 ### Hvordan kan jeg støtte cmux?
 
-cmux er gratis og open source og vil altid være det. Hvis du vil støtte udviklingen og få tidlig adgang til det, der kommer, herunder cmux AI, iOS-appen og Cloud VM'er, så tjek [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux er gratis og open source og vil altid være det. Hvis du vil støtte udviklingen og få tidlig adgang til det, der kommer, herunder cmux AI, iOS-appen og Cloud VM'er, så tjek [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### Jeg har et funktionsønske eller har fundet en fejl?
 
@@ -427,18 +446,11 @@ Måder at deltage:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode til at blive en del af cmux-fællesskabet" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte udviklingen og få tidlig adgang til det, der kommer:
 
-**[Få Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioriterede funktionsønsker og fejlrettelser**
-- **Tidlig adgang: cmux AI der giver dig kontekst om hvert workspace, fane og panel**
-- **Tidlig adgang: iOS-app med terminaler synkroniseret mellem desktop og telefon**
-- **Tidlig adgang: Cloud VM'er**
-- **Tidlig adgang: Stemmetilstand**
-- **Min personlige iMessage/WhatsApp**
+**[Få cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Licens
 

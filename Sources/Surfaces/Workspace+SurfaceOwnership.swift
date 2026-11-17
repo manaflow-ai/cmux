@@ -161,7 +161,7 @@ extension Workspace {
             if panelIdFromSurfaceId(TabID(uuid: transfer.tabId)) != nil { return nil }
             guard let app = AppDelegate.shared else { return surfaceOwnershipPolicy.rejection(for: nil) }
             return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: surfaceOwnershipPolicy)
-        case .vaultSession, .filePreview, .rightSidebarTool:
+        case .vaultSession, .filePreview, .rightSidebarTool, .chiefConversation:
             return surfaceOwnershipPolicy.rejection(for: .local)
         case .workspaceMerge:
             // `canMergeWorkspace` checks every tab's machine; a refused merge stays quiet.

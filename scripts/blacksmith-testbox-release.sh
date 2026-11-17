@@ -40,20 +40,49 @@ if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
   exit 0
 fi
 deadline=$((SECONDS + wait_seconds))
-while (( SECONDS < deadline )); do
-  state="$(gh run view "$run_id" --repo manaflow-ai/cmux --json status,conclusion --jq '.status + " " + .conclusion' 2>/dev/null || true)"
-  case "$state" in
+run_state() {
+  gh run view "$run_id" --repo manaflow-ai/cmux --json status,conclusion --jq '.status + " " + .conclusion' 2>/dev/null || true
+}
+finish_if_done() {
+  case "$1" in
     "completed success")
       echo "release: run $run_id succeeded; the warm target dir commit is requested and lands when the VM shuts down"
       exit 0
       ;;
     completed*)
-      echo "release: run $run_id ended ($state); nothing was committed" >&2
+      echo "release: run $run_id ended ($1); nothing was committed" >&2
       exit 1
       ;;
   esac
-  sleep 15
-done
+}
+# One waiter, no poll loop: glaeda-gh shares one cheap poller per machine (exit 2
+# on timeout); without it, one gh run watch checks once per five minutes, ended
+# by a timer at the deadline.
+if command -v glaeda-gh >/dev/null 2>&1; then
+  glaeda-gh wait run "manaflow-ai/cmux/$run_id" --until "done" --timeout "$wait_seconds" >/dev/null 2>&1 || true
+else
+  gh run watch "$run_id" --repo manaflow-ai/cmux --interval 300 >/dev/null 2>&1 &
+  watch_pid=$!
+  (
+    sleep "$wait_seconds" &
+    sleep_pid=$!
+    trap 'kill "$sleep_pid" 2>/dev/null; exit 0' TERM
+    wait "$sleep_pid"
+    kill "$watch_pid" 2>/dev/null
+  ) &
+  timer_pid=$!
+  wait "$watch_pid" 2>/dev/null || true
+  kill "$timer_pid" 2>/dev/null || true
+  wait "$timer_pid" 2>/dev/null || true
+fi
+finish_if_done "$(run_state)"
+# A waiter that failed early (network, auth) is not the deadline: give the run
+# the rest of its time once, then read it once more before stopping the box.
+if (( SECONDS < deadline )); then
+  echo "release: the wait for run $run_id ended early; checking once more at the deadline" >&2
+  sleep $((deadline - SECONDS))
+  finish_if_done "$(run_state)"
+fi
 echo "release: run $run_id did not finish within ${wait_seconds}s" >&2
 stop_box
 exit 1

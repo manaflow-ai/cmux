@@ -2350,6 +2350,18 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 }
                 let liveProcessID = processObservation.processID
+                let savedSnapshot: SessionRestorableAgentSnapshot = {
+                    guard kind == .claude else { return snapshot }
+                    var savedSnapshot = snapshot
+                    savedSnapshot.launchCommand = claudeLaunchCommandNamingConfigDirectory(
+                        snapshot.launchCommand,
+                        liveProcessEnvironment: liveProcessID == nil ? nil : currentProcessArguments?.environment,
+                        transcriptPath: effectiveRecord.transcriptPath,
+                        homeDirectory: homeDirectory,
+                        fileManager: fileManager
+                    )
+                    return savedSnapshot
+                }()
                 let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
                 if let liveProcessID,
                    let currentProcessIdentity,
@@ -2383,7 +2395,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 if let liveProcessID, let hookScope {
                     let processIDs = hookScope.processIDs.union([liveProcessID])
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
                         stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
@@ -2406,7 +2418,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 } else {
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
                         stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
@@ -2886,11 +2898,93 @@ struct RestorableAgentSessionIndex: Sendable {
         normalizedNonEmptyValue(rawValue)
     }
 
+    /// Names the `CLAUDE_CONFIG_DIR` a Claude session ran with when its launch
+    /// capture lost it (a sanitizer-rejected capture or an older record), so
+    /// restore does not fall back to the app's environment and reopen the
+    /// session under the wrong account. The config directory holding the
+    /// transcript comes first, since it stays the same after the process
+    /// exits; the verified live process's own environment covers a record
+    /// without a transcript path. The default `~/.claude` is never written:
+    /// Claude reads its login from a different place when the variable is set,
+    /// so naming the default would restore a default-account session logged out.
+    private static func claudeLaunchCommandNamingConfigDirectory(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        liveProcessEnvironment: [String: String]?,
+        transcriptPath: String?,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> AgentLaunchCommandSnapshot? {
+        guard normalizedNonEmptyValue(launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) == nil else {
+            return launchCommand
+        }
+        let defaultConfigDirectory = ((homeDirectory as NSString).appendingPathComponent(".claude") as NSString)
+            .standardizingPath
+        let configDirectory: String?
+        if let transcriptPath = normalizedNonEmptyValue(transcriptPath) {
+            configDirectory = ClaudeConfigDirectoryPath.configDirectory(ofTranscriptPath: transcriptPath)
+                .flatMap { $0 == defaultConfigDirectory ? nil : $0 }
+        } else {
+            configDirectory = normalizedNonEmptyValue(liveProcessEnvironment?["CLAUDE_CONFIG_DIR"])
+        }
+        guard let configDirectory else { return launchCommand }
+        // A record whose capture was dropped as untrusted still restores
+        // through the bare resume verb; it keeps the account as an argv-less
+        // capture, the shape the hook writes when no argv was available.
+        var savedLaunchCommand = launchCommand ?? claudeAccountOnlyLaunchCommand(environment: [:])
+        var environment = savedLaunchCommand.environment ?? [:]
+        environment["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(
+            configDirectory,
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
+        savedLaunchCommand.environment = environment
+        return savedLaunchCommand
+    }
+
+    /// The launch capture a restored session keeps from its hook record: the
+    /// trusted capture, and for Claude the account a dropped or missing capture
+    /// would otherwise lose. Crash recovery reopens sessions by this same rule.
+    static func restorableLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: RestorableAgentKind,
+        transcriptPath: String?,
+        homeDirectory: String,
+        fileManager: FileManager = .default
+    ) -> AgentLaunchCommandSnapshot? {
+        let trusted = trustedLaunchCommand(launchCommand, kind: kind)
+        guard kind == .claude else { return trusted }
+        return claudeLaunchCommandNamingConfigDirectory(
+            trusted,
+            liveProcessEnvironment: nil,
+            transcriptPath: transcriptPath,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+    }
+
+    /// Claude's account selection: the config directory and the secure-storage
+    /// directory its login lives under.
+    private static let claudeAccountEnvironmentKeys = ["CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR"]
+
+    /// An argv-less Claude capture that carries only the account. It resumes
+    /// through the bare `claude` verb, exactly as a record without a capture.
+    private static func claudeAccountOnlyLaunchCommand(environment: [String: String]) -> AgentLaunchCommandSnapshot {
+        AgentLaunchCommandSnapshot(
+            rejectedOn: .argvUnavailable,
+            launcher: RestorableAgentKind.claude.rawValue,
+            environment: environment.isEmpty ? nil : environment,
+            source: "environment"
+        )
+    }
+
     /// Drops launch captures that cannot describe this agent kind: a capture
     /// inherited from a different agent's session (codex started under claude
     /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
     /// argv. Resume/fork then fall back to the kind's bare verbs instead of
     /// rendering the foreign binary. Existing poisoned records heal on load.
+    /// A dropped Claude capture keeps its account: the hook recorded its own
+    /// process's environment, so `CLAUDE_CONFIG_DIR` there is the session's
+    /// even when the argv beside it described another process.
     private static func trustedLaunchCommand(
         _ launchCommand: AgentLaunchCommandSnapshot?,
         kind: RestorableAgentKind
@@ -2898,7 +2992,11 @@ struct RestorableAgentSessionIndex: Sendable {
         guard let launchCommand else { return nil }
         guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
-            return nil
+            guard kind == .claude else { return nil }
+            let account = (launchCommand.environment ?? [:]).filter { key, value in
+                claudeAccountEnvironmentKeys.contains(key) && normalizedNonEmptyValue(value) != nil
+            }
+            return account.isEmpty ? nil : claudeAccountOnlyLaunchCommand(environment: account)
         }
         return launchCommand
     }

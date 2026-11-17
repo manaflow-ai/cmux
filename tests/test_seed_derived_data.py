@@ -884,7 +884,7 @@ class Wiring(unittest.TestCase):
     def test_only_the_nightly_seeder_writes_the_seed_and_admission_reads_the_same_key(self):
         seeder = steps("nightly.yml", "refresh-test-compilation-cache")
         record_at, _ = named(seeder, "Record DerivedData seed inputs")
-        build_at, _ = named(seeder, "Refresh test compilation cache")
+        build_at, _ = named(seeder, "Build the app-host test product")
         save_at, save = named(seeder, "Save DerivedData seed")
         self.assertLess(record_at, build_at)
         self.assertLess(build_at, save_at)
@@ -963,7 +963,17 @@ class Wiring(unittest.TestCase):
         # Every nightly cold seed lands on a pool the per-push seeder uses, on
         # the same Xcode, and the macOS 15 pool gets one too.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
-        self.assertLessEqual(set(nightly["strategy"]["matrix"]["pool"]), set(seed_pools()))
+        # By value, for each lane MACOS_RUNNER_PR may name: the nightly seeder holds CI_CACHE_R2, so it
+        # never runs on the variable's own value (an owned pool in an overflow;
+        # tests/test_ci_fork_runner_routing.py), but each pool it picks is one the per-push seeder uses.
+        for lane in ("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15", "blacksmith-12vcpu-macos-26",
+                     "glaeda-std-xcode-26.6", ""):
+            context = github_context("schedule", MACOS_RUNNER_PR=lane)
+            seeded = {evaluate(pool, context) for pool in seed_pools()}
+            for pool in nightly["strategy"]["matrix"]["pool"]:
+                picked = evaluate(pool, context)
+                self.assertIn(picked, seeded, (lane, pool))
+                self.assertTrue(picked.startswith("blacksmith-"), (lane, picked))
         self.assertEqual(nightly["strategy"]["matrix"]["pool"][-1], seed_pools()[-1])
         self.assertEqual(nightly["env"]["CMUX_CI_XCODE_APP"], job["env"]["CMUX_CI_XCODE_APP"])
         # On the lane's pools the seeder uses the nightly's Xcode.

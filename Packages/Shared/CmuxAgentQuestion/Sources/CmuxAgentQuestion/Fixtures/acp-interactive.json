@@ -1,0 +1,36 @@
+{
+  "id": "perm_acp_1",
+  "source": {
+    "harness": "acp",
+    "session": "sess_acp_1",
+    "permission": "perm_acp_1",
+    "answerOption": "proceed",
+    "rejectOption": "stop",
+    "toolCall": "tc_acp_1"
+  },
+  "items": [
+    {
+      "id": "q0",
+      "prompt": "Continue with the migration on the staging branch?",
+      "options": [
+        {
+          "id": "proceed",
+          "label": "Proceed"
+        },
+        {
+          "id": "dry_run",
+          "label": "Dry run first"
+        },
+        {
+          "id": "stop",
+          "label": "Stop"
+        }
+      ],
+      "multiSelect": false,
+      "allowsOther": false
+    }
+  ],
+  "state": {
+    "kind": "pending"
+  }
+}

@@ -285,12 +285,15 @@ class AdmittedBuildTests(StubbedTest):
 class PlanTests(StubbedTest):
     EARLIER = "c" * 40
 
+    def stub_calls(self) -> list[str]:
+        return self._stub.calls
+
     def plan(self, answers: dict[str, object], env: dict[str, str]) -> dict[str, str]:
         import os
         import tempfile
-        self.stub({"repos/o/r/pulls/42/files": [[{"filename": "Sources/App.swift"}]],
-                   "repos/o/r/pulls/42": {"head": {"sha": HEAD, "repo": {"full_name": "o/r"}}, "body": ""},
-                   **answers})
+        self._stub = self.stub({"repos/o/r/pulls/42/files": [[{"filename": "Sources/App.swift"}]],
+                                "repos/o/r/pulls/42": {"head": {"sha": HEAD, "repo": {"full_name": "o/r"}}, "body": ""},
+                                **answers})
         original = media.head_scenarios
         media.head_scenarios = lambda _sha: scenarios(sidebar_and_chrome_tour=["Sources/**"])
         self.addCleanup(setattr, media, "head_scenarios", original)
@@ -309,6 +312,22 @@ class PlanTests(StubbedTest):
         running = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "status": "in_progress", "created_at": "t"}
         outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": [running]}}, {})
         self.assertEqual(json.loads(outputs["run"]), [])
+
+    def test_a_draft_gets_no_tours_from_its_ci_run(self) -> None:
+        run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "event": "pull_request",
+               "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
+               "pull_requests": [{"number": 42}], "status": "completed"}
+        draft = {"head": {"sha": HEAD, "repo": {"full_name": "o/r"}}, "body": "", "draft": True}
+        outputs = self.plan({"repos/o/r/actions/runs/9": run, "repos/o/r/pulls/42": draft},
+                            {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
+        self.assertEqual(json.loads(outputs["run"]), [])
+        self.assertNotIn("repos/o/r/pulls/42/files?per_page=100", self.stub_calls())
+
+    def test_a_dispatch_still_tours_a_draft(self) -> None:
+        draft = {"head": {"sha": HEAD, "repo": {"full_name": "o/r"}}, "body": "", "draft": True}
+        outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []},
+                             "repos/o/r/pulls/42": draft}, {})
+        self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
 
     def test_a_manual_dispatch_without_a_ci_run_still_tours_the_head(self) -> None:
         outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []}}, {})
@@ -453,6 +472,19 @@ class UploadRetryTests(unittest.TestCase):
 
         media.upload(Tool, "o/r", "1/x/t/a.png", Path("a.png"), "m", sleep=lambda _: None)
         self.assertEqual(len(calls), 3)
+
+    def test_a_privacy_refusal_is_never_retried(self) -> None:
+        tool = media.uploader()
+        calls, sleeps = [], []
+
+        def refuse(*args):
+            calls.append(args)
+            raise tool.PrivacyError("refused 1 file(s) that show private names: 1/x/t/a.png")
+
+        tool.put_file = refuse
+        with self.assertRaises(tool.PrivacyError):
+            media.upload(tool, "o/r", "1/x/t/a.png", Path("a.png"), "m", sleep=sleeps.append)
+        self.assertEqual((len(calls), sleeps), (1, []))
 
 
 class TourCacheTests(StubbedTest):

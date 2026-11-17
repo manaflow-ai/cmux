@@ -156,12 +156,8 @@ extension SocketClient {
            !ruleID.isEmpty {
             request["automation_origin"] = Self.automationOriginPayload(ruleID: ruleID)
         }
-        guard JSONSerialization.isValidJSONObject(request) else {
-            throw CLIError(message: "Failed to encode v2 request")
-        }
-
-        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
-        guard let requestLine = String(data: requestData, encoding: .utf8) else {
+        // `method` first, so the app can route a request of any size (#21222).
+        guard let requestLine = try? ControlRequestLine.encode(request) else {
             throw CLIError(message: "Failed to encode v2 request")
         }
 

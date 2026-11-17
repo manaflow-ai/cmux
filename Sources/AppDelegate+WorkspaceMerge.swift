@@ -63,6 +63,49 @@ extension AppDelegate {
         return true
     }
 
+    /// A workspace that Merge Workspace into can name.
+    struct WorkspaceMergeTarget: Identifiable, Equatable {
+        let workspaceId: UUID
+        let label: String
+        let isEnabled: Bool
+
+        var id: UUID { workspaceId }
+    }
+
+    /// Every other workspace, by window then sidebar order. A target the merge
+    /// would refuse stays listed, disabled.
+    func workspaceMergeTargets(for sourceId: UUID) -> [WorkspaceMergeTarget] {
+        let referenceWindowId = tabManagerFor(tabId: sourceId).flatMap { windowId(for: $0) }
+        return workspaceMoveTargets(excludingWorkspaceId: sourceId, referenceWindowId: referenceWindowId).map {
+            WorkspaceMergeTarget(
+                workspaceId: $0.workspaceId,
+                label: $0.label,
+                isEnabled: canMergeWorkspace(sourceId, into: $0.workspaceId)
+            )
+        }
+    }
+
+    /// The menu form of the drop: every tab lands after the tabs in the
+    /// target's focused pane, and the emptied workspace closes.
+    @discardableResult
+    func mergeWorkspaceIntoFocusedPane(
+        _ sourceId: UUID,
+        into targetId: UUID,
+        focus: Bool = true,
+        focusWindow: Bool = true
+    ) -> Bool {
+        guard let target = mergeWorkspace(id: targetId),
+              let pane = target.bonsplitController.focusedPaneId ?? target.bonsplitController.allPaneIds.first
+        else { return false }
+        return mergeWorkspace(
+            sourceId,
+            into: targetId,
+            destination: .insert(targetPane: pane, targetIndex: nil),
+            focus: focus,
+            focusWindow: focusWindow
+        )
+    }
+
     private func mergeWorkspace(id: UUID) -> Workspace? {
         tabManagerFor(tabId: id)?.tabs.first { $0.id == id }
     }

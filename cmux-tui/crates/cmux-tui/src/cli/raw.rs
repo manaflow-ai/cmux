@@ -23,11 +23,14 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     let encoded = match serde_json::to_vec(&plan.request) {
         Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
         Ok(_) => {
-            eprintln!("cmux: raw request exceeds the 4 MiB protocol limit");
+            eprintln!(
+                "{}: raw request exceeds the 4 MiB protocol limit",
+                crate::cli::program_name()
+            );
             return 2;
         }
         Err(error) => {
-            eprintln!("cmux: cannot encode raw request: {error}");
+            eprintln!("{}: cannot encode raw request: {error}", crate::cli::program_name());
             return 2;
         }
     };

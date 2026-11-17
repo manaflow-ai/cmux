@@ -1,0 +1,41 @@
+name: cmux-next perf bench
+
+# Registration only. The real perf bench lives on feat-cmux-next. GitHub resolves a workflow by file
+# name only when the file exists on the default branch, so without this file the dispatch from
+# cmux-next-resource-budget-dispatch.yml 404s (Not Found every night since 2026-11-02, e.g. run
+# 42001969618). A dispatch with ref feat-cmux-next runs feat-cmux-next's own cmux-next-perf-bench.yml,
+# never this one. This copy has no schedule, pull_request or push trigger, so it never runs on main by
+# itself, and a dispatch on main does nothing. The inputs mirror feat-cmux-next's so a dispatch's
+# inputs validate wherever GitHub checks them.
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "rounds (each browser once per round)"
+        default: "3"
+      browsers:
+        description: "browsers"
+        default: "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
+      worker:
+        description: "fleet worker (empty: any idle bench worker)"
+        default: ""
+      gate:
+        description: "1: fail on a cmux row regressed past the baseline; 0: report only"
+        default: "1"
+      tabswitch:
+        description: "tab switch matrix kinds, or off"
+        default: "chromium,webkit,markdown,chat"
+      palette:
+        description: "palette open timing: on or off"
+        default: "on"
+
+permissions: {}
+
+jobs:
+  registration:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    steps:
+      - name: Nothing to do outside feat-cmux-next
+        run: echo "the perf bench runs from feat-cmux-next's cmux-next-perf-bench.yml"

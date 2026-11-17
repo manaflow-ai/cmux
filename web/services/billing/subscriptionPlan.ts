@@ -10,7 +10,7 @@ export function personalPlanIdForSubscription(
   if (subscription.metadata?.founders_edition === "true") return "pro";
   const lookupKey = planItem(subscription)?.price?.lookup_key;
   if (typeof lookupKey === "string") {
-    if (lookupKey === "cmux-go-monthly-10" || lookupKey.startsWith("cmux-go-")) return "go";
+    if (lookupKey.startsWith("cmux-starter-") || lookupKey.startsWith("cmux-go-")) return "go";
     if (lookupKey === MAX_PRICING_USD.month.lookupKey || lookupKey.startsWith("cmux-max-")) {
       return "max";
     }

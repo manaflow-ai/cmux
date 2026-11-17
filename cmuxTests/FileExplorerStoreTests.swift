@@ -1182,6 +1182,32 @@ struct FileSearchControllerTests {
     }
 
     @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
+    func testSearchMatchesPrecomposedNonASCIIQueries() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "오늘 할 일\nCafé notes\n".write(
+            to: rootURL.appendingPathComponent("notes.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        for query in ["오늘", "Café"] {
+            #expect(query == query.precomposedStringWithCanonicalMapping)
+            let controller = FileSearchController()
+            var snapshots: [FileSearchSnapshot] = []
+            controller.onSnapshotChanged = { snapshots.append($0) }
+
+            controller.search(query: query, rootPath: rootURL.path, isLocal: true)
+            let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+            #expect(finalSnapshot.status == .matches, "query: \(query)")
+            #expect(finalSnapshot.results.map(\.relativePath) == ["notes.md"], "query: \(query)")
+        }
+    }
+
+    @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
     func testSearchLimitsHighVolumeResultsWithoutWaitingForRipgrepExit() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

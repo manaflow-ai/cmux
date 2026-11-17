@@ -518,7 +518,7 @@ function nativeReturnFlow(
   const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(request.nextUrl);
   if (
     trustedPurchaseReturnTo === nativeReturnTo ||
-    isAllowedNativeReturnTo(nativeReturnTo, request)
+    isAllowedNativeReturnTo(nativeReturnTo)
   ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) {
@@ -568,11 +568,10 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       return NextResponse.redirect(new URL(afterAuth, requestOrigin(request)));
     }
 
-    if (refreshToken && accessCookie) {
-      const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, switchAccountHref(request));
-    }
-
+    // No app asked for this sign-in (every app passes native_app_return_to):
+    // it was a website sign-in, so stay on the website. Handing the browser's
+    // session to whatever app owns cmux:// signed that app in to this
+    // browser's account without anyone asking.
     return NextResponse.redirect(new URL("/", requestOrigin(request)));
   };
 }

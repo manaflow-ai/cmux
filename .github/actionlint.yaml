@@ -25,6 +25,9 @@ self-hosted-runner:
     # `compat-tests (macos-15-intel, ...)` job was served by "GitHub Actions
     # 1000200229", the same kind of runner name as the macos-14 job beside it.
     - macos-15-intel
+    # GitHub-hosted macOS 26 (actionlint 1.7.7 predates it; 1.7.12 knows it).
+    # Nightly signing, notarization and fallback builds run there.
+    - macos-26
 
 paths:
   .github/workflows/test-ios.yml:

@@ -51,7 +51,11 @@ pub(super) fn dispatch(
             match mux.request_config_reload() {
                 Ok(()) => {}
                 Err(ConfigReloadError::TimedOut) => {
-                    return Err(effects::mark_indeterminate(mux, prepared));
+                    return Err(effects::mark_indeterminate(
+                        mux,
+                        prepared,
+                        "the config reload did not answer in time",
+                    ));
                 }
                 Err(ConfigReloadError::OwnerStopped) => {
                     return effects::commit_known_failure(
@@ -69,7 +73,11 @@ pub(super) fn dispatch(
         }
         ResourceOperation::SessionWindowTitleSet => {
             let Some(title) = prepared.intent["fields"]["title"].as_str() else {
-                return Err(effects::mark_indeterminate(mux, prepared));
+                return Err(effects::mark_indeterminate(
+                    mux,
+                    prepared,
+                    "the stored window title is missing",
+                ));
             };
             mux.emit(MuxEvent::WindowTitleRequested(title.to_string()));
             json!({})

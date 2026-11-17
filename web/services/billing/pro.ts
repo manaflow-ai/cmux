@@ -894,7 +894,21 @@ export async function syncTeamPlanMetadata(
   isTeam: boolean,
   seats: number | null = null,
 ): Promise<void> {
-  const raw = team.clientReadOnlyMetadata;
+  const metadata = nextTeamPlanMetadata(team.clientReadOnlyMetadata, isTeam, seats);
+  if (metadata === null) return;
+  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+}
+
+/**
+ * The team metadata after mirroring the subscription, or null when it already
+ * matches and the write can be skipped. Decide from a team read under the
+ * team lease; an unleased read can be stale.
+ */
+export function nextTeamPlanMetadata(
+  raw: unknown,
+  isTeam: boolean,
+  seats: number | null,
+): Record<string, unknown> | null {
   const metadata: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
@@ -904,16 +918,16 @@ export async function syncTeamPlanMetadata(
 
   if (isTeam) {
     const nextSeats = seats !== null && Number.isSafeInteger(seats) && seats > 0 ? seats : null;
-    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return;
+    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return null;
     metadata.cmuxPlan = TEAM_PLAN_ID;
     if (nextSeats === null) delete metadata.cmuxSeats;
     else metadata.cmuxSeats = nextSeats;
   } else {
-    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return;
+    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return null;
     if (currentPlan === TEAM_PLAN_ID) delete metadata.cmuxPlan;
     delete metadata.cmuxSeats;
   }
-  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+  return metadata;
 }
 
 function proMetadataRecord(raw: unknown): Record<string, unknown> {

@@ -998,7 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
+    private(set) lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
         layoutModel: titlebarControlsLayoutModel
@@ -1429,6 +1429,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var lastVisibleFrameFitTopologySignature: [MainWindowVisibleFrameTopologySignatureEntry]?
     var didObserveUnknownVisibleFrameFitTopology = false
     var didObserveUnknownDisplayConfiguration = false
+    /// Set by a CoreGraphics display reconfiguration, cleared once a reconcile
+    /// has a trusted signature. Lets reconcile tell a display flap that settled
+    /// on the same configuration apart from a Dock resize.
+    var didObserveDisplayReconfigurationSinceReconcile = false
     var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
@@ -1689,6 +1693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
         BrowserAvailabilityMonitor.shared.activate()
+        startChiefIfEnabled()
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
@@ -1928,6 +1933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // built-in defaults.
         if !isRunningUnderXCTest, !ManagedDevicePolicy().isEnforced(.disableTelemetry) {
             CmuxFeatureFlags.shared.start()
+        } else if !isRunningUnderXCTest {
+            // Still load local overrides into the off-main snapshot that
+            // `ChiefSettings.isAvailable` reads before session restore.
+            _ = CmuxFeatureFlags.shared
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -2985,6 +2994,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedLineFormat = "osc8"
         case "url":
             resolvedLineFormat = "url"
+        case "reference":
+            resolvedLineFormat = "reference"
         default:
             resolvedLineFormat = "grid"
         }
@@ -3012,6 +3023,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '\\033]8;;%s\\033\\\\%s\\033]8;;\\033\\\\\\n' '\(escapedURL)' '\(escapedDisplayToken)'; done\r"
         case "url":
             displayToken = "https://github.com"
+            let shellBlockLine = singleQuotedShellLiteral(displayToken)
+            shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
+        case "reference":
+            // A GitHub reference is not a path and not a URL ghostty matches,
+            // so the fixture prints the token on its own and lets cmux's own
+            // recognizer be the only thing that can act on it.
+            let rawReferenceToken = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_REFERENCE_TOKEN"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            displayToken = rawReferenceToken.isEmpty ? "#847" : rawReferenceToken
             let shellBlockLine = singleQuotedShellLiteral(displayToken)
             shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "log":
@@ -4315,6 +4335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             deferBrowserPanels: true,
             workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
         )
+        // A snapshot saved with Chief on carries its Home; with Chief off, drop it.
+        ChiefHomeNavigation.removeHome(in: context.tabManager)
         context.restoreWindowDockSessionSnapshot(
             snapshot,
             notificationStore: notificationStore,
@@ -4809,6 +4831,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     hasher.combine(0)
                 case .notifications:
                     hasher.combine(1)
+                case .home:
+                    hasher.combine(2)
                 }
 
                 if let window = liveRoute.window {
@@ -7722,16 +7746,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func toggleSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        func toggle(_ context: MainWindowContext) -> Bool {
-            guard let window = resolvedWindow(for: context) else {
-                discardOrphanedMainWindowContext(context)
-                return false
-            }
-            setActiveMainWindow(window)
-            context.sidebarState.toggle()
-            return true
-        }
-
         if let preferredWindow {
             guard let preferredContext = prepareSenderRelativeMainWindowAction(
                 in: preferredWindow
@@ -7741,25 +7755,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredContext.sidebarState.toggle()
             return true
         }
+        guard let target = sidebarToggleTarget() else {
+            return false
+        }
+        setActiveMainWindow(target.window)
+        target.context.sidebarState.toggle()
+        return true
+    }
+
+    /// The window whose left sidebar ⌘B toggles: the key window, then the main
+    /// window, then the active manager's, then any window. Contexts whose
+    /// window is gone are discarded along the way. `cmux left-sidebar` uses it
+    /// too, so a command without a target acts on the same window as ⌘B
+    /// without making that window key.
+    func sidebarToggleTarget() -> (context: MainWindowContext, window: NSWindow)? {
+        func windowedTarget(_ context: MainWindowContext) -> (context: MainWindowContext, window: NSWindow)? {
+            guard let window = resolvedWindow(for: context) else {
+                discardOrphanedMainWindowContext(context)
+                return nil
+            }
+            return (context, window)
+        }
+
         if let keyWindow = shortcutRoutingKeyWindow,
            let keyContext = contextForMainTerminalWindow(keyWindow),
-           toggle(keyContext) {
-            return true
+           let target = windowedTarget(keyContext) {
+            return target
         }
         if let mainWindow = NSApp.mainWindow,
            let mainContext = contextForMainTerminalWindow(mainWindow),
-           toggle(mainContext) {
-            return true
+           let target = windowedTarget(mainContext) {
+            return target
         }
         if let activeManager = tabManager,
            let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
-           toggle(activeContext) {
-            return true
+           let target = windowedTarget(activeContext) {
+            return target
         }
-        for fallbackContext in Array(mainWindowContexts.values) where toggle(fallbackContext) {
-            return true
+        for fallbackContext in Array(mainWindowContexts.values) {
+            if let target = windowedTarget(fallbackContext) {
+                return target
+            }
         }
-        return false
+        return nil
     }
 
     @discardableResult
@@ -7790,9 +7828,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applyRightSidebarRemoteCommand(
         _ command: RightSidebarRemoteCommand,
-        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()
+        target: SidebarRemoteTarget = SidebarRemoteTarget()
     ) -> RightSidebarRemoteApplyResult {
-        let context = rightSidebarRemoteContext(target: target)
+        let context = sidebarRemoteContext(target: target)
         if !target.isActiveTarget, context == nil {
             return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
         }
@@ -7918,7 +7956,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registry: DeviceSurfaceProviderRegistry
     ) -> RightSidebarRemoteApplyResult? {
         guard let context = preferredRegisteredMainWindowContext() else { return nil }
-        let target = RightSidebarRemoteTarget(windowId: context.windowId)
+        let target = SidebarRemoteTarget(windowId: context.windowId)
         let result = applyRightSidebarRemoteCommand(.setMode(.machines, focus: true), target: target)
         switch result {
         case .ok, .state:
@@ -7929,7 +7967,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
-    private func rightSidebarRemoteContext(target: RightSidebarRemoteTarget) -> MainWindowContext? {
+    func sidebarRemoteContext(target: SidebarRemoteTarget) -> MainWindowContext? {
         if let windowId = target.windowId {
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }
@@ -14520,6 +14558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .home: return "home"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -15409,6 +15448,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Open Chief: toggles Home, so the same keys return to the workspace.
+        // When chief.enabled is off the shortcut is not consumed, so the
+        // keystroke still reaches the focused surface.
+        if matchConfiguredShortcut(event: event, action: .openChief),
+           openChiefHome(
+               preferredWindow: preferredMainWindowContextForShortcutRouting(event: event)?.window,
+               toggle: true,
+               source: "shortcut.openChief"
+           ) {
+            return true
+        }
+
         if commandPaletteEffectiveInTargetWindow {
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
@@ -16220,10 +16271,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for visible workspace rows (9 = last visible row).
-        // Always consume the event when the digit matches to prevent Ghostty's
-        // goto_tab fallback from creating a new window when the index is out of bounds.
+        // Numeric shortcuts for visible workspace rows (9 = last visible row). Always consume a matching
+        // digit so Ghostty's goto_tab fallback cannot create a new window for an out-of-bounds index.
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+            if openNotificationsPopoverRow(forDigit: digit, event: event) { return true }
             if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = manager.selectWorkspaceByNumber(digit) {
 #if DEBUG
@@ -17095,6 +17146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return nil
         }
+        leaveChiefHome(in: tabManager)
 
         let preferredProfileID =
             tabManager?.focusedBrowserPanel?.profileID
@@ -17588,6 +17640,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        leaveChiefHome(in: terminalContext?.tabManager ?? tabManager)
 
         let directionLabel: String
         switch direction {
@@ -18401,7 +18454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             }
-        case .command, .agent, .workspaceCommand, .workspace, .setting:
+        case .command, .text, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }

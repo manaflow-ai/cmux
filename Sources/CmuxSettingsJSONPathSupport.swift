@@ -188,10 +188,8 @@ enum AppSettingsFileMapping {
             jsonKey: "focusHistoryIncludesPanesAndTabs",
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
         ),
-        .init(
-            jsonKey: "equalizeSplitsOnCreate",
-            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
-        ),
+        .init(jsonKey: "equalizeSplitsOnCreate", defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey),
+        .init(jsonKey: "equalizeSplitsOnDividerDoubleClick", defaultsKey: app.equalizeSplitsOnDividerDoubleClick.userDefaultsKey),
         .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
@@ -221,6 +219,10 @@ enum AppSettingsFileMapping {
         .init(
             jsonKey: "warnBeforeClosingWorkspace",
             defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "alwaysConfirmWorkspaceClose",
+            defaultsKey: app.alwaysConfirmWorkspaceClose.userDefaultsKey
         ),
         .init(
             jsonKey: "warnBeforeClosingWindow",
@@ -485,6 +487,18 @@ enum AutomationSettingsFileMapping {
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
         .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
         .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
+    ]
+}
+
+/// Boolean values persisted in the top-level `chief` cmux.json section.
+enum ChiefSettingsFileMapping {
+    private static let chief = ChiefCatalogSection()
+
+    static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "dangerouslySkipPermissions",
+            defaultsKey: chief.dangerouslySkipPermissions.userDefaultsKey
+        ),
     ]
 }
 

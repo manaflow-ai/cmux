@@ -27,6 +27,24 @@ public struct RightSidebarWidthSettings: Sendable {
     /// window on a 1470 pt display (`SidePanelWidthFit`).
     public static let minimumWidth = 295.0
 
+    /// The `UserDefaults` key that overrides ``minimumWidth``, like the left
+    /// sidebar's `sidebarMinimumWidth`. The mode bar's own content minimum
+    /// still applies on top of it.
+    public static let minimumWidthKey = "rightSidebarMinimumWidth"
+
+    /// The range a ``minimumWidthKey`` override is clamped to. It can only
+    /// lower the floor, so it never takes room the terminal would otherwise keep.
+    public static let minimumWidthRange: ClosedRange<Double> = 160...minimumWidth
+
+    /// Clamps a stored minimum width override to ``minimumWidthRange``.
+    ///
+    /// - Parameter candidate: The stored minimum width in points.
+    /// - Returns: The minimum width to use, or ``minimumWidth`` when the value is not finite.
+    public static func sanitizedMinimumWidth(_ candidate: Double) -> Double {
+        guard candidate.isFinite else { return minimumWidth }
+        return min(max(candidate, minimumWidthRange.lowerBound), minimumWidthRange.upperBound)
+    }
+
     /// The built-in right sidebar maximum width, in points, used when no override is active.
     public static let builtInMaximumWidth = 1200.0
 

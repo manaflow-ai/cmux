@@ -157,6 +157,7 @@ struct DockPanelView: View {
 struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
+    let onNewChief: () -> Void
     @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     var body: some View {
@@ -179,6 +180,14 @@ struct DockEmptyPaneView: View {
                         Label(
                             String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
                             systemImage: "globe"
+                        )
+                    }
+                }
+                if CmuxFeatureFlags.shared.isChiefAvailable, ChiefSettings.isEnabled {
+                    Button(action: onNewChief) {
+                        Label(
+                            String(localized: "dock.action.newChief", defaultValue: "New Chief"),
+                            systemImage: "bubble.left.and.bubble.right"
                         )
                     }
                 }

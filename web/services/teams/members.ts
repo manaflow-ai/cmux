@@ -12,6 +12,11 @@ export type MemberMutationDependencies = {
   readonly lock?: <T>(teamId: string, operation: (db?: TeamLockDb) => Promise<T>) => Promise<T>;
   readonly store?: TeamInviteStore;
   readonly seats?: TeamSeatSync;
+  /**
+   * Re-read the team inside the lock. Defaults to the caller's membership
+   * view; a cmux operator (not a member) passes its own loader.
+   */
+  readonly loadAccess?: (teamId: string, stack: TeamStackApp) => Promise<TeamAccess | null>;
 };
 
 /**
@@ -27,7 +32,9 @@ async function withFreshTeam<T>(
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const lock = dependencies.lock ?? withTeamAdminLock;
   return lock(access.team.id, async (db) => {
-    const fresh = await loadTeamAccess(access.userId, access.team.id, stack);
+    const fresh = dependencies.loadAccess
+      ? await dependencies.loadAccess(access.team.id, stack)
+      : await loadTeamAccess(access.userId, access.team.id, stack);
     if (!fresh) throw new TeamApiError("team_not_found", 403);
     return operation(fresh, stack, db);
   });

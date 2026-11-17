@@ -18,7 +18,8 @@ extension GhosttySurfaceScrollView {
         // Copy-on-select is the only write made inside a pointer dispatch,
         // and AppKit delivers pointer events on the main thread.
         guard location == GHOSTTY_CLIPBOARD_STANDARD,
-              !representations.isEmpty,
+              // An all-empty write is dropped, so nothing was copied.
+              representations.contains(where: { !$0.string.isEmpty }),
               callbackContext.hasPointerSelectionCopyIntent else { return }
         MainActor.assumeIsolated {
             (callbackContext.terminalSurface?.paneHost as? GhosttySurfaceScrollView)?

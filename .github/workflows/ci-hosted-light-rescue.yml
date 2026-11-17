@@ -1,0 +1,60 @@
+name: CI hosted light rescue
+
+# Recovery cannot wait for the overflow probes it is meant to recover from.
+# The existing owned-pool sweeper provides the minute cadence. This schedule
+# wakes that single concurrency owner instead of racing its cancel/rerun pass.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report recovery without dispatching the minute sweeper"
+        required: true
+        default: true
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: ci-hosted-light-rescue
+  cancel-in-progress: false
+
+jobs:
+  rescue:
+    if: github.repository == 'manaflow-ai/cmux' && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh runner; never an owned label
+    timeout-minutes: 8
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out trusted rescue code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Always read the reviewed rescue implementation from the trusted default branch.
+          # An explicit ref prevents a workflow-dispatch branch from supplying Actions-write code.
+          ref: main
+          persist-credentials: false
+
+      # The repository GITHUB_TOKEN pool's remaining calls, as one notice NOW (cmuxterm-hq now_repo_token.py)
+      # reads from the newest run: every 5 minutes, and GET /rate_limit does not count against the pool.
+      - name: Report the GITHUB_TOKEN budget
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          BUDGET_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/github_token_budget.py --notice
+
+      # Only the existing owned-pool-sweeper concurrency group mutates runs.
+      # A dispatch waits behind a live sweep, then provides its next handover;
+      # when no sweep is running it starts recovery without the overflow probe.
+      - name: Wake the single minute sweeper
+        timeout-minutes: 4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: >-
+          python3 scripts/ci/hosted_light_rescue.py
+          --wake-sweeper

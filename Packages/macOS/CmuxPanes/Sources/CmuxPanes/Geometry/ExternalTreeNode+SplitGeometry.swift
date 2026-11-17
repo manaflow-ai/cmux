@@ -1,6 +1,6 @@
 public import Bonsplit
 import CoreGraphics
-import Foundation
+public import Foundation
 
 /// Pure split-tree geometry over Bonsplit's external snapshot: equalize and
 /// resize planning, lifted one-for-one from the app-side `SplitEqualizer`
@@ -36,7 +36,11 @@ extension ExternalTreeNode {
     /// cross-orientation subtree, are left alone. Returns an empty plan when
     /// `paneId` is absent or has no parent split.
     public func equalizeDividerPlan(forSplitRunContainingPaneId paneId: String) -> SplitEqualizePlan {
-        guard let path = splitPath(toPaneId: paneId), let parent = path.last else {
+        equalizeDividerPlan(forSplitPath: splitPath(toPaneId: paneId))
+    }
+
+    private func equalizeDividerPlan(forSplitPath path: [ExternalSplitNode]?) -> SplitEqualizePlan {
+        guard let path, let parent = path.last else {
             return SplitEqualizePlan(adjustments: [], foundSplit: false, hadInvalidSplitIds: false)
         }
         var runRoot = parent
@@ -58,6 +62,30 @@ extension ExternalTreeNode {
             foundSplit: foundSplit,
             hadInvalidSplitIds: hadInvalidSplitIds
         )
+    }
+
+    /// Plans the same-axis run containing a divider identified by its split UUID.
+    ///
+    /// - Parameter splitId: The divider's split UUID in this snapshot.
+    /// - Returns: An empty plan for a stale ID, otherwise the containing row or
+    ///   column's divider adjustments, stopping at cross-axis boundaries.
+    public func equalizeDividerPlan(forSplitRunContainingSplitId splitId: UUID) -> SplitEqualizePlan {
+        equalizeDividerPlan(forSplitPath: splitPath(toSplitId: splitId))
+    }
+
+    private func splitPath(toSplitId splitId: UUID) -> [ExternalSplitNode]? {
+        var path: [ExternalSplitNode] = []
+        return appendSplitPath(toSplitId: splitId, path: &path) ? path : nil
+    }
+
+    private func appendSplitPath(toSplitId splitId: UUID, path: inout [ExternalSplitNode]) -> Bool {
+        guard case .split(let node) = self else { return false }
+        path.append(node)
+        if UUID(uuidString: node.id) == splitId { return true }
+        if node.first.appendSplitPath(toSplitId: splitId, path: &path)
+            || node.second.appendSplitPath(toSplitId: splitId, path: &path) { return true }
+        path.removeLast()
+        return false
     }
 
     /// The splits from this node down to `paneId`'s parent, or `nil` when

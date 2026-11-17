@@ -243,13 +243,20 @@ def have_tree(workspace: Path, sha: str) -> bool:
     return have_commit(workspace, sha) and git(workspace, "cat-file", "-e", f"{sha}^{{tree}}") is not None
 
 
+def is_shallow(workspace: Path) -> bool:
+    """Whether the checkout is shallow. Only a shallow checkout may fetch with --depth: in a full clone
+    --depth writes .git/shallow and truncates history for every worktree sharing it."""
+    return (git(workspace, "rev-parse", "--is-shallow-repository") or "").strip() == "true"
+
+
 def ensure_commit(workspace: Path, sha: str) -> bool:
     """SHA's commit and trees in the checkout, fetched shallow (public, no credentials) when missing."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
         return False
     if have_commit(workspace, sha):
         return True
-    git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "origin", sha,
+    depth = ["--depth=1"] if is_shallow(workspace) else []
+    git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *depth, "origin", sha,
         timeout=FETCH_TIMEOUT_SECONDS)
     return have_commit(workspace, sha)
 
@@ -756,6 +763,9 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
     report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
     started = time.monotonic()
     env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+    # A full clone takes a plain fetch: --depth there writes .git/shallow for every worktree sharing it,
+    # and --refetch without a depth would download the whole history again.
+    bounded = ["--refetch", "--depth=1"] if missing and is_shallow(workspace) else []
     for attempt in range(2):
         if not missing:
             break
@@ -767,7 +777,7 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
         report["attempts"] += 1
         try:
             result = subprocess.run(["git", "-C", str(workspace), "fetch", "--quiet", "--no-tags",
-                                     "--no-write-fetch-head", "--refetch", "--depth=1", "--filter=blob:none",
+                                     "--no-write-fetch-head", *bounded, "--filter=blob:none",
                                      "origin", *missing],
                                     capture_output=True, text=True, timeout=timeout, env=env)
             if result.returncode != 0:

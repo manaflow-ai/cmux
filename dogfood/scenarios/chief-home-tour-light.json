@@ -1,0 +1,150 @@
+{
+  "paths": [
+    "Sources/Chief/*",
+    "Sources/*Chief*",
+    "Sources/Sidebar/SidebarChiefHomeRow.swift",
+    "Packages/macOS/CmuxChief/*",
+    "Packages/Shared/CmuxMessagesLab/*"
+  ],
+  "launch": {
+    "env": {
+      "CMUX_CHIEF_BRAIN": "scripted"
+    },
+    "args": [
+      "-appearanceMode",
+      "light"
+    ]
+  },
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Build",
+        "initial_input": "echo build ready\n",
+        "focus": true
+      },
+      "save": "build"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "socket": "chief.open"
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "shot": "home-first-run-light"
+    },
+    {
+      "tree": "home-first-run-light"
+    },
+    {
+      "click": {
+        "id": "ChiefFirstRunStarter.list.bullet.rectangle"
+      }
+    },
+    {
+      "wait": 2.0
+    },
+    {
+      "shot": "starter-tool-running-light"
+    },
+    {
+      "wait": 6
+    },
+    {
+      "shot": "starter-answered-light"
+    },
+    {
+      "click": {
+        "label": "Message"
+      }
+    },
+    {
+      "type": "Thanks, keep an eye on Docs for me\n"
+    },
+    {
+      "wait": 6
+    },
+    {
+      "socket": "chief.debug",
+      "params": {
+        "action": "tapback"
+      }
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "second-turn-tapback-light"
+    },
+    {
+      "click": {
+        "label": "Message"
+      }
+    },
+    {
+      "type": "please approve this\n"
+    },
+    {
+      "wait": 3
+    },
+    {
+      "shot": "approval-requested-light"
+    },
+    {
+      "tree": "approval-requested-light"
+    },
+    {
+      "socket": "chief.stop",
+      "params": {}
+    },
+    {
+      "click": "HomeHeaderNamePill"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "settings-panel-light"
+    },
+    {
+      "tree": "settings-panel-light"
+    },
+    {
+      "click": "HomeHeaderNamePill"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "click": {
+        "labelContains": "Build, workspace",
+        "type": "cell"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "socket": "pane.create",
+      "params": {
+        "type": "chief",
+        "direction": "right",
+        "workspace_id": "${build.workspace_id}",
+        "focus": true
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "shot": "chief-pane-in-split-light"
+    },
+    {
+      "tree": "chief-pane-in-split-light"
+    }
+  ]
+}

@@ -19,6 +19,9 @@ struct MobilePrimaryTabScaffold<
     let feedNeedsInputCountProvider: (@MainActor () -> Int)?
     /// False when the Feed replaces the Notifications tab (CMUX Labs).
     let showsNotificationsTab: Bool
+    /// Chief/Home is negotiated per Mac. `nil` keeps the existing tab layout
+    /// for hosts that predate the Chief mobile surface.
+    let homeContent: AnyView?
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let feed: Feed
@@ -33,6 +36,7 @@ struct MobilePrimaryTabScaffold<
         feedNeedsInputCount: Int = 0,
         feedNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
         showsNotificationsTab: Bool = true,
+        homeContent: AnyView? = nil,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder feed: () -> Feed,
@@ -46,6 +50,7 @@ struct MobilePrimaryTabScaffold<
         self.feedNeedsInputCount = feedNeedsInputCount
         self.feedNeedsInputCountProvider = feedNeedsInputCountProvider
         self.showsNotificationsTab = showsNotificationsTab
+        self.homeContent = homeContent
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.feed = feed()
@@ -99,6 +104,11 @@ struct MobilePrimaryTabScaffold<
             .accessibilityIdentifier("MobilePrimaryTabs")
         } else {
             TabView(selection: $selection) {
+                if let homeContent {
+                    homeContent
+                        .tabItem { homeLabel }
+                        .tag(MobilePrimaryTab.home)
+                }
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
@@ -156,6 +166,14 @@ struct MobilePrimaryTabScaffold<
     @available(iOS 18.0, *)
     @TabContentBuilder<MobilePrimaryTab>
     private var primaryTabs: some TabContent<MobilePrimaryTab> {
+        if let homeContent {
+            Tab(value: MobilePrimaryTab.home) {
+                homeContent
+            } label: {
+                homeLabel
+            }
+        }
+
         Tab(value: MobilePrimaryTab.workspaces) {
             workspaces
         } label: {
@@ -190,6 +208,14 @@ struct MobilePrimaryTabScaffold<
             systemImage: "waveform"
         )
         .accessibilityIdentifier("MobilePrimaryTabFeed")
+    }
+
+    private var homeLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.home", defaultValue: "Home"),
+            systemImage: "bubble.left.and.bubble.right"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabHome")
     }
 
     private var workspacesLabel: some View {

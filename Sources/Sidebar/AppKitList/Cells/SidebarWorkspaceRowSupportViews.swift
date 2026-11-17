@@ -374,22 +374,20 @@ final class SidebarRowIconTextLine: NSView {
         case .warning: iconName = "exclamationmark.triangle.fill"
         case .error: iconName = "xmark.circle.fill"
         }
-        let color: NSColor
-        if model.isActive {
-            switch log.level {
-            case .info: color = palette.secondary(0.5)
-            case .progress: color = palette.secondary(0.8)
-            default: color = palette.secondary(0.9)
-            }
-        } else {
-            switch log.level {
-            case .info: color = palette.secondary(0.5)
-            case .progress: color = palette.accentColor
-            case .success: color = .systemGreen
-            case .warning: color = .systemOrange
-            case .error: color = .systemRed
-            }
+        let fallback: NSColor
+        switch log.level {
+        case .info: fallback = palette.secondary(0.5)
+        case .progress: fallback = palette.secondary(0.8)
+        default: fallback = palette.secondary(0.9)
         }
+        let color = sidebarLogPresentationNSColor(
+            level: log.level,
+            isActive: model.isActive,
+            colorScheme: palette.colorScheme,
+            accent: palette.accent,
+            selectedBackground: palette.selectedBackground,
+            fallback: fallback
+        )
         iconView.isHidden = false
         iconView.image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: iconName, pointSize: model.scaled(8), weight: nil

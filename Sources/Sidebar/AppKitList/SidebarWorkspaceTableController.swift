@@ -250,14 +250,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.postsBoundsChangedNotifications = true
-        scrollView.contentInsets = NSEdgeInsets(
-            top: SidebarWorkspaceScrollInsets.workspaceList.top
-                + SidebarWorkspaceListMetrics.rowVerticalPadding,
-            left: 0,
-            bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                + SidebarWorkspaceListMetrics.rowVerticalPadding,
-            right: 0
-        )
+        Self.applyListInsets(to: scrollView)
         scrollView.applySidebarOverlayScrollerConfiguration()
 
         container.reorderDropView.registerForDraggedTypes([
@@ -676,6 +669,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         self.actions = actions
+        // The Chief Home band comes and goes with `chief.enabled`.
+        Self.applyListInsets(to: containerView.scrollView)
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
         if let retainedContainer = activeWorkspaceDragContainerView,
@@ -3076,5 +3071,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             width: max(0, container.bounds.width - 16 - leadingIndent),
             height: 2
         )
+    }
+}
+
+extension SidebarWorkspaceTableController {
+    /// Sets the list's scroll insets from ``SidebarWorkspaceScrollInsets/workspaceList``
+    /// when they changed (the top follows the Chief Home band).
+    static func applyListInsets(to scrollView: NSScrollView) {
+        let insets = NSEdgeInsets(
+            top: SidebarWorkspaceScrollInsets.workspaceList.top
+                + SidebarWorkspaceListMetrics.rowVerticalPadding,
+            left: 0,
+            bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+                + SidebarWorkspaceListMetrics.rowVerticalPadding,
+            right: 0
+        )
+        let current = scrollView.contentInsets
+        guard current.top != insets.top || current.bottom != insets.bottom
+            || current.left != insets.left || current.right != insets.right else { return }
+        scrollView.contentInsets = insets
     }
 }

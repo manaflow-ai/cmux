@@ -120,7 +120,7 @@ import Testing
     }
 
     @Test func theRowDisplaysTheHostAfterTheTitle() {
-        var snapshot = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(title: "main")
+        var snapshot = SidebarWorkspaceSnapshotTests.snapshot(title: "main")
         #expect(snapshot.displayTitle == "main")
         snapshot.hostTitleSuffix = "web1.us-east"
         #expect(snapshot.displayTitle == "main · web1.us-east")
@@ -128,21 +128,8 @@ import Testing
         #expect(snapshot.title == "main")
     }
 
-    @Test func aContextMenuRefreshKeepsTheHost() {
-        let displayed = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(title: "main")
-        var next = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(title: "main")
-        next.hostTitleSuffix = "web1.us-east"
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: displayed,
-            next: next,
-            force: false,
-            contextMenuVisible: true
-        )
-        #expect(decision.workspaceSnapshotStorage?.hostTitleSuffix == "web1.us-east")
-    }
-
     @Test func thePresentationKeyChangesWithTheHost() {
-        let plain = SidebarWorkspaceSnapshotRefreshPolicyTests.presentationKey()
+        let plain = SidebarWorkspaceSnapshotTests.presentationKey()
         var hosted = plain
         hosted.hostTitleSuffix = "web1.us-east"
         #expect(plain != hosted)

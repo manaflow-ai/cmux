@@ -93,29 +93,25 @@ cmd_capture() {
   fi
   local request_id="cmux-shots-$(date -u +%Y%m%dT%H%M%SZ)-$$"
   echo "dispatching $WORKFLOW on $REPO ref=$ref languages=$languages request=$request_id"
-  gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$ref" \
-    -f languages="$languages" -f request_id="$request_id"
-  # `gh workflow run` returns before GitHub registers the run. Poll for the
-  # uniquely named run instead of sleeping and taking whichever branch run is
-  # newest, which can select another concurrent dispatch.
-  local run_id="" waited=0
-  while [ "$waited" -lt 60 ]; do
-    run_id="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$ref" \
-      --event workflow_dispatch --limit 20 --json databaseId,displayTitle,createdAt \
-      | REQUEST_ID="$request_id" python3 -c '
-import json, os, sys
-runs = [r for r in json.load(sys.stdin)
-        if os.environ["REQUEST_ID"] in (r.get("displayTitle") or "")]
-print(max(runs, key=lambda r: r.get("createdAt", ""))["databaseId"] if runs else "")
-')"
-    [ -n "$run_id" ] && break
-    sleep 2
-    waited=$((waited + 2))
-  done
-  [ -n "$run_id" ] || { echo "could not resolve dispatched run" >&2; exit 1; }
+  # return_run_details makes the dispatch answer with the run it created, so
+  # there is no run list to poll and no chance of picking another dispatch.
+  local run_id
+  run_id="$(gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
+    -f ref="$ref" -f "inputs[languages]=$languages" -f "inputs[request_id]=$request_id" \
+    -F return_run_details=true --jq '.workflow_run_id // ""')"
+  [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "the dispatch returned no run id" >&2; exit 1; }
   echo "watching run $run_id (https://github.com/$REPO/actions/runs/$run_id)"
-  gh run watch --repo "$REPO" "$run_id" --exit-status || {
-    echo "capture run failed; logs: gh run view --repo $REPO $run_id --log-failed" >&2
+  # One waiter, no poll loop: glaeda-gh shares one cheap poller per machine;
+  # without it, gh run watch checks once per five minutes.
+  if command -v glaeda-gh >/dev/null 2>&1; then
+    glaeda-gh wait run "$REPO/$run_id" --until "done" --timeout 7200 >/dev/null || true
+  else
+    gh run watch --repo "$REPO" "$run_id" --interval 300 >/dev/null || true
+  fi
+  local conclusion
+  conclusion="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status + " " + (.conclusion // "")')"
+  [ "$conclusion" = "completed success" ] || {
+    echo "capture run is $conclusion; logs: gh run view --repo $REPO $run_id --log-failed" >&2
     exit 1
   }
   rm -rf "$WORK/captures"

@@ -272,7 +272,7 @@ extension RemoteSessionCoordinator {
             excluding: excludedRemoteScanPorts(),
             protecting: protectedPortsByTTY
         )
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 8
@@ -380,7 +380,7 @@ extension RemoteSessionCoordinator {
             return
         }
 
-        let command = "sh -c \(Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts()).shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts())).commandLine
         do {
             let result = try sshExec(
                 arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],

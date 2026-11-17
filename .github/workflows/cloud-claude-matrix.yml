@@ -1,0 +1,74 @@
+name: Cloud chat matrix (Claude, production, nightly)
+
+# scripts/cmux-next/cloud-claude-matrix.ts against production, every night: Claude in a Cloud chat for every way a
+# person signs in (the SR2/CodeRouter default, a Claude Pro/Max login, an Anthropic API key, a team key) on Opus,
+# Sonnet and Haiku, through a first chat, a follow-up, a turn after pause and resume, and rows running at once. Each
+# row is one cloud-journey.ts run on its own new machine, deleted by exact id; at most 3 machines at a time. A row
+# whose credential is not set here is a skip with the reason.
+#
+# Leo, 2026-11-10: "how well does it work though? Does it work across every expected possible workspace?"
+#
+# Same trust rule as cloud-journey-prod.yml: the schedule registers from main, the scripts always come from
+# feat-cmux-next, never a pull request's head. Secrets: the production agent test account (cmux-next-cloud-journey
+# environment), the repository's CLAUDE_CODE_OAUTH_TOKEN for the subscription row, and ANTHROPIC_API_KEY when set.
+on:
+  schedule:
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+    inputs:
+      auth:
+        description: comma-separated rows (sr2,subscription,api-key,team-key)
+        default: sr2,subscription,api-key,team-key
+      models:
+        description: comma-separated models (opus,sonnet,haiku)
+        default: opus,sonnet,haiku
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-claude-matrix
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
+    # A job holding secrets runs where no variable can move it (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 75
+    environment: cmux-next-cloud-journey
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          sparse-checkout: |
+            scripts/cmux-next
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Cloud chat matrix (Claude, production)
+        timeout-minutes: 70
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AUTH: ${{ inputs.auth || 'sr2,subscription,api-key,team-key' }}
+          MODELS: ${{ inputs.models || 'opus,sonnet,haiku' }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/cloud-claude-matrix"
+          bun scripts/cmux-next/cloud-claude-matrix.ts --backend prod --auth "$AUTH" --models "$MODELS" --out "$out"
+          code=$?
+          cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no matrix written)" >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cloud-claude-matrix
+          path: ${{ runner.temp }}/cloud-claude-matrix
+          if-no-files-found: ignore
+          retention-days: 7

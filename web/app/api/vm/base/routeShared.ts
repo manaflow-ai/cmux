@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
@@ -21,6 +22,7 @@ import {
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  runAfterResponse,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
@@ -71,7 +73,7 @@ export async function runBaseRoute(input: {
     assertVmCreateEnabled(provider);
     imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
       kind: parsed.body.kind,
-      memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+      memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env, entitlements.entitlementOverride),
       callerUserId: user.id,
     });
   } catch (err) {
@@ -114,6 +116,7 @@ export async function runBaseRoute(input: {
     billingTeamId: entitlements.billingTeamId,
     billingPlanId: entitlements.planId,
     maxActiveVms: entitlements.maxActiveVms,
+    entitlementOverride: entitlements.entitlementOverride,
     provider,
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
@@ -125,6 +128,8 @@ export async function runBaseRoute(input: {
       stackUserId: user.id,
     }),
     timing: input.timing,
+    // The guest vm-kind write runs after the answer, kept alive by the platform.
+    deferAfterResponse: (work: Effect.Effect<void>) => runAfterResponse(() => Effect.runPromise(work)),
   };
   const run = await runVmRoute(
     input.operation === "reset"

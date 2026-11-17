@@ -9,6 +9,7 @@ import {
   LEGACY_PRICE_LOOKUP_KEYS,
   MAX_BILLING_INTERVALS,
   MAX_PRICING_USD,
+  GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -68,6 +69,7 @@ describe("pricing plans", () => {
 
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
     const current = [
+      GO_PRICING_USD.month,
       PRO_PRICING_USD.month,
       PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
@@ -78,6 +80,8 @@ describe("pricing plans", () => {
       expect(LEGACY_PRICE_LOOKUP_KEYS).not.toContain(price.lookupKey);
     }
     expect(LEGACY_PRICE_LOOKUP_KEYS).toEqual([
+      "cmux-starter-monthly-20",
+      "cmux-go-monthly-10",
       "cmux-pro-monthly",
       "cmux-pro-yearly",
       "cmux-pro-yearly-288",

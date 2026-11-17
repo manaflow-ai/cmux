@@ -28,121 +28,91 @@ export default async function CloudCliPage({
   return (
     <>
       <DocsSchema namespace="docs.cloudCli" path="/docs/cloud/cli" />
-      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
-      <p>{t("intro")}</p>
-      <p>{t("exitCodes")}</p>
+      <DocsHeading level={1} id="title">{t("nextTitle")}</DocsHeading>
+      <p>{t("nextIntro")}</p>
+      <p>{t("nextTargets", { machineTarget: "machine:<id>" })}</p>
+      <CodeBlock lang="bash">{`cmux cloud list-machines
+cmux cloud machine-status --target 'machine:<id>'
+cmux cloud new-machine --help
+cmux action describe newCloudMachine`}</CodeBlock>
 
-      <DocsHeading level={2} id="auth">{t("authTitle")}</DocsHeading>
-      <p>{t("authDesc")}</p>
-      <CodeBlock lang="bash">{`cmux auth login
-cmux auth status --json
-cmux auth logout
-cmux auth team list
-cmux auth team use <team-id>`}</CodeBlock>
+      <DocsHeading level={2} id="actions">{t("nextCatalog")}</DocsHeading>
+      <p>{t("nextCatalogBody")}</p>
+      <table>
+        <thead><tr><th>{t("nextCommand")}</th><th>{t("nextAction")}</th></tr></thead>
+        <tbody>
+          {/* GENERATED_CLOUD_ACTIONS_START */}
+          <tr><td><code>cmux cloud apply-machine-config</code></td><td><code>cloudApplyMachineConfig</code></td></tr>
+          <tr><td><code>cmux cloud bring-back</code></td><td><code>cloudBringBack</code></td></tr>
+          <tr><td><code>cmux cloud delete-snapshot</code></td><td><code>palette.cloud.deleteSnapshot</code></td></tr>
+          <tr><td><code>cmux cloud deliver-secrets</code></td><td><code>cloudDeliverSecrets</code></td></tr>
+          <tr><td><code>cmux cloud diagnostics</code></td><td><code>cloudDiagnostics</code></td></tr>
+          <tr><td><code>cmux cloud domain-list</code></td><td><code>cloudDomainList</code></td></tr>
+          <tr><td><code>cmux cloud enroll-machine</code></td><td><code>cloudEnrollMachine</code></td></tr>
+          <tr><td><code>cmux cloud exec</code></td><td><code>cloudExec</code></td></tr>
+          <tr><td><code>cmux cloud file-mkdir</code></td><td><code>cloudFileMkdir</code></td></tr>
+          <tr><td><code>cmux cloud file-read</code></td><td><code>cloudFileRead</code></td></tr>
+          <tr><td><code>cmux cloud file-remove</code></td><td><code>cloudFileRemove</code></td></tr>
+          <tr><td><code>cmux cloud file-stat</code></td><td><code>cloudFileStat</code></td></tr>
+          <tr><td><code>cmux cloud file-write</code></td><td><code>cloudFileWrite</code></td></tr>
+          <tr><td><code>cmux cloud files-list</code></td><td><code>cloudFilesList</code></td></tr>
+          <tr><td><code>cmux cloud firewall-create</code></td><td><code>cloudFirewallCreate</code></td></tr>
+          <tr><td><code>cmux cloud firewall-delete</code></td><td><code>cloudFirewallDelete</code></td></tr>
+          <tr><td><code>cmux cloud firewall-get</code></td><td><code>cloudFirewallGet</code></td></tr>
+          <tr><td><code>cmux cloud firewall-list</code></td><td><code>cloudFirewallList</code></td></tr>
+          <tr><td><code>cmux cloud fork-machine</code></td><td><code>palette.cloud.fork</code></td></tr>
+          <tr><td><code>cmux cloud hand-off-machine</code></td><td><code>palette.cloud.handoff</code></td></tr>
+          <tr><td><code>cmux cloud kill-machine</code></td><td><code>cloudKillMachine</code></td></tr>
+          <tr><td><code>cmux cloud list-machines</code></td><td><code>cloudListMachines</code></td></tr>
+          <tr><td><code>cmux cloud machine-link</code></td><td><code>cloudMachineLink</code></td></tr>
+          <tr><td><code>cmux cloud machine-ports</code></td><td><code>palette.cloud.ports</code></td></tr>
+          <tr><td><code>cmux cloud machine-status</code></td><td><code>palette.cloud.status</code></td></tr>
+          <tr><td><code>cmux cloud move</code></td><td><code>cloudMove</code></td></tr>
+          <tr><td><code>cmux cloud network-list</code></td><td><code>cloudNetworkList</code></td></tr>
+          <tr><td><code>cmux cloud new-machine</code></td><td><code>newCloudMachine</code></td></tr>
+          <tr><td><code>cmux cloud new-terminal-on-machine</code></td><td><code>cloudNewTerminal</code></td></tr>
+          <tr><td><code>cmux cloud new-workspace</code></td><td><code>newCloudWorkspace</code></td></tr>
+          <tr><td><code>cmux cloud open-browser</code></td><td><code>cloudOpenBrowser</code></td></tr>
+          <tr><td><code>cmux cloud open-desktop</code></td><td><code>cloudOpenDesktop</code></td></tr>
+          <tr><td><code>cmux cloud open-mobile-pairing</code></td><td><code>palette.mobileConnect</code></td></tr>
+          <tr><td><code>cmux cloud pause-machine</code></td><td><code>cloudPauseMachine</code></td></tr>
+          <tr><td><code>cmux cloud port-close</code></td><td><code>cloudPortClose</code></td></tr>
+          <tr><td><code>cmux cloud port-forward</code></td><td><code>cloudPortForward</code></td></tr>
+          <tr><td><code>cmux cloud port-list</code></td><td><code>cloudPortList</code></td></tr>
+          <tr><td><code>cmux cloud prepare-scp</code></td><td><code>cloudPrepareSCP</code></td></tr>
+          <tr><td><code>cmux cloud promote-machine-to-template</code></td><td><code>palette.cloud.promoteTemplate</code></td></tr>
+          <tr><td><code>cmux cloud publication-list</code></td><td><code>cloudPublicationList</code></td></tr>
+          <tr><td><code>cmux cloud rename-machine</code></td><td><code>cloudRenameMachine</code></td></tr>
+          <tr><td><code>cmux cloud resize-machine</code></td><td><code>cloudResizeMachine</code></td></tr>
+          <tr><td><code>cmux cloud restore-machine</code></td><td><code>palette.cloud.restore</code></td></tr>
+          <tr><td><code>cmux cloud resume-machine</code></td><td><code>cloudResumeMachine</code></td></tr>
+          <tr><td><code>cmux cloud set-idle-pause</code></td><td><code>cloudSetIdlePause</code></td></tr>
+          <tr><td><code>cmux cloud setup-github</code></td><td><code>cloudSetupGitHub</code></td></tr>
+          <tr><td><code>cmux cloud sign-in</code></td><td><code>palette.auth.signIn</code></td></tr>
+          <tr><td><code>cmux cloud sign-out</code></td><td><code>palette.auth.signOut</code></td></tr>
+          <tr><td><code>cmux cloud snapshot-machine</code></td><td><code>palette.cloud.snapshot</code></td></tr>
+          <tr><td><code>cmux cloud ssh</code></td><td><code>cloudSSH</code></td></tr>
+          <tr><td><code>cmux cloud start-session</code></td><td><code>cloudStartSession</code></td></tr>
+          <tr><td><code>cmux cloud tunnel-attach</code></td><td><code>cloudTunnelAttach</code></td></tr>
+          <tr><td><code>cmux cloud tunnel-detach</code></td><td><code>cloudTunnelDetach</code></td></tr>
+          <tr><td><code>cmux cloud tunnel-rotate-key</code></td><td><code>cloudTunnelRotateKey</code></td></tr>
+          {/* GENERATED_CLOUD_ACTIONS_END */}
+        </tbody>
+      </table>
 
-      <DocsHeading level={2} id="machines">{t("lifecycleTitle")}</DocsHeading>
-      <p>{t("lifecycleDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm ls [--json]
-cmux vm new [--size 4g|8g|16g|24g|32g|64g] [--name <label>] [--workspace <id>] [--window <id>] [--focus true|false] [--detach]
-cmux vm base [open] [--detach]
-cmux vm base reset [--reason <text>]
-cmux vm status <id>
-cmux vm stats <id>
-cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
-cmux vm rename <id> <label> | --clear
-cmux vm pause <id>
-cmux vm resume <id>
-cmux vm wait <id> [--timeout <seconds>] [--wake]
-cmux vm tools <id>
-cmux vm ports <id>
-cmux vm rm <id>`}</CodeBlock>
+      <DocsHeading level={2} id="secrets">{t("nextSecrets")}</DocsHeading>
+      <p>{t("nextSecretsBody")}</p>
+      <CodeBlock lang="bash">{`cmux cloud secret set NAME
+cmux cloud secret set NAME --repo OWNER/NAME
+cmux cloud secret ls
+cmux cloud secret rm NAME
+cmux cloud secret rm NAME --repo OWNER/NAME`}</CodeBlock>
 
-      <DocsHeading level={2} id="checkpoints">{t("snapshotsTitle")}</DocsHeading>
-      <p>{t("snapshotsDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm snapshot <id> [--name <name>]      # alias: checkpoint
-cmux vm snapshot ls <id>
-cmux vm snapshot rm <id> <snapshot-id>
-cmux vm fork <id> [--name <name>] [--detach]
-cmux vm restore <snapshot-id> [--detach]`}</CodeBlock>
-
-      <DocsHeading level={2} id="open">{t("openTitle")}</DocsHeading>
-      <p>{t("openDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm shell <id>                         # alias: attach
-cmux vm tui <id>                           # full cmux TUI client
-cmux vm desktop <id>                       # alias: vnc
-cmux vm open <machine>[/<workspace>[/<terminal>[/<tab>]]] [--workspace <id>] [--focus true|false]
-cmux vm open <machine>:desktop
-cmux vm open <machine>:port/<n> [--print]
-cmux vm open <machine> <port> [--print]`}</CodeBlock>
-
-      <DocsHeading level={2} id="run">{t("runTitle")}</DocsHeading>
-      <p>{t("runDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm exec [--timeout <seconds>] <id> -- <command...>
-cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <size>] [--timeout <seconds>] -- <command...>
-cmux vm route [--cwd <dir>] [--new] [--provision] [--size <size>]
-cmux vm agent --agent claude|codex|opencode|pi [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--wait [--output] [--timeout <seconds>]] [--new] [--size <size>] -- <prompt>
-cmux vm dev <machine> [<local-dir>] [--name <workspace>] [--layout <file>] [--command "<cmd>"] [--port <n>] [--remote <path>] [--sync|--no-sync] [--no-open] [--dry-run]
-cmux vm prompt [--open claude|codex|opencode|pi]`}</CodeBlock>
-
-      <DocsHeading level={2} id="workspaces">{t("workspacesTitle")}</DocsHeading>
-      <p>{t("workspacesDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm tree [<machine>] [--refresh]
-cmux vm workspace new <machine> [--name <name>] [--reuse] [--no-open]
-cmux vm workspace open <machine> <workspace-id>
-cmux vm workspace rename <machine> <workspace-id> <name>
-cmux vm workspace close <machine> <workspace-id>   # terminals keep running
-cmux vm workspace rm <machine> <workspace-id>      # terminals stop
-cmux vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2>]
-cmux vm terminal read <machine> <terminal-id>
-cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
-cmux vm terminal wait-exit <machine> <terminal-id> [--timeout <seconds>]
-cmux vm terminal output <machine> <terminal-id> [--after <offset>] [--max-bytes <n>]
-cmux vm terminal rename <machine> <terminal-id> <name>
-cmux vm terminal close <machine> <terminal-id>
-cmux vm layout export <machine> [<workspace>]
-cmux vm layout apply <machine> <file>|- [--name <name>] [--cwd <dir>] [--open]`}</CodeBlock>
-
-      <DocsHeading level={2} id="files">{t("filesTitle")}</DocsHeading>
-      <p>{t("filesDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes] [--watch]
-cmux vm push --secret <id> <local-file> [remote-path] [--mode <octal>]
-cmux vm pull <id> <remote-path> [local-path]
-cmux vm env set <machine> KEY=VALUE... | --from-file <.env> | -
-cmux vm env ls <machine> [--show]
-cmux vm env rm <machine> KEY...`}</CodeBlock>
-
-      <DocsHeading level={2} id="domains">{t("domainsTitle")}</DocsHeading>
-      <p>{t("domainsDesc")}</p>
-      <CodeBlock lang="bash">{`cmux cloud domains [list]
-cmux cloud domains zones
-cmux cloud domains verify <domain>
-cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>] [--yes]
-cmux cloud domains access <hostname> personal|team|public [--yes]
-cmux cloud domains grant <hostname> <email> [--expires <ISO-date>]
-cmux cloud domains ungrant <hostname> <email>
-cmux cloud domains grants <hostname>
-cmux cloud domains rm <hostname>`}</CodeBlock>
-
-      <DocsHeading level={2} id="vpn">{t("vpnTitle")}</DocsHeading>
-      <p>{t("vpnDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vpn up
-cmux vpn status
-cmux vpn down
-cmux vpn revoke`}</CodeBlock>
-
-      <DocsHeading level={2} id="ai-accounts">{t("accountsTitle")}</DocsHeading>
-      <p>{t("accountsDesc")}</p>
-      <CodeBlock lang="bash">{`cmux ai-accounts list
-cmux ai-accounts upload claude|codex|anthropic-key|openai-key [--label <label>] [--team <id>]
-cmux coderouter status
-cmux coderouter machines`}</CodeBlock>
-      <p><Link href="/docs/coderouter/cli" className={linkClass}>{t("coderouterLink")}</Link></p>
-
-      <DocsHeading level={2} id="scripting-checklist">{t("preflightTitle")}</DocsHeading>
-      <p>{t("preflightDesc")}</p>
-      <CodeBlock lang="bash">{`cmux auth status
-cmux vm ls --json
-cmux vm route --json`}</CodeBlock>
+      <DocsHeading level={2} id="hand-off">{t("nextHandoff")}</DocsHeading>
+      <p>{t("nextHandoffBody")}</p>
+      <CodeBlock lang="bash">{`cmux cloud hand-off-machine --target 'machine:<id>'`}</CodeBlock>
+      <p><Link href="/docs/cloud" className={linkClass}>{t("nextHelp")}</Link></p>
+      <p><Link href="/docs/cloud/troubleshooting" className={linkClass}>{t("nextHelp")}</Link></p>
     </>
   );
 }

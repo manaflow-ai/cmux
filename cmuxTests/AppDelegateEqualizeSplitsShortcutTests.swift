@@ -420,7 +420,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     /// app-host tests can leave a 320-point window behind, which is too narrow
     /// for the minimum-width split admission check. Keep split fixtures at a
     /// realistic size so these tests exercise the shortcut behavior itself.
-    private static func prepareSplitFixture(window: NSWindow, workspace: Workspace) {
+    static func prepareSplitFixture(window: NSWindow, workspace: Workspace) {
         window.setContentSize(splitFixtureContentSize)
         window.contentView?.layoutSubtreeIfNeeded()
         workspace.bonsplitController.setContainerFrame(
@@ -8023,7 +8023,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
         }
     }
-    private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         switch node {
         case .pane:
             return []
@@ -8143,7 +8143,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     ///
     /// The deadline bounds the failure path only: a publish that lands
     /// promptly returns on the first drain.
-    private func shortcutRoutingAwaitPublishedLayout(
+    func shortcutRoutingAwaitPublishedLayout(
         _ workspace: Workspace,
         timeout: Duration = .seconds(3),
         until predicate: (LayoutSnapshot) -> Bool
@@ -8246,11 +8246,11 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
         body()
     }
-    private func window(withId windowId: UUID) -> NSWindow? {
+    func window(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
-    private func closeWindow(withId windowId: UUID) {
+    func closeWindow(withId windowId: UUID) {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))

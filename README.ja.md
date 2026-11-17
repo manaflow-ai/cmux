@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> でリモートマシン用のワークスペースを作成。ブラウザペインはリモートネットワーク経由でルーティングされるため、localhostがそのまま動作します。リモートセッションに画像をドラッグするとscpでアップロードされます。
+<code>cmux ssh user@remote</code> でリモートマシン用のワークスペースを作成。<code>--command 'omp "investigate auth"'</code> を渡すと、最初のリモートターミナルで初期コマンドを一度だけ実行します。ブラウザペインはリモートネットワーク経由でルーティングされるため、localhostがそのまま動作します。リモートセッションに画像をドラッグするとscpでアップロードされます。
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 初回起動時、macOSが確認済みの開発者からのアプリを開くことの確認を求める場合があります。**開く**をクリックして続行してください。
+
+### シェル補完
+
+Homebrewのcaskはzsh、bash、fish用の補完をインストールします。インストール後に新しいシェルを起動してください。読み込まれない場合は、Homebrewの補完ディレクトリがシェルに設定されているか確認してください（[Homebrewのシェル補完ドキュメント](https://docs.brew.sh/Shell-Completion)を参照）。
+
+他の方法でcmuxをインストールした場合は、該当する行をシェルの起動ファイルに追加し、新しいシェルを起動してください：
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## なぜcmux？
 
@@ -365,7 +384,7 @@ tmuxは任意のターミナル内で動くターミナルマルチプレクサ�
 
 ### cmuxをどうやって支援できますか？
 
-cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)をご覧ください。
+cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)をご覧ください。
 
 ### 機能リクエストがある、またはバグを見つけました？
 
@@ -405,18 +424,11 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmuxコミュニティに参加するためのWeChat QRコード" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmuxは無料でオープンソースであり、今後もそうあり続けます。開発をサポートし、次に来る機能への早期アクセスを得たい方へ：
 
-**[Founder's Editionを入手](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **機能リクエスト/バグ修正の優先対応**
-- **早期アクセス：すべてのワークスペース、タブ、パネルのコンテキストを提供するcmux AI**
-- **早期アクセス：デスクトップと携帯電話間でターミナルを同期するiOSアプリ**
-- **早期アクセス：クラウドVM**
-- **早期アクセス：ボイスモード**
-- **私の個人的なiMessage/WhatsApp**
+**[cmux Proを入手](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## ライセンス
 

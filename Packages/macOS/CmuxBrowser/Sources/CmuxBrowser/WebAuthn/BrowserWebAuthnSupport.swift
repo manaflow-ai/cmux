@@ -4,7 +4,6 @@ import Bonsplit
 public import CoreBluetooth
 import Foundation
 import CMUXDebugLog
-public import ObjectiveC.runtime
 public import WebKit
 
 /// Native WebAuthn bridge for `WKWebView`.
@@ -639,22 +638,6 @@ public enum BrowserWebAuthnBridgeContract {
     }()
 }
 
-func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
-    authorizationState: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
-    deviceConfiguredForPasskeys: Bool?,
-    callerMayPromptForPlatformAuthorization: Bool
-) -> Bool? {
-    if authorizationState == .denied {
-        return false
-    }
-
-    if authorizationState == .notDetermined && !callerMayPromptForPlatformAuthorization {
-        return false
-    }
-
-    return deviceConfiguredForPasskeys
-}
-
 @MainActor
 private struct BrowserWebAuthnClientDataContext {
     let callerOrigin: BrowserWebAuthnSecurityOrigin
@@ -1095,12 +1078,7 @@ public final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerW
                 switch envelope.kind {
                 case .capabilities:
                     _ = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
-                    let callerMayPrompt = callerMayPromptForPlatformAuthorization(message)
-                    let capReply = capabilityReply(
-                        for: BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState(),
-                        bluetoothState: BrowserBluetoothAuthorizationGate.shared.currentState(),
-                        callerMayPromptForPlatformAuthorization: callerMayPrompt
-                    )
+                    let capReply = capabilityReply()
                     #if DEBUG
                     CMUXDebugLog.logDebugEvent("webauthn.capabilities reply=\(capReply)")
                     #endif
@@ -1229,6 +1207,13 @@ extension BrowserWebAuthnCoordinator {
             "responseKind": "assertion",
             "response": response,
             "clientExtensionResults": clientExtensionResults,
+        ]
+    }
+
+    func capabilityReply() -> [String: Any] {
+        [
+            "ok": true,
+            "capabilities": [String: Bool](),
         ]
     }
 }
@@ -1791,81 +1776,6 @@ private extension BrowserWebAuthnCoordinator {
         default:
             return .unknown("The passkey request failed.")
         }
-    }
-
-    func capabilityReply(
-        for state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
-        bluetoothState: BrowserBluetoothAuthorizationState,
-        callerMayPromptForPlatformAuthorization: Bool
-    ) -> [String: Any] {
-        [
-            "ok": true,
-            "capabilities": capabilityPayload(
-                for: state,
-                bluetoothState: bluetoothState,
-                callerMayPromptForPlatformAuthorization: callerMayPromptForPlatformAuthorization
-            ),
-        ]
-    }
-
-    func capabilityPayload(
-        for state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
-        bluetoothState: BrowserBluetoothAuthorizationState,
-        callerMayPromptForPlatformAuthorization: Bool
-    ) -> [String: Any] {
-        let denied = state == .denied
-        let platformRequestSupport = supportsPlatformCredentialRequests
-        let deviceConfiguredForPasskeys = denied ? nil : self.deviceConfiguredForPasskeys()
-        let platformPasskeyAvailability = browserWebAuthnAdvertisedPlatformPasskeyAvailability(
-            authorizationState: state,
-            deviceConfiguredForPasskeys: deviceConfiguredForPasskeys,
-            callerMayPromptForPlatformAuthorization: callerMayPromptForPlatformAuthorization
-        )
-        #if DEBUG
-        let authorized = state == .authorized
-        let canPromptForAccess = state == .notDetermined && callerMayPromptForPlatformAuthorization
-        let securityKeySupport = supportsSecurityKeyCredentialRequests
-        CMUXDebugLog.logDebugEvent("webauthn.capability state=\(state.rawValue) authorized=\(authorized) denied=\(denied) canPrompt=\(canPromptForAccess) callerMayPrompt=\(callerMayPromptForPlatformAuthorization) platformSupport=\(platformRequestSupport) securityKeySupport=\(securityKeySupport) deviceConfigured=\(deviceConfiguredForPasskeys as Any) advertisedPlatform=\(platformPasskeyAvailability as Any) btAuth=\(bluetoothState.isAuthorized) btHybrid=\(bluetoothState.canUseHybridTransport)")
-        #endif
-
-        var payload: [String: Any] = [:]
-        if platformRequestSupport,
-           let platformPasskeyAvailability {
-            payload["userVerifyingPlatformAuthenticatorAvailable"] = platformPasskeyAvailability
-            payload["conditionalMediationAvailable"] = platformPasskeyAvailability
-        }
-
-        return payload
-    }
-
-    var supportsPlatformCredentialRequests: Bool {
-        if #available(macOS 13.5, *) {
-            return true
-        }
-        return false
-    }
-
-    var supportsSecurityKeyCredentialRequests: Bool {
-        if #available(macOS 14.4, *) {
-            return true
-        }
-        return false
-    }
-
-    func deviceConfiguredForPasskeys() -> Bool? {
-        let selector = NSSelectorFromString("isDeviceConfiguredForPasskeys")
-        let managerClass: AnyClass = ASAuthorizationWebBrowserPublicKeyCredentialManager.self
-
-        guard let metaClass = object_getClass(managerClass),
-              class_respondsToSelector(metaClass, selector),
-              let method = class_getClassMethod(managerClass, selector) else {
-            return nil
-        }
-
-        typealias Getter = @convention(c) (AnyClass, Selector) -> Bool
-        let implementation = method_getImplementation(method)
-        let getter = unsafeBitCast(implementation, to: Getter.self)
-        return getter(managerClass, selector)
     }
 
     func fallbackReply() -> [String: Any] {

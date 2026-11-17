@@ -387,6 +387,16 @@ extension TerminalController {
                     "displayName": stored ?? NSNull(),
                 ]
             }
+        case "vm.hygiene":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.hygiene requires `id`. Run `cmux vm ls` to find one.")
+            }
+            // Only a literal true applies; anything else is the dry-run.
+            let apply = (params["apply"] as? Bool) == true
+            return v2CloudCall(id: id, method: method, params: params) {
+                let data = try await VMClient.shared.hygiene(id: vmId, apply: apply)
+                return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            }
         case "vm.pause", "vm.resume", "vm.restart":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "\(method) requires `id`. Run `cmux vm ls` to find one.")

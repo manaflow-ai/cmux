@@ -293,9 +293,11 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 
     init(selection: SidebarSelection) {
         switch selection {
-        case .tabs, .notifications:
+        case .tabs, .notifications, .home:
             // Notifications moved from a window-level overlay to a pane tab.
-            // Never persist the retired overlay selection.
+            // Never persist the retired overlay selection. Chief Home is not
+            // persisted either, so builds without `.home` can still decode
+            // the snapshot; relaunch always lands on the workspace.
             self = .tabs
         }
     }
@@ -1722,6 +1724,14 @@ struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
 struct SessionCoderouterGuidePanelSnapshot: Codable, Sendable {}
 /// Marker for the global notifications pane; its feed lives in the notification store.
 struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
+/// A Chief pane: the messages live in Chief's own store, so only the shown conversation is kept.
+struct SessionChiefPanelSnapshot: Codable, Sendable {
+    /// Raw `ConversationID`; nil is Chief's default conversation.
+    var conversationID: String?
+    /// Whether this is the workspace's canonical Chief Home pane. Missing in
+    /// older manifests, which restore as an ordinary Chief pane.
+    var isHome: Bool? = nil
+}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1779,6 +1789,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
     var coderouterGuide: SessionCoderouterGuidePanelSnapshot? = nil
     var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
+    var chief: SessionChiefPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 

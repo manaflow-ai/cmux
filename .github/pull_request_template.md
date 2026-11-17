@@ -12,6 +12,9 @@ Say what ran, what passed, and what that establishes. Keep these apart:
 - Tests added vs. tests executed. Name the command or CI lane that ran them; a green job whose tests were skipped is not coverage.
 - Compiled vs. ran vs. checked live in a tagged build.
 - Anything still unverified, stated once, next to the claim it limits.
+Bug fix? Name the focused command that fails on the base and passes on the head, then add
+`### Observed / Not run`: what you ran and saw, then what you only read or didn't run.
+gh-merge-green warns when a fix PR has no Observed section.
 The contributor verification ladder suggests the first useful check for each kind of change:
 https://github.com/manaflow-ai/cmux/blob/main/docs/contributor-verification.md
 -->

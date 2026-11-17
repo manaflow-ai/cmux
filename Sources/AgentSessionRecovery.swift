@@ -92,7 +92,12 @@ struct AgentSessionRecovery: Sendable {
                     sessionId: record.sessionId,
                     workspaceId: record.workspaceId,
                     cwd: record.cwd,
-                    launchCommand: Self.trustedLaunchCommand(record.launchCommand, kind: kind),
+                    launchCommand: RestorableAgentSessionIndex.restorableLaunchCommand(
+                        record.launchCommand,
+                        kind: kind,
+                        transcriptPath: record.transcriptPath,
+                        homeDirectory: homeDirectory
+                    ),
                     pid: record.pid,
                     pidStartSeconds: record.pidStartSeconds,
                     permissionMode: record.lastPermissionMode,
@@ -106,20 +111,6 @@ struct AgentSessionRecovery: Sendable {
     private static func transcriptExists(_ record: RestorableAgentHookSessionRecord) -> Bool {
         guard let path = record.transcriptPath, !path.isEmpty else { return false }
         return FileManager.default.fileExists(atPath: path)
-    }
-
-    /// Drops a launch capture inherited from another agent or the hook shell,
-    /// matching the session index's admission rule.
-    private static func trustedLaunchCommand(
-        _ launchCommand: AgentLaunchCommand?,
-        kind: RestorableAgentKind
-    ) -> AgentLaunchCommand? {
-        guard let launchCommand,
-              AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
-            return nil
-        }
-        return launchCommand
     }
 
     private static func isProcessAlive(pid: Int, startSeconds: Int64?) -> Bool {

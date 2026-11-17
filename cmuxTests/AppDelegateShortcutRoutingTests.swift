@@ -1925,19 +1925,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
+        // Exercise window routing independently of ContentView's startup workspaces.
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.registerMainWindow(
+            firstWindow, windowId: firstWindowId, tabManager: firstManager,
+            sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            secondWindow, windowId: secondWindowId, tabManager: secondManager,
+            sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
         _ = firstManager.addTab(select: true)
@@ -2495,16 +2500,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        // Keep startup-only workspaces outside this shortcut fixture.
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let targetWindow = makeRegisteredShortcutRoutingWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            targetWindow, windowId: windowId, tabManager: manager,
+            sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState()
+        )
+        defer { closeRegisteredShortcutRoutingWindow(targetWindow, id: windowId) }
 
-        guard let targetWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
+        guard let workspace = manager.selectedWorkspace,
               let initialPanelId = workspace.focusedPanelId else {
             XCTFail("Expected test window, manager, workspace, and focused panel")
             return
         }
+
+        // Close shortcuts target the focused window, as they do in the app.
+        targetWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(appDelegate.shortcutRoutingKeyWindow === targetWindow)
 
         // This test exercises keep-workspace-open semantics, not close-confirm heuristics.
         // Mark the shell idle so Cmd+W routes through the immediate close path deterministically.
@@ -2732,14 +2746,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let mainWindow = window(withId: windowId) else {
-            XCTFail("Expected window context")
-            return
-        }
+        // Keep startup-only workspaces outside this shortcut fixture.
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let mainWindow = makeRegisteredShortcutRoutingWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            mainWindow, windowId: windowId, tabManager: manager,
+            sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState()
+        )
+        defer { closeRegisteredShortcutRoutingWindow(mainWindow, id: windowId) }
 
         // Need at least two workspaces so a digit-1 selection is observable.
         _ = manager.addTab(select: true)
@@ -8139,6 +8154,82 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 terminalAgentContext: "restoredAgent:claude"
             ),
             [.pasteText("hello\nworld"), .namedKey("ctrl+enter")]
+        )
+    }
+
+    func testTextBoxSubmitCloudImagesUploadsAtPromptPosition() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "cloud-prompt.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "restoredAgent:codex",
+                imageTransferTarget: .cloud
+            ),
+            [
+                .validateCloudImages([imageURL.standardizedFileURL]),
+                .pasteText("what is "),
+                .pasteCloudImages([imageURL.standardizedFileURL]),
+                .pasteText(" now"),
+                .namedKey("return")
+            ]
+        )
+    }
+
+    /// Every image is checked before the first text reaches the terminal, so a
+    /// refused later image cannot leave a partial prompt that a retry repeats.
+    func testTextBoxSubmitCloudImagesValidateEveryImageBeforeAnyText() throws {
+        let first = try makeTemporaryPNGFile(named: "cloud-first.png")
+        let second = try makeTemporaryPNGFile(named: "cloud-second.png")
+        let attachments = [first, second].map {
+            TextBoxAttachment(
+                localURL: $0,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0)
+            )
+        }
+
+        let events = TextBoxSubmit.dispatchEvents(
+            for: [.text("compare "), .attachment(attachments[0]), .text("with"), .attachment(attachments[1])],
+            terminalAgentContext: "restoredAgent:codex",
+            imageTransferTarget: .cloud
+        )
+        XCTAssertEqual(
+            events.first,
+            .validateCloudImages([first.standardizedFileURL, second.standardizedFileURL])
+        )
+        XCTAssertEqual(events.dropFirst().filter {
+            if case .validateCloudImages = $0 { return true }
+            return false
+        }.count, 0)
+    }
+
+    /// After a Cloud submit the image bytes live on the machine, so the local
+    /// file is disposable even though its submission text is a local path.
+    func testTextBoxSubmitCloudImagesCleanUpAfterSuccessfulSubmit() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "cloud-uploaded.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        XCTAssertEqual(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "restoredAgent:codex",
+                imageTransferTarget: .cloud
+            ).compactMap(\.localURL),
+            [imageURL.standardizedFileURL]
+        )
+        XCTAssertTrue(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "restoredAgent:codex"
+            ).isEmpty
         )
     }
 

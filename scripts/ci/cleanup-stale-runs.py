@@ -26,20 +26,32 @@ def parse_time(value: str) -> dt.datetime:
     return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def may_be_eligible(run: dict[str, Any], *, now: dt.datetime, min_age_seconds: int) -> bool:
+    """Whether the run's own facts allow cleanup, before any pull request is read.
+
+    classify_run() preserves every run this rejects whatever its pull requests
+    say, so main() reads a commit's pull requests only for runs that pass. The
+    janitor read them for every queued and in-progress run (about 140, each a
+    GITHUB_TOKEN request, twice an hour) while nearly all were pushes, side
+    lanes or younger than a day.
+    """
+    # Commit-to-PR association also exists for main pushes and scheduled runs.
+    # Only ordinary PR runs are eligible; unknown event/state facts fail closed.
+    if run.get("event") != "pull_request" or run.get("status") not in {"queued", "in_progress"}:
+        return False
+    created_at = run.get("created_at")
+    if not created_at:
+        return False
+    return (now - parse_time(created_at)).total_seconds() >= min_age_seconds
+
+
 def classify_run(
     run: dict[str, Any], pull_requests: list[dict[str, Any]], *, now: dt.datetime, min_age_seconds: int
 ) -> str | None:
     """Return an eligible reason, or None when the run must be preserved."""
-    # Commit-to-PR association also exists for main pushes and scheduled runs.
-    # Only ordinary PR runs are eligible; unknown event/state facts fail closed.
-    if run.get("event") != "pull_request" or run.get("status") not in {"queued", "in_progress"}:
+    if not may_be_eligible(run, now=now, min_age_seconds=min_age_seconds):
         return None
     if not pull_requests or any(pr.get("state") != "closed" for pr in pull_requests):
-        return None
-    created_at = run.get("created_at")
-    if not created_at:
-        return None
-    if (now - parse_time(created_at)).total_seconds() < min_age_seconds:
         return None
     if any(pr.get("merged_at") for pr in pull_requests):
         return "merged PR"
@@ -73,9 +85,10 @@ class GitHub:
             raise RuntimeError("GitHub API request failed") from error
 
     def runs(self, status: str) -> list[dict[str, Any]]:
+        """The repository's pull_request runs in `status` (classify_run() keeps every other event)."""
         result: list[dict[str, Any]] = []
         for page in range(1, 11):
-            query = urllib.parse.urlencode({"status": status, "per_page": 100, "page": page})
+            query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page})
             payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
             page_runs = payload.get("workflow_runs", [])
             result.extend(page_runs)
@@ -119,6 +132,9 @@ def main() -> int:
     try:
         for status in ("queued", "in_progress"):
             for run in janitor.runs(status):
+                if not may_be_eligible(run, now=now, min_age_seconds=min_age_minutes * 60):
+                    continue
+                # Read per run, not per commit: a pull request can close between two runs of one commit.
                 prs = janitor.pull_requests_for_commit(run.get("head_sha", ""))
                 reason = classify_run(run, prs, now=now, min_age_seconds=min_age_minutes * 60)
                 if reason:

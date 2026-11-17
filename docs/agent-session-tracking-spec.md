@@ -302,8 +302,8 @@ panel UUIDs and re-consults the JSON store to re-bind):
 
 Phase 1 audit is DONE (see "Phase 1 audit findings"). The reliable binding
 already exists, so the remaining work is additive-then-subtractive, in
-reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
-(runtime PRs do not merge before dogfood approval).
+reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff,
+then merges under the [CLAUDE.md merge rule](../CLAUDE.md#ci-review-and-merge).
 
 - **Slice A — Versioning + pull snapshot (additive, no deletes). DONE.** Added a
   monotonic `version` to each session descriptor, bumped at one registry
@@ -388,7 +388,7 @@ reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
 - Tests run on AWS M4 Pro or GitHub Actions, never locally (test host launches a
   `cmux DEV` app).
 - Each runtime slice: tagged reload + dogfood handoff with prior-bad vs expected
-  behavior, merge only on explicit dogfood approval.
+  behavior, then merge under the CLAUDE.md merge rule.
 
 ## Open questions
 

@@ -20,8 +20,21 @@ extension TerminalSurface {
     ///   fails, which is also the state a new terminal starts in.
     @MainActor
     public func isAlternateScreenActive() -> Bool {
+        alternateScreenStateIfReadable() ?? false
+    }
+
+    /// The alternate-screen state, or `nil` when it cannot be read.
+    ///
+    /// For callers that must fail closed, such as one that writes bytes a
+    /// full-screen application would misread. Same cost and memoization rules
+    /// as ``isAlternateScreenActive()``.
+    ///
+    /// - Returns: `nil` when the surface has no live runtime or the export
+    ///   fails or cannot be parsed.
+    @MainActor
+    public func alternateScreenStateIfReadable() -> Bool? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "alternateScreenRead") else {
-            return false
+            return nil
         }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
@@ -36,9 +49,9 @@ extension TerminalSurface {
             )
         }
         defer { ghostty_string_free(exported) }
-        guard let ptr = exported.ptr, exported.len > 0 else { return false }
+        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
         let data = Data(bytes: ptr, count: Int(exported.len))
-        return Self.renderGridExportIsAlternateScreen(data)
+        return Self.renderGridExportActiveScreenIsAlternate(data)
     }
 
     /// Reads `active_screen` from a render-grid export without decoding the
@@ -48,14 +61,19 @@ extension TerminalSurface {
     /// end. Row text is JSON-escaped, so every quote inside it follows a
     /// backslash and cannot form the unescaped `"active_screen":"` key. An
     /// export in another layout falls back to a full decode.
-    static func renderGridExportIsAlternateScreen(_ data: Data) -> Bool {
+    ///
+    /// - Returns: `nil` when the export names no active screen.
+    static func renderGridExportActiveScreenIsAlternate(_ data: Data) -> Bool? {
         if data.range(of: alternateScreenMarker, options: .backwards) != nil {
             return true
         }
         if data.range(of: primaryScreenMarker, options: .backwards) != nil {
             return false
         }
-        return (try? JSONDecoder().decode(ActiveScreen.self, from: data))?.activeScreen == "alternate"
+        guard let screen = try? JSONDecoder().decode(ActiveScreen.self, from: data) else {
+            return nil
+        }
+        return screen.activeScreen == "alternate"
     }
 
     private static let alternateScreenMarker = Data(#""active_screen":"alternate""#.utf8)

@@ -1,0 +1,58 @@
+{
+  "permissionId": "perm_toolu_multi",
+  "session": "sess_claude_1",
+  "request": {
+    "sessionId": "sess_claude_1",
+    "toolCall": {
+      "toolCallId": "toolu_multi",
+      "title": "Question: Which platforms should the first release support?",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "questions": [
+          {
+            "question": "Which platforms should the first release support?",
+            "header": "Platforms",
+            "multiSelect": true,
+            "options": [
+              {
+                "label": "macOS",
+                "description": "Native AppKit app."
+              },
+              {
+                "label": "iOS",
+                "description": "iPhone and iPad."
+              },
+              {
+                "label": "Linux",
+                "description": "Terminal client only."
+              },
+              {
+                "label": "Web",
+                "description": "Read-only viewer in the browser."
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "claude": {
+          "tool": "AskUserQuestion",
+          "interactive": true
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "allow_once",
+        "name": "Answer",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "reject_once",
+        "name": "Reject",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}

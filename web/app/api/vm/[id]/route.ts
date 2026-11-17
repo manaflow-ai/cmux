@@ -74,6 +74,9 @@ export async function GET(
         })),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
         agentUpdates: vm.agentUpdates,
+        idlePauseMinutes: vm.idlePauseMinutes,
+        idlePause: vm.idlePause,
+        pauseReason: vm.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: vm.cmuxTuiContract,

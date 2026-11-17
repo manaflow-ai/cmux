@@ -1,5 +1,6 @@
 import CmuxAgentJournal
 import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -101,6 +102,58 @@ struct AgentMessageHookClaimTests {
         #expect(Set(readIDs) == Set([queued.id, delivered.id]))
         #expect(AgentMessageCenter.store.message(id: queued.id)?.state == .read)
         #expect(AgentMessageCenter.store.message(id: delivered.id)?.state == .read)
+    }
+
+    @Test("Invalid Kiro process claims leave queued messages untouched", arguments: [0, -1, Int(Int32.max) + 1])
+    func invalidKiroProcessDoesNotClaim(pid: Int) async throws {
+        let surfaceID = UUID()
+        let queued = try appendMessage(to: surfaceID, body: "keep for the active Kiro")
+        let response = await TerminalController.shared.agentMessageResponse(ControlRequest(
+            id: .string("invalid-kiro"),
+            method: "agent.message.claim",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "agent_pid": .int(Int64(pid)),
+                "via": .string("kiro.stop"),
+            ]
+        ))
+        let result = try decodeResult(response)
+        #expect((result["text"] as? String) == "")
+        #expect(AgentMessageCenter.store.message(id: queued.id)?.state == .queued)
+    }
+
+    @MainActor
+    @Test("Kiro inbox ownership requires the recorded process birth time")
+    func kiroRuntimeOwnershipRejectsReusedOrMissingProcessIdentity() {
+        let surfaceID = UUID()
+        let identity = AgentPIDProcessIdentity(pid: 123, startSeconds: 100, startMicroseconds: 2)
+        var runtime = Workspace.DetachedAgentRuntimeState(
+            panelId: surfaceID,
+            statusEntries: [:],
+            agentPIDs: ["kiro.session": identity.pid],
+            agentPIDProcessIdentities: ["kiro.session": identity],
+            agentPIDKeys: ["kiro.session"]
+        )
+        #expect(runtime.ownsKiroProcess(identity))
+        #expect(!runtime.ownsKiroProcess(AgentPIDProcessIdentity(
+            pid: identity.pid, startSeconds: 101, startMicroseconds: 2
+        )))
+        runtime.agentPIDProcessIdentities.removeAll()
+        #expect(!runtime.ownsKiroProcess(identity))
+    }
+
+    @Test("Expired claims do not acknowledge or consume inbox messages")
+    func expiredClaimPreservesMessages() async throws {
+        let surfaceID = UUID()
+        let previous = try appendMessage(to: surfaceID, body: "delivered")
+        _ = AgentMessageCenter.store.claimQueued(recipientSurfaceId: surfaceID.uuidString, via: "kiro.stop")
+        let queued = try appendMessage(to: surfaceID, body: "waiting")
+        _ = await TerminalController.shared.agentMessageClaim(
+            params: ["surface_id": surfaceID.uuidString, "mark_delivered_read": true, "via": "kiro.stop"],
+            deadline: .now
+        )
+        #expect(AgentMessageCenter.store.message(id: previous.id)?.state == .delivered)
+        #expect(AgentMessageCenter.store.message(id: queued.id)?.state == .queued)
     }
 
     private func appendMessage(to surfaceID: UUID, body: String) throws -> AgentMessage {

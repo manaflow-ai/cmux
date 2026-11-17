@@ -30,6 +30,7 @@ extension HostAccountFlow {
                 self.teamObservationRevision &+= 1
                 self.syncReceivedInvitationsPolling()
                 self.syncAnalytics()
+                self.refreshBillingPlanAfterTeamChange()
                 self.observeCoordinator()
             }
         }
@@ -110,7 +111,7 @@ extension HostAccountFlow {
             )
         case .go:
             return String(
-                format: String(localized: "sidebar.account.teamWithGoPlan", defaultValue: "%1$@ · Go"),
+                format: String(localized: "sidebar.account.teamWithGoPlan", defaultValue: "%1$@ · Plus"),
                 team
             )
         case .free, nil:

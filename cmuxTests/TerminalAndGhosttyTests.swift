@@ -1551,6 +1551,18 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertTrue(methods.contains("mobile.browser.stream.start"))
         XCTAssertTrue(methods.contains("mobile.simulator.stream.start"))
         XCTAssertTrue(methods.contains("mobile.chat.sessions"))
+        XCTAssertTrue(Set(methods).isSuperset(of: [
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.mark_read",
+            "chief.stop",
+            "chief.approve",
+            "chief.answer",
+            "chief.debug",
+        ]))
     }
 #endif
 
@@ -3127,6 +3139,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 
+    func testForkDetected() {
+        let env = environment(existingPaths: ["/Applications/Fork.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.fork.isAvailable(in: env))
+    }
+
     func testAvailableTargetsFallbackToApplicationLookupForVSCodeAliasOutsideApplications() {
         let vscodePath = "/Volumes/Tools/Code.app"
         let env = environment(
@@ -3154,6 +3171,18 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         )
 
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
+    }
+
+    func testForkDetectedViaApplicationLookupOutsideApplications() {
+        let forkPath = "/Volumes/Tools/Fork.app"
+        let env = environment(
+            existingPaths: [forkPath],
+            applicationPathsByName: [
+                "Fork": forkPath,
+            ]
+        )
+
+        XCTAssertTrue(TerminalDirectoryOpenTarget.fork.isAvailable(in: env))
     }
 
     func testCommandPaletteShortcutsExcludeGenericIDEEntry() {

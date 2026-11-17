@@ -2714,7 +2714,10 @@ mod tests {
     #[test]
     fn archived_non_output_replay_rejects_compacted_gaps_before_kind_filtering() {
         let registry = WorkspaceRegistry::in_memory("archive-gap-validation").unwrap();
-        for (id, start, end) in [("gap-first", 1_i64, 1_i64), ("gap-second", 3_i64, 3_i64)] {
+        // `journal_segments.sha256` is UNIQUE, so each fixture segment needs its own digest.
+        for (id, start, end, digest) in
+            [("gap-first", 1_i64, 1_i64, 1_u8), ("gap-second", 3_i64, 3_i64, 2_u8)]
+        {
             registry
                 .connection
                 .execute(
@@ -2722,7 +2725,7 @@ mod tests {
                        segment_id, start_sequence, end_sequence, record_count, codec,
                        content, uncompressed_bytes, sha256, sealed_at_ms
                      ) VALUES(?1, ?2, ?3, 1, 'gzip-json-v1', X'00', 1, ?4, 1)",
-                    params![id, start, end, vec![0_u8; 32]],
+                    params![id, start, end, vec![digest; 32]],
                 )
                 .unwrap();
             registry

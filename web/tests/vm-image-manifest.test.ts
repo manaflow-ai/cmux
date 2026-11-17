@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
 import {
@@ -45,6 +47,36 @@ const passedEntry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManife
   notes: "cmux devbox epoch test",
   ...overrides,
 });
+
+test("refuses snapshot promotion without a bake record", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "devbox-promotion-"));
+  const web = path.resolve(import.meta.dirname, "..");
+  const manifest = path.join(web, "services/vms/images/manifest.json");
+  const before = readFileSync(manifest, "utf8");
+  // Keep the old implementation's preflight offline: the regression must
+  // expose invented provenance, rather than fail on a GitHub fetch.
+  const git = path.join(directory, "git");
+  writeFileSync(git, '#!/bin/sh\nif [ "$1" = rev-parse ]; then printf "%s\\n" 0000000000000000000000000000000000000000; fi\n');
+  chmodSync(git, 0o755);
+  try {
+    const result = await runChild(process.execPath, [
+      "scripts/promote-devbox-image.ts", "freestyle",
+      "--image", "sh-unrecorded-snapshot", "--no-desktop",
+      "--skip-verify", "--sizes", "none", "--pointer-slug", "none", "--dry-run",
+    ], {
+      cwd: web,
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, CMUX_BAKE_ALLOW_BRANCH: "1", FREESTYLE_API_KEY: undefined },
+      timeout: 20_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("--image cannot establish snapshot provenance");
+    expect(result.stderr).toContain("--bake-result");
+    expect(readFileSync(manifest, "utf8")).toBe(before);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 30_000);
 
 describe("checked-in image manifest", () => {
   test("holds its invariants", () => {
@@ -355,7 +387,7 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     // Regression: a schema-1 record carries no Dockerfile instruction hash,
     // so the checkout's instructions must equal those at repoCommit before
     // schema 2 may claim them; an unavailable commit is not proof either.
-    const bakedDockerfile = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    const bakedDockerfile = dockerfile.replace(/^    e2fsprogs \\$/m, "    e2fsprogs \\\n    cowsay \\");
     expect(bakedDockerfile).not.toBe(dockerfile);
     const changed = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { dockerfileAt: () => bakedDockerfile });
     expect(changed.upgraded).toEqual([]);

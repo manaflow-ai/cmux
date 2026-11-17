@@ -43,14 +43,6 @@ struct CloudSidebarSurfaceRegressionTests {
         let accessibilityLabel = snapshot.accessibilityLabel(index: 0, workspaceCount: 1)
         #expect(accessibilityLabel.contains("Cloud workspace on cloud-sidebar-vm"))
         #expect(!accessibilityLabel.contains("local-checkout"))
-        let sidebarDecision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: nil,
-            next: snapshot,
-            force: false,
-            contextMenuVisible: false
-        )
-        #expect(sidebarDecision.workspaceSnapshotStorage == snapshot)
-        #expect(sidebarDecision.pendingWorkspaceSnapshot == nil)
 
         let manager = TabManager(
             initialWorkspaceTitle: "Cloud",

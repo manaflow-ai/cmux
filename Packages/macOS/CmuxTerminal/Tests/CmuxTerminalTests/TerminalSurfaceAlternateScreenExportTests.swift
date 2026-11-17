@@ -16,24 +16,29 @@ struct TerminalSurfaceAlternateScreenExportTests {
     }
 
     @Test func readsTheAlternateScreen() {
-        #expect(TerminalSurface.renderGridExportIsAlternateScreen(export(activeScreen: "alternate")))
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(export(activeScreen: "alternate")) == true)
     }
 
     @Test func readsThePrimaryScreen() {
-        #expect(!TerminalSurface.renderGridExportIsAlternateScreen(export(activeScreen: "primary")))
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(export(activeScreen: "primary")) == false)
     }
 
     /// Row text is JSON-escaped, so text that spells the key cannot be
     /// mistaken for it.
     @Test func ignoresRowTextThatSpellsTheKey() {
         let data = export(activeScreen: "primary", rowText: #""active_screen":"alternate""#)
-        #expect(!TerminalSurface.renderGridExportIsAlternateScreen(data))
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(data) == false)
     }
 
     /// An export written with whitespace still decodes through the fallback.
     @Test func fallsBackToDecodingAnotherLayout() {
         let spaced = Data(#"{ "row_spans": [], "active_screen": "alternate" }"#.utf8)
-        #expect(TerminalSurface.renderGridExportIsAlternateScreen(spaced))
-        #expect(!TerminalSurface.renderGridExportIsAlternateScreen(Data("not json".utf8)))
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(spaced) == true)
+    }
+
+    /// A caller that fails closed can tell an unreadable export from the
+    /// primary screen.
+    @Test func reportsAnUnreadableExportAsUnknown() {
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(Data("not json".utf8)) == nil)
     }
 }

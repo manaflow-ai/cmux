@@ -52,6 +52,16 @@ credentials, host-write access, network access or writable caches shared with
 release jobs. The verification scripts do not provide that sandbox. A local pass
 is not a supply-chain safety attestation and does not replace required CI.
 
+### Reviewed fork PRs
+
+A reviewed checkout can come from a fork. After reviewing the exact source that
+merged-tree checks execute, run `scripts/gh-merge-green OWNER/REPO#NUMBER
+--trust-fork-head FULL_SHA --squash` from the trusted helper checkout. The flag
+records source trust for that commit only; a different current head is refused.
+It does not waive CI, frozen paths, mergeability, or merged-tree validation.
+No coordinator acknowledgement or duplicate upstream PR is needed solely because
+the branch is in a fork. Leave unfamiliar code untrusted.
+
 ## PR check progression
 
 PR workflows run Fast static checks beside workflow guards and routed Linux checks.

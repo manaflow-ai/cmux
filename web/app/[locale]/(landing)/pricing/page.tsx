@@ -68,7 +68,7 @@ import {
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
-import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -162,9 +162,8 @@ const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
     currentPlanSnapshot(),
     searchParams ?? Promise.resolve({}),
   ]);
-  // Paid subscribers cannot buy Go. Do not call PostHog for their page view.
-  const goPlanEnabled =
-    !snapshot.isPro && (await isGoPlanEnabled(snapshot.userId));
+  // Plus is offered to every visitor, paid subscribers included.
+  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   return { snapshot, query, goPlanEnabled };
 });
 
@@ -240,7 +239,7 @@ function PricingContent({
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
-  const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
+  const showGo = isGo || goPlanEnabled;
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
   // A link into /pricing may name its own origin (the CLI trial notice, a
   // campaign with utm_* tags); that beats the page default so the checkout
@@ -332,7 +331,7 @@ function PricingContent({
 
       {showGo ? (
         <>
-          {/* Go: one small, capped Cloud VM for focused work. */}
+          {/* Plus: one saved Cloud VM with Pro sizes and no monthly hour cap. */}
           <PlanCard
             name={t("go.name")}
             price={`$${GO_PRICING_USD.month.billedAmount}`}
@@ -370,7 +369,7 @@ function PricingContent({
         name={t("pro.name")}
         surface="public_pricing"
         monthlyOnly={isGo}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
@@ -399,7 +398,7 @@ function PricingContent({
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
         monthlyOnly={false}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{
           month: withCheckoutInterval(maxCheckoutHref, "month"),
@@ -448,6 +447,25 @@ function PricingContent({
           <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
             {t("free.cta")}
           </PrimaryLink>
+        ),
+        go: appStoreAction ? appStoreAction("compact") : isGo ? (
+          canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size="compact">
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : (
+            <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+          )
+        ) : (
+          <PricingCheckoutButton
+            href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            location="pricing_compare_header"
+            plan="go"
+            size="compact"
+          >
+            {t("go.cta")}
+          </PricingCheckoutButton>
         ),
         pro: appStoreAction ? appStoreAction("compact") : isProCurrent ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>

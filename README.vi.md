@@ -67,7 +67,7 @@ Sidebar hiển thị nhánh git, trạng thái/số PR liên kết, thư mục l
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> tạo workspace cho máy từ xa. Các pane trình duyệt định tuyến qua mạng từ xa nên localhost hoạt động bình thường. Kéo ảnh vào phiên từ xa để upload qua scp.
+<code>cmux ssh user@remote</code> tạo workspace cho máy từ xa. Truyền <code>--command 'omp "investigate auth"'</code> để chạy một lệnh khởi đầu một lần trong terminal từ xa đầu tiên của nó. Các pane trình duyệt định tuyến qua mạng từ xa nên localhost hoạt động bình thường. Kéo ảnh vào phiên từ xa để upload qua scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -117,6 +117,25 @@ brew upgrade --cask cmux
 ```
 
 Lần mở đầu tiên, macOS có thể yêu cầu bạn xác nhận mở app từ nhà phát triển được xác định. Nhấn **Open** để tiếp tục.
+
+### Tự động hoàn thành shell
+
+Cask Homebrew cài đặt tự động hoàn thành cho zsh, bash và fish. Hãy mở một shell mới sau khi cài. Nếu nó không được nạp, hãy kiểm tra xem các thư mục tự động hoàn thành của Homebrew đã được nối vào shell của bạn chưa (xem [tài liệu tự động hoàn thành shell của Homebrew](https://docs.brew.sh/Shell-Completion)).
+
+Nếu bạn cài cmux theo cách khác, hãy thêm dòng tương ứng vào tệp khởi động shell của bạn, rồi mở một shell mới:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## Vì sao cmux?
 
@@ -363,7 +382,7 @@ Có, cmux miễn phí để dùng. Mã nguồn có sẵn trên [GitHub](https://
 
 ### Tôi có thể hỗ trợ cmux như thế nào?
 
-cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn ủng hộ việc phát triển và có quyền truy cập sớm vào những thứ sắp tới, gồm cmux AI, app iOS, và Cloud VMs, hãy xem [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn ủng hộ việc phát triển và có quyền truy cập sớm vào những thứ sắp tới, gồm cmux AI, app iOS, và Cloud VMs, hãy xem [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### Tôi có yêu cầu tính năng hoặc tìm thấy lỗi?
 
@@ -403,18 +422,11 @@ Cách tham gia:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="Mã QR WeChat để tham gia cộng đồng cmux" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn hỗ trợ phát triển và có quyền truy cập sớm vào những thứ sắp tới:
 
-**[Lấy Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Ưu tiên yêu cầu tính năng/sửa lỗi**
-- **Truy cập sớm: cmux AI cung cấp ngữ cảnh cho mọi workspace, tab và panel**
-- **Truy cập sớm: ứng dụng iOS với terminal đồng bộ giữa desktop và điện thoại**
-- **Truy cập sớm: Cloud VM**
-- **Truy cập sớm: Voice mode**
-- **iMessage/WhatsApp cá nhân của tôi**
+**[Lấy cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Giấy phép
 

@@ -184,10 +184,14 @@ final class ScrollbackTestTerminal {
 
     /// The exact bytes written to the PTY peer before the barrier, including
     /// startup input, which Ghostty writes before any later input.
-    func inputBytesBeforeBarrier() async throws -> Data {
+    func inputBytesBeforeBarrier(orderedManualInput: Bool = false) async throws -> Data {
         let runtime = try #require(surface.surface)
         let marker = "CMUX_SCROLL_BARRIER_\(UUID().uuidString)"
-        marker.withCString { ghostty_surface_text(runtime, $0, UInt(marker.utf8.count)) }
+        if orderedManualInput {
+            #expect(surface.enqueueManualInputBytes(Data(marker.utf8)))
+        } else {
+            marker.withCString { ghostty_surface_text(runtime, $0, UInt(marker.utf8.count)) }
+        }
         var bytes = Data()
         for await input in inputs {
             guard case let .bytes(chunk) = input else {

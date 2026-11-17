@@ -69,7 +69,7 @@ Die Seitenleiste zeigt Git-Branch, verknüpften PR-Status/Nummer, Arbeitsverzeic
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> erstellt einen Arbeitsbereich für eine entfernte Maschine. Browser-Bereiche werden über das entfernte Netzwerk geleitet, sodass localhost einfach funktioniert. Ziehen Sie ein Bild in eine entfernte Sitzung, um es per scp hochzuladen.
+<code>cmux ssh user@remote</code> erstellt einen Arbeitsbereich für eine entfernte Maschine. Übergeben Sie <code>--command 'omp "investigate auth"'</code>, um einmalig einen ersten Befehl im ersten entfernten Terminal auszuführen. Browser-Bereiche werden über das entfernte Netzwerk geleitet, sodass localhost einfach funktioniert. Ziehen Sie ein Bild in eine entfernte Sitzung, um es per scp hochzuladen.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 Beim ersten Start fordert macOS Sie möglicherweise auf, das Öffnen einer App von einem identifizierten Entwickler zu bestätigen. Klicken Sie auf **Öffnen**, um fortzufahren.
+
+### Shell-Vervollständigung
+
+Das Homebrew-Cask installiert die Vervollständigung für zsh, bash und fish. Starten Sie nach der Installation eine neue Shell. Falls die Vervollständigung nicht geladen wird, stellen Sie sicher, dass die Vervollständigungsverzeichnisse von Homebrew in Ihrer Shell eingebunden sind (siehe [Homebrews Dokumentation zur Shell-Vervollständigung](https://docs.brew.sh/Shell-Completion)).
+
+Wenn Sie cmux anders installiert haben, fügen Sie die passende Zeile zur Startdatei Ihrer Shell hinzu und starten Sie eine neue Shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## Warum cmux?
 
@@ -388,7 +407,7 @@ Ja, cmux ist kostenlos nutzbar. Der Quellcode ist auf [GitHub](https://github.co
 
 ### Wie kann ich cmux unterstützen?
 
-cmux ist kostenlos und Open Source und wird es immer bleiben. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten, einschließlich cmux AI, der iOS-App und Cloud-VMs, schauen Sie sich die [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition) an.
+cmux ist kostenlos und Open Source und wird es immer bleiben. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten, einschließlich cmux AI, der iOS-App und Cloud-VMs, schauen Sie sich die [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro) an.
 
 ### Ich habe einen Feature-Wunsch oder einen Bug gefunden?
 
@@ -428,18 +447,11 @@ Möglichkeiten, sich einzubringen:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-Code zum Beitritt zur cmux-Community" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux ist kostenlos, Open Source und wird es immer sein. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten:
 
-**[Founder's Edition erhalten](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Priorisierte Feature-Requests/Bugfixes**
-- **Früher Zugang: cmux AI, das Ihnen Kontext zu jedem Arbeitsbereich, Tab und Panel gibt**
-- **Früher Zugang: iOS-App mit zwischen Desktop und Telefon synchronisierten Terminals**
-- **Früher Zugang: Cloud-VMs**
-- **Früher Zugang: Sprachmodus**
-- **Meine persönliche iMessage/WhatsApp**
+**[cmux Pro erhalten](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Lizenz
 
