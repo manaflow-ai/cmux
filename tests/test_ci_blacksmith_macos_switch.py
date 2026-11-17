@@ -14,7 +14,10 @@ retry_runner. Main's own app-host 1/7, 3/7 and 6/7 went red the same way.
 
 This guard evaluates every macOS runs-on in .github/workflows with the switch
 off, for a same-repository run (push, pull_request, schedule, workflow_dispatch,
-as far as the workflow or a reusable workflow's callers run for them; attempts 1 to 3; a person or github-actions[bot] as the triggering actor), the
+as far as the workflow or a reusable workflow's callers run for them; attempts 1 to 3; a person or github-actions[bot] as the triggering actor, less the bot's attempt 3:
+the owned-pool rescue's escape, which test_seed_derived_data's
+test_no_retry_attempt_of_any_workflow_takes_an_owned_label keeps on a paid runner so the rescue cannot
+loop), the
 owned pools on (CI_PR_POOL_OWNED=1, the side lanes set), every runner variable
 unset, every input at its declared default, every picker output empty (a picker that chose nothing, the case its
 fallback is for). A job whose runs-on still names a Blacksmith macOS label, a
@@ -61,6 +64,9 @@ paid = _load("test_ci_paid_queue_pin")
 
 BLACKSMITH_MACOS = re.compile(r"^blacksmith-\d+vcpu-macos-[a-z0-9.-]+$")
 SWITCH = "vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER"
+# What a workflow writes: the rescue's escape (escape()) still takes the paid label.
+GATED_SWITCH = ("vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || "
+                "github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER")
 SIDE = "glaeda-side-std-xcode-26.6"
 LIGHT = "glaeda-side-light-xcode-26.6"
 RUNNER_POOLS = json.dumps({
@@ -310,10 +316,17 @@ def macos_jobs() -> dict[tuple[str, str], tuple[str, tuple[str, ...]]]:
     return jobs
 
 
+def escape(attempt: str, actor: str) -> bool:
+    """The owned-pool rescue's re-run past attempt 2: it leaves the owned Macs for a paid runner on purpose."""
+    return int(attempt) > 2 and actor == "github-actions[bot]"
+
+
 def blacksmith_route(workflow: str, runs_on: str, events: tuple[str, ...] = EVENTS) -> str | None:
     """The first same-repository scenario in which runs-on names a Blacksmith macOS label, if any."""
     defaults = input_defaults(workflow)
     for event, attempt, actor in itertools.product(events, ATTEMPTS, ACTORS):
+        if escape(attempt, actor):
+            continue
         context = Context(workflow, event, attempt, actor, defaults)
         try:
             picked = labels(runs_on, context)
@@ -339,7 +352,7 @@ class BlacksmithMacosSwitch(unittest.TestCase):
         unlisted = {job: why for job, why in self.routes.items() if job not in EXEMPT}
         self.assertFalse(unlisted, "\n".join(
             ["with vars.CI_BLACKSMITH_MACOS off, these same-repository macOS jobs still name a Blacksmith macOS "
-             f"label. Put `{SWITCH} ||` ahead of the Blacksmith fallback, inside the job's own trust gate "
+             f"label. Put `{GATED_SWITCH} ||` ahead of the Blacksmith fallback, inside the job's own trust gate "
              "(CI_PR_POOL_OWNED, the trusted events), as feat-cmux-next does, or list the job in NEEDS_BLACKSMITH "
              "with the capability the owned Macs lack:"]
             + [f"  {path}:{job}: {why}" for (path, job), why in sorted(unlisted.items())]))
@@ -377,6 +390,11 @@ class BlacksmithMacosSwitch(unittest.TestCase):
                  "(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]') && "
                  "inputs.pr_retry_runner || inputs.pr_shard_runner }}")
         self.assertIsNone(blacksmith_route("x.yml", shard))
+        escaping = switched.replace(SWITCH, GATED_SWITCH)
+        self.assertIsNone(blacksmith_route("x.yml", escaping))
+        self.assertEqual(labels(escaping, Context("x.yml", "push", "3", "github-actions[bot]")),
+                         ["blacksmith-6vcpu-macos-15"])
+        self.assertEqual(labels(escaping, Context("x.yml", "push", "3", "octocat")), [SIDE])
 
 
 if __name__ == "__main__":
