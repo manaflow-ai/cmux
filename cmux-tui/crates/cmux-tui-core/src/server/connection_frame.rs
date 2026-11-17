@@ -293,6 +293,8 @@ pub(super) fn handle_request_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
+    // Freed memory goes back to the system once requests stop (malloc_quiet_trim.rs).
+    cmux_tui_platform::malloc_quiet_trim::note_activity();
     let commands = mux.connection_stats().commands();
     // What the client says it is, for the counters only (never a trust decision), before its
     // reply: the client's next line already counts under it.
