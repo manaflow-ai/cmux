@@ -192,7 +192,6 @@ export type GitHubPickerStore = ReturnType<typeof createGitHubPicker>;
 
 let pageStore: GitHubPickerStore | undefined;
 
-/// The page's one store, made on first use.
 function pagePicker(): GitHubPickerStore {
   if (!pageStore) pageStore = createGitHubPicker();
   return pageStore;
