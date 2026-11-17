@@ -30,20 +30,37 @@ import Testing
         return (view, layer)
     }
 
-    /// What is wrong with where the dim is, against the panes as they show: it must leave `pane` clear and cover the
-    /// middle of each of `others`.
-    static func misses(_ dim: (view: NSView, layer: CALayer), clear pane: PaneID, over others: [PaneID], in harness: Commit.Harness) throws -> [String] {
+    /// Where the panes of one layout show, in the layout root's coordinates: the content rect of the pane that the dim
+    /// must leave clear, and the middle of each pane that it must cover.
+    struct Places {
+        var clear: (pane: PaneID, hole: CGRect)
+        var covered: [(pane: PaneID, middle: CGPoint)]
+    }
+
+    /// The places of `pane` and `others` as they show now. Each of them must have its host in the layout: a zoom takes
+    /// the panes it covers out of the layout's hosts in its own turn, so a test of a zoom reads the places before it.
+    static func places(clear pane: PaneID, over others: [PaneID], in harness: Commit.Harness) throws -> Places {
         let root = harness.root
-        let parts = (dim.layer.sublayers ?? []).map { $0.frame.offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY) }
         let host = try #require(root.context.hosts[pane], "\(pane) has no host")
-        let hole = root.convert(host.contentRect, from: host)
-        var found: [String] = []
-        for part in parts where part.intersects(hole.insetBy(dx: 1, dy: 1)) { found.append("the dim covers \(pane) at \(part)") }
+        var covered: [(pane: PaneID, middle: CGPoint)] = []
         for other in others {
             let shown = try #require(root.context.hosts[other], "\(other) has no host")
             let frame = root.convert(shown.bounds, from: shown)
-            let middle = CGPoint(x: frame.midX, y: frame.midY)
-            if !parts.contains(where: { $0.contains(middle) }) { found.append("the dim does not cover \(other)") }
+            covered.append((other, CGPoint(x: frame.midX, y: frame.midY)))
+        }
+        return Places(clear: (pane, root.convert(host.contentRect, from: host)), covered: covered)
+    }
+
+    /// What is wrong with where the dim is, against the places where the panes show: it must leave the one pane clear
+    /// and cover the middle of each other pane.
+    static func misses(_ dim: (view: NSView, layer: CALayer), _ places: Places) -> [String] {
+        let parts = (dim.layer.sublayers ?? []).map { $0.frame.offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY) }
+        var found: [String] = []
+        for part in parts where part.intersects(places.clear.hole.insetBy(dx: 1, dy: 1)) {
+            found.append("the dim covers \(places.clear.pane) at \(part)")
+        }
+        for other in places.covered where !parts.contains(where: { $0.contains(other.middle) }) {
+            found.append("the dim does not cover \(other.pane)")
         }
         return found
     }
@@ -64,6 +81,8 @@ import Testing
         let duration = try Self.fade()
         let grid = Commit.Rest(harness.model.screens, in: screen, style: style)
         #expect(Self.dim(harness) == nil, "a dim shows at rest")
+        // The grid's places, read while each pane has its host: the zoom's own turn must leave every pane there.
+        let places = try Self.places(clear: "p4", over: ["p1", "p2", "p3"], in: harness)
 
         harness.model.apply(screens: Zoom.screens(zoomedOn: "p4"))
         let zoomed = Commit.Rest(harness.model.screens, in: screen, style: style)
@@ -72,7 +91,7 @@ import Testing
         #expect(grid.isShown(by: Commit.shown(screen)), "the zoom's own turn changed what the screen shows")
         let dim = try #require(Self.dim(harness), "the zoom's own turn shows no dim over the other panes")
         #expect(dim.layer.opacity > 0.05 && dim.layer.opacity < 0.9, "the dim's strength is \(dim.layer.opacity)")
-        let off = try Self.misses(dim, clear: "p4", over: ["p1", "p2", "p3"], in: harness)
+        let off = Self.misses(dim, places)
         #expect(off.isEmpty, "\(off)")
 
         // Each frame shows the grid, whole, under the dim, until one frame shows the zoomed pane alone with no dim.
@@ -119,7 +138,8 @@ import Testing
         #expect(grid.isShown(by: Commit.shown(screen)), "the first frame after the unzoom does not show every pane at its place")
         let dim = try #require(Self.dim(harness), "the frame that shows the unzoom shows no dim over the other panes")
         #expect(dim.layer.opacity == 0, "the dim does not fade out: it goes to \(dim.layer.opacity)")
-        let off = try Self.misses(dim, clear: "p4", over: ["p1", "p2", "p3"], in: harness)
+        let places = try Self.places(clear: "p4", over: ["p1", "p2", "p3"], in: harness)
+        let off = Self.misses(dim, places)
         #expect(off.isEmpty, "\(off)")
         #expect(asks, "the frame that shows the unzoom asks for no frame for the dim's fade")
         #expect(!harness.root.isInLayoutMotion, "the dim's fade counts as a motion of the layout")
