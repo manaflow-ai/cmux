@@ -66,7 +66,11 @@ main() {
   APP="$out/copy/$(basename "$found")"
   EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
   STUB="$(find_stub "$APP")"
-  echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB")"
+  # The app's code on a stub-executable build (cmux#44204): its link count and ctime are recorded beside the
+  # executable's, so a run shows whether a scan moved onto it.
+  FW="$APP/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"
+  [[ -e "$FW" ]] || FW=""
+  echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB") framework_bytes=$([[ -n "$FW" ]] && stat -L -f %z "$FW")"
   OUT="$out"
   # The copy's first exec pays its first-look cost (3.4 to 4.4 s, not this study's subject); the priming launch makes
   # the home's state, so every launch after it is a person's relaunch.
@@ -97,7 +101,8 @@ for arm in dict.fromkeys(r["arm"] for r in rows if r.get("role") == "B"):
     b = [r for r in rows if r["arm"] == arm and r.get("role") == "B" and r.get("main_start") is not None]
     table = {"arm": arm, "n": len(b)}
     for key in ("main_start", "pageins", "system_pageins", "user_ms", "system_ms", "disk_read_kb", "resident_before",
-                "resident_at_main", "pages_touched"):
+                "resident_at_main", "pages_touched", "fw_resident_before", "fw_resident_at_main", "fw_pages_touched",
+                "fw_nlink", "fw_ctime_age_s"):
         table[key] = med([r.get(key) for r in b])
     for key in ("nlink", "ctime_age_s"):
         table[key] = med([r.get(key) for r in b])
@@ -176,6 +181,7 @@ measured() {
   local before after
   before="$(checker_cpu)"
   B_STATE="\"nlink\": $(stat -f %l "$EXE"), \"ctime_age_s\": $(($(date +%s) - $(stat -f %c "$EXE")))"
+  [[ -n "$FW" ]] && B_STATE="$B_STATE, \"fw_nlink\": $(stat -L -f %l "$FW"), \"fw_ctime_age_s\": $(($(date +%s) - $(stat -L -f %c "$FW")))"
   case "$1" in
     open) launch open B 0 term ;;
     exec) launch exec B ;;
