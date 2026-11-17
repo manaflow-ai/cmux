@@ -1,52 +1,46 @@
 //! Which stream a viewer gets for a terminal: what each program needs drawn, not a 1:1 PTY
 //! mirror (Leo, 2026-11-16, about the phone: "surely we dont need to stream the [...] thing").
+//! Every terminal is calculated; only an exception falls back to its bytes (Leo, 2026-11-17:
+//! "Surely we can just calculate a f***ing terminal and resize whatever needs exceptions when
+//! it comes Fall back if need be").
 //!
 //! - [`Adapter::Agent`]: Claude Code, Codex and opencode, the cell deltas of the hybrid stream
 //!   ([`crate::stream`]), lean on the wire ([`crate::lean`]).
-//! - [`Adapter::Shell`]: a plain shell, the same lean frames, which carry its lines (changed
-//!   cells, scrolls as a shift) and its cursor. A full-screen program it runs (the alternate
-//!   screen, or mouse tracking) goes as PTY bytes until it ends: the viewer's terminal then
+//! - [`Adapter::Lines`]: every other program (a shell, a REPL, a build, `tail -f`, a terminal
+//!   whose program is not known), the same lean frames, which carry its lines (changed cells,
+//!   scrolls as a shift) and its cursor. The exception is a full-screen program (the alternate
+//!   screen, or mouse tracking): it goes as PTY bytes until it ends, so the viewer's terminal
 //!   tracks the modes that program's input needs. [`FullScreenScan`] finds the byte where one
 //!   starts.
-//! - [`Adapter::Pty`]: anything else, the PTY bytes as before.
+//! - [`Adapter::Pty`]: a viewer that did not declare lean frames, the PTY bytes as before.
 
 /// The stream a terminal's viewer gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Adapter {
     Agent,
-    Shell,
+    Lines,
     Pty,
 }
 
 /// The agent adapters (`cmux_agent` hook `adapter.id`) drawn as cell deltas.
 pub const AGENT_CLIS: &[&str] = &["claude", "claude-code", "codex", "opencode"];
 
-/// Shells, by executable name, whose terminal gets [`Adapter::Shell`].
-pub const SHELLS: &[&str] =
-    &["bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh"];
-
 impl Adapter {
-    /// The adapter for a terminal whose running agent (its hook's adapter id) is `agent` and
-    /// whose own program (the PTY's child) is the executable at `program`: a path, or an
-    /// `argv[0]` (a login shell's starts with `-`).
-    pub fn of(agent: Option<&str>, program: Option<&str>) -> Adapter {
+    /// The adapter for a terminal whose running agent (its hook's adapter id) is `agent`. Any
+    /// other terminal is calculated as lines, whatever its program.
+    pub fn of(agent: Option<&str>) -> Adapter {
         if agent.is_some_and(|agent| AGENT_CLIS.contains(&agent)) {
             return Adapter::Agent;
         }
-        let name = program
-            .map(|program| program.rsplit('/').next().unwrap_or(program).trim_start_matches('-'));
-        if name.is_some_and(|name| SHELLS.contains(&name)) {
-            return Adapter::Shell;
-        }
-        Adapter::Pty
+        Adapter::Lines
     }
 }
 
-/// DEC private modes that make a program full-screen for [`Adapter::Shell`]: the alternate
+/// DEC private modes that make a program full-screen for [`Adapter::Lines`]: the alternate
 /// screen (47, 1047, 1049) and mouse tracking (1000, 1002, 1003).
 pub const FULL_SCREEN_MODES: &[u16] = &[47, 1047, 1049, 1000, 1002, 1003];
 
-/// DEC private modes that change what the viewer's keys and pastes send, which a shell's lean
+/// DEC private modes that change what the viewer's keys and pastes send, which lean
 /// frames do not carry: cursor keys (1), focus events (1004), bracketed paste (2004) and mouse
 /// encodings (1005, 1006, 1015). [`FullScreenScan::take_modes`] hands their sets and resets on.
 pub const INPUT_MODES: &[u16] = &[1, 1004, 2004, 1005, 1006, 1015];
@@ -205,15 +199,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agents_shells_and_everything_else() {
-        assert_eq!(Adapter::of(Some("claude"), Some("/bin/zsh")), Adapter::Agent);
-        assert_eq!(Adapter::of(Some("opencode"), None), Adapter::Agent);
-        assert_eq!(Adapter::of(None, Some("/bin/zsh")), Adapter::Shell);
-        assert_eq!(Adapter::of(None, Some("-zsh")), Adapter::Shell);
-        assert_eq!(Adapter::of(Some("vim"), Some("bash")), Adapter::Shell);
-        assert_eq!(Adapter::of(None, Some("/usr/bin/htop")), Adapter::Pty);
-        assert_eq!(Adapter::of(None, Some("sleep")), Adapter::Pty);
-        assert_eq!(Adapter::of(None, None), Adapter::Pty);
+    fn agents_and_every_other_program() {
+        assert_eq!(Adapter::of(Some("claude")), Adapter::Agent);
+        assert_eq!(Adapter::of(Some("opencode")), Adapter::Agent);
+        assert_eq!(Adapter::of(Some("vim")), Adapter::Lines);
+        assert_eq!(Adapter::of(None), Adapter::Lines);
     }
 
     #[test]
