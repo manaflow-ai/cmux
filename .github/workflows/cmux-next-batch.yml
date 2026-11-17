@@ -9,7 +9,8 @@ name: cmux-next batch queue
 #   debounce  (pull_request, push) waits for 2 minutes without events, at most
 #             10 minutes after the first one, then dispatches `batch`
 #   batch     (dispatch) the controller, on Linux; one at a time, never cancelled
-#   regen-linux (dispatch by batch) rebuilds web bundles and SDK bindings
+#   regen-linux (dispatch by batch) rebuilds web bundles, SDK bindings and the
+#             other generated families (scripts/cmux-next/generated_merge.py)
 #   regen     (dispatch by batch) rebuilds Swift-generated exports on a mini
 #             Both run the stack's code with a read-only token and return a
 #             patch; the controller applies and pushes it.
@@ -361,6 +362,18 @@ jobs:
             python3 cmux-tui/bindings/codegen/generate.py --write || fail "the cmux-tui SDK generator"
             names+=("cmux-tui SDK")
           fi
+          # Every other generated family a kept copy belongs to (generated=FAMILY,FAMILY;
+          # scripts/cmux-next/generated_merge.py REGENERATE).
+          set -f  # a family key can hold a glob (cmux-tui/bindings/*/...)
+          for kind in $KINDS; do
+            case "$kind" in
+              generated=*)
+                python3 scripts/cmux-next/generated_merge.py regenerate --families "${kind#generated=}" \
+                  || fail "generated_merge.py regenerate"
+                names+=("generated files")
+                ;;
+            esac
+          done
           git add -A -- .
           if ! git diff --cached --quiet; then
             git -c user.name="cmux-next batch queue" \
