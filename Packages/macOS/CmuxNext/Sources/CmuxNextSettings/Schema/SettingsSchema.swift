@@ -40,8 +40,12 @@ public nonisolated enum SettingsSchema {
 
     /// The descriptor for a dotted key or key path.
     public static func descriptor(for path: [String]) -> SettingDescriptor? {
-        all.first { $0.path == path }
+        byPath[path]
     }
+
+    /// ``all`` by path, the first of a path that repeats: a lookup scanned the whole schema, 9-11 ms a Settings
+    /// open on cmux-lawrence-2 (SettingsUnsetSizes.derivedNumbers, 2026-11-16).
+    private static let byPath: [[String]: SettingDescriptor] = Dictionary(all.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
 
     // MARK: Appearance
 
