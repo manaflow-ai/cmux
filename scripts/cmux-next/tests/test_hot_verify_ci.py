@@ -569,6 +569,37 @@ class Workflow(unittest.TestCase):
         done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"})
         self.assertIn("ok=false\n", out.read_text())
 
+    def test_a_receipt_check_that_cannot_read_github_still_looks(self) -> None:
+        # Run 44033383427 (cmux#45098, 2026-11-17): the receipt read hit "API rate limit exceeded for installation",
+        # receipt=unknown counted as a receipt, and the merged daemon PR got no look. Only receipt=true skips.
+        block = self.job_block("plan")
+        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
+        script = textwrap.dedent("\n".join(block[start:]))
+        unreadable = "import sys\nprint('hot-verify-receipt: API rate limit exceeded', file=sys.stderr)\nsys.exit(1)\n"
+        for answer, skips in ((unreadable, False), ("print('receipt=false')\n", False), ("print('receipt=true')\n", True)):
+            with self.subTest(answer=answer):
+                scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-plan-")))
+                (scratch / "scripts/cmux-next").mkdir(parents=True)
+                (scratch / "scripts/cmux-next/hot-verify-receipt.py").write_text(answer)
+                (scratch / "bin").mkdir()
+                # The git fetch after the receipt check stops the script: reaching it means the plan went on.
+                (scratch / "bin/git").write_text("#!/bin/bash\necho reached-git >> \"$GITHUB_STEP_SUMMARY\"; exit 3\n")
+                (scratch / "bin/git").chmod(0o755)
+                out, summary = scratch / "out", scratch / "summary"
+                done = subprocess.run(["bash", "-c", script], cwd=scratch, capture_output=True, text=True,
+                                      env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}",
+                                           "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
+                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "PR": "7", "BASE_REF": "feat-cmux-next",
+                                           "HEAD_SHA": "c" * 40, "MERGED": "true"})
+                said = summary.read_text() if summary.exists() else ""
+                if skips:
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertIn("eligible=false", out.read_text())
+                    self.assertNotIn("reached-git", said)
+                else:
+                    self.assertIn("reached-git", said, (done.stderr, said))
+                    self.assertFalse(out.exists() and "eligible=false" in out.read_text())
+
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
         self.assertIn("workflow_dispatch:", text)
