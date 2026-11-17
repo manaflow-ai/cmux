@@ -202,6 +202,12 @@
             "web / runners / "
           ]
         },
+        "web-bundles": {
+          "exact": [
+            "web / web-bundles"
+          ],
+          "prefixes": []
+        },
         "web-db-migrations": {
           "exact": [
             "web / web-db-migrations"
