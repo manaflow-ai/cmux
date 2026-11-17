@@ -11,6 +11,7 @@ import { CloudStartView } from "./CloudStartView";
 import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
+import { createGitHubPicker } from "./githubRepos";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -502,6 +503,53 @@ test("Retry shows only on a failure another try can help", async () => {
   expect(retry?.textContent).toBe("Retry");
   await act(async () => retry?.click());
   expect(retried).toBe(1);
+});
+
+test("a start connecting GitHub would fix offers Connect GitHub beside Retry, and no other failure does", async () => {
+  const failed = { ...start, state: "failed" as const, retryable: true, message: "Connect GitHub to clone it." };
+  const calls: string[] = [];
+  let refuse = false;
+  const github = createGitHubPicker(
+    async (method) => {
+      calls.push(method);
+      if (refuse) throw new Error("GitHub isn't set up for this team.");
+      return { opened: true };
+    },
+    () => () => undefined,
+    () => false,
+  );
+  expect(
+    renderToStaticMarkup(
+      <CloudStartView
+        start={{ ...failed, code: "cloud_start_failed" }}
+        onRetry={() => undefined}
+        githubStore={github}
+      />,
+    ),
+  ).not.toContain('data-action="connect-github"');
+  const container = installDom();
+  let retried = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <CloudStartView
+        start={{ ...failed, code: "seed.needs_github" }}
+        onRetry={() => void retried++}
+        githubStore={github}
+      />,
+    );
+  });
+  const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
+  expect(connect?.textContent).toBe("Connect GitHub");
+  expect(connect?.getAttribute("data-role")).toBe("default");
+  await act(async () => connect?.click());
+  expect(calls).toEqual(["github.connect"]);
+  const retry = container.querySelector<HTMLButtonElement>(".acpmux-cloud-start__retry");
+  await act(async () => retry?.click());
+  expect(retried).toBe(1);
+  refuse = true;
+  await act(async () => connect?.click());
+  expect(container.querySelector("[data-connect-error]")?.textContent).toBe("GitHub isn't set up for this team.");
 });
 
 test("a folder too big to copy offers each repository inside it and no folder, never Retry", async () => {

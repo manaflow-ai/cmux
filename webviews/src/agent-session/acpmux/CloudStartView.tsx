@@ -19,6 +19,7 @@ import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
 import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
+import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist } from "./cloudStartViewModel";
 function mark(step: ChecklistStep, t: Translate) {
@@ -272,6 +273,32 @@ function TooBigActions({
   );
 }
 
+/// A start that connecting GitHub would let go on (`seed.needs_github`: a folder too big to copy whose way is a GitHub
+/// clone, or a picked repository the cmux GitHub App does not reach): Connect GitHub opens the install or its settings
+/// (`github.connect`, the folder menu's own call), then Retry runs the same start. A refused call says why under it.
+function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
+  const t = useT();
+  const github = useGitHubPicker(store);
+  return (
+    <>
+      <button
+        type="button"
+        className="acpmux-cloud-ask__button"
+        data-role="default"
+        data-action="connect-github"
+        onClick={() => github.onConnect()}
+      >
+        {t("cloudRepository.connect")}
+      </button>
+      {github.state.connectError && (
+        <output className="acpmux-cloud-start__status" data-connect-error="true">
+          {github.state.connectError}
+        </output>
+      )}
+    </>
+  );
+}
+
 /// A failed start's way on when it has no recovery of its own (cloudStartProgress `cloudStartWayOn`): each button only
 /// where App passes its handler, the first filled. Never Retry for a refusal that fails the same way again.
 function WayOnActions({
@@ -348,6 +375,7 @@ export function CloudStartView({
   onSetUp,
   onSetUpDismiss,
   onOpenNewCloudChat,
+  githubStore,
   planTeamLook = "notice",
 }: {
   start: CloudStartProgress;
@@ -380,6 +408,8 @@ export function CloudStartView({
   /// A start refused because a chat is already starting in this tab (`unavailable_now`): a new Cloud chat with the
   /// same prompt and folder, as the held send's refusal offers.
   onOpenNewCloudChat?: () => void;
+  /// The GitHub connection Connect GitHub uses (`seed.needs_github`); the page's own when absent (galleries and tests pass theirs).
+  githubStore?: GitHubPickerStore;
   /// The plan-in-a-team look (galleries compare them); the pane draws `notice`.
   planTeamLook?: CloudPlanTeamLook;
 }) {
@@ -435,6 +465,7 @@ export function CloudStartView({
     </output>
   );
   const planTeam = failed && start.code === "cloud_plan_required" ? start.planTeam : undefined;
+  const needsGitHub = failed && start.code === "seed.needs_github";
   const planTeamRefusal = planTeam && (
     <PlanTeamRefusal
       refusal={planTeam}
@@ -695,16 +726,19 @@ export function CloudStartView({
           }}
         />
       )}
-      {failed && start.retryable && onRetry && (
+      {failed && ((start.retryable && onRetry) || needsGitHub) && (
         <span className="acpmux-cloud-ask__actions">
-          <button
-            type="button"
-            className="acpmux-cloud-ask__button acpmux-cloud-start__retry"
-            data-role="default"
-            onClick={onRetry}
-          >
-            {t("retry.action")}
-          </button>
+          {needsGitHub && <ConnectGitHubAction {...(githubStore ? { store: githubStore } : {})} />}
+          {start.retryable && onRetry && (
+            <button
+              type="button"
+              className="acpmux-cloud-ask__button acpmux-cloud-start__retry"
+              {...(needsGitHub ? {} : { "data-role": "default" })}
+              onClick={onRetry}
+            >
+              {t("retry.action")}
+            </button>
+          )}
         </span>
       )}
     </section>
