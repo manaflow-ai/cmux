@@ -77,7 +77,8 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
 /// running. so THAT's the importtnt one". The marks are the ones the quit-reopen harness reads
 /// (scripts/ci/quit_gamut_check.py): `agent_pane.painted`, the chat's page drawn with its recent messages, and
 /// `agent_pane.transport_open`, its stream connected; ``frontMark`` says the chat was the tab in front.
-public nonisolated enum LaunchPriorChat {
+public nonisolated struct LaunchPriorChat {
+    public nonisolated init() {}
     /// An agent chat (not a new tab's page) went on screen before the launch's pane region was ready: the
     /// restored front tab is a chat (`AgentPaneView.viewDidMoveToWindow`).
     public static let frontMark = "launch.front_chat_shown"
