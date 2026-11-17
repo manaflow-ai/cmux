@@ -464,6 +464,30 @@ fn units(s: &str) -> Vec<u16> {
 /// shows in `after`: the text sits at the caret and the value grew by its
 /// length less the selection's (UTF-16, as AX ranges count).
 pub(super) fn typed_at(before: &str, after: &str, text: &str, at: CFRange) -> bool {
+    if typed_at_exactly(before, after, text, at) {
+        return true;
+    }
+    // A rich editor's empty paragraph reads as a line break that typing
+    // replaces (ProseMirror: "\n" then "Zed"; Lexical adds paragraph
+    // breaks after the text): line breaks at the ends of the value are not
+    // the text's. Text that has its own line breaks is held to the exact
+    // rule.
+    if text.contains(['\n', '\r']) {
+        return false;
+    }
+    let trim = |s: &str| s.trim_end_matches(['\n', '\r']).to_string();
+    let (b, a) = (trim(before), trim(after));
+    if b == before && a == after {
+        return false;
+    }
+    let len = units(&b).len() as isize;
+    let loc = at.location.clamp(0, len);
+    let sel = at.length.clamp(0, len - loc);
+    typed_at_exactly(&b, &a, text, CFRange { location: loc, length: sel })
+}
+
+/// [`typed_at`] without the line-break rule.
+fn typed_at_exactly(before: &str, after: &str, text: &str, at: CFRange) -> bool {
     let (b, a, t) = (units(before), units(after), units(text));
     let (loc, sel) = (at.location.max(0) as usize, at.length.max(0) as usize);
     if t.is_empty() || loc + sel > b.len() || a.len() + sel != b.len() + t.len() {
@@ -1058,6 +1082,25 @@ mod tests {
         assert!(!typed_at("ab", "ab", "Z", at(1, 0)), "nothing typed");
         assert!(!typed_at("ab", "aZZb", "Z", at(1, 0)), "typed twice");
         assert!(typed_at("é", "éZ", "Z", at(1, 0)), "UTF-16 offsets");
+    }
+
+    /// Live, Safari and Chrome: an empty ProseMirror or Lexical editor reads
+    /// "\n" (its empty paragraph) before typing and "Zq9 x" (or "Zq9 x\n\n")
+    /// after: the text landed; the break was the placeholder's.
+    #[test]
+    fn typed_text_shows_in_a_rich_editor_whose_empty_paragraph_was_a_break() {
+        let at = |location, length| CFRange { location, length };
+        assert!(typed_at("\n", "Zq9 x", "Zq9 x", at(0, 0)), "ProseMirror");
+        assert!(typed_at("\n", "Zq9 x", "Zq9 x", at(1, 0)), "caret after the break");
+        assert!(typed_at("\n", "Zq9 x\n\n", "Zq9 x", at(0, 0)), "Lexical");
+        assert!(typed_at("ab\n", "abZ\n", "Z", at(2, 0)));
+        assert!(!typed_at("\n", "Zq9 xZq9 x", "Zq9 x", at(0, 0)), "typed twice");
+        assert!(!typed_at("\n", "\n", "Zq9 x", at(0, 0)), "nothing typed");
+        assert!(!typed_at("ab\n", "Zab\n", "Z", at(2, 0)), "landed elsewhere");
+        assert!(
+            !typed_at("\n", "a\nb", "a\nb\n", at(0, 0)),
+            "text with its own breaks stays exact"
+        );
     }
 
     /// A calculator digit: exactly one text changed, a display that took

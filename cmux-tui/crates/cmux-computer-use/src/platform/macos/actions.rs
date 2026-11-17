@@ -1763,6 +1763,242 @@ fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax, before: &FocusBefore) -> bo
     }
 }
 
+/// Asks a Chromium app to show its pages to accessibility
+/// ([`roles::web_accessibility_attribute`]), once per process, and waits
+/// (at most [`WEB_TREE_WAIT`]) for `win`'s web content to appear. It
+/// changes no focus, window or front app: it is what a screen reader asks.
+pub(super) fn show_web_content(t: &Target, win: &Ax) {
+    static DONE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<i32>>> =
+        std::sync::OnceLock::new();
+    let pid = t.window.pid;
+    let Some(attr) =
+        roles::web_accessibility_attribute(roles::web_engine(app_bundle(t).as_deref()))
+    else {
+        return;
+    };
+    {
+        let mut done = DONE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+        if !done.insert(pid) {
+            return;
+        }
+    }
+    let (Some(app), Some(yes)) = (Ax::application(pid), Cf::boolean(true)) else { return };
+    // Chromium answers "cannot complete" and turns it on all the same.
+    let _ = app.set(attr, &yes); // caret-gate: not a field write (the app attribute a screen reader sets)
+    super::menus::wait_for(WEB_TREE_WAIT, || has_web_content(win));
+}
+
+/// Whether `win` holds a web area with content (bounded walk).
+fn has_web_content(win: &Ax) -> bool {
+    let mut queue = std::collections::VecDeque::from([win.clone()]);
+    let mut seen = 0usize;
+    while let Some(node) = queue.pop_front() {
+        seen += 1;
+        if seen > OTHER_WEB_VIEWS_WALK {
+            return false;
+        }
+        if node.try_string("AXRole").ok().flatten().as_deref() == Some("AXWebArea") {
+            if node.try_count("AXChildren").unwrap_or(0) > 0 {
+                return true;
+            }
+            continue;
+        }
+        queue.extend(node.try_elements("AXChildren").unwrap_or_default());
+    }
+    false
+}
+
+/// How long a Chromium window gets to show its page after
+/// [`show_web_content`] turned it on (about 1 s live).
+const WEB_TREE_WAIT: std::time::Duration = std::time::Duration::from_millis(2500);
+
+/// How a web field was given its page's focus in a background app.
+struct WebFocus {
+    /// A focus or caret write was made (taken or not).
+    written: bool,
+    /// The field held its page's focus afterwards.
+    focused: bool,
+}
+
+/// Gives a web field of a background app its page's focus without the app
+/// activating itself ([`roles::web_focus_write`]): Chromium takes an
+/// `AXFocused` write; elsewhere (WebKit) a caret at the end of the field's
+/// text moves the page's focus. Through the caret gate (never in the
+/// person's app). A field already focused is left as it is (its caret
+/// too). `None`: the field's focus or text could not be read.
+fn web_focus(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<Option<WebFocus>> {
+    let Ok(own) = el.try_bool("AXFocused") else { return Ok(None) };
+    let held = || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten());
+    if own == Some(true) {
+        return Ok(Some(WebFocus { written: false, focused: true }));
+    }
+    let how = roles::web_focus_write(roles::web_engine(app_bundle(t).as_deref()));
+    // The caret goes after the field's text, read strictly. Chromium takes
+    // the AXFocused write first, then the caret too: a rich editor
+    // (ProseMirror, Lexical) gets a selection of its own that way, and its
+    // beforeinput events (live, Chrome 157: without the caret Lexical
+    // dropped the keys once the address bar had held the keyboard).
+    let Ok(text) = el.try_value_text() else { return Ok(None) };
+    let at =
+        super::sys::CFRange { location: roles::caret_at_end(&text.unwrap_or_default()), length: 0 };
+    let wrote = match persons_caret_write(d, t, el, true, || match how {
+        roles::WebFocusWrite::Focused => {
+            let focused = Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok());
+            if focused {
+                let _ = el.set_selected_range(at);
+            }
+            focused
+        }
+        roles::WebFocusWrite::Caret => el.set_selected_range(at).is_ok(),
+    })? {
+        CaretWrite::Wrote { value, .. } => value,
+        CaretWrite::Refused => {
+            return Ok(Some(WebFocus { written: false, focused: false }));
+        }
+    };
+    let focused = wrote && (held() || super::menus::wait_for(FOCUS_WAIT, held));
+    Ok(Some(WebFocus { written: true, focused }))
+}
+
+/// Where `t`'s app's focused element is relative to `el` and its web area
+/// `area` (read strictly; `None`: unread).
+fn app_focus_of(app: &Ax, el: &Ax, area: Option<&Ax>) -> Option<roles::AppFocus> {
+    let Some(focused) = app.try_element("AXFocusedUIElement").ok()? else {
+        return Some(roles::AppFocus::Nothing);
+    };
+    if focused.same(el) {
+        return Some(roles::AppFocus::Target);
+    }
+    let Some(area) = area else { return Some(roles::AppFocus::Outside) };
+    let mut current = focused;
+    for _ in 0..64 {
+        if current.same(area) {
+            return Some(roles::AppFocus::InPage);
+        }
+        match current.try_element("AXParent").ok()? {
+            Some(parent) => current = parent,
+            None => return Some(roles::AppFocus::Outside),
+        }
+    }
+    None
+}
+
+/// Whether `win` holds a web area other than `area` and the ones inside it
+/// (read strictly, bounded; `None`: unread or too large to walk).
+fn other_web_views(win: &Ax, area: &Ax) -> Option<bool> {
+    let mut queue = std::collections::VecDeque::from([win.clone()]);
+    let mut seen = 0usize;
+    while let Some(node) = queue.pop_front() {
+        seen += 1;
+        if seen > OTHER_WEB_VIEWS_WALK {
+            return None;
+        }
+        if node.try_string("AXRole").ok()?.as_deref() == Some("AXWebArea") {
+            if !node.same(area) {
+                return Some(true);
+            }
+            // The page's own frames are its business: not walked.
+            continue;
+        }
+        queue.extend(node.try_elements("AXChildren").ok()?);
+    }
+    Some(false)
+}
+
+/// The most elements [`other_web_views`] reads (outside web content: a
+/// browser window's chrome has a few hundred).
+const OTHER_WEB_VIEWS_WALK: usize = 4000;
+
+/// The web keys guard's facts for `el` ([`roles::web_keys_guard`]).
+fn web_key_facts(d: &MacDesktop, t: &Target, el: &Ax) -> Option<roles::WebKeyFacts> {
+    let (app, win) = d.ax_window(t).ok()?;
+    let (_, areas) = web_host(el)?;
+    let area = web_area_of(el);
+    let focused_window = app.try_element("AXFocusedWindow").ok()?;
+    Some(roles::WebKeyFacts {
+        own: el.try_bool("AXFocused").ok()?,
+        app_focus: app_focus_of(&app, el, area.as_ref()),
+        web_areas: areas,
+        other_web_views: area.as_ref().and_then(|a| other_web_views(&win, a)),
+        no_focused_window: focused_window.is_none(),
+        other_targets: if focused_window.is_none() { other_key_targets(&app)? } else { false },
+    })
+}
+
+/// Gives a background app's web field its page's focus ([`web_focus`]) and
+/// decides whether keys posted to the app reach it
+/// ([`roles::web_keys_guard`], read until it holds over two reads, at most
+/// [`FOCUS_WAIT`] plus [`FOCUS_SETTLE`]). `Ok(Ok(written))` keys may go;
+/// `Ok(Err((why, written)))` they may not; `written`: a focus or caret
+/// write was made.
+fn web_keys_ready(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<Result<bool, (String, bool)>> {
+    let Some(focus) = web_focus(d, t, el)? else {
+        return Ok(Err((roles::WEB_FIELD_UNREAD.into(), false)));
+    };
+    if !focus.focused {
+        return Ok(Err(("the field did not take its page's focus".into(), focus.written)));
+    }
+    let check = || match web_key_facts(d, t, el) {
+        Some(f) => roles::web_keys_guard(&f).map_err(String::from),
+        None => Err("the field's page or window could not be read".to_string()),
+    };
+    let mut last = check();
+    if last.is_err() {
+        super::menus::wait_for(FOCUS_WAIT, || {
+            last = check();
+            last.is_ok()
+        });
+    }
+    if let Err(why) = last {
+        return Ok(Err((why, focus.written)));
+    }
+    // Settled: the guard holds over two reads in a row.
+    let mut streak = 0;
+    let settled = super::menus::wait_for(FOCUS_SETTLE, || {
+        last = check();
+        streak = if last.is_ok() { streak + 1 } else { 0 };
+        streak >= 2
+    });
+    match (settled, last) {
+        (true, _) => Ok(Ok(focus.written)),
+        (false, Err(why)) => Ok(Err((why, focus.written))),
+        (false, Ok(())) => Ok(Err(("the field's focus did not hold".into(), focus.written))),
+    }
+}
+
+/// After keys typed into a WebKit page: the field's caret, read now, is
+/// written back (through the caret gate). WebKit keeps an autocorrection
+/// pending on the last word typed and applies it when a caret write later
+/// lands in another field. Live, Safari on macOS 26.6: "Hello from cmux"
+/// read back exactly, and the next call's caret write into the search box
+/// turned it into "Hello from crux", after this call had said confirmed.
+/// Writing the caret where it is clears the pending correction, so what
+/// the read-back sees is what stays. Nothing is written when the caret
+/// can't be read; the read-back after the settle still decides.
+fn settle_web_caret(d: &MacDesktop, t: &Target, el: &Ax, typed: &str) -> DResult<()> {
+    // Keys posted to a process are handled a moment later: the value must
+    // show the typed text, or stop changing over three reads, before the
+    // caret is read.
+    let mut last = None;
+    let mut steady = 0;
+    super::menus::wait_for(KEYS_SETTLE, || {
+        let now = el.try_value_text().ok().flatten();
+        if now.as_deref().is_some_and(|v| v.contains(typed)) {
+            return true;
+        }
+        steady = if now == last { steady + 1 } else { 0 };
+        last = now;
+        steady >= 3
+    });
+    let Ok(Some(at)) = el.try_selected_range() else { return Ok(()) };
+    let _ = persons_caret_write(d, t, el, true, || el.set_selected_range(at).is_ok())?;
+    Ok(())
+}
+
+/// How long typed keys get to show in a web field's value before its caret
+/// is written again.
+const KEYS_SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+
 /// How long the web host view gets to hold its focus before keys go.
 const FOCUS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
@@ -1951,6 +2187,9 @@ pub(super) fn type_text(
     // Plain text typed into a text element shows in its value; into
     // anything else (a canvas, a calculator's keypad) it may not show.
     let shows_text = !has_keys && target.as_ref().is_some_and(is_text_element);
+    // A WebKit web field typed into with keys: its caret is written again
+    // after them (settle_web_caret).
+    let mut web_keys_into: Option<Ax> = None;
     if let Some(el) = &target {
         // Web content (and a browser's fields) take an AX insert and ignore
         // it: posted keys go there directly, gated as always, read back at
@@ -1996,64 +2235,65 @@ pub(super) fn type_text(
         if element_id.is_some() {
             // The route first: a refusal must not move focus.
             d.key_route(&t, delivery)?;
-            // Web content in the background: whether its value could take
-            // the text if the guard refuses focus, read before the focus
-            // write without moving anything. Keys are tried first either
-            // way (a Chrome or Electron composer takes them).
-            let web_value = (delivery == Delivery::Background && in_web_area(el) == roles::Web::In)
-                .then(|| web_value_eligible(&t, el, text));
-            // What focus looked like before the write (read strictly).
-            let before = FocusBefore::read(el);
-            // Through the gate (a focus write is never made in the person's
-            // app); an element already focused needs none, and keys into the
-            // person's focused field follow their own policy.
-            let already = before.as_ref().is_some_and(|b| b.own == Some(true));
-            // Whether a focus write was made (taken or not): what a refusal
-            // after it says.
-            let mut focus_written = false;
-            let written = already
-                || match persons_caret_write(d, &t, el, true, || {
-                    Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
-                })? {
-                    CaretWrite::Wrote { value, .. } => {
-                        focus_written = true;
-                        value
-                    }
-                    CaretWrite::Refused => false,
-                };
-            // Keys go only once focus is on the target, by the guard's rules:
-            // a write the app ignored would send them to whatever has focus.
-            let focused = written && before.is_some_and(|b| wait_focused(d, &t, el, &b));
-            // Web content the guard refused: no keys; an eligible field's
-            // value takes the text through accessibility instead, else the
-            // reason it cannot.
-            if let Some(eligible) = &web_value {
+            // Web content in a background app: the field is given its
+            // page's focus without the app activating itself, and keys go
+            // only where the web keys guard proves they land. When it
+            // refuses, a plain input's value takes the text instead
+            // (eligibility read before anything moves), else the reasons.
+            if delivery == Delivery::Background && in_web_area(el) == roles::Web::In {
+                let eligible = web_value_eligible(&t, el, text);
+                let ready = web_keys_ready(d, &t, el)?;
                 let decided =
-                    roles::web_typing(focused, eligible.as_ref().map(|_| ()).map_err(|w| *w));
-                match (decided, eligible) {
-                    (roles::WebTyping::Value, Ok(field)) => {
+                    roles::web_typing(ready.is_ok(), eligible.as_ref().map(|_| ()).map_err(|w| *w));
+                match (decided, &eligible, ready) {
+                    (roles::WebTyping::Keys, _, _) => {
+                        if roles::settles_caret_after_keys(roles::web_engine(
+                            app_bundle(&t).as_deref(),
+                        )) {
+                            web_keys_into = Some(el.clone());
+                        }
+                    }
+                    (roles::WebTyping::Value, Ok(field), _) => {
                         return web_value_write(d, &t, el, text, field);
                     }
-                    (roles::WebTyping::Refuse(why), _) => {
-                        // A focus write was made: say so (none when the
-                        // field already had focus).
-                        let moved = if focus_written {
+                    (_, _, ready) => {
+                        let (why, written) = ready.err().unwrap_or_default();
+                        let moved = if written {
                             "; the field was given focus in its page through accessibility before this was decided"
                         } else {
                             ""
                         };
-                        return Err(DesktopError::Unsupported(format!("{why}{moved}")));
+                        let value_why = eligible.err().unwrap_or_default();
+                        return Err(DesktopError::Unsupported(format!(
+                            "no keys were sent to this web field in the background: {why}. {value_why}{moved}"
+                        )));
                     }
-                    _ => {}
                 }
-            }
-            if !focused {
-                let mut out = ActionOutcome::delivered("ax_focus");
-                out.note = format!(
-                    "the element did not take keyboard focus through accessibility within {} ms (or focus could not be told apart from another field), so no keys were posted",
-                    FOCUS_WAIT.as_millis()
-                );
-                return Ok(out);
+            } else {
+                // What focus looked like before the write (read strictly).
+                let before = FocusBefore::read(el);
+                // Through the gate (a focus write is never made in the person's
+                // app); an element already focused needs none, and keys into the
+                // person's focused field follow their own policy.
+                let already = before.as_ref().is_some_and(|b| b.own == Some(true));
+                let written = already
+                    || match persons_caret_write(d, &t, el, true, || {
+                        Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
+                    })? {
+                        CaretWrite::Wrote { value, .. } => value,
+                        CaretWrite::Refused => false,
+                    };
+                // Keys go only once focus is on the target, by the guard's rules:
+                // a write the app ignored would send them to whatever has focus.
+                let focused = written && before.is_some_and(|b| wait_focused(d, &t, el, &b));
+                if !focused {
+                    let mut out = ActionOutcome::delivered("ax_focus");
+                    out.note = format!(
+                        "the element did not take keyboard focus through accessibility within {} ms (or focus could not be told apart from another field), so no keys were posted",
+                        FOCUS_WAIT.as_millis()
+                    );
+                    return Ok(out);
+                }
             }
         }
     }
@@ -2100,9 +2340,15 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
+        if let Some(el) = &web_keys_into {
+            settle_web_caret(d, &t, el, text)?;
+        }
         return Ok(typed_outcome(route.name(), shows_text, d.expect(check)));
     }
     unprimed(route, |p| input::type_text(p, text))?;
+    if let Some(el) = &web_keys_into {
+        settle_web_caret(d, &t, el, text)?;
+    }
     Ok(typed_outcome(route.name(), shows_text, d.expect(check)))
 }
 
@@ -2781,19 +3027,13 @@ pub(super) fn set_value(
     // the write is made only while it holds it.
     // Whether a focus write was made here: what a later "nothing written"
     // says.
+    // The focus is moved without the app activating itself
+    // ([`web_focus`]: never an AXFocused write in WebKit).
     let mut focus_written = false;
     if web && !roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()) {
-        let wrote = match persons_caret_write(d, &t, &el, true, || {
-            Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
-        })? {
-            CaretWrite::Wrote { value, .. } => {
-                focus_written = true;
-                value
-            }
-            CaretWrite::Refused => false,
-        };
-        let held = || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten());
-        if !(wrote && (held() || super::menus::wait_for(FOCUS_WAIT, held))) {
+        let focus = web_focus(d, &t, &el)?;
+        focus_written = focus.as_ref().is_some_and(|f| f.written);
+        if !focus.is_some_and(|f| f.focused) {
             let mut out = ActionOutcome::delivered("ax_set_value");
             out.note = format!("{WEB_NOT_FOCUSED}{}", focus_note(focus_written));
             return Ok(out);

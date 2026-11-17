@@ -677,6 +677,8 @@ impl Desktop for MacDesktop {
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
         let t = self.target(window_id)?;
         let (_, window) = self.ax_window(&t)?;
+        // A Chromium window shows its page only once asked.
+        actions::show_web_content(&t, &window);
         let guard = self.guard();
         let blocked = |ctx: &roles::MenuItemContext| {
             guard

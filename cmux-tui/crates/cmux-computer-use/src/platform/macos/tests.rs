@@ -3036,8 +3036,10 @@ fn every_targeted_field_write_goes_through_the_caret_gate() {
             "actions.rs:ax_scroll_run",
             "actions.rs:focus_and_select",
             "actions.rs:set_value",
+            "actions.rs:settle_web_caret",
             "actions.rs:slider_drag",
             "actions.rs:type_text",
+            "actions.rs:web_focus",
             "actions.rs:web_value_write",
             "actions.rs:write_attribute",
         ],
@@ -3046,7 +3048,7 @@ fn every_targeted_field_write_goes_through_the_caret_gate() {
     exempt.sort_unstable();
     assert_eq!(
         exempt,
-        ["actions.rs:write_attribute", "mod.rs:restore_focus"],
+        ["actions.rs:show_web_content", "actions.rs:write_attribute", "mod.rs:restore_focus"],
         "a new caret-gate exemption: say why it is not a field write and list it here"
     );
 }
@@ -3141,4 +3143,95 @@ fn a_deep_element_is_not_in_the_menu_bar() {
     assert_eq!(roles::menu_bar_walk(chain(vec!["AXMenuItem", "AXMenu"])), None);
     // Past the cap without reaching a root: unknown.
     assert_eq!(roles::menu_bar_walk(chain(vec!["AXGroup"; roles::MENU_WALK_MAX + 1])), None);
+}
+
+#[test]
+fn a_webkit_page_takes_its_focus_through_the_caret_never_an_axfocused_write() {
+    use roles::{WebEngine, WebFocusWrite, web_engine, web_focus_write};
+    // Safari activates itself after an AXFocused write into its page when
+    // it may (it was the active app before): the caret write moves the
+    // page's focus without that.
+    for id in ["com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.example.webviewapp"] {
+        assert_eq!(web_focus_write(web_engine(Some(id))), WebFocusWrite::Caret, "{id}");
+    }
+    assert_eq!(web_focus_write(web_engine(None)), WebFocusWrite::Caret, "unknown app");
+    // Chromium never activates itself for it, and a contenteditable takes
+    // no focus from a caret write there.
+    for id in [
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.microsoft.edgemac",
+        "COM.BRAVE.BROWSER",
+        "company.thebrowser.Browser",
+    ] {
+        assert_eq!(web_engine(Some(id)), WebEngine::Chromium, "{id}");
+        assert_eq!(web_focus_write(web_engine(Some(id))), WebFocusWrite::Focused, "{id}");
+    }
+    assert_eq!(roles::caret_at_end(""), 0);
+    assert_eq!(roles::caret_at_end("a😀b"), 4, "UTF-16");
+}
+
+#[test]
+fn background_web_keys_go_only_where_the_page_has_the_keyboard() {
+    use roles::{AppFocus, WebKeyFacts, web_keys_guard};
+    // Safari in the background, its web view the window's keyboard focus:
+    // the app names no focused element; the field holds its page's focus.
+    let safari = WebKeyFacts {
+        own: Some(true),
+        app_focus: Some(AppFocus::Nothing),
+        web_areas: 1,
+        other_web_views: Some(false),
+        no_focused_window: false,
+        other_targets: false,
+    };
+    assert_eq!(web_keys_guard(&safari), Ok(()));
+    // Chrome names the field, or an element of its page.
+    assert_eq!(
+        web_keys_guard(&WebKeyFacts { app_focus: Some(AppFocus::Target), ..safari }),
+        Ok(())
+    );
+    assert_eq!(
+        web_keys_guard(&WebKeyFacts { app_focus: Some(AppFocus::InPage), ..safari }),
+        Ok(())
+    );
+    // The address bar (live: Safari typed the text into it).
+    assert!(web_keys_guard(&WebKeyFacts { app_focus: Some(AppFocus::Outside), ..safari }).is_err());
+    assert!(web_keys_guard(&WebKeyFacts { app_focus: None, ..safari }).is_err(), "unread");
+    assert!(web_keys_guard(&WebKeyFacts { own: Some(false), ..safari }).is_err());
+    assert!(web_keys_guard(&WebKeyFacts { own: None, ..safari }).is_err());
+    assert!(web_keys_guard(&WebKeyFacts { web_areas: 2, ..safari }).is_err(), "an iframe");
+    assert!(
+        web_keys_guard(&WebKeyFacts { other_web_views: Some(true), ..safari }).is_err(),
+        "a docked inspector also names nothing"
+    );
+    assert!(web_keys_guard(&WebKeyFacts { other_web_views: None, ..safari }).is_err());
+    assert!(
+        web_keys_guard(&WebKeyFacts { no_focused_window: true, other_targets: true, ..safari })
+            .is_err()
+    );
+    assert_eq!(
+        web_keys_guard(&WebKeyFacts { no_focused_window: true, other_targets: false, ..safari }),
+        Ok(())
+    );
+}
+
+#[test]
+fn chromium_shows_its_pages_once_asked_like_a_screen_reader() {
+    use roles::{web_accessibility_attribute, web_engine};
+    assert_eq!(
+        web_accessibility_attribute(web_engine(Some("com.google.Chrome"))),
+        Some("AXEnhancedUserInterface")
+    );
+    assert_eq!(web_accessibility_attribute(web_engine(Some("com.apple.Safari"))), None);
+    assert_eq!(web_accessibility_attribute(web_engine(None)), None);
+}
+
+#[test]
+fn a_webkit_field_typed_into_with_keys_gets_its_caret_written_again() {
+    use roles::{settles_caret_after_keys, web_engine};
+    // Safari applied a pending autocorrection ("cmux" -> "crux") at the next
+    // call's caret write into another field, after this one said confirmed.
+    assert!(settles_caret_after_keys(web_engine(Some("com.apple.Safari"))));
+    assert!(settles_caret_after_keys(web_engine(None)), "an unknown app is WebKit's rule");
+    assert!(!settles_caret_after_keys(web_engine(Some("com.google.Chrome"))));
 }
