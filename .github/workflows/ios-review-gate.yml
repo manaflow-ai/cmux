@@ -73,6 +73,14 @@ on:
         description: Optional run id whose `app-store-ipa` artifact is the exact binary to lint
         required: false
         default: ""
+      # Accepted and ignored: the agent reviewer pass is gone. main's ios-app-review-readiness.yml
+      # still dispatches with inputs[agent_pass]=true, and GitHub refuses (422) a dispatch that
+      # names an undeclared input. Drop this once main no longer sends it.
+      agent_pass:
+        description: Ignored (the agent reviewer pass was removed); kept so older dispatchers still work
+        required: false
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       ref:
@@ -89,6 +97,11 @@ on:
         type: string
         required: false
         default: ""
+      # Accepted and ignored, as on workflow_dispatch above (a caller still passing it keeps working).
+      agent_pass:
+        type: boolean
+        required: false
+        default: false
       gate_ref:
         description: Where the gate's own scripts come from when called from another branch (resolved to one SHA)
         type: string
