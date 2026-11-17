@@ -1318,8 +1318,9 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertLess(hold + build, grace, f"re-pin hold {hold} min + build {build} min vs pin grace {grace} min")
 
     def test_build_checkout_is_treeless_with_full_history(self):
-        checkout = self.jobs["build"]["steps"][0]
-        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        # The first checkout: "Drop a reused shallow checkout" runs before it (cmux#44583).
+        checkout = next(step for step in self.jobs["build"]["steps"]
+                        if str(step.get("uses", "")).startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["fetch-depth"], 0)
         self.assertEqual(checkout["with"]["filter"], "tree:0")
 
