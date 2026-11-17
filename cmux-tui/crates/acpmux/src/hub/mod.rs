@@ -47,7 +47,6 @@ pub(crate) mod settled_view;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
-pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod audit_entries;

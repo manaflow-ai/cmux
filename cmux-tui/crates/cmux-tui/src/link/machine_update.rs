@@ -38,7 +38,14 @@
 //!    which leaves every terminal
 //!    host and chat running. The supervisor starts the new binary, which
 //!    adopts them. A new daemon that does not serve within 10 minutes is
-//!    rolled back to `cmux-tui.prev`.
+//!    rolled back to `cmux-tui.prev`. On a self-updating image (the daemon runs
+//!    from the store) the step hands the build to the machine's updater
+//!    instead ([`install_target`]). That updater refuses a build older than
+//!    one it applied (`older`); for `--to-bundled` without `--if-older` the
+//!    step then renames the build over the work user's store link and restarts
+//!    the daemon and acpmux on it, which turns the machine's updater off for
+//!    that machine ([`route_args`]); otherwise the machine is left as it is
+//!    (`machine_update_foreign_daemon`).
 //! 4. This command waits for the outcome the apply step records next to the
 //!    binary and answers one JSON line: `{"ok":true,"updated":true,"build":..,
 //!    "previous_build":..}`, `{"ok":true,"updated":false,..}` for a machine
@@ -232,9 +239,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
         return Err(failed);
     }
     let mut argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
-    if route == apply::Route::Store {
-        argv.extend(["--route".to_owned(), "store".to_owned()]);
-    }
+    argv.extend(route_args(route, request));
     let terminal = match start(socket, &argv, &folder, &staged, &result, daemon_pid) {
         Ok(terminal) => terminal,
         Err(failed) => {
@@ -257,6 +262,21 @@ fn update(request: &Request) -> Result<Value, Failed> {
     }
     let build = outcome?;
     Ok(json!({"updated": true, "build": build, "previous_build": previous}))
+}
+
+/// The apply step's flags past [`apply::argv`] for `route`: `--route store`, and with it
+/// [`apply::IN_PLACE_FLAG`] for the explicit ask (`--to-bundled` without `--if-older`), so
+/// a store that refuses this build as older than one it applied gets it in place. The
+/// automatic update (`--if-older`) never moves a machine back.
+fn route_args(route: apply::Route, request: &Request) -> Vec<String> {
+    if route != apply::Route::Store {
+        return Vec::new();
+    }
+    let mut args = vec!["--route".to_owned(), "store".to_owned()];
+    if request.to_bundled && !request.if_older {
+        args.push(apply::IN_PLACE_FLAG.to_owned());
+    }
+    args
 }
 
 /// How long to wait before each look at a machine whose answer to the start
@@ -473,8 +493,10 @@ fn ended(outcome: &Value, own: &str) -> Result<String, Failed> {
             "machine_update_busy",
             format!("not now: {}; try again", detail(outcome)),
         )),
-        // The daemon runs someone's own build from another path: left as it
-        // is, and no failure (the app shows nothing for it).
+        // The daemon runs someone's own build from another path, or the
+        // machine's updater kept its build (off, this build rolled back
+        // before, or a newer one applied for `--if-older`): left as it is,
+        // and no failure (the app shows nothing for it).
         Some("foreign") => Err(Failed::new("machine_update_foreign_daemon", detail(outcome))),
         Some("rolled_back") => Err(Failed::new(
             "machine_update_rolled_back",

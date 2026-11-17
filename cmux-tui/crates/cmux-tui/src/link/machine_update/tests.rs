@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::{
     AfterLostStart, Request, apply, ended, install_target, lost_start_began, machine_is_older,
-    parse,
+    parse, route_args,
 };
 
 fn args(line: &str) -> Vec<String> {
@@ -125,5 +125,21 @@ fn the_install_route_follows_where_the_daemon_runs_from() {
         "relative/.cmux/bin/cmux-tui",
     ] {
         assert_eq!(target(other), None, "{other}");
+    }
+}
+
+/// Only the explicit ask (`--to-bundled` without `--if-older`) lets the apply step install
+/// in place when the store refuses the build as older; the work route takes no flags.
+#[test]
+fn the_in_place_flag_goes_only_with_the_explicit_ask_on_the_store_route() {
+    let request =
+        |to_bundled, if_older| Request { socket: PathBuf::from("/s"), to_bundled, if_older };
+    let store =
+        |to_bundled, if_older| route_args(apply::Route::Store, &request(to_bundled, if_older));
+    assert_eq!(store(true, false), ["--route", "store", apply::IN_PLACE_FLAG]);
+    assert_eq!(store(true, true), ["--route", "store"]);
+    assert_eq!(store(false, false), ["--route", "store"]);
+    for (to_bundled, if_older) in [(true, false), (true, true), (false, false)] {
+        assert!(route_args(apply::Route::Work, &request(to_bundled, if_older)).is_empty());
     }
 }

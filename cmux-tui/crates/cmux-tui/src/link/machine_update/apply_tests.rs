@@ -3,7 +3,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use super::{
-    Route, claim, claim_path, keep_previous, parse, runs_this_install, stop, store_answer,
+    AcpmuxLink, IN_PLACE_FLAG, Route, STORE_ACPMUX, STORE_CURRENT, StoreNext, acpmux_link, claim,
+    claim_path, keep_previous, parse, relink, runs_a_store_entry, runs_this_install, stop,
+    store_answer, store_next,
 };
 
 const INSTALL: &str = "/home/u/.cmux/bin/cmux-tui";
@@ -189,7 +191,7 @@ fn a_second_run_of_one_update_finds_its_outcome_claimed() {
     assert!(claim(&result).is_some());
 }
 
-fn route_of(extra: &[&str]) -> Option<Route> {
+fn parsed(extra: &[&str]) -> Option<super::Args> {
     let sha = "a".repeat(64);
     let mut args: Vec<String> = [
         "--sha256",
@@ -204,7 +206,11 @@ fn route_of(extra: &[&str]) -> Option<Route> {
     .map(str::to_owned)
     .to_vec();
     args.extend(extra.iter().map(|word| (*word).to_owned()));
-    parse(&args).map(|args| args.route)
+    parse(&args)
+}
+
+fn route_of(extra: &[&str]) -> Option<Route> {
+    parsed(extra).map(|args| args.route)
 }
 
 /// The Mac names the store route for a machine whose daemon runs from the store; an
@@ -230,4 +236,80 @@ fn the_updaters_answer_is_read_from_its_last_json_line() {
         ("unknown", "sudo: a password is required".to_owned())
     );
     assert_eq!(store_answer(&line("dancing")).0, "unknown");
+}
+
+/// The in-place flag takes no value, comes once, and only with the store route.
+#[test]
+fn the_in_place_flag_is_parsed_only_on_the_store_route() {
+    let in_place = |extra: &[&str]| parsed(extra).map(|args| args.in_place);
+    assert_eq!(in_place(&["--route", "store"]), Some(false));
+    assert_eq!(in_place(&["--route", "store", IN_PLACE_FLAG]), Some(true));
+    assert_eq!(in_place(&[IN_PLACE_FLAG, "--route", "store"]), Some(true));
+    assert_eq!(in_place(&[IN_PLACE_FLAG]), None);
+    assert_eq!(in_place(&["--route", "work", IN_PLACE_FLAG]), None);
+    assert_eq!(in_place(&["--route", "store", IN_PLACE_FLAG, IN_PLACE_FLAG]), None);
+    assert_eq!(in_place(&["--route", "store", IN_PLACE_FLAG, "yes"]), None);
+}
+
+/// A store that refuses the build as older gets it in place only for the explicit ask;
+/// an updater turned off or a build rolled back before stays the machine's own decision.
+#[test]
+fn only_an_older_refusal_with_the_flag_installs_in_place() {
+    assert_eq!(store_next("older", true), StoreNext::InPlace);
+    assert_eq!(store_next("older", false), StoreNext::Foreign);
+    for in_place in [false, true] {
+        assert_eq!(store_next("off", in_place), StoreNext::Foreign);
+        assert_eq!(store_next("rolled-back-before", in_place), StoreNext::Foreign);
+        assert_eq!(store_next("updating", in_place), StoreNext::Wait);
+        assert_eq!(store_next("current", in_place), StoreNext::Wait);
+        assert_eq!(store_next("failed", in_place), StoreNext::Failed);
+        assert_eq!(store_next("unknown", in_place), StoreNext::Failed);
+    }
+}
+
+#[test]
+fn a_daemon_in_place_replaces_only_a_store_entry() {
+    let entry = format!("/opt/cmux/store/{}/cmux-tui", "a".repeat(64));
+    assert!(runs_a_store_entry(Path::new(&entry)));
+    for other in [
+        "/home/cmux/.cmux/bin/cmux-tui",
+        "/opt/cmux/store/notasha/cmux-tui",
+        "/opt/cmux/current/bin/cmux-tui",
+        &format!("{entry} (deleted)"),
+        &format!("/opt/cmux/store/{}/acpmux", "a".repeat(64)),
+    ] {
+        assert!(!runs_a_store_entry(Path::new(other)), "{other}");
+    }
+}
+
+#[test]
+fn the_acpmux_link_follows_the_work_link_only_from_the_store() {
+    let install = Path::new(INSTALL);
+    assert_eq!(acpmux_link(Some(Path::new(STORE_ACPMUX)), install), AcpmuxLink::Relink);
+    assert_eq!(acpmux_link(Some(install), install), AcpmuxLink::Follows);
+    assert_eq!(acpmux_link(Some(Path::new("/usr/local/bin/acpmux")), install), AcpmuxLink::Other);
+    assert_eq!(acpmux_link(None, install), AcpmuxLink::Other);
+}
+
+/// The in-place install renames the staged build over the store link, and the rollback
+/// makes the link again: the work link is never missing, and nothing is left beside it.
+#[test]
+fn the_store_link_is_replaced_by_the_build_and_put_back() {
+    let folder = tempfile::tempdir().unwrap();
+    let install = folder.path().join("cmux-tui");
+    let staged = folder.path().join(".cmux-tui.update-0123456789abcdef");
+    std::os::unix::fs::symlink(STORE_CURRENT, &install).unwrap();
+    std::fs::write(&staged, b"new").unwrap();
+    std::fs::rename(&staged, &install).unwrap();
+    let now = std::fs::symlink_metadata(&install).unwrap();
+    assert!(now.is_file());
+    assert_eq!(std::fs::read(&install).unwrap(), b"new");
+    // A part left by an earlier run does not stop the rollback.
+    std::fs::write(folder.path().join(".cmux-tui.store-part"), b"planted").unwrap();
+    relink(&install, Path::new(STORE_CURRENT), ".cmux-tui.store-part").unwrap();
+    assert_eq!(std::fs::read_link(&install).unwrap(), Path::new(STORE_CURRENT));
+    assert!(!folder.path().join(".cmux-tui.store-part").exists());
+    let names: Vec<_> =
+        std::fs::read_dir(folder.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(names, ["cmux-tui"]);
 }

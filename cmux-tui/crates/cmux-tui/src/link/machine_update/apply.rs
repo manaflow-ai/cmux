@@ -34,6 +34,15 @@
 //! peer authentication ([`daemon_binary`]), never by a pid alone
 //! (plans/cmux-next/pty-holder.md, section 4).
 //!
+//! On a self-updating image (`--route store`) the build goes to the machine's
+//! root updater instead ([`apply_store`]). The updater answers `older` when it
+//! already applied a build with a later commit time; that is `foreign` too,
+//! unless the Mac asked for this build itself (`--to-bundled` without
+//! `--if-older`, which it passes as [`IN_PLACE_FLAG`]). Then the staged build is
+//! renamed over the work user's store link and the daemon (and acpmux) restart
+//! on it from that path ([`apply_in_place`]), so an app built from a branch can
+//! still put its build on a machine whose channel moved past it (2026-11-16).
+//!
 //! The lock orders this mode's own runs only; the image's root fleet
 //! upgrade script keeps its own lock.
 //!
@@ -102,19 +111,27 @@ pub(crate) enum Route {
     Store,
 }
 
+/// `--route store` only, no value: the Mac asked for this build itself (`--to-bundled`
+/// without `--if-older`), so a store that refuses it as older than a build it applied
+/// gets it installed in place instead ([`apply_in_place`]). Only the staged build reads
+/// this argv, and it is always the Mac's own build, so no older apply step ever sees it.
+pub(crate) const IN_PLACE_FLAG: &str = "--in-place-if-older-refused";
+
 struct Args {
     sha256: String,
     install: PathBuf,
     daemon_pid: i32,
     result: PathBuf,
     route: Route,
+    /// [`IN_PLACE_FLAG`].
+    in_place: bool,
 }
 
 /// Runs the apply step; the exit code (its outcome is in `--result`).
 pub(crate) fn run(args: &[String]) -> i32 {
     let Some(args) = parse(args) else {
         eprintln!(
-            "usage: cmux-tui {MODE} --sha256 HEX --install PATH --daemon-pid PID --result PATH [--route work|store]"
+            "usage: cmux-tui {MODE} --sha256 HEX --install PATH --daemon-pid PID --result PATH [--route work|store [{IN_PLACE_FLAG}]]"
         );
         return 64;
     };
@@ -145,7 +162,15 @@ fn parse(args: &[String]) -> Option<Args> {
     let mut rest = args.iter();
     let (mut sha256, mut install, mut daemon_pid, mut result) = (None, None, None, None);
     let mut route = Route::Work;
+    let mut in_place = false;
     while let Some(flag) = rest.next() {
+        if flag == IN_PLACE_FLAG {
+            if in_place {
+                return None;
+            }
+            in_place = true;
+            continue;
+        }
         let value = rest.next()?;
         match flag.as_str() {
             "--sha256" => sha256 = Some(value.clone()),
@@ -182,8 +207,9 @@ fn parse(args: &[String]) -> Option<Args> {
         && install.is_absolute()
         && install_text.ends_with(INSTALL_SUFFIX)
         && plain(&install)
-        && result_ok;
-    valid.then_some(Args { sha256, install, daemon_pid, result, route })
+        && result_ok
+        && (!in_place || route == Route::Store);
+    valid.then_some(Args { sha256, install, daemon_pid, result, route, in_place })
 }
 
 /// The update itself: its outcome state and a detail line.
@@ -255,17 +281,19 @@ fn apply(args: &Args) -> (&'static str, String) {
 /// (`cmux host update install`, which relinks `--install` into `current` and restarts
 /// acpmux, the cmux units and `cmux host`; the new host proves the build or rolls it
 /// back), then waits until the daemon on this terminal's socket and the acpmux daemon
-/// both run it. A machine whose updater was turned off on purpose, already applied a
-/// newer build or rolled this one back is left as it is (`foreign`).
+/// both run it. A machine whose updater was turned off on purpose or rolled this build
+/// back is left as it is (`foreign`), as is one that already applied a newer build,
+/// unless the Mac asked for this build itself ([`IN_PLACE_FLAG`]): then it is installed
+/// in place ([`apply_in_place`]).
 fn apply_store(args: &Args) -> (&'static str, String) {
     let own = match std::env::current_exe() {
         Ok(own) => own,
         Err(error) => return ("failed", format!("cannot read the staged build's path: {error}")),
     };
-    match file_sha256(&own) {
-        Ok(sha) if sha == args.sha256 => {}
+    let own_id = match hashed_file(&own) {
+        Ok((sha, id)) if sha == args.sha256 => id,
         _ => return ("failed", "the staged build does not have the pinned checksum".into()),
-    }
+    };
     match std::fs::read_link(&args.install) {
         Ok(target) if target == Path::new(STORE_CURRENT) => {}
         _ => {
@@ -288,10 +316,11 @@ fn apply_store(args: &Args) -> (&'static str, String) {
         Err(error) => return ("failed", format!("cannot run the machine's updater: {error}")),
     };
     let (state, detail) = store_answer(&String::from_utf8_lossy(&answer.stdout));
-    match state {
-        "updating" | "current" => {}
-        "older" | "off" | "rolled-back-before" => return ("foreign", detail),
-        _ => {
+    match store_next(state, args.in_place) {
+        StoreNext::Wait => {}
+        StoreNext::InPlace => return apply_in_place(args, &own, own_id, &detail),
+        StoreNext::Foreign => return ("foreign", detail),
+        StoreNext::Failed => {
             let why = String::from_utf8_lossy(&answer.stderr);
             return ("failed", format!("the machine's updater refused: {detail} {}", why.trim()));
         }
@@ -311,6 +340,215 @@ fn apply_store(args: &Args) -> (&'static str, String) {
         return ("failed", "acpmux did not restart on the new build within ten minutes".into());
     }
     ("updated", format!("the machine runs {build}: its session host, acpmux and cmux host"))
+}
+
+/// What [`apply_store`] does after the updater's answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StoreNext {
+    /// The updater installs the build (or has it): wait until it runs.
+    Wait,
+    /// The updater refused it as older and the Mac asked for it: [`apply_in_place`].
+    InPlace,
+    /// Left as it is, and no failure.
+    Foreign,
+    Failed,
+}
+
+/// The step for the updater's answer `state` ([`store_answer`]); `in_place` is
+/// [`IN_PLACE_FLAG`]. Only `older` is installed in place: `off` and `rolled-back-before`
+/// are someone's decision about this machine or this build, and stay `foreign`.
+fn store_next(state: &str, in_place: bool) -> StoreNext {
+    match state {
+        "updating" | "current" => StoreNext::Wait,
+        "older" if in_place => StoreNext::InPlace,
+        "older" | "off" | "rolled-back-before" => StoreNext::Foreign,
+        _ => StoreNext::Failed,
+    }
+}
+
+/// The store refused this build as older than one it applied, and the Mac asked for this
+/// build itself: the staged build `own` (the file hashed, `own_id` its device and inode) is
+/// renamed over the work link `--install`, so it is a regular file there. The daemon gets
+/// SIGTERM as on the work route, and its supervisor (`cmux host`) starts
+/// `~/.cmux/bin/cmux-tui` again, now this build. Where the work user has the acpmux unit, its
+/// `~/.local/bin/acpmux` link follows the work link and acpmux restarts on it
+/// ([`acpmux_in_place`]). The store and its profiles stay as they are; the machine's updater
+/// is off for this machine by its own rule (the work link is not the store link), until
+/// `cmux host update adopt` links it again. A daemon (or acpmux) that does not serve the new
+/// build puts the store link back and restarts again.
+fn apply_in_place(
+    args: &Args,
+    own: &Path,
+    own_id: (u64, u64),
+    refused: &str,
+) -> (&'static str, String) {
+    let Some(socket) = socket() else {
+        return ("failed", "no daemon socket in this terminal".into());
+    };
+    // The pid is the daemon serving this terminal's socket, and it runs a store entry.
+    let daemon = match daemon_binary(&socket, args.daemon_pid) {
+        Ok(daemon) => daemon,
+        Err((state, why)) => return (state, why),
+    };
+    if !runs_a_store_entry(&daemon.path) {
+        return ("foreign", foreign(args.daemon_pid, &daemon.path, Path::new(STORE_CURRENT)));
+    }
+    match std::fs::symlink_metadata(own) {
+        Ok(now) if (now.dev(), now.ino()) == own_id && now.nlink() == 1 => {}
+        _ => return ("failed", "the staged build changed after it was checked".into()),
+    }
+    if std::fs::read_link(&args.install).ok().as_deref() != Some(Path::new(STORE_CURRENT)) {
+        return (
+            "foreign",
+            format!("{} is not the store link; left as it is", args.install.display()),
+        );
+    }
+    if let Err(error) = std::fs::rename(own, &args.install) {
+        return ("failed", format!("cannot install the new build in place: {error}"));
+    }
+    let put_back = || relink(&args.install, Path::new(STORE_CURRENT), STORE_PART);
+    // SAFETY: as in apply: the pid serves this terminal's socket and runs the store's build.
+    if unsafe { libc::kill(args.daemon_pid, libc::SIGTERM) } != 0
+        && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    {
+        return match put_back() {
+            Ok(()) => ("rolled_back", "the daemon could not be stopped; nothing changed".into()),
+            Err(error) => (
+                "failed",
+                format!(
+                    "the daemon could not be stopped, and the store link could not be put back: {error}"
+                ),
+            ),
+        };
+    }
+    if !stop(args.daemon_pid, STOP_TIMEOUT, KILL_TIMEOUT) {
+        return (
+            "pending",
+            "the daemon did not stop, even after SIGKILL; the new build runs after its next restart"
+                .into(),
+        );
+    }
+    let build = cmux_build_identity::BUILD_IDENTITY;
+    if !serving(|running| running == build, args.daemon_pid) {
+        return restore_by("the new daemon did not serve", put_back, args.daemon_pid);
+    }
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return restore_by("no HOME", put_back, args.daemon_pid);
+    };
+    let acpmux = if home.join(ACPMUX_UNIT).exists() {
+        match acpmux_in_place(&home, &args.install) {
+            Ok(acpmux) => acpmux,
+            Err(why) => return restore_by(&why, put_back, args.daemon_pid),
+        }
+    } else {
+        "no acpmux unit".to_owned()
+    };
+    (
+        "updated",
+        format!(
+            "the session host runs {build} from {} ({acpmux}); the store refused it ({refused}), so the machine's updater is off until the store link is back",
+            args.install.display()
+        ),
+    )
+}
+
+/// What [`relink`] names the link it makes beside the work link.
+const STORE_PART: &str = ".cmux-tui.store-part";
+/// The work user's acpmux, under HOME: the unit's `ExecStart` (`acpmux daemon run`).
+const ACPMUX_LINK: &str = ".local/bin/acpmux";
+/// What [`ACPMUX_LINK`] points at on a self-updating image (bake.ts `acpmux-current-link`).
+const STORE_ACPMUX: &str = "/opt/cmux/current/bin/acpmux";
+const ACPMUX_PART: &str = ".acpmux.in-place-part";
+
+/// What [`acpmux_in_place`] does with the work user's acpmux link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AcpmuxLink {
+    /// It points at the store's acpmux: point it at the work link.
+    Relink,
+    /// It already points at the work link (an earlier in-place update).
+    Follows,
+    /// Anything else (someone's own acpmux): left as it is, and not restarted.
+    Other,
+}
+
+/// The step for an acpmux link whose target is `target` (None: no link), given the work
+/// link `install`.
+fn acpmux_link(target: Option<&Path>, install: &Path) -> AcpmuxLink {
+    match target {
+        Some(target) if target == Path::new(STORE_ACPMUX) => AcpmuxLink::Relink,
+        Some(target) if target == install => AcpmuxLink::Follows,
+        _ => AcpmuxLink::Other,
+    }
+}
+
+/// Points the work user's acpmux link at the work link `install` (acpmux is the same binary
+/// under the name `acpmux`), restarts `acpmux.service` and waits until the acpmux daemon runs
+/// the file now at `install`. On failure the store's acpmux link goes back and acpmux restarts
+/// on it again; the error says why. Ok names what happened, for the outcome's detail.
+fn acpmux_in_place(home: &Path, install: &Path) -> Result<String, String> {
+    let link = home.join(ACPMUX_LINK);
+    let plan = acpmux_link(std::fs::read_link(&link).ok().as_deref(), install);
+    if plan == AcpmuxLink::Other {
+        return Ok(format!("{} is not the store's acpmux; acpmux left as it is", link.display()));
+    }
+    if plan == AcpmuxLink::Relink {
+        relink(&link, install, ACPMUX_PART).map_err(|e| {
+            format!("cannot point {} at {}: {e}", link.display(), install.display())
+        })?;
+    }
+    // The acpmux daemon's executable, as the kernel names it: the regular file at `install`.
+    let binary = std::fs::canonicalize(install).unwrap_or_else(|_| install.to_owned());
+    let failed = match restart_acpmux() {
+        Ok(()) if wait(SERVE_TIMEOUT, || acpmux_runs(&binary)) => {
+            return Ok("acpmux runs it too".into());
+        }
+        Ok(()) => "acpmux did not restart on the new build within ten minutes".to_owned(),
+        Err(why) => format!("acpmux did not restart: {why}"),
+    };
+    if plan == AcpmuxLink::Relink {
+        let _ = relink(&link, Path::new(STORE_ACPMUX), ACPMUX_PART);
+        let _ = restart_acpmux();
+    }
+    Err(failed)
+}
+
+/// `systemctl --user restart acpmux.service`, at most a minute. The session host passes no
+/// `XDG_RUNTIME_DIR` to its terminals (cmux-host `daemon_spec`), and `systemctl --user` finds
+/// the user manager through it, so it is set to this user's runtime folder when missing, as
+/// the machine's updater does for its acpmux calls.
+fn restart_acpmux() -> Result<(), String> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        // SAFETY: getuid has no preconditions.
+        .unwrap_or_else(|| format!("/run/user/{}", unsafe { libc::getuid() }).into());
+    let output = cmux_process::Command::new("timeout")
+        .args(["60", "systemctl", "--user", "restart", "acpmux.service"])
+        .env("XDG_RUNTIME_DIR", runtime)
+        .stdin(cmux_process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+}
+
+/// Points `link` at `target`: a link made beside it (named `part`) and renamed over it, so
+/// `link` is never missing.
+fn relink(link: &Path, target: &Path, part: &str) -> std::io::Result<()> {
+    let part = link.with_file_name(part);
+    let _ = std::fs::remove_file(&part);
+    std::os::unix::fs::symlink(target, &part)?;
+    std::fs::rename(&part, link)
+}
+
+/// Whether a daemon's binary, as the kernel names it, is a store entry's cmux-tui.
+fn runs_a_store_entry(running: &Path) -> bool {
+    running
+        .to_str()
+        .and_then(|path| path.strip_prefix("/opt/cmux/store/"))
+        .and_then(|entry| entry.strip_suffix("/cmux-tui"))
+        .is_some_and(is_sha256)
 }
 
 /// The updater's link the work user's cmux-tui points at on a self-updating image.
@@ -593,7 +831,17 @@ fn put_back(args: &Args, previous: &Path) -> std::io::Result<()> {
 
 /// Puts the previous binary back and waits for a daemon of it to serve.
 fn restore(args: &Args, previous: &Path, why: &str) -> (&'static str, String) {
-    let restored = put_back(args, previous);
+    restore_by(why, || put_back(args, previous), args.daemon_pid)
+}
+
+/// Puts the previous build back with `put_back` (the previous binary, or the store link),
+/// ends the new daemon and waits for a daemon of the previous build to serve.
+fn restore_by(
+    why: &str,
+    put_back: impl FnOnce() -> std::io::Result<()>,
+    old_pid: i32,
+) -> (&'static str, String) {
+    let restored = put_back();
     if let Err(error) = restored {
         return (
             "failed",
@@ -611,7 +859,7 @@ fn restore(args: &Args, previous: &Path, why: &str) -> (&'static str, String) {
         unsafe { libc::kill(pid, libc::SIGTERM) };
     }
     let new_build = cmux_build_identity::BUILD_IDENTITY;
-    if serving(|build| build != new_build, args.daemon_pid) {
+    if serving(|build| build != new_build, old_pid) {
         ("rolled_back", format!("{why}; the previous binary serves again"))
     } else {
         ("failed", format!("{why}, and the restored previous binary does not serve either"))
@@ -666,10 +914,17 @@ fn wait(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
 
 /// A file's SHA-256, lowercase hex.
 pub(crate) fn file_sha256(path: &Path) -> std::io::Result<String> {
+    hashed_file(path).map(|(sha256, _)| sha256)
+}
+
+/// A file's SHA-256 and the device and inode of the very file hashed (one descriptor).
+fn hashed_file(path: &Path) -> std::io::Result<(String, (u64, u64))> {
     let mut file = std::fs::File::open(path)?;
+    let opened = file.metadata()?;
     let mut digest = Sha256::new();
     std::io::copy(&mut file, &mut digest)?;
-    Ok(digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
+    let sha256 = digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok((sha256, (opened.dev(), opened.ino())))
 }
 
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
