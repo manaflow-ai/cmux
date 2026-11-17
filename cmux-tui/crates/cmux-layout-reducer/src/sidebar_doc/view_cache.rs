@@ -302,10 +302,11 @@ impl ViewCache {
         // that moved between two rebuilt blocks ends in the new one.
         let mut rebuild: Vec<(usize, ItemId)> = Vec::new();
         for (section_id, (replace, keys)) in &dirty {
-            let Some(at) = self.sections.iter().position(|s| s.section.id == *section_id) else {
+            let Some((at, section)) =
+                self.sections.iter_mut().enumerate().find(|(_, s)| s.section.id == *section_id)
+            else {
                 continue;
             };
-            let section = &mut self.sections[at];
             let mut gone = Vec::new();
             if *replace {
                 section.blocks.retain(|block| {
@@ -355,7 +356,7 @@ impl ViewCache {
             }
         }
         for (at, key) in rebuild {
-            let section = &mut self.sections[at];
+            let Some(section) = self.sections.get_mut(at) else { continue };
             let Some(block) = section.blocks.iter_mut().find(|block| block.key == key) else {
                 continue;
             };
@@ -434,11 +435,12 @@ impl ViewCache {
             };
             match (section.unplaced.binary_search_by_key(&at, |(place, _)| *place), unplaced) {
                 (Err(place), true) => {
-                    section.unplaced_version = fresh_version();
-                    let live = &self.live.list()[at];
-                    section
-                        .unplaced
-                        .insert(place, (at, view::unplaced_row(&section.section, live)));
+                    if let Some(live) = self.live.list().get(at) {
+                        section.unplaced_version = fresh_version();
+                        section
+                            .unplaced
+                            .insert(place, (at, view::unplaced_row(&section.section, live)));
+                    }
                 }
                 (Ok(place), false) => {
                     section.unplaced_version = fresh_version();

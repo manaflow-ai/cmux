@@ -137,7 +137,8 @@ impl LiveIndex {
     }
 
     fn get(&self, reference: &WorkspaceRef) -> Option<&LiveWorkspace> {
-        self.position(&reference.session_id, &reference.workspace_id).map(|at| &self.list[at])
+        self.position(&reference.session_id, &reference.workspace_id)
+            .and_then(|at| self.list.get(at))
     }
 }
 
