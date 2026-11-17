@@ -686,6 +686,8 @@ pub struct State {
     pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
+    /// The tab creations that have a place (`tab-create-place-v1`): one value for each copy.
+    pub(crate) tab_places: crate::mux::tab_strip::tab_place::SharedPlaceLists,
 }
 
 impl State {
