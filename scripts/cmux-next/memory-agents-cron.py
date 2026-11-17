@@ -192,6 +192,22 @@ def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
     return cmd
 
 
+def app_build_problem(app: str) -> str | None:
+    """Why this app is no Release (bench) build, or None (pure on the bundle's files). A Debug build keeps its code in
+    `<name>.debug.dylib` beside the executable; the optimized bench build does not. The rows are the Release app's
+    (CMUX-571, #44669): a Debug app read 1035.4 MB where a Release app reads 807-847 MB, so a part that was handed a
+    Debug app (the cached app of the default build) stores no row."""
+    macos = os.path.join(app, "Contents", "MacOS")
+    try:
+        names = sorted(os.listdir(macos))
+    except OSError:
+        return None  # no bundle to read (a test double): the bench's own launch says so
+    debug = [n for n in names if n.endswith(".debug.dylib")]
+    if debug:
+        return f"the app is a Debug build ({debug[0]} in {os.path.basename(app)}), not the Release (bench) app: no memory row stored"
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
@@ -208,6 +224,12 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = args.out or os.path.dirname(os.path.abspath(args.json))
     os.makedirs(out_dir, exist_ok=True)
     raw = os.path.join(out_dir, "memory-agents.json")
+    problem = app_build_problem(args.app)
+    if problem:
+        print(f"memory-agents: {problem}", file=sys.stderr)
+        with open(args.json, "w") as f:
+            json.dump({"rows": [], "agents": args.agents, "bench_status": None, "incomplete": [problem]}, f, indent=1)
+        return 1
     cmd = bench_cmd(args, raw)
     status = subprocess.run(cmd, cwd=ROOT).returncode
     try:
