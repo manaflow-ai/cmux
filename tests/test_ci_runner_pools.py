@@ -372,6 +372,70 @@ class NeverHosted(unittest.TestCase):
                     self.assertNotRegex(str(value), r"^(?:ubuntu|macos|windows)-")
 
 
+class HostedOverride(unittest.TestCase):
+    # Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith recovers?":
+    # "Allow until it recovers". A hand-set RUNNER_POOLS was reset by the next pass (parse_value() drops a label
+    # outside a pool), so the override is a variable the writer itself reads.
+    ON = {"CI_LINUX_HOSTED_RUNNER": "ubuntu-24.04"}
+    X64 = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion")
+
+    def test_unset_or_not_a_hosted_ubuntu_label_changes_nothing(self) -> None:
+        declared = runner_pools.load_pools(env={})
+        for raw in ("", "  ", "blacksmith-4vcpu-ubuntu-2404", "macos-15", "glaeda-side-std-xcode-26.6", "ubuntu"):
+            with self.subTest(raw=raw):
+                self.assertEqual(runner_pools.load_pools(env={"CI_LINUX_HOSTED_RUNNER": raw}), declared)
+
+    def test_the_x64_linux_pools_lead_with_it_and_nothing_else_moves(self) -> None:
+        declared = runner_pools.load_pools(env={})
+        pools = runner_pools.load_pools(env=self.ON)
+        self.assertEqual(runner_pools.spec_problems(pools), [])
+        for name in self.X64:
+            self.assertEqual(pools[name]["members"], ["ubuntu-24.04", *declared[name]["members"]])
+        for name in set(declared) - set(self.X64):
+            self.assertEqual(pools[name], declared[name], name)
+        self.assertEqual(pools["linux_arm64"]["members"], ["blacksmith-4vcpu-ubuntu-2404-arm"])
+
+    def test_a_pass_writes_it_and_the_next_pass_keeps_it(self) -> None:
+        before = runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(), served_now=(), now=NOW)[0]
+        switch = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
+        env = {"RUNNER_POOLS": runner_pools.render(before), **self.ON}
+        self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=switch, now=NOW), 0)
+        [(name, raw)] = switch.writes
+        written = json.loads(raw)
+        self.assertEqual({k: written[k] for k in self.X64}, dict.fromkeys(self.X64, "ubuntu-24.04"))
+        self.assertEqual({k: v for k, v in written.items() if k not in self.X64 and not k.startswith("_")},
+                         {k: v for k, v in before.items() if k not in self.X64 and not k.startswith("_")})
+        again = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
+        env = {"RUNNER_POOLS": raw, **self.ON}
+        self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=again, now=NOW), 0)
+        self.assertEqual(again.writes, [])
+        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04")), 0)
+        # Deleting the variable is the revert: the next pass puts every pool back on Blacksmith.
+        back = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": raw}, api=Main.Api(None), switch=back, now=NOW), 0)
+        [(name, raw), mirrored] = back.writes
+        self.assertEqual({k: json.loads(raw)[k] for k in self.X64}, {k: before[k] for k in self.X64})
+        # router-review F1: LINUX_RUNNER follows the pool back too, so --check passes after the revert.
+        self.assertEqual(mirrored, ("LINUX_RUNNER", before["linux"]))
+        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": raw, "LINUX_RUNNER": mirrored[1]}), 0)
+
+    def test_the_mirror_leaves_the_hosted_label_alone_while_the_override_is_set(self) -> None:
+        value = {"linux": "ubuntu-24.04"}
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "ubuntu-24.04"}, record=None), [])
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
+                                                    record=None), [("LINUX_RUNNER", "ubuntu-24.04")])
+
+    def test_the_watch_and_the_check_pass_the_variable(self) -> None:
+        for path, find in ((".github/workflows/ci-cloud-overflow-probe.yml", "runner_pools.py"),
+                           (".github/workflows/ci-repo-variables.yml", "runner_pools.py --check")):
+            workflow = yaml.safe_load((ROOT / path).read_text())
+            steps = [s for job in workflow["jobs"].values() for s in job.get("steps", [])
+                     if find in str(s.get("run", ""))]
+            self.assertTrue(steps, path)
+            for step in steps:
+                self.assertEqual(step["env"]["CI_LINUX_HOSTED_RUNNER"], "${{ vars.CI_LINUX_HOSTED_RUNNER }}", path)
+
+
 class Schema(unittest.TestCase):
     def test_malformed_values_are_repaired_not_crashed_on(self) -> None:
         good, _ = runner_pools.reconcile({}, POOLS, dead_now=(), served_now=(), now=NOW)
