@@ -1494,6 +1494,65 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "models",
+        "lead" : [
+          "models"
+        ],
+        "symbol" : "cpu",
+        "title" : {
+          "key" : "settings.category.models",
+          "text" : "Models"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.cloudWorkspaces",
+            "rows" : [
+              "cloud.newWorkspacesInCloud",
+              "cloud.newWorkspaceFolder",
+              "cloud.agentsStartWithoutAsking",
+              "cloud.turnCheckpoints"
+            ],
+            "title" : {
+              "key" : "settings.group.cloudWorkspaces",
+              "text" : "Cloud Workspaces"
+            }
+          }
+        ],
+        "id" : "cloud",
+        "lead" : [
+          "cloudModels",
+          "cloudEnvironments"
+        ],
+        "symbol" : "cloud",
+        "title" : {
+          "key" : "settings.category.cloud",
+          "text" : "Cloud"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.chiefChat",
             "rows" : [
@@ -1714,17 +1773,6 @@
         ],
         "groups" : [
           {
-            "key" : "settings.group.keyStyle",
-            "rows" : [
-              "app.keyStyle",
-              "app.shortcutLayout"
-            ],
-            "title" : {
-              "key" : "settings.group.keyStyle",
-              "text" : "Key Style"
-            }
-          },
-          {
             "key" : "settings.shortcuts.hintsGroup",
             "rows" : [
               "shortcuts.showModifierHoldHints"
@@ -1735,7 +1783,7 @@
             }
           },
           {
-            "key" : "keyboard.2",
+            "key" : "keyboard.1",
             "rows" : [
               "tabs.commandDigits",
               "sidebar.numbering",
@@ -1839,28 +1887,12 @@
               "key" : "settings.group.machineColors",
               "text" : "Machine Colors"
             }
-          },
-          {
-            "key" : "settings.group.cloudWorkspaces",
-            "rows" : [
-              "cloud.newWorkspacesInCloud",
-              "cloud.newWorkspaceFolder",
-              "cloud.useMyClaudeLoginOnMyCloudMachines",
-              "cloud.useMyCodexLoginOnMyCloudMachines",
-              "cloud.agentsStartWithoutAsking",
-              "cloud.turnCheckpoints"
-            ],
-            "title" : {
-              "key" : "settings.group.cloudWorkspaces",
-              "text" : "Cloud Workspaces"
-            }
           }
         ],
         "id" : "accounts",
         "lead" : [
           "accounts",
-          "machines",
-          "cloudEnvironments"
+          "machines"
         ],
         "symbol" : "person.crop.circle",
         "title" : {
@@ -2234,6 +2266,8 @@
         "categories" : [
           "chat",
           "agents",
+          "models",
+          "cloud",
           "chief"
         ],
         "id" : "ai",
@@ -2461,7 +2495,7 @@
       },
       "help" : {
         "key" : "settings.navigation.historyScope.help",
-        "text" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."
+        "text" : "What Go Back and Go Forward walk."
       },
       "kept_on_reset_all" : false,
       "key" : "navigation.historyScope",
@@ -2612,7 +2646,7 @@
       },
       "help" : {
         "key" : "settings.navigation.historySteps.help",
-        "text" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."
+        "text" : "Everything also steps through tabs and panes inside a workspace."
       },
       "kept_on_reset_all" : false,
       "key" : "navigation.history.scope",
@@ -2894,7 +2928,7 @@
       },
       "help" : {
         "key" : "settings.history.closed.maxGroups.help",
-        "text" : "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."
+        "text" : "Older closed tabs, workspaces and windows are deleted. 0 keeps them all."
       },
       "kept_on_reset_all" : false,
       "key" : "history.closed.maxGroups",
@@ -3341,7 +3375,7 @@
       },
       "help" : {
         "key" : "settings.window.titlebarButtons.help",
-        "text" : "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."
+        "text" : "With the sidebar hidden, On Hover shows its buttons only over the top row."
       },
       "kept_on_reset_all" : false,
       "key" : "window.titlebarButtons",
@@ -3616,7 +3650,7 @@
       },
       "help" : {
         "key" : "settings.app.startAgentGlobalHotKey.help",
-        "text" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+        "text" : "⌃⌥⌘Space starts an agent while another app is in front."
       },
       "kept_on_reset_all" : false,
       "key" : "app.startAgentGlobalHotKey",
@@ -3753,7 +3787,7 @@
       },
       "help" : {
         "key" : "settings.app.hideDockIconWithoutWindows.help",
-        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+        "text" : "cmux stays in the menu bar until a window opens."
       },
       "kept_on_reset_all" : false,
       "key" : "app.hideDockIconWithoutWindows",
@@ -3888,10 +3922,7 @@
         "key" : "settings.group.window",
         "text" : "Window"
       },
-      "help" : {
-        "key" : "settings.app.showMenuBarIcon.help",
-        "text" : "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "app.showMenuBarIcon",
       "keywords" : [
@@ -4084,7 +4115,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabTemplate.help",
-        "text" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."
+        "text" : "The layout of the New Tab page. Terminal opens a terminal instead."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabTemplate",
@@ -4226,7 +4257,7 @@
       },
       "help" : {
         "key" : "settings.tabs.nativeNewTabPage.help",
-        "text" : "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."
+        "text" : "Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.nativeNewTabPage",
@@ -4369,7 +4400,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabApp.help",
-        "text" : "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."
+        "text" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabApp",
@@ -4539,10 +4570,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.tabs.newTabPosition.help",
-        "text" : "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabPosition",
       "keywords" : [
@@ -4703,10 +4731,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.tabs.newTabButtonPosition.help",
-        "text" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabButtonPosition",
       "keywords" : [
@@ -4863,7 +4888,7 @@
       },
       "help" : {
         "key" : "settings.tabs.plusButton.help",
-        "text" : "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
+        "text" : "Applies in Minimal Mode; otherwise the + always shows."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.plusButton",
@@ -5012,10 +5037,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.tabs.barPosition.help",
-        "text" : "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "tabs.barPosition",
       "keywords" : [
@@ -5167,7 +5189,7 @@
       },
       "help" : {
         "key" : "settings.browser.toolbarPosition.help",
-        "text" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+        "text" : "Where the address bar of browser and Markdown panes sits."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.toolbarPosition",
@@ -5322,7 +5344,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barOrder.help",
-        "text" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
+        "text" : "Whether the tab bar sits above or below the address bar."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barOrder",
@@ -5517,7 +5539,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+        "text" : "The rest are in the More menu."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5972,7 +5994,7 @@
       },
       "help" : {
         "key" : "settings.tabs.overflow.help",
-        "text" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."
+        "text" : "Shrink narrows tabs before scrolling; Scroll keeps them wide."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.overflow",
@@ -6261,7 +6283,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabMinActiveWidth.help",
-        "text" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."
+        "text" : "The selected tab stays at least this wide when tabs shrink."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.metrics.tabMinActiveWidth",
@@ -6411,7 +6433,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabMinInactiveWidth.help",
-        "text" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."
+        "text" : "Narrowest the other tabs get before the strip scrolls."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.metrics.tabMinInactiveWidth",
@@ -6703,7 +6725,7 @@
       },
       "help" : {
         "key" : "settings.newTerminal.opensWorkspace.help",
-        "text" : "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+        "text" : "Hold Option to reverse it for one click."
       },
       "kept_on_reset_all" : false,
       "key" : "newTerminal.opensWorkspace",
@@ -6837,7 +6859,7 @@
       },
       "help" : {
         "key" : "settings.tabs.verticalTabs.help",
-        "text" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."
+        "text" : "Tabs in a list beside the panes. A tab bar's menu changes one workspace."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.verticalTabs",
@@ -6976,7 +6998,7 @@
       },
       "help" : {
         "key" : "settings.tabs.verticalTabsExpandOnHover.help",
-        "text" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."
+        "text" : "Show titles while the pointer is over the collapsed list."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.verticalTabsExpandOnHover",
@@ -7111,10 +7133,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.tabs.hideLoneChatTab.help",
-        "text" : "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "tabs.hideLoneChatTab",
       "keywords" : [
@@ -7254,7 +7273,7 @@
       },
       "help" : {
         "key" : "settings.tabs.swapCmdTAndCmdN.help",
-        "text" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
+        "text" : "Cmd-T opens a workspace and Cmd-N opens a tab."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.swapCmdTAndCmdN",
@@ -7814,7 +7833,7 @@
       },
       "help" : {
         "key" : "settings.app.confirmQuit.help",
-        "text" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."
+        "text" : "Ask before Cmd-Q ends agents or terminals."
       },
       "kept_on_reset_all" : false,
       "key" : "app.confirmQuit",
@@ -8541,321 +8560,6 @@
     },
     {
       "accepts" : [
-        "standard",
-        "vim",
-        "emacs"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.keyStyleStandard",
-            "text" : "Standard"
-          },
-          "value" : "standard"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.keyStyleVim",
-            "text" : "Vim"
-          },
-          "value" : "vim"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.keyStyleEmacs",
-            "text" : "Emacs"
-          },
-          "value" : "emacs"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "standard",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.keyStyle",
-        "text" : "Key Style"
-      },
-      "help" : {
-        "key" : "settings.app.keyStyle.help",
-        "text" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "app.keyStyle",
-      "keywords" : [
-        "vim",
-        "vi",
-        "emacs",
-        "hjkl",
-        "keys",
-        "keymap",
-        "navigation",
-        "keyboard"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "app",
-        "keyStyle"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "keyboard",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:app.keyStyle"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.app.keyStyle",
-        "text" : "Key Style"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "followLayout",
-        "qwertyPositions"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.shortcutLayoutFollow",
-            "text" : "Follow My Layout"
-          },
-          "value" : "followLayout"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.shortcutLayoutQwerty",
-            "text" : "Keep QWERTY Positions"
-          },
-          "value" : "qwertyPositions"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "followLayout",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.keyStyle",
-        "text" : "Key Style"
-      },
-      "help" : {
-        "key" : "settings.app.shortcutLayout.help",
-        "text" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "app.shortcutLayout",
-      "keywords" : [
-        "dvorak",
-        "colemak",
-        "azerty",
-        "qwertz",
-        "qwerty",
-        "layout",
-        "input source",
-        "shortcuts",
-        "keyboard"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "app",
-        "shortcutLayout"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "keyboard",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:app.shortcutLayout"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.app.shortcutLayout",
-        "text" : "Keyboard Layout"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -9038,7 +8742,7 @@
       },
       "help" : {
         "key" : "settings.updates.channel.help",
-        "text" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+        "text" : "Stable gets builds that ran a week without problems; Canary and Dev get them first."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.channel",
@@ -9439,7 +9143,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
+        "text" : "Off: cmux asks before downloading. It always asks before restarting."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -9570,7 +9274,7 @@
       },
       "help" : {
         "key" : "settings.updates.oneClickInstall.help",
-        "text" : "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+        "text" : "One click on Update downloads, installs and restarts. Terminals and agents keep running."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.oneClickInstall",
@@ -9702,7 +9406,7 @@
       },
       "help" : {
         "key" : "settings.updates.whatsNewInstall.help",
-        "text" : "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents."
+        "text" : "An Install button for each version listed in What's New."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.whatsNewInstall",
@@ -10016,7 +9720,7 @@
       },
       "help" : {
         "key" : "settings.updates.web.help",
-        "text" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
+        "text" : "Every Merge gets web UI changes minutes after they land."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.web",
@@ -10150,7 +9854,7 @@
       },
       "help" : {
         "key" : "settings.updates.liveWebReload.help",
-        "text" : "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code)."
+        "text" : "Lets cmux live start show your checkout's web UI, each saved edit at once."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.liveWebReload",
@@ -10702,7 +10406,7 @@
       },
       "help" : {
         "key" : "settings.updates.showWhatsNew.help",
-        "text" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
+        "text" : "A sidebar card links to What's New after an update."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.showWhatsNew",
@@ -10836,7 +10540,7 @@
       },
       "help" : {
         "key" : "settings.updates.showFeatureTips.help",
-        "text" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+        "text" : "A small tip now and then points at a feature an update added."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.showFeatureTips",
@@ -10971,7 +10675,7 @@
       },
       "help" : {
         "key" : "settings.updates.idleInstallMaxWait.help",
-        "text" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+        "text" : "A nightly installs when you are idle, and never waits longer than this."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.idleInstallMaxWaitSeconds",
@@ -11112,7 +10816,7 @@
       },
       "help" : {
         "key" : "settings.updates.idleInstallQuiet.help",
-        "text" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+        "text" : "How long you must be idle before a nightly installs."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.idleInstallQuietSeconds",
@@ -11516,7 +11220,7 @@
       },
       "help" : {
         "key" : "settings.computerUse.enabled.help",
-        "text" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
+        "text" : "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording."
       },
       "kept_on_reset_all" : false,
       "key" : "computerUse.enabled",
@@ -11668,7 +11372,7 @@
       },
       "help" : {
         "key" : "settings.computerUse.driver.help",
-        "text" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
+        "text" : "Upstream is the new helper; macOS asks for its permissions again."
       },
       "kept_on_reset_all" : false,
       "key" : "computerUse.driver",
@@ -11804,7 +11508,7 @@
       },
       "help" : {
         "key" : "settings.computerUse.livePreview.help",
-        "text" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+        "text" : "A small live view of the app an agent uses. Click it for Agent Activity."
       },
       "kept_on_reset_all" : false,
       "key" : "computerUse.livePreview",
@@ -11942,7 +11646,7 @@
       },
       "help" : {
         "key" : "settings.freeModel.enabled.help",
-        "text" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+        "text" : "Agents can use the free cmux model while signed out. cmux checks this is a real Mac."
       },
       "kept_on_reset_all" : false,
       "key" : "freeModel.enabled",
@@ -12102,7 +11806,7 @@
       },
       "help" : {
         "key" : "settings.sessions.keepAwake.help",
-        "text" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+        "text" : "Stops idle sleep while an agent works. Closing the lid still sleeps the Mac."
       },
       "kept_on_reset_all" : false,
       "key" : "sessions.keepAwake",
@@ -12240,7 +11944,7 @@
       },
       "help" : {
         "key" : "settings.sessions.keepAwakeForCommands.help",
-        "text" : "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+        "text" : "A build or test running over a minute keeps the Mac awake."
       },
       "kept_on_reset_all" : false,
       "key" : "sessions.keepAwakeForCommands",
@@ -12646,7 +12350,7 @@
       },
       "help" : {
         "key" : "settings.sessions.promptSuggestions.help",
-        "text" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+        "text" : "Agents suggest next tasks you can start as child chats."
       },
       "kept_on_reset_all" : false,
       "key" : "sessions.promptSuggestions",
@@ -12779,7 +12483,7 @@
       },
       "help" : {
         "key" : "settings.agents.promptSuggestions.help",
-        "text" : "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+        "text" : "Suggests your next prompt in grey; Tab takes it. Each one is an extra model call."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.promptSuggestions",
@@ -12938,7 +12642,7 @@
       },
       "help" : {
         "key" : "settings.phone.keepAwake.help",
-        "text" : "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep."
+        "text" : "Closing the lid still puts the Mac to sleep."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.keepAwake",
@@ -13071,7 +12775,7 @@
       },
       "help" : {
         "key" : "settings.phone.cloudReplica.help",
-        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
+        "text" : "Stores workspace names, colors and unread counts. No paths, titles or output."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.cloudReplica",
@@ -13206,7 +12910,7 @@
       },
       "help" : {
         "key" : "settings.phone.cloudDesktop.help",
-        "text" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."
+        "text" : "View only, streamed by this Mac while the page is open."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.cloudDesktop",
@@ -13348,7 +13052,7 @@
       },
       "help" : {
         "key" : "settings.machines.colors.help",
-        "text" : "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+        "text" : "By machine name: \"#RRGGBB\" or an accent name, such as red or blue."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.machineColors",
@@ -13496,7 +13200,7 @@
       },
       "help" : {
         "key" : "settings.machines.sshLinkHosts.help",
-        "text" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."
+        "text" : "ssh:// links from other apps connect to these hosts without asking."
       },
       "kept_on_reset_all" : false,
       "key" : "ssh.linkAllowedHosts",
@@ -13642,7 +13346,7 @@
       },
       "help" : {
         "key" : "settings.cloud.newWorkspacesInCloud.help",
-        "text" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."
+        "text" : "Each new workspace gets its own Cloud machine, and its chats run there."
       },
       "kept_on_reset_all" : false,
       "key" : "cloud.newWorkspacesInCloud",
@@ -13794,7 +13498,7 @@
       },
       "help" : {
         "key" : "settings.cloud.newWorkspaceFolder.help",
-        "text" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."
+        "text" : "Current Folder copies your git working copy to the new machine."
       },
       "kept_on_reset_all" : false,
       "key" : "cloud.newWorkspaceFolder",
@@ -13909,278 +13613,6 @@
       "title" : {
         "key" : "settings.cloud.newWorkspaceFolder",
         "text" : "New Cloud Workspaces Start In"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.cloudWorkspaces",
-        "text" : "Cloud Workspaces"
-      },
-      "help" : {
-        "key" : "settings.cloud.useMyClaudeLogin.help",
-        "text" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "cloud.useMyClaudeLoginOnMyCloudMachines",
-      "keywords" : [
-        "cloud",
-        "claude",
-        "login",
-        "sign in",
-        "token",
-        "credential",
-        "machine",
-        "consent",
-        "copy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "cloud",
-        "useMyClaudeLoginOnMyCloudMachines"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:cloud.useMyClaudeLoginOnMyCloudMachines"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.cloud.useMyClaudeLogin",
-        "text" : "Use My Claude Login on My Own Cloud Machines"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.cloudWorkspaces",
-        "text" : "Cloud Workspaces"
-      },
-      "help" : {
-        "key" : "settings.cloud.useMyCodexLogin.help",
-        "text" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "cloud.useMyCodexLoginOnMyCloudMachines",
-      "keywords" : [
-        "cloud",
-        "codex",
-        "chatgpt",
-        "login",
-        "sign in",
-        "token",
-        "credential",
-        "machine",
-        "consent"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "cloud",
-        "useMyCodexLoginOnMyCloudMachines"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:cloud.useMyCodexLoginOnMyCloudMachines"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.cloud.useMyCodexLogin",
-        "text" : "Use My Codex Login on My Own Cloud Machines"
       },
       "validation" : "portable"
     },
@@ -14344,7 +13776,7 @@
       },
       "help" : {
         "key" : "settings.cloud.turnCheckpoints.help",
-        "text" : "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."
+        "text" : "Back to Before This Turn restores the machine in seconds. Keeps the newest few."
       },
       "kept_on_reset_all" : false,
       "key" : "cloud.turnCheckpoints",
@@ -14480,7 +13912,7 @@
       },
       "help" : {
         "key" : "settings.agents.subsessions.enabled.help",
-        "text" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."
+        "text" : "Agents can start sessions that work in parallel, shown under theirs."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.subsessions.enabled",
@@ -14749,7 +14181,7 @@
       },
       "help" : {
         "key" : "settings.agents.subsessions.maxChildren.help",
-        "text" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."
+        "text" : "Finished and closed sub-sessions don't count."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.subsessions.maxChildren",
@@ -14891,7 +14323,7 @@
       },
       "help" : {
         "key" : "settings.agents.subsessions.maxRunning.help",
-        "text" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."
+        "text" : "More wait their turn. Lowering it never stops running ones."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.subsessions.maxRunning",
@@ -15034,7 +14466,7 @@
       },
       "help" : {
         "key" : "settings.agents.subsessions.maxDepth.help",
-        "text" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."
+        "text" : "1 means sub-sessions cannot start their own."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.subsessions.maxDepth",
@@ -15175,7 +14607,7 @@
       },
       "help" : {
         "key" : "settings.agents.guidance.claude.help",
-        "text" : "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."
+        "text" : "Tells new Claude Code chats how cmux shows plans, side sessions and recaps."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.guidance.claude",
@@ -15309,7 +14741,7 @@
       },
       "help" : {
         "key" : "settings.agents.guidance.codex.help",
-        "text" : "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."
+        "text" : "Tells new Codex chats how cmux shows plans, side sessions and recaps."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.guidance.codex",
@@ -15443,7 +14875,7 @@
       },
       "help" : {
         "key" : "settings.agents.guidance.otherAgents.help",
-        "text" : "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work."
+        "text" : "Gemini, OpenCode and agents you added get the same guidance."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.guidance.otherAgents",
@@ -15576,7 +15008,7 @@
       },
       "help" : {
         "key" : "settings.agents.guidance.userSkills.help",
-        "text" : "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat."
+        "text" : "Skills in ~/.config/cmux/skills (a folder with a SKILL.md each) reach every new chat."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.guidance.userSkills",
@@ -15711,7 +15143,7 @@
       },
       "help" : {
         "key" : "settings.agents.autoRetry.enabled.help",
-        "text" : "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works."
+        "text" : "Retries after rate limits, capacity errors or a dropped connection."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.autoRetry.enabled",
@@ -15846,7 +15278,7 @@
       },
       "help" : {
         "key" : "settings.agents.autoRetry.interval.help",
-        "text" : "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes."
+        "text" : "0 waits longer after each failed try."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.autoRetry.intervalSeconds",
@@ -16114,6 +15546,142 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.models",
+        "text" : "Models"
+      },
+      "help" : {
+        "key" : "settings.models.spreadUsage.help",
+        "text" : "When one subscription runs out, a chat moves to another with the same model."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "models.spreadUsage",
+      "keywords" : [
+        "models",
+        "subscription",
+        "spread",
+        "usage",
+        "limit",
+        "connection",
+        "cloud"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "models",
+        "spreadUsage"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:models.spreadUsage"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.models.spreadUsage",
+        "text" : "Spread Usage Across My Subscriptions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -16127,7 +15695,7 @@
       },
       "help" : {
         "key" : "settings.agents.cacheCompact.enabled.help",
-        "text" : "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache."
+        "text" : "Compacts an idle Claude chat while its cache is warm, so the next message costs less."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.cacheCompact.enabled",
@@ -16830,7 +16398,7 @@
       },
       "help" : {
         "key" : "settings.mobile.allowIPhoneConnections.help",
-        "text" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+        "text" : "The cmux app on your iPhone can open this Mac's workspaces, on the same account."
       },
       "kept_on_reset_all" : false,
       "key" : "mobile.allowIPhoneConnections",
@@ -16997,7 +16565,7 @@
       },
       "help" : {
         "key" : "settings.mobile.terminalSizing.help",
-        "text" : "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."
+        "text" : "The size of a terminal shown on this Mac and a phone at once."
       },
       "kept_on_reset_all" : false,
       "key" : "mobile.terminalSizing",
@@ -17140,7 +16708,7 @@
       },
       "help" : {
         "key" : "settings.mobile.terminalSizingOrder.help",
-        "text" : "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."
+        "text" : "The devices a shared terminal sizes to first, highest first."
       },
       "kept_on_reset_all" : false,
       "key" : "mobile.terminalSizingOrder",
@@ -18179,7 +17747,7 @@
       },
       "help" : {
         "key" : "settings.layout.focusFollowsMouse.help",
-        "text" : "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
+        "text" : "Pointing at or scrolling over a pane focuses it."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.focusFollowsMouse",
@@ -18319,7 +17887,7 @@
       },
       "help" : {
         "key" : "settings.layout.scrollAreas.help",
-        "text" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
+        "text" : "Panes that do not fit scroll sideways instead of shrinking."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.scrollAreas",
@@ -18474,7 +18042,7 @@
       },
       "help" : {
         "key" : "settings.layout.scrollModifier.help",
-        "text" : "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."
+        "text" : "What moves columns and rows: Command + Scroll, or a plain sideways scroll."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.scrollModifier",
@@ -18616,7 +18184,7 @@
       },
       "help" : {
         "key" : "settings.layout.pagesHandleCommandScroll.help",
-        "text" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
+        "text" : "Pages like Figma keep Command + Scroll. Off, it always moves columns."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.pagesHandleCommandScroll",
@@ -19049,7 +18617,7 @@
       },
       "help" : {
         "key" : "settings.layout.newPanePlacement.help",
-        "text" : "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+        "text" : "Split Automatically splits the largest pane."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.newPanePlacement",
@@ -19341,10 +18909,7 @@
         "key" : "settings.group.columns",
         "text" : "Columns"
       },
-      "help" : {
-        "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "layout.linkPlacement",
       "keywords" : [
@@ -19498,7 +19063,7 @@
       },
       "help" : {
         "key" : "settings.layout.mainPane.help",
-        "text" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."
+        "text" : "Keeps a chat as the main pane, with what it opens in a column on its right."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.mainPane",
@@ -19659,10 +19224,7 @@
         "key" : "settings.group.sidebar",
         "text" : "Sidebar"
       },
-      "help" : {
-        "key" : "settings.workspaces.newPlacement.help",
-        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "workspaces.newPlacement",
       "keywords" : [
@@ -19798,10 +19360,7 @@
         "key" : "settings.group.sidebar",
         "text" : "Sidebar"
       },
-      "help" : {
-        "key" : "settings.sidebar.groupByComputer.help",
-        "text" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupByComputer",
       "keywords" : [
@@ -19939,7 +19498,7 @@
       },
       "help" : {
         "key" : "settings.workspaces.autoName.help",
-        "text" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+        "text" : "An unnamed workspace shows its front tab's name. Your own name always wins."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.autoName",
@@ -20230,7 +19789,7 @@
       },
       "help" : {
         "key" : "settings.palette.prefix.help",
-        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+        "text" : "Typed into an empty query, this character enters the scope."
       },
       "kept_on_reset_all" : false,
       "key" : "palette.scopes.tabs.prefix",
@@ -20517,7 +20076,7 @@
       },
       "help" : {
         "key" : "settings.palette.prefix.help",
-        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+        "text" : "Typed into an empty query, this character enters the scope."
       },
       "kept_on_reset_all" : false,
       "key" : "palette.scopes.workspaces.prefix",
@@ -20804,7 +20363,7 @@
       },
       "help" : {
         "key" : "settings.palette.prefix.help",
-        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+        "text" : "Typed into an empty query, this character enters the scope."
       },
       "kept_on_reset_all" : false,
       "key" : "palette.scopes.commands.prefix",
@@ -21091,7 +20650,7 @@
       },
       "help" : {
         "key" : "settings.palette.prefix.help",
-        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+        "text" : "Typed into an empty query, this character enters the scope."
       },
       "kept_on_reset_all" : false,
       "key" : "palette.scopes.settings.prefix",
@@ -21378,7 +20937,7 @@
       },
       "help" : {
         "key" : "settings.palette.prefix.help",
-        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+        "text" : "Typed into an empty query, this character enters the scope."
       },
       "kept_on_reset_all" : false,
       "key" : "palette.scopes.scopes.prefix",
@@ -21520,7 +21079,7 @@
       },
       "help" : {
         "key" : "settings.palette.aliases.help",
-        "text" : "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."
+        "text" : "A word for a command, such as \"vs\": \"splitRight\"."
       },
       "kept_on_reset_all" : false,
       "key" : "palette.aliases",
@@ -21800,7 +21359,7 @@
       },
       "help" : {
         "key" : "settings.palette.searchHistory.help",
-        "text" : "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."
+        "text" : "Rows you pick and use often rank higher. Off records nothing."
       },
       "kept_on_reset_all" : false,
       "key" : "palette.searchHistory",
@@ -22203,7 +21762,7 @@
       },
       "help" : {
         "key" : "settings.chats.roots.help",
-        "text" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+        "text" : "Folders agents may also use."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.chats.roots",
@@ -22349,7 +21908,7 @@
       },
       "help" : {
         "key" : "settings.chats.sessionRecap.help",
-        "text" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+        "text" : "A line on where a Claude chat stands when you come back. Each is a small model call."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.chats.sessionRecap",
@@ -22483,7 +22042,7 @@
       },
       "help" : {
         "key" : "settings.chats.coldArchive.help",
-        "text" : "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before."
+        "text" : "Unused chats are compressed into one small file each and open as before."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.chats.coldArchive",
@@ -22623,7 +22182,7 @@
       },
       "help" : {
         "key" : "settings.chats.coldArchiveAfterDays.help",
-        "text" : "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed."
+        "text" : "Days unused before a chat is compressed. Busy chats never are."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.chats.coldArchiveAfterDays",
@@ -22767,7 +22326,7 @@
       },
       "help" : {
         "key" : "settings.chats.on.help",
-        "text" : "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."
+        "text" : "Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name."
       },
       "kept_on_reset_all" : false,
       "key" : "chat.on",
@@ -22911,7 +22470,7 @@
       },
       "help" : {
         "key" : "settings.picker.pinned.help",
-        "text" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths."
+        "text" : "Listed under Locations. Use full or ~/ paths."
       },
       "kept_on_reset_all" : false,
       "key" : "picker.pinned",
@@ -23048,7 +22607,7 @@
       },
       "help" : {
         "key" : "settings.screenshots.findTools.help",
-        "text" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."
+        "text" : "Also shows the folders of apps like CleanShot X and Shottr."
       },
       "kept_on_reset_all" : false,
       "key" : "screenshots.findTools",
@@ -23188,7 +22747,7 @@
       },
       "help" : {
         "key" : "settings.screenshots.folders.help",
-        "text" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."
+        "text" : "Also shows the pictures and videos in these folders."
       },
       "kept_on_reset_all" : false,
       "key" : "screenshots.folders",
@@ -23364,7 +22923,7 @@
       },
       "help" : {
         "key" : "settings.autoArchive.style.help",
-        "text" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."
+        "text" : "Archived workspaces stay dimmed in their group and come back when opened."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.autoArchive.style",
@@ -23503,7 +23062,7 @@
       },
       "help" : {
         "key" : "settings.autoArchive.idleDays.help",
-        "text" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."
+        "text" : "Days unopened and unchanged. Pinned, running and waiting workspaces never archive."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.autoArchive.idleDays",
@@ -23643,7 +23202,7 @@
       },
       "help" : {
         "key" : "settings.workspaceHibernation.enabled.help",
-        "text" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace."
+        "text" : "Frees the memory of unused workspaces. Terminals and agents keep running."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.hibernation.enabled",
@@ -23782,7 +23341,7 @@
       },
       "help" : {
         "key" : "settings.workspaceHibernation.idleMinutes.help",
-        "text" : "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+        "text" : "Minutes a workspace goes unopened and unchanged before it hibernates."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.hibernation.idleMinutes",
@@ -23923,7 +23482,7 @@
       },
       "help" : {
         "key" : "settings.workspaceHibernation.hiddenSpaceMinutes.help",
-        "text" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+        "text" : "Idle minutes before the workspaces of a space no window shows hibernate."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.hibernation.hiddenSpaceMinutes",
@@ -24066,7 +23625,7 @@
       },
       "help" : {
         "key" : "settings.workspaceHibernation.freeingEnabled.help",
-        "text" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."
+        "text" : "Ends idle shells of long-unused workspaces; they restart in the same folder."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.freeing.enabled",
@@ -24205,7 +23764,7 @@
       },
       "help" : {
         "key" : "settings.workspaceHibernation.freeingIdleMinutes.help",
-        "text" : "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+        "text" : "Minutes before a hibernated workspace's idle shells end (1440 is a day)."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.freeing.idleMinutes",
@@ -24346,7 +23905,7 @@
       },
       "help" : {
         "key" : "settings.workspaceHibernation.freeingAgents.help",
-        "text" : "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."
+        "text" : "Also ends idle Claude Code and Codex sessions; opening the tab resumes them."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.freeing.agents",
@@ -24943,7 +24502,7 @@
       },
       "help" : {
         "key" : "settings.appearance.theme.help",
-        "text" : "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
+        "text" : "Colors for terminals. A space, workspace or terminal theme overrides it."
       },
       "kept_on_reset_all" : true,
       "key" : "appearance.theme",
@@ -25085,7 +24644,7 @@
       },
       "help" : {
         "key" : "settings.appearance.appTheme.help",
-        "text" : "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
+        "text" : "Colors for the window, sidebar, tabs and pages. Terminals use Terminal Theme."
       },
       "kept_on_reset_all" : true,
       "key" : "appearance.appTheme",
@@ -25231,7 +24790,7 @@
       },
       "help" : {
         "key" : "settings.appearance.themeEdits.help",
-        "text" : "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."
+        "text" : "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\"."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.themeEdits",
@@ -25547,7 +25106,7 @@
       },
       "help" : {
         "key" : "settings.appearance.rotateFavoriteThemes.help",
-        "text" : "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."
+        "text" : "Switches the terminal theme to the next starred one. Needs two starred themes."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.rotateFavoriteThemes",
@@ -25759,7 +25318,7 @@
       },
       "help" : {
         "key" : "settings.appearance.accent.help",
-        "text" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."
+        "text" : "The color of selection, focus and the Send button."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.accent",
@@ -25901,7 +25460,7 @@
       },
       "help" : {
         "key" : "settings.appearance.themeFile.help",
-        "text" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
+        "text" : "A theme file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.themeFile",
@@ -26046,7 +25605,7 @@
       },
       "help" : {
         "key" : "settings.appearance.highlightColor.help",
-        "text" : "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."
+        "text" : "The color of selected text everywhere. Unset uses the terminal theme's."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.highlightColor",
@@ -27363,7 +26922,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backdropArt.help",
-        "text" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
+        "text" : "A painting behind the window. Lower Opacity to see it."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backdropArt",
@@ -28712,7 +28271,7 @@
       },
       "help" : {
         "key" : "settings.appearance.background.help",
-        "text" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."
+        "text" : "A painting, your wallpaper or a macOS wallpaper behind the window."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.background",
@@ -28888,7 +28447,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backgroundRotation.help",
-        "text" : "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."
+        "text" : "How often a shuffled background changes."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backgroundRotation",
@@ -30073,7 +29632,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backgroundLight.help",
-        "text" : "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture."
+        "text" : "Unset, it shows the dark picture."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backgroundLight",
@@ -31250,7 +30809,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backgroundDark.help",
-        "text" : "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture."
+        "text" : "Unset, it shows the light picture."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backgroundDark",
@@ -31401,7 +30960,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backgroundSchedule.help",
-        "text" : "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next."
+        "text" : "A time (07:00) or sun event (sunset-30m) for each picture."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backgroundSchedule",
@@ -31585,7 +31144,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backgroundDynamic.help",
-        "text" : "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."
+        "text" : "Follow light and dark, or change with the sun through the day."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backgroundDynamic",
@@ -31727,7 +31286,7 @@
       },
       "help" : {
         "key" : "settings.appearance.backgroundLocation.help",
-        "text" : "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location."
+        "text" : "Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.backgroundLocation",
@@ -31874,7 +31433,7 @@
       },
       "help" : {
         "key" : "settings.appearance.displayBackgrounds.help",
-        "text" : "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."
+        "text" : "Display ID to daily, folder:<path>, desktop, a background or none."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.displayBackgrounds",
@@ -32018,7 +31577,7 @@
       },
       "help" : {
         "key" : "settings.appearance.displayBackgroundRotations.help",
-        "text" : "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."
+        "text" : "Display ID to 15m, hourly or daily. Others use the global rotation."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.displayBackgroundRotations",
@@ -32173,7 +31732,7 @@
       },
       "help" : {
         "key" : "settings.appearance.paneBackgrounds.help",
-        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+        "text" : "One background behind the window, or a copy in each pane."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.paneBackgrounds",
@@ -32313,7 +31872,7 @@
       },
       "help" : {
         "key" : "settings.ui.reducedBackgrounds.help",
-        "text" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+        "text" : "The plain theme color, without paintings, wallpapers or glass."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.reducedBackgrounds",
@@ -32912,7 +32471,7 @@
       },
       "help" : {
         "key" : "settings.appearance.inactiveWindowDim.help",
-        "text" : "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+        "text" : "How much windows behind the front one are tinted. 0 keeps them the same."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.inactiveWindowDim",
@@ -33055,7 +32614,7 @@
       },
       "help" : {
         "key" : "settings.appearance.wallpaperTint.help",
-        "text" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+        "text" : "The glass takes the colors of your desktop picture."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.wallpaperTint",
@@ -34080,7 +33639,7 @@
       },
       "help" : {
         "key" : "settings.appearance.uiScale.help",
-        "text" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
+        "text" : "Zoom for chat, Settings and other app pages."
       },
       "kept_on_reset_all" : false,
       "key" : "app.uiScale",
@@ -34228,7 +33787,7 @@
       },
       "help" : {
         "key" : "settings.appearance.textSize.help",
-        "text" : "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
+        "text" : "Text size of tabs, the sidebar and chat. Terminals have their own size."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.metrics.chromeFontSize",
@@ -34395,7 +33954,7 @@
       },
       "help" : {
         "key" : "settings.appearance.fontSmoothing.help",
-        "text" : "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
+        "text" : "How text draws. Some text changes after cmux restarts; terminals keep their own."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.fontSmoothing",
@@ -35735,7 +35294,7 @@
       },
       "help" : {
         "key" : "settings.appearance.focusIndicator.help",
-        "text" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."
+        "text" : "How the focused pane stands out."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.focusIndicator",
@@ -35896,7 +35455,7 @@
       },
       "help" : {
         "key" : "settings.focus.inactiveTabStyle.help",
-        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
+        "text" : "How other panes' tabs look subtler when Focused Pane marks tabs."
       },
       "kept_on_reset_all" : false,
       "key" : "focus.inactiveTabStyle",
@@ -36268,7 +35827,7 @@
       },
       "help" : {
         "key" : "settings.appearance.chromeStyle.help",
-        "text" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+        "text" : "Whether panes sit in one rounded card, and where lines are drawn."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.chromeStyle",
@@ -36434,7 +35993,7 @@
       },
       "help" : {
         "key" : "settings.appearance.titleAreaTone.help",
-        "text" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
+        "text" : "The title bar, tab bar and sidebar in the content's color, or shaded apart."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.titleAreaTone",
@@ -36581,7 +36140,7 @@
       },
       "help" : {
         "key" : "settings.appearance.titleAreaContrast.help",
-        "text" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
+        "text" : "How much darker the title bar, tab bar and sidebar are. 1 is the default."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.titleAreaContrast",
@@ -36731,7 +36290,7 @@
       },
       "help" : {
         "key" : "settings.ui.paneAnimations.help",
-        "text" : "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."
+        "text" : "Splits, closes, moves, zooms and column scrolls slide into place."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.paneAnimations",
@@ -37169,7 +36728,7 @@
       },
       "help" : {
         "key" : "settings.layout.paneSeparation.help",
-        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
+        "text" : "How panes are told apart."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.paneSeparation",
@@ -37451,7 +37010,7 @@
       },
       "help" : {
         "key" : "settings.layout.paneCornerRadius.help",
-        "text" : "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."
+        "text" : "One radius for panes, tabs, panels, popovers and cards."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.paneCornerRadius",
@@ -39003,7 +38562,7 @@
       },
       "help" : {
         "key" : "settings.ui.calm.help",
-        "text" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+        "text" : "Calm stops sliding, spinning and hover highlights; Still also makes animations instant."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.calm",
@@ -39146,7 +38705,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.enabled.help",
-        "text" : "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."
+        "text" : "Off turns every animation off. On, the switches below pick by area."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.enabled",
@@ -39283,7 +38842,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.sidebar.help",
-        "text" : "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."
+        "text" : "Rows, groups and the sidebar itself slide as they change."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.sidebar",
@@ -39421,7 +38980,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.tabs.help",
-        "text" : "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."
+        "text" : "Tabs grow, shrink and slide as they open, close and move."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.tabs",
@@ -39557,7 +39116,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.panes.help",
-        "text" : "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."
+        "text" : "Splits, closes, zooms, dividers and windows move with motion."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.panes",
@@ -39695,7 +39254,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.overlays.help",
-        "text" : "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."
+        "text" : "Menus, popovers, the palette, sheets, toasts and cards fade and slide."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.overlays",
@@ -39969,7 +39528,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.home.help",
-        "text" : "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."
+        "text" : "The Chief chat, its bubbles, the composer and the Home list move and fade."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.home",
@@ -40106,7 +39665,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.cursor.help",
-        "text" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."
+        "text" : "The agent cursor glides and shows click ripples."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.cursor",
@@ -40242,7 +39801,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.indicators.help",
-        "text" : "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."
+        "text" : "Spinners turn, status dots pulse and attention flashes blink."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.indicators",
@@ -40380,7 +39939,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.feedback.help",
-        "text" : "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."
+        "text" : "Hover, press, focus and theme color changes ease in."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.feedback",
@@ -40518,7 +40077,7 @@
       },
       "help" : {
         "key" : "settings.ui.animations.web.help",
-        "text" : "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."
+        "text" : "Animations in cmux's own pages, such as chats and New Tab. Websites are unchanged."
       },
       "kept_on_reset_all" : false,
       "key" : "ui.animations.web",
@@ -47566,7 +47125,7 @@
       },
       "help" : {
         "key" : "settings.markdown.remoteImages.help",
-        "text" : "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+        "text" : "Image sites can see your address and when you open a document."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.remoteImages",
@@ -47703,7 +47262,7 @@
       },
       "help" : {
         "key" : "settings.markdown.width.help",
-        "text" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
+        "text" : "The widest a line gets, in characters."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.layout.width",
@@ -47988,7 +47547,7 @@
       },
       "help" : {
         "key" : "settings.markdown.fontSize.help",
-        "text" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+        "text" : "The size viewers open at. Cmd-= and Cmd-- change one viewer."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.font.size",
@@ -48578,7 +48137,7 @@
       },
       "help" : {
         "key" : "settings.markdown.codeScale.help",
-        "text" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+        "text" : "Code size as a share of the text size."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.code.scale",
@@ -48722,7 +48281,7 @@
       },
       "help" : {
         "key" : "settings.markdown.codeFont.help",
-        "text" : "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."
+        "text" : "Empty uses the terminal font."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.code.family",
@@ -49594,7 +49153,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.vscodeMinimap.help",
-        "text" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+        "text" : "A small picture of the whole chat at its right edge. Click or drag it to scroll."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.vscodeMinimap",
@@ -49739,7 +49298,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.pinnedPlan.help",
-        "text" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer."
+        "text" : "Keeps the agent's task list under the latest message, not over the composer."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.pinnedPlan",
@@ -49883,7 +49442,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.finishSound.help",
-        "text" : "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."
+        "text" : "A soft sound when a long turn ends, its checks pass or its pull request merges."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.finishSound",
@@ -50025,7 +49584,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.trayTucked.help",
-        "text" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
+        "text" : "Hides the running work bar. Hover the top of the composer to bring it back."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.trayTucked",
@@ -50196,7 +49755,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.trayHandle.help",
-        "text" : "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."
+        "text" : "Where the running tray's handle sits on top of the composer."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.trayHandle",
@@ -50368,7 +49927,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.unreadBanner.help",
-        "text" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."
+        "text" : "A banner for new turns when you come back to a chat. Right-click it to hide it."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.unreadBanner",
@@ -50529,7 +50088,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.senderIcon.lead.help",
-        "text" : "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."
+        "text" : "Which is big in a sender's icon: the model's mark or the session badge."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.senderIcon.lead",
@@ -51725,7 +51284,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.codeFont.help",
-        "text" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."
+        "text" : "Empty uses the Markdown viewer's code font."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.code.family",
@@ -52030,7 +51589,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.inspector.help",
-        "text" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+        "text" : "Push narrows the chat; Overlay covers it."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.sessionInfo.placement",
@@ -52199,7 +51758,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.environment.help",
-        "text" : "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."
+        "text" : "Where the chip sits: under the tabs (Left) or in the header (Right)."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.environment.placement",
@@ -52369,7 +51928,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.minimap.help",
-        "text" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."
+        "text" : "What runs down the chat's edge."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.minimap",
@@ -52541,7 +52100,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.transcriptView.help",
-        "text" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."
+        "text" : "How much of each turn a chat shows. A chat's ··· menu sets its own."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.transcriptView",
@@ -52840,7 +52399,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.promptCoach.help",
-        "text" : "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+        "text" : "After a chat with many corrections, shows a better first prompt."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.promptCoach",
@@ -53476,7 +53035,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.rail.side.help",
-        "text" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."
+        "text" : "Right-click the rail to move it."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.rail.side",
@@ -53645,7 +53204,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.commandLabels.help",
-        "text" : "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."
+        "text" : "The names the chat shows for background commands."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.commandLabels",
@@ -54095,7 +53654,7 @@
       },
       "help" : {
         "key" : "settings.terminal.linkOpener.default.help",
-        "text" : "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+        "text" : "Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>."
       },
       "kept_on_reset_all" : false,
       "key" : "terminal.linkOpener.default",
@@ -54242,7 +53801,7 @@
       },
       "help" : {
         "key" : "settings.terminal.linkOpener.rules.help",
-        "text" : "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+        "text" : "<match> -> <target>, first match wins. Example: caller:gh github.com -> safari"
       },
       "kept_on_reset_all" : false,
       "key" : "terminal.linkOpener.rules",
@@ -54407,7 +53966,7 @@
       },
       "help" : {
         "key" : "settings.terminal.term.help",
-        "text" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."
+        "text" : "xterm-ghostty needs Ghostty's terminfo on every host you ssh to."
       },
       "kept_on_reset_all" : false,
       "key" : "terminal.term",
@@ -60958,7 +60517,7 @@
       },
       "help" : {
         "key" : "settings.editor.importFrom.help",
-        "text" : "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins."
+        "text" : "cmux reads that editor's settings and keybindings, never changing them."
       },
       "kept_on_reset_all" : false,
       "key" : "editor.importFrom",
@@ -61112,7 +60671,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.surface.help",
-        "text" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."
+        "text" : "Separate shades the sidebar darker than the main pane."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.sidebarSurface",
@@ -62119,7 +61678,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.showChats.help",
-        "text" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."
+        "text" : "New Tab lists every agent chat on this computer, not only recent ones."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showChats",
@@ -62256,7 +61815,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.sessionTree.help",
-        "text" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+        "text" : "Lists workspaces an agent started under the workspace that started them."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.sessionTree",
@@ -62951,7 +62510,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.showSearchButton.help",
-        "text" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+        "text" : "A search button after the profile button. Off: search from the palette."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showSearchButton",
@@ -63088,7 +62647,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.showNewWorkspaceChooser.help",
-        "text" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu."
+        "text" : "A chevron beside the + opens the New Workspace menu. Off: right-click the +."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showNewWorkspaceChooser",
@@ -63225,7 +62784,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.workspacesAsTabs.help",
-        "text" : "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab."
+        "text" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.workspacesAsTabs",
@@ -63361,7 +62920,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.chromeGroups.help",
-        "text" : "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups."
+        "text" : "Groups get a colored rail with a rounded end, like Chrome's tab groups."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.chromeGroups",
@@ -63497,7 +63056,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.sideBySide.help",
-        "text" : "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted."
+        "text" : "Drag a workspace row onto a pane's edge to show it beside the current one."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.sideBySide",
@@ -63633,7 +63192,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.noFade.help",
-        "text" : "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."
+        "text" : "Stops the sidebar's edges fading and hides the bottom profile and search bar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.noFade",
@@ -63773,7 +63332,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.controlsOnHover.help",
-        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."
+        "text" : "The sidebar's buttons show only while the pointer is over it."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.controlsOnHover",
@@ -63914,7 +63473,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.floatOnHover.help",
-        "text" : "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."
+        "text" : "With the sidebar hidden, point at the window's edge to show it over your work."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.floatOnHover",
@@ -64053,7 +63612,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.minimal.help",
-        "text" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
+        "text" : "Sidebar and tab bar buttons show only while the pointer is over them."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.minimal",
@@ -64208,7 +63767,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.style.help",
-        "text" : "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
+        "text" : "Rail shrinks the sidebar to a strip; point at it to open the full sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.style",
@@ -64372,7 +63931,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Expanded shows status, age, pull request and computer under each name."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -64536,7 +64095,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.textSize.help",
-        "text" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."
+        "text" : "Makes the sidebar's names, icons and rows larger together."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.textSize",
@@ -64677,7 +64236,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.detailedStatusIcons.help",
-        "text" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+        "text" : "Icons for working, waiting, error and done. Off: a spinner and a dot."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.detailedStatusIcons",
@@ -64817,7 +64376,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.showTimestamps.help",
-        "text" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
+        "text" : "Rows show when they last changed, such as 3d."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showTimestamps",
@@ -64955,10 +64514,7 @@
         "key" : "settings.group.sidebar",
         "text" : "Sidebar"
       },
-      "help" : {
-        "key" : "settings.sidebar.showColors.help",
-        "text" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "sidebar.showColors",
       "keywords" : [
@@ -65120,7 +64676,7 @@
       },
       "help" : {
         "key" : "settings.workspaceColors.indicatorStyle.help",
-        "text" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."
+        "text" : "How a workspace's color shows in the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaceColors.indicatorStyle",
@@ -65264,7 +64820,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.showLocalMachine.help",
-        "text" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."
+        "text" : "With more than one computer, this Mac's workspaces show its icon too."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showLocalMachine",
@@ -65402,7 +64958,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.memberCount.help",
-        "text" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."
+        "text" : "A collapsed group shows how many workspaces it holds."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.memberCount",
@@ -65540,7 +65096,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.unreadCount.help",
-        "text" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."
+        "text" : "A collapsed group shows its unread notification count."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.unreadCount",
@@ -65710,7 +65266,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.background.help",
-        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."
+        "text" : "How a group's background draws. Sections shows plain headings instead."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.background",
@@ -65911,7 +65467,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupPalette.help",
-        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."
+        "text" : "Where group colors come from. A color you pick for a group stays."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupPalette",
@@ -66088,7 +65644,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupGradient.help",
-        "text" : "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."
+        "text" : "The gradient Group Colors uses when set to Gradient."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupGradient",
@@ -66394,7 +65950,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.cards.tips.help",
-        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."
+        "text" : "A daily card shows one cmux feature you have not used yet."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.cards.tips",
@@ -66533,7 +66089,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.priorityView.enabled.help",
-        "text" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."
+        "text" : "A bell listing every agent chat, the ones waiting on you first."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.priorityView.enabled",
@@ -66827,7 +66383,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.side.help",
-        "text" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."
+        "text" : "On the right, the window buttons sit over the tab bar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.side",
@@ -66979,7 +66535,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.spacesPosition.help",
-        "text" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."
+        "text" : "Under the window buttons or above the Settings row."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.spacesPosition",
@@ -67133,7 +66689,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.spacesVisibility.help",
-        "text" : "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."
+        "text" : "On Hover hides the spaces with the other sidebar controls."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.spacesVisibility",
@@ -67288,7 +66844,7 @@
       },
       "help" : {
         "key" : "settings.tabs.commandDigits.help",
-        "text" : "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."
+        "text" : "Control-1 to 9 selects the other one."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.commandDigits",
@@ -67444,7 +67000,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.numbering.help",
-        "text" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."
+        "text" : "Every Item: Home is Command-1. Workspaces Only: the first workspace is Command-1."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.numbering",
@@ -68154,7 +67710,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.hoverCards.delay.help",
-        "text" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+        "text" : "How long the pointer rests before a card opens."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.hoverCards.delay",
@@ -68336,7 +67892,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.hoverCards.layout.help",
-        "text" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
+        "text" : "What a workspace's hover card shows."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.hoverCards.layout",
@@ -70849,7 +70405,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.nowPlaying.otherApps.help",
-        "text" : "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."
+        "text" : "Also shows what plays in apps like Spotify or Music."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.otherApps",
@@ -71123,7 +70679,7 @@
       },
       "help" : {
         "key" : "settings.media.pictureInPicture.enabled.help",
-        "text" : "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."
+        "text" : "Offer Picture in Picture for web videos."
       },
       "kept_on_reset_all" : false,
       "key" : "media.pictureInPicture.enabled",
@@ -71261,7 +70817,7 @@
       },
       "help" : {
         "key" : "settings.appearance.colorTransition.enabled.help",
-        "text" : "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once."
+        "text" : "Old colors blend into new ones on workspace and theme changes."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.colorTransition.enabled",
@@ -71583,7 +71139,7 @@
       },
       "help" : {
         "key" : "settings.appearance.colorTransition.curve.help",
-        "text" : "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values."
+        "text" : "How a color change moves over its duration."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.colorTransition.curve",
@@ -82776,7 +82332,7 @@
       },
       "help" : {
         "key" : "settings.browser.toolbarButtons.help",
-        "text" : "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."
+        "text" : "The rest are in the More menu."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.toolbarButtons",
@@ -82917,7 +82473,7 @@
       },
       "help" : {
         "key" : "settings.browser.showLoadingBar.help",
-        "text" : "A thin progress line under the address bar while a page loads. The Stop button shows either way."
+        "text" : "A thin line under the address bar while a page loads."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.showLoadingBar",
@@ -83214,7 +82770,7 @@
       },
       "help" : {
         "key" : "settings.browser.siteEngines.help",
-        "text" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+        "text" : "Sites that always open in chromium or webkit, such as spotify.com."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.siteEngines",
@@ -83622,7 +83178,7 @@
       },
       "help" : {
         "key" : "settings.browser.importEnabled.help",
-        "text" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."
+        "text" : "Offers to import bookmarks, history, passwords and sign-ins. Off hides the offers."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.import.enabled",
@@ -83761,7 +83317,7 @@
       },
       "help" : {
         "key" : "settings.browser.importCookieBanner.help",
-        "text" : "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."
+        "text" : "Browser tabs offer to import cookies from your other browsers."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.import.cookieBanner",
@@ -83902,7 +83458,7 @@
       },
       "help" : {
         "key" : "settings.browser.importCookieSync.help",
-        "text" : "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."
+        "text" : "Brings over changed cookies from the browser you imported from. Stays on this Mac."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.import.cookieSync",
@@ -84038,7 +83594,7 @@
       },
       "help" : {
         "key" : "settings.browser.showAgentCursor.help",
-        "text" : "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+        "text" : "Shows an agent's cursor, clicks and typing in browser tabs. Passwords show dots."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.showAgentCursor",
@@ -84187,7 +83743,7 @@
       },
       "help" : {
         "key" : "settings.browser.agentMouseMotion.help",
-        "text" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+        "text" : "Human moves along a curve and pauses before clicks; Instant jumps."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.agentMouse.motion",
@@ -84463,7 +84019,7 @@
       },
       "help" : {
         "key" : "settings.browser.builtInAdBlocker.help",
-        "text" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+        "text" : "Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.builtInAdBlocker",
@@ -85047,7 +84603,7 @@
       },
       "help" : {
         "key" : "settings.browser.freezeHiddenTabs.help",
-        "text" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+        "text" : "A hidden Chromium tab stops running until you show it, to save power."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.freezeHiddenTabs",
@@ -85191,7 +84747,7 @@
       },
       "help" : {
         "key" : "settings.browser.keepNeighborTabsAwake.help",
-        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+        "text" : "Tabs beside the shown one stay loaded so switching is instant. 0 turns it off."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.keepNeighborTabsAwake",
@@ -85335,7 +84891,7 @@
       },
       "help" : {
         "key" : "settings.browser.wakeTabsOnHover.help",
-        "text" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."
+        "text" : "Sleeping pages start loading when the pointer rests on their tab. Uses more memory."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.wakeTabsOnHover",
@@ -85912,7 +85468,7 @@
       },
       "help" : {
         "key" : "settings.browser.customSuggest.help",
-        "text" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
+        "text" : "An OpenSearch suggestions URL, with {searchTerms} for the typed text."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.customSearchEngine.suggest",
@@ -86045,7 +85601,7 @@
       },
       "help" : {
         "key" : "settings.browser.omnibar.remoteSuggestions.help",
-        "text" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
+        "text" : "Sends what you type to the search engine. Never addresses, files or local hosts."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.omnibar.remoteSuggestions",
@@ -86751,10 +86307,7 @@
         "key" : "settings.group.addressBar",
         "text" : "Address Bar"
       },
-      "help" : {
-        "key" : "settings.browser.omnibar.glass.help",
-        "text" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "browser.omnibar.glass",
       "keywords" : [
@@ -86913,7 +86466,7 @@
       },
       "help" : {
         "key" : "settings.browser.omnibar.glassTint.help",
-        "text" : "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none."
+        "text" : "The color over the glass, from the terminal theme."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.omnibar.glassTint",
@@ -87485,7 +87038,7 @@
       },
       "help" : {
         "key" : "settings.browser.omnibar.backgroundOpacity.help",
-        "text" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+        "text" : "How much the address bar covers a see-through window."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.omnibar.backgroundOpacity",
@@ -88846,7 +88399,7 @@
       },
       "help" : {
         "key" : "settings.browser.vimKeys.help",
-        "text" : "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
+        "text" : "Outside text fields: f clicks a link, j and k scroll, gg and Shift-G jump to the ends."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.vimKeys",
@@ -88981,7 +88534,7 @@
       },
       "help" : {
         "key" : "settings.browser.enabled.help",
-        "text" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
+        "text" : "Off: every link opens in your default browser."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.enabled",
@@ -89113,7 +88666,7 @@
       },
       "help" : {
         "key" : "settings.browser.openLinks.help",
-        "text" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+        "text" : "Off: links open in your default browser. Shift-Cmd-click opens the other one."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.openLinksInCmuxBrowser",
@@ -89246,7 +88799,7 @@
       },
       "help" : {
         "key" : "settings.browser.openSignInPages.help",
-        "text" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+        "text" : "Sign-in pages open in cmux even when other links open in your default browser."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.openSignInPagesInCmux",
@@ -89381,7 +88934,7 @@
       },
       "help" : {
         "key" : "settings.browser.openPullRequestsInGitHubPage.help",
-        "text" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
+        "text" : "Pull request links in agent chats open cmux's GitHub page. Off: github.com in a tab."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.openPullRequestsInGitHubPage",
@@ -89654,7 +89207,7 @@
       },
       "help" : {
         "key" : "settings.browser.hostWhitelist.help",
-        "text" : "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."
+        "text" : "Only these hosts open in cmux, such as *.example.com. Empty opens all."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.hostsToOpenInEmbeddedBrowser",
@@ -89793,7 +89346,7 @@
       },
       "help" : {
         "key" : "settings.browser.externalLinkPatterns.help",
-        "text" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+        "text" : "Text matches anywhere; * and ? are wildcards; re: starts a regular expression."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.urlsToAlwaysOpenExternally",
@@ -89937,7 +89490,7 @@
       },
       "help" : {
         "key" : "settings.files.textEditor.help",
-        "text" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+        "text" : "An app name, bundle ID or app path. Empty uses your source code app."
       },
       "kept_on_reset_all" : false,
       "key" : "files.textEditor",
@@ -90335,7 +89888,7 @@
       },
       "help" : {
         "key" : "settings.browser.passwords.allowExport.help",
-        "text" : "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."
+        "text" : "The Passwords page can export every password to a plain-text CSV, after Touch ID."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.passwords.allowExport",
@@ -90467,7 +90020,7 @@
       },
       "help" : {
         "key" : "settings.browser.verificationAutofill.enabled.help",
-        "text" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+        "text" : "Offers emailed codes on the sender's own site. Never filled without your click."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.verificationAutofill.enabled",
@@ -90610,7 +90163,7 @@
       },
       "help" : {
         "key" : "settings.browser.verificationAutofill.accounts.help",
-        "text" : "Codes come only from these addresses: Gmail accounts you are signed in to in this browser, and accounts in the Mail app. Mail is read on this Mac and never stored or sent."
+        "text" : "Codes come only from these addresses. Mail is read on this Mac, never stored or sent."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.verificationAutofill.accounts",
@@ -90771,7 +90324,7 @@
       },
       "help" : {
         "key" : "settings.home.server.help",
-        "text" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+        "text" : "Self-hosted: a Tailscale MagicDNS address, such as http://mini.tail1234.ts.net:7320."
       },
       "kept_on_reset_all" : false,
       "key" : "home.server",
@@ -90944,7 +90497,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefBubbleStyle.help",
-        "text" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+        "text" : "iMessage: blue and gray. Theme: your theme's colors."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefBubbleStyle",
@@ -91082,7 +90635,7 @@
       },
       "help" : {
         "key" : "settings.home.feedInChief.help",
-        "text" : "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."
+        "text" : "Feed notices show among the Chief's messages. The Chief does not read them."
       },
       "kept_on_reset_all" : false,
       "key" : "home.feedInChief",
@@ -91222,7 +90775,7 @@
       },
       "help" : {
         "key" : "settings.home.bubbleColors.help",
-        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+        "text" : "Right-click a chat and choose Chat Colors to set its own."
       },
       "kept_on_reset_all" : false,
       "key" : "home.bubbleColors.sent",
@@ -91366,7 +90919,7 @@
       },
       "help" : {
         "key" : "settings.home.bubbleColors.help",
-        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+        "text" : "Right-click a chat and choose Chat Colors to set its own."
       },
       "kept_on_reset_all" : false,
       "key" : "home.bubbleColors.sentText",
@@ -91510,7 +91063,7 @@
       },
       "help" : {
         "key" : "settings.home.bubbleColors.help",
-        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+        "text" : "Right-click a chat and choose Chat Colors to set its own."
       },
       "kept_on_reset_all" : false,
       "key" : "home.bubbleColors.received",
@@ -91654,7 +91207,7 @@
       },
       "help" : {
         "key" : "settings.home.bubbleColors.help",
-        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+        "text" : "Right-click a chat and choose Chat Colors to set its own."
       },
       "kept_on_reset_all" : false,
       "key" : "home.bubbleColors.receivedText",
@@ -91929,7 +91482,7 @@
       },
       "help" : {
         "key" : "settings.home.channelsEnabled.help",
-        "text" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+        "text" : "Show Channels below Home in the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "home.channelsEnabled",
@@ -92064,7 +91617,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefPetEnabled.help",
-        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."
+        "text" : "A small Chief over every app shows agent events. ⌃⌥⌘C opens its reply box."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefPetEnabled",
@@ -92500,7 +92053,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockEdge.help",
-        "text" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."
+        "text" : "The window edge the Chief docks to."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.edge",
@@ -92696,7 +92249,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefPanelStyle.help",
-        "text" : "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."
+        "text" : "How the Chief looks floating over a workspace. Drag any style by its grip."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefPanel.style",
@@ -92836,7 +92389,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefPanelSeesScreen.help",
-        "text" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on."
+        "text" : "The floating Chief takes one look at your screen when it opens. The eye turns it off."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefPanel.seesScreen",
@@ -92973,7 +92526,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockOpenBeside.help",
-        "text" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."
+        "text" : "Links in the Chief open their workspace with the Chief over it. Esc hides it."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.openBeside",
@@ -93134,7 +92687,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefEngine.help",
-        "text" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."
+        "text" : "Auto uses this Mac's Chief while it runs, else the Hosted Chief."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefEngine",
@@ -93268,7 +92821,7 @@
       },
       "help" : {
         "key" : "settings.chief.reactionsCanWake.help",
-        "text" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted."
+        "text" : "A reaction on a Chief message can start a turn, such as ? on a question."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.reactionsCanWake",
@@ -93403,7 +92956,7 @@
       },
       "help" : {
         "key" : "settings.chief.reactionClassifier.harness.help",
-        "text" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route."
+        "text" : "The agent that reads reactions, such as claude or codex. Empty uses the Chief's."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.reactionClassifier.harness",
@@ -93540,7 +93093,7 @@
       },
       "help" : {
         "key" : "settings.chief.reactionClassifier.model.help",
-        "text" : "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap."
+        "text" : "The model that decides whether a reaction starts a turn."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.reactionClassifier.model",
@@ -93979,7 +93532,7 @@
       },
       "help" : {
         "key" : "settings.chief.autoRouteSubagents.help",
-        "text" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent."
+        "text" : "The Chief picks each subagent's agent, such as Codex for code. Off: the Chief's own."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.autoRouteSubagents",
@@ -94139,7 +93692,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebar.help",
-        "text" : "Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there."
+        "text" : "Where subagent workspaces go: the sidebar or the collapsed Chief's group."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebar",
@@ -94282,7 +93835,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarShowWords.help",
-        "text" : "Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+        "text" : "Words that put a subagent in the sidebar, added to the built-in ones."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarShowWords",
@@ -94437,7 +93990,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarHideWords.help",
-        "text" : "Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins."
+        "text" : "Words that put a subagent in Chief's workspaces, added to the built-in ones."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarHideWords",
@@ -94586,7 +94139,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarMinWords.help",
-        "text" : "A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter."
+        "text" : "Tasks with at least this many words go in the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarMinWords",
@@ -96857,7 +96410,7 @@
       },
       "help" : {
         "key" : "settings.feed.mirrorAgents.help",
-        "text" : "Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone."
+        "text" : "Agent and cmux notify notifications go to your feed and can reach your iPhone."
       },
       "kept_on_reset_all" : false,
       "key" : "feed.mirrorNotifications.agents",
@@ -97012,7 +96565,7 @@
       },
       "help" : {
         "key" : "settings.feed.mirrorTerminal.help",
-        "text" : "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account."
+        "text" : "Terminal notifications can contain secrets. Off sends nothing."
       },
       "kept_on_reset_all" : false,
       "key" : "feed.mirrorNotifications.terminal",
@@ -97279,7 +96832,7 @@
       },
       "help" : {
         "key" : "settings.feed.needsYouInChief.help",
-        "text" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."
+        "text" : "Pins open requests and questions at the top of the Chief's chat."
       },
       "kept_on_reset_all" : false,
       "key" : "feed.needsYouInChief",
@@ -99218,7 +98771,7 @@
       },
       "help" : {
         "key" : "settings.attention.moveToTop.help",
-        "text" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+        "text" : "A notification moves its workspace to the top, unless you are looking at it."
       },
       "kept_on_reset_all" : false,
       "key" : "notifications.attention.moveToTop",
@@ -99351,7 +98904,7 @@
       },
       "help" : {
         "key" : "settings.attention.moveToTopOnAgentFinish.help",
-        "text" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+        "text" : "Unless you are looking at its pane."
       },
       "kept_on_reset_all" : false,
       "key" : "notifications.attention.moveToTopOnAgentFinish",
@@ -100594,7 +100147,7 @@
       },
       "help" : {
         "key" : "settings.notifications.sounds.cooldown.help",
-        "text" : "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off."
+        "text" : "Many notifications at once sound once. 0 turns it off."
       },
       "kept_on_reset_all" : false,
       "key" : "notifications.sounds.cooldownSeconds",
@@ -101352,7 +100905,7 @@
       },
       "help" : {
         "key" : "settings.labs.voiceRoom.help",
-        "text" : "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."
+        "text" : "While a room is open, cmux sends a transcript of your mic and your screen's text to it."
       },
       "kept_on_reset_all" : false,
       "key" : "labs.voiceRoom",
@@ -101621,7 +101174,7 @@
       },
       "help" : {
         "key" : "settings.labs.machineJoin.help",
-        "text" : "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."
+        "text" : "Shows Screen sharing and Control in Settings > Devices once this Mac joins."
       },
       "kept_on_reset_all" : false,
       "key" : "labs.machineJoin",
@@ -101757,7 +101310,7 @@
       },
       "help" : {
         "key" : "settings.labs.liveCode.help",
-        "text" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."
+        "text" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts."
       },
       "kept_on_reset_all" : false,
       "key" : "labs.liveCode",
@@ -102195,7 +101748,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.outsideRoots.help",
-        "text" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."
+        "text" : "What a link to a file outside the chat's folders does. Keys and .env files never open."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.links.outsideRoots",
@@ -102495,7 +102048,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.needsYou.help",
-        "text" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."
+        "text" : "A badge in the chat header counts what your agents wait on."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.needsYou.enabled",
@@ -103230,7 +102783,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.composerRing.help",
-        "text" : "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."
+        "text" : "What the ring at the end of the composer shows."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.composerRing",
@@ -103562,10 +103115,7 @@
         "key" : "settings.group.agentChat",
         "text" : "Agent Chat"
       },
-      "help" : {
-        "key" : "settings.agentPane.dictationSource.help",
-        "text" : "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "agentPane.dictationSource",
       "keywords" : [
@@ -103706,7 +103256,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.dictationShortcut.help",
-        "text" : "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."
+        "text" : "The shortcut sent to your dictation app. Empty uses the app's default."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.dictationShortcut",
@@ -104003,7 +103553,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.attachmentView.help",
-        "text" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."
+        "text" : "How pictures and files show in the composer and in sent messages."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.attachmentView",
@@ -104429,7 +103979,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.newChatsIn.help",
-        "text" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."
+        "text" : "Cloud copies your project to your Cloud machine. A chat's composer can change it."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.newChatsIn",
@@ -104885,7 +104435,7 @@
       },
       "help" : {
         "key" : "settings.agents.promptCache.help",
-        "text" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+        "text" : "One hour keeps replies after a pause cheap; its cache writes cost a little more."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.promptCache",
@@ -105052,7 +104602,7 @@
       },
       "help" : {
         "key" : "settings.agents.modelRouter.model.help",
-        "text" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."
+        "text" : "The model new cmux model router chats start on."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.modelRouter.model",
@@ -105191,7 +104741,7 @@
       },
       "help" : {
         "key" : "settings.diagnostics.hangReports.help",
-        "text" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
+        "text" : "Nightly builds send daily hang stacks and timings, never your files, URLs or text."
       },
       "kept_on_reset_all" : false,
       "key" : "diagnostics.hangReports",
@@ -105330,7 +104880,7 @@
       },
       "help" : {
         "key" : "settings.diagnostics.usagePatterns.help",
-        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name."
+        "text" : "Counts how you use cmux on this Mac. Nothing you type is recorded; nothing is sent."
       },
       "kept_on_reset_all" : false,
       "key" : "diagnostics.usagePatterns",
@@ -105470,7 +105020,7 @@
       },
       "help" : {
         "key" : "settings.developerTools.appPages.help",
-        "text" : "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+        "text" : "Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings."
       },
       "kept_on_reset_all" : false,
       "key" : "developerTools.appPages",
@@ -105604,7 +105154,7 @@
       },
       "help" : {
         "key" : "settings.internalDeveloperMode.help",
-        "text" : "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."
+        "text" : "Shows \"Debug: …\" commands in the Command Palette."
       },
       "kept_on_reset_all" : false,
       "key" : "app.internalDeveloperMode",
@@ -105738,7 +105288,7 @@
       },
       "help" : {
         "key" : "settings.macScreen.systemShortcuts.help",
-        "text" : "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
+        "text" : "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility."
       },
       "kept_on_reset_all" : false,
       "key" : "macScreen.systemShortcuts",
@@ -105876,7 +105426,7 @@
       },
       "help" : {
         "key" : "settings.macScreen.debug.relayOnly.help",
-        "text" : "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."
+        "text" : "Mac Screen tabs connect only through the relay, to test it."
       },
       "kept_on_reset_all" : false,
       "key" : "macScreen.debug.relayOnly",
@@ -106014,7 +105564,7 @@
       },
       "help" : {
         "key" : "settings.remote.endSharingOnQuit.help",
-        "text" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."
+        "text" : "Off: this Mac stays available to your devices while cmux is quit."
       },
       "kept_on_reset_all" : false,
       "key" : "remote.endSharingOnQuit",
@@ -106174,7 +105724,7 @@
       },
       "help" : {
         "key" : "settings.remote.ultra.help",
-        "text" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
+        "text" : "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."
       },
       "kept_on_reset_all" : false,
       "key" : "remote.ultra",
@@ -106317,7 +105867,7 @@
       },
       "help" : {
         "key" : "settings.deviceHub.url.help",
-        "text" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
+        "text" : "The device hub for Mac Screen sharing. Empty uses the built-in one."
       },
       "kept_on_reset_all" : false,
       "key" : "deviceHub.url",
@@ -106587,7 +106137,7 @@
       },
       "help" : {
         "key" : "settings.imessage.enabled.help",
-        "text" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
+        "text" : "Lets cmux read Messages conversations on this Mac. Sending needs your click."
       },
       "kept_on_reset_all" : false,
       "key" : "imessage.enabled",
@@ -106718,7 +106268,7 @@
       },
       "help" : {
         "key" : "settings.imessage.automationSkipped.help",
-        "text" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
+        "text" : "Remembers that you skipped the Messages Automation step."
       },
       "kept_on_reset_all" : false,
       "key" : "imessage.automationSkipped",
@@ -108878,7 +108428,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.workspaceIcons.help",
-        "text" : "An icon for each workspace title. \"*\" sets the icon of every other workspace; an empty icon hides it."
+        "text" : "An icon per workspace title. \"*\" sets the rest; an empty icon hides it."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.workspaceIcons",
