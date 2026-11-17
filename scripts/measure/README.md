@@ -48,6 +48,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `first-load-after-restart.sh` | A chat's first load after a restart, frame by frame, at commits (shift and blank frames, settle time). | - | 2026-11-16 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
+| `bounded-phase.py` | Runs one phase of a fleet measurement with a deadline, a stall limit and progress lines, so a slow or stuck step names itself before the controller's 45 min silent limit. | CMUX-571 | 2026-11-17 | active |
 | `update-e2e.sh` | End to end auto-update of a real nightly (correctness, not a timing). | R114 | 2026-10-04 | stale |
 | `stable-next-smoke.sh` | Fresh-home launch smoke of the NEXT Stable build on a console worker. | - | 2026-10-30 | active |
 | `daemon-registry-start.sh` | Start time of the cmux-tui daemon on a large registry. | - | 2026-11-13 | active |
