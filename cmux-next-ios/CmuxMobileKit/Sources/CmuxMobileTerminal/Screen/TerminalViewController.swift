@@ -792,6 +792,41 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             keyboardProbe = probe
         }
     }
+
+    /// Settle probe (TerminalProjectionUITests, the demo's `altproj` phase):
+    /// from its start (the attach, or the demo starting a program) to the
+    /// first display frame that shows the full-screen app at its final grid
+    /// (``TerminalModel/demoFinalColumns``) with nothing held, replayed or
+    /// pending. Every display frame of the app at another grid (from the
+    /// first start on) is counted in ``TerminalModel/unsettledTUIFrames``.
+    private var settleProbe: (link: CADisplayLink, start: CFTimeInterval?)?
+
+    func startSettleProbe() {
+        model.settleMs = -1
+        if let probe = settleProbe {
+            settleProbe = (probe.link, CACurrentMediaTime())
+            return
+        }
+        let link = CADisplayLink(target: self, selector: #selector(settleProbeTick(_:)))
+        link.add(to: .main, forMode: .common)
+        settleProbe = (link, CACurrentMediaTime())
+    }
+
+    @objc private func settleProbeTick(_ link: CADisplayLink) {
+        guard let probe = settleProbe, probe.link === link, view.window != nil || probe.start != nil else { return }
+        let pending = freezeView != nil || replayGate.isReplaying || !output.isEmpty || feedInFlight
+        let final = model.demoFinalColumns?()
+        let right = model.isTUI && !pending && final != nil && final == appliedHostColumns
+        if model.isTUI, !right {
+            model.unsettledTUIFrames += 1
+        }
+        guard let start = probe.start else { return }
+        let elapsed = link.timestamp - start
+        guard right || elapsed > 5 else { return }
+        model.settleMs = right ? Int((max(0, elapsed) * 1000).rounded()) : -2
+        sizingLog.notice("settle probe: full-screen app right after \(self.model.settleMs, privacy: .public) ms")
+        settleProbe = (link, nil)
+    }
     #endif
 
     override func didMove(toParent parent: UIViewController?) {
@@ -1186,6 +1221,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
             model.session.start { [weak self] event in self?.sessionEvent(event) }
+            #if DEBUG
+            if model.demoFinalColumns != nil { startSettleProbe() }
+            #endif
         }
     }
 
