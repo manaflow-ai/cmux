@@ -23,6 +23,9 @@ public final class DiffPageProvider: PageProvider {
     ]
     static let configOp = "cmux.diff.config"
     static let languagesOp = "cmux.diff.languages"
+    /// `<config dir>/diff/theme.css` (``DiffThemeFeed``): the op answers `{themeCSS}`, the stream
+    /// of the same name sends `{themeCSS}` on every change ("" once the file is gone).
+    static let themeOp = "cmux.diff.theme"
     static let eventsStream = "cmux.diff.events"
     static let recentsOp = "cmux.diff.recents"
     static let chooseFolderOp = "cmux.diff.chooseFolder"
@@ -40,6 +43,8 @@ public final class DiffPageProvider: PageProvider {
     var reshowing: Task<Void, Never>?
     private let sidecar: (any DiffSidecarRunning)?
     private let languages: DiffLanguageFeed?
+    /// The user stylesheet every tab applies last; nil serves no `cmux.diff.theme`.
+    private let theme: DiffThemeFeed?
     let remote: Bool
     /// The tab shows only a chat's own patch (``DiffChatPatch``): no sidecar, git, revert or file
     /// open; the page reads the patch file its grant lists (DiffPageProvider+ChatPatch.swift).
@@ -90,8 +95,9 @@ public final class DiffPageProvider: PageProvider {
 
     public init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
          host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil,
-         machine: String? = nil, chatPatch: Bool = false) {
+         machine: String? = nil, chatPatch: Bool = false, theme: DiffThemeFeed? = nil) {
         self.chatPatch = chatPatch
+        self.theme = theme
         self.ready = ready
         self.machine = machine
         self.stores = stores
@@ -115,6 +121,10 @@ public final class DiffPageProvider: PageProvider {
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(op) }
             return await languages.pack()
+        case Self.themeOp:
+            guard let theme else { throw PageError.unknownOp(op) }
+            let css = await theme.css()
+            return ["themeCSS": .string(css)]
         case _ where chatPatch:
             return try await chatPatchCall(op, params: params)
         case Self.recentsOp:
@@ -153,6 +163,10 @@ public final class DiffPageProvider: PageProvider {
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(stream) }
             let stop = languages.listen(onEvent)
+            return PageSubscription { stop() }
+        case Self.themeOp:
+            guard let theme else { throw PageError.unknownOp(stream) }
+            let stop = theme.listen { css in onEvent(["themeCSS": .string(css)]) }
             return PageSubscription { stop() }
         case Self.prefsStream:
             guard let stores else { throw PageError.unknownOp(stream) }

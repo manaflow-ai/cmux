@@ -33,7 +33,7 @@ branch `feat-cmux-next-browser-toolbar` at b24416d714d. "config dir" = the direc
 | Backdrop R48 + R55 | `appearance.surfaces.<kind>.{color,opacity}` `S/CmuxNextSettings/SurfaceBackgroundSetting.swift:13-74`; kinds `S/CmuxNextDesign/Windows/SurfaceBackgrounds.swift:7-23` (`diff` exists; no `markdown`, `fileViewer`, `picker`) | `--cmux-surface-background` via `WebTheme.swift:30-46` |
 | Look push | `window.cmuxTheme.apply({variables, colorScheme})` + DOM event `cmux-theme` (`S/CmuxNextDesign/Windows/WebTheme.swift:50-88`, `S/CmuxNextPages/PageWebView.swift:230-258`); consumed `W/backdrop.ts:106` | A script, not a protocol stream; no font or accent variables |
 | App fonts | `terminal.fontFamily`, `terminal.fontSize` (`Schema/SettingsSchema+Terminal.swift:8-18`; R92 migrates them to `ghostty.font-*`); UI size `appearance.metrics.chromeFontSize` (`DesignSettings.swift:14,114`) | Pages hard-code 13px system font (`W/pages/shared/pageBase.css:25`) |
-| Per-surface theme.css | Agent pane: `<config dir>/agent-pane/theme.css` (`S/CmuxNextAgentPane/AgentPaneCustomization.swift:25,55-61`, watcher `S/CmuxNextApp/AgentPaneCustomizationWatcher.swift:5-34`). Markdown: `<config dir>/markdown/theme.css` designed (`W/pages/markdown/settings.ts:238-246`) but served only by the dev server (`webviews/dev-server/markdownHost.ts:264-274`) | Agent pane live; markdown dev only |
+| Per-surface theme.css | Each is read off the main actor, watched (`ConfigFileWatcher`), sent to its page and applied as the page's last `<style>`, "" after a delete. Agent pane: `<config dir>/agent-pane/theme.css` (`S/CmuxNextAgentPane/AgentPaneCustomizationWatcher.swift`). Markdown and the code editor (the file viewer): `<config dir>/markdown/theme.css`, `<config dir>/editor/theme.css` (`S/CmuxNextApp/Pages/Files/FilePageLook.swift`, in `cmux.markdown.look` / `cmux.editor.look`). Diff: `<config dir>/diff/theme.css` (`S/CmuxNextDiff/DiffThemeFeed.swift`, op and stream `cmux.diff.theme`, `W/diff/page.ts` `startPageDiffTheme`). Nothing reads `picker/theme.css` or `fileViewer/theme.css`; `cmux customize` reports either as a problem (`cmux-tui/crates/cmux-customize/src/tree.rs` `UNDRAWN_STYLES`) | All four live |
 | Renderer extension | Agent pane `registry.js`: `window.cmuxAcpmuxRegistry.register(kind, renderer, {measure})` (`W/agent-session/acpmux/App.tsx:129-136,1172-1185`) | Runs in the page's main world with the native bridge; no sandbox |
 | Diff languages folder | `<config dir>/diff/languages/*.language.json`, `*.tmLanguage.json`, `overrides.json` (`W/diff-languages/pack.ts:1-24`, `host.ts:1-34`) | Dev server only (`webviews/dev-server/diffLanguages.ts:13-18`) |
 | Pane protocol | Namespaces `cmux` + `com.example.hello` (`cmux-tui/crates/cmux-pane-protocol/src/catalog.rs:11-27`); third-party app ids reserve a reverse-DNS namespace (`src/router/mod.rs:130-163,236-298`); interface drafts `cmux.diff.source/1`, `cmux.viewer/1`, `cmux.diff.renderer/1`, `cmux.opener/1` | Router is not in the daemon (`plans/cmux-next/react-pages.md:35`); page ids hard-coded (`S/CmuxNextPages/PageID.swift:12-15`, `S/CmuxNextApp/Pages/PageFactory.swift:12-41`) |
@@ -70,7 +70,7 @@ through one of them.
    weights) lives here, not in settings keys. Settings that change looks (density, font size) are
    applied by setting these properties, so a stylesheet always wins.
 4. **One user stylesheet per surface**: `<config dir>/<surface>/theme.css` (`diff`, `markdown`,
-   `picker` (web picker only), `fileViewer`, `agent-pane`), loaded by one generic watcher in the page
+   `editor` (the code file viewer), `agent-pane`; `picker` once a web picker exists), loaded by one generic watcher in the page
    host, delivered in `cmux.page.look.themeCSS`, injected as the last `<style>` and replaced live.
    Native surfaces (browser toolbar, native palette) have no stylesheet; they use settings and design
    tokens only.
@@ -204,7 +204,7 @@ who implements the consumer.
 | D52 | input | Page command delivery | page uses classic `window.__cmuxPerformDiffViewerNavigationAction` only `W/App.tsx:2982-3028` | bug | subscribe to `cmux.page.command` (`W/pages/shared/pageStreams.ts`) | yes | S |
 | D53 | content | User grammars | `<config dir>/diff/languages/` `W/diff-languages/pack.ts:1-13`; dev only | dev | one shared `<config dir>/languages/` served by the page host for diff, markdown, file viewer | yes | S |
 | D54 | content | Extension to language overrides | `overrides.json` `W/diff-languages/pack.ts:9`; built-ins `W/diff-language.ts:6-28` | dev | same folder | yes | S |
-| D55 | content | User stylesheet | none | none | `<config dir>/diff/theme.css` (rule 4) | yes | S |
+| D55 | content | User stylesheet | `<config dir>/diff/theme.css` `S/CmuxNextDiff/DiffThemeFeed.swift`, `cmux.diff.theme` | cfg | rule 4 | yes | S |
 | D56 | content | Diff sources | kinds fixed `W/diff/generated/protocol.ts:29`; host `sourceOptions` `W/toolbar-model.ts:44-53` | hard | `cmux.diff.source/1` providers listed in the source menu | yes | S |
 | D57 | content | Rich previews (images, notebooks) | stubs `W/toolbar-model.ts:261-267` | none | `cmux.diff.renderer/1` + renderer registry (rule 5) | yes | S |
 | D58 | privacy | Recents | recorded on every open, no off switch (diff-host.md, empty state) | hard | `viewers.recents.enabled: bool = true` + action "Clear Recents" | yes | S |
@@ -259,7 +259,7 @@ box or jump-to-file field has focus.
 | M37 | input | Formatting shortcuts | Milkdown defaults `editor.ts:229-230` | hard | catalog actions (bold, italic, code, heading 1-6, list) under `markdownEditorFocused` | yes | K, S |
 | M38 | input | Link popover keys | `linkEditing.ts:413-425` | hard | keep (text field focus) | - | - |
 | M39 | content | Plugins and renderers | fixed `editor.ts:229-241` | hard | renderer registry slot `markdown.fence.<lang>` (rule 5) | yes | S |
-| M40 | content | User stylesheet | `<config dir>/markdown/theme.css` `settings.ts:238-246` | dev | rule 4 via the generic loader | yes | S |
+| M40 | content | User stylesheet | `<config dir>/markdown/theme.css` `S/CmuxNextApp/Pages/Files/FilePageLook.swift` | cfg | rule 4 via the generic loader | yes | S |
 | M41 | content | File types | `.md .markdown .mdx .mdown .mkd` `W/pages/markdown/links.ts:17`, `W/viewer-empty/ops.ts:152` | hard | `files.associations` (shared, P29) | yes | S |
 | M42 | privacy | Remote images | blocked `img-src 'self' data:` `PageCSP.swift:28` | hard | `markdown.remoteImages: "block" \| "allow" = "block"` (allow fetches through the host, no CSP widening) | yes | S |
 | M43 | privacy | Relative images | file's folder only `W/pages/markdown/host.ts:113-116` | hard | keep | - | - |
@@ -356,7 +356,7 @@ adds only the empty view. Targets assume a `cmux.fileViewer` page on the shared 
 | F3 | appearance | Code font and size | WebKit default | hard | Ghostty font via look (R92), page zoom | yes | S |
 | F4 | appearance | Syntax theme | none | none | `appearance.syntaxTheme` (shared) | yes | S |
 | F5 | appearance | Background | browser chrome surface | hard | new SurfaceKind `fileViewer` (R55) | yes | SL, S |
-| F6 | appearance | User stylesheet | none | none | `<config dir>/fileViewer/theme.css` | yes | S |
+| F6 | appearance | User stylesheet | the code editor page (the file viewer) reads `<config dir>/editor/theme.css` `FilePageLook.swift`; nothing reads `fileViewer/theme.css` | cfg | `<config dir>/editor/theme.css` | yes | S |
 | F7 | behavior | Line numbers | none | none | `fileViewer.lineNumbers: bool = true` | yes | S |
 | F8 | behavior | Word wrap | Opt-Z declared, unavailable `BrowserActionCatalog.swift:264-269` | none | `fileViewer.wordWrap: bool = false` | yes | S |
 | F9 | behavior | Image background | WebKit image document | hard | `fileViewer.imageBackground: "checkerboard" \| "theme" \| "black" \| "white" = "checkerboard"` | yes | S |

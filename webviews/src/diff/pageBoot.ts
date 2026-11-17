@@ -1,5 +1,5 @@
-// The page host boot of the diff viewer (page.ts has the ops): config, optional comments and the
-// user language pack, then render, then the host's diffViewer* commands (pageCommands.ts). Kept apart from surfaces/diffSurface so it is testable without
+// The page host boot of the diff viewer (page.ts has the ops): config and the user theme.css,
+// optional comments and the user language pack, then render, then the host's diffViewer* commands (pageCommands.ts). Kept apart from surfaces/diffSurface so it is testable without
 // the viewer.
 import { installPageDiffComments } from "../comments/bridge";
 import type { DiffLanguageHostAPI } from "../diff-languages/host";
@@ -13,6 +13,7 @@ import {
   normalizePageDiffConfig,
   startPageDiffLanguages,
   startPageDiffPrefs,
+  startPageDiffTheme,
   type DiffPageConfig,
 } from "./page";
 import { type DiffNavigationPerform, startPageDiffCommands } from "./pageCommands";
@@ -32,7 +33,11 @@ export async function bootPageDiff(
   pick?: DiffSurfacePick,
   perform?: DiffNavigationPerform,
 ): Promise<DiffViewerConfig> {
+  // The user's diff/theme.css loads beside the config, so the first paint (the empty state's too)
+  // already has it; later saves restyle in place.
+  const theme = startPageDiffTheme(page);
   let config = await loadPageDiffConfig(page);
+  await theme;
   // No repository yet (diff-host.md "Empty state"): the user picks one, `cmux.diff.open` answers
   // its config, and the boot goes on with that.
   if (pick && diffConfigNeedsPick(config)) config = normalizePageDiffConfig(await pick(config));

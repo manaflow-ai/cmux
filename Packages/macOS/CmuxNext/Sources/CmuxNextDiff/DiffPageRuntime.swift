@@ -11,6 +11,8 @@ public final class DiffPageRuntime {
     let root: URL
     public let sidecar: (any DiffSidecarRunning)?
     public let languages: DiffLanguageFeed
+    /// `<config dir>/diff/theme.css`, the stylesheet every tab applies last (D55).
+    public let theme: DiffThemeFeed
     public let isRemote: Bool
     /// Reads the session host's `git.status` of a folder.
     private let status: @MainActor (String) async throws -> JSONValue
@@ -35,6 +37,7 @@ public final class DiffPageRuntime {
         self.sidecar = sidecar ?? bundled.map { DiffSidecarPool(runner: $0) }
         warmSidecar = bundled.map { DiffSidecarPool(runner: $0, limit: 1, queueLimit: 4) } ?? self.sidecar
         languages = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: configFile))
+        theme = DiffThemeFeed(file: DiffThemeFeed.stylesheet(configFile: configFile))
         self.status = status ?? { _ in throw DiffTabFailure(title: "", message: DiffPageStrings.notRepository) }
         self.isRemote = isRemote
     }

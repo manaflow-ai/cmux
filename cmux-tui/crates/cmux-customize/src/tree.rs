@@ -67,7 +67,9 @@ impl Part {
             Part::Views => {
                 "your own views app (sidebar sections, panes, widgets, commands): cmux-app.json + main.js"
             }
-            Part::Styles => "per-surface stylesheets (agent-pane/theme.css and the like)",
+            Part::Styles => {
+                "per-surface stylesheets, applied last and live: agent-pane/, markdown/, editor/ or diff/theme.css"
+            }
             Part::Automations => "automations (when X happens, do Y): one automation.json each",
         }
     }
@@ -87,8 +89,34 @@ impl Part {
 
 /// The settings file's logical path, whatever the file is called on disk.
 pub const SETTINGS: &str = "settings.json";
-/// Surfaces with a user stylesheet (`<config dir>/<surface>/theme.css`).
-const STYLE_SURFACES: &[&str] = &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
+/// Surfaces with a user stylesheet (`<config dir>/<surface>/theme.css`), each
+/// loaded live by its page (applied last as a `<style>`, cleared when the
+/// file goes): `agent-pane` (AgentPaneCustomizationWatcher), `markdown` and
+/// `editor`, the code file viewer (FilePageLook), `diff` (DiffThemeFeed).
+/// The [`UNDRAWN_STYLES`] rows are read and kept too, so a generation that
+/// holds one still restores, but nothing applies them.
+const STYLE_SURFACES: &[&str] =
+    &["agent-pane", "markdown", "editor", "diff", "picker", "fileViewer"];
+
+/// Stylesheet surfaces no page draws, with what to say instead of
+/// accepting the file silently (a validation problem).
+const UNDRAWN_STYLES: &[(&str, &str)] = &[
+    (
+        "picker",
+        "no cmux surface reads this yet: the cmux picker is a native palette page, which takes no stylesheet",
+    ),
+    (
+        "fileViewer",
+        "no cmux surface reads this: files open in the code editor page, so write editor/theme.css instead",
+    ),
+];
+
+/// Why the stylesheet at `path` changes nothing on screen, when it is one of
+/// [`UNDRAWN_STYLES`]; `None` for every other path.
+pub fn undrawn_style(path: &str) -> Option<&'static str> {
+    let surface = path.strip_suffix("/theme.css")?;
+    UNDRAWN_STYLES.iter().find(|(name, _)| *name == surface).map(|(_, why)| *why)
+}
 
 /// One file of a tree, by content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -507,6 +535,30 @@ mod tests {
             locate(&roots, "automations/auto_1/automation.json"),
             Some(PathBuf::from("/r/config/automations/auto_1/automation.json"))
         );
+    }
+
+    #[test]
+    fn every_drawn_style_surface_is_located_and_the_rest_say_why_not() {
+        let roots = Roots::under(Path::new("/r"));
+        for surface in ["agent-pane", "markdown", "editor", "diff"] {
+            let path = format!("{surface}/theme.css");
+            assert_eq!(
+                locate(&roots, &path),
+                Some(PathBuf::from(format!("/r/config/{surface}/theme.css"))),
+                "{path}"
+            );
+            assert_eq!(undrawn_style(&path), None, "{path}");
+        }
+        // Still read and kept (a generation holding one restores), but a
+        // problem names why it changes nothing.
+        for surface in ["picker", "fileViewer"] {
+            let path = format!("{surface}/theme.css");
+            assert!(locate(&roots, &path).is_some(), "{path}");
+            assert!(undrawn_style(&path).is_some(), "{path}");
+        }
+        assert!(undrawn_style("fileViewer/theme.css").unwrap().contains("editor/theme.css"));
+        assert_eq!(undrawn_style("picker/other.css"), None);
+        assert_eq!(locate(&roots, "nowhere/theme.css"), None);
     }
 
     #[test]
