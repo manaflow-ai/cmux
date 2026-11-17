@@ -135,7 +135,7 @@ main() {
       fi
     done <<<"$paths"
     tree="$(GIT_INDEX_FILE="$idx" git write-tree)"
-    commit="$(git commit-tree "$tree" -p "$on" -m "chore(next): base autofix Swift rewrites at ${on:0:12}" \
+    commit="$(git commit-tree "$tree" -p "$on" -m "chore(next): base autofix at ${on:0:12} (Swift rewrites, for a pull request)" \
       -m "$(sed 's/^/- namespace rewrite in /' <<<"$paths")" \
       -m "scripts/cmux-next/base-autofix-land.sh: ${RUN_URL:-} could not compile these, so they wait for this pull request's CI instead of landing on $branch.")"
     # The same rewrite again (every base push makes it while it waits) leaves the branch, and its CI, alone.
@@ -188,7 +188,7 @@ none" >/dev/null; then
       git reset --quiet --hard "$on"
       return 1
     fi
-    git commit --quiet --amend -m "$message"
+    git commit --quiet --amend --file=- <<<"$message"  # keeps the repair's own subject
   }
 
   push() { # <base> [<settings made at>] [<action exports made at>] -> the push's status; its held files in $work/held
