@@ -5407,9 +5407,10 @@
       "type": "object"
     },
     "RetryReason": {
-      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the\nagent process died mid-turn, or the chat outgrew its model's context window (`context`: it\nis compacted, then continued at once).",
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, or the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once).",
       "enum": [
         "capacity",
+        "rate_limit",
         "transport",
         "agent_exited",
         "context"
@@ -6097,6 +6098,15 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "rateLimitedUntil": {
+          "description": "The account's rate limit holds every turn of this chat until this time (Unix ms): what\ncomes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows\n\"rate-limited until HH:MMZ\". Absent otherwise, and from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
@@ -6797,6 +6807,15 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "rateLimitedUntil": {
+          "description": "The account's rate limit holds every turn of this chat until this time (Unix ms): what\ncomes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows\n\"rate-limited until HH:MMZ\". Absent otherwise, and from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
