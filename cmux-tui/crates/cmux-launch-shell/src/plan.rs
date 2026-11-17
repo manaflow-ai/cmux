@@ -17,7 +17,6 @@ pub struct Frame {
 
 /// The image is drawn only when its pixel size is the frame times the scale, within this.
 pub const IMAGE_SIZE_TOLERANCE_PX: i64 = 1;
-/// Held events past which the window swaps at once. Typing never reaches it; nothing is dropped.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -63,7 +62,7 @@ pub struct SavedWindow {
     /// The display the window was on, when written.
     pub screen_frame: Frame,
     pub fullscreen: bool,
-    /// `<build>/<window_id>/<generation>`: the image's file is `<image_dir>/<key>.png`.
+    /// `<build>/<window_id>/<generation>`: the image's file is `<image_dir>/<window_id>.<generation>.png`.
     pub image_key: String,
 }
 
@@ -199,8 +198,11 @@ impl<'a> ImageKey<'a> {
             .then(|| format!("{build}/{window_id}/{generation}"))
     }
 
+    /// The image store's file for this key (cmux-launch-image: one flat folder, a path per window
+    /// and generation, never reused). The build is not in the path: it is checked from the key, and
+    /// the new build's first publish replaces the old images.
     pub fn path(&self, image_dir: &Path) -> PathBuf {
-        image_dir.join(self.build).join(self.window_id).join(format!("{}.png", self.generation))
+        image_dir.join(format!("{}.{}.png", self.window_id, self.generation))
     }
 }
 

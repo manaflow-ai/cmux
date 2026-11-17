@@ -67,10 +67,56 @@ pub fn input_disposition(kind: InputKind, held: usize) -> Disposition {
     }
 }
 
+/// Whether a held event is replayed to the real window at the swap. Keys always are, in order:
+/// typing lands wherever focus lands. A button, drag or scroll aimed at a point is replayed only
+/// when stage 0 showed the saved image and the real window drew the same place (`mismatch`
+/// false); over the plain shell, or a real window that drew otherwise, that point meant nothing.
+pub fn replays(kind: InputKind, showed_image: bool, mismatch: bool) -> bool {
+    match kind {
+        InputKind::KeyDown | InputKind::KeyUp | InputKind::FlagsChanged => true,
+        InputKind::MouseDown | InputKind::MouseUp | InputKind::MouseDragged | InputKind::Scroll => {
+            showed_image && !mismatch
+        }
+        InputKind::Other | InputKind::MouseMoved => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    const KEYS: [InputKind; 3] = [InputKind::KeyDown, InputKind::KeyUp, InputKind::FlagsChanged];
+    const POINTED: [InputKind; 4] =
+        [InputKind::MouseDown, InputKind::MouseUp, InputKind::MouseDragged, InputKind::Scroll];
+
+    #[test]
+    fn clicks_replay_over_the_image_when_the_real_window_matches() {
+        for kind in KEYS.into_iter().chain(POINTED) {
+            assert!(replays(kind, true, false), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn over_the_plain_shell_keys_replay_and_clicks_drop() {
+        for kind in KEYS {
+            assert!(replays(kind, false, false), "{kind:?}");
+        }
+        for kind in POINTED {
+            assert!(!replays(kind, false, false), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn on_a_mismatch_keys_replay_and_clicks_drop() {
+        for kind in KEYS {
+            assert!(replays(kind, true, true), "{kind:?}");
+        }
+        for kind in POINTED {
+            assert!(!replays(kind, true, true), "{kind:?}");
+        }
+        assert!(!replays(InputKind::MouseMoved, true, false));
+    }
 
     #[test]
     fn every_key_and_button_is_held_in_order_and_hover_passes() {

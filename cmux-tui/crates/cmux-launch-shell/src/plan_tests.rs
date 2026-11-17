@@ -57,7 +57,7 @@ fn a_current_image_is_drawn() {
         &now(Appearance::Dark, &RETINA),
     );
     assert_eq!(p.reason, Reason::Image);
-    assert_eq!(p.image.unwrap(), dir.path().join(BUILD).join("w1").join("7.png"));
+    assert_eq!(p.image.unwrap(), dir.path().join("w1.7.png"));
     assert!(p.reason.shows_window());
 }
 
