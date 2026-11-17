@@ -11,11 +11,15 @@ public nonisolated enum CmuxDialogField: Equatable, Sendable {
     case check(id: String, title: String, on: Bool)
     /// Read-only text the user should see before answering (a paste preview).
     case preview(String)
+    /// A read-only code to compare letter by letter (a device key fingerprint): its caption, then the
+    /// code in monospaced digits on an inset well, selectable so it can be copied. Each line of `text`
+    /// draws as one line.
+    case code(label: String?, text: String)
 
     public var id: String? {
         switch self {
         case .text(let id, _, _, _, _), .choice(let id, _, _, _), .check(let id, _, _): id
-        case .preview: nil
+        case .preview, .code: nil
         }
     }
 
