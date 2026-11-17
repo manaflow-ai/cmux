@@ -119,10 +119,14 @@ Today's targets:
   the end of the hold. Readiness is the same fresh nonce as below, read from the framebuffer.
   The client offers ZRLE, zlib, CopyRect and raw (`encodings_seen` records what the server used),
   so this is Apple's server with standard RFB encodings, not the picture Screen Sharing.app gets
-  over Apple's own encodings. The login is a file in the viewer account's real home,
-  `~/.config/screen-stream-eval/login` (mode 0600): the host account's password, for the account
-  with the viewer's name (the fleet Macs share one), or a user name line first. Never argv,
-  environment or logs. Each view runs under a hard time limit.
+  over Apple's own encodings. The login is the one Screen Sharing.app saved in the viewer
+  account's keychain for the host ("Remember this password"; the first read may show macOS's
+  keychain prompt once), or a file in the viewer account's real home,
+  `~/.config/screen-stream-eval/login` (mode 0600), which wins when present: the host account's
+  password, for the account with the viewer's name (the fleet Macs share one), or a user name line
+  first. Never argv, environment or logs. Each view runs under a hard time limit. Its viewer opens
+  no window and posts nothing on its own Mac, so `viewer-of=` runs it from a person's Mac too;
+  `person_guard.py` still refuses a person's Mac as its host, where its input lands.
 - `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
   same host and sample the displayed connection for OCR and viewer CPU. They
   request Standard + Full Quality and Standard + Adaptive Quality respectively;
@@ -382,6 +386,31 @@ is decoded, not when it is presented on the viewer's screen. Real networks are G
 Trust: the run token, rd's stream token and the WebRTC pairing link cross the LAN in plain HTTP.
 The agent runs only the fixed view verbs, with checked arguments, from its own checkout. A measure
 Mac's LAN is the boundary, as its console is (below).
+
+### Held-and-burst link profiles
+
+`mac-holds.sh` shapes the host Mac's egress to the viewer's addresses with dummynet, as root (on the
+fleet, `fleet-sudo HOST /bin/bash mac-holds.sh ...`), and nothing else on the Mac:
+
+```
+mac-holds.sh start wifi-away 900 VIEWER_IP [VIEWER_WIFI_IP]   # a watchdog clears it after 900 s
+mac-holds.sh holds                                            # each hold's start and end, CLOCK_MONOTONIC and wall
+mac-holds.sh clear; mac-holds.sh show                         # show must list no pipe 07730
+```
+
+`wifi-away` comes from a Wi-Fi capture of a laptop away from its access point:
+- 4 ms base delay and 2% random loss
+- a 50 to 100 ms hold every 0.53 s
+- long holds of 300 to 580 ms (median about 455 ms) at irregular gaps (median 3.4 s, 0.5 to 11 s)
+
+A held packet is not dropped: it waits and leaves with the others at the hold's end. The schedule
+comes from a fixed seed, and `wifi-away-schedule.jsonl` is that schedule for 900 s (`mac-holds.sh
+schedule wifi-away 900`), so a later run can check it gets the same holds.
+`wifi-short`, `wifi-long` and `wifi-loss` keep only the short holds, only the long holds, or only the
+loss. `stall` is a 600 ms hold every 5 s.
+
+The script refuses any pipe delay under 1 ms. A zero-delay dummynet pipe panicked a macOS fleet Mac
+twice. `bash test-mac-holds.sh` checks the refusal with a stub `dnctl`, needs no root, and runs on Linux.
 
 ## Needs
 

@@ -1,4 +1,4 @@
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
+import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -63,6 +63,7 @@ import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -228,9 +229,13 @@ import {
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 
+/// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
+/// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
+const LIVE_STEP_VARS = transcriptLiveVars();
+
 /// How soon after the last width step's work finished a new width counts as the same live resize,
-/// and how long a width holds before the whole chat is measured at it
-/// (conversation/liveResizeStep.ts, which owns the rule and its reason).
+/// and how long a width holds before the whole chat is measured at it, come from
+/// conversation/liveResizeStep.ts, which owns the rule and its reason (LIVE_RESIZE_MS above).
 
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
@@ -426,7 +431,7 @@ const RowFrame = React.memo(function RowFrame({
   continuationFooter,
   lastTurn,
   index,
-  setSize,
+  setSizeRef,
   top,
   rowWidth,
   expanded,
@@ -483,7 +488,9 @@ const RowFrame = React.memo(function RowFrame({
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
   lastTurn: boolean;
   index: number;
-  setSize: number;
+  /// The list's length for `aria-setsize`, held in a ref so a row that arrives changes no prop here
+  /// (TranscriptView, `setSize`). The row writes the attribute on the mount that puts it in the list.
+  setSizeRef: React.MutableRefObject<string>;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -601,6 +608,14 @@ const RowFrame = React.memo(function RowFrame({
     return () => observer.unobserve(node);
   }, [observer]);
   useLayoutEffect(() => {
+    // The mount that puts this row in the list writes its `aria-setsize`. A later length is written
+    // by the transcript's own sweep, which runs only when the length changed, so a streamed token
+    // reads no mounted row at all.
+    ref.current?.setAttribute("aria-setsize", setSizeRef.current);
+    // Only this mount: the ref holds the length, so a changed one re-runs nothing here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
     const node = ref.current;
     if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
   }, [
@@ -635,7 +650,8 @@ const RowFrame = React.memo(function RowFrame({
       {...rowTabStop}
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
-      aria-setsize={setSize}
+      // `aria-setsize` is not here: the transcript writes it to the mounted nodes, so a row that arrives
+      // does not change a prop on every other one (TranscriptView, `setSize`).
       // `top`, not a transform: in the app (the page at its UI-scale zoom) a drag over a row placed
       // by `translateY` selected the line above the pointer (user 2026-10-21). A set `top` counts
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
@@ -797,7 +813,7 @@ type RowFramesView = {
   geometry: { topAt(index: number): number; gapAt(index: number): number };
   frameKey: string;
   registry: NativeRegistry;
-  setSize: number;
+  setSizeRef: React.MutableRefObject<string>;
   rowWidth: number;
   expanded: Folds;
   observer: ResizeObserver | undefined;
@@ -829,7 +845,7 @@ type RowFramesView = {
 /// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
 /// every other frame on the element `cache` kept, whatever the rows in view.
 function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: RowFramesView): React.ReactElement[] {
-  const { rows, geometry, setSize } = view;
+  const { rows, geometry } = view;
   const entering = view.enters ? sources.entering.current : undefined;
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
@@ -859,7 +875,6 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
-      inputs.setSize = setSize;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
       inputs.selected = view.selectedRows.has(absoluteIndex);
@@ -905,7 +920,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           continuationFooter={isContinuationFooter(row, next)}
           lastTurn={row.lastTurn === true}
           index={absoluteIndex}
-          setSize={setSize}
+          setSizeRef={view.setSizeRef}
           top={inputs.top}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
@@ -2311,6 +2326,8 @@ function TranscriptView({
     // Only the size change of this frame is the card leaving.
     requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
   }, [queueIds]);
+  // The rows beside the stack stay in sight (conversation/useBesideStack.ts).
+  useBesideStack(dock, ref, TRAY_GHOST);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -6816,13 +6833,25 @@ function TranscriptView({
   };
   // Each mounted row's frame, its props worked out again only for rows whose rows or inputs changed
   // (`drawRowFrames`): a streamed token redoes the live row's alone.
+  /// `aria-setsize` on the mounted rows, written to the nodes instead of passed to each one. It is a
+  /// whole-list number (`rows.length`, or -1 while older history can still be paged in), so a row
+  /// that arrived changed it for every mounted row at once and React redrew them all: at 1,500 rows
+  /// while a reply streamed, `rowprop:setSize` was the first differing prop in 34 of the p95 frame's
+  /// 41 row renders (composer-typing.bench.ts, cmux#45237). A row that arrives must cost its own
+  /// draw, not the mounted window's. A screen reader reads the attribute. The row writes it on its
+  /// own mount, from this ref; a changed length is swept below.
+  const setSize = String(canLoadOlder ? -1 : rows.length);
+  // The ref is written by the sweep below, never in a render: a render that React throws away must
+  // leave nothing behind. A row's own mount effect runs before the sweep, so it reads the length as
+  // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
+  const setSizeRef = useRef(setSize);
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
     rows,
     mountedRanges,
     geometry: layout.geometry,
     frameKey,
     registry,
-    setSize: canLoadOlder ? -1 : rows.length,
+    setSizeRef,
     rowWidth: scaledRowWidth,
     expanded,
     observer,
@@ -6849,6 +6878,18 @@ function TranscriptView({
     rowRepositories,
     scopeAt,
   });
+  /// Only a changed length sweeps the mounted rows. A streamed token leaves the length alone, so it
+  /// reads no mounted row: a pass over the thread's rows is what `test/transcript-fold-anchor.test.tsx`
+  /// counts, and a token during a fold must run none. `[data-row-id]` keeps the write off a fold's
+  /// ghost copies, which hang in the thread with the row class and have this attribute stripped on
+  /// purpose (conversation/turnFold.ts `ghostOf`): an inert copy must not read as a row of the list.
+  useLayoutEffect(() => {
+    setSizeRef.current = setSize;
+    const threadNode = thread.current;
+    if (!threadNode) return;
+    for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
+      if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
+  }, [setSize]);
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -6899,6 +6940,8 @@ function TranscriptView({
                 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+              // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
+              ...LIVE_STEP_VARS,
             } as React.CSSProperties
           }
         >
@@ -6959,7 +7002,7 @@ function TranscriptView({
               <div
                 ref={thread}
                 className="acpmux-thread"
-                style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
+                style={{ top: lift + topInset }}
                 onPointerOver={(event) => pointAt(event.target)}
                 onPointerLeave={() => pointAt(null)}
               >

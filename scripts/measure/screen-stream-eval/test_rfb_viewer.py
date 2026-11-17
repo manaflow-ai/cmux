@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import struct
+import subprocess
 import tempfile
 import threading
 import time
@@ -151,6 +152,42 @@ class RFBViewerTests(unittest.TestCase):
         import pwd
         self.login.write_text("secret\n")
         self.assertEqual(rfb.read_login(str(self.login)), (pwd.getpwuid(os.getuid()).pw_name, "secret"))
+
+    def fake_security(self, attrs_rc=0, account="leo", password="saved-secret"):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if argv[-1] == "-w":
+                return subprocess.CompletedProcess(argv, 0, password + "\n", "")
+            return subprocess.CompletedProcess(argv, attrs_rc, f'    "acct"<blob>="{account}"\n', "")
+        return run, calls
+
+    def test_keychain_login_is_screen_sharings_saved_login(self):
+        run, calls = self.fake_security()
+        self.assertEqual(rfb.keychain_login("10.0.0.5", run), ("leo", "saved-secret"))
+        self.assertEqual(calls[0], ["security", "find-internet-password", "-r", "rfb ", "-s", "10.0.0.5"])
+        self.assertTrue(all("saved-secret" not in " ".join(c) for c in calls))
+
+    def test_keychain_login_missing_or_empty_is_none(self):
+        self.assertIsNone(rfb.keychain_login("10.0.0.5", self.fake_security(attrs_rc=44)[0]))
+        self.assertIsNone(rfb.keychain_login("10.0.0.5", self.fake_security(password="")[0]))
+        self.assertIsNone(rfb.keychain_login("10.0.0.5", self.fake_security(account="")[0]))
+
+    def test_no_default_file_falls_back_to_keychain(self):
+        import pwd
+        if os.path.exists(os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".config/screen-stream-eval/login")):
+            self.skipTest("this account has a default login file")
+        run, _ = self.fake_security()
+        self.assertEqual(rfb.read_login(None, "10.0.0.5", run), ("leo", "saved-secret"))
+        with self.assertRaisesRegex(rfb.RFBError, "Remember this password"):
+            rfb.read_login(None, "10.0.0.5", self.fake_security(attrs_rc=44)[0])
+
+    def test_explicit_missing_file_never_reads_keychain(self):
+        run, calls = self.fake_security()
+        with self.assertRaises(rfb.RFBError):
+            rfb.read_login(str(self.dir / "absent"), "10.0.0.5", run)
+        self.assertEqual(calls, [])
 
     def test_rejected_login_fails(self):
         self.assertEqual(self.run_viewer(FakeServer(reject=True), "probe"), 1)
