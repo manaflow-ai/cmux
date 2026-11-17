@@ -307,7 +307,11 @@ mod apps {
 
     impl Checked {
         fn new(label: String, main: &str, limits: Limits) -> Self {
-            let mut vm = AppVm::new(limits).expect("an empty VM always starts");
+            // Evaluating the runtime runs under the entry deadline too; the tight fuzz deadline
+            // can interrupt it on a loaded runner, which is no app's doing, so it is retried.
+            let mut vm = (0..5)
+                .find_map(|_| AppVm::new(limits).ok())
+                .expect("an empty VM starts within five tries");
             let started = Instant::now();
             let init = vm.init(InitParams {
                 app: AppInfo { id: "local/hostile".into(), version: "1.0.0".into() },
@@ -808,6 +812,98 @@ mod apps {
             ),
             "{error:?}"
         );
+    }
+
+    // ---------------------------------------------------------------- work the interrupt can't see
+
+    /// Runs `go` of an app on its own thread (the VM is not `Send`, so it is made there) and
+    /// returns how long the entry took and how it ended, or None if it ran past `limit`.
+    fn timed_command(
+        body: &'static str,
+        limits: Limits,
+        limit: Duration,
+    ) -> Option<(Duration, Result<(), VmError>)> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut h = Harness::with(&app(body), json!({}), limits);
+            let started = Instant::now();
+            let outcome = h.vm.run_command(1, "go", &json!({}), None);
+            let _ = tx.send((started.elapsed(), outcome));
+        });
+        // A thread still spinning past `limit` is left behind; the test fails either way.
+        rx.recv_timeout(limit).ok()
+    }
+
+    /// An app that keeps catching its own out-of-memory errors still stops at its deadline, and
+    /// dies for memory.
+    #[test]
+    fn a_vm_past_its_memory_limit_still_stops_at_its_deadline() {
+        let limits = Limits { memory_bytes: 8 * 1024 * 1024, ..Limits::default() };
+        let outcome = timed_command(
+            r#"return { go: () => {
+              const keep = []
+              for (;;) { try { keep.push("x".repeat(1 << 16) + keep.length) } catch (e) {} }
+            } }"#,
+            limits,
+            Duration::from_secs(20),
+        );
+        let (took, outcome) = outcome.expect("the entry ran past 20 s (its deadline is 250 ms)");
+        assert!(took < limits.entry_deadline + Duration::from_secs(1), "the entry ran {took:?}");
+        assert!(
+            matches!(outcome, Err(VmError::Fatal { reason: FatalReason::Memory, .. })),
+            "{outcome:?}"
+        );
+    }
+
+    /// The engine polls the interrupt handler once per thousands of calls and loop iterations,
+    /// so a step that costs milliseconds (a native call copying a large string argument, an
+    /// 8 MiB `repeat`) ran for seconds between polls. Native functions now return at once when
+    /// the VM is past its deadline or any limit, before reading arguments, and the allocator
+    /// refuses large growth past the deadline.
+    #[test]
+    fn expensive_steps_end_within_the_entry_deadline() {
+        let limits = Limits::default();
+        for (what, body) in [
+            ("repeat", r#"return { go: () => { for (;;) "x".repeat(1 << 23) } }"#),
+            (
+                // The shape a seed found: recursion through a retry, a large string per level.
+                "recursive retry",
+                r#"return { go: () => {
+                  const f = () => { try { __cmuxAppNative.commandDone(1, true, "x".repeat(1 << 23)) } catch (e) {}; try { f() } catch (e) {}; f() }
+                  f()
+                } }"#,
+            ),
+            (
+                "zone",
+                r#"return { go: () => { const s = "x".repeat(1 << 22); for (;;) __cmuxAppNative.zone(s, 0) } }"#,
+            ),
+            (
+                "log",
+                r#"return { go: () => { const s = "x".repeat(1 << 22); for (;;) __cmuxAppNative.log("info", s) } }"#,
+            ),
+            (
+                "commandDone",
+                r#"return { go: () => { const s = "x".repeat(1 << 22); for (;;) __cmuxAppNative.commandDone(1, true, s) } }"#,
+            ),
+        ] {
+            let outcome = timed_command(body, limits, Duration::from_secs(60));
+            let (took, outcome) = outcome.unwrap_or_else(|| panic!("{what}: ran past 60 s"));
+            assert!(
+                took < limits.entry_deadline + Duration::from_secs(1),
+                "{what}: the entry ran {took:?}, its deadline is {:?}",
+                limits.entry_deadline
+            );
+            assert!(
+                matches!(
+                    outcome,
+                    Err(VmError::Fatal {
+                        reason: FatalReason::Interrupt | FatalReason::Memory,
+                        ..
+                    })
+                ),
+                "{what}: {outcome:?}"
+            );
+        }
     }
 
     // ---------------------------------------------------------------- unload during a call
