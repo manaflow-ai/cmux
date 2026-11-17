@@ -95,11 +95,17 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// The composer's own bar (the Workspaces list's bar is still there behind it).
+    @MainActor
+    private static func composerBar(_ app: XCUIApplication) -> XCUIElement {
+        app.navigationBars.containing(.button, identifier: "taskComposer.cancel").firstMatch
+    }
+
     /// Opens the title's menu (a tap on the title: Rename, then Chat or Terminal).
     @MainActor
     private static func openTitleMenu(_ app: XCUIApplication) -> String? {
         steps([
-            { tap(app.navigationBars.firstMatch, "the title") },
+            { tap(composerBar(app), "the title") },
             { app.buttons["Rename"].firstMatch.waitForExistence(timeout: 5) ? nil : "the title's menu did not open" },
         ])
     }
@@ -360,18 +366,18 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "title-renaming", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
                          { C.tap(app.buttons["Rename"].firstMatch, "Rename") },
-                         { Self.check(app.navigationBars.firstMatch.textFields.firstMatch.waitForExistence(timeout: 4), "no rename field") }])
+                         { Self.check(Self.composerBar(app).textFields.firstMatch.waitForExistence(timeout: 4), "no rename field") }])
             },
             Scene(group: g, id: "title-renamed", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
                          { C.tap(app.buttons["Rename"].firstMatch, "Rename") },
-                         { let field = app.navigationBars.firstMatch.textFields.firstMatch
+                         { let field = Self.composerBar(app).textFields.firstMatch
                            guard field.waitForExistence(timeout: 4) else { return "no rename field" }
                            field.typeText(XCUIKeyboardKey.delete.rawValue.padding(toLength: 40, withPad: XCUIKeyboardKey.delete.rawValue, startingAt: 0))
                            field.typeText("Upload flake\n")
                            return nil },
-                         { Self.check(app.navigationBars.firstMatch.staticTexts["Upload flake"].exists
-                                      || app.navigationBars.firstMatch.buttons["Upload flake"].exists, "the title was not renamed") }])
+                         { Self.check(Self.composerBar(app).staticTexts["Upload flake"].exists
+                                      || Self.composerBar(app).buttons["Upload flake"].exists, "the title was not renamed") }])
             },
             // One agent: each setting its own pill, as the Mac lists them.
             Scene(group: g, id: "settings-pills", args: Self.list) { app in
