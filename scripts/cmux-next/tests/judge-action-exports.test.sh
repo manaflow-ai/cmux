@@ -262,6 +262,8 @@ REPO_GRAPH="$graph" repo '' no other no
 key="$(bash "$script" --inputs-key HEAD)"
 echo more >> Packages/macOS/Other/x.txt && git commit -qam outside
 [[ "$(bash "$script" --inputs-key HEAD)" == "$key" ]] || fail "(l) an outside package moved the key"
+echo design > plans/cmux-next/design.md && git add plans/cmux-next/design.md && git commit -qm design
+[[ "$(bash "$script" --inputs-key HEAD)" == "$key" ]] || fail "(l) a design note under plans/cmux-next moved the key"
 printf 'md\n<!-- generated: action surfaces -->\nx\n<!-- /generated -->\n' > plans/cmux-next/actions.md && git commit -qam block
 key="$(bash "$script" --inputs-key HEAD)"
 printf 'md\n<!-- generated: action surfaces -->\ny\n<!-- /generated -->\n' > plans/cmux-next/actions.md && git commit -qam block2

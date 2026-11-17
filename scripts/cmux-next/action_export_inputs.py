@@ -13,8 +13,8 @@ scripts/ci/cmux_next_route.py routes test targets by) names all of them.
 
 judge-action-exports.sh reads this to tell whether a change moved the exports'
 inputs, and to key the base's fresh exports. Before it, every change under
-Packages counted: 214 keys a day on feat-cmux-next (2026-11-16..17), against
-63 for these paths.
+Packages and plans/cmux-next counted: 214 keys a day on feat-cmux-next
+(2026-11-16..17), against 33 for these paths.
 
 Reads the graph JSON on stdin (`git show REV:Packages/macOS/CmuxNext/ci-target-graph.json`).
 Exits 1 when the graph lacks the target, so the caller falls back to its broad inputs.
@@ -28,6 +28,7 @@ import sys
 
 PACKAGE = "Packages/macOS/CmuxNext/"
 TEST_TARGET = "CmuxNextActionsTests"
+PLANS = "plans/cmux-next/"
 ALWAYS = (
     PACKAGE + "Package.swift",
     PACKAGE + "Package.resolved",
@@ -56,6 +57,12 @@ def inputs(graph: dict) -> list[str]:
             found.add(graph["packages"][package].rstrip("/") + "/")
         pending.extend(target.get("targets") or [])
     for read in targets[TEST_TARGET].get("reads") or []:
+        # The whole plans folder is the inventory the catalog tests read. The one test that writes the
+        # exports reads from it only the exports themselves (ActionSurfaceParityTests.planURL), whose
+        # hand-written part judge-action-exports.sh keys on its own (generated_free): a design note
+        # there moves nothing. A named file under it still counts.
+        if read == PLANS:
+            continue
         if "*" in read:
             read = read[: read.index("*")]
             read = read[: read.rindex("/") + 1] if "/" in read else ""

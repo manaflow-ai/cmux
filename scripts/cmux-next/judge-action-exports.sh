@@ -20,7 +20,7 @@
 # The base's fresh export needs the base's generator inputs. When this event changed none of them
 # (export_inputs: the actions test target's closure in the target graph, which the regenerate step
 # alone builds from; GENERATOR_INPUTS without a graph), they are HEAD's, so HEAD's fresh export is the
-# base's. A change elsewhere in Packages no longer builds the base: 8 of the 16 slow pull request
+# base's. A change elsewhere in Packages or plans no longer builds the base: 10 of the 16 slow pull request
 # runs on 2026-11-16..17 whose PR is known touched no path of that closure. Otherwise the changed
 # package and plans paths are checked out from HEAD^1 in place, the package is rebuilt and exported, and then HEAD's
 # inputs are put back, so the suites that run with `--skip-build` after this step test HEAD's
