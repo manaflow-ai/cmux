@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 public nonisolated struct LaunchRecordWindowSnapshot: Sendable {
     public var id: String

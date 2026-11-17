@@ -1,5 +1,5 @@
 import CCmuxLaunchRecordFFI
-import Foundation
+public import Foundation
 
 /// C values exist only for the duration of the synchronous Rust call. This is
 /// called on the files lane; no pointer crosses an actor or task boundary.

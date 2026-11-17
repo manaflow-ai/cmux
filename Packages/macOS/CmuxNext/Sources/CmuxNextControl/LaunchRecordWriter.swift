@@ -1,5 +1,5 @@
-import CmuxNextWakeups
-import Foundation
+public import CmuxNextWakeups
+public import Foundation
 import os
 
 /// One app-owned writer. Debounce only takes the snapshot; Rust encodes and

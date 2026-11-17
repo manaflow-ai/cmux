@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 
 /// Metadata supplied by the window capture owner only after publishing the image.
