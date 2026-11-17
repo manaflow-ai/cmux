@@ -334,7 +334,7 @@ test("a new chat whose sub is refused while its hold is out: the open resolves t
     (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
   try {
     await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
-    started =(await client.startSession("claude")) as string;
+    started = (await client.startSession("claude")) as string;
     expect(started).toBeTruthy();
     const opening: Promise<string | undefined> = client.select(started);
     await settle(() =>
@@ -387,7 +387,9 @@ test("a new chat whose sub is refused before its open is answered: it draws as v
     asked.push({ to: "host", method, params });
     if (method !== "chat.rows.open") return null;
     if (params.chat === started)
-      receive([JSON.stringify({ kind: "chatError", sid: params.sid, method: "sub", id: null, code: "invalid_request" })]);
+      receive([
+        JSON.stringify({ kind: "chatError", sid: params.sid, method: "sub", id: null, code: "invalid_request" }),
+      ]);
     return { sid: params.sid };
   });
   class Held extends MockAcpmuxSocket {
