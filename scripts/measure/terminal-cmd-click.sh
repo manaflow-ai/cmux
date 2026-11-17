@@ -8,6 +8,10 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="cmdclick"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
 reload_config=() bench_args=()
@@ -24,4 +28,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   echo "terminal-cmd-click: the tagged reload printed no app path" >&2
   exit 1
 fi
-exec python3 scripts/cmux-next/terminal-cmd-click-e2e.py --tag "$tag" --app "$app" --out "$out" "$@"
+python3 scripts/cmux-next/terminal-cmd-click-e2e.py --tag "$tag" --app "$app" --out "$out" "$@"

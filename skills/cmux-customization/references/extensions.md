@@ -16,6 +16,17 @@ errors and `scene` (an outline of what rendered). Before saying it is done, it r
 `cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
 shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
 
+To share it from a git repository, scaffold with `cmux ext new NAME --repo OWNER/REPO`
+(or inside a clone of the person's empty GitHub repository, whose `origin` names it): the
+id becomes `owner/NAME`, the manifest gets `repository`, and the README carries the
+"Get it on cmux" badge and the install line `cmux apps install github.com/OWNER/REPO`.
+`cmux ext dev` still loads it as `local/NAME`. `cmux ext publish --json` (no network
+writes) checks it is ready to list (manifest, id, badge, repository, an icon or
+screenshot; `--write-badge` adds the badge) and prints the steps: push, `cmux ext pack`
+and a release tagged with the manifest's version carrying its two files, and a pull
+request to manaflow-ai/cmux-extensions adding the entry it prints. Pushing, releasing and
+the registry PR are the person's to do; ask before running them.
+
 ## Start from a template
 
 Each folder in [`../templates/`](../templates/) is a complete customize app

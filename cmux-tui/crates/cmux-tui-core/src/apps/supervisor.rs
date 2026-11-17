@@ -327,6 +327,8 @@ pub struct Supervisor {
     /// `net.fetch {cache: "shared"}`: one cache per URL for every app
     /// (`http_cache.rs`, the `http.json` signal source).
     pub(super) http_cache: super::http_cache::HttpCache,
+    /// The App Store's Community source (`community.rs`), made on first use.
+    pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -474,6 +476,7 @@ impl Supervisor {
             fetcher,
             github: OnceLock::new(),
             http_cache: super::http_cache::HttpCache::default(),
+            community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
