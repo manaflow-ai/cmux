@@ -973,14 +973,6 @@
     {
       "op": "create",
       "id": "n8",
-      "type": "HStack",
-      "props": {
-        "spacing": 4
-      }
-    },
-    {
-      "op": "create",
-      "id": "n9",
       "type": "Text",
       "props": {
         "text": "Lisbon",
@@ -990,17 +982,7 @@
     },
     {
       "op": "create",
-      "id": "n10",
-      "type": "Icon",
-      "props": {
-        "symbol": "location.fill",
-        "font": "caption2",
-        "color": "secondary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n11",
+      "id": "n9",
       "type": "Text",
       "props": {
         "text": "18°",
@@ -1010,7 +992,7 @@
     },
     {
       "op": "create",
-      "id": "n12",
+      "id": "n10",
       "type": "VStack",
       "props": {
         "spacing": 2,
@@ -1019,17 +1001,16 @@
     },
     {
       "op": "create",
-      "id": "n13",
-      "type": "Icon",
+      "id": "n11",
+      "type": "Text",
       "props": {
-        "symbol": "cloud.sun.fill",
-        "font": "title3",
-        "color": "accent"
+        "text": "⛅️",
+        "font": "title2"
       }
     },
     {
       "op": "create",
-      "id": "n14",
+      "id": "n12",
       "type": "Text",
       "props": {
         "text": "Partly Cloudy",
@@ -1040,7 +1021,7 @@
     },
     {
       "op": "create",
-      "id": "n15",
+      "id": "n13",
       "type": "Text",
       "props": {
         "text": "H:20°  L:12°",
@@ -1067,22 +1048,17 @@
     {
       "op": "children",
       "id": "n6",
-      "children": ["n7", "n12"]
+      "children": ["n7", "n10"]
     },
     {
       "op": "children",
       "id": "n7",
-      "children": ["n8", "n11"]
+      "children": ["n8", "n9"]
     },
     {
       "op": "children",
-      "id": "n8",
-      "children": ["n9", "n10"]
-    },
-    {
-      "op": "children",
-      "id": "n12",
-      "children": ["n13", "n14", "n15"]
+      "id": "n10",
+      "children": ["n11", "n12", "n13"]
     },
     {
       "op": "root",
@@ -1161,14 +1137,6 @@
     {
       "op": "create",
       "id": "n9",
-      "type": "HStack",
-      "props": {
-        "spacing": 4
-      }
-    },
-    {
-      "op": "create",
-      "id": "n10",
       "type": "Text",
       "props": {
         "text": "Lisbon",
@@ -1178,17 +1146,7 @@
     },
     {
       "op": "create",
-      "id": "n11",
-      "type": "Icon",
-      "props": {
-        "symbol": "location.fill",
-        "font": "caption2",
-        "color": "secondary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n12",
+      "id": "n10",
       "type": "Text",
       "props": {
         "text": "18°",
@@ -1198,13 +1156,13 @@
     },
     {
       "op": "create",
-      "id": "n13",
+      "id": "n11",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n14",
+      "id": "n12",
       "type": "VStack",
       "props": {
         "spacing": 2,
@@ -1213,17 +1171,16 @@
     },
     {
       "op": "create",
-      "id": "n15",
-      "type": "Icon",
+      "id": "n13",
+      "type": "Text",
       "props": {
-        "symbol": "cloud.sun.fill",
-        "font": "title3",
-        "color": "accent"
+        "text": "⛅️",
+        "font": "title2"
       }
     },
     {
       "op": "create",
-      "id": "n16",
+      "id": "n14",
       "type": "Text",
       "props": {
         "text": "Partly Cloudy",
@@ -1234,7 +1191,7 @@
     },
     {
       "op": "create",
-      "id": "n17",
+      "id": "n15",
       "type": "Text",
       "props": {
         "text": "H:20°  L:12°",
@@ -1244,7 +1201,7 @@
     },
     {
       "op": "create",
-      "id": "n18",
+      "id": "n16",
       "type": "HStack",
       "props": {
         "spacing": 0
@@ -1252,39 +1209,55 @@
     },
     {
       "op": "create",
+      "id": "n17",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Text",
+      "props": {
+        "text": "Now",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
       "id": "n19",
-      "type": "ForEach",
-      "props": {}
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
     },
     {
       "op": "create",
       "id": "n20",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "17°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n21",
-      "type": "Text",
-      "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "Now"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n22",
-      "type": "Icon",
+      "type": "VStack",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.sun.fill"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
@@ -1292,20 +1265,18 @@
       "id": "n23",
       "type": "Text",
       "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "17°"
+        "text": "3PM",
+        "font": "caption2",
+        "color": "secondary"
       }
     },
     {
       "op": "create",
       "id": "n24",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "⛅️",
+        "font": "body"
       }
     },
     {
@@ -1313,40 +1284,34 @@
       "id": "n25",
       "type": "Text",
       "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "3PM"
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n26",
-      "type": "Icon",
-      "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.sun.fill"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n27",
-      "type": "Text",
+      "type": "VStack",
       "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "18°"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
       "op": "create",
       "id": "n28",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "4PM",
+        "font": "caption2",
+        "color": "secondary"
       }
     },
     {
@@ -1354,30 +1319,25 @@
       "id": "n29",
       "type": "Text",
       "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "4PM"
+        "text": "⛅️",
+        "font": "body"
       }
     },
     {
       "op": "create",
       "id": "n30",
-      "type": "Icon",
+      "type": "Text",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.sun.fill"
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n31",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "18°"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
@@ -1385,9 +1345,7 @@
       "type": "VStack",
       "props": {
         "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "alignment": "center"
       }
     },
     {
@@ -1395,19 +1353,18 @@
       "id": "n33",
       "type": "Text",
       "props": {
+        "text": "5PM",
         "font": "caption2",
-        "color": "secondary",
-        "text": "5PM"
+        "color": "secondary"
       }
     },
     {
       "op": "create",
       "id": "n34",
-      "type": "Icon",
+      "type": "Text",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.rain.fill"
+        "text": "🌧️",
+        "font": "body"
       }
     },
     {
@@ -1415,40 +1372,34 @@
       "id": "n35",
       "type": "Text",
       "props": {
+        "text": "19°",
         "font": "caption",
-        "weight": "medium",
-        "text": "19°"
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n36",
-      "type": "VStack",
-      "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n37",
-      "type": "Text",
+      "type": "VStack",
       "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "6PM"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
       "op": "create",
       "id": "n38",
-      "type": "Icon",
+      "type": "Text",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.rain.fill"
+        "text": "6PM",
+        "font": "caption2",
+        "color": "secondary"
       }
     },
     {
@@ -1456,40 +1407,33 @@
       "id": "n39",
       "type": "Text",
       "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "19°"
+        "text": "🌧️",
+        "font": "body"
       }
     },
     {
       "op": "create",
       "id": "n40",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "19°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n41",
-      "type": "Text",
-      "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "7PM"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n42",
-      "type": "Icon",
+      "type": "VStack",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.rain.fill"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
@@ -1497,9 +1441,28 @@
       "id": "n43",
       "type": "Text",
       "props": {
+        "text": "7PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n44",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "Text",
+      "props": {
+        "text": "20°",
         "font": "caption",
-        "weight": "medium",
-        "text": "20°"
+        "weight": "medium"
       }
     },
     {
@@ -1521,52 +1484,42 @@
     {
       "op": "children",
       "id": "n6",
-      "children": ["n7", "n18"]
+      "children": ["n7", "n16"]
     },
     {
       "op": "children",
       "id": "n7",
-      "children": ["n8", "n13", "n14"]
+      "children": ["n8", "n11", "n12"]
     },
     {
       "op": "children",
       "id": "n8",
-      "children": ["n9", "n12"]
+      "children": ["n9", "n10"]
     },
     {
       "op": "children",
-      "id": "n9",
-      "children": ["n10", "n11"]
+      "id": "n12",
+      "children": ["n13", "n14", "n15"]
     },
     {
       "op": "children",
-      "id": "n14",
-      "children": ["n15", "n16", "n17"]
+      "id": "n16",
+      "children": ["n17", "n21", "n22", "n26", "n27", "n31", "n32", "n36", "n37", "n41", "n42"]
     },
     {
       "op": "children",
-      "id": "n18",
-      "children": ["n19"]
+      "id": "n17",
+      "children": ["n18", "n19", "n20"]
     },
     {
       "op": "children",
-      "id": "n19",
-      "children": ["n20", "n24", "n28", "n32", "n36", "n40"]
+      "id": "n22",
+      "children": ["n23", "n24", "n25"]
     },
     {
       "op": "children",
-      "id": "n20",
-      "children": ["n21", "n22", "n23"]
-    },
-    {
-      "op": "children",
-      "id": "n24",
-      "children": ["n25", "n26", "n27"]
-    },
-    {
-      "op": "children",
-      "id": "n28",
-      "children": ["n29", "n30", "n31"]
+      "id": "n27",
+      "children": ["n28", "n29", "n30"]
     },
     {
       "op": "children",
@@ -1575,13 +1528,13 @@
     },
     {
       "op": "children",
-      "id": "n36",
-      "children": ["n37", "n38", "n39"]
+      "id": "n37",
+      "children": ["n38", "n39", "n40"]
     },
     {
       "op": "children",
-      "id": "n40",
-      "children": ["n41", "n42", "n43"]
+      "id": "n42",
+      "children": ["n43", "n44", "n45"]
     },
     {
       "op": "root",
@@ -1660,14 +1613,6 @@
     {
       "op": "create",
       "id": "n9",
-      "type": "HStack",
-      "props": {
-        "spacing": 4
-      }
-    },
-    {
-      "op": "create",
-      "id": "n10",
       "type": "Text",
       "props": {
         "text": "Lisbon",
@@ -1677,17 +1622,7 @@
     },
     {
       "op": "create",
-      "id": "n11",
-      "type": "Icon",
-      "props": {
-        "symbol": "location.fill",
-        "font": "caption2",
-        "color": "secondary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n12",
+      "id": "n10",
       "type": "Text",
       "props": {
         "text": "18°",
@@ -1697,13 +1632,13 @@
     },
     {
       "op": "create",
-      "id": "n13",
+      "id": "n11",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n14",
+      "id": "n12",
       "type": "VStack",
       "props": {
         "spacing": 2,
@@ -1712,17 +1647,16 @@
     },
     {
       "op": "create",
-      "id": "n15",
-      "type": "Icon",
+      "id": "n13",
+      "type": "Text",
       "props": {
-        "symbol": "cloud.sun.fill",
-        "font": "title3",
-        "color": "accent"
+        "text": "⛅️",
+        "font": "title2"
       }
     },
     {
       "op": "create",
-      "id": "n16",
+      "id": "n14",
       "type": "Text",
       "props": {
         "text": "Partly Cloudy",
@@ -1733,7 +1667,7 @@
     },
     {
       "op": "create",
-      "id": "n17",
+      "id": "n15",
       "type": "Text",
       "props": {
         "text": "H:20°  L:12°",
@@ -1743,7 +1677,7 @@
     },
     {
       "op": "create",
-      "id": "n18",
+      "id": "n16",
       "type": "HStack",
       "props": {
         "spacing": 0
@@ -1751,39 +1685,55 @@
     },
     {
       "op": "create",
+      "id": "n17",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Text",
+      "props": {
+        "text": "Now",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
       "id": "n19",
-      "type": "ForEach",
-      "props": {}
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
     },
     {
       "op": "create",
       "id": "n20",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "17°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n21",
-      "type": "Text",
-      "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "Now"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n22",
-      "type": "Icon",
+      "type": "VStack",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.sun.fill"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
@@ -1791,20 +1741,18 @@
       "id": "n23",
       "type": "Text",
       "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "17°"
+        "text": "3PM",
+        "font": "caption2",
+        "color": "secondary"
       }
     },
     {
       "op": "create",
       "id": "n24",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "⛅️",
+        "font": "body"
       }
     },
     {
@@ -1812,40 +1760,34 @@
       "id": "n25",
       "type": "Text",
       "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "3PM"
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n26",
-      "type": "Icon",
-      "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.sun.fill"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n27",
-      "type": "Text",
+      "type": "VStack",
       "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "18°"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
       "op": "create",
       "id": "n28",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "4PM",
+        "font": "caption2",
+        "color": "secondary"
       }
     },
     {
@@ -1853,30 +1795,25 @@
       "id": "n29",
       "type": "Text",
       "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "4PM"
+        "text": "⛅️",
+        "font": "body"
       }
     },
     {
       "op": "create",
       "id": "n30",
-      "type": "Icon",
+      "type": "Text",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.sun.fill"
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n31",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "18°"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
@@ -1884,9 +1821,7 @@
       "type": "VStack",
       "props": {
         "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "alignment": "center"
       }
     },
     {
@@ -1894,19 +1829,18 @@
       "id": "n33",
       "type": "Text",
       "props": {
+        "text": "5PM",
         "font": "caption2",
-        "color": "secondary",
-        "text": "5PM"
+        "color": "secondary"
       }
     },
     {
       "op": "create",
       "id": "n34",
-      "type": "Icon",
+      "type": "Text",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.rain.fill"
+        "text": "🌧️",
+        "font": "body"
       }
     },
     {
@@ -1914,40 +1848,34 @@
       "id": "n35",
       "type": "Text",
       "props": {
+        "text": "19°",
         "font": "caption",
-        "weight": "medium",
-        "text": "19°"
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n36",
-      "type": "VStack",
-      "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n37",
-      "type": "Text",
+      "type": "VStack",
       "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "6PM"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
       "op": "create",
       "id": "n38",
-      "type": "Icon",
+      "type": "Text",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.rain.fill"
+        "text": "6PM",
+        "font": "caption2",
+        "color": "secondary"
       }
     },
     {
@@ -1955,40 +1883,33 @@
       "id": "n39",
       "type": "Text",
       "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "19°"
+        "text": "🌧️",
+        "font": "body"
       }
     },
     {
       "op": "create",
       "id": "n40",
-      "type": "VStack",
+      "type": "Text",
       "props": {
-        "spacing": 4,
-        "frame": {
-          "maxWidth": "infinity"
-        }
+        "text": "19°",
+        "font": "caption",
+        "weight": "medium"
       }
     },
     {
       "op": "create",
       "id": "n41",
-      "type": "Text",
-      "props": {
-        "font": "caption2",
-        "color": "secondary",
-        "text": "7PM"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n42",
-      "type": "Icon",
+      "type": "VStack",
       "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.rain.fill"
+        "spacing": 4,
+        "alignment": "center"
       }
     },
     {
@@ -1996,14 +1917,33 @@
       "id": "n43",
       "type": "Text",
       "props": {
-        "font": "caption",
-        "weight": "medium",
-        "text": "20°"
+        "text": "7PM",
+        "font": "caption2",
+        "color": "secondary"
       }
     },
     {
       "op": "create",
       "id": "n44",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "Text",
+      "props": {
+        "text": "20°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n46",
       "type": "VStack",
       "props": {
         "spacing": 6
@@ -2011,13 +1951,13 @@
     },
     {
       "op": "create",
-      "id": "n45",
+      "id": "n47",
       "type": "ForEach",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n46",
+      "id": "n48",
       "type": "HStack",
       "props": {
         "spacing": 8
@@ -2025,59 +1965,40 @@
     },
     {
       "op": "create",
-      "id": "n47",
+      "id": "n49",
       "type": "Text",
       "props": {
         "font": "subheadline",
         "weight": "medium",
         "frame": {
-          "minWidth": 44
+          "width": 48
         },
         "text": "Today"
       }
     },
     {
       "op": "create",
-      "id": "n48",
-      "type": "Icon",
-      "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.sun.fill"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n49",
-      "type": "Spacer",
-      "props": {}
-    },
-    {
-      "op": "create",
       "id": "n50",
       "type": "Text",
       "props": {
-        "font": "subheadline",
-        "color": "secondary",
-        "text": "12°"
+        "font": "body",
+        "text": "⛅️"
       }
     },
     {
       "op": "create",
       "id": "n51",
-      "type": "Text",
-      "props": {
-        "font": "subheadline",
-        "weight": "medium",
-        "text": "20°"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n52",
-      "type": "HStack",
+      "type": "Text",
       "props": {
-        "spacing": 8
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "12°"
       }
     },
     {
@@ -2087,54 +2008,53 @@
       "props": {
         "font": "subheadline",
         "weight": "medium",
+        "text": "20°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n54",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n55",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
         "frame": {
-          "minWidth": 44
+          "width": 48
         },
         "text": "Tue"
       }
     },
     {
       "op": "create",
-      "id": "n54",
-      "type": "Icon",
-      "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.rain.fill"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n55",
-      "type": "Spacer",
-      "props": {}
-    },
-    {
-      "op": "create",
       "id": "n56",
       "type": "Text",
       "props": {
-        "font": "subheadline",
-        "color": "secondary",
-        "text": "10°"
+        "font": "body",
+        "text": "🌧️"
       }
     },
     {
       "op": "create",
       "id": "n57",
-      "type": "Text",
-      "props": {
-        "font": "subheadline",
-        "weight": "medium",
-        "text": "18°"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n58",
-      "type": "HStack",
+      "type": "Text",
       "props": {
-        "spacing": 8
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "10°"
       }
     },
     {
@@ -2144,54 +2064,53 @@
       "props": {
         "font": "subheadline",
         "weight": "medium",
+        "text": "18°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n60",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n61",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
         "frame": {
-          "minWidth": 44
+          "width": 48
         },
         "text": "Wed"
       }
     },
     {
       "op": "create",
-      "id": "n60",
-      "type": "Icon",
-      "props": {
-        "font": "body",
-        "color": "accent",
-        "symbol": "cloud.fill"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n61",
-      "type": "Spacer",
-      "props": {}
-    },
-    {
-      "op": "create",
       "id": "n62",
       "type": "Text",
       "props": {
-        "font": "subheadline",
-        "color": "secondary",
-        "text": "9°"
+        "font": "body",
+        "text": "☁️"
       }
     },
     {
       "op": "create",
       "id": "n63",
-      "type": "Text",
-      "props": {
-        "font": "subheadline",
-        "weight": "medium",
-        "text": "16°"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n64",
-      "type": "HStack",
+      "type": "Text",
       "props": {
-        "spacing": 8
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "9°"
       }
     },
     {
@@ -2201,31 +2120,48 @@
       "props": {
         "font": "subheadline",
         "weight": "medium",
+        "text": "16°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n66",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n67",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
         "frame": {
-          "minWidth": 44
+          "width": 48
         },
         "text": "Thu"
       }
     },
     {
       "op": "create",
-      "id": "n66",
-      "type": "Icon",
+      "id": "n68",
+      "type": "Text",
       "props": {
         "font": "body",
-        "color": "accent",
-        "symbol": "sun.max.fill"
+        "text": "☀️"
       }
     },
     {
       "op": "create",
-      "id": "n67",
+      "id": "n69",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n68",
+      "id": "n70",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -2235,7 +2171,7 @@
     },
     {
       "op": "create",
-      "id": "n69",
+      "id": "n71",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -2245,7 +2181,7 @@
     },
     {
       "op": "create",
-      "id": "n70",
+      "id": "n72",
       "type": "HStack",
       "props": {
         "spacing": 8
@@ -2253,36 +2189,35 @@
     },
     {
       "op": "create",
-      "id": "n71",
+      "id": "n73",
       "type": "Text",
       "props": {
         "font": "subheadline",
         "weight": "medium",
         "frame": {
-          "minWidth": 44
+          "width": 48
         },
         "text": "Fri"
       }
     },
     {
       "op": "create",
-      "id": "n72",
-      "type": "Icon",
+      "id": "n74",
+      "type": "Text",
       "props": {
         "font": "body",
-        "color": "accent",
-        "symbol": "sun.max.fill"
+        "text": "☀️"
       }
     },
     {
       "op": "create",
-      "id": "n73",
+      "id": "n75",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n74",
+      "id": "n76",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -2292,7 +2227,7 @@
     },
     {
       "op": "create",
-      "id": "n75",
+      "id": "n77",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -2302,7 +2237,7 @@
     },
     {
       "op": "create",
-      "id": "n76",
+      "id": "n78",
       "type": "HStack",
       "props": {
         "spacing": 8
@@ -2310,36 +2245,35 @@
     },
     {
       "op": "create",
-      "id": "n77",
+      "id": "n79",
       "type": "Text",
       "props": {
         "font": "subheadline",
         "weight": "medium",
         "frame": {
-          "minWidth": 44
+          "width": 48
         },
         "text": "Sat"
       }
     },
     {
       "op": "create",
-      "id": "n78",
-      "type": "Icon",
+      "id": "n80",
+      "type": "Text",
       "props": {
         "font": "body",
-        "color": "accent",
-        "symbol": "cloud.heavyrain.fill"
+        "text": "🌧️"
       }
     },
     {
       "op": "create",
-      "id": "n79",
+      "id": "n81",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n80",
+      "id": "n82",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -2349,7 +2283,7 @@
     },
     {
       "op": "create",
-      "id": "n81",
+      "id": "n83",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -2376,52 +2310,42 @@
     {
       "op": "children",
       "id": "n6",
-      "children": ["n7", "n18", "n44"]
+      "children": ["n7", "n16", "n46"]
     },
     {
       "op": "children",
       "id": "n7",
-      "children": ["n8", "n13", "n14"]
+      "children": ["n8", "n11", "n12"]
     },
     {
       "op": "children",
       "id": "n8",
-      "children": ["n9", "n12"]
+      "children": ["n9", "n10"]
     },
     {
       "op": "children",
-      "id": "n9",
-      "children": ["n10", "n11"]
+      "id": "n12",
+      "children": ["n13", "n14", "n15"]
     },
     {
       "op": "children",
-      "id": "n14",
-      "children": ["n15", "n16", "n17"]
+      "id": "n16",
+      "children": ["n17", "n21", "n22", "n26", "n27", "n31", "n32", "n36", "n37", "n41", "n42"]
     },
     {
       "op": "children",
-      "id": "n18",
-      "children": ["n19"]
+      "id": "n17",
+      "children": ["n18", "n19", "n20"]
     },
     {
       "op": "children",
-      "id": "n19",
-      "children": ["n20", "n24", "n28", "n32", "n36", "n40"]
+      "id": "n22",
+      "children": ["n23", "n24", "n25"]
     },
     {
       "op": "children",
-      "id": "n20",
-      "children": ["n21", "n22", "n23"]
-    },
-    {
-      "op": "children",
-      "id": "n24",
-      "children": ["n25", "n26", "n27"]
-    },
-    {
-      "op": "children",
-      "id": "n28",
-      "children": ["n29", "n30", "n31"]
+      "id": "n27",
+      "children": ["n28", "n29", "n30"]
     },
     {
       "op": "children",
@@ -2430,53 +2354,53 @@
     },
     {
       "op": "children",
-      "id": "n36",
-      "children": ["n37", "n38", "n39"]
+      "id": "n37",
+      "children": ["n38", "n39", "n40"]
     },
     {
       "op": "children",
-      "id": "n40",
-      "children": ["n41", "n42", "n43"]
-    },
-    {
-      "op": "children",
-      "id": "n44",
-      "children": ["n45"]
-    },
-    {
-      "op": "children",
-      "id": "n45",
-      "children": ["n46", "n52", "n58", "n64", "n70", "n76"]
+      "id": "n42",
+      "children": ["n43", "n44", "n45"]
     },
     {
       "op": "children",
       "id": "n46",
-      "children": ["n47", "n48", "n49", "n50", "n51"]
+      "children": ["n47"]
     },
     {
       "op": "children",
-      "id": "n52",
-      "children": ["n53", "n54", "n55", "n56", "n57"]
+      "id": "n47",
+      "children": ["n48", "n54", "n60", "n66", "n72", "n78"]
     },
     {
       "op": "children",
-      "id": "n58",
-      "children": ["n59", "n60", "n61", "n62", "n63"]
+      "id": "n48",
+      "children": ["n49", "n50", "n51", "n52", "n53"]
     },
     {
       "op": "children",
-      "id": "n64",
-      "children": ["n65", "n66", "n67", "n68", "n69"]
+      "id": "n54",
+      "children": ["n55", "n56", "n57", "n58", "n59"]
     },
     {
       "op": "children",
-      "id": "n70",
-      "children": ["n71", "n72", "n73", "n74", "n75"]
+      "id": "n60",
+      "children": ["n61", "n62", "n63", "n64", "n65"]
     },
     {
       "op": "children",
-      "id": "n76",
-      "children": ["n77", "n78", "n79", "n80", "n81"]
+      "id": "n66",
+      "children": ["n67", "n68", "n69", "n70", "n71"]
+    },
+    {
+      "op": "children",
+      "id": "n72",
+      "children": ["n73", "n74", "n75", "n76", "n77"]
+    },
+    {
+      "op": "children",
+      "id": "n78",
+      "children": ["n79", "n80", "n81", "n82", "n83"]
     },
     {
       "op": "root",
@@ -2583,13 +2507,10 @@
     {
       "op": "create",
       "id": "n21",
-      "type": "Capsule",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
@@ -2785,13 +2706,10 @@
     {
       "op": "create",
       "id": "n21",
-      "type": "Capsule",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
@@ -2843,13 +2761,10 @@
     {
       "op": "create",
       "id": "n27",
-      "type": "Capsule",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
@@ -2901,13 +2816,10 @@
     {
       "op": "create",
       "id": "n33",
-      "type": "Capsule",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
@@ -3061,7 +2973,7 @@
     },
     {
       "op": "create",
-      "id": "n68",
+      "id": "n100",
       "type": "VStack",
       "props": {
         "spacing": 10,
@@ -3070,7 +2982,7 @@
     },
     {
       "op": "create",
-      "id": "n69",
+      "id": "n101",
       "type": "HStack",
       "props": {
         "spacing": 6
@@ -3078,7 +2990,7 @@
     },
     {
       "op": "create",
-      "id": "n70",
+      "id": "n102",
       "type": "Text",
       "props": {
         "font": "headline",
@@ -3088,13 +3000,13 @@
     },
     {
       "op": "create",
-      "id": "n71",
+      "id": "n103",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n72",
+      "id": "n104",
       "type": "Text",
       "props": {
         "font": "caption",
@@ -3104,7 +3016,7 @@
     },
     {
       "op": "create",
-      "id": "n73",
+      "id": "n105",
       "type": "VStack",
       "props": {
         "spacing": 2
@@ -3112,408 +3024,10 @@
     },
     {
       "op": "create",
-      "id": "n74",
-      "type": "HStack",
-      "props": {
-        "spacing": 0
-      }
-    },
-    {
-      "op": "create",
-      "id": "n75",
-      "type": "Text",
-      "props": {
-        "text": "S",
-        "font": "caption2",
-        "weight": "semibold",
-        "color": "secondary",
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
-    },
-    {
-      "op": "create",
-      "id": "n76",
-      "type": "Text",
-      "props": {
-        "text": "M",
-        "font": "caption2",
-        "weight": "semibold",
-        "color": "secondary",
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
-    },
-    {
-      "op": "create",
-      "id": "n77",
-      "type": "Text",
-      "props": {
-        "text": "T",
-        "font": "caption2",
-        "weight": "semibold",
-        "color": "secondary",
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
-    },
-    {
-      "op": "create",
-      "id": "n78",
-      "type": "Text",
-      "props": {
-        "text": "W",
-        "font": "caption2",
-        "weight": "semibold",
-        "color": "secondary",
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
-    },
-    {
-      "op": "create",
-      "id": "n79",
-      "type": "Text",
-      "props": {
-        "text": "T",
-        "font": "caption2",
-        "weight": "semibold",
-        "color": "secondary",
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
-    },
-    {
-      "op": "create",
-      "id": "n80",
-      "type": "Text",
-      "props": {
-        "text": "F",
-        "font": "caption2",
-        "weight": "semibold",
-        "color": "secondary",
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
-    },
-    {
-      "op": "create",
-      "id": "n81",
-      "type": "Text",
-      "props": {
-        "text": "S",
-        "font": "caption2",
-        "weight": "semibold",
-        "color": "secondary",
-        "frame": {
-          "maxWidth": "infinity"
-        }
-      }
-    },
-    {
-      "op": "create",
-      "id": "n82",
-      "type": "ForEach",
-      "props": {}
-    },
-    {
-      "op": "create",
-      "id": "n83",
-      "type": "HStack",
-      "props": {
-        "spacing": 0
-      }
-    },
-    {
-      "op": "create",
-      "id": "n84",
-      "type": "ForEach",
-      "props": {}
-    },
-    {
-      "op": "create",
-      "id": "n85",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "1",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n86",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "2",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n87",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "3",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n88",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "4",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n89",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "5",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n90",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "6",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n91",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "7",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n92",
-      "type": "HStack",
-      "props": {
-        "spacing": 0
-      }
-    },
-    {
-      "op": "create",
-      "id": "n93",
-      "type": "ForEach",
-      "props": {}
-    },
-    {
-      "op": "create",
-      "id": "n94",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "8",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n95",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "9",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n96",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "10",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n97",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "11",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n98",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "12",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n99",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "13",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n100",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "14",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n101",
-      "type": "HStack",
-      "props": {
-        "spacing": 0
-      }
-    },
-    {
-      "op": "create",
-      "id": "n102",
-      "type": "ForEach",
-      "props": {}
-    },
-    {
-      "op": "create",
-      "id": "n103",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "15",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n104",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "16",
-        "weight": "bold",
-        "color": "accent"
-      }
-    },
-    {
-      "op": "create",
-      "id": "n105",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "17",
-        "weight": "regular",
-        "color": "primary"
-      }
-    },
-    {
-      "op": "create",
       "id": "n106",
-      "type": "Text",
+      "type": "HStack",
       "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "18",
-        "weight": "regular",
-        "color": "primary"
+        "spacing": 0
       }
     },
     {
@@ -3521,195 +3035,155 @@
       "id": "n107",
       "type": "Text",
       "props": {
-        "font": "caption",
+        "text": "S",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
         "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "19",
-        "weight": "regular",
-        "color": "primary"
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n108",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "20",
-        "weight": "regular",
-        "color": "primary"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n109",
       "type": "Text",
       "props": {
-        "font": "caption",
+        "text": "M",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
         "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "21",
-        "weight": "regular",
-        "color": "primary"
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n110",
-      "type": "HStack",
-      "props": {
-        "spacing": 0
-      }
-    },
-    {
-      "op": "create",
-      "id": "n111",
-      "type": "ForEach",
+      "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n112",
+      "id": "n111",
       "type": "Text",
       "props": {
-        "font": "caption",
+        "text": "T",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
         "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "22",
-        "weight": "regular",
-        "color": "primary"
+          "width": 20
+        }
       }
+    },
+    {
+      "op": "create",
+      "id": "n112",
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n113",
       "type": "Text",
       "props": {
-        "font": "caption",
+        "text": "W",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
         "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "23",
-        "weight": "regular",
-        "color": "primary"
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n114",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "24",
-        "weight": "regular",
-        "color": "primary"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n115",
       "type": "Text",
       "props": {
-        "font": "caption",
+        "text": "T",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
         "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "25",
-        "weight": "regular",
-        "color": "primary"
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n116",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "26",
-        "weight": "regular",
-        "color": "primary"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n117",
       "type": "Text",
       "props": {
-        "font": "caption",
+        "text": "F",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
         "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "27",
-        "weight": "regular",
-        "color": "primary"
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n118",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "28",
-        "weight": "regular",
-        "color": "primary"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n119",
-      "type": "HStack",
+      "type": "Text",
       "props": {
-        "spacing": 0
+        "text": "S",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n120",
-      "type": "ForEach",
+      "type": "Group",
       "props": {}
     },
     {
       "op": "create",
       "id": "n121",
-      "type": "Text",
+      "type": "VStack",
       "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "29",
-        "weight": "regular",
-        "color": "primary"
+        "spacing": 2
       }
     },
     {
       "op": "create",
       "id": "n122",
-      "type": "Text",
+      "type": "HStack",
       "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "30",
-        "weight": "regular",
-        "color": "primary"
+        "spacing": 0
       }
     },
     {
@@ -3717,74 +3191,706 @@
       "id": "n123",
       "type": "Text",
       "props": {
+        "text": "1",
         "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "",
         "weight": "regular",
-        "color": "primary"
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n124",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "",
-        "weight": "regular",
-        "color": "primary"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n125",
       "type": "Text",
       "props": {
+        "text": "2",
         "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "",
         "weight": "regular",
-        "color": "primary"
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n126",
-      "type": "Text",
-      "props": {
-        "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "",
-        "weight": "regular",
-        "color": "primary"
-      }
+      "type": "Spacer",
+      "props": {}
     },
     {
       "op": "create",
       "id": "n127",
       "type": "Text",
       "props": {
+        "text": "3",
         "font": "caption",
-        "frame": {
-          "maxWidth": "infinity"
-        },
-        "text": "",
         "weight": "regular",
-        "color": "primary"
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
       }
     },
     {
       "op": "create",
       "id": "n128",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n129",
+      "type": "Text",
+      "props": {
+        "text": "4",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n130",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n131",
+      "type": "Text",
+      "props": {
+        "text": "5",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n132",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n133",
+      "type": "Text",
+      "props": {
+        "text": "6",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n134",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n135",
+      "type": "Text",
+      "props": {
+        "text": "7",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n136",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n137",
+      "type": "Text",
+      "props": {
+        "text": "8",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n138",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n139",
+      "type": "Text",
+      "props": {
+        "text": "9",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n140",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n141",
+      "type": "Text",
+      "props": {
+        "text": "10",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n142",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n143",
+      "type": "Text",
+      "props": {
+        "text": "11",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n144",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n145",
+      "type": "Text",
+      "props": {
+        "text": "12",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n146",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n147",
+      "type": "Text",
+      "props": {
+        "text": "13",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n148",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n149",
+      "type": "Text",
+      "props": {
+        "text": "14",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n150",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n151",
+      "type": "Text",
+      "props": {
+        "text": "15",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n152",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n153",
+      "type": "Text",
+      "props": {
+        "text": "16",
+        "font": "caption",
+        "weight": "bold",
+        "color": "accent",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n154",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n155",
+      "type": "Text",
+      "props": {
+        "text": "17",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n156",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n157",
+      "type": "Text",
+      "props": {
+        "text": "18",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n158",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n159",
+      "type": "Text",
+      "props": {
+        "text": "19",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n160",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n161",
+      "type": "Text",
+      "props": {
+        "text": "20",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n162",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n163",
+      "type": "Text",
+      "props": {
+        "text": "21",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n164",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n165",
+      "type": "Text",
+      "props": {
+        "text": "22",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n166",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n167",
+      "type": "Text",
+      "props": {
+        "text": "23",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n168",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n169",
+      "type": "Text",
+      "props": {
+        "text": "24",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n170",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n171",
+      "type": "Text",
+      "props": {
+        "text": "25",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n172",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n173",
+      "type": "Text",
+      "props": {
+        "text": "26",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n174",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n175",
+      "type": "Text",
+      "props": {
+        "text": "27",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n176",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n177",
+      "type": "Text",
+      "props": {
+        "text": "28",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n178",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n179",
+      "type": "Text",
+      "props": {
+        "text": "29",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n180",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n181",
+      "type": "Text",
+      "props": {
+        "text": "30",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n182",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n183",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n184",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n185",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n186",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n187",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n188",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n189",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n190",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n191",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n192",
       "type": "VStack",
       "props": {
         "spacing": 6
@@ -3792,13 +3898,13 @@
     },
     {
       "op": "create",
-      "id": "n129",
+      "id": "n193",
       "type": "ForEach",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n132",
+      "id": "n196",
       "type": "HStack",
       "props": {
         "spacing": 8,
@@ -3807,19 +3913,16 @@
     },
     {
       "op": "create",
-      "id": "n133",
-      "type": "Capsule",
+      "id": "n197",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
       "op": "create",
-      "id": "n134",
+      "id": "n198",
       "type": "VStack",
       "props": {
         "spacing": 0,
@@ -3828,7 +3931,7 @@
     },
     {
       "op": "create",
-      "id": "n135",
+      "id": "n199",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -3839,7 +3942,7 @@
     },
     {
       "op": "create",
-      "id": "n136",
+      "id": "n200",
       "type": "Text",
       "props": {
         "font": "caption",
@@ -3850,13 +3953,13 @@
     },
     {
       "op": "create",
-      "id": "n137",
+      "id": "n201",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n138",
+      "id": "n202",
       "type": "HStack",
       "props": {
         "spacing": 8,
@@ -3865,19 +3968,16 @@
     },
     {
       "op": "create",
-      "id": "n139",
-      "type": "Capsule",
+      "id": "n203",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
       "op": "create",
-      "id": "n140",
+      "id": "n204",
       "type": "VStack",
       "props": {
         "spacing": 0,
@@ -3886,7 +3986,7 @@
     },
     {
       "op": "create",
-      "id": "n141",
+      "id": "n205",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -3897,7 +3997,7 @@
     },
     {
       "op": "create",
-      "id": "n142",
+      "id": "n206",
       "type": "Text",
       "props": {
         "font": "caption",
@@ -3908,13 +4008,13 @@
     },
     {
       "op": "create",
-      "id": "n143",
+      "id": "n207",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n144",
+      "id": "n208",
       "type": "HStack",
       "props": {
         "spacing": 8,
@@ -3923,19 +4023,16 @@
     },
     {
       "op": "create",
-      "id": "n145",
-      "type": "Capsule",
+      "id": "n209",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
       "op": "create",
-      "id": "n146",
+      "id": "n210",
       "type": "VStack",
       "props": {
         "spacing": 0,
@@ -3944,7 +4041,7 @@
     },
     {
       "op": "create",
-      "id": "n147",
+      "id": "n211",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -3955,7 +4052,7 @@
     },
     {
       "op": "create",
-      "id": "n148",
+      "id": "n212",
       "type": "Text",
       "props": {
         "font": "caption",
@@ -3966,13 +4063,13 @@
     },
     {
       "op": "create",
-      "id": "n149",
+      "id": "n213",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n150",
+      "id": "n214",
       "type": "HStack",
       "props": {
         "spacing": 8,
@@ -3981,19 +4078,16 @@
     },
     {
       "op": "create",
-      "id": "n151",
-      "type": "Capsule",
+      "id": "n215",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
       "op": "create",
-      "id": "n152",
+      "id": "n216",
       "type": "VStack",
       "props": {
         "spacing": 0,
@@ -4002,7 +4096,7 @@
     },
     {
       "op": "create",
-      "id": "n153",
+      "id": "n217",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -4013,7 +4107,7 @@
     },
     {
       "op": "create",
-      "id": "n154",
+      "id": "n218",
       "type": "Text",
       "props": {
         "font": "caption",
@@ -4024,13 +4118,13 @@
     },
     {
       "op": "create",
-      "id": "n155",
+      "id": "n219",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n156",
+      "id": "n220",
       "type": "HStack",
       "props": {
         "spacing": 8,
@@ -4039,19 +4133,16 @@
     },
     {
       "op": "create",
-      "id": "n157",
-      "type": "Capsule",
+      "id": "n221",
+      "type": "Circle",
       "props": {
         "fill": "accent",
-        "frame": {
-          "width": 3,
-          "minHeight": 28
-        }
+        "size": 8
       }
     },
     {
       "op": "create",
-      "id": "n158",
+      "id": "n222",
       "type": "VStack",
       "props": {
         "spacing": 0,
@@ -4060,7 +4151,7 @@
     },
     {
       "op": "create",
-      "id": "n159",
+      "id": "n223",
       "type": "Text",
       "props": {
         "font": "subheadline",
@@ -4071,7 +4162,7 @@
     },
     {
       "op": "create",
-      "id": "n160",
+      "id": "n224",
       "type": "Text",
       "props": {
         "font": "caption",
@@ -4082,166 +4173,230 @@
     },
     {
       "op": "create",
-      "id": "n161",
+      "id": "n225",
       "type": "Spacer",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n130",
+      "id": "n194",
       "type": "Group",
       "props": {}
     },
     {
       "op": "create",
-      "id": "n67",
+      "id": "n99",
       "type": "Group",
       "props": {}
     },
     {
       "op": "children",
       "id": "n1",
-      "children": ["n2", "n67"]
+      "children": ["n2", "n99"]
     },
     {
       "op": "children",
       "id": "n2",
-      "children": ["n68"]
+      "children": ["n100"]
     },
     {
       "op": "children",
-      "id": "n68",
-      "children": ["n69", "n73", "n128"]
-    },
-    {
-      "op": "children",
-      "id": "n69",
-      "children": ["n70", "n71", "n72"]
-    },
-    {
-      "op": "children",
-      "id": "n73",
-      "children": ["n74", "n82"]
-    },
-    {
-      "op": "children",
-      "id": "n74",
-      "children": ["n75", "n76", "n77", "n78", "n79", "n80", "n81"]
-    },
-    {
-      "op": "children",
-      "id": "n82",
-      "children": ["n83", "n92", "n101", "n110", "n119"]
-    },
-    {
-      "op": "children",
-      "id": "n83",
-      "children": ["n84"]
-    },
-    {
-      "op": "children",
-      "id": "n84",
-      "children": ["n85", "n86", "n87", "n88", "n89", "n90", "n91"]
-    },
-    {
-      "op": "children",
-      "id": "n92",
-      "children": ["n93"]
-    },
-    {
-      "op": "children",
-      "id": "n93",
-      "children": ["n94", "n95", "n96", "n97", "n98", "n99", "n100"]
+      "id": "n100",
+      "children": ["n101", "n105", "n192"]
     },
     {
       "op": "children",
       "id": "n101",
-      "children": ["n102"]
+      "children": ["n102", "n103", "n104"]
     },
     {
       "op": "children",
-      "id": "n102",
-      "children": ["n103", "n104", "n105", "n106", "n107", "n108", "n109"]
+      "id": "n105",
+      "children": ["n106", "n120"]
     },
     {
       "op": "children",
-      "id": "n110",
-      "children": ["n111"]
-    },
-    {
-      "op": "children",
-      "id": "n111",
-      "children": ["n112", "n113", "n114", "n115", "n116", "n117", "n118"]
-    },
-    {
-      "op": "children",
-      "id": "n119",
-      "children": ["n120"]
+      "id": "n106",
+      "children": [
+        "n107",
+        "n108",
+        "n109",
+        "n110",
+        "n111",
+        "n112",
+        "n113",
+        "n114",
+        "n115",
+        "n116",
+        "n117",
+        "n118",
+        "n119"
+      ]
     },
     {
       "op": "children",
       "id": "n120",
-      "children": ["n121", "n122", "n123", "n124", "n125", "n126", "n127"]
+      "children": ["n121"]
     },
     {
       "op": "children",
-      "id": "n128",
-      "children": ["n129", "n130"]
+      "id": "n121",
+      "children": ["n122", "n136", "n150", "n164", "n178"]
     },
     {
       "op": "children",
-      "id": "n129",
-      "children": ["n132", "n138", "n144", "n150", "n156"]
+      "id": "n122",
+      "children": [
+        "n123",
+        "n124",
+        "n125",
+        "n126",
+        "n127",
+        "n128",
+        "n129",
+        "n130",
+        "n131",
+        "n132",
+        "n133",
+        "n134",
+        "n135"
+      ]
     },
     {
       "op": "children",
-      "id": "n132",
-      "children": ["n133", "n134", "n137"]
-    },
-    {
-      "op": "children",
-      "id": "n134",
-      "children": ["n135", "n136"]
-    },
-    {
-      "op": "children",
-      "id": "n138",
-      "children": ["n139", "n140", "n143"]
-    },
-    {
-      "op": "children",
-      "id": "n140",
-      "children": ["n141", "n142"]
-    },
-    {
-      "op": "children",
-      "id": "n144",
-      "children": ["n145", "n146", "n149"]
-    },
-    {
-      "op": "children",
-      "id": "n146",
-      "children": ["n147", "n148"]
+      "id": "n136",
+      "children": [
+        "n137",
+        "n138",
+        "n139",
+        "n140",
+        "n141",
+        "n142",
+        "n143",
+        "n144",
+        "n145",
+        "n146",
+        "n147",
+        "n148",
+        "n149"
+      ]
     },
     {
       "op": "children",
       "id": "n150",
-      "children": ["n151", "n152", "n155"]
+      "children": [
+        "n151",
+        "n152",
+        "n153",
+        "n154",
+        "n155",
+        "n156",
+        "n157",
+        "n158",
+        "n159",
+        "n160",
+        "n161",
+        "n162",
+        "n163"
+      ]
     },
     {
       "op": "children",
-      "id": "n152",
-      "children": ["n153", "n154"]
+      "id": "n164",
+      "children": [
+        "n165",
+        "n166",
+        "n167",
+        "n168",
+        "n169",
+        "n170",
+        "n171",
+        "n172",
+        "n173",
+        "n174",
+        "n175",
+        "n176",
+        "n177"
+      ]
     },
     {
       "op": "children",
-      "id": "n156",
-      "children": ["n157", "n158", "n161"]
+      "id": "n178",
+      "children": [
+        "n179",
+        "n180",
+        "n181",
+        "n182",
+        "n183",
+        "n184",
+        "n185",
+        "n186",
+        "n187",
+        "n188",
+        "n189",
+        "n190",
+        "n191"
+      ]
     },
     {
       "op": "children",
-      "id": "n158",
-      "children": ["n159", "n160"]
+      "id": "n192",
+      "children": ["n193", "n194"]
+    },
+    {
+      "op": "children",
+      "id": "n193",
+      "children": ["n196", "n202", "n208", "n214", "n220"]
+    },
+    {
+      "op": "children",
+      "id": "n196",
+      "children": ["n197", "n198", "n201"]
+    },
+    {
+      "op": "children",
+      "id": "n198",
+      "children": ["n199", "n200"]
+    },
+    {
+      "op": "children",
+      "id": "n202",
+      "children": ["n203", "n204", "n207"]
+    },
+    {
+      "op": "children",
+      "id": "n204",
+      "children": ["n205", "n206"]
+    },
+    {
+      "op": "children",
+      "id": "n208",
+      "children": ["n209", "n210", "n213"]
+    },
+    {
+      "op": "children",
+      "id": "n210",
+      "children": ["n211", "n212"]
+    },
+    {
+      "op": "children",
+      "id": "n214",
+      "children": ["n215", "n216", "n219"]
+    },
+    {
+      "op": "children",
+      "id": "n216",
+      "children": ["n217", "n218"]
+    },
+    {
+      "op": "children",
+      "id": "n220",
+      "children": ["n221", "n222", "n225"]
+    },
+    {
+      "op": "children",
+      "id": "n222",
+      "children": ["n223", "n224"]
     },
     {
       "op": "root",

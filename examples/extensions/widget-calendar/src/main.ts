@@ -9,7 +9,7 @@
 // - It reads the events every five minutes and redraws once a minute, on the minute, so an event
 //   that ended leaves the card.
 
-import { Button, cmux, computed, ForEach, HStack, Capsule, Menu, onCleanup, Panel, signal, Spacer, Text, VStack, type View } from "cmux-extension-sdk"
+import { Button, Circle, cmux, computed, ForEach, HStack, Menu, onCleanup, Panel, signal, Spacer, Text, untrack, VStack, type View } from "cmux-extension-sdk"
 
 export type Size = "small" | "medium" | "large"
 export const SIZES: Size[] = ["small", "medium", "large"]
@@ -175,7 +175,7 @@ export function renderCalendar(): View {
 
   const eventLine = (e: () => CalendarEvent, showDay: boolean) =>
     HStack({ spacing: 8 }, [
-      Capsule({ fill: accent }).frame({ width: 3, minHeight: 28 }),
+      Circle({ fill: accent, size: 8 }),
       VStack({ spacing: 0, alignment: "leading" }, [
         Text(() => e().title).font("subheadline").weight("semibold").lineLimit(1),
         Text(() => (showDay && dayNumber(e().start) !== dayNumber(now()) ? `${dayTitle(e().start, now())}, ${when(e(), now(), hour12())}` : when(e(), now(), hour12())))
@@ -201,20 +201,31 @@ export function renderCalendar(): View {
   const list = (showDay: boolean) =>
     VStack({ spacing: 6 }, [ForEach({ items: next, key: (e) => e.id }, (e) => eventLine(e, showDay)), () => (next().length ? null : nothing())])
 
+  // The month as fixed-width cells with a Spacer between each, so both renderers line the
+  // columns up; rebuilt once a day, not every minute.
+  const todayNumber = computed(() => dayNumber(now()))
+  const cell = (text: string, today: boolean, head: boolean) =>
+    Text(text)
+      .font(head ? "caption2" : "caption")
+      .weight(head || today ? "bold" : "regular")
+      .color(today ? accent : head ? secondary : cmux.theme.text.primary)
+      .frame({ width: 20 })
+  const row = (cells: View[]) => {
+    const out: View[] = []
+    cells.forEach((c, i) => {
+      if (i > 0) out.push(Spacer())
+      out.push(c)
+    })
+    return HStack({ spacing: 0 }, out)
+  }
   const grid = () =>
     VStack({ spacing: 2 }, [
-      HStack({ spacing: 0 }, ["S", "M", "T", "W", "T", "F", "S"].map((l) => Text(l).font("caption2").weight("semibold").color(secondary).frame({ maxWidth: "infinity" }))),
-      ForEach({ items: () => monthGrid(now()).map((week, i) => ({ i, week })), key: (w) => String(w.i) }, (w) =>
-        HStack({ spacing: 0 }, [
-          ForEach({ items: () => w().week.map((day, j) => ({ j, day })), key: (c) => String(c.j) }, (c) =>
-            Text(() => (c().day ? String(c().day) : ""))
-              .font("caption")
-              .weight(() => (c().day === today().day ? "bold" : "regular"))
-              .color(() => (c().day === today().day ? accent : cmux.theme.text.primary))
-              .frame({ maxWidth: "infinity" })
-          )
-        ])
-      )
+      row(["S", "M", "T", "W", "T", "F", "S"].map((l) => cell(l, false, true))),
+      () => {
+        todayNumber()
+        const day = untrack(() => today().day)
+        return VStack({ spacing: 2 }, untrack(() => monthGrid(now())).map((week) => row(week.map((d) => cell(d ? String(d) : "", d === day, false)))))
+      }
     ])
 
   return Panel({ style: "card", spacing: 10 }, [

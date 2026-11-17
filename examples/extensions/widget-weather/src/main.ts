@@ -9,7 +9,7 @@
 //   writes the place, and a right-click changes the size. It reads the forecast when the place
 //   changes and every 15 minutes, and several windows share one read.
 
-import { Button, cmux, computed, ForEach, HStack, Icon, Menu, Panel, Row, signal, Spacer, Text, TextField, VStack, type View } from "cmux-extension-sdk"
+import { Button, cmux, computed, ForEach, HStack, Menu, Panel, Row, signal, Spacer, Text, TextField, VStack, type View } from "cmux-extension-sdk"
 
 export type Size = "small" | "medium" | "large"
 export const SIZES: Size[] = ["small", "medium", "large"]
@@ -28,18 +28,18 @@ export function sizeOf(setting: unknown): Size {
   return SIZES.includes(setting as Size) ? (setting as Size) : "small"
 }
 
-/** WMO weather codes as a person reads them, with a day and a night symbol. */
-export function describe(code: number, day: boolean): { text: string; symbol: string } {
-  if (code === 0) return { text: day ? "Sunny" : "Clear", symbol: day ? "sun.max.fill" : "moon.stars.fill" }
-  if (code <= 2) return { text: "Partly Cloudy", symbol: day ? "cloud.sun.fill" : "cloud.moon.fill" }
-  if (code === 3) return { text: "Cloudy", symbol: "cloud.fill" }
-  if (code <= 48) return { text: "Foggy", symbol: "cloud.fog.fill" }
-  if (code <= 57) return { text: "Drizzle", symbol: "cloud.drizzle.fill" }
-  if (code <= 67) return { text: "Rain", symbol: "cloud.rain.fill" }
-  if (code <= 77) return { text: "Snow", symbol: "cloud.snow.fill" }
-  if (code <= 82) return { text: "Showers", symbol: "cloud.heavyrain.fill" }
-  if (code <= 86) return { text: "Snow Showers", symbol: "cloud.snow.fill" }
-  return { text: "Thunderstorms", symbol: "cloud.bolt.rain.fill" }
+/** WMO weather codes as a person reads them, with a color glyph that reads the same in every renderer. */
+export function describe(code: number, day: boolean): { text: string; glyph: string } {
+  if (code === 0) return { text: day ? "Sunny" : "Clear", glyph: day ? "☀️" : "🌙" }
+  if (code <= 2) return { text: "Partly Cloudy", glyph: day ? "⛅️" : "☁️" }
+  if (code === 3) return { text: "Cloudy", glyph: "☁️" }
+  if (code <= 48) return { text: "Foggy", glyph: "🌫️" }
+  if (code <= 57) return { text: "Drizzle", glyph: "🌦️" }
+  if (code <= 67) return { text: "Rain", glyph: "🌧️" }
+  if (code <= 77) return { text: "Snow", glyph: "🌨️" }
+  if (code <= 82) return { text: "Showers", glyph: "🌧️" }
+  if (code <= 86) return { text: "Snow Showers", glyph: "🌨️" }
+  return { text: "Thunderstorms", glyph: "⛈️" }
 }
 
 function hourLabel(iso: string): string {
@@ -196,35 +196,39 @@ function now(r: Reading, wide: boolean): View {
   const sky = describe(f.code, f.day)
   const range = Text(`H:${f.high}°  L:${f.low}°`).font("caption").color(secondary)
   const head = VStack({ spacing: 0, alignment: "leading" }, [
-    HStack({ spacing: 4 }, [Text(r.place.name).font("headline").lineLimit(1), Icon("location.fill").font("caption2").color(secondary)]),
+    Text(r.place.name).font("headline").lineLimit(1),
     Text(`${f.temperature}°`).font("largeTitle").weight("light")
   ])
   const sideways = VStack({ spacing: 2, alignment: wide ? "trailing" : "leading" }, [
-    Icon(sky.symbol).font("title3").color(cmux.theme.accent),
+    Text(sky.glyph).font("title2"),
     Text(sky.text).font("caption").weight("medium").lineLimit(1),
     range
   ])
   return wide ? HStack({ spacing: 8 }, [head, Spacer(), sideways]) : VStack({ spacing: 4, alignment: "leading" }, [head, sideways])
 }
 
+/** Six columns spread across the card: a Spacer between each, so both renderers justify them. */
 function hours(f: Forecast): View {
-  return HStack({ spacing: 0 }, [
-    ForEach({ items: () => f.hours, key: (h) => h.label }, (h) =>
-      VStack({ spacing: 4 }, [
-        Text(() => h().label).font("caption2").color(secondary),
-        Icon(() => describe(h().code, h().day).symbol).font("body").color(cmux.theme.accent),
-        Text(() => `${h().temperature}°`).font("caption").weight("medium")
-      ]).frame({ maxWidth: "infinity" })
+  const columns: View[] = []
+  f.hours.forEach((h, i) => {
+    if (i > 0) columns.push(Spacer())
+    columns.push(
+      VStack({ spacing: 4, alignment: "center" }, [
+        Text(h.label).font("caption2").color(secondary),
+        Text(describe(h.code, h.day).glyph).font("body"),
+        Text(`${h.temperature}°`).font("caption").weight("medium")
+      ])
     )
-  ])
+  })
+  return HStack({ spacing: 0 }, columns)
 }
 
 function days(f: Forecast): View {
   return VStack({ spacing: 6 }, [
     ForEach({ items: () => f.days, key: (d) => d.label }, (d) =>
       HStack({ spacing: 8 }, [
-        Text(() => d().label).font("subheadline").weight("medium").frame({ minWidth: 44 }),
-        Icon(() => describe(d().code, true).symbol).font("body").color(cmux.theme.accent),
+        Text(() => d().label).font("subheadline").weight("medium").frame({ width: 48 }),
+        Text(() => describe(d().code, true).glyph).font("body"),
         Spacer(),
         Text(() => `${d().low}°`).font("subheadline").color(secondary),
         Text(() => `${d().high}°`).font("subheadline").weight("medium")
@@ -251,7 +255,7 @@ export function renderWeather(): View {
     () => {
       if (!placeName()) {
         return VStack({ spacing: 6, alignment: "leading" }, [
-          HStack({ spacing: 6 }, [Icon("cloud.sun.fill").color(cmux.theme.accent), Text("Weather").font("headline")]),
+          Text("⛅️ Weather").font("headline"),
           TextField(draft, { placeholder: "Your city", onEdit: setDraft, onSubmit: choose })
         ])
       }

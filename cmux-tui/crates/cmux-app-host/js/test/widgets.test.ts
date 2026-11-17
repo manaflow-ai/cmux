@@ -191,14 +191,17 @@ describe("widget-weather", () => {
     const h = weather("small")
     h.mount("m", "renderWeather")
     await h.settle(10)
-    expect(texts(h)).toEqual(["Lisbon", "18°", "Partly Cloudy", "H:20°  L:12°"])
+    expect(texts(h)).toEqual(["Lisbon", "18°", "⛅️", "Partly Cloudy", "H:20°  L:12°"])
   })
 
   test("medium: the next six hours start at this hour", async () => {
     const h = weather("medium")
     h.mount("m", "renderWeather")
     await h.settle(10)
-    expect(texts(h)).toEqual(["Lisbon", "18°", "Partly Cloudy", "H:20°  L:12°", "Now", "17°", "3PM", "18°", "4PM", "18°", "5PM", "19°", "6PM", "19°", "7PM", "20°"])
+    expect(texts(h)).toEqual([
+      "Lisbon", "18°", "⛅️", "Partly Cloudy", "H:20°  L:12°",
+      "Now", "⛅️", "17°", "3PM", "⛅️", "18°", "4PM", "⛅️", "18°", "5PM", "🌧️", "19°", "6PM", "🌧️", "19°", "7PM", "🌧️", "20°"
+    ])
   })
 
   test("large: the hours and six days; one forecast read with the hours and days asked for", async () => {
@@ -206,7 +209,10 @@ describe("widget-weather", () => {
     h.mount("m", "renderWeather")
     await h.settle(10)
     const t = texts(h)
-    expect(t.slice(16)).toEqual(["Today", "12°", "20°", "Tue", "10°", "18°", "Wed", "9°", "16°", "Thu", "9°", "19°", "Fri", "10°", "21°", "Sat", "12°", "18°"])
+    expect(t.slice(23)).toEqual([
+      "Today", "⛅️", "12°", "20°", "Tue", "🌧️", "10°", "18°", "Wed", "☁️", "9°", "16°",
+      "Thu", "☀️", "9°", "19°", "Fri", "☀️", "10°", "21°", "Sat", "🌧️", "12°", "18°"
+    ])
     const reads = h.calls.filter((c) => c.name === "net.fetch").map((c) => c.params.url as string)
     expect(reads).toHaveLength(2)
     expect(reads[1]).toContain("&hourly=temperature_2m,weather_code,is_day")
