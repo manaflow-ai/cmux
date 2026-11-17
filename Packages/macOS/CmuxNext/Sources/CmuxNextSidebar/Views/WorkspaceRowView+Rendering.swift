@@ -89,6 +89,7 @@ extension WorkspaceRowView {
             }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            cloudMark.setTint(Palette.textSecondary)
             usageWarningMark.setTint(Palette.attention)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -298,8 +299,14 @@ extension WorkspaceRowView {
         // A leading status mark owns its slot: the marquee fades out after it, never across it.
         title.leadingPadding = textX + inset - (statusLeads ? max(fadeStart, leading + columns.iconBox) : fadeStart)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
+        // A Cloud row's mark sits right after the name, which gives up room for it (it truncates first).
+        let cloudRoom = cloudMark.isHidden ? 0 : ind + Metrics.space1
+        let titleWidth = max(0, textW - inset - cloudRoom) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
+        if !cloudMark.isHidden {
+            let nameEnd = title.frame.minX + min(title.intrinsicContentSize.width, title.frame.width)
+            cloudMark.frame = NSRect(x: nameEnd + Metrics.space1, y: title.frame.midY - ind / 2, width: ind, height: ind)
+        }
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
@@ -318,7 +325,7 @@ extension WorkspaceRowView {
         startMarqueeAfterLayout()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in ([activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             // A leading status mark sits before the title, clear of the hover controls: it never gives way.
             let status = !statusLeads && (mark === activity || (mark === agentMark && markReplacesStatus))
