@@ -252,6 +252,7 @@ import {
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
+import { isStartSuperseded, startFailureNotice } from "./startFailure";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { LINK_DOWN_SAID_MS } from "./afterDelay";
 import { PeerCopyBanner } from "./PeerCopyBanner";
@@ -8892,6 +8893,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           let unhold: (() => void) | undefined;
           const movedOn = heldStartStop(client);
           const started = client.startedSession;
+          // The agent this send starts, read before another chat can be selected.
+          const startHarness = client.shownSession()?.harness ?? client.startHarness;
           const sessionId = await untilHostAnswers(() => client.ensureSession(), {
             stop: () => movedOn() || !ownsSession(),
             waiting: () => {
@@ -8901,10 +8904,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             .finally(() => unhold?.())
             .catch((error: unknown) => {
               // A folder harness that waits for Enable or Trust says so on its own card.
-              setBlockedHarness(harnessBlock(error));
+              const block = harnessBlock(error);
+              setBlockedHarness(block);
               // A refused start (a chat on another machine, cx-k21v) says why in this page's own
               // view: the host's typed refusal, already localized, under the localized "Not sent".
               if (isStartRefusal(error)) client.notice(failedSendText(error, false));
+              // Any other failed start says why too, and its cause goes to the log (#44964). Not when
+              // its card says it (Enable, Trust), it was cancelled, or another chat was selected while
+              // it was out (`superseded`): the notice would land in that chat.
+              else if (!block && !isTrustRefusal(error) && !isStartCancelled(error) && !isStartSuperseded(error)) {
+                const line = startFailureNotice(translate, startHarness, error);
+                if (line) client.notice(line);
+              }
               return refused(error, Boolean(accepted));
             });
 
@@ -9179,6 +9190,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   composerHandle.current === holder,
                 copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
                 clearFolder: () => setProjectDraft(undefined),
+                discard: (id) => client.discard(id),
                 select: async (id) => {
                   holder?.suppressAttachmentCarryFor(summary?.sessionId);
                   try {
@@ -9865,6 +9877,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           leave: () => client.leave(),
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
+          attached: (sessionId) => client.shownAndAttached(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId, ticket) => {
             // One the folder's trust held (trustHeld.ts) goes with its own send's ticket.
