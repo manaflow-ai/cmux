@@ -18,7 +18,10 @@
 //! token or a JWT) drops the file, as does a file that is not root's or is writable by others.
 
 use std::collections::BTreeMap;
+use std::net::ToSocketAddrs as _;
 use std::path::Path;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Where the image keeps the model route.
 pub const PLANE_FILE: &str = "/etc/cmux/model-plane.env";
@@ -121,13 +124,84 @@ pub fn read_at(path: &Path, require_root: bool) -> Result<BTreeMap<String, Strin
     validate(parse(&text))
 }
 
-/// This machine's route: the image file's on a Cloud VM, nothing elsewhere. Read on every call
-/// (a few hundred bytes), so a `cmux host update` that rewrites it applies to the next spawn.
+/// This machine's route: the image file's on a Cloud VM where its host resolves, nothing
+/// elsewhere. Read on every call (a few hundred bytes), so a `cmux host update` that rewrites it
+/// applies to the next spawn.
+///
+/// Every image bakes the file, but `coderouter.cmux.internal` resolves only where the backend
+/// installs the machine's edge rule: development. Staging and production install none, so there
+/// the route pointed every agent at a host that does not exist and took over from the person's
+/// own sign-in (every Cloud journey on staging after #40159, cmux-platform#1442). A route whose
+/// host does not resolve is therefore no route, the rule `claude_cloud_auth::team_pair` and
+/// `codex_cloud_auth::own_reason` already apply to the team origin.
 pub fn machine_plane() -> BTreeMap<String, String> {
     if !crate::cloud_host::is_cloud_vm() {
         return BTreeMap::new();
     }
-    read_at(Path::new(PLANE_FILE), true).unwrap_or_default()
+    let plane = read_at(Path::new(PLANE_FILE), true).unwrap_or_default();
+    where_resolves(plane, plane_host_resolves)
+}
+
+/// `plane` whole when every host its base URLs name resolves (`resolves`, asked once per host),
+/// else nothing.
+pub fn where_resolves(
+    plane: BTreeMap<String, String>,
+    resolves: impl Fn(&str) -> bool,
+) -> BTreeMap<String, String> {
+    let mut hosts: Vec<&str> =
+        BASE_URLS.iter().filter_map(|key| plane.get(*key)).map(|url| origin_host(url)).collect();
+    hosts.sort_unstable();
+    hosts.dedup();
+    if hosts.is_empty() || hosts.iter().any(|host| host.is_empty() || !resolves(host)) {
+        return BTreeMap::new();
+    }
+    plane
+}
+
+/// The names in [`KEYS`] that hold a base URL.
+const BASE_URLS: [&str; 3] = ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "CMUX_CODEROUTER_URL"];
+
+/// The host (with its port, if any) of an `https://` URL, as `claude_cloud_auth::team_pair`
+/// reads the team origin's.
+fn origin_host(url: &str) -> &str {
+    url.trim_start_matches("https://").split(['/', '?', '#']).next().unwrap_or("")
+}
+
+/// How long one spawn waits for the resolver before it starts without the route.
+const RESOLVE_WAIT: Duration = Duration::from_secs(5);
+/// How long an answer is reused, so a burst of spawns asks the resolver once.
+const ANSWER_REUSE: Duration = Duration::from_secs(60);
+/// How long "the resolver did not answer" is reused: a hung resolver costs one wait per burst of
+/// spawns, not one per spawn.
+const NO_ANSWER_REUSE: Duration = Duration::from_secs(10);
+
+/// Whether `host` resolves here, from a short cache. The lookup asks for the same target as
+/// `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env synchronously),
+/// so it runs on its own thread and gives up after [`RESOLVE_WAIT`] (unreachable).
+pub(crate) fn plane_host_resolves(host: &str) -> bool {
+    static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
+    let cache = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((cached, until, ok)) = cache().as_ref()
+        && cached == host
+        && Instant::now() < *until
+    {
+        return *ok;
+    }
+    let target = crate::codex_cloud_auth::lookup_target(host.to_owned());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let lookup = std::thread::Builder::new().name("model-plane-resolve".into()).spawn(move || {
+        let ok = target.to_socket_addrs().is_ok_and(|mut addrs| addrs.next().is_some());
+        let _ = tx.send(ok);
+    });
+    if lookup.is_err() {
+        return false;
+    }
+    let (ok, reuse) = match rx.recv_timeout(RESOLVE_WAIT) {
+        Ok(ok) => (ok, ANSWER_REUSE),
+        Err(_) => (false, NO_ANSWER_REUSE),
+    };
+    *cache() = Some((host.to_owned(), Instant::now() + reuse, ok));
+    ok
 }
 
 /// The `plane` variables for each name `present` says the child does not have yet.
@@ -246,6 +320,34 @@ mod tests {
             assert_eq!(read_at(&link, false), Err(Problem::Untrusted));
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Staging and production machines get no edge rule, so the baked host does not resolve
+    /// there and no spawn may get the route: the person's own sign-in stays in charge
+    /// (cmux-platform#1442). Where it resolves (development), the route is kept whole.
+    #[test]
+    fn a_machine_whose_plane_host_does_not_resolve_gets_no_route() {
+        let plane = validate(parse(BAKED)).unwrap();
+        assert!(where_resolves(plane.clone(), |_| false).is_empty(), "unresolved: no route");
+        let asked = std::cell::RefCell::new(Vec::new());
+        let kept = where_resolves(plane.clone(), |host| {
+            asked.borrow_mut().push(host.to_owned());
+            true
+        });
+        assert_eq!(kept, plane, "resolved: the whole route");
+        assert_eq!(*asked.borrow(), ["coderouter.cmux.internal"], "one host, asked once");
+        // A route naming a second host needs both to resolve.
+        let mut split = plane.clone();
+        split.insert("OPENAI_BASE_URL".into(), "https://other.example:8443/v1".into());
+        assert!(where_resolves(split.clone(), |h| h == "coderouter.cmux.internal").is_empty());
+        let asked = std::cell::RefCell::new(Vec::new());
+        let kept = where_resolves(split.clone(), |host| {
+            asked.borrow_mut().push(host.to_owned());
+            true
+        });
+        assert_eq!(kept, split);
+        assert_eq!(*asked.borrow(), ["coderouter.cmux.internal", "other.example:8443"]);
+        assert!(where_resolves(BTreeMap::new(), |_| true).is_empty());
     }
 
     /// The reported bug: a daemon env with no route gets the machine's; a value anything else
