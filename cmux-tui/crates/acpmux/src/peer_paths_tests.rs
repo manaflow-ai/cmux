@@ -89,10 +89,11 @@ fn a_dead_path_is_probed_again_on_a_growing_backoff_and_comes_back_with_a_pong()
 #[test]
 fn a_cold_connect_dials_the_remembered_path_first() {
     let mut paths = Paths::new(&[Via::Ssh, Via::Link, Via::Hub]);
-    // The hub relay streams only through the hub carrier, and then it is dialed last.
+    // The hub relay streams only through the hub carrier, and then it is dialed first (relay
+    // first), beside the path the rest of the order names.
     let then_hub = |mut order: Vec<Via>| {
         if Via::Hub.streams() {
-            order.push(Via::Hub);
+            order.insert(0, Via::Hub);
         }
         order
     };
@@ -102,10 +103,15 @@ fn a_cold_connect_dials_the_remembered_path_first() {
     // A remembered path that is not one of these is ignored.
     paths.remember(Some(Via::Wireguard));
     assert_eq!(paths.dial_order(0), then_hub(vec![Via::Link, Via::Ssh]));
-    // Measured beats remembered.
+    // Measured beats remembered; a direct path that carries the session leads alone, the
+    // relay after the rest.
     paths.remember(Some(Via::Ssh));
     paths.pong(Via::Link, 3 * MS, 0);
-    assert_eq!(paths.dial_order(0), then_hub(vec![Via::Link, Via::Ssh]));
+    let mut measured = vec![Via::Link, Via::Ssh];
+    if Via::Hub.streams() {
+        measured.push(Via::Hub);
+    }
+    assert_eq!(paths.dial_order(0), measured);
 }
 
 #[test]
@@ -113,7 +119,17 @@ fn the_hub_is_the_relayed_class_and_never_beats_a_direct_path() {
     let mut paths = Paths::new(&[Via::Hub, Via::Ssh]);
     paths.pong(Via::Hub, MS, 0);
     assert_eq!(paths.active(), Some(Via::Hub), "the relay carries while nothing else answers");
-    assert_eq!(paths.pong(Via::Ssh, 80 * MS, 10), Some(Some(Via::Ssh)), "any direct path wins");
+    if Via::Hub.streams() {
+        // Relay first: a direct path takes the session only once proven and no slower.
+        assert_eq!(paths.pong(Via::Ssh, 80 * MS, 10), None);
+        assert_eq!(paths.pong(Via::Ssh, 80 * MS, 20), None, "slower than the relay");
+        let mut paths = Paths::new(&[Via::Hub, Via::Ssh]);
+        paths.pong(Via::Hub, 90 * MS, 0);
+        paths.pong(Via::Ssh, 80 * MS, 10);
+        assert_eq!(paths.pong(Via::Ssh, 80 * MS, 20), Some(Some(Via::Ssh)), "proven, faster");
+    } else {
+        assert_eq!(paths.pong(Via::Ssh, 80 * MS, 10), Some(Some(Via::Ssh)), "any direct path wins");
+    }
 }
 
 #[test]
@@ -145,4 +161,159 @@ fn a_suspect_path_is_in_doubt_and_still_held() {
     assert_eq!(paths.selector.chosen(), Some(id));
     assert_eq!(paths.active(), None);
     assert!(paths.in_doubt(1_000));
+}
+
+/// Relay first (a streaming hub relay): the relay leads the dial order and the remembered
+/// path starts beside it; without the hub carrier the order is direct first, as before.
+#[test]
+fn relay_first_dials_the_relay_and_the_remembered_path_together() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Ssh, Via::Hub]);
+    paths.remember(Some(Via::Wireguard));
+    if Via::Hub.streams() {
+        assert!(paths.relay_first());
+        assert_eq!(paths.dial_order(0), [Via::Hub, Via::Wireguard, Via::Ssh]);
+        assert_eq!(paths.dial_together(0), 2);
+    } else {
+        assert!(!paths.relay_first());
+        assert_eq!(paths.dial_order(0), [Via::Wireguard, Via::Ssh]);
+        assert_eq!(paths.dial_together(0), 1);
+    }
+    // A peer with no hub route keeps the direct-first order.
+    let direct = Paths::new(&[Via::Wireguard, Via::Ssh]);
+    assert!(!direct.relay_first());
+    assert_eq!(direct.dial_together(0), 1);
+}
+
+/// Relay first: the link opened on the relay; the direct path takes it on its second probe
+/// answer in a row, not its first.
+#[cfg(feature = "hub-carrier")]
+#[test]
+fn relay_first_upgrades_to_direct_on_the_second_probe_answer() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Ssh, Via::Hub]);
+    assert_eq!(paths.opened(Via::Hub, 0), Some(Some(Via::Hub)));
+    assert_eq!(paths.pong(Via::Hub, 40 * MS, 10), None);
+    assert_eq!(paths.pong(Via::Wireguard, 12 * MS, 20), None, "one answer is not proof");
+    assert_eq!(paths.active(), Some(Via::Hub));
+    assert_eq!(paths.pong(Via::Wireguard, 12 * MS, 3_020), Some(Some(Via::Wireguard)));
+    assert_eq!(paths.active(), Some(Via::Wireguard));
+}
+
+/// Relay first: the path the link opened on holds it before any pong, so a direct probe that
+/// answers first does not move a link the relay just opened, and a link a direct path opened
+/// stays there when the relay's probe answers.
+#[cfg(feature = "hub-carrier")]
+#[test]
+fn relay_first_the_opened_path_holds_the_link_until_probes_measure_the_rest() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Hub]);
+    paths.opened(Via::Hub, 0);
+    assert_eq!(paths.pong(Via::Wireguard, 5 * MS, 1), None);
+    assert_eq!(paths.active(), Some(Via::Hub));
+
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Hub]);
+    paths.opened(Via::Wireguard, 0);
+    assert_eq!(paths.pong(Via::Hub, 40 * MS, 1), None);
+    assert_eq!(paths.pong(Via::Wireguard, 10 * MS, 2), None);
+    assert_eq!(paths.active(), Some(Via::Wireguard));
+}
+
+/// Relay first: a direct path slower than the relay never takes the session from it.
+#[cfg(feature = "hub-carrier")]
+#[test]
+fn relay_first_a_direct_path_slower_than_the_relay_leaves_the_session_there() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Hub]);
+    paths.opened(Via::Hub, 0);
+    paths.pong(Via::Hub, 30 * MS, 1);
+    for n in 1..10 {
+        assert_eq!(paths.pong(Via::Wireguard, 90 * MS, n * 3_000), None);
+        paths.pong(Via::Hub, 30 * MS, n * 3_000);
+    }
+    assert_eq!(paths.active(), Some(Via::Hub));
+}
+
+/// Relay first: a direct path that degrades gives the session back to the relay, by failing
+/// (loss) or by the relay beating its round trip on three answers; the session never
+/// waits on the direct path to come back.
+#[cfg(feature = "hub-carrier")]
+#[test]
+fn relay_first_a_degraded_direct_path_falls_back_to_the_relay() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Hub]);
+    paths.opened(Via::Hub, 0);
+    paths.pong(Via::Hub, 40 * MS, 1);
+    paths.pong(Via::Wireguard, 10 * MS, 2);
+    assert_eq!(paths.pong(Via::Wireguard, 10 * MS, 3_002), Some(Some(Via::Wireguard)));
+    // Its round trip grows past the relay's (a lossy path retransmitting).
+    for n in 1..=8 {
+        paths.pong(Via::Wireguard, 400 * MS, 3_002 + n * 3_000);
+    }
+    let mut moved = None;
+    for n in 1..=3 {
+        moved = paths.pong(Via::Hub, 40 * MS, 3_003 + 24_000 + n * 3_000).or(moved);
+    }
+    assert_eq!(moved, Some(Some(Via::Hub)), "the relay beat it three times: it carries again");
+    // A direct path that fails outright hands over at once.
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Hub]);
+    paths.opened(Via::Hub, 0);
+    paths.pong(Via::Hub, 40 * MS, 1);
+    paths.pong(Via::Wireguard, 10 * MS, 2);
+    paths.pong(Via::Wireguard, 10 * MS, 3_002);
+    assert_eq!(paths.active(), Some(Via::Wireguard));
+    assert_eq!(paths.failed(Via::Wireguard, 3_100), Some(Some(Via::Hub)));
+}
+
+/// Relay first: a flapping direct path does not thrash the session. Each time it was dropped
+/// back to the relay it needs twice the answers in a row to take it again (2, 4, 8).
+#[cfg(feature = "hub-carrier")]
+#[test]
+fn relay_first_a_flapping_direct_path_does_not_thrash() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Hub]);
+    paths.opened(Via::Hub, 0);
+    paths.pong(Via::Hub, 40 * MS, 1);
+    let mut now = 10;
+    let mut switches = 0;
+    for needed in [2u64, 4, 8] {
+        for n in 1..=needed {
+            now += 3_000;
+            paths.pong(Via::Hub, 40 * MS, now);
+            let moved = paths.pong(Via::Wireguard, 10 * MS, now);
+            if n < needed {
+                assert_eq!(moved, None, "took the session after {n} of {needed} answers");
+            } else {
+                assert_eq!(moved, Some(Some(Via::Wireguard)), "{needed} answers in a row");
+                switches += 1;
+            }
+        }
+        // It drops again.
+        now += 100;
+        assert_eq!(paths.failed(Via::Wireguard, now), Some(Some(Via::Hub)));
+        switches += 1;
+    }
+    // A path that flaps every probe: one answer, one loss, for a minute; it never carries.
+    for _ in 0..20 {
+        now += 3_000;
+        paths.pong(Via::Hub, 40 * MS, now);
+        assert_eq!(paths.pong(Via::Wireguard, 10 * MS, now), None);
+        now += 100;
+        paths.failed(Via::Wireguard, now);
+    }
+    assert_eq!(paths.active(), Some(Via::Hub));
+    assert_eq!(switches, 6, "three upgrades and three falls back, no more");
+}
+
+/// Relay first: once a direct path took the session, the link that moves to it dials that
+/// path alone first, so the relay (faster to open) never wins it back in the race; when the
+/// direct path fails, the relay leads again.
+#[cfg(feature = "hub-carrier")]
+#[test]
+fn relay_first_a_link_moving_to_direct_dials_direct_first_and_alone() {
+    let mut paths = Paths::new(&[Via::Wireguard, Via::Ssh, Via::Hub]);
+    paths.opened(Via::Hub, 0);
+    paths.pong(Via::Hub, 40 * MS, 1);
+    paths.pong(Via::Wireguard, 10 * MS, 2);
+    paths.pong(Via::Wireguard, 10 * MS, 3_002);
+    assert_eq!(paths.active(), Some(Via::Wireguard));
+    assert_eq!(paths.dial_order(3_002)[0], Via::Wireguard);
+    assert_eq!(paths.dial_together(3_002), 1);
+    paths.failed(Via::Wireguard, 3_100);
+    assert_eq!(paths.dial_order(3_100)[0], Via::Hub);
+    assert_eq!(paths.dial_together(3_100), 2);
 }
