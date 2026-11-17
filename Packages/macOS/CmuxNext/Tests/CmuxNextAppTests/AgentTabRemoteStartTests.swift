@@ -97,8 +97,8 @@ struct AgentTabRemoteStartTests {
     }
 
     @Test func theFolderListIsTheWorkspacesThenTheMachinesEachOnce() {
-        let folders = AgentTabRemoteStart.folders(listed: ["/srv/app", "/home/cmux/work"],
-                                                  machine: ["/home/cmux/work", "/home/cmux/work/repo"])
+        let folders = AgentRemoteStartFolders(listed: ["/srv/app", "/home/cmux/work"],
+                                              machine: ["/home/cmux/work", "/home/cmux/work/repo"]).merged
         #expect(folders == ["/srv/app", "/home/cmux/work", "/home/cmux/work/repo"])
     }
 
