@@ -4,7 +4,7 @@ import XCTest
 /// (`-CmuxMobileScreenSharingDemo -CmuxMobileScreenSharingFollowDemo`): a
 /// scripted "Mac" types a long command line into the desktop's terminal
 /// window and sends the caret after each character. Portrait. The crop
-/// starts fitted (Follow off), turns on, and follows the typing to the end
+/// starts fitted (Follow off), the Follow button turns it on, and it follows the typing to the end
 /// of the line; a drag takes the view and a tap hands it back. Screenshots
 /// at each step; run with `video` for the recording.
 final class ScreenSharingFollowUITests: XCTestCase {
@@ -26,8 +26,11 @@ final class ScreenSharingFollowUITests: XCTestCase {
         XCTAssertEqual(follow.value as? String, "Off")
         attach(app, "01-portrait-fitted-follow-off")
 
-        // The script turns Follow on two seconds after the desktop connects, then types.
-        XCTAssertTrue(wait(for: follow, value: "On", timeout: 10), "Follow did not turn on\n\(app.debugDescription)")
+        // Follow stays off until the person turns it on; the script types once it is on.
+        settle(2)
+        XCTAssertEqual(follow.value as? String, "Off", "Follow turned itself on")
+        follow.tap()
+        XCTAssertTrue(wait(for: follow, value: "On", timeout: 10), "the button did not turn Follow on\n\(app.debugDescription)")
         settle(1)
         attach(app, "02-follow-on-readable-crop")
         for step in 3 ... 8 {
