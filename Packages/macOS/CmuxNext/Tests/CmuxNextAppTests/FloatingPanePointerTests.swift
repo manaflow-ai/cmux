@@ -199,7 +199,7 @@ import Testing
         }
     }
 
-    /// The view shows a drag's frame until the release, and tells a new frame from a new list of panes.
+    /// The view shows a drag's frame until the release, and tells a new frame or a new order from a new set of panes.
     @Test func theViewStateShowsADragAndTellsWhatChanged() {
         let first = LayoutFloatingPane(pane: pane, frame: CGRect(x: 0.1, y: 0.1, width: 0.4, height: 0.4))
         let second = LayoutFloatingPane(pane: other, frame: CGRect(x: 0.5, y: 0.5, width: 0.3, height: 0.3))
@@ -211,7 +211,7 @@ import Testing
         state.list[0].frame.origin.x = 0.2
         #expect(state.takeChange() == .frames)
         state.list = [state.list[1], state.list[0]]
-        #expect(state.takeChange() == .panes, "the order is the order back to front")
+        #expect(state.takeChange() == .frames, "a new order of the same panes is no new set of panes")
 
         let dragged = CGRect(x: 0.6, y: 0.6, width: 0.3, height: 0.3)
         state.drag = FloatingPaneDrag(pane: other, zone: .move, startPoint: .zero, startCard: .zero, frame: dragged)
