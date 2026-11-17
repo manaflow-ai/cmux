@@ -119,7 +119,8 @@ jobs:
     # workflow_run event is caught within one tick. A push has nothing new to
     # report. Reports are idempotent.
     if: ${{ (github.event_name != 'workflow_run' && github.event_name != 'push' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The cmux-bot mint below holds an App key: LINUX_RUNNER moves this job only among Blacksmith sizes.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Attribution reads the failed app-host shard logs of two runs (about
     # three minutes) and diffs the pull requests merged between them.
     timeout-minutes: 20
@@ -146,6 +147,32 @@ jobs:
             Packages/macOS
             Packages/Shared
             CLI
+
+      # This job's reads spend the cmux-bot App's own budget, not the repository's GITHUB_TOKEN pool
+      # (1,000 requests an hour shared by every workflow; run 44010289849 failed on "API rate limit
+      # exceeded for installation"). github.token stays the fallback: for a failed mint, a
+      # refused read, and every write (hq docs/compendium/ci-quotas.md, cmux#35264).
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+
+      # scripts/ci/gh_app_token.sh --reads-only: a gh read made with github.token goes out as the App
+      # (github.token again when the App is refused); issue and comment writes stay github.token's.
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Attribute new failures to merged pull requests
         # A report-only heuristic: its failure must not stop the issue sync.

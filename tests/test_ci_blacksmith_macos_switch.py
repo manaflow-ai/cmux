@@ -63,10 +63,11 @@ routing = _load("test_ci_fork_runner_routing")
 paid = _load("test_ci_paid_queue_pin")
 
 BLACKSMITH_MACOS = re.compile(r"^blacksmith-\d+vcpu-macos-[a-z0-9.-]+$")
-SWITCH = "vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER"
+SWITCH = ("vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && "
+          "fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)")
 # What a workflow writes: the rescue's escape (escape()) still takes the paid label.
 GATED_SWITCH = ("vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || "
-                "github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER")
+                "github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)")
 SIDE = "glaeda-side-std-xcode-26.6"
 LIGHT = "glaeda-side-light-xcode-26.6"
 RUNNER_POOLS = json.dumps({
