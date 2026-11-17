@@ -452,10 +452,10 @@ fn the_pages_view_read_stays_in_budget() {
             &(|item: &FeedItem| drop(std::hint::black_box(item.to_value()))) as &dyn Fn(&FeedItem),
         ),
         ("entry: Row::of", &|item: &FeedItem| {
-            drop(std::hint::black_box(Row::of(item, a_place(item).as_ref())))
+            drop(std::hint::black_box(Row::of(item, a_place(item).as_ref())));
         }),
         ("entry: is_pending", &|item: &FeedItem| {
-            drop(std::hint::black_box(mirror.is_pending(&item.id)))
+            std::hint::black_box(mirror.is_pending(&item.id));
         }),
     ] {
         let spent = time(|| items.iter().for_each(|item| run(item)));
