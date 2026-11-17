@@ -141,6 +141,9 @@ jobs:
       retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
       # runs-on as JSON: a label, or an owned pool label with glaeda-ios-sim.
       runs_on: ${{ steps.pool.outputs.runs_on }}
+      # ios-simulator-build's own: glaeda's sim-first label alone when an owned run sees one of those runners
+      # idle (glaeda#2057 admits the build there), else runs_on (ios_runner_pool.py, Build placement).
+      build_runs_on: ${{ steps.pool.outputs.build_runs_on }}
       # mobile-core-package needs no simulator: the pool label alone.
       package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
       # The ios-simulator matrix: runs_on, or a simulator mini's sim-first label
@@ -668,7 +671,7 @@ jobs:
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}
     # No secret and no environment here: the pick above can be a reused owned
     # Mac, or whatever MACOS_RUNNER_TESTS names. The R2 restore reads the
     # public URL; the seed_cache preflight that checks the R2 write keys runs
