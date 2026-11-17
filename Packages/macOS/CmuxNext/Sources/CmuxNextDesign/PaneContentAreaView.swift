@@ -101,10 +101,11 @@ public final class PaneContentAreaView: NSView {
         if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
     }
 
-    /// In a window the area knows the pane it is in: a pane whose ground a view above paints gets none here.
+    /// In a window the area knows the pane it is in: a pane whose ground a view above paints gets none here, and an
+    /// area that came out from under an owner paints its own again (the paint writes the layer only on a change).
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, paneGroundIsOwnedAbove { paintGround() }
+        if window != nil { paintGround() }
     }
 
     /// The area's size when the hold began: what a producer that hears the hold measures its pane's size change from;

@@ -87,8 +87,10 @@ import Testing
         host.frame = owner.bounds
         owner.addSubview(host)
         host.layoutSubtreeIfNeeded()
-        // The ground of a terminal with no owner above: what the window's backdrop gives it (a color, or none).
+        // The ground of a terminal with no owner above: what the window's backdrop gives it. With no ground here,
+        // "paints none under the owner" and "paints its own again" below would hold by the setup alone.
         let alone = host.layer?.backgroundColor
+        try #require(alone != nil, "the host paints no ground with no owner: the test proves nothing")
         #expect(Self.reported(by: host) == nil, "a host that paints its own ground reports one")
         #expect(owner.changes == 0)
 

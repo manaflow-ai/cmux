@@ -53,7 +53,9 @@ extension TerminalHostView {
                                       selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         // A pane whose ground a view above paints (a see-through floating pane's card): the surface draws a
         // transparent default background and the host paints none, so the text is solid over that one ground.
-        let owned = superview != nil && paneGroundIsOwnedAbove
+        // One walk of the superviews for a paint: the owner is read here and told below.
+        let owner = superview == nil ? nil : paneGroundOwner
+        let owned = owner?.ownsContentGround ?? false
         GhosttyRuntime.setSeeThrough(superview != nil && (owned || !backdrop.panesPaintBackground), host: self)
         let keepsOwn = Self.keepsGhosttyBackground(over: backdrop, in: scope)
         // Under an App Theme, a terminal on the terminal theme that shows the window through draws on the App Theme's
@@ -64,7 +66,7 @@ extension TerminalHostView {
         let given = owned ? hatchGround : nil
         if given != ownedGround {
             ownedGround = given
-            if owned { paneGroundOwner?.contentGroundDidChange() }
+            if owned { owner?.contentGroundDidChange() }
         }
         if owned {
             layer?.backgroundColor = nil
