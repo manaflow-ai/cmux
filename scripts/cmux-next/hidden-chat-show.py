@@ -199,13 +199,25 @@ def state():
     return out
 
 
+def trusted(call):
+    """Runs `call`; a chat in a folder nobody trusted yet is refused with trust.pending until the
+    person clicks Trust, so the probe clicks it as they do and runs `call` again."""
+    reply = call()
+    if "trust.pending" not in json.dumps(reply):
+        return reply
+    clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
+        agent("click", text="Trust", timeout=10) or {"error": "none"}), 30)
+    note(f"trust: {short(clicked, 160)}")
+    return wait(lambda: (lambda r: r if "trust.pending" not in json.dumps(r) else None)(call()), 30) or reply
+
+
 def make_chat(name):
     before = {t["tab"] for t in all_tabs()}
     opened = action("palette.newAgentChat")
     time.sleep(1.0)  # the action answers while the chat still opens
     ready = wait(lambda: (lambda r: r if r.get("document_ready") else None)(agent("readiness", timeout=10) or {}), 40, 0.5)
     engine = agent("engine")
-    made = agent("new_chat", harness="fake", cwd=WORK, timeout=90)
+    made = trusted(lambda: agent("new_chat", harness="fake", cwd=WORK, timeout=90))
     attached = wait(lambda: state().get("connection") == "attached" and state().get("sessionId"), 40, 0.5)
     new = [t for t in all_tabs() if t["tab"] not in before]
     tab = new[-1] if new else None
@@ -222,7 +234,7 @@ def show(chat):
 
 
 def send(text):
-    reply = agent("send_prompt", text=text, timeout=60)
+    reply = trusted(lambda: agent("send_prompt", text=text, timeout=60))
     note(f"send {text[:60]!r}: {short(reply, 200)}")
     return reply
 
