@@ -3,18 +3,20 @@
 
 use cmux_machine_provider::gcp::{key_label, request_id};
 use cmux_machine_provider::{
-    AccessToken, CreateSpec, FakeProvider, GcpProvider, IdempotencyKey, Ledger, MachineProvider,
-    MachineState, Op, Outcome, ProviderError, Request, Transport, TransportError, labs,
+    labs, AccessToken, CreateSpec, FakeProvider, GcpProvider, IdempotencyKey, Ledger,
+    MachineProvider, MachineState, Op, Outcome, ProviderError, Request, Transport, TransportError,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 
 fn ledger_path(name: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("cmux-machine-provider-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "cmux-machine-provider-{}-{name}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     dir.join("ledger.jsonl")
 }
@@ -39,7 +41,9 @@ fn the_whole_lifecycle_commits_once_and_replays() {
     let fake = FakeProvider::new();
     let path = ledger_path("lifecycle");
     let mut ledger = Ledger::open(&path).unwrap();
-    let created = ledger.run(&fake, &key("c1"), &Request::create(spec())).unwrap();
+    let created = ledger
+        .run(&fake, &key("c1"), &Request::create(spec()))
+        .unwrap();
     let machine = created.receipt().machine.clone();
     assert!(matches!(created, Outcome::Committed(_)));
     assert_eq!(fake.state(&machine), Some(MachineState::Running));
@@ -49,7 +53,9 @@ fn the_whole_lifecycle_commits_once_and_replays() {
         ("s3", Op::Snapshot, MachineState::Running),
         ("s4", Op::Delete, MachineState::Deleted),
     ] {
-        let receipt = ledger.run(&fake, &key(k), &Request::on(op, &machine)).unwrap();
+        let receipt = ledger
+            .run(&fake, &key(k), &Request::on(op, &machine))
+            .unwrap();
         assert_eq!(receipt.receipt().state, want, "{op:?}");
     }
     assert_eq!(fake.snapshots().len(), 1);
@@ -58,12 +64,16 @@ fn the_whole_lifecycle_commits_once_and_replays() {
     // Reopen: every key replays from the file, no provider call.
     drop(ledger);
     let mut reopened = Ledger::open(&path).unwrap();
-    let again = reopened.run(&fake, &key("c1"), &Request::create(spec())).unwrap();
+    let again = reopened
+        .run(&fake, &key("c1"), &Request::create(spec()))
+        .unwrap();
     assert!(matches!(again, Outcome::Replayed(_)));
     assert_eq!(again.receipt(), created.receipt());
     assert_eq!(fake.applied.get(), calls);
     // Generations count the machine's committed ops.
-    let deleted = reopened.run(&fake, &key("s4"), &Request::on(Op::Delete, &machine)).unwrap();
+    let deleted = reopened
+        .run(&fake, &key("s4"), &Request::on(Op::Delete, &machine))
+        .unwrap();
     assert_eq!(deleted.receipt().generation, 5);
 }
 
@@ -71,10 +81,14 @@ fn the_whole_lifecycle_commits_once_and_replays() {
 fn a_key_means_one_request() {
     let fake = FakeProvider::new();
     let mut ledger = Ledger::open(&ledger_path("conflict")).unwrap();
-    ledger.run(&fake, &key("k"), &Request::create(spec())).unwrap();
+    ledger
+        .run(&fake, &key("k"), &Request::create(spec()))
+        .unwrap();
     let mut other = spec();
     other.disk_gb = 100;
-    let err = ledger.run(&fake, &key("k"), &Request::create(other)).unwrap_err();
+    let err = ledger
+        .run(&fake, &key("k"), &Request::create(other))
+        .unwrap_err();
     assert!(matches!(err, ProviderError::Conflict(_)), "{err}");
 }
 
@@ -84,14 +98,22 @@ fn a_lost_create_answer_settles_by_looking_not_by_creating_again() {
     let path = ledger_path("lost-create");
     let mut ledger = Ledger::open(&path).unwrap();
     fake.lose_next_answer.set(true);
-    let err = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap_err();
+    let err = ledger
+        .run(&fake, &key("c"), &Request::create(spec()))
+        .unwrap_err();
     assert!(matches!(err, ProviderError::Indeterminate(_)));
-    assert_eq!(ledger.pending().len(), 1, "the lost op is an orphan until settled");
+    assert_eq!(
+        ledger.pending().len(),
+        1,
+        "the lost op is an orphan until settled"
+    );
     // A restart, then the same click.
     drop(ledger);
     let mut ledger = Ledger::open(&path).unwrap();
     assert_eq!(ledger.pending().len(), 1);
-    let settled = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap();
+    let settled = ledger
+        .run(&fake, &key("c"), &Request::create(spec()))
+        .unwrap();
     assert!(matches!(settled, Outcome::Reconciled(_)));
     assert!(settled.receipt().reconciled);
     assert_eq!(fake.applied.get(), 1, "one machine, not two");
@@ -102,16 +124,28 @@ fn a_lost_create_answer_settles_by_looking_not_by_creating_again() {
 fn a_lost_stop_that_did_not_happen_is_reissued() {
     let fake = FakeProvider::new();
     let mut ledger = Ledger::open(&ledger_path("lost-stop")).unwrap();
-    let machine =
-        ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap().receipt().machine.clone();
+    let machine = ledger
+        .run(&fake, &key("c"), &Request::create(spec()))
+        .unwrap()
+        .receipt()
+        .machine
+        .clone();
     // Simulate a pending stop that never reached the provider: write the
     // pending line by losing an answer on an op the fake then undoes.
     fake.lose_next_answer.set(true);
     let _ = ledger.run(&fake, &key("stop"), &Request::on(Op::Stop, &machine));
-    ledger.run(&fake, &key("start-again"), &Request::on(Op::Start, &machine)).unwrap();
+    ledger
+        .run(
+            &fake,
+            &key("start-again"),
+            &Request::on(Op::Start, &machine),
+        )
+        .unwrap();
     // The stop key is still pending; the machine runs, so looking says "not
     // stopped" and the ledger reissues.
-    let out = ledger.run(&fake, &key("stop"), &Request::on(Op::Stop, &machine)).unwrap();
+    let out = ledger
+        .run(&fake, &key("stop"), &Request::on(Op::Stop, &machine))
+        .unwrap();
     assert!(matches!(out, Outcome::Committed(_)));
     assert_eq!(fake.state(&machine), Some(MachineState::Stopped));
 }
@@ -121,10 +155,14 @@ fn a_definite_refusal_frees_the_key() {
     let fake = FakeProvider::new();
     let mut ledger = Ledger::open(&ledger_path("refused")).unwrap();
     fake.refuse_next.set(true);
-    let err = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap_err();
+    let err = ledger
+        .run(&fake, &key("c"), &Request::create(spec()))
+        .unwrap_err();
     assert!(matches!(err, ProviderError::Refused(_)));
     assert!(ledger.pending().is_empty());
-    let ok = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap();
+    let ok = ledger
+        .run(&fake, &key("c"), &Request::create(spec()))
+        .unwrap();
     assert!(matches!(ok, Outcome::Committed(_)));
 }
 
@@ -164,11 +202,21 @@ fn unpinned_images_and_reserved_labels_are_refused_before_any_call() {
 fn labs_is_off_unless_the_settings_file_turns_it_on() {
     assert!(!labs::enabled_in_text(""));
     assert!(!labs::enabled_in_text("{}"));
-    assert!(!labs::enabled_in_text(r#"{"labs": {"gcpMachineProvider": "true"}}"#));
-    assert!(!labs::enabled_in_text(r#"{"labs": {"gcpMachineProvider": true"#));
-    assert!(labs::enabled_in_text("{\"labs\": {\"gcpMachineProvider\": true}, // on\n}"));
-    assert!(labs::enabled_in_text(r#"{"labs.gcpMachineProvider": true}"#));
-    assert!(!labs::enabled_in(&PathBuf::from("/nonexistent/cmux-next.json")));
+    assert!(!labs::enabled_in_text(
+        r#"{"labs": {"gcpMachineProvider": "true"}}"#
+    ));
+    assert!(!labs::enabled_in_text(
+        r#"{"labs": {"gcpMachineProvider": true"#
+    ));
+    assert!(labs::enabled_in_text(
+        "{\"labs\": {\"gcpMachineProvider\": true}, // on\n}"
+    ));
+    assert!(labs::enabled_in_text(
+        r#"{"labs.gcpMachineProvider": true}"#
+    ));
+    assert!(!labs::enabled_in(&PathBuf::from(
+        "/nonexistent/cmux-next.json"
+    )));
 }
 
 type Answer = Result<(u16, Value), TransportError>;
@@ -188,7 +236,9 @@ impl Script {
         self
     }
     fn lose(&self) -> &Self {
-        self.answers.borrow_mut().push_back(Err(TransportError::NoAnswer("timeout".into())));
+        self.answers
+            .borrow_mut()
+            .push_back(Err(TransportError::NoAnswer("timeout".into())));
         self
     }
 }
@@ -202,8 +252,13 @@ impl Transport for Script {
         body: Option<&Value>,
     ) -> Result<(u16, Value), TransportError> {
         assert_eq!(format!("{token:?}"), "AccessToken(<redacted>)");
-        self.calls.borrow_mut().push((method.into(), url.into(), body.cloned()));
-        self.answers.borrow_mut().pop_front().expect("a scripted answer")
+        self.calls
+            .borrow_mut()
+            .push((method.into(), url.into(), body.cloned()));
+        self.answers
+            .borrow_mut()
+            .pop_front()
+            .expect("a scripted answer")
     }
 }
 
@@ -228,7 +283,9 @@ fn gcp_create_carries_a_stable_request_id_and_no_public_address() {
     let provider = gcp(&script);
     script.answer(200, json!({"name": "operation-1"}));
     let mut ledger = Ledger::open(&ledger_path("gcp-create")).unwrap();
-    let out = ledger.run(&provider, &key("c"), &Request::create(spec())).unwrap();
+    let out = ledger
+        .run(&provider, &key("c"), &Request::create(spec()))
+        .unwrap();
     assert_eq!(out.receipt().state, MachineState::Provisioning);
     assert_eq!(out.receipt().provider, "gcp");
     let calls = script.calls.borrow();
@@ -248,7 +305,10 @@ fn gcp_create_carries_a_stable_request_id_and_no_public_address() {
     assert_eq!(body["labels"]["team"], json!("cmux"));
     assert_eq!(body["labels"]["cmux-machine"], json!("true"));
     let text = body.to_string();
-    assert!(!text.contains("secret-token"), "no credential in the request body");
+    assert!(
+        !text.contains("secret-token"),
+        "no credential in the request body"
+    );
     // The receipt and ledger name no credential either.
     let ledger_text = std::fs::read_to_string(ledger.path()).unwrap();
     assert!(!ledger_text.contains("secret-token"));
@@ -273,7 +333,9 @@ fn gcp_create_after_a_timeout_finds_its_own_machine() {
         200,
         json!({"name": machine, "status": "RUNNING", "labels": {"cmux-key": key_label(&key("c"))}}),
     );
-    let out = ledger.run(&provider, &key("c"), &Request::create(spec())).unwrap();
+    let out = ledger
+        .run(&provider, &key("c"), &Request::create(spec()))
+        .unwrap();
     assert!(matches!(out, Outcome::Reconciled(_)));
     assert_eq!(out.receipt().state, MachineState::Running);
     let calls = script.calls.borrow();
@@ -297,9 +359,15 @@ fn gcp_lost_create_is_not_settled_by_another_keys_machine() {
         200,
         json!({"name": machine, "status": "RUNNING", "labels": {"cmux-key": "someone-else"}}),
     );
-    let err = ledger.run(&provider, &key("c"), &Request::create(spec())).unwrap_err();
+    let err = ledger
+        .run(&provider, &key("c"), &Request::create(spec()))
+        .unwrap_err();
     assert!(matches!(err, ProviderError::Conflict(_)), "{err}");
-    assert_eq!(ledger.pending().len(), 1, "no receipt for a machine that is not ours");
+    assert_eq!(
+        ledger.pending().len(),
+        1,
+        "no receipt for a machine that is not ours"
+    );
 }
 
 #[test]
@@ -324,16 +392,28 @@ fn gcp_maps_status_codes() {
     let script = Script::default();
     let provider = gcp(&script);
     let mut ledger = Ledger::open(&ledger_path("gcp-codes")).unwrap();
-    script
-        .answer(403, json!({"error": {"message": "Required 'compute.instances.stop' permission"}}));
-    let err = ledger.run(&provider, &key("a"), &Request::on(Op::Stop, "cmux-0123")).unwrap_err();
+    script.answer(
+        403,
+        json!({"error": {"message": "Required 'compute.instances.stop' permission"}}),
+    );
+    let err = ledger
+        .run(&provider, &key("a"), &Request::on(Op::Stop, "cmux-0123"))
+        .unwrap_err();
     assert!(matches!(err, ProviderError::Refused(ref m) if m.contains("compute.instances.stop")));
     script.answer(503, json!({}));
-    let err = ledger.run(&provider, &key("b"), &Request::on(Op::Stop, "cmux-0123")).unwrap_err();
+    let err = ledger
+        .run(&provider, &key("b"), &Request::on(Op::Stop, "cmux-0123"))
+        .unwrap_err();
     assert!(matches!(err, ProviderError::Indeterminate(_)));
     script.answer(404, json!({}));
-    let out = ledger.run(&provider, &key("d"), &Request::on(Op::Delete, "cmux-0123")).unwrap();
-    assert_eq!(out.receipt().state, MachineState::Deleted, "deleting a gone machine is done");
+    let out = ledger
+        .run(&provider, &key("d"), &Request::on(Op::Delete, "cmux-0123"))
+        .unwrap();
+    assert_eq!(
+        out.receipt().state,
+        MachineState::Deleted,
+        "deleting a gone machine is done"
+    );
 }
 
 #[test]
@@ -341,9 +421,16 @@ fn gcp_refuses_names_that_would_change_the_url() {
     let script = Script::default();
     let provider = gcp(&script);
     let mut ledger = Ledger::open(&ledger_path("gcp-names")).unwrap();
-    for (i, bad) in ["../other", "Cmux", "cmux-1?x=y", ""].into_iter().enumerate() {
+    for (i, bad) in ["../other", "Cmux", "cmux-1?x=y", ""]
+        .into_iter()
+        .enumerate()
+    {
         assert!(matches!(
-            ledger.run(&provider, &key(&format!("x{i}")), &Request::on(Op::Stop, bad)),
+            ledger.run(
+                &provider,
+                &key(&format!("x{i}")),
+                &Request::on(Op::Stop, bad)
+            ),
             Err(ProviderError::Refused(_))
         ));
     }
@@ -354,6 +441,38 @@ fn gcp_refuses_names_that_would_change_the_url() {
     assert!(AccessToken::new(b"line\nInjected: 1").is_err());
 }
 
+/// An instance cmux made: it carries the `cmux-machine` label.
+fn ours() -> Value {
+    json!({"status": "RUNNING", "labels": {"cmux-machine": "true"}})
+}
+
+#[test]
+fn gcp_acts_only_on_machines_cmux_made() {
+    let script = Script::default();
+    let provider = gcp(&script);
+    let mut ledger = Ledger::open(&ledger_path("gcp-foreign")).unwrap();
+    for (i, op) in [Op::Start, Op::Stop, Op::Snapshot, Op::Delete]
+        .into_iter()
+        .enumerate()
+    {
+        script.answer(200, json!({"status": "RUNNING", "labels": {"team": "db"}}));
+        let err = ledger
+            .run(
+                &provider,
+                &key(&format!("f{i}")),
+                &Request::on(op, "prod-db"),
+            )
+            .unwrap_err();
+        assert!(matches!(err, ProviderError::Refused(_)), "{op:?}: {err}");
+    }
+    let calls = script.calls.borrow();
+    assert_eq!(calls.len(), 4, "one look per op, nothing else");
+    assert!(
+        calls.iter().all(|(method, ..)| method == "GET"),
+        "{calls:?}"
+    );
+}
+
 #[test]
 fn gcp_snapshot_names_are_stable_per_key() {
     let script = Script::default();
@@ -361,23 +480,39 @@ fn gcp_snapshot_names_are_stable_per_key() {
     let mut ledger = Ledger::open(&ledger_path("gcp-snap")).unwrap();
     let label = |k: &str| key(k).digest("label")[..32].to_owned();
     // 409 on a snapshot carrying our key's label: ours.
+    script.answer(200, ours());
     script.answer(409, json!({"error": {"message": "already exists"}}));
     script.answer(200, json!({"labels": {"cmux-key": label("snap")}}));
     script.answer(200, json!({"status": "RUNNING"}));
-    let out = ledger.run(&provider, &key("snap"), &Request::on(Op::Snapshot, "cmux-0123")).unwrap();
+    let out = ledger
+        .run(
+            &provider,
+            &key("snap"),
+            &Request::on(Op::Snapshot, "cmux-0123"),
+        )
+        .unwrap();
     let name = out.receipt().artifact.clone().unwrap();
     assert!(name.starts_with("cmux-snap-") && name.len() <= 63);
     {
         let calls = script.calls.borrow();
-        assert!(calls[0].1.contains("/disks/cmux-0123/createSnapshot?requestId="));
-        assert_eq!(calls[0].2.as_ref().unwrap()["name"], json!(name));
-        assert!(calls[1].1.ends_with(&format!("/projects/my-project/global/snapshots/{name}")));
+        assert!(calls[1]
+            .1
+            .contains("/disks/cmux-0123/createSnapshot?requestId="));
+        assert_eq!(calls[1].2.as_ref().unwrap()["name"], json!(name));
+        assert!(calls[2]
+            .1
+            .ends_with(&format!("/projects/my-project/global/snapshots/{name}")));
     }
     // 409 on someone else's snapshot of that name: a conflict.
+    script.answer(200, ours());
     script.answer(409, json!({"error": {"message": "already exists"}}));
     script.answer(200, json!({"labels": {"cmux-key": "someone-else"}}));
     assert!(matches!(
-        ledger.run(&provider, &key("snap2"), &Request::on(Op::Snapshot, "cmux-0123")),
+        ledger.run(
+            &provider,
+            &key("snap2"),
+            &Request::on(Op::Snapshot, "cmux-0123")
+        ),
         Err(ProviderError::Conflict(_))
     ));
 }
@@ -399,9 +534,19 @@ fn a_key_belongs_to_one_zone() {
     let mut ledger = Ledger::open(&ledger_path("zones")).unwrap();
     script.lose();
     let delete = Request::on(Op::Delete, "cmux-0123");
-    assert!(matches!(ledger.run(&a, &key("d"), &delete), Err(ProviderError::Indeterminate(_))));
-    assert!(matches!(ledger.run(&b, &key("d"), &delete), Err(ProviderError::Conflict(_))));
-    assert_eq!(script.calls.borrow().len(), 1, "nothing was asked of the other zone");
+    assert!(matches!(
+        ledger.run(&a, &key("d"), &delete),
+        Err(ProviderError::Indeterminate(_))
+    ));
+    assert!(matches!(
+        ledger.run(&b, &key("d"), &delete),
+        Err(ProviderError::Conflict(_))
+    ));
+    assert_eq!(
+        script.calls.borrow().len(),
+        1,
+        "nothing was asked of the other zone"
+    );
     // A create's spec names the provider's own zone.
     let mut elsewhere = spec();
     elsewhere.zone = "us-central1-b".into();
@@ -420,7 +565,9 @@ fn a_failed_operation_is_a_failure_even_without_waiting() {
         200,
         json!({"name": "operation-1", "error": {"errors": [{"message": "QUOTA_EXCEEDED"}]}}),
     );
-    let err = ledger.run(&provider, &key("c"), &Request::create(spec())).unwrap_err();
+    let err = ledger
+        .run(&provider, &key("c"), &Request::create(spec()))
+        .unwrap_err();
     assert!(matches!(err, ProviderError::Api { ref message, .. } if message == "QUOTA_EXCEEDED"));
 }
 
@@ -439,12 +586,20 @@ fn a_line_after_a_torn_tail_survives_the_next_open() {
     let path = ledger_path("torn-then-append");
     drop(Ledger::open(&path).unwrap());
     // A crash mid-append, in the middle of a multi-byte character.
-    std::fs::write(&path, &"{\"phase\":\"failed\",\"error\":\"caf\u{e9}".as_bytes()[..30]).unwrap();
+    std::fs::write(
+        &path,
+        &"{\"phase\":\"failed\",\"error\":\"caf\u{e9}".as_bytes()[..30],
+    )
+    .unwrap();
     let mut ledger = Ledger::open(&path).unwrap();
-    let made = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap();
+    let made = ledger
+        .run(&fake, &key("c"), &Request::create(spec()))
+        .unwrap();
     drop(ledger);
     let mut ledger = Ledger::open(&path).unwrap();
-    let again = ledger.run(&fake, &key("c"), &Request::create(spec())).unwrap();
+    let again = ledger
+        .run(&fake, &key("c"), &Request::create(spec()))
+        .unwrap();
     assert!(matches!(again, Outcome::Replayed(_)));
     assert_eq!(again.receipt(), made.receipt());
 }
