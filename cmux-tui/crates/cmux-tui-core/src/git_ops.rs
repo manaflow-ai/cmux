@@ -27,6 +27,8 @@ mod diff;
 mod diff_comments;
 mod diff_pages;
 mod files;
+#[cfg(all(test, unix))]
+mod files_stress_tests;
 mod fingerprint;
 mod journal;
 mod list;
