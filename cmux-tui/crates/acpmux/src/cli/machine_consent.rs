@@ -56,6 +56,10 @@ impl Authority {
     /// join makes it the requirement it always was, for good.
     pub(super) fn enroll_as(&self, sign_in: bool) -> Result<()> {
         self.enroll_with_sync(sign_in, |path| {
+            // Windows opens no folder as a file to flush it; NTFS journals the names.
+            if cfg!(windows) && path.is_dir() {
+                return Ok(());
+            }
             std::fs::File::open(path)?.sync_all()?;
             Ok(())
         })
@@ -257,21 +261,11 @@ impl Authority {
         crate::config::write_atomic(&self.root.join("refusal.json"), &serde_json::to_vec(&record)?)
     }
 
-    #[cfg(unix)]
     fn lock(&self) -> Result<HeldLock> {
-        use std::os::fd::AsRawFd;
         let file = crate::config::private_state_rw(&self.root.join("write.lock"))?;
-        // SAFETY: file is a live owned descriptor. Nonblocking avoids stalling
-        // the daemon; the local person may retry a racing settings write.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "consent update in progress"
-        );
-        Ok(HeldLock(file))
-    }
-    #[cfg(not(unix))]
-    fn lock(&self) -> Result<HeldLock> {
-        anyhow::bail!("consent unavailable")
+        // Nonblocking avoids stalling the daemon; the local person may retry a racing settings
+        // write.
+        HeldLock::take(file, "consent update in progress")
     }
 }
 
@@ -351,9 +345,14 @@ pub(super) fn home_of_uid(uid: libc::uid_t) -> Result<PathBuf> {
     anyhow::ensure!(path.is_absolute(), "OS account home unavailable");
     Ok(path)
 }
-#[cfg(not(unix))]
+/// The OS account's profile folder, from the shell's known folder for this process's token
+/// (`SHGetKnownFolderPath(FOLDERID_Profile)`, what `dirs::home_dir` reads on Windows), never
+/// `USERPROFILE` or a tag's env.
+#[cfg(windows)]
 fn account_home() -> Result<PathBuf> {
-    anyhow::bail!("OS account home unavailable")
+    let path = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("OS account home unavailable"))?;
+    anyhow::ensure!(path.is_absolute(), "OS account home unavailable");
+    Ok(path)
 }
 
 #[cfg(test)]
