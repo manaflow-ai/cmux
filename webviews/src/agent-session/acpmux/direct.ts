@@ -7817,11 +7817,11 @@ export class AcpmuxDirectClient {
   }
 
   /// Whether a shed can keep row `id` across its cut (`planSplits`): an activity row (a turn's thoughts and calls, one
-  /// of which runs on), or the reply streaming now. Either is drawn again from the records that wrote it
-  /// (`OrderedRows.writesOf`), the ones before the cut held aside.
+  /// of which runs on), or a reply that streamed on past the cut (still, or until a record after it ended the reply).
+  /// Either is drawn again from the records that wrote it (`OrderedRows.writesOf`), the ones before the cut held aside.
   private splittable(id: string): boolean {
-    const row = this.rows.get(id);
-    return row?.kind === "activity" || (row?.kind === "assistant" && id === this.streamingAssistant);
+    const kind = this.rows.get(id)?.kind;
+    return kind === "activity" || kind === "assistant";
   }
 
   /// How a shed at `cut` keeps each row it spans (`splittable`), or undefined when one cannot be kept. The records that
@@ -7860,7 +7860,7 @@ export class AcpmuxDirectClient {
       let rest: number | undefined;
       let joining = false;
       for (const event of records) {
-        // A reply is drawn again from its chunks alone: one something else wrote to stays where it is.
+        // A reply is drawn again from its chunks alone: one something else wrote to before the cut stays where it is.
         if (event.kind !== chunks && row.kind === "assistant") return undefined;
         if (event.kind === chunks) {
           if (!joining) {
