@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+@testable import CmuxNextHome
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSettingsWindow
@@ -79,7 +80,7 @@ struct DensityPlaygroundTests {
         "paletteSearchHeight": { "\(Metrics.paletteSearchHeight)" },
         "paletteWidth": { "\(Metrics.paletteWidth)" },
         "chatTextScale": { "\(Typography.pageChatTextScale)" },
-        "homeTextScale": { "\(Typography.homeChatDensityScale)" },
+        "homeTextScale": { "\(HomeNativeTranscriptView.chatScale)" },
         "composerZoom": { DesignSettings.shared.interfaceScaleScript() },
         "chatEditorMin": { DesignSettings.shared.interfaceScaleScript() },
         "titlebarHeight": { "\(Metrics.titlebarHeight)" },
