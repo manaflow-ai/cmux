@@ -64,10 +64,8 @@ impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
 pub trait Carrier {
     /// Append a bounded batch of successful transport writes, never enqueue times.
     /// Each adapter must preserve the underlying transport's observations.
-    #[expect(dead_code, reason = "consumed by the stage-ledger integration stacked on this API")]
     fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>);
     /// Lost observations (not lost media). Consumers must mark affected timings incomplete.
-    #[expect(dead_code, reason = "consumed by the stage-ledger integration stacked on this API")]
     fn departure_overflows(&self) -> u64;
 
     /// Readable when [`Carrier::receive`] may have something.
