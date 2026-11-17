@@ -1775,8 +1775,20 @@ function shapeTurn(
   // still marks them, so each keeps its action row once the fold opens. A reply whose question another
   // agent's message cut off stays out: its card waits on the person, under it (`cutOff`).
   const repliesArm = experimentArm(turnFoldReplies);
+  // A turn whose harness marks its final answer (Codex's `final_answer` phase) folds every
+  // `commentary` message before it with the work, however short the answer, as the Codex app does:
+  // the harness has said which message answers. Lucas, 2026-11-14, on ten build updates drawn
+  // under a closed Worked for over a two-sentence answer: "why did it yap so much in the response?
+  // shouldnt that stuff have been in the Worked for".
+  const commentary =
+    lastFinalAnswer(body) === undefined
+      ? undefined
+      : new Set(body.filter((row) => row.assistantPhase === "commentary").map((row) => row.id));
+  const foldsUnderAnswer = (id: string) => commentary?.has(id) ?? false;
   const keptOut: ReadonlySet<string> =
-    repliesArm === "answer" ? new Set([...replies, ...(cutOff ? [cutOff.reply.id] : [])]) : replies;
+    repliesArm === "answer"
+      ? new Set([...[...replies].filter((id) => !foldsUnderAnswer(id)), ...(cutOff ? [cutOff.reply.id] : [])])
+      : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
@@ -3304,6 +3316,12 @@ export function isTakeaway(row: AcpmuxRow): boolean {
     /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text) ||
     !isWorkNarration(text)
   );
+}
+
+/// The turn's last reply the provider marked final (`isFinalAnswer`), the one `answerAt` picks.
+function lastFinalAnswer(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  for (let at = rows.length - 1; at >= 0; at -= 1) if (isFinalAnswer(rows[at]!)) return rows[at];
+  return undefined;
 }
 
 /// Only recognizable short progress narration belongs to the work. Unknown prose can be a brief
