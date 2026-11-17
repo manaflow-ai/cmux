@@ -227,6 +227,7 @@ impl Book {
 
 impl Book {
     /// None for a key known for another request: it runs as any request does.
+    #[cfg(test)]
     fn admit(&mut self, key: Key, digest: u64, now: Instant) -> Option<Seen> {
         self.admit_with_fence(key, digest, now, StopFence::new())
     }

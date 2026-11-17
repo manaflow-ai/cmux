@@ -898,21 +898,21 @@ async fn source_window_is_exact_when_a_summary_changes_after_first_offer() {
 struct ReadThenFail(std::io::Cursor<Vec<u8>>);
 impl AsyncRead for ReadThenFail {
     fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         if self.0.position() as usize == self.0.get_ref().len() {
             std::task::Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset)))
         } else {
-            std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+            Pin::new(&mut self.0).poll_read(cx, buf)
         }
     }
 }
 struct WriteThenFail(bool);
 impl AsyncWrite for WriteThenFail {
     fn poll_write(
-        mut self: std::pin::Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
         bytes: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
@@ -924,13 +924,13 @@ impl AsyncWrite for WriteThenFail {
         }
     }
     fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
+        self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         std::task::Poll::Ready(Ok(()))
     }
     fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
+        self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         std::task::Poll::Ready(Ok(()))
