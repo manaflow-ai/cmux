@@ -109,6 +109,14 @@ export function rowMark(row: MarkedRow): number {
   return MARK_OTHER;
 }
 
+/// The rows an edited-files card stands the run gap from (`transcriptGap`). Module-level, as is
+/// `isLine`: a closure made inside `transcriptGap` was garbage on every call, and a streamed token
+/// asks for a leaf's gaps again (placedHeightIndex.ts `placesOf`).
+const nearCard = (mark: number) =>
+  mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
+/// A one-line row: a step or a status line (`transcriptGap`).
+const isLine = (mark: number) => mark === MARK_STEP || mark === MARK_STATUS;
+
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
@@ -120,9 +128,8 @@ export function transcriptGap(previous: number, next: number): number {
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   if (next === MARK_WORKED) next = MARK_STEP;
-  const near = (mark: number) =>
-    mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
-  if ((previous === MARK_CARD && near(next)) || (next === MARK_CARD && near(previous))) return TRANSCRIPT_RUN_GAP;
+  if ((previous === MARK_CARD && nearCard(next)) || (next === MARK_CARD && nearCard(previous)))
+    return TRANSCRIPT_RUN_GAP;
   if (previous === MARK_CARD) previous = MARK_STEP;
   if (next === MARK_CARD) next = MARK_STEP;
   // A reply's footer sits 8 under its last line (Claude's placement, ChatGPT's 5); 24 or a prompt's
@@ -148,13 +155,13 @@ export function transcriptGap(previous: number, next: number): number {
   // conversation…", a background task's end), sit flush on the 22 pitch: one row height and no gap
   // (design/transcript-spacing.md rule 3; Leo, 2026-11-02, on a Claude chat where they stood a
   // block apart: "these are all so stupid looking").
-  const line = (mark: number) => mark === MARK_STEP || mark === MARK_STATUS;
-  if (line(previous) && line(next)) return 0;
+  if (isLine(previous) && isLine(next)) return 0;
   // The live state is separate from completed activity. Leo, 2026-11-04: "the gap between tool
   // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
-  if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
+  if (isLine(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
-  if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
+  if ((isLine(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && isLine(next)))
+    return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
 }
 
