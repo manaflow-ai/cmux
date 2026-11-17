@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44077432363",
+  "recorded_at": "2026-11-17T11:58:18Z",
+  "reason": "cmux-tui 9485c0406411 changes the image's cmux-tui (pinned c1f34f99fd3e)",
+  "dry_run": false,
+  "cmux_tui": "9485c0406411b1b94850a354158e903d69739cd0",
+  "fixes": [
+    {
+      "sha": "9485c0406411b1b94850a354158e903d69739cd0",
+      "mergedAt": "2026-11-17T03:38:56-08:00",
+      "subject": "cmux-rd linux-host: a headless machine's host unit starts (no graphical-session deps), and status reads its on-demand display (#45194)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T11:58:18Z",
+    "snapshot_id": "sh-da6127d4fc484f3f922704d0cd3aa043",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44077432363): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fb4121fd7324595ea3c96d6251dd1fba21244c59",
+    "image": "cloud-native-auto-9485c040-44077432363-1",
+    "revision": "ci-44077432363-1",
+    "at": "2026-11-17T11:58:18Z"
+  },
+  "rolled_back": false
+}
