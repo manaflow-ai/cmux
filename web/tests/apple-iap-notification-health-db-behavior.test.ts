@@ -9,8 +9,7 @@ import { closeCloudDbForTests } from "../db/client";
 import { findAppleTestNotification } from "../services/billing/apple/notificationHealth";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
-// Runs only against a database (CMUX_DB_TEST=1, scripts/run-db-behavior-tests.sh).
-const dbTest = test.if(runDbTests);
+const dbTest = runDbTests ? test : test.skip;
 
 const TEST_UUID = "11111111-2222-4333-8444-555555555555";
 const RENEWAL_UUID = "66666666-7777-4888-9999-aaaaaaaaaaaa";
