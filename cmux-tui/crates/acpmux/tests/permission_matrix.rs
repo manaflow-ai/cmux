@@ -1,0 +1,537 @@
+//! The permission combinations a person meets, end to end through the daemon (Leo 2026-11-17:
+//! "test out more of these permission related combinations in ci ... so things are as people
+//! would expect"). Every cell of
+//!
+//!   harness (Claude Code over stream-json, Codex over `codex app-server`)
+//!   x access level (the default, Full access, the harness's own mode, Ask, approve-all policy)
+//!   x chat (a new chat, an existing chat after its harness restarted, an existing chat the person
+//!     switches to Full access)
+//!   x host (this Mac, a peer daemon the chat runs on)
+//!
+//! runs as the app's pane drives it: a proven app connection starts the chat (`session/new`), its
+//! first message gets a reply, and a turn that runs a shell command (`perm-probe`, the stand-ins'
+//! `npm test`) either runs unasked (no approval reaches the app under full access) or shows the
+//! approval, which the person allows, and the turn completes. The chat's mode, model and effort
+//! are the same after the turns as before: nothing the person picked changes by itself.
+//!
+//! The stand-ins speak each harness's own protocol with its own mode ids (Claude Code's
+//! `bypassPermissions`/`default`, Codex's `approvalPolicy` never/on-request/untrusted), so the
+//! daemon's real translators (`claude_stdio`, the cmux-codex-acp bridge) are what is under test.
+//! Each test prints its rows as a table; a failing cell names itself and what it saw.
+
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
+use acpmux::config::{Config, ProfileSources, StoreMode};
+use acpmux::hub::Hub;
+use acpmux::rpc::{Message, method};
+use acpmux::server::peer_auth::PeerAuth;
+use acpmux::server::{ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_ws_with};
+use serde_json::{Value, json};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+/// 32 bytes as hex: the person key the app on this Mac makes at each launch.
+const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
+/// The person key of the app on the peer (the app keeps it to answer that peer's prompts,
+/// `AcpmuxRemotePersonKeys.swift`).
+const PEER_KEY: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const FAKE_APP_SERVER: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
+
+/// How long one request or one turn may take before the cell fails.
+const WAIT: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Level {
+    /// Nothing set: what a fresh install runs (full access).
+    Default,
+    FullAccess,
+    /// The harness's own start mode (`standard`): acpmux sets nothing.
+    Standard,
+    Ask,
+    /// The harness's own mode under the approve-all policy: acpmux answers every approval.
+    ApproveAll,
+}
+
+impl Level {
+    fn config(self) -> Value {
+        match self {
+            Level::Default => json!({}),
+            Level::FullAccess => json!({"defaultPermissionMode": "fullAccess"}),
+            Level::Standard => json!({"defaultPermissionMode": "standard"}),
+            Level::Ask => json!({"defaultPermissionMode": "ask"}),
+            Level::ApproveAll => {
+                json!({"defaultPermissionMode": "standard", "permissionPolicy": "approve-all"})
+            }
+        }
+    }
+
+    /// Whether the person sees an approval for the probe at this level.
+    fn asks(self) -> bool {
+        matches!(self, Level::Standard | Level::Ask)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Level::Default => "default",
+            Level::FullAccess => "full access",
+            Level::Standard => "harness own",
+            Level::Ask => "ask",
+            Level::ApproveAll => "approve-all",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Age {
+    New,
+    /// The chat ran a turn, its harness restarted, and a new pane connection opens it.
+    Existing,
+    /// The chat started at Ask and the person picks Full access in its composer.
+    Switched,
+}
+
+impl Age {
+    fn name(self) -> &'static str {
+        match self {
+            Age::New => "new",
+            Age::Existing => "existing",
+            Age::Switched => "switched to full",
+        }
+    }
+}
+
+/// The full-access mode id of each harness (`start_mode::FULL_ACCESS_MODES`).
+fn full_access_mode(harness: &str) -> &'static str {
+    if harness == "claude" { "bypassPermissions" } else { "agent-full-access" }
+}
+
+/// A daemon home with `claude` (Claude Code over stdio, the stand-in) and `codex` (a program
+/// named `codex` run as `codex app-server`, bridged in process, with Codex's approval policies).
+fn home(name: &str, extra: Value) -> PathBuf {
+    let dir = std::env::temp_dir()
+        .join(format!("acpmux-permission-matrix-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("work")).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    let codex = dir.join("bin").join("codex");
+    std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
+    std::fs::write(
+        &codex,
+        format!(
+            "#!/bin/sh\nFAKE_CODEX_APPROVALS=1 exec python3 {} \"$@\"\n",
+            daemon_env::sh_quote(FAKE_APP_SERVER)
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut config = json!({
+        "harnesses": {
+            "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            "codex": {"argv": [codex, "app-server"]},
+        },
+        "defaultHarness": "codex",
+        "webRoots": [dir.join("work")],
+    });
+    for (k, v) in extra.as_object().unwrap() {
+        config[k] = v.clone();
+    }
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    dir
+}
+
+/// The daemon as it starts: config.json read from disk.
+fn hub(dir: &Path) -> Arc<Hub> {
+    let mut cfg =
+        Config::load_from_with(&dir.join("config.json"), &ProfileSources::none()).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// One connection: its sender, its receiver, its last request id.
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+
+impl Client {
+    fn new(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
+        Client(in_tx, out_rx, 0)
+    }
+
+    /// The app's agent pane: a LocalApp connection that proved this launch's person key.
+    async fn app(hub: &Arc<Hub>) -> Self {
+        hub.person.enroll(KEY, true).unwrap();
+        let mut c = Self::new(hub, Origin::LocalApp, ConnAuth::LocalApp);
+        let r = c.call("initialize", json!({"protocolVersion": 1})).await;
+        let challenge = &r["result"]["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            KEY,
+            acpmux::hub::person::TRANSPORT_APP,
+            challenge["nonce"].as_str().unwrap_or_else(|| panic!("{r}")),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let r = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        c
+    }
+
+    async fn send(&mut self, m: &str, params: Value) -> i64 {
+        self.2 += 1;
+        self.0.send(Message::request(self.2, m, params).to_line()).await.unwrap();
+        self.2
+    }
+
+    async fn next(&mut self) -> Value {
+        let line = tokio::time::timeout(WAIT, self.1.recv())
+            .await
+            .expect("a message in time")
+            .expect("the connection stays open");
+        serde_json::from_str(&line).unwrap()
+    }
+
+    async fn call(&mut self, m: &str, params: Value) -> Value {
+        let id = self.send(m, params).await;
+        loop {
+            let v = self.next().await;
+            if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
+                return v;
+            }
+        }
+    }
+}
+
+/// Where the chat runs, and how the app answers its approvals.
+enum Host {
+    Local,
+    /// A peer daemon (`b`) this Mac's daemon mirrors; the app relays an allow with the peer's
+    /// person proof, as it does for a remote chat.
+    Peer {
+        remote: Arc<Hub>,
+    },
+}
+
+/// What one cell saw.
+#[derive(Default, Debug)]
+struct Seen {
+    mode: String,
+    replied: bool,
+    asked: bool,
+    /// The daemon answered the probe's approval itself (`permission_auto`, a policy).
+    auto: bool,
+    probe: String,
+    /// Why the cell did not run here (a remote Claude chain with no sandbox on this host).
+    skipped: Option<String>,
+    problems: Vec<String>,
+}
+
+/// How many approvals the daemon answered itself in the chat (`permission_auto` records).
+fn autos(owner: &Arc<Hub>, id: &str) -> usize {
+    owner
+        .events(id, 0, 100_000)
+        .unwrap_or_default()
+        .iter()
+        .filter(|e| e.kind == "permission_auto")
+        .count()
+}
+
+/// The chat's mode, model and effort as `_acpmux/info` reports them.
+async fn picks(app: &mut Client, id: &str) -> (Value, Value, Value) {
+    let r = app.call(method::MUX_INFO, json!({"sessionId": id})).await;
+    let info = &r["result"];
+    (info["modes"]["currentModeId"].clone(), info["model"].clone(), info["effort"].clone())
+}
+
+/// One prompt, to its end: the agent's text, and whether an approval reached the app (which
+/// the person then allows).
+async fn turn(app: &mut Client, host: &Host, id: &str, text: &str, seen: &mut Seen) -> String {
+    let rid = app
+        .send(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await;
+    let mut said = String::new();
+    loop {
+        let v = app.next().await;
+        if v.get("id") == Some(&json!(rid)) && v.get("method").is_none() {
+            if let Some(e) = v.get("error") {
+                seen.problems.push(format!("{text:?} failed: {e}"));
+            } else if v["result"]["stopReason"] != "end_turn" {
+                seen.problems.push(format!("{text:?} ended {}", v["result"]));
+            }
+            return said;
+        }
+        let p = &v["params"];
+        match v["method"].as_str() {
+            Some("session/update") => {
+                let u = &p["update"];
+                if u["sessionUpdate"] == "agent_message_chunk"
+                    && let Some(t) = u["content"]["text"].as_str()
+                {
+                    said.push_str(t);
+                }
+            }
+            Some(method::MUX_PERMISSION_PENDING) => {
+                seen.asked = true;
+                let permission = p["permissionId"].as_str().unwrap_or_default().to_owned();
+                let options = p["request"]["options"].as_array().cloned().unwrap_or_default();
+                let allow = options
+                    .iter()
+                    .find(|o| o["kind"] == "allow_once")
+                    .or_else(|| options.iter().find(|o| o["kind"] == "allow_always"))
+                    .and_then(|o| o["optionId"].as_str())
+                    .unwrap_or_else(|| panic!("no allow among {options:?}"))
+                    .to_owned();
+                let session = p["sessionId"].as_str().unwrap_or(id).to_owned();
+                let mut answer =
+                    json!({"sessionId": session, "permissionId": permission, "optionId": allow});
+                if let Host::Peer { .. } = host {
+                    let nonce = p["decisionNonce"].as_str().expect("the peer's decision nonce");
+                    let instance = p["personInstance"].as_str().expect("the peer's daemon run");
+                    let proof = acpmux::hub::person::decision_proof(
+                        PEER_KEY,
+                        instance,
+                        &session,
+                        &permission,
+                        &allow,
+                        nonce,
+                    )
+                    .unwrap();
+                    answer["_meta"] =
+                        json!({"acpmux": {"decisionNonce": nonce, "personDecision": proof}});
+                }
+                // Not `call`: the answer may come after the turn's own events.
+                app.send(method::MUX_PERMISSION_RESPOND, answer).await;
+            }
+            _ => {
+                // A refused answer to the respond above: a problem of the cell.
+                if v.get("method").is_none()
+                    && let Some(e) = v.get("error")
+                {
+                    seen.problems.push(format!("the allow was refused: {e}"));
+                }
+            }
+        }
+    }
+}
+
+/// Runs one cell on a fresh daemon (and a fresh peer daemon for a remote cell).
+async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
+    let name = format!(
+        "{harness}-{}-{}-{}",
+        level.name().replace(' ', "_"),
+        age.name().replace(' ', "_"),
+        if remote { "peer" } else { "local" }
+    );
+    // A switched chat starts at Ask; the person then picks Full access.
+    let start_level = if age == Age::Switched { Level::Ask } else { level };
+    let dir = home(&name, start_level.config());
+    let mut seen = Seen::default();
+    // A remote chain's Claude Code runs only inside the platform sandbox (`hub/remote_sandbox.rs`):
+    // on Linux that is bwrap, which the cmux-tui Linux test job installs and requires.
+    #[cfg(target_os = "linux")]
+    if remote
+        && harness == "claude"
+        && let Err(error) = Hub::linux_sandbox_probe_for_tests()
+    {
+        assert!(std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_none(), "{error}");
+        seen.skipped = Some(format!("no remote sandbox here ({error})"));
+        return seen;
+    }
+    let (here, host, cwd) = if remote {
+        let peer_dir = home(&format!("{name}-b"), start_level.config());
+        let b = hub(&peer_dir);
+        b.person.install_spawn_key(PEER_KEY).unwrap();
+        let (port, token) = listen_with_peer_token(b.clone(), &name).await;
+        let a = hub(&dir);
+        a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
+            .await
+            .unwrap();
+        (a, Host::Peer { remote: b }, peer_dir.join("work"))
+    } else {
+        (hub(&dir), Host::Local, dir.join("work"))
+    };
+    let mut app = Client::app(&here).await;
+    let mut acpmux = json!({"harness": harness});
+    if remote {
+        acpmux["peer"] = json!("b");
+    }
+    let started = app
+        .call("session/new", json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": acpmux}}))
+        .await;
+    let Some(id) = started["result"]["sessionId"].as_str().map(str::to_owned) else {
+        // What the pane shows as "cmux did not start a session".
+        seen.problems.push(format!("no session started: {started}"));
+        return seen;
+    };
+    app.call(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
+
+    // The first message gets a reply.
+    let said = turn(&mut app, &host, &id, "hi", &mut seen).await;
+    seen.replied = !said.trim().is_empty();
+    if !seen.replied {
+        seen.problems.push("the first message got no reply".into());
+    }
+    // The daemon the chat runs on, and its own id there.
+    let owner = match &host {
+        Host::Local => here.clone(),
+        Host::Peer { remote } => remote.clone(),
+    };
+    let raw = id.rsplit('/').next().unwrap().to_owned();
+    if age == Age::Existing {
+        // The harness restarts (the app relaunched, or `cmux harness restart`), and a new pane
+        // opens the chat.
+        let mut cli = Client::new(&owner, Origin::Local, ConnAuth::LocalSocket);
+        let r = cli.call("_acpmux/sessions/restart_harness", json!({"sessions": [raw]})).await;
+        if r["result"]["restarted"] != json!(1) {
+            seen.problems.push(format!("the harness did not restart: {r}"));
+        }
+        app = Client::app(&here).await;
+        app.call(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
+        let said = turn(&mut app, &host, &id, "hi again", &mut seen).await;
+        if said.trim().is_empty() {
+            seen.problems.push("the existing chat's message got no reply".into());
+        }
+    }
+    if age == Age::Switched {
+        let full = full_access_mode(harness);
+        let r = app.call("session/set_mode", json!({"sessionId": id, "modeId": full})).await;
+        if let Some(e) = r.get("error") {
+            seen.problems.push(format!("the switch to {full} was refused: {e}"));
+        }
+    }
+    let before = picks(&mut app, &id).await;
+    seen.mode = before.0.as_str().unwrap_or("?").to_owned();
+    seen.asked = false;
+    let auto_before = autos(&owner, &raw);
+    seen.probe = turn(&mut app, &host, &id, "perm-probe", &mut seen).await;
+    seen.auto = autos(&owner, &raw) > auto_before;
+    let after = picks(&mut app, &id).await;
+    if before != after {
+        seen.problems
+            .push(format!("the chat's picks changed by themselves: {before:?} -> {after:?}"));
+    }
+    let expect_ask = level.asks() && age != Age::Switched;
+    if seen.asked != expect_ask {
+        seen.problems.push(format!(
+            "an approval {} the app, expected {}",
+            if seen.asked { "reached" } else { "never reached" },
+            if expect_ask { "one" } else { "none" }
+        ));
+    }
+    if !seen.probe.contains("perm-probe ran npm test") {
+        seen.problems.push(format!("the probe turn did not run its command: {:?}", seen.probe));
+    }
+    if !expect_ask && level != Level::ApproveAll && !seen.probe.contains("unasked") {
+        seen.problems.push(format!("the harness asked under full access: {:?}", seen.probe));
+    }
+    let full = full_access_mode(harness);
+    let full_now = age == Age::Switched || matches!(level, Level::Default | Level::FullAccess);
+    if full_now && seen.mode != full {
+        seen.problems.push(format!("the chat runs {}, expected {full}", seen.mode));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    seen
+}
+
+/// The peer's WebSocket listener with a peer token (`server/peer_auth.rs`).
+async fn listen_with_peer_token(b: Arc<Hub>, tag: &str) -> (u16, String) {
+    let home = std::env::temp_dir().join(format!("pm-peer-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let auth = PeerAuth::create(&home).unwrap();
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let l = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b, l, "tok".into(), auth));
+    (port, token)
+}
+
+/// The cells of one harness, host and level (a new chat, an existing one, and under Full access
+/// a chat switched to it); prints their rows and fails naming each bad cell. One test each, so
+/// the cells run side by side and each stays inside nextest's per-test budget.
+async fn matrix(harness: &str, remote: bool, level: Level) {
+    let mut ages = vec![Age::New, Age::Existing];
+    if level == Level::FullAccess {
+        ages.push(Age::Switched);
+    }
+    let mut rows = Vec::new();
+    for age in ages {
+        rows.push((level, age, cell(harness, level, age, remote).await));
+    }
+    let host = if remote { "peer" } else { "local" };
+    println!(
+        "\n| harness | host | access | chat | mode | first reply | approval shown | auto-answered | probe | result |"
+    );
+    println!("|---|---|---|---|---|---|---|---|---|---|");
+    let mut failed = Vec::new();
+    for (level, age, seen) in &rows {
+        let result = match (&seen.skipped, seen.problems.is_empty()) {
+            (Some(why), _) => format!("skipped: {why}"),
+            (None, true) => "pass".to_owned(),
+            (None, false) => seen.problems.join("; "),
+        };
+        let yes = |b: bool| if b { "yes" } else { "no" };
+        println!(
+            "| {harness} | {host} | {} | {} | {} | {} | {} | {} | {} | {result} |",
+            level.name(),
+            age.name(),
+            seen.mode,
+            yes(seen.replied),
+            yes(seen.asked),
+            yes(seen.auto),
+            seen.probe.replace('|', "/"),
+        );
+        if !seen.problems.is_empty() {
+            failed.push(format!("{harness}/{host}/{}/{}: {result}", level.name(), age.name()));
+        }
+    }
+    assert!(failed.is_empty(), "failing cells:\n{}", failed.join("\n"));
+}
+
+/// One test per harness, host and level: `cells!(name, harness, remote, level)`.
+macro_rules! cells {
+    ($($name:ident: $harness:literal, $remote:literal, $level:ident;)*) => {$(
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn $name() {
+            matrix($harness, $remote, Level::$level).await;
+        }
+    )*};
+}
+
+cells! {
+    claude_here_default: "claude", false, Default;
+    claude_here_full_access: "claude", false, FullAccess;
+    claude_here_own_mode: "claude", false, Standard;
+    claude_here_ask: "claude", false, Ask;
+    claude_here_approve_all: "claude", false, ApproveAll;
+    codex_here_default: "codex", false, Default;
+    codex_here_full_access: "codex", false, FullAccess;
+    codex_here_own_mode: "codex", false, Standard;
+    codex_here_ask: "codex", false, Ask;
+    codex_here_approve_all: "codex", false, ApproveAll;
+    claude_peer_default: "claude", true, Default;
+    claude_peer_full_access: "claude", true, FullAccess;
+    claude_peer_own_mode: "claude", true, Standard;
+    claude_peer_ask: "claude", true, Ask;
+    claude_peer_approve_all: "claude", true, ApproveAll;
+    codex_peer_default: "codex", true, Default;
+    codex_peer_full_access: "codex", true, FullAccess;
+    codex_peer_own_mode: "codex", true, Standard;
+    codex_peer_ask: "codex", true, Ask;
+    codex_peer_approve_all: "codex", true, ApproveAll;
+}

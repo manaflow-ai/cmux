@@ -701,6 +701,15 @@ while True:
         send({"type": "stream_event", "parent_tool_use_id": "toolu_lateag", "event": {"type": "content_block_delta",
               "index": 0, "delta": {"type": "text_delta", "text": "late " + behavior}}})
         continue
+    # The answer to "perm-probe" (below): the turn ends with what the person chose.
+    if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "probe-1":
+        behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
+        said = "perm-probe %s (mode %s)" % ("ran npm test" if behavior == "allow" else behavior, MODE)
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": said}}})
+        send({"type": "result", "subtype": "success", "result": said, "num_turns": 1, "duration_api_ms": 1,
+              "usage": {"input_tokens": 1, "output_tokens": 1}})
+        continue
     # The answer to "answer-shape" (below), checked like Claude Code's permission reply schema:
     # an allow must carry updatedInput (Claude Code runs the tool with it), a deny a message.
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "shape-1":
@@ -949,6 +958,18 @@ while True:
         # session rule covers it. The turn ends at the last answer (above).
         if said.strip() == "always-ask":
             send(ask("ask-1", "toolu_ask1"))
+            continue
+        # "perm-probe": one Bash call (`npm test`), asked as Claude Code asks it in every mode but
+        # bypassPermissions, where it runs unasked (tests/permission_matrix.rs).
+        if said.strip() == "perm-probe":
+            if MODE == "bypassPermissions":
+                said = "perm-probe ran npm test unasked (mode %s)" % MODE
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": said}}})
+                send({"type": "result", "subtype": "success", "result": said, "num_turns": 1, "duration_api_ms": 1,
+                      "usage": {"input_tokens": 1, "output_tokens": 1}})
+            else:
+                send(ask("probe-1", "toolu_probe1"))
             continue
         # "answer-shape": one permission ask; the answer is checked (above).
         if said.strip() == "answer-shape":
