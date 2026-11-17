@@ -93,19 +93,32 @@ public nonisolated enum CloudPersonCreate {
     /// done (the create's `user.ensure`: nothing holds a direct create, so its bind must find the user). A call that
     /// throws before anything went out (no session) is ``Unavailable``; a transport failure may have reached the
     /// server, so it is thrown as is and the key stays on this route.
+    ///
+    /// A call whose request was sent again after a connection failure (``CloudConnectHedge/Resends``) may have run
+    /// the op on its first attempt, so a route refusal answered to the resend is no ``Unavailable`` either: the relay
+    /// would send a new key, a second machine. It is ``indeterminate``, and a Retry sends the same key on this route.
     public static func ops(_ call: @escaping Call, after first: @escaping @Sendable () async -> Void) -> CloudAppOp {
         { op, args, key, origin in
             let sent = try Self.body(op: op, params: args, key: key, origin: origin)
             await first()
+            let resends = CloudConnectHedge.Resends()
             let reply: Data
             do {
-                reply = try await call("v1/ops", sent)
-            } catch let error where !(error is URLError) && !(error is CancellationError) {
+                reply = try await CloudConnectHedge.$resends.withValue(resends) { try await call("v1/ops", sent) }
+            } catch let error where !(error is URLError) && !(error is CancellationError) && !resends.any {
                 throw Unavailable(reason: "not_signed_in")
             }
-            return try Self.answer(reply)
+            do {
+                return try Self.answer(reply)
+            } catch let refused as Unavailable where resends.any {
+                throw CloudAppOpFailure(code: indeterminate, message: "the create may have reached the Cloud before it was refused (\(refused.reason))")
+            }
         }
     }
+
+    /// The answer of a direct create that may have run before its route refused a resend (``ops(_:after:)``): not a
+    /// definitive refusal, so the key and its route stay for a Retry.
+    public static let indeterminate = "cmux.cloud.indeterminate"
 
     /// The op's value from a `/v1/ops` reply; a refusal as the relay would answer it (`cmux.cloud.<reason>`, with its
     /// details), or ``Unavailable`` when the route itself refused before the op ran.
