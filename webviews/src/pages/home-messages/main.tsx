@@ -7,7 +7,7 @@
 // The host adds only what the app knows (host.ts: the row and compose menus, the traffic lights).
 // In the gallery and dev loop (`?mock`) the Channels page's in-memory mock provider stands in.
 import "../shared/desktop";
-import { useState } from "react";
+import { useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
@@ -96,7 +96,12 @@ function DaemonMessages({
   carry: PendingCarry;
   detail?: MessagesDetail;
 }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
+  // DaemonGate keeps this component mounted across a same-endpoint reconnect, so a new socket
+  // needs a new store; unsent messages carry over to it.
+  const store = useMemo(
+    () => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host),
+    [daemon, owner, carry, host],
+  );
   return (
     <MessagesApp
       store={store}
