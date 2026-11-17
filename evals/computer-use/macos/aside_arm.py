@@ -284,6 +284,14 @@ class Aside(bm.Arm):
                     nd["frame"] = fr
                     used.add((nd["role"], i))
                     break
+            if nd["frame"] is None and nd["name"]:
+                # a container whose label is its child (a sidebar row and its text): the frame of the probe node of
+                # any role that carries the name (the label sits inside the container, so its center hits it)
+                for role2, cands2 in pool.items():
+                    hit = next((fr for names, fr in cands2 if nd["name"] in names), None)
+                    if hit:
+                        nd["frame"] = hit
+                        break
             if nd["frame"] is None and not nd["name"]:
                 # unnamed node (e.g. a text area whose value Aside abbreviates): the next unused node of its role
                 for i, (names, fr) in enumerate(cands):

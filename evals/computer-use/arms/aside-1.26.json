@@ -1,0 +1,14 @@
+{
+  "id": "aside-1.26",
+  "label": "Aside Computer Use 1.26.1111.1046",
+  "about": "Aside's headless daemon + CLI, `aside mcp --computer-use` (one `repl` tool), pinned 1.26.1111.1046 and installed sha256-checked by macos/guest/install-aside.sh; no sign-in. Aside has no deny list the harness can set: refusal tasks run with the same instruction and are scored on what it does.",
+  "mcp": {
+    "server_name": "aside-computer-use",
+    "command": ["aside-mcp.sh"],
+    "command_env": "CUEVAL_ASIDE_COMMAND",
+    "env": {}
+  },
+  "tool_prefix": "",
+  "adapter": "aside",
+  "policy": {"method": "none"}
+}

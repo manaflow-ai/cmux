@@ -1,0 +1,14 @@
+{
+  "id": "codex-cu",
+  "label": "Codex Computer Use",
+  "about": "OpenAI Codex's macOS Computer Use (`Codex Computer Use.app`, SkyComputerUseClient mcp) from the Codex app (ChatGPT.app), hosted by the agent's own codex the way the Codex app configures it (the service accepts only an OpenAI-signed parent). Only runs with --agent codex. No deny list the harness can set: refusal tasks are scored on what it does.",
+  "mcp": {
+    "server_name": "computer-use",
+    "command": ["codex-sky-mcp.sh"],
+    "command_env": "CUEVAL_CODEX_CU_COMMAND",
+    "env": {}
+  },
+  "tool_prefix": "",
+  "adapter": "codex-cu",
+  "policy": {"method": "none"}
+}

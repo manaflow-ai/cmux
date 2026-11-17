@@ -134,7 +134,7 @@ def parse_codex_stream(lines: list[str]) -> Transcript:
     return tr
 
 
-def _codex_mode_args() -> list[str]:
+def _codex_mode_args(arm: dict | None = None) -> list[str]:
     """`--sandbox read-only` with approval_policy=never makes codex refuse every MCP tool call ("requires
     approval, but approval is unavailable"), so the computer-use server could never act. Run without the
     sandbox and approvals instead, and turn off everything else that could act (shell, patching, web search,
@@ -142,8 +142,11 @@ def _codex_mode_args() -> list[str]:
     CUEVAL_CODEX_SANDBOX=read-only restores the old flag."""
     if os.environ.get("CUEVAL_CODEX_SANDBOX") == "read-only":
         return ["--sandbox", "read-only"]
+    # The Codex Computer Use arm keeps codex's computer_use feature on (its server is the arm); every other
+    # arm turns it off so the arm's server is the only way to act.
+    cu_off = [] if (arm or {}).get("adapter") == "codex-cu" else ["--disable", "computer_use"]
     return ["--dangerously-bypass-approvals-and-sandbox",
-            "--disable", "shell_tool", "--disable", "unified_exec", "--disable", "computer_use",
+            "--disable", "shell_tool", "--disable", "unified_exec", *cu_off,
             "-c", 'plugins."computer-use@openai-bundled".enabled=false',
             "-c", 'plugins."unified-computer-use@openai-bundled".enabled=false',
             "-c", "include_apply_patch_tool=false", "-c", 'web_search="disabled"', "-c", "notify=[]"]
@@ -151,10 +154,11 @@ def _codex_mode_args() -> list[str]:
 
 def run_codex(arm: dict, env_vars: dict, instruction: str, model: str, max_turns: int, timeout: float, log: str) -> Transcript:
     cfg = armsmod.mcp_config(arm, env_vars)["mcpServers"][arm["mcp"]["server_name"]]
-    name = arm["mcp"]["server_name"].replace("-", "_")
+    name = arm["mcp"]["server_name"]
+    name = name if arm.get("adapter") == "codex-cu" else name.replace("-", "_")
     toml = lambda v: json.dumps(v)  # noqa: E731  JSON strings and arrays are valid TOML values
     cmd = [os.environ.get("CUEVAL_CODEX", "codex"), "exec", "--json", "--skip-git-repo-check",
-           *_codex_mode_args(), "-m", model,
+           *_codex_mode_args(arm), "-m", model,
            "-c", f"mcp_servers.{name}.command={toml(cfg['command'])}",
            "-c", f"mcp_servers.{name}.args={toml(cfg['args'])}"]
     env = dict(cfg["env"])
