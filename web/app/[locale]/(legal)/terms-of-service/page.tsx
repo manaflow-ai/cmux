@@ -307,9 +307,9 @@ export default async function TermsOfServicePage() {
 
       <h3>Meeting recording and consent</h3>
       <p>
-        The cmux notetaker records the audio of the meetings that you send it
-        to, or that match the calendar rules you turn on, and, on Google Meet,
-        Zoom, and Microsoft Teams, their chat, and makes a transcript and
+        The cmux notetaker records the audio and the chat of the meetings that
+        you send it to, or that match the calendar rules you turn on (on Webex
+        it receives the chat but cannot post in it), and makes a transcript and
         notes.
         While it is in a meeting, the notetaker also reads the live transcript
         and the meeting chat, to obey &ldquo;cmux pause&rdquo; and &ldquo;cmux
@@ -332,7 +332,7 @@ export default async function TermsOfServicePage() {
         that the chat notice appeared. On Webex the notetaker cannot post a
         notice, so you must tell every participant before the recording starts
         that cmux is an AI notetaker from Manaflow that records the audio and
-        makes a transcript and notes, that the audio is deleted within 24 hours
+        the chat and makes a transcript and notes, that the audio is deleted within 24 hours
         after the meeting and the transcript and notes are kept with no set
         time limit, and where our Privacy Policy is. Give the same information
         to participants on the other platforms who cannot see the notices. If the notice or consent that the law requires is
@@ -404,9 +404,11 @@ export default async function TermsOfServicePage() {
         and notetaker time is not. Usage is paid from credits that your team
         buys through our payment processor or that we grant. Prices do
         not include taxes, and you are responsible for applicable taxes.
-        Credits are not refundable, except where the law requires a refund.
-        We give at least 30 days&rsquo; notice of a
-        price increase; a change applies to usage after it takes effect.
+        Credits are not refundable, except as &ldquo;Ending the account&rdquo; says and where the law requires a refund.
+        Prices of AI models follow the list price of each model provider and
+        can change when the provider changes it; cmux Cloud shows the price that
+        applies when the usage occurs. For prices that we set, we give at least
+        30 days&rsquo; notice of an increase; a change applies to usage after it takes effect.
       </p>
       <p>
         Cloud machine plans. If you buy a plan for the cloud machines that you
@@ -477,7 +479,7 @@ export default async function TermsOfServicePage() {
         indemnity, &ldquo;Confidential information&rdquo;, &ldquo;Agents act on
         your behalf&rdquo;, &ldquo;AI output&rdquo;, &ldquo;Your content and
         connected tools&rdquo; (until deletion), &ldquo;Data export and deletion&rdquo;, and &ldquo;Law,
-        disputes, and changes for cmux Cloud&rdquo; continue. If we end the account for a reason other than your breach of these Terms, we refund unused credits that you bought.
+        disputes, and changes for cmux Cloud&rdquo; continue. If we end the account for a reason other than your breach of these Terms, we refund the unused credits that you bought (granted credits count as used first).
       </p>
 
       <h3>Law, disputes, and changes for cmux Cloud</h3>

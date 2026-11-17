@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { legalMetadata } from "../../legal-metadata";
 
-// Published without counsel on the owner's instruction (2026-11-17).
 export const metadata: Metadata = {
   ...legalMetadata(
     "/cmux-cloud/dpa",
@@ -115,7 +114,13 @@ export default function CmuxCloudDpaPage() {
         AI models and providers that Customer chooses. Customer chooses the AI
         models that cmux Cloud uses for it. On the calls that Company pays for,
         Company sends requests only to providers that do not train their
-        models on them. Where Customer uses its own provider keys, endpoints,
+        models on them. For AI models, the subprocessors are the routes that the
+        subprocessor page names; the provider of a model is shown with the model
+        in cmux Cloud, and Customer authorizes that provider when it or its users
+        choose the model. Web search and page-reading services that agents use
+        receive only search words and addresses of public pages; Customer
+        instructs Company to send these to them, and they are not
+        subprocessors. Where Customer uses its own provider keys, endpoints,
         or cloud machine account, that provider is not Company&rsquo;s
         subprocessor: Customer instructs Company to send Customer Personal
         Data to that provider, and that provider&rsquo;s terms apply.
@@ -199,7 +204,16 @@ export default function CmuxCloudDpaPage() {
         transfers subject to the Swiss Federal Act on Data Protection,
         references to the GDPR are read as references to that Act, and the
         competent authority is the Swiss Federal Data Protection and
-        Information Commissioner.
+        Information Commissioner; the term &ldquo;Member State&rdquo; does not
+        stop a person in Switzerland from bringing a claim at their place of
+        residence. Clause 17 Option 1 applies. Annex I.A: the data exporter is
+        Customer, with the contact details of its account; the data importer
+        is Manaflow, Inc., 18428 Vantage Pointe Dr, Rowland Heights, CA
+        91748-5142, United States, founders@cmux.com. Annex I.B: the transfers
+        are continuous, for the duration in the Annex of this DPA. Annex I.C:
+        the competent supervisory authority is the authority that Clause 13
+        gives for Customer. For the UK Addendum, Table 4: neither party can end
+        the Addendum when the approved addendum changes.
       </p>
 
       <h2>11. US state privacy laws</h2>

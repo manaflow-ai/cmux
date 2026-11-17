@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { legalMetadata } from "../../legal-metadata";
 
-// Published without counsel on the owner's instruction (2026-11-17).
 export const metadata: Metadata = {
   ...legalMetadata(
     "/cmux-cloud/subprocessors",
@@ -13,7 +12,7 @@ export const metadata: Metadata = {
 type Subprocessor = {
   /** `content`: processes the content that we process for teams (a subprocessor under the DPA). `controller`:
    * account, billing, and usage data, for which we are the controller (not a subprocessor). */
-  readonly group: "content" | "controller";
+  readonly group: "content" | "controller" | "public";
   readonly category: string;
   readonly name: string;
   readonly purpose: string;
@@ -75,7 +74,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "AI model providers",
     name: "OpenRouter, Inc.",
-    purpose: "Routes AI model requests when the primary route is not available.",
+    purpose: "Routes AI model requests when the primary route is not available, or when your team chooses a model on this route.",
     location: "United States",
   },
   {
@@ -93,21 +92,21 @@ const subprocessors: readonly Subprocessor[] = [
     location: "See the provider's privacy policy",
   },
   {
-    group: "content",
+    group: "public",
     category: "Web search and page reading",
     name: "Exa",
     purpose: "Receives the search words that agents write and the addresses of public pages.",
     location: "See the provider's privacy policy",
   },
   {
-    group: "content",
+    group: "public",
     category: "Page reading",
     name: "Jina AI",
     purpose: "Receives the addresses of public pages that agents read.",
     location: "See the provider's privacy policy",
   },
   {
-    group: "content",
+    group: "public",
     category: "Page reading",
     name: "Internet Archive",
     purpose: "Receives the addresses of public pages that agents read.",
@@ -124,7 +123,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "controller",
     category: "Sign-in service",
     name: "Hexclave (Stack Auth)",
-    purpose: "Sign-in, sessions, account management, and sign-in emails.",
+    purpose: "Sign-in, sessions, account management, and sign-in and invitation emails.",
     location: "See the provider's privacy policy",
   },
   {
@@ -132,6 +131,13 @@ const subprocessors: readonly Subprocessor[] = [
     category: "Payment processor",
     name: "Stripe, Inc.",
     purpose: "Payments, credits, and invoices.",
+    location: "United States",
+  },
+  {
+    group: "controller",
+    category: "Email delivery",
+    name: "Resend",
+    purpose: "Team invitation and contact-form emails of the cmux.com dashboard and website.",
     location: "United States",
   },
   {
@@ -180,7 +186,7 @@ export default function CmuxCloudSubprocessorsPage() {
         the hosted service at <a href="https://cmux.cloud">cmux.cloud</a> and
         the cloud machines that you create from the cmux app or the cmux.com
         dashboard. Our subprocessors process personal data for us, to provide
-        their service, under their terms with us. Our payment processor also
+        their service, under their terms with us or with the route that we use. Our payment processor also
         uses payment data for its own purposes (see &ldquo;Other service
         providers&rdquo;). Our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
@@ -226,6 +232,24 @@ export default function CmuxCloudSubprocessorsPage() {
       <ul>
         {subprocessors
           .filter((entry) => entry.group === "controller")
+          .map((entry) => (
+            <li key={`${entry.category}-${entry.name}`}>
+              <strong>{entry.name}</strong> ({entry.category}): {entry.purpose}{" "}
+              Location: {entry.location}.
+            </li>
+          ))}
+      </ul>
+
+      <h2>Public web services that agents use</h2>
+      <p>
+        When an agent searches the web or reads a public page, these services
+        receive the search words and the address of the page, as a website
+        receives a visit. They act under their own terms and privacy policies.
+        They are not our subprocessors.
+      </p>
+      <ul>
+        {subprocessors
+          .filter((entry) => entry.group === "public")
           .map((entry) => (
             <li key={`${entry.category}-${entry.name}`}>
               <strong>{entry.name}</strong> ({entry.category}): {entry.purpose}{" "}
