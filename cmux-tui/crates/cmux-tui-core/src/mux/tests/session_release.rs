@@ -862,11 +862,29 @@ fn a_record_file_past_the_read_bound_does_not_go_into_the_next_owners_start_line
 /// The longest wait for a thread of these tests to say that a call of the
 /// owner returned. A bound for a call that never returns, not a time the
 /// test measures: each wait that the owner has for a thread of its own is a
-/// few seconds.
+/// few seconds. The bound is the form of a red run only: a call that returns
+/// ends the wait at once, so a green run reads no time.
 const OWNER_CALL_WAIT: Duration = Duration::from_secs(30);
 /// What an owner names when its release did not have the registry's lock in
 /// its wait.
 const REGISTRY_HOLD: &str = "a hold of the registry's lock";
+/// What an owner names when its stop went on without its maintenance worker.
+const MAINTENANCE_WORKER: &str = "journal maintenance worker";
+/// What an owner names when its stop went on without the writer of its
+/// output store.
+const OUTPUT_STORE_WRITER: &str = "output store writer";
+/// What the stop of an output store says, in its stderr line, when it went
+/// on without the store's writer.
+const NO_LAST_WRITE: &str = "no last write";
+
+/// The names that a release gave for what still lived. None for a release
+/// that gave the session up, and none for a release that did not come.
+fn kept_names(release: Option<&lifecycle::OwnershipRelease>) -> Vec<&'static str> {
+    match release {
+        Some(lifecycle::OwnershipRelease::KeptUntilExit { alive, .. }) => alive.clone(),
+        Some(lifecycle::OwnershipRelease::Released) | None => Vec::new(),
+    }
+}
 
 /// A thread of the owner holds the registry's lock when the owner releases
 /// the session, and does not give it back: a pass of a background thread
@@ -948,14 +966,18 @@ fn a_release_returns_while_a_thread_of_its_owner_holds_the_registry_lock() {
 /// A tick of the owner's maintenance worker is in flight when the owner
 /// shuts down, and it does not end: it waits for a slow commit. The stop of
 /// that worker has a bound, as the stop of the owner's other workers has:
-/// the shutdown returns while the tick still runs, and the release comes
-/// after it.
+/// the shutdown returns while the tick still runs. A tick can write files of
+/// the session that no later check refuses, so the release that comes after
+/// that stop keeps the session until the owner's exit and names the worker,
+/// in what it returns and in its record: no next owner has the session while
+/// the tick runs.
 #[test]
 fn a_shutdown_returns_while_a_maintenance_tick_of_its_owner_does_not_end() {
     let root = std::env::temp_dir()
         .join(format!("cmux-session-release-tick-{}", crate::workspace_registry::new_uuid_v4()));
     let session = "release-tick";
     let mux = open_owner(&root, session);
+    let folder = session_folder(&mux);
     let (began, tick_began) = mpsc::sync_channel(1);
     let (end_the_tick, tick_runs) = mpsc::sync_channel::<()>(1);
     journal_maintenance::worker_tests::put_a_worker_in_a_tick(&mux, move || {
@@ -972,12 +994,15 @@ fn a_shutdown_returns_while_a_maintenance_tick_of_its_owner_does_not_end() {
         stopping.shutdown();
         let _ = said.send(());
     });
-    // The tick ends only after the next line: a shutdown that the test has
-    // here returned while the tick ran.
+    // The tick ends only after the lines below: a shutdown that the test has
+    // here returned while the tick ran, and the release comes while it runs.
     let returned = shutdown_said.recv_timeout(OWNER_CALL_WAIT).is_ok();
+    let release = returned.then(|| mux.release_ownership(&root.join("control.sock")));
+    let record = std::fs::read_to_string(folder.join(RELEASE_RECORD_FILE)).unwrap_or_default();
     drop(end_the_tick);
     let _ = stopper.join();
     drop(mux);
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
     let _ = std::fs::remove_dir_all(&root);
     assert!(
         returned,
@@ -985,5 +1010,90 @@ fn a_shutdown_returns_while_a_maintenance_tick_of_its_owner_does_not_end() {
          stop of that worker waits for the tick's end with no bound (the test waited {} s for \
          the shutdown)",
         OWNER_CALL_WAIT.as_secs()
+    );
+    assert!(
+        kept_names(release.as_ref()) == [MAINTENANCE_WORKER],
+        "an owner whose stop went on without its maintenance worker did not keep the session \
+         with that worker's name while the tick ran: its release: {release:?}"
+    );
+    assert!(
+        record.contains(KEPT_RELEASE) && record.contains(MAINTENANCE_WORKER),
+        "an owner that keeps its session because of its maintenance worker did not write that \
+         in its record: the record file: {record:?}"
+    );
+}
+
+/// The writer of the owner's output store is in a pass when the owner shuts
+/// down, and the pass does not end: it waits for the registry's lock. The
+/// stop of that writer has a bound. A stop that went on without the writer
+/// makes no last write of the store, because that write needs the pass lock
+/// that the writer holds, and it says so in one stderr line: the shutdown
+/// returns while the pass still runs. The writer writes files of the store
+/// that no later check refuses, so the release that comes after that stop
+/// keeps the session until the owner's exit and names the writer, in what it
+/// returns and in its record.
+#[test]
+fn a_shutdown_returns_while_a_pass_of_its_output_store_writer_does_not_end() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-pass-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-pass";
+    let mux = open_owner(&root, session);
+    let folder = session_folder(&mux);
+    assert!(
+        mux.output_store.directory().is_some(),
+        "setup: the owner's output store has no folder, so its stop does nothing"
+    );
+    let (began, pass_began) = mpsc::sync_channel(1);
+    let (end_the_pass, pass_runs) = mpsc::sync_channel::<()>(1);
+    let writer_ended = crate::output_store::OutputStore::put_a_writer_in_a_pass(&mux, move || {
+        let _ = began.send(());
+        // Until the test drops its end of the channel.
+        let _ = pass_runs.recv();
+    });
+    pass_began
+        .recv_timeout(OWNER_CALL_WAIT)
+        .expect("setup: the writer's thread did not begin its pass");
+    let (said, shutdown_said) = mpsc::sync_channel(1);
+    let stopping = Arc::clone(&mux);
+    let stopper = std::thread::spawn(move || {
+        stopping.shutdown();
+        let _ = said.send(());
+    });
+    // The pass ends only after the lines below: a shutdown that the test has
+    // here returned while the pass ran, and the release comes while it runs.
+    let returned = shutdown_said.recv_timeout(OWNER_CALL_WAIT).is_ok();
+    let stop_line = mux.output_store.stop_line().unwrap_or_default();
+    let release = returned.then(|| mux.release_ownership(&root.join("control.sock")));
+    let record = std::fs::read_to_string(folder.join(RELEASE_RECORD_FILE)).unwrap_or_default();
+    drop(end_the_pass);
+    let _ = stopper.join();
+    // The writer's thread has a handle of the owner: it gives that handle up
+    // before the test gives up its own.
+    let _ = writer_ended.recv_timeout(OWNER_CALL_WAIT);
+    drop(mux);
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        returned,
+        "the owner's shutdown did not return while a pass of its output store writer ran: its \
+         stop of that writer waits for the pass's end with no bound, or its last write of the \
+         store waits for the pass lock that the writer holds (the test waited {} s for the \
+         shutdown)",
+        OWNER_CALL_WAIT.as_secs()
+    );
+    assert!(
+        stop_line.contains(OUTPUT_STORE_WRITER) && stop_line.contains(NO_LAST_WRITE),
+        "a stop that went on without the writer of the output store did not say on stderr \
+         that it made no last write of the store: its line: {stop_line:?}"
+    );
+    assert!(
+        kept_names(release.as_ref()) == [OUTPUT_STORE_WRITER],
+        "an owner whose stop went on without the writer of its output store did not keep the \
+         session with that writer's name while the pass ran: its release: {release:?}"
+    );
+    assert!(
+        record.contains(KEPT_RELEASE) && record.contains(OUTPUT_STORE_WRITER),
+        "an owner that keeps its session because of the writer of its output store did not \
+         write that in its record: the record file: {record:?}"
     );
 }

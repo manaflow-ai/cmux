@@ -29,6 +29,10 @@ pub(super) struct WriterState {
 pub(super) struct Writer {
     pub(super) state: Arc<(Mutex<WriterState>, Condvar)>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The line that the store's stop wrote to stderr when it made no last
+    /// write; a test reads it.
+    #[cfg(test)]
+    stop_line: Mutex<Option<String>>,
 }
 
 impl Writer {
@@ -210,6 +214,45 @@ fn memory_pass(mux: &Arc<Mux>, store: &OutputStore) {
     let policy = store.cached_policy().unwrap_or_else(|| PersistencePolicy::current(mux));
     let _pass = store.lock_pass();
     super::memory_budget::measure_due(mux, store, policy.memory_total_bytes);
+}
+
+/// What a test of the store's stop needs. The store's own file is past its
+/// size limit, so these are here.
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+
+    impl OutputStore {
+        /// The line that this store's stop wrote to stderr when it made no last
+        /// write; `None`: the stop made that write, or the store had no stop.
+        pub(crate) fn stop_line(&self) -> Option<String> {
+            self.writer.stop_line.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        }
+
+        /// Gives the store of `mux` a writer that is in a pass: its thread holds
+        /// the store's pass lock, runs `pass` and ends. The store's own writer
+        /// ends at its stop first. The channel that comes back closes when the
+        /// thread has given up the lock and its handle of `mux`.
+        pub(crate) fn put_a_writer_in_a_pass(
+            mux: &Arc<Mux>,
+            pass: impl FnOnce() + Send + 'static,
+        ) -> std::sync::mpsc::Receiver<()> {
+            let writer = &mux.output_store.writer;
+            writer.stop();
+            let (ends, ended) = std::sync::mpsc::channel();
+            let owner = Arc::clone(mux);
+            let thread = std::thread::spawn(move || {
+                {
+                    let _pass = owner.output_store.lock_pass();
+                    pass();
+                }
+                drop(owner);
+                drop(ends);
+            });
+            *writer.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+            ended
+        }
+    }
 }
 
 #[cfg(test)]
