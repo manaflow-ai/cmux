@@ -268,6 +268,10 @@ jobs:
       shards: ${{ steps.size.outputs.shards }}
       cases: ${{ steps.size.outputs.cases }}
       over_budget: ${{ steps.cap.outcome == 'failure' }}
+      # The selection itself, for a shard that cannot fetch the build (an artifact store that is full) and
+      # rebuilds it as before.
+      all: ${{ steps.entries.outputs.all }}
+      ids: ${{ steps.entries.outputs.ids }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -437,6 +441,8 @@ jobs:
 
       - name: Upload the gallery build
         if: ${{ steps.size.outputs.cases != '0' }}
+        # A full artifact store makes each shard build it itself (slower), never a red plan.
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gallery-head-build
@@ -670,8 +676,10 @@ jobs:
           bun install --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
-      # The plan job's one build of the head gallery and the manifest of the cases this run renders.
+      # The plan job's one build of the head gallery and the manifest of the cases this run renders. Missing, the
+      # render step builds it itself.
       - name: Fetch the gallery build
+        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: gallery-head-build
@@ -687,9 +695,25 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
+          ALL: ${{ needs.plan.outputs.all }}
+          IDS: ${{ needs.plan.outputs.ids }}
           CMUX_GALLERY_IN_VM: "1"
         run: |
           set -euo pipefail
+          # The plan's build did not arrive (the shared artifact store full or down): build the same selection
+          # here, as every shard did before, so a full store makes the shard slower, never red.
+          if [ ! -s "$RUNNER_TEMP/gallery-build/manifest.json" ] || [ ! -d "$RUNNER_TEMP/gallery-build/gallery" ]; then
+            echo "::warning::no gallery build from the plan job; building it in this shard"
+            mkdir -p "$RUNNER_TEMP/gallery-build"
+            cd webviews
+            bun install --frozen-lockfile
+            if [ "$ALL" = true ]; then
+              bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/gallery-build/manifest.json"
+            else
+              bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/gallery-build/manifest.json"
+            fi
+            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-build/gallery" bun run gallery:build
+          fi
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Three workers per four vCPUs past 8: two threads share each core there, and 12 workers on 16
           # vCPU rendered as fast as 16 with a lower p90 (3.0 s against 4.3) and less ready-CPU drift.

@@ -202,8 +202,13 @@ class GalleryHealthPlan(unittest.TestCase):
         self.assertEqual(str(upload["with"]["retention-days"]), "1")
         self.assertIs(upload["with"].get("overwrite"), True)
         render = step("Render the gallery and judge it")["run"]
-        self.assertNotIn("gallery:build", render, "a shard renders the plan's build")
-        self.assertNotIn("manifest.ts", render, "a shard renders the plan's manifest")
+        # A shard builds only when the plan's build did not arrive (a full artifact store: slower, never red).
+        fallback = render[render.index('if [ ! -s "$RUNNER_TEMP/gallery-build/manifest.json" ]'):render.index("\n          fi\n")]
+        self.assertIn("gallery:build", fallback)
+        self.assertNotIn("gallery:build", render.replace(fallback, ""), "a shard renders the plan's build")
+        self.assertNotIn("manifest.ts", render.replace(fallback, ""), "a shard renders the plan's manifest")
+        self.assertIs(fetch.get("continue-on-error"), True)
+        self.assertIs(upload.get("continue-on-error"), True)
         self.assertIn('--manifest "$RUNNER_TEMP/gallery-build/manifest.json"', render)
         self.assertIn('--gallery-dir "$RUNNER_TEMP/gallery-build/gallery"', render)
         # No shard chooses entries or installs webviews for its head render any more.
@@ -435,7 +440,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
-                "SHARD": "0", "SHARDS": "1", "pass": "1",
+                "SHARD": "0", "SHARDS": "1", "ALL": "true", "IDS": "", "pass": "1",
             })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
