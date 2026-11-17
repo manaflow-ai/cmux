@@ -305,10 +305,12 @@ fn videotoolbox_encodes_an_idr_on_request() {
 /// behind itself. The low-latency encoder refuses DataRateLimits (videotoolbox.rs
 /// frame_budget), so the frame-size guard (frame_guard.rs) sets each frame's QP floor from its
 /// damage and budget: base without the guard measured 257/199/148 KB against the 8.3 KB
-/// budget. Full-screen noise is the worst case for the guard's first frame, which is sized
-/// from its prior (2 B per changed pixel at QP 0, noise is about 11), so frame 1 may run a few
-/// budgets; from frame 2 on the guard has learned the content. Prints the guard-off sizes
-/// beside. Runs on a fleet Mac.
+/// budget. The guard sizes the change after a still screen from what the session has sent,
+/// so the bar is on the session's second still-to-change transition: frame 1 under 2
+/// budgets, frames 2-3 under 1.5. The first transition is the stated exemption (nothing
+/// learned yet: it starts from the noise figure) and is only printed. The first still period
+/// sends frames with no damage, the second sends nothing for a second (as the engine does).
+/// Prints the guard-off sizes beside. Runs on a fleet Mac.
 #[cfg(target_os = "macos")]
 #[test]
 fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
@@ -318,7 +320,8 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     const H: usize = 256;
     const FPS: u32 = 30;
     const KBPS: u32 = 2_000;
-    let run = |guard: bool| -> Vec<usize> {
+    // (first transition's changed frames, second transition's) in bytes.
+    let run = |guard: bool| -> (Vec<usize>, Vec<usize>) {
         let mut enc =
             VideoToolbox::new(W as u32, H as u32, FPS, KBPS, false).expect("hardware encoder");
         enc.set_guard(guard);
@@ -326,7 +329,6 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
         let mut au = Vec::new();
         let mut pts = 0i64;
         for i in 0..30 {
-            // The engine sends a still screen's frames with no damage.
             if i > 0 {
                 enc.set_changed_pixels(0);
             }
@@ -335,33 +337,39 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
         }
         let mut seed = 0x2545_f491_4f6c_dd1du64;
         let mut pic = I420::new(W, H);
-        let mut sizes = Vec::new();
-        for _ in 0..3 {
-            for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
-                seed ^= seed << 13;
-                seed ^= seed >> 7;
-                seed ^= seed << 17;
-                *px = 16 + (seed % 220) as u8;
+        let mut change = |pts: &mut i64, enc: &mut VideoToolbox, au: &mut Vec<u8>| -> Vec<usize> {
+            let mut sizes = Vec::new();
+            for _ in 0..3 {
+                for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    *px = 16 + (seed % 220) as u8;
+                }
+                enc.set_changed_pixels((W * H) as u64);
+                enc.encode(&pic, false, *pts, au).expect("encode");
+                *pts += 1_000_000 / i64::from(FPS);
+                sizes.push(au.len());
             }
-            enc.set_changed_pixels((W * H) as u64);
-            enc.encode(&pic, false, pts, &mut au).expect("encode");
-            pts += 1_000_000 / i64::from(FPS);
-            sizes.push(au.len());
-        }
-        sizes
+            sizes
+        };
+        let first = change(&mut pts, &mut enc, &mut au);
+        // Still for a second: the engine sends nothing.
+        pts += 1_000_000;
+        let second = change(&mut pts, &mut enc, &mut au);
+        (first, second)
     };
-    let unguarded = run(false);
-    let sizes = run(true);
+    let (unguarded_first, unguarded) = run(false);
+    let (first, sizes) = run(true);
     let budget = (KBPS as usize * 1000 / 8) / FPS as usize;
     eprintln!(
-        "changed frames {sizes:?} B (guard off {unguarded:?} B), per-frame budget {budget} B"
+        "per-frame budget {budget} B; first transition {first:?} B (guard off \
+         {unguarded_first:?} B); second {sizes:?} B (guard off {unguarded:?} B)"
     );
-    // Some slack for headers and the model's error.
-    assert!(sizes[0] <= budget * 6, "the first changed frame {sizes:?} is over 6x {budget} B");
-    let worst = sizes.iter().skip(1).copied().max().unwrap_or(0);
+    assert!(sizes[0] <= budget * 2, "frame 1 after a still screen {sizes:?} over 2x {budget} B");
     assert!(
-        worst <= budget * 3 / 2,
-        "a changed frame after the first {sizes:?} is over 1.5x the {budget} B budget"
+        sizes[1..].iter().all(|&s| s <= budget * 3 / 2),
+        "frames 2-3 after a still screen {sizes:?} over 1.5x the {budget} B budget"
     );
 }
 

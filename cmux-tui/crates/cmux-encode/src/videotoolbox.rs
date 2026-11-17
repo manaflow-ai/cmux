@@ -260,6 +260,9 @@ pub struct VideoToolbox {
     idr_floor: i32,
     /// The MinAllowedFrameQP last set on the session.
     applied_min_qp: i32,
+    /// When the guard last sized a changed frame (µs, the frame's pts): a longer gap than two
+    /// frame intervals is a still screen ([`FrameGuard::still`]).
+    last_guarded_pts: Option<i64>,
     /// The session was created with low-latency rate control (standard); an ultra session is
     /// not ([`create_session`]).
     session_low_latency: bool,
@@ -534,6 +537,7 @@ impl VideoToolbox {
                 std::env::var("CMUX_RD_VT_STANDARD_GUARD").ok().as_deref(),
             ),
             applied_min_qp: NO_MIN_QP,
+            last_guarded_pts: None,
             session_low_latency: true,
         };
         this.apply_bitrate(this.kbps);
@@ -576,6 +580,7 @@ impl VideoToolbox {
         self.ultra = on;
         self.refine_next = false;
         self.guard = FrameGuard::default();
+        self.last_guarded_pts = None;
         self.idr_floor = ULTRA_IDR_MIN_QP;
         self.name = session_name(self.baseline, on);
     }
@@ -817,6 +822,16 @@ impl VideoToolbox {
             } else {
                 frame_budget(self.kbps, self.fps).0
             };
+            // The engine sends nothing while the screen is still, so a gap of more than two
+            // frame intervals since the last guarded frame is a still screen: the change after
+            // it is sized from the high side of what the session sent.
+            let interval_us = 1_000_000 / i64::from(self.fps.max(1));
+            if self.last_guarded_pts.is_some_and(|last| pts - last > 2 * interval_us) {
+                self.guard.still();
+            }
+            if changed > 0 {
+                self.last_guarded_pts = Some(pts);
+            }
             self.guard.before(changed, budget as usize).max(self.configured_min_qp())
         } else {
             // Standard's keyframe, and any frame with the guard off: the configured floor (none
