@@ -108,6 +108,7 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
       rows: counted("row:") + counted("content:") + counted("frame:"),
       model: renders["composer:model"] ?? 0,
       plus: renders["composer:plus"] ?? 0,
-    }).toEqual({ transcript: 0, rows: 0, model: 0, plus: 0 });
+      queue: renders["composer:queue"] ?? 0,
+    }).toEqual({ transcript: 0, rows: 0, model: 0, plus: 0, queue: 0 });
   });
 });
