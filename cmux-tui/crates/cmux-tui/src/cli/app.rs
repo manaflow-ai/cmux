@@ -38,6 +38,7 @@ mod chat_perf;
 mod classic;
 mod events;
 mod group_create;
+mod join;
 mod keybinding;
 mod launch_times;
 mod live;
@@ -1060,7 +1061,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
-    let response = match wait::request(global, stream, method, &params, timeout) {
+    let response = match wait::request(global, stream, method, &params, timeout)
+        .and_then(|response| join_change(global, stream, method, &params, timeout, response))
+    {
         Ok(response) => response,
         Err(error) => {
             let code = super::wire::print_local_error(&error, global.output, 3);
@@ -1113,6 +1116,39 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(code)
         }
     }
+}
+
+/// A Cloud machine change that waits for the person's Allow (join.rs): the waiting answer is said
+/// at once (a note for a person, the answer itself as a JSON line on stderr for JSON output), then
+/// the same run is asked again, each time under a new key (the old one would replay the
+/// `pending`), until it ends.
+fn join_change(
+    global: &GlobalArgs,
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: Option<Duration>,
+    response: Result<Value, Value>,
+) -> Result<Result<Value, Value>, Value> {
+    let first = match response {
+        Ok(first) if method == "action.run" && join::joins(&first) => first,
+        other => return Ok(other),
+    };
+    join::join(
+        first,
+        join::JOIN_LIMIT,
+        Instant::now,
+        |answer| match global.output {
+            OutputMode::Human => eprintln!("{}", join::note(answer)),
+            OutputMode::Json | OutputMode::JsonLines => eprintln!("{answer}"),
+            OutputMode::Quiet => {}
+        },
+        || {
+            let mut again = params.clone();
+            insert_run_key(&mut again, None).map_err(|error| json!({ "message": error }))?;
+            wait::request(global, stream, method, &again, timeout)
+        },
+    )
 }
 
 /// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
