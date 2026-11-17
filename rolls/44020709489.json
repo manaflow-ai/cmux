@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44020709489",
+  "recorded_at": "2026-11-17T05:06:44Z",
+  "reason": "cmux-tui 7980e6ccda5f changes the image's cmux-tui (pinned cecb7d7fba94)",
+  "dry_run": false,
+  "cmux_tui": "7980e6ccda5fc3174aed7580adaf83c8d3cee29a",
+  "fixes": [
+    {
+      "sha": "7980e6ccda5fc3174aed7580adaf83c8d3cee29a",
+      "mergedAt": "2026-11-17T04:36:06Z",
+      "subject": "cmux-layout-reducer: stress harness for large and deep pane layouts; deep split chains get their optimistic view (#45006)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T05:06:44Z",
+    "snapshot_id": "sh-0b47b2ff5e834e949c199f44c2944f16",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44020709489): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9f4ef3c840ef684a46bf7064d29dfae25a2da331",
+    "image": "cloud-native-auto-7980e6cc-44020709489-1",
+    "revision": "ci-44020709489-1",
+    "at": "2026-11-17T05:06:44Z"
+  },
+  "rolled_back": false
+}
