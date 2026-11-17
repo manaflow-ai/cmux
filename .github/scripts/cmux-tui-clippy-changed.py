@@ -26,7 +26,9 @@ does not check keeps its baseline (the ratchet names it in a warning).
 
 --compare-base (with --panic-ratchet and a base): when HEAD is over the baseline, it lints
 the same packages at the base too, then judges HEAD with the ratchet's --base-clippy-json:
-a crate the base already has over its row is red only for hits HEAD adds. A HEAD within the
+a crate the base already has over its row is red only for hits HEAD adds, and an allow without a
+reason the base already has (the ratchet's --list-allows at the base, --base-allows) is the base's
+red too. So a regression merged to the base reddens no pull request that does not add to it. A HEAD within the
 baseline is green without the base lint, which could only excuse counts. cmux-next fast gates use it on a pull
 request merged with a tip whose baseline went down since the pull request's own ratchet
 ran (cmux_next_fast_gates.py), so a base ratchet red never reads as the pull request's.
@@ -291,13 +293,22 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
         print(f"cmux-tui-clippy-changed: HEAD is over the baseline; panic ratchet on {scope} at the base {compare}",
               flush=True)
         print(" ".join(command), flush=True)
+        # HEAD's ratchet lists the base's reasonless allows: the checkout below swaps the ratchet file too.
+        own_ratchet = out.with_name(out.name + ".ratchet.py")
+        own_ratchet.write_bytes(ratchet.read_bytes())
+        base_allows = out.with_name(out.name + ".base-allows.json")
         fmt_changed.git(repo, "checkout", "--quiet", "--detach", compare)
         try:
             with base_out.open("w", encoding="utf-8") as handle:
                 subprocess.run(command, cwd=repo / ROOT, stdout=handle)
+            with base_allows.open("w", encoding="utf-8") as handle:
+                listed = subprocess.run([sys.executable, str(own_ratchet), "--repo", str(repo), "--list-allows"],
+                                        stdout=handle).returncode == 0
         finally:
             fmt_changed.git(repo, "checkout", "--quiet", "--detach", head)
         judge += ["--base-clippy-json", str(base_out)]
+        if listed:
+            judge += ["--base-allows", str(base_allows)]
     rc = subprocess.run(judge).returncode
     if rc and lock:
         print(stale_lock_error("cmux-tui panic ratchet", lock))

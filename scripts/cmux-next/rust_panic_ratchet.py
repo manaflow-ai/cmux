@@ -37,6 +37,14 @@ whose baseline went down since its own check: cmux_next_fast_gates.py). A
 count over the baseline then fails only when it is also over the base run's
 count: a base already over its row is the base's red, and the change is red
 only for hits it adds. A base run that did not finish excuses nothing.
+--base-allows is --list-allows run on that same base: an allow without a reason
+the base already has is the base's red too (one merged allow would otherwise
+redden every pull request that lints this workspace).
+
+--update-baseline lowers rows and adds new crates (deny lints at 0). With
+--raise-tracked it also sets every checked crate's TRACKED_LINTS rows to the
+counts seen, up or down: only from a Linux run of the whole workspace on a
+green base, and the pull request names that run (plans/cmux-next/rust-panic-free.md).
 
 --cargo-log is the same run's cargo stderr. When a run did not finish because
 cargo refused to update a stale Cargo.lock under --locked, the ratchet names the
@@ -255,6 +263,11 @@ def _allow_scan(root, crates_dir):
     return bad
 
 
+def allow_key(line):
+    """An allow finding without its line number, so the same allow on the base matches after lines move."""
+    return re.sub(r":\d+: ", ": ", line, count=1)
+
+
 def _changed_first(root, locations, base_locations=None):
     """Hit locations in the files whose hit count the base run does not reach first (where a new
     hit is), then files changed against origin/feat-cmux-next. A CI merge checkout often has no
@@ -332,12 +345,23 @@ def main():
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
     parser.add_argument("--base-clippy-json", help="the same run on the base: a count it already reaches is the base's red")
+    parser.add_argument("--base-allows",
+                        help="--list-allows output on the base: an allow without a reason it has is the base's red")
+    parser.add_argument("--list-allows", action="store_true",
+                        help="print the production allows that lack a reason as a JSON list, and exit")
+    parser.add_argument("--raise-tracked", action="store_true",
+                        help="with --update-baseline: set the tracked lints' rows to the counts seen (Linux, whole workspace)")
     parser.add_argument("--cargo-log",
                         help="the same run's cargo stderr: a stale Cargo.lock there is named as the cause")
     args = parser.parse_args()
     if args.flags:
         print(lint_flags())
         return 0
+    if args.list_allows:
+        print(json.dumps(allow_without_reason(args.repo)))
+        return 0
+    if args.raise_tracked and not args.update_baseline:
+        parser.error("--raise-tracked needs --update-baseline")
     if not args.clippy_json:
         parser.error("--clippy-json is required")
     checked, counts, files, finished, hits = read_clippy(args.clippy_json)
@@ -399,7 +423,20 @@ def main():
     if missing and not args.init_baseline:
         print("::warning title=rust panic ratchet::baseline crates not checked by this run (a -p run, a removed "
               "member, or a bin with required-features): " + ", ".join(missing), file=sys.stderr)
+    on_base_allows = None
+    if args.base_allows:
+        try:
+            with open(args.base_allows, encoding="utf-8") as handle:
+                on_base_allows = collections.Counter(allow_key(line) for line in json.load(handle))
+        except (OSError, ValueError, TypeError):
+            print("::warning title=rust panic ratchet::the base's allow list could not be read; "
+                  "every allow without a reason is charged to this change", file=sys.stderr)
     for line in allow_without_reason(args.repo):
+        key = allow_key(line)
+        if on_base_allows is not None and on_base_allows[key] > 0:
+            on_base_allows[key] -= 1
+            base_reds.append(f"{line}, and the base has it too: the base's red, not this change's")
+            continue
         failures.append(line)
 
     if args.update_baseline:
@@ -408,11 +445,19 @@ def main():
         else:
             merged = dict(baseline)
             merged.update(lowered)
+            raised = []
             for crate in checked:
                 now = counts.get(crate, collections.Counter())
                 merged.setdefault(crate, {l: (0 if l in DENY_LINTS else now.get(l, 0)) for l in LINTS})
+                if args.raise_tracked:
+                    row = {**merged[crate], **{l: now.get(l, 0) for l in TRACKED_LINTS}}
+                    if row != merged[crate]:
+                        raised.append(crate)
+                    merged[crate] = row
             write_baseline(merged)
-            print(f"rust-panic-ratchet: lowered {len(lowered)} crate(s)", file=sys.stderr)
+            print(f"rust-panic-ratchet: lowered {len(lowered)} crate(s)"
+                  + (f", set the tracked rows of {len(raised)} crate(s) to their counts" if args.raise_tracked else ""),
+                  file=sys.stderr)
 
     deny = sorted(c for c in checked if is_deny(counts.get(c, {})))
     print(f"rust-panic-ratchet: {len(checked)} crates checked, {len(deny)} at deny", file=sys.stderr)

@@ -187,7 +187,12 @@ python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json /tmp/c.jsonl [-
 - Lower the deny-lint baseline with `--update-baseline` in the commit that removes
   hits. It refuses to run while the ratchet is red and never raises a deny count.
   Tracked-lint baselines may be raised only from a successful authoritative Linux
-  measurement; the PR must record the reason and run link.
+  measurement; the PR must record the reason and run link. `--update-baseline
+  --raise-tracked` does that: it sets every checked crate's tracked rows to the counts seen.
+- A pull request is judged against its own base (`cmux-tui-clippy-changed.py --compare-base`):
+  when it is over the baseline, the same packages are linted at the base, and a deny count or a
+  reasonless allow the base already has is the base's red, not the pull request's. Pushes to the
+  base are judged against the baseline alone.
 - When enabling this guard on an existing CI path, a reviewed rollout rebaseline may
   record pre-existing deny hits measured on Linux with the current base merged.
   The PR must list every changed count and measurement SHA/run, and link the
