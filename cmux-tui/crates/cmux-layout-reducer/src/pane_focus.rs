@@ -21,7 +21,20 @@
 //! target, then to that target, so a floating pane never keeps the focus. The opposite key goes back the same way.
 //! Another key, or no tiled pane in the history, gives the nearest pane after the source by centres, one that
 //! overlaps the source on the other axis first. A tiled pane that one floating pane covers wholly is never a
-//! target: it does not show.
+//! target: it does not show. A column then remembers only its panes that show: not a covered pane, and not a
+//! pane with no frame.
+//!
+//! "After" is by the centres on the axis of the key, and at one centre a tiled pane is before a floating pane.
+//! So a floating pane that has the centre of a tiled pane on the axis of a key is after that pane for the keys
+//! right and down, and never for the keys left and up. With a floating pane in the middle of a tiled pane of the
+//! full height: the key down gives the floating pane from the tiled pane and the key up gives the tiled pane from
+//! the floating pane; the key up from the tiled pane and the key down from the floating pane do not give the
+//! other one.
+//!
+//! **Rows that are not valid.** [`is_valid`] says whether the rows are ones a caller can give. [`neighbor`]
+//! answers for each list of rows and never panics: it reads a frame that is not valid as no frame, so each
+//! centre that the sort of a way compares is a number, and 2 rows with one `order`, one place in the focus
+//! history or one place among the floating panes come out by the order of the rows.
 
 use std::cmp::Ordering;
 
@@ -87,8 +100,9 @@ impl FocusFrame {
 /// One pane of a screen, as the focus keys read it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FocusPane {
-    /// The frame the screen shows the pane at. A pane with no frame is never a source and never a candidate; it
-    /// can be the pane that its column remembers.
+    /// The frame the screen shows the pane at. A pane with no frame, or with a frame that is not valid, is never
+    /// a source and never a candidate. On a screen with no floating pane it can be the pane that its column
+    /// remembers.
     pub frame: Option<FocusFrame>,
     /// The column of the pane in a screen of columns.
     pub column: Option<u32>,
@@ -96,8 +110,16 @@ pub struct FocusPane {
     pub recency: Option<u32>,
     /// The place of a floating pane among the floating panes, back to front. `None` for a tiled pane.
     pub floating: Option<u32>,
-    /// The last tie-break between 2 panes that are equal in each other way: the smaller one first.
+    /// The last tie-break between 2 panes that are equal in each other way: the smaller one first. A caller
+    /// that breaks this tie by the pane ids as text gives the place of the pane's id among the ids in that order.
     pub order: u32,
+}
+
+impl FocusPane {
+    /// The frame as the rule reads it: a frame that is not valid is no frame.
+    fn read_frame(&self) -> Option<FocusFrame> {
+        self.frame.filter(|frame| frame.is_valid())
+    }
 }
 
 /// The direction of a focus key.
@@ -151,7 +173,7 @@ pub fn is_valid(panes: &[FocusPane]) -> bool {
 }
 
 /// The index of the pane that `direction` gives from the pane at `source`, or `None`: no pane is on that side,
-/// or the source has no row or no frame.
+/// or the source has no row or no frame. It answers for rows that [`is_valid`] refuses too, and never panics.
 pub fn neighbor(panes: &[FocusPane], source: usize, direction: FocusDirection) -> Option<usize> {
     match FloatingRule::of(panes) {
         Some(rule) => rule.neighbor(source, direction),
@@ -166,10 +188,11 @@ pub fn neighbor(panes: &[FocusPane], source: usize, direction: FocusDirection) -
 }
 
 fn frame_of(panes: &[FocusPane], index: usize) -> Option<FocusFrame> {
-    panes.get(index).and_then(|pane| pane.frame)
+    panes.get(index).and_then(FocusPane::read_frame)
 }
 
-/// 2 numbers in their order. Numbers that have no order (not a number) are equal.
+/// 2 numbers in their order. Numbers that have no order (not a number) are equal: a frame that the rule reads
+/// has only finite numbers, so this is for a distance between 2 centres that are both past the largest number.
 fn in_order(first: f64, second: f64) -> Ordering {
     first.partial_cmp(&second).unwrap_or(Ordering::Equal)
 }
@@ -274,13 +297,13 @@ fn tiled_neighbor(
     in_column: &dyn Fn(usize) -> bool,
 ) -> Option<usize> {
     let source_pane = panes.get(source)?;
-    let source_frame = source_pane.frame.filter(|_| shows(source))?;
+    let source_frame = source_pane.read_frame().filter(|_| shows(source))?;
     let candidates = panes
         .iter()
         .enumerate()
         .filter(|(index, _)| *index != source && shows(*index))
         .filter_map(|(index, pane)| {
-            Candidate::past_edge(index, pane, pane.frame?, source_frame, direction)
+            Candidate::past_edge(index, pane, pane.read_frame()?, source_frame, direction)
         })
         .collect::<Vec<_>>();
     let nearest = candidates
@@ -342,7 +365,9 @@ impl<'a> FloatingRule<'a> {
         let mut places = panes
             .iter()
             .enumerate()
-            .filter_map(|(index, pane)| Some((pane.floating?, pane.order, index, pane.frame?)))
+            .filter_map(|(index, pane)| {
+                Some((pane.floating?, pane.order, index, pane.read_frame()?))
+            })
             .collect::<Vec<_>>();
         if places.is_empty() {
             return None;
@@ -359,7 +384,7 @@ impl<'a> FloatingRule<'a> {
             .zip(&rank)
             .map(|(pane, rank)| {
                 rank.is_none()
-                    && pane.frame.is_some_and(|frame| {
+                    && pane.read_frame().is_some_and(|frame| {
                         !places.iter().any(|(_, _, _, cover)| cover.covers(frame))
                     })
             })
@@ -480,7 +505,9 @@ impl<'a> FloatingRule<'a> {
 
     /// The place of a pane in the order of a key: the centre on the axis of the key, then a floating pane after a
     /// tiled one, then the pane more to the front. No 2 panes with a frame are equal in it, but 2 tiled panes
-    /// with one centre.
+    /// with one centre. A centre is never "not a number" (each frame here is valid), so the order is total and
+    /// the sort of a way has one result. At one centre the tiled pane is first: see the module's text for what
+    /// the keys then do.
     fn place(&self, index: usize, direction: FocusDirection) -> (f64, usize, usize) {
         let rank = self.rank(index);
         (
