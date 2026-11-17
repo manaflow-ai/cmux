@@ -30,12 +30,12 @@ struct CloudSeedRefusalTests {
         #expect(CloudSeedRefusal(CloudMoveCLI.Answer(ok: true), machine: "m") == nil)
     }
 
-    /// A machine's room is its disk less what its image and work keep: 4 GiB on the old 16 GB disk, 52 GiB on a
-    /// 64 GB one; a machine whose size is not known is taken for the smallest.
+    /// A machine's room is its disk less what its image and work keep, and at most two thirds of it: 4 GiB on the old
+    /// 16 GB disk, two thirds of a 64 GB one; a machine whose size is not known is taken for the smallest.
     @Test func aMachinesRoomFollowsItsDisk() {
         let gib: Int64 = 1_073_741_824
         #expect(CloudSeedRefusal.room(diskMb: 16_384) == 4 * gib)
-        #expect(CloudSeedRefusal.room(diskMb: 65_536) == 52 * gib)
+        #expect(CloudSeedRefusal.room(diskMb: 65_536) == 2 * 64 * gib / 3)
         #expect(CloudSeedRefusal.room(diskMb: nil) == CloudSeedRefusal.room(diskMb: 16_384))
         #expect(CloudSeedRefusal.room(diskMb: 1_024) == CloudSeedRefusal.leastRoomBytes)
     }

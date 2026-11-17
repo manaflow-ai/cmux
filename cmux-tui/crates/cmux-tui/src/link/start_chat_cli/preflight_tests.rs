@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use super::super::super::sync_cli::size_cap;
-use super::{needed_size, run};
+use super::{grown_disk_gib, needed_disk, needed_size, run};
 
 fn write(top: &Path, relative: &str, bytes: usize) {
     let path = top.join(relative);
@@ -90,17 +90,52 @@ fn a_whole_copy_counts_its_git_history() {
     assert!(answer["estimate_bytes"].as_u64().unwrap() > 100, "{answer}");
 }
 
+/// The needed disk is half again the folder, and at least the folder and the 12 GiB reserve: the reserve decides up to
+/// 24 GiB of folder, the half above it.
 #[test]
-fn the_needed_size_is_the_smallest_disk_with_room_for_the_copy_and_the_reserve() {
+fn the_needed_disk_is_half_again_the_folder_and_at_least_the_reserve() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    assert_eq!(needed_disk(0), 12 * GIB);
+    assert_eq!(needed_disk(4 * GIB), 16 * GIB);
+    assert_eq!(needed_disk(24 * GIB), 36 * GIB);
+    assert_eq!(needed_disk(40 * GIB), 60 * GIB);
+    // Half a byte rounds up.
+    assert_eq!(needed_disk(40 * GIB + 1), 60 * GIB + 2);
+    assert_eq!(needed_disk(u64::MAX), u64::MAX);
+}
+
+#[test]
+fn the_needed_size_is_the_smallest_disk_with_room_for_the_needed_disk() {
     const GIB: u64 = 1024 * 1024 * 1024;
     assert_eq!(needed_size(0), Some("sm"));
     assert_eq!(needed_size(4 * GIB), Some("sm"));
     assert_eq!(needed_size(4 * GIB + 1), Some("md"));
     assert_eq!(needed_size(20 * GIB), Some("md"));
-    assert_eq!(needed_size(52 * GIB), Some("lg"));
-    assert_eq!(needed_size(116 * GIB), Some("xl"));
-    assert_eq!(needed_size(116 * GIB + 1), None);
+    assert_eq!(needed_size(20 * GIB + 1), Some("lg"));
+    // 64 GiB holds two thirds of itself: 42 GiB and a bit, no longer the 52 the reserve alone left.
+    assert_eq!(needed_size(42 * GIB), Some("lg"));
+    assert_eq!(needed_size(43 * GIB), Some("xl"));
+    assert_eq!(needed_size(52 * GIB), Some("xl"));
+    assert_eq!(needed_size(85 * GIB), Some("xl"));
+    assert_eq!(needed_size(86 * GIB), None);
     assert_eq!(needed_size(u64::MAX), None);
+}
+
+/// A folder past its size's own disk asks that size grown to its needed disk, rounded up to 4 GiB; one the size holds,
+/// no size, a size off the ladder or unknown bytes ask nothing.
+#[test]
+fn a_folder_past_its_sizes_disk_asks_the_disk_grown_to_four_gib() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    // 50 GiB needs 75 GiB: `lg` (64) grows to 76.
+    assert_eq!(grown_disk_gib(Some("lg"), Some(50 * GIB)), Some(76));
+    // 100 GiB needs 150 GiB: `2xl` (128) grows to 152.
+    assert_eq!(grown_disk_gib(Some("2xl"), Some(100 * GIB)), Some(152));
+    // 80 GiB needs 120 GiB: `xl`'s own 128 holds it.
+    assert_eq!(grown_disk_gib(Some("xl"), Some(80 * GIB)), None);
+    assert_eq!(grown_disk_gib(Some("lg"), Some(40 * GIB)), None);
+    assert_eq!(grown_disk_gib(None, Some(50 * GIB)), None);
+    assert_eq!(grown_disk_gib(Some("huge"), Some(50 * GIB)), None);
+    assert_eq!(grown_disk_gib(Some("lg"), None), None);
 }
 
 /// A start whose folder needs a larger size than the machine the platform answered (a workspace that already had an
@@ -178,6 +213,21 @@ mod machine_room {
             plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 24})), false);
         assert_eq!(answer["ok"], true, "{answer}");
         assert_eq!(answer["machine"], "vm_own", "{answer}");
+    }
+
+    /// A machine grown past its size's disk (`disk_gib`) has room when it holds the folder's needed disk, and is
+    /// refused when the platform made the size's own disk (one that ignores `disk_gib`).
+    #[test]
+    fn a_grown_disk_with_room_for_the_needed_disk_goes_on() {
+        // 10 GiB of folder needs 22 GiB: 12 GiB of reserve, more than half again.
+        let (fits, _) =
+            plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 22})), false);
+        assert_eq!(fits["ok"], true, "{fits}");
+        let (short, _) =
+            plan(Some("md"), Some(json!({"vcpu": 2, "memGiB": 4, "diskGiB": 21})), false);
+        assert_eq!(short["error_code"], SEED_REFUSED, "{short}");
+        // 21 GiB less the reserve: 9 GiB of room.
+        assert_eq!(short["room_bytes"], 9 * GIB, "{short}");
     }
 
     #[test]

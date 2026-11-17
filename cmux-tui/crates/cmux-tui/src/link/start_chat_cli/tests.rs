@@ -2109,6 +2109,53 @@ fn a_larger_size_goes_with_the_ensure_and_takes_no_spare() {
     }
 }
 
+/// A folder past the size's own disk (a plan's largest size) asks that size grown to the folder's needed disk, in GiB
+/// rounded up to 4 (`disk_gib`); a folder the size holds, unknown bytes or the chat size send none.
+#[test]
+fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let bodies = RefCell::new(Vec::new());
+    let ensure = |ask: &Ensure, _: &str| {
+        bodies.borrow_mut().push(ask.body());
+        Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
+    };
+    let asks = [
+        (Some("lg"), Some(50 * GIB)),
+        (Some("lg"), Some(40 * GIB)),
+        (Some("lg"), None),
+        (Some("sm"), Some(50 * GIB)),
+    ];
+    for (size, bytes) in asks {
+        let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,
+            "local": folder.to_str().unwrap(), "credential_on_stdin": true});
+        if let Some(size) = size {
+            request["size"] = json!(size);
+        }
+        if let Some(bytes) = bytes {
+            request["bytes"] = json!(bytes);
+        }
+        super::plan_with_calls(
+            &path,
+            &request.to_string(),
+            &mut "token\n".as_bytes(),
+            &ensure,
+            &|_, _| panic!("the ensure made the machine"),
+        );
+    }
+    let bodies = bodies.borrow();
+    assert_eq!(bodies.len(), 4);
+    // 50 GiB needs 75 GiB, past `lg`'s 64.
+    assert_eq!(bodies[0][super::ENSURE_SIZE_FIELD], "lg", "{}", bodies[0]);
+    assert_eq!(bodies[0][super::ENSURE_DISK_FIELD], 76, "{}", bodies[0]);
+    for body in &bodies[1..] {
+        assert!(body.get(super::ENSURE_DISK_FIELD).is_none(), "{body}");
+    }
+}
+
 /// A larger size whose ensure made no machine never binds a spare: the App makes it cold.
 #[test]
 fn a_larger_size_never_binds_a_spare_and_an_unknown_size_is_refused() {

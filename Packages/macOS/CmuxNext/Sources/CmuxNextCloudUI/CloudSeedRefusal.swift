@@ -42,9 +42,10 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         copyBytes = answer.copyBytes
     }
 
-    /// The bytes a copy may send to a machine with a `diskMb` disk (nil: ``assumedDiskMb``).
+    /// The bytes a copy may send to a machine with a `diskMb` disk (nil: ``assumedDiskMb``): what the disk holds under
+    /// ``CloudChatSize/neededDiskBytes(_:)`` (the disk less the reserve, at most two thirds of it), at least ``leastRoomBytes``.
     public static func room(diskMb: Int?) -> Int64 {
-        max(Int64(diskMb ?? assumedDiskMb) * 1_048_576 - reservedDiskBytes, leastRoomBytes)
+        max(CloudChatSize.roomBytes(diskBytes: Int64(diskMb ?? assumedDiskMb) * 1_048_576), leastRoomBytes)
     }
 
     /// Whether what the copy sends fits the machine it goes to (`diskMb`: that machine's own disk, sized for the folder

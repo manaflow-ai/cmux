@@ -18,9 +18,12 @@ const GIB: u64 = 1024 * 1024 * 1024;
 /// What a machine's image and its own work keep of its disk (the App's `CloudSeedRefusal.reservedDiskBytes`).
 const RESERVED_BYTES: u64 = 12 * GIB;
 /// The Cloud size ladder's disks (cmux-platform `Sizes.ts`), smallest first: a chat's machine is the
-/// smallest whose disk holds the copy and the reserve.
-const LADDER: [(&str, u64); 4] =
-    [("sm", 16 * GIB), ("md", 32 * GIB), ("lg", 64 * GIB), ("xl", 128 * GIB)];
+/// smallest whose disk holds the folder's [`needed_disk`]. `2xl` has `xl`'s disk, so it is never the
+/// smallest; it is here for the room check and a grown disk on a plan whose largest size it is.
+const LADDER: [(&str, u64); 5] =
+    [("sm", 16 * GIB), ("md", 32 * GIB), ("lg", 64 * GIB), ("xl", 128 * GIB), ("2xl", 128 * GIB)];
+/// A grown disk's step: the disk a start asks beyond its size's own is rounded up to it.
+const DISK_STEP_GIB: u64 = 4;
 
 /// The answer for `local`: `{"ok":true,"estimate":{...}}` for any absolute folder, the copy's
 /// estimate and decision (whole, first pass or seed) made here, before any machine
@@ -50,10 +53,37 @@ pub(super) fn run(local: &str) -> Value {
     })
 }
 
-/// The smallest ladder size whose disk holds `bytes` and [`RESERVED_BYTES`]; None above the largest.
+/// The disk a machine needs for `bytes` of folder: half again the folder, and at least the folder and
+/// [`RESERVED_BYTES`]. The one rule for the size a start asks, the disk it grows and the room check
+/// (the App's `CloudChatSize.neededDiskBytes`).
+pub(super) fn needed_disk(bytes: u64) -> u64 {
+    let half_again = bytes.saturating_add(bytes.div_ceil(2));
+    half_again.max(bytes.saturating_add(RESERVED_BYTES))
+}
+
+/// The most bytes of folder a `disk` has room for under [`needed_disk`]: the disk less the reserve, and at
+/// most two thirds of it.
+fn room_on(disk: u64) -> u64 {
+    disk.saturating_sub(RESERVED_BYTES).min(disk - disk.div_ceil(3))
+}
+
+/// The smallest ladder size whose disk holds the folder's [`needed_disk`]; None above the largest.
 pub(super) fn needed_size(bytes: u64) -> Option<&'static str> {
-    let disk = bytes.saturating_add(RESERVED_BYTES);
+    let disk = needed_disk(bytes);
     LADDER.iter().find(|(_, room)| disk <= *room).map(|(name, _)| *name)
+}
+
+/// The disk in GiB a start asks beyond `size`'s own (the ensure body's `disk_gib`): the folder's [`needed_disk`]
+/// rounded up to [`DISK_STEP_GIB`], only when it is more than that size's disk (a plan's largest size grown to hold
+/// the folder). None for no size, a size off the ladder, unknown bytes or a folder the size's own disk holds.
+pub(super) fn grown_disk_gib(size: Option<&str>, bytes: Option<u64>) -> Option<u64> {
+    let size = size?;
+    let (_, disk) = LADDER.iter().find(|(name, _)| *name == size)?;
+    let needed = needed_disk(bytes?);
+    if needed <= *disk {
+        return None;
+    }
+    Some(needed.div_ceil(DISK_STEP_GIB * GIB).saturating_mul(DISK_STEP_GIB))
 }
 
 /// The least a machine is taken to have room for, whatever its disk (the App's `CloudSeedRefusal.leastRoomBytes`).
@@ -76,7 +106,7 @@ pub(super) struct Machine<'a> {
 /// it) or a pinned one. Nothing is cloned or copied there: the clone would fill its disk. A plan upgrade does not help,
 /// the workspace's machine is fixed, so it is the folder too big for this machine, never `cloud.size.locked`. None for
 /// the chat size or none asked, a size off the ladder, a machine whose disk is unknown (an older platform) or a disk
-/// with room for the folder and the reserve (at least the size's, when the folder's bytes are unknown).
+/// with room for the folder's [`needed_disk`] (at least the size's, when the folder's bytes are unknown).
 pub(super) fn too_small(
     size: Option<&str>,
     bytes: Option<u64>,
@@ -85,23 +115,25 @@ pub(super) fn too_small(
     let size = size.filter(|size| *size != "sm")?;
     let (_, asked) = LADDER.iter().find(|(name, _)| *name == size)?;
     let disk = machine.disk_bytes?;
-    // A disk between two sizes (a machine grown by hand) has room when the folder and the reserve fit it; the
-    // size's own disk decides only when the folder's bytes are unknown.
+    // A disk between two sizes (a machine grown by hand or by `disk_gib`) has room when the folder's needed disk
+    // fits it; the size's own disk decides only when the folder's bytes are unknown.
     let fits = match bytes {
-        Some(bytes) => bytes.saturating_add(RESERVED_BYTES) <= disk,
+        Some(bytes) => needed_disk(bytes) <= disk,
         None => disk >= *asked,
     };
     if fits {
         return None;
     }
-    let room = disk.saturating_sub(RESERVED_BYTES).max(LEAST_ROOM_BYTES);
+    let room = room_on(disk).max(LEAST_ROOM_BYTES);
+    // A folder past its size's own disk needs that size grown: the message names the disk it needs.
+    let needs = bytes.map_or(0, needed_disk).max(*asked);
     let mut line = super::refused(
         SEED_REFUSED,
         format!(
             "{} has a {} GiB disk, too small for this folder: it needs a {size} machine ({} GiB)",
             machine.title,
             disk / GIB,
-            asked / GIB
+            needs.div_ceil(GIB)
         ),
     );
     if let Value::Object(object) = &mut line {

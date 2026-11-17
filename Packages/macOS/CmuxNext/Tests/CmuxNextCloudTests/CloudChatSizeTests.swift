@@ -4,18 +4,38 @@ import Foundation
 import Testing
 
 /// A Cloud chat's machine is sized for its folder: the smallest of the ladder (sm 16, md 32, lg 64, xl 128 GiB of disk)
-/// whose disk holds what the copy sends and the 12 GiB the machine keeps, the same rule as cmux-tui's preflight
-/// (`needed_size`). A folder past `xl` is refused as too big, never copied in part and shown as complete.
+/// whose disk holds half again what the copy sends, and at least that and the 12 GiB the machine keeps, the same rule as
+/// cmux-tui's preflight (`needed_disk`, `needed_size`). A folder past `xl` is refused as too big, never copied in part
+/// and shown as complete.
 @Suite struct CloudChatSizeTests {
     let gib: Int64 = 1_073_741_824
+
+    /// The reserve decides up to 24 GiB of folder, half again the folder above it; half a byte rounds up.
+    @Test func theNeededDiskIsHalfAgainTheFolderAndAtLeastTheReserve() {
+        #expect(CloudChatSize.neededDiskBytes(0) == 12 * gib)
+        #expect(CloudChatSize.neededDiskBytes(4 * gib) == 16 * gib)
+        #expect(CloudChatSize.neededDiskBytes(24 * gib) == 36 * gib)
+        #expect(CloudChatSize.neededDiskBytes(40 * gib) == 60 * gib)
+        #expect(CloudChatSize.neededDiskBytes(40 * gib + 1) == 60 * gib + 2)
+        #expect(CloudChatSize.neededDiskBytes(.max) == nil)
+        // The room a disk has is the most whose needed disk it holds.
+        #expect(CloudChatSize.roomBytes(diskBytes: 16 * gib) == 4 * gib)
+        #expect(CloudChatSize.roomBytes(diskBytes: 36 * gib) == 24 * gib)
+        #expect(CloudChatSize.roomBytes(diskBytes: 64 * gib) == 2 * 64 * gib / 3)
+        #expect((CloudChatSize.neededDiskBytes(CloudChatSize.roomBytes(diskBytes: 64 * gib)) ?? .max) <= 64 * gib)
+    }
 
     @Test func theNeededSizeIsTheSmallestDiskWithRoom() {
         #expect(CloudChatSize.needed(bytes: 0) == .sm)
         #expect(CloudChatSize.needed(bytes: 4 * gib) == .sm)
         #expect(CloudChatSize.needed(bytes: 4 * gib + 1) == .md)
-        #expect(CloudChatSize.needed(bytes: 52 * gib) == .lg)
-        #expect(CloudChatSize.needed(bytes: 116 * gib) == .xl)
-        #expect(CloudChatSize.needed(bytes: 116 * gib + 1) == nil)
+        #expect(CloudChatSize.needed(bytes: 20 * gib) == .md)
+        #expect(CloudChatSize.needed(bytes: 20 * gib + 1) == .lg)
+        // 64 GiB holds two thirds of itself: 42 GiB and a bit, no longer the 52 the reserve alone left.
+        #expect(CloudChatSize.needed(bytes: 42 * gib) == .lg)
+        #expect(CloudChatSize.needed(bytes: 52 * gib) == .xl)
+        #expect(CloudChatSize.needed(bytes: 85 * gib) == .xl)
+        #expect(CloudChatSize.needed(bytes: 86 * gib) == nil)
         #expect(CloudChatSize.needed(bytes: .max) == nil)
         // The chat size goes as no size, so an older server is unaffected.
         #expect(CloudChatSize.sm.requested == nil && CloudChatSize.lg.requested == "lg")

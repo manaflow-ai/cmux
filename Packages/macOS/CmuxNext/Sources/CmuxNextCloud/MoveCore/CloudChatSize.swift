@@ -1,7 +1,8 @@
 public import CmuxNextDaemon
 
-/// The Cloud size ladder a chat's machine is picked from (cmux-platform `Sizes.ts`): the smallest whose disk holds what
-/// the chat's folder copy sends plus what the machine keeps for itself (``reservedDiskBytes``). `sm` is the platform's
+/// The Cloud size ladder a chat's machine is picked from (cmux-platform `Sizes.ts`): the smallest whose disk holds the
+/// folder's ``neededDiskBytes(_:)``: half again what the chat's folder puts on it, and at least that plus what the
+/// machine keeps for itself (``reservedDiskBytes``). `sm` is the platform's
 /// chat size: a create asks for a size only above it (``requested``), so an older server is unaffected. cmux-tui's
 /// `link start-chat preflight` answers the same rule for a folder (`needed_size`, `preflight.rs`).
 public nonisolated enum CloudChatSize: String, CaseIterable, Comparable, Sendable {
@@ -30,11 +31,27 @@ public nonisolated enum CloudChatSize: String, CaseIterable, Comparable, Sendabl
         (allCases.firstIndex(of: lhs) ?? 0) < (allCases.firstIndex(of: rhs) ?? 0)
     }
 
-    /// The smallest chat size (`sm` to `xl`) whose disk holds `bytes` and the reserve; nil above `xl`.
+    /// The disk a machine needs for `bytes` of folder: half again the folder, and at least the folder and the reserve
+    /// (cmux-tui `preflight::needed_disk`). Nil when it overflows.
+    public static func neededDiskBytes(_ bytes: Int64) -> Int64? {
+        let bytes = max(bytes, 0)
+        let halfAgain = bytes.addingReportingOverflow(bytes / 2 + bytes % 2)
+        let reserved = bytes.addingReportingOverflow(reservedDiskBytes)
+        guard !halfAgain.overflow, !reserved.overflow else { return nil }
+        return max(halfAgain.partialValue, reserved.partialValue)
+    }
+
+    /// The most bytes of folder a `diskBytes` disk has room for under ``neededDiskBytes(_:)``: the disk less the
+    /// reserve, and at most two thirds of it.
+    public static func roomBytes(diskBytes: Int64) -> Int64 {
+        let disk = max(diskBytes, 0)
+        return min(disk - reservedDiskBytes, disk - (disk / 3 + (disk % 3 == 0 ? 0 : 1)))
+    }
+
+    /// The smallest chat size (`sm` to `xl`) whose disk holds the folder's ``neededDiskBytes(_:)``; nil above `xl`.
     public static func needed(bytes: Int64) -> Self? {
-        let disk = max(bytes, 0).addingReportingOverflow(reservedDiskBytes)
-        guard !disk.overflow else { return nil }
-        return [Self.sm, .md, .lg, .xl].first { disk.partialValue <= Int64($0.diskMb) * 1_048_576 }
+        guard let disk = neededDiskBytes(bytes) else { return nil }
+        return [Self.sm, .md, .lg, .xl].first { disk <= Int64($0.diskMb) * 1_048_576 }
     }
 
     /// A GitHub repository's size from the repos list (`size_kb`, GitHub's KB): ``needed(bytes:)`` of it, `sm`
