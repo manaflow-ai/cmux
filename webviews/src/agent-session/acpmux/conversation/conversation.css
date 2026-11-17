@@ -6740,7 +6740,7 @@ a.cv-sha:focus-visible {
     transparent var(--acpmux-view-top, 0px),
     #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
-    transparent var(--acpmux-view-foot)
+    transparent var(--acpmux-view-foot) var(--acpmux-dock-holes,)
   );
   -webkit-mask-image:
     var(--acpmux-view-mask),

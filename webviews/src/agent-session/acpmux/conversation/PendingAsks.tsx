@@ -39,7 +39,7 @@ export const PendingAsks = memo(function PendingAsks({
         const { recap: _recap, ...ask } = step.ask;
         return (
           <section key={row.id} className="acpmux-pending-ask" aria-label={t("question.needsInput")}>
-            <div className="acpmux-pending-ask__head">
+            <div className="acpmux-pending-ask__head" data-dock-clear="">
               <span className="acpmux-pending-ask__label">{t("question.needsInput")}</span>
               <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onDismiss(askKey(row))}>
                 {t("message.dismiss")}

@@ -14,6 +14,7 @@ import React, {
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
+import { dockClearSpans, dockClearStops } from "./conversation/dockClear";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
@@ -2237,6 +2238,8 @@ function TranscriptView({
   useLayoutEffect(() => stopJump, [sessionId, stopJump]);
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
+  /// The view mask's holes behind the stack's clear rows (conversation/dockClear.ts).
+  const [dockHoles, setDockHoles] = useState("");
   /// The bottom stack's reach at rest, for the prompt rail's box (`railBox`): its smallest at `height`.
   const restingDock = useRef<{ height: number; sessionId?: string; dock?: HTMLElement | null; space: number }>({
     height: -1,
@@ -2331,6 +2334,7 @@ function TranscriptView({
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
+      setDockHoles("");
       setDockHeight(0);
       setDockCard(0);
       setDockTray(0);
@@ -2346,6 +2350,11 @@ function TranscriptView({
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
     const height = () => Math.max(0, dock.getBoundingClientRect().height);
+    // Where the stack's clear rows let the transcript show, while it reaches over the view.
+    const holes = (space: number) => {
+      const view = ref.current?.getBoundingClientRect();
+      return space > 0 && view ? dockClearStops(dockClearSpans(dock, view.bottom)) : "";
+    };
     // The composer card's height, while the stack reaches over the view.
     const card = (space: number) =>
       space > 0 ? (dock.querySelector(".acpmux-composer-box")?.getBoundingClientRect().height ?? 0) : 0;
@@ -2421,6 +2430,7 @@ function TranscriptView({
       const nextHeight = height() + rest;
       const nextCard = card(drawn) + (drawn > 0 ? rest : 0);
       const nextTray = tray(drawn);
+      setDockHoles(holes(drawn));
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
       if (
@@ -2470,6 +2480,7 @@ function TranscriptView({
     const space = over();
     const fullHeight = height();
     setDockSpace(space);
+    setDockHoles(holes(space));
     setDockHeight(fullHeight);
     setDockCard(card(space));
     setDockTray(tray(space));
@@ -6939,6 +6950,7 @@ function TranscriptView({
                 ? 0
                 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+              ...(dockHoles ? { "--acpmux-dock-holes": dockHoles } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
               // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
               ...LIVE_STEP_VARS,

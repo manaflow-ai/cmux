@@ -134,6 +134,7 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
         <button
           type="button"
           className="acpmux-question-status"
+          data-dock-clear=""
           aria-expanded={open}
           aria-controls={cardId}
           onClick={() => setOpen((shown) => !shown)}
