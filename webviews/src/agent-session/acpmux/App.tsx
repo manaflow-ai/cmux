@@ -6983,7 +6983,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       releaseCalls();
   }, []);
   /// The oldest row the followed transcript draws: the client sheds no held record above it (direct.ts `setKeepFrom`).
-  const onTranscriptKeepFrom = useCallback((rowId: string | null) => directClient.current?.setKeepFrom(rowId), []);
+  const onTranscriptKeepFrom = useCallback(
+    (rowId: string | null, at?: number) => directClient.current?.setKeepFrom(rowId, at),
+    [],
+  );
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     if (handle && pendingWake.current) {

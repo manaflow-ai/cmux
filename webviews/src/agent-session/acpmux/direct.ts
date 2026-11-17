@@ -3690,6 +3690,9 @@ export class AcpmuxDirectClient {
   private following = true;
   /// The oldest row the following view draws (`setKeepFrom`): no shed cuts above it.
   private keepFromRow?: string;
+  /// When that row begins (its `at`): a drawn row the client holds under no id of its own (a closed turn's fold, a
+  /// date line, a turn header, turns.ts) is kept from its first held record at or after it.
+  private keepFromAt?: number;
   /// The selection a shed let go of older records in while the view follows (`shedOlderHeld`): until the reader
   /// scrolls away, that selection reads no older page back (`loadOlder`).
   private shedFollowingGeneration?: number;
@@ -7969,8 +7972,9 @@ export class AcpmuxDirectClient {
 
   /// The oldest row the pane's view draws while it follows the latest row (VirtualTranscript), or null: the oldest
   /// held records are let go only below it (`shedOlderHeld`). A row no longer held names nothing.
-  setKeepFrom(rowId: string | null): void {
+  setKeepFrom(rowId: string | null, at?: number): void {
     this.keepFromRow = rowId ?? undefined;
+    this.keepFromAt = rowId === null ? undefined : at;
   }
 
   /// A chat left open lets go of its oldest records once it holds more than `HELD_RECORDS`, as a chat opened on
@@ -8035,9 +8039,10 @@ export class AcpmuxDirectClient {
     // 7 times a second at 60 chunks and 2,000 lines a second, each page refolding the held window). Held only while
     // it keeps at most `HELD_KEPT` records more than the count would: a view whose top row is older than that (one
     // row drawn from a long run of records) is cut by the count, as with nothing named, never kept whole.
-    // The held index of the oldest record of the row in view; undefined when none is named or held.
-    const keepSeq = this.keepFromRow === undefined ? Infinity : this.rows.orderOf(this.keepFromRow);
-    const keepAt = keepSeq === Infinity ? undefined : firstHeldFrom(this.events, keepSeq);
+    // The held index of the oldest record of the row in view; undefined when none is named. A display row the client
+    // holds under no id (a fold, a date line, a header, turns.ts) is found by when it begins; one found by neither
+    // keeps every held record, within the same `HELD_KEPT` allowance, so no row on screen is cut by an id unknown here.
+    const keepAt = this.keepFromRow === undefined ? undefined : this.keepFromIndex(this.keepFromRow, this.keepFromAt);
     if (keepAt !== undefined && cut > 0 && keepAt < cut) {
       const kept = unspanned(keepAt);
       if (cut - kept <= HELD_KEPT) cut = kept;
@@ -8065,6 +8070,16 @@ export class AcpmuxDirectClient {
     this.historyEpoch += 1;
     this.cancelOlderPaging();
     this.shedFollowingGeneration = this.selectionGeneration;
+  }
+
+  /// The held index the shed keeps from for the drawn row `rowId` (`setKeepFrom`): its own oldest record, else the
+  /// first held record at or after `at`, else 0 (all of them).
+  private keepFromIndex(rowId: string, at: number | undefined): number {
+    const seq = this.rows.orderOf(rowId);
+    if (seq !== Infinity) return firstHeldFrom(this.events, seq);
+    if (at === undefined) return 0;
+    const index = this.events.findIndex((event) => event.at >= at);
+    return index < 0 ? 0 : index;
   }
 
   /// Lets go of the held records `events[start, end)`, a run at one end of the held window (`start` 0 for the oldest,

@@ -1746,7 +1746,7 @@ function TranscriptView({
   onFollowingChange?: (following: boolean) => void;
   /// The oldest row the view draws while it follows the latest row, else null: the client lets go of no held record
   /// above it (direct.ts `setKeepFrom`).
-  onKeepFrom?: (rowId: string | null) => void;
+  onKeepFrom?: (rowId: string | null, at?: number) => void;
   /// Jump to latest (or the Needs your input pill) shows or hides: the pane lifts its bottom toast
   /// deck above it while it shows (toastLayer.css). Told `false` when the transcript goes.
   onJumpShownChange?: (shown: boolean) => void;
@@ -6647,13 +6647,15 @@ function TranscriptView({
   /// back at the latest row. Runs where `checkOlder` does (each scroll event and commit); says only a change.
   const keepFromInView = (node: HTMLElement | null) => {
     if (!onKeepFrom) return;
-    const id =
+    // With when it begins: a fold, date line or header is a row the client holds under no id of its own.
+    const row =
       node && followingRef.current && node.clientHeight > 0
-        ? (rows[visibleLayoutRange(layout, layoutScrollTop(node), 0, 0).first]?.id ?? null)
-        : null;
+        ? rows[visibleLayoutRange(layout, layoutScrollTop(node), 0, 0).first]
+        : undefined;
+    const id = row?.id ?? null;
     if (id === keptFrom.current) return;
     keptFrom.current = id;
-    onKeepFrom(id);
+    onKeepFrom(id, row?.at);
   };
   const checkOlder = () => {
     const node = ref.current;
