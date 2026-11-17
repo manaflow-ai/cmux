@@ -52,6 +52,28 @@ fn send_lagged(conn: &Arc<Conn>, dropped: u64) {
     conn.send(&lagged_notice(dropped));
 }
 
+fn drain_queued<E, R, N>(
+    rx: &mut broadcast::Receiver<crate::hub::HubEvent>,
+    mut send_event: E,
+    mut resync: R,
+    mut send_notice: N,
+) where
+    E: FnMut(crate::hub::HubEvent),
+    R: FnMut(),
+    N: FnMut(u64),
+{
+    loop {
+        match rx.try_recv() {
+            Ok(ev) => send_event(ev),
+            Err(broadcast::error::TryRecvError::Lagged(dropped)) => {
+                resync();
+                send_notice(dropped);
+            }
+            Err(_) => break,
+        }
+    }
+}
+
 pub(super) fn start(
     hub: Arc<Hub>,
     conn: Arc<Conn>,
@@ -69,15 +91,12 @@ pub(super) fn start(
                 ev = rx.recv() => ev,
                 // A turn's answer waits for the events queued before it (`Flush`).
                 Some(done) = flushes.recv() => {
-                    loop {
-                        match rx.try_recv() {
-                            Ok(ev) => send_event(&hub, &conn, ev),
-                            Err(broadcast::error::TryRecvError::Lagged(n)) => {
-                                send_lagged(&conn, n);
-                            }
-                            Err(_) => break,
-                        }
-                    }
+                    drain_queued(
+                        &mut rx,
+                        |ev| send_event(&hub, &conn, ev),
+                        || conn.controls.resync(&conn, LAGGED_REASON),
+                        |dropped| conn.send(&lagged_notice(dropped)),
+                    );
                     let _ = done.send(());
                     continue;
                 }
@@ -155,17 +174,62 @@ pub(super) fn start(
 
 #[cfg(test)]
 mod tests {
-    use super::lagged_notice;
-    use serde_json::Value;
+    use super::{drain_queued, lagged_notice};
+    use crate::hub::HubEvent;
+    use crate::store::EventRecord;
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+    use tokio::sync::broadcast;
+
+    fn event() -> HubEvent {
+        HubEvent {
+            session_id: "flush-drain-test".to_owned(),
+            record: Arc::new(EventRecord {
+                seq: 0,
+                at: 0,
+                dir: "mux".to_owned(),
+                kind: "test".to_owned(),
+                msg: json!({}),
+                host_seq: None,
+            }),
+            remote: None,
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: 0,
+        }
+    }
 
     #[test]
-    fn flush_drain_lagged_notice_carries_the_resync_reason_and_drop_count() {
-        let line = lagged_notice(17).to_line();
-        let value: Value = serde_json::from_str(&line).expect("lagged notice is JSON");
-        assert_eq!(value["method"], "_acpmux/lagged");
-        assert_eq!(value["params"]["dropped"], 17);
-        // `send_lagged` performs the controls resync with this same reason before this notice.
-        assert_eq!(super::LAGGED_REASON, "lagged");
+    fn flush_drain_lagged_receiver_resyncs_before_notice() {
+        let (tx, mut rx) = broadcast::channel(1);
+        tx.send(event()).unwrap();
+        tx.send(event()).unwrap();
+
+        let lines = std::cell::RefCell::new(Vec::<Value>::new());
+        drain_queued(
+            &mut rx,
+            |_| lines.borrow_mut().push(json!({"event": "delivered"})),
+            || {
+                lines.borrow_mut().push(json!({
+                    "method": super::super::controls::NOTICE,
+                    "params": {"phase": "resync", "reason": super::LAGGED_REASON},
+                }))
+            },
+            |dropped| {
+                let line = lagged_notice(dropped).to_line();
+                lines
+                    .borrow_mut()
+                    .push(serde_json::from_str(&line).expect("lagged notice is JSON"));
+            },
+        );
+
+        let lines = lines.into_inner();
+        assert_eq!(lines[0]["method"], super::super::controls::NOTICE);
+        assert_eq!(lines[0]["params"]["phase"], "resync");
+        assert_eq!(lines[0]["params"]["reason"], super::LAGGED_REASON);
+        assert_eq!(lines[1]["method"], "_acpmux/lagged");
+        assert_eq!(lines[1]["params"]["dropped"], 1);
+        assert_eq!(lines[2]["event"], "delivered");
     }
 }
 
