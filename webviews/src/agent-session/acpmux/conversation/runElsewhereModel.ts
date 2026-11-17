@@ -21,6 +21,15 @@ export interface RunOffer {
   show: boolean;
   why: string;
   busyCores?: number;
+  /** The answer will not change: the row asks no more (an acpmux too old to judge). */
+  final?: boolean;
+}
+
+/** The offer in a `_acpmux/run_elsewhere/plan {offerOnly}` reply. An acpmux older than the offer
+ * answers a whole plan without one (the web UI can be newer than its daemon: cmux Live, a hot
+ * apply): it judges nothing, so nothing is offered and the row does not ask again. */
+export function offerFromReply(reply: { offer?: RunOffer } | null | undefined): RunOffer {
+  return reply?.offer ?? { show: false, why: "", final: true };
 }
 
 /** One machine acpmux knows: connected and reached by ssh (`ok`), or why not. */

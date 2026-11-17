@@ -27,6 +27,7 @@ import {
   firstMachine,
   inBackground,
   nextReadDelay,
+  offerFromReply,
   resetHostRelays,
   RUN_OUTPUT_KEEP,
   type RunElsewhere,
@@ -267,6 +268,20 @@ test("a build that starts to compute gets the chip once acpmux says so, with its
   await advance(RUN_ELSEWHERE_RECHECK_MS * 2);
   expect(calls.offers.length).toBe(2);
   expect(host.querySelector(".cv-run-elsewhere-chip")).not.toBeNull();
+});
+
+test("an acpmux too old to judge offers nothing, and the row asks it once", async () => {
+  // It answers `offerOnly` with a whole plan and no offer.
+  const { runs, calls } = harness(
+    [],
+    async () => PLAN,
+    async () => offerFromReply(JSON.parse(JSON.stringify(PLAN))),
+  );
+  jest.useFakeTimers();
+  const host = await render(call("in_progress", Date.now() - 30_000, "cargo build"), runs);
+  await advance(RUN_ELSEWHERE_RECHECK_MS * 3);
+  expect(calls.offers.length).toBe(1);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
 });
 
 test("a command under 20 s is never asked about", async () => {

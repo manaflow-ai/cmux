@@ -115,7 +115,7 @@ function useOffer(runs: Runs | undefined, toolCallId: string, command: string | 
           if (cancelled) return;
           runs.store.setOffer(toolCallId, answer);
           setOffer(answer);
-          if (!answer.show) again();
+          if (!answer.show && !answer.final) again();
         },
         (error: unknown) => {
           if (cancelled) return;
@@ -125,7 +125,8 @@ function useOffer(runs: Runs | undefined, toolCallId: string, command: string | 
         },
       );
     };
-    if (runs.store.offer(toolCallId)?.show) return;
+    const known = runs.store.offer(toolCallId);
+    if (known?.show || known?.final) return;
     ask();
     return () => {
       cancelled = true;
