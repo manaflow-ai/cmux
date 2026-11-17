@@ -36,6 +36,42 @@ import Testing
                 "the JSON parser read \(decoder.parsedBytes) bytes of a \(line.count)-byte output line")
     }
 
+    @Test func theRoutingEnvelopeOfAFloodLineReadsOnlyItsOtherMembers() throws {
+        let line = Self.outputLine(Self.flood)
+        let text = OutputLineFastPath.envelopeText(line)
+        #expect(text.count < 256)
+        let envelope = try JSONDecoder().decode(LineTransport.Envelope.self, from: text)
+        #expect(envelope.event == "output")
+        #expect(envelope.id == nil && envelope.ok == nil)
+    }
+
+    @Test func aReplyWhoseDataIsAStringKeepsItsEnvelope() throws {
+        let line = Data(#"{"data":"done","id":3,"ok":true}"#.utf8)
+        let envelope = try JSONDecoder().decode(LineTransport.Envelope.self, from: OutputLineFastPath.envelopeText(line))
+        #expect(envelope.id == 3 && envelope.ok == true)
+    }
+
+    @Test func aLineOutsideTheDaemonsLayoutIsParsedWhole() {
+        for text in [#"{"colors":{"foreground":"white"},"data":"aGk=","event":"output","surface":7}"#,
+                     #"{"data":"a\"b","event":"output"}"#, #"{"data":{"lines":1},"ok":true}"#, #"{"data":"aGk="}x"#,
+                     #"{"data":"aGk=",}"#] {
+            let line = Data(text.utf8)
+            #expect(OutputLineFastPath.split(line) == nil, "\(text)")
+            #expect(OutputLineFastPath.envelopeText(line) == line)
+        }
+    }
+
+    @Test func aLineWhoseDataIsItsOnlyMemberSplits() throws {
+        let line = Data(#"{"data":"aGk="}"#.utf8)
+        let split = try #require(OutputLineFastPath.split(line))
+        #expect(split.rest == Data("{}".utf8))
+        #expect(split.data(in: line) == Data("hi".utf8))
+        // A slice of a larger buffer (a nonzero startIndex) decodes the same bytes.
+        let framed = Data("xx".utf8) + line
+        let slice = framed.dropFirst(2)
+        #expect(OutputLineFastPath.split(slice)?.data(in: slice) == Data("hi".utf8))
+    }
+
     @Test func anOutputLineOfAnotherSurfaceIsDropped() {
         let line = Self.outputLine(Data("hi".utf8), surface: 8)
         #expect(TerminalAttachment.decodeAttachLine(name: "output", line: line, surface: 7) == nil)

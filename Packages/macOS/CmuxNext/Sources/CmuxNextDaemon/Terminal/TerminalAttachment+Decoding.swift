@@ -42,6 +42,25 @@ extension TerminalAttachment {
         var generation: UInt64?
     }
 
+    /// An `output` line's members other than `data` (``OutputLineFastPath``).
+    private struct OutputFields: Decodable {
+        var surface: SurfaceID?
+        var colors: TerminalColors?
+        var generation: UInt64?
+    }
+
+    /// An `output` line: its base64 decoded straight from the line when the line is in the daemon's layout
+    /// (``OutputLineFastPath``), so only its other members go through the JSON parser; any other line is parsed
+    /// whole. Bad base64 throws, as JSONDecoder's `Data` decode does.
+    private static func decodeOutput(_ line: Data, decoder: JSONDecoder) throws -> Output {
+        guard let split = OutputLineFastPath.split(line) else { return try decoder.decode(Output.self, from: line) }
+        let fields = try decoder.decode(OutputFields.self, from: split.rest)
+        guard let data = split.data(in: line) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "output data is not base64"))
+        }
+        return Output(surface: fields.surface, data: data, colors: fields.colors, generation: fields.generation)
+    }
+
     /// `snapshot {phase, generation, offset, version, cols?, rows?, colors?, data}`.
     /// `marker_epoch` and `active_top_marker` (row markers for
     /// `terminal-history`) are not used by the view.
@@ -150,7 +169,7 @@ extension TerminalAttachment {
                     cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
                     localHistory: snapshot.localHistory, data: data)))
             case "output":
-                let output = try decoder.decode(Output.self, from: line)
+                let output = try decodeOutput(line, decoder: decoder)
                 guard scoped(output.surface) else { return nil }
                 return DecodedAttachLine(event: .output(output.data, colors: output.colors), generation: output.generation)
             case "resized":

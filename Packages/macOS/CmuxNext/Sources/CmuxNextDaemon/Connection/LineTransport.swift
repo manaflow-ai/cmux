@@ -501,7 +501,9 @@ final class LineTransport: Sendable {
             state.lineCount += 1
             return state.lineCount
         }
-        guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
+        // An attach output line's envelope is read from its members other than `data` (OutputLineFastPath): the
+        // terminal bytes never go through the JSON parser here.
+        guard let envelope = try? decoder.decode(Envelope.self, from: OutputLineFastPath.envelopeText(line)) else { return }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
         // travels with the raw events, in socket order (`session.events`).
