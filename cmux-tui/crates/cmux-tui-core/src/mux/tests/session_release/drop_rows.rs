@@ -321,6 +321,8 @@ fn a_drop_of_an_owner_after_its_release_runs_no_prune_of_its_output_store() {
     mux.output_store.append(&gone, &generation, b"a line\r\n", None);
     mux.output_store.forget(&gone);
     let stray = std::path::PathBuf::from(format!("{}.snap", gone.as_str()));
+    // The store makes its folder at its first write, and this owner made none.
+    std::fs::create_dir_all(&store).unwrap();
     std::fs::write(store.join(&stray), b"a file of a terminal that is not in the session").unwrap();
     let release = mux.release_ownership(&root.join("control.sock"));
     let before = files_of(&store);
@@ -411,5 +413,205 @@ fn a_drop_of_an_owner_after_its_release_leaves_the_registry_file_and_its_log() {
         dropped,
         "setup: the test's handle of the owner was not the last one, so the owner's drop did \
          not run between the two reads of the session folder"
+    );
+}
+
+/// The owner's output store holds output of a terminal that is not in its
+/// session: the terminal left, and its reader gave a part of its output to
+/// the store after that. No write of the store takes those bytes, and the
+/// owner after this one has no terminal that reads them. They are not a
+/// missing last write: the release gives the session up, and the drop of
+/// the owner changes no file of the store.
+#[test]
+fn output_of_a_terminal_that_is_not_in_the_session_does_not_keep_the_session() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-left-terminal-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let (mux, surface, terminal) = open_owner_with_a_terminal(&root, "release-left-terminal");
+    let folder = session_folder(&mux);
+    let store = store_folder(&mux);
+    print(&mux, &surface, &terminal, format!("a first line\r\n{LAST_LINE}\r\n").as_bytes());
+    // Before the owner's last write: bytes of a terminal that is not in the
+    // session. Each write of the store finds no terminal for them.
+    let gone = restore_terminal_id(0x5f);
+    let generation = Arc::from("1000000000004000800000000000005f");
+    mux.output_store.append(&gone, &generation, b"a line\r\n", None);
+    mux.shutdown();
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let before = files_of(&store);
+    drop(surface);
+    // The drop runs here, on this thread, when this handle is the last one.
+    let dropped = Arc::into_inner(mux).is_some();
+    let changed = changed_files(&before, &files_of(&store));
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        has_a_file_of(&before, &terminal) && !has_a_file_of(&before, &gone),
+        "setup: the owner's stop wrote no file of its terminal, or it wrote a file of the \
+         terminal that is not in the session"
+    );
+    assert!(
+        release == lifecycle::OwnershipRelease::Released,
+        "an owner kept its session for output of a terminal that is not in the session, which \
+         no write of its output store takes: its release: {release:?}"
+    );
+    assert!(
+        changed.is_empty(),
+        "after its release returned, the drop of the owner changed files of its output \
+         store, which the next owner has from then on: {changed:?}"
+    );
+    assert!(
+        dropped,
+        "setup: the test's handle of the owner was not the last one, so the owner's drop did \
+         not run between the two reads of the store's folder"
+    );
+}
+
+/// A terminal has a tab in the session and no runtime in the owner (a
+/// respawn takes the old runtime out before the new one is there), and the
+/// output store holds output of it that no write of the store took. The
+/// owner after this one has that terminal, so this is a missing last write:
+/// the release keeps the session and names the last pass.
+#[test]
+fn unwritten_output_of_a_terminal_of_the_session_with_no_runtime_keeps_the_session() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-no-runtime-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let (mux, surface, terminal) = open_owner_with_a_terminal(&root, "release-no-runtime");
+    let folder = session_folder(&mux);
+    // The runtime leaves the owner. The terminal's tab stays in the session.
+    let runtime = mux.remove_terminal_catalog_for_test(&terminal);
+    let tabs = mux.with_state(|state| {
+        state.placements_of_content(&ContentPublicId::Terminal(terminal.clone())).len()
+    });
+    // After the runtime left: each write of the store finds no runtime for
+    // these bytes, so they are in no file when the owner stops.
+    mux.output_store.append(&terminal, &Arc::from(DROP_INCARNATION), b"a line\r\n", None);
+    mux.shutdown();
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let names = kept_names(Some(&release));
+    let had_a_runtime = runtime.is_some();
+    drop(runtime);
+    drop(surface);
+    drop(mux);
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        had_a_runtime && tabs > 0,
+        "setup: the terminal had no runtime to take out, or it has no tab in the session after \
+         that (a runtime: {had_a_runtime}; its tabs: {tabs})"
+    );
+    assert!(
+        names.contains(&LAST_PASS),
+        "an owner whose output store holds unwritten output of a terminal of its session gave \
+         the session up: its release: {release:?}"
+    );
+}
+
+/// A commit that the registry's log holds when the owner releases the
+/// session is not lost at the owner's drop: the owner after it reads that
+/// commit, whether the drop wrote the log into the main file or left it.
+#[test]
+fn the_next_owner_reads_a_commit_that_the_registry_log_held_at_the_release() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-log-commit-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let session = "release-log-commit";
+    let mux = open_owner(&root, session);
+    let folder = session_folder(&mux);
+    let database = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .session_journal_database_path()
+        .expect("a session on disk has its registry");
+    let mut log = database.into_os_string();
+    log.push("-wal");
+    mux.shutdown();
+    // A commit after the stop and before the release, as the owner.
+    let (revision, wrote) = {
+        let mut registry = mux.workspace_registry.lock().unwrap();
+        let (revision, _) = store_state(&registry);
+        (revision, write_at(&mut registry, "before-the-release", revision))
+    };
+    let release = mux.release_ownership(&root.join("control.sock"));
+    let log_bytes = std::fs::metadata(&log).map_or(0, |file| file.len());
+    // The drop runs here, on this thread, when this handle is the last one.
+    let dropped = Arc::into_inner(mux).is_some();
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let next = WorkspaceRegistry::open(&root, session);
+    let next_said = next.as_ref().err().map(|error| format!("{error:#}"));
+    let read = next.as_ref().ok().map(|next| store_state(next).0);
+    drop(next);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        wrote.as_ref().is_ok_and(|wrote| *wrote > revision) && log_bytes > 0,
+        "setup: the owner's commit before its release failed or changed no revision, or the \
+         registry's log was empty when the release returned (the commit: {wrote:?}, after \
+         revision {revision}; the log: {log_bytes} bytes)"
+    );
+    assert!(
+        release == lifecycle::OwnershipRelease::Released && dropped,
+        "setup: the owner did not give its session up, or the test's handle of it was not the \
+         last one (its release: {release:?}; dropped: {dropped})"
+    );
+    assert!(
+        read == wrote.as_ref().ok().copied(),
+        "the owner after one that released its session does not read the commit that the \
+         registry's log held at that release: it read revision {read:?}, the commit was \
+         {wrote:?} (its error at its open: {next_said:?})"
+    );
+}
+
+/// A registry database that no owner released closes as before: its last
+/// connection writes the log into the main file and removes the log. An
+/// open that makes a database beside the registry and then renames its main
+/// file into place opens it by this function: a log that stays beside a
+/// renamed file is a lost commit.
+#[test]
+fn a_registry_database_that_no_owner_released_has_no_log_after_its_close() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-plain-close-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let database = root.join("beside-the-registry.sqlite3");
+    let mut log = database.clone().into_os_string();
+    log.push("-wal");
+    let connection = crate::workspace_registry::open_registry_database(&database)
+        .expect("setup: a new database opens");
+    let wrote = connection.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         CREATE TABLE written(value INTEGER NOT NULL);
+         INSERT INTO written(value) VALUES (7);",
+    );
+    let log_bytes = std::fs::metadata(&log).map_or(0, |file| file.len());
+    drop(connection);
+    let log_after = std::fs::metadata(&log).ok().map(|file| file.len());
+    let read = crate::workspace_registry::open_registry_database_read_only(&database)
+        .and_then(|reader| {
+            reader
+                .query_row("SELECT value FROM written", [], |row| row.get::<_, i64>(0))
+                .map_err(anyhow::Error::from)
+        })
+        .map_err(|error| format!("{error:#}"));
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        wrote.is_ok() && log_bytes > 0,
+        "setup: the write failed, or it was not in the database's log before the close (the \
+         write: {wrote:?}; the log: {log_bytes} bytes)"
+    );
+    assert!(
+        log_after.is_none(),
+        "the close of the last connection of a database that no owner released left its log \
+         ({log_after:?} bytes): a rename of the main file then loses the commits of that log"
+    );
+    assert!(
+        read == Ok(7),
+        "the main file of a database does not hold the commit after the close of its last \
+         connection: {read:?}"
     );
 }
