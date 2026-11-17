@@ -56,3 +56,14 @@ describe("install references keep @ in a path", () => {
     expect(refs.parseInstallReference("github.com/octo-dev/cmux-pomodoro.git@v1")?.repo).toBe("cmux-pomodoro");
   });
 });
+
+describe("README images on a host with no raw route", () => {
+  test("a relative image on a custom host is dropped, not rendered from null", async () => {
+    const { rewriteReadmeUrl } = await import("../app/extensions/_lib/readme");
+    const source = { host: "git.example.dev", owner: "octo-dev", repo: "kit", path: "", commit: "0123456789abcdef0123456789abcdef01234567" };
+    expect(rewriteReadmeUrl(source, "docs/shot.png?raw=1", "image")).toBeNull();
+    expect(rewriteReadmeUrl({ ...source, host: "github.com" }, "docs/shot.png", "image")).toBe(
+      "https://raw.githubusercontent.com/octo-dev/kit/0123456789abcdef0123456789abcdef01234567/docs/shot.png",
+    );
+  });
+});
