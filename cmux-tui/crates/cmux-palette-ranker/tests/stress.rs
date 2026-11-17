@@ -9,6 +9,10 @@
 //! `allocations_per_keystroke_do_not_grow_with_the_corpus` always runs: it counts heap
 //! allocations in one keystroke at 1x and 16x the rows and fails if a keystroke allocates per
 //! matched row (beyond the one scored list, which grows by doubling).
+//! `rows_scored_per_keystroke_follow_the_shrinking_matches` counts the rows each key of a 12-key
+//! query scores at 100,000 rows and fails if key 12 scores more than 2% of them.
+//! `narrowed_keystrokes_rank_like_a_full_rescore` types random queries (keys, backspace, paste,
+//! clear) and checks every narrowed answer against scoring every row.
 //!
 //! The timing sweep runs only when asked: `CMUX_STRESS=1`, or a plain `cargo test` whose filter
 //! names `stress_sweep`. It prints one `STRESS-PALETTE` JSON line per size:
@@ -304,6 +308,7 @@ fn rows_scored_per_keystroke_follow_the_shrinking_matches() {
             ranker.rank(&request).expect("rank");
             per_key.push(ranker.rows_scored() - before);
         }
+        println!("ROWS-SCORED {query:?} per key {per_key:?}");
         assert_eq!(per_key.len(), 12, "{query:?} is 12 keys");
         let key_12 = per_key.last().copied().unwrap_or_default();
         assert!(
@@ -442,7 +447,7 @@ fn narrowed_keystrokes_rank_like_a_full_rescore() {
         let ranker = installed(&entries);
         let mut rng = Rng(seed ^ 0x2545_f491_4f6c_dd1d);
         let (mut query, mut phrase) = (Vec::new(), Vec::new());
-        for step in 0..400 {
+        for step in 0..600 {
             random_edit(&mut rng, &mut query, &mut phrase);
             let typed: String = query.iter().collect();
             let request = random_request(&mut rng, &typed);
