@@ -1448,6 +1448,7 @@ fn push_inner(
     if head_links.is_none() {
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
     }
+    stages.mark("finish");
     // The store keeps what this folder's manifest and snapshots name ([`roots`]): after a push
     // through it, or one with too little to send to be worth it, never after the store failed.
     let store_ok = summary
@@ -1457,8 +1458,8 @@ fn push_inner(
     if via_store && store_ok {
         let size_of = |relative: &str| set.files.get(relative).and_then(|file| size(file).ok());
         roots::register(&local, remote_root, &next, &size_of);
+        stages.mark("roots");
     }
-    stages.mark("finish");
     stages.print();
     Ok(summary)
 }
