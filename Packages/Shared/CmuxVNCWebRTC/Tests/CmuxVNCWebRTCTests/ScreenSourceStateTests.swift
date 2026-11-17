@@ -3,32 +3,34 @@ import Foundation
 import Testing
 
 /// A locked or display-asleep Mac streams black with healthy-looking stats
-/// (Leo's NIGHTLY, 2026-11-17): the host follows lock and display sleep and
+/// (Leo's NIGHTLY, 2026-11-17): the host reads lock and display sleep and
 /// tells the viewer, and the notice clears the moment the Mac unlocks or wakes.
 struct ScreenSourceStateTests {
-    /// Events a test sends by hand, from a state it sets.
-    final class FakeEvents: ScreenSourceEvents, @unchecked Sendable {
+    /// A Mac's lock and display sleep that a test sets by hand.
+    final class FakeProbe: ScreenSourceProbe, @unchecked Sendable {
         private let lock = NSLock()
-        private var sink: (@Sendable (ScreenSourceTracker.Event) -> Void)?
-        private(set) var cancelled = false
-        let initial: ScreenSourceTracker
+        private var locked: Bool
+        private var asleep: Bool
+        private(set) var reads = 0
 
-        init(_ initial: ScreenSourceTracker = ScreenSourceTracker()) { self.initial = initial }
+        init(locked: Bool = false, asleep: Bool = false) {
+            self.locked = locked
+            self.asleep = asleep
+        }
 
-        func current() -> ScreenSourceTracker { initial }
-
-        func observe(_ event: @escaping @Sendable (ScreenSourceTracker.Event) -> Void) -> @Sendable () -> Void {
-            lock.withLock { sink = event }
-            return { [weak self] in
-                guard let self else { return }
-                lock.withLock {
-                    sink = nil
-                    cancelled = true
-                }
+        func set(locked: Bool? = nil, asleep: Bool? = nil) {
+            lock.withLock {
+                if let locked { self.locked = locked }
+                if let asleep { self.asleep = asleep }
             }
         }
 
-        func send(_ event: ScreenSourceTracker.Event) { lock.withLock { sink }?(event) }
+        func read() -> ScreenSourceState {
+            lock.withLock {
+                reads += 1
+                return ScreenSourceState(locked: locked, asleep: asleep)
+            }
+        }
     }
 
     final class Reports: @unchecked Sendable {
@@ -38,52 +40,47 @@ struct ScreenSourceStateTests {
         var all: [ScreenSourceState] { lock.withLock { states } }
     }
 
-    @Test func lockedWinsOverAsleepAndEachEventChangesOnlyItsOwnPart() {
-        var tracker = ScreenSourceTracker()
-        #expect(tracker.state == .live)
-        #expect(tracker.apply(.locked) == .locked)
-        #expect(tracker.apply(.displaySlept) == nil) // still locked
-        #expect(tracker.apply(.locked) == nil)
-        #expect(tracker.apply(.unlocked) == .asleep)
-        #expect(tracker.apply(.displayWoke) == .live)
-        #expect(tracker.apply(.displayWoke) == nil)
+    @Test func lockedWinsOverAsleep() {
+        #expect(ScreenSourceState(locked: false, asleep: false) == .live)
+        #expect(ScreenSourceState(locked: true, asleep: false) == .locked)
+        #expect(ScreenSourceState(locked: true, asleep: true) == .locked)
+        #expect(ScreenSourceState(locked: false, asleep: true) == .asleep)
     }
 
-    @Test func theMonitorReportsTheStateNowThenEachChangeUntilStopped() {
-        let events = FakeEvents(), reports = Reports()
-        let monitor = ScreenSourceMonitor(events: events) { reports.append($0) }
-        monitor.start()
+    /// Lock → locked sent → unlock → live, and nothing in between repeats.
+    @Test func theMonitorReportsTheFirstReadingThenOnlyChangesUntilStopped() {
+        let probe = FakeProbe(), reports = Reports()
+        let monitor = ScreenSourceMonitor(probe: probe) { reports.append($0) }
+        #expect(monitor.state == nil)
+        monitor.check()
         #expect(reports.all == [.live])
-        events.send(.locked)
+        monitor.check()
+        #expect(reports.all == [.live], "an unchanged reading says nothing")
+        probe.set(locked: true)
+        monitor.check()
         #expect(reports.all == [.live, .locked])
-        events.send(.unlocked)
-        #expect(reports.all == [.live, .locked, .live])
-        events.send(.displaySlept)
-        events.send(.displayWoke)
-        #expect(reports.all == [.live, .locked, .live, .asleep, .live])
+        probe.set(asleep: true)
+        monitor.check()
+        #expect(reports.all == [.live, .locked], "a locked Mac's display sleeping is still locked")
+        probe.set(locked: false)
+        monitor.check()
+        probe.set(asleep: false)
+        monitor.check()
+        #expect(reports.all == [.live, .locked, .asleep, .live])
         monitor.stop()
-        #expect(events.cancelled)
-        events.send(.locked)
-        #expect(reports.all.count == 5)
+        probe.set(locked: true)
+        monitor.check()
+        #expect(reports.all.count == 4)
     }
 
     @Test func aViewerThatConnectsToALockedMacHearsLockedAtOnce() {
-        let events = FakeEvents(ScreenSourceTracker(locked: true, asleep: true)), reports = Reports()
-        let monitor = ScreenSourceMonitor(events: events) { reports.append($0) }
-        monitor.start()
+        let probe = FakeProbe(locked: true, asleep: true), reports = Reports()
+        let monitor = ScreenSourceMonitor(probe: probe) { reports.append($0) }
+        monitor.check()
         #expect(reports.all == [.locked])
-        events.send(.displayWoke)
-        events.send(.unlocked)
+        probe.set(locked: false, asleep: false)
+        monitor.check()
         #expect(reports.all == [.locked, .live])
-    }
-
-    @Test func aMonitorStoppedBeforeItStartsNeverReports() {
-        let events = FakeEvents(), reports = Reports()
-        let monitor = ScreenSourceMonitor(events: events) { reports.append($0) }
-        monitor.stop()
-        monitor.start()
-        #expect(reports.all.isEmpty)
-        #expect(events.cancelled)
     }
 
     @Test func theSourceMessageRoundTripsAndOtherMessagesCarryNone() throws {
@@ -104,21 +101,33 @@ struct ScreenSourceStateTests {
     }
 
     #if os(macOS)
-    @Test func theCaptureBackendFollowsItsEventsUntilItStops() {
-        let events = FakeEvents(), reports = Reports()
+    @Test func theCaptureBackendReportsItsProbeUntilItStops() {
+        let probe = FakeProbe(), reports = Reports()
         let backend = ScreenCaptureBackend(log: { _ in }, timing: nil, input: EventInjector(source: nil) { _ in },
-                                           writePasteboard: { _, _ in false }, sourceEvents: events)
+                                           writePasteboard: { _, _ in false }, sourceProbe: probe)
         backend.observeSourceState { reports.append($0) }
-        events.send(.locked)
-        events.send(.unlocked)
+        #expect(reports.all == [.live])
+        probe.set(locked: true)
+        backend.checkSource()
+        probe.set(locked: false)
+        backend.checkSource()
         #expect(reports.all == [.live, .locked, .live])
         backend.stop()
-        #expect(events.cancelled)
-        events.send(.locked)
+        probe.set(locked: true)
+        backend.checkSource()
         #expect(reports.all.count == 3)
         // After stop no new monitor starts.
         backend.observeSourceState { reports.append($0) }
         #expect(reports.all.count == 3)
+    }
+
+    /// The window server sets the lock key only while locked: absent, or not a Boolean, is unlocked (no false notice).
+    @Test func theLockKeyReadsLockedOnlyWhenTrue() {
+        #expect(SystemScreenSourceProbe.locked(session: ["CGSSessionScreenIsLocked": true]))
+        #expect(!SystemScreenSourceProbe.locked(session: ["CGSSessionScreenIsLocked": false]))
+        #expect(!SystemScreenSourceProbe.locked(session: [:]))
+        #expect(!SystemScreenSourceProbe.locked(session: nil))
+        #expect(!SystemScreenSourceProbe.locked(session: ["CGSSessionScreenIsLocked": "yes"]))
     }
     #endif
 }

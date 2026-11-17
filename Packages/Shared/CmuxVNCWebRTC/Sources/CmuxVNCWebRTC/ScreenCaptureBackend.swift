@@ -69,21 +69,23 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
     init(log: @escaping @Sendable (String) -> Void, timing: CaptureTimingLog?, input: EventInjector,
          writePasteboard: @escaping @Sendable (Data, String) -> Bool,
-         sourceEvents: any ScreenSourceEvents = SystemScreenSourceEvents()) {
+         sourceProbe: any ScreenSourceProbe = SystemScreenSourceProbe()) {
         self.log = log
         self.timing = timing
         self.input = input
         self.writePasteboard = writePasteboard
-        self.sourceEvents = sourceEvents
+        self.sourceProbe = sourceProbe
     }
 
-    /// Lock and display-sleep events (the system's; a test's own).
-    private let sourceEvents: any ScreenSourceEvents
-    /// Follows them while a viewer watches (``observeSourceState(_:)``) until `stop()`.
+    /// Reads the lock and display sleep (the system's; a test's own).
+    private let sourceProbe: any ScreenSourceProbe
+    /// Reports them while a viewer watches (``observeSourceState(_:)``) until `stop()`:
+    /// checked on the 2 s exclusion tick, and on each frame while not live, so an
+    /// unlock clears the viewer's notice with its first new picture.
     private var sourceMonitor: ScreenSourceMonitor?
 
     public func observeSourceState(_ changed: @escaping @Sendable (ScreenSourceState) -> Void) {
-        let monitor = ScreenSourceMonitor(events: sourceEvents, changed: changed)
+        let monitor = ScreenSourceMonitor(probe: sourceProbe, changed: changed)
         let previous = lock.withLock { () -> ScreenSourceMonitor?? in
             guard !stopped else { return .none }
             defer { sourceMonitor = monitor }
@@ -91,7 +93,12 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         }
         guard let previous else { return }
         previous?.stop()
-        monitor.start()
+        monitor.check()
+    }
+
+    /// Reads the source state again (a change goes to the viewer).
+    func checkSource() {
+        lock.withLock { sourceMonitor }?.check()
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -348,6 +355,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2)) // exclusion refresh period
                 guard let self else { return }
+                checkSource() // locked or display asleep since the last tick
                 let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, cursor: Bool, applied: Set<pid_t>, generation: Int) in
                     (stopped, excludedSource, drawsCursor, excludedApplied, streamGeneration)
                 }
@@ -378,7 +386,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
         timing?.frame(displayTime: attachments.first?[.displayTime] as? UInt64)
-        let sink = lock.withLock { onFrame }
+        let (sink, monitor) = lock.withLock { (onFrame, sourceMonitor) }
+        // A new picture while locked or asleep: read again, so an unlock or wake clears the notice now.
+        if let monitor, let state = monitor.state, state != .live { monitor.check() }
         sink?(buffer, CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)))
     }
 
@@ -682,63 +692,21 @@ final class EventInjector: @unchecked Sendable {
     ]
 }
 
-/// This Mac's lock and display sleep: the session dictionary's
-/// `CGSSessionScreenIsLocked` and the main display's sleep now, then the
-/// `com.apple.screenIsLocked` / `screenIsUnlocked` distributed notifications
-/// and NSWorkspace's screensDidSleep / screensDidWake. None needs an
-/// entitlement or a grant.
-public struct SystemScreenSourceEvents: ScreenSourceEvents {
+/// This Mac's lock and display sleep, read now: the session dictionary's
+/// `CGSSessionScreenIsLocked` (the window server sets it only while locked;
+/// absent or not a Boolean reads as unlocked, so no false notice) and the
+/// main display's `CGDisplayIsAsleep`. Neither needs an entitlement or a grant.
+public struct SystemScreenSourceProbe: ScreenSourceProbe {
     public init() {}
 
-    public func current() -> ScreenSourceTracker {
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        let locked = (session?["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue ?? false
-        return ScreenSourceTracker(locked: locked, asleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0)
+    public func read() -> ScreenSourceState {
+        ScreenSourceState(locked: Self.locked(session: CGSessionCopyCurrentDictionary() as? [String: Any]),
+                          asleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0)
     }
 
-    public func observe(_ event: @escaping @Sendable (ScreenSourceTracker.Event) -> Void) -> @Sendable () -> Void {
-        let observers = Observers()
-        let register = { @Sendable in
-            let distributed = DistributedNotificationCenter.default()
-            let workspace = NSWorkspace.shared.notificationCenter
-            let watched: [(NotificationCenter, Notification.Name, ScreenSourceTracker.Event)] = [
-                (distributed, Notification.Name("com.apple.screenIsLocked"), .locked),
-                (distributed, Notification.Name("com.apple.screenIsUnlocked"), .unlocked),
-                (workspace, NSWorkspace.screensDidSleepNotification, .displaySlept),
-                (workspace, NSWorkspace.screensDidWakeNotification, .displayWoke),
-            ]
-            for (center, name, value) in watched {
-                observers.add(center, center.addObserver(forName: name, object: nil, queue: nil) { _ in event(value) })
-            }
-        }
-        // On the main thread, whose run loop delivers both centers' notifications.
-        if Thread.isMainThread { register() } else { DispatchQueue.main.async(execute: register) }
-        return { DispatchQueue.main.async { observers.removeAll() } }
-    }
-
-    /// The registered observers, removed together (on the main thread, after any registration).
-    // crash-allow: `entries` is read and written only under `lock`.
-    private final class Observers: @unchecked Sendable {
-        private let lock = NSLock()
-        private var entries: [(NotificationCenter, any NSObjectProtocol)] = []
-        private var removed = false
-
-        func add(_ center: NotificationCenter, _ token: any NSObjectProtocol) {
-            let late = lock.withLock { () -> Bool in
-                if !removed { entries.append((center, token)) }
-                return removed
-            }
-            if late { center.removeObserver(token) }
-        }
-
-        func removeAll() {
-            let entries = lock.withLock { () -> [(NotificationCenter, any NSObjectProtocol)] in
-                removed = true
-                defer { self.entries = [] }
-                return self.entries
-            }
-            for (center, token) in entries { center.removeObserver(token) }
-        }
+    static func locked(session: [String: Any]?) -> Bool {
+        guard let number = session?["CGSSessionScreenIsLocked"] as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue
     }
 }
 #endif

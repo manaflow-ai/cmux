@@ -271,89 +271,53 @@ public enum ScreenSourceState: String, Sendable, Equatable, CaseIterable {
     case locked
     /// The display sleeps (the session may be unlocked).
     case asleep
-}
 
-/// The source state from lock and display-sleep events. Locked wins over
-/// asleep: a locked Mac whose display slept needs unlocking either way.
-public struct ScreenSourceTracker: Sendable, Equatable {
-    public enum Event: Sendable, Equatable {
-        case locked, unlocked, displaySlept, displayWoke
-    }
-
-    public var locked: Bool
-    public var asleep: Bool
-
-    public init(locked: Bool = false, asleep: Bool = false) {
-        self.locked = locked
-        self.asleep = asleep
-    }
-
-    public var state: ScreenSourceState { locked ? .locked : (asleep ? .asleep : .live) }
-
-    /// Applies `event`; the new state when it changed, else nil.
-    public mutating func apply(_ event: Event) -> ScreenSourceState? {
-        let before = state
-        switch event {
-        case .locked: locked = true
-        case .unlocked: locked = false
-        case .displaySlept: asleep = true
-        case .displayWoke: asleep = false
-        }
-        return state == before ? nil : state
+    /// Locked wins over asleep: a locked Mac whose display slept needs unlocking either way.
+    public init(locked: Bool, asleep: Bool) {
+        self = locked ? .locked : (asleep ? .asleep : .live)
     }
 }
 
-/// Where a source's lock and display-sleep events come from: the system's
-/// (``ScreenCaptureBackend``), or a test's.
-public protocol ScreenSourceEvents: Sendable {
-    /// The state now.
-    func current() -> ScreenSourceTracker
-    /// Calls `event` for each change until the returned cancel runs.
-    func observe(_ event: @escaping @Sendable (ScreenSourceTracker.Event) -> Void) -> @Sendable () -> Void
+/// Reads whether the Mac's session is locked and its display asleep: the
+/// system's (``ScreenCaptureBackend``), or a test's.
+public protocol ScreenSourceProbe: Sendable {
+    func read() -> ScreenSourceState
 }
 
-/// Follows a source's events and reports its state: once at ``start()``,
-/// then on each change, until ``stop()``.
-// crash-allow: `tracker` and `cancel` are read and written only under `lock`.
+/// Reports a source's state: at the first ``check()``, then whenever a
+/// later check reads another, until ``stop()``. Its owner checks on a tick
+/// it already runs and on frames that arrive while not live, so there is no
+/// observer and no timer of its own.
+// crash-allow: `last` and `stopped` are read and written only under `lock`.
 public final class ScreenSourceMonitor: @unchecked Sendable {
-    private let events: any ScreenSourceEvents
+    private let probe: any ScreenSourceProbe
     private let changed: @Sendable (ScreenSourceState) -> Void
     private let lock = NSLock()
-    private var tracker = ScreenSourceTracker()
-    private var cancel: (@Sendable () -> Void)?
+    private var last: ScreenSourceState?
     private var stopped = false
 
-    public init(events: any ScreenSourceEvents, changed: @escaping @Sendable (ScreenSourceState) -> Void) {
-        self.events = events
+    public init(probe: any ScreenSourceProbe, changed: @escaping @Sendable (ScreenSourceState) -> Void) {
+        self.probe = probe
         self.changed = changed
     }
 
-    public func start() {
-        // Observing first: a change between the read and the observer is not lost.
-        let cancel = events.observe { [weak self] event in self?.receive(event) }
-        let current = events.current()
-        let late = lock.withLock { () -> Bool in
-            guard !stopped else { return true }
-            self.cancel = cancel
-            tracker = current
-            return false
+    /// The state the last check read; nil before the first.
+    public var state: ScreenSourceState? { lock.withLock { last } }
+
+    public func check() {
+        // Read under the lock: two checks at once never report an older reading last.
+        let report = lock.withLock { () -> ScreenSourceState? in
+            guard !stopped else { return nil }
+            let now = probe.read()
+            guard last != now else { return nil }
+            last = now
+            return now
         }
-        if late { cancel(); return }
-        changed(current.state)
+        if let report { changed(report) }
     }
 
     public func stop() {
-        let cancel = lock.withLock { () -> (@Sendable () -> Void)? in
-            stopped = true
-            defer { self.cancel = nil }
-            return self.cancel
-        }
-        cancel?()
-    }
-
-    private func receive(_ event: ScreenSourceTracker.Event) {
-        guard let state = lock.withLock({ stopped ? nil : tracker.apply(event) }) else { return }
-        changed(state)
+        lock.withLock { stopped = true }
     }
 }
 
