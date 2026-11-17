@@ -13,6 +13,9 @@ that is merely busy is not starved.
 The wait counts from when the job could first run (wait_start()): a job behind
 a running sibling in its run, which may be its `needs`, is not counted, and one
 beside a queued sibling alerts only after STARVED_GATED_AFTER.
+Each alert then says why from the fleet gates' own reading (carriers()): full
+(every carrier runs a job or is held for units or load: capacity) or offline
+(carriers down with no hold: an outage), since GitHub shows both as offline.
 
 Every glaeda-* label is in scope, and the owned Linux label (FLEET_LINUX).
 Nothing in the tree says which runner label
@@ -85,6 +88,10 @@ RESCUE_RUNS_PER_SWEEP = 6
 RESCUE_WORKFLOW = "ci-owned-pool-rescue.yml"
 # The runs whose rescue this alert started, and when, in the issue body: <!-- starved-rescue: RUN@ISO ... -->.
 RESCUE_MARK = re.compile(r"<!-- starved-rescue:([^>]*)-->")
+# carriers(): a gate reading older than this is stale, as queue_janitor.FLEET_GATES_STALE_S (a test keeps them equal).
+CARRIER_READING_STALE_S = 300
+# carriers()' states, least to most severe: a label over several parts reads as its worst part.
+CARRIER_STATES = ("listening", "full", "unknown", "offline", "none")
 
 
 def parse_time(value: str | None) -> dt.datetime | None:
@@ -233,10 +240,75 @@ def issue_title(label: str) -> str:
     return ISSUE_PREFIX + label
 
 
+def _carrier_state(row: Mapping[str, Any]) -> str:
+    held = row.get("held_offline") or {}
+    if row.get("listening"):
+        return "listening"
+    if row.get("busy") or held.get("total"):
+        return "full"
+    if row.get("down"):
+        return "offline"
+    if row.get("unreported"):
+        return "unknown"
+    return "none"
+
+
+def carriers(label: str, gates: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, Any]:
+    """What the label's carriers are doing, from the fleet gates' own reading (the snapshot's `gates`).
+
+    GitHub lists a runner whose gate holds its listener off as offline, the same as a dead one, so the jobs alone
+    cannot tell a full label from a broken one (cmux#45614, #45620-#45622 read as outages while every carrier ran or
+    was held for capacity units). `state` is CARRIER_STATES' worst over the label's parts found in the reading:
+      full       no idle listener; carriers run jobs or their gate holds them (units, CPU, livelock, other): capacity
+      offline    carriers registered but down (offline with no gate hold), none running or held: an outage
+      listening  a listener is up and idle, yet the job did not start
+      none       the reading lists the label with no carrier at all
+      unknown    no fresh reading, the label is not in it, or its minis' probes failed
+    """
+    reading = (gates or {}).get("labels") if isinstance(gates, Mapping) else None
+    as_of = parse_time(str((gates or {}).get("as_of") or "")) if isinstance(gates, Mapping) else None
+    if not isinstance(reading, Mapping) or as_of is None:
+        return {"state": "unknown", "why": "no fleet gate reading (CI_FLEET_GATES) in this sweep"}
+    if (now - as_of).total_seconds() > CARRIER_READING_STALE_S:
+        return {"state": "unknown", "why": f"the fleet gate reading is from {as_of.strftime('%H:%M:%SZ')}, stale"}
+    parts = [(part, reading[part]) for part in label.split("+") if isinstance(reading.get(part), Mapping)]
+    if not parts:
+        return {"state": "unknown", "why": "the fleet gate reading does not list this label"}
+    state = max((_carrier_state(row) for _, row in parts), key=CARRIER_STATES.index)
+    counts = []
+    for part, row in parts:
+        held = row.get("held_offline") or {}
+        holds = ", ".join(f"{held[key]} {key}" for key in ("units", "cpu", "livelock", "other") if held.get(key))
+        counts.append(f"`{part}` {int(row.get('listening') or 0)} listening, {int(row.get('busy') or 0)} busy, "
+                      f"{int(held.get('total') or 0)} held" + (f" ({holds})" if holds else "")
+                      + f", {int(row.get('down') or 0)} down, {int(row.get('unreported') or 0)} unreported")
+    return {"state": state, "why": "; ".join(counts), "as_of": as_of.strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
+CARRIER_SENTENCE = {
+    "full": ("Its carriers are full, not offline: none listens because each runs a job or its gate holds it for "
+             "capacity units, CPU or another limit. This is capacity. Units holds while smaller jobs keep running "
+             "mean a large job starves behind smaller ones sharing its units (glaeda's starved-job reserve, "
+             "STARVED_RESERVE, holds the units for it)."),
+    "offline": ("Its carriers are offline: registered but down, with no gate hold and none running a job. This is "
+                "an outage. On the minis, `glaeda-mini-health` reports why (`runner_stopped` is kickstarted there; "
+                "a listener held off for `toolchain_mismatch` or `node_ineligible` needs its operator)."),
+    "listening": ("A carrier's listener is up and idle, yet the job has not started: look at the job's labels and "
+                  "the runner group before the minis."),
+    "none": "No runner carries this label: the job asks for a label the fleet does not serve.",
+    "unknown": ("No runner with this label is taking jobs, and the fleet gate reading cannot say whether its "
+                "carriers are full or offline. On the minis, `glaeda-mini-health` reports why (`runner_stopped` is "
+                "kickstarted there; a listener held off for `toolchain_mismatch` or `node_ineligible` needs its "
+                "operator)."),
+}
+
+
 def describe(entry: Mapping[str, Any]) -> str:
+    seen = entry.get("carriers") if isinstance(entry.get("carriers"), Mapping) else None
     return (f"`{entry['label']}`: {entry['queued']} job(s) queued, the oldest "
             f"({entry['job']}, {entry['job_url']}) for {format_minutes(int(entry['oldest_queued_minutes']))}, "
-            f"and no job on it running or started in the last {int(STARVED_AFTER.total_seconds() // 60)} minutes")
+            f"and no job on it running or started in the last {int(STARVED_AFTER.total_seconds() // 60)} minutes"
+            + (f"; carriers {seen['state']} ({seen['why']})" if seen else ""))
 
 
 def rescued_runs(body: object) -> dict[int, dt.datetime]:
@@ -292,9 +364,8 @@ def issue_body(entry: Mapping[str, Any], generated_at: str, rescued: Mapping[int
     mark = " ".join(f"{run}@{at.astimezone(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
                     for run, at in sorted(rescued.items()))
     return (f"The CI queue janitor's sweep at {generated_at} found {describe(entry)}.\n\n"
-            "No runner with this label is taking jobs. On the minis, `glaeda-mini-health` reports why "
-            "(`runner_stopped` is kickstarted there; a listener held off for `toolchain_mismatch` or "
-            "`node_ineligible` needs its operator). " + acted + "This issue is updated every sweep while the "
+            + CARRIER_SENTENCE[str((entry.get("carriers") or {}).get("state") or "unknown")] + " "
+            + acted + "This issue is updated every sweep while the "
             "label stays starved and closed by the first sweep that finds it served.\n\n"
             "Source: `scripts/ci/starved_labels.py` (ci-queue-janitor.yml)."
             + (f"\n\n<!-- starved-rescue: {mark} -->" if mark else ""))
@@ -419,12 +490,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # The sweep could not list jobs: no answer, so no issue is opened or closed.
         print("::warning title=Runner label starved::the janitor wrote no starved-label result this sweep")
         return 0
-    found = list(snapshot["starved"])
     generated_at = str(snapshot.get("generated_at") or "")
+    # The gate reading is judged against the sweep that wrote it (the snapshot is read seconds later, same job).
+    now = parse_time(generated_at) or dt.datetime.now(dt.timezone.utc)
+    found = [{**entry, "carriers": carriers(str(entry["label"]), snapshot.get("gates"), now)}
+             for entry in snapshot["starved"]]
     lines = ["", "### Starved runner labels", ""]
     for entry in found:
         print(f"::error title=Runner label starved::{entry['label']} took no job for "
-              f"{format_minutes(int(entry['oldest_queued_minutes']))}: {entry['job_url']}")
+              f"{format_minutes(int(entry['oldest_queued_minutes']))}, carriers {entry['carriers']['state']}: "
+              f"{entry['job_url']}")
         lines.append(f"- **Starved** {describe(entry)}.")
     incomplete = bool(snapshot.get("starved_incomplete"))
     if incomplete:
