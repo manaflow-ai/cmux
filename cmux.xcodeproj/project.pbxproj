@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
-		CE7A00000000000000000045 /* CmuxNextApp in Embed Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CE7A00000000000000000047 /* CmuxNextApp in Embed Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		CE7A0000000000000000001D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
@@ -26,13 +26,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		CE7A00000000000000000046 /* Embed Frameworks */ = {
+		CE7A00000000000000000048 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				CE7A00000000000000000045 /* CmuxNextApp in Embed Frameworks */,
+				CE7A00000000000000000047 /* CmuxNextApp in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -167,7 +167,7 @@
 				CE7A00000000000000000040 /* Verify web bundles */,
 				CE7A00000000000000000009 /* Sources */,
 				CE7A0000000000000000000A /* Frameworks */,
-				CE7A00000000000000000046 /* Embed Frameworks */,
+				CE7A00000000000000000048 /* Embed Frameworks */,
 				CE7A0000000000000000000B /* Resources */,
 				CE7A0000000000000000000D /* Reject Bundled Provider Binaries */,
 				CE7A0000000000000000001B /* Bundle CLI resources */,
@@ -176,6 +176,7 @@
 				CE7A00000000000000000020 /* Bundle acpmux */,
 				CE7A00000000000000000032 /* Bundle optchat-chief */,
 				CE7A00000000000000000044 /* Bundle cmux-mobile-host */,
+				CE7A00000000000000000045 /* Bundle Screen Sharing helper */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000041 /* Embed remote browser host */,
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
@@ -564,6 +565,38 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-mobile-host.sh\"\n";
+		};
+		CE7A00000000000000000045 /* Bundle Screen Sharing helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-screen-sharing-helper.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-screen-sharing-helper.sh",
+				"$(SRCROOT)/cmux-tui/crates",
+				"$(SRCROOT)/cmux-tui/vendor",
+				"$(SRCROOT)/cmux-tui/Cargo.toml",
+				"$(CMUX_NEXT_SCREEN_HELPER_BIN)",
+				"$(CMUX_NEXT_REQUIRE_SCREEN_HELPER)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(ARCHS)",
+				"$(CONFIGURATION)",
+				"$(CMUX_NEXT_SCREEN_HELPER_CACHE)",
+				"$(CMUX_NEXT_SCREEN_HELPER_ARCHS)",
+			);
+			name = "Bundle Screen Sharing helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_TEMP_DIR)/bundle-screen-sharing-helper.stamp",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-screen-sharing-helper.sh\"\n";
 		};
 		CE7A00000000000000000017 /* Embed CEF */ = {
 			isa = PBXShellScriptBuildPhase;
