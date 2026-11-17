@@ -11,3 +11,7 @@ description = "Image downscaling that averages light, not sRGB code values: 8-bi
 workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+# tests/compare.rs writes its before/after PNGs.
+png.workspace = true

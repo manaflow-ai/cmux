@@ -2,7 +2,7 @@
 //! the `image` crate or `fast_image_resize`, which average 8-bit sRGB code values (a black
 //! and white checkerboard comes out 128, not 188). Downscale with `cmux_image_linear`.
 //! A line that truly needs one (an upscale, a non-colour channel) says why with
-//! `// gamma: allow <why>`.
+//! `// gamma: allow <why>`, on that line or the one above.
 
 use std::path::{Path, PathBuf};
 
@@ -46,8 +46,13 @@ fn no_image_is_scaled_in_srgb() {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&file) else { continue };
-        for (n, line) in text.lines().enumerate() {
-            if NEEDLES.iter().any(|needle| line.contains(needle)) && !line.contains("gamma: allow")
+        let lines: Vec<&str> = text.lines().collect();
+        for (n, line) in lines.iter().enumerate() {
+            let allowed = |l: &str| l.contains("gamma: allow");
+            let above = n.checked_sub(1).and_then(|p| lines.get(p)).copied().unwrap_or("");
+            if NEEDLES.iter().any(|needle| line.contains(needle))
+                && !allowed(line)
+                && !allowed(above)
             {
                 found.push(format!("{}:{}: {}", file.display(), n + 1, line.trim()));
             }

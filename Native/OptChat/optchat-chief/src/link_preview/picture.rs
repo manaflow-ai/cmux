@@ -8,7 +8,6 @@ use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Instant;
 
 use cmux_conversation::MAX_PREVIEW_IMAGE_BYTES;
-use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat, ImageReader, Limits, RgbImage};
 
 /// A JPEG ready to upload.
@@ -61,7 +60,11 @@ pub fn to_jpeg(bytes: &[u8], deadline: Instant) -> Option<Picture> {
         let scaled;
         let shown: &RgbImage = if rgb.width().max(rgb.height()) > side {
             let (width, height) = fit(rgb.width(), rgb.height(), side);
-            scaled = image::imageops::resize(&rgb, width, height, FilterType::Triangle);
+            // Area-averaged in linear light (cmux_image_linear), so fine detail keeps its
+            // brightness instead of going darker.
+            let (w, h) = (rgb.width(), rgb.height());
+            let pixels = cmux_image_linear::downscale(rgb.as_raw(), 3, w, h, width, height);
+            scaled = RgbImage::from_raw(width, height, pixels)?;
             &scaled
         } else {
             &rgb

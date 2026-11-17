@@ -80,13 +80,33 @@ pub fn fit(bytes: &[u8], max_bytes: u64) -> Result<Fitted, String> {
 
 /// The image at most `edge` px on its long side, as RGB on white.
 fn scaled(image: &DynamicImage, edge: u32) -> RgbImage {
-    let small = if image.width().max(image.height()) > edge {
-        // Box-filtered: fast on a 16 MP screenshot, sharp enough for text.
-        image.thumbnail(edge, edge)
-    } else {
-        image.clone()
+    let (width, height) = (image.width(), image.height());
+    if width.max(height) <= edge {
+        return on_white(image);
+    }
+    // Area-averaged in linear light (cmux_image_linear), a row at a time: fast on a 16 MP
+    // screenshot, and text keeps its weight instead of going darker.
+    let (out_w, out_h) = cmux_image_linear::fit(width, height, edge);
+    let mut scaler = cmux_image_linear::Downscaler::new(width, height, out_w, out_h, false);
+    let mut push = |raw: &[u8], channels: usize| {
+        for row in raw.chunks_exact(width as usize * channels) {
+            scaler.push_row(row.chunks_exact(channels).map(|px| match px {
+                [r, g, b] => [*r, *g, *b, 255],
+                [r, g, b, a] => {
+                    let [r, g, b] = blend_on_white([*r, *g, *b, *a]);
+                    [r, g, b, 255]
+                }
+                _ => [0; 4],
+            }));
+        }
     };
-    on_white(&small)
+    match image {
+        DynamicImage::ImageRgb8(rgb) => push(rgb.as_raw(), 3),
+        DynamicImage::ImageRgba8(rgba) => push(rgba.as_raw(), 4),
+        other => push(other.to_rgba8().as_raw(), 4),
+    }
+    // `finish` gives exactly `out_w * out_h` RGB pixels.
+    RgbImage::from_raw(out_w, out_h, scaler.finish()).unwrap_or_default()
 }
 
 /// The image as RGB, transparent pixels blended onto white.
@@ -96,10 +116,14 @@ fn on_white(image: &DynamicImage) -> RgbImage {
     }
     let rgba = image.to_rgba8();
     RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
-        let [r, g, b, a] = rgba.get_pixel(x, y).0;
-        let blend = |c: u8| ((c as u32 * a as u32 + 255 * (255 - a as u32)) / 255) as u8;
-        image::Rgb([blend(r), blend(g), blend(b)])
+        image::Rgb(blend_on_white(rgba.get_pixel(x, y).0))
     })
+}
+
+/// One pixel blended onto white, as a card or the model's viewer shows it.
+fn blend_on_white([r, g, b, a]: [u8; 4]) -> [u8; 3] {
+    let blend = |c: u8| ((c as u32 * a as u32 + 255 * (255 - a as u32)) / 255) as u8;
+    [blend(r), blend(g), blend(b)]
 }
 
 #[cfg(test)]
@@ -205,6 +229,38 @@ pub(crate) mod tests {
                 );
             }
         }
+    }
+
+    /// Before and after, one harness: the `image` crate's box thumbnail (the model copy
+    /// before) and triangle resize (the link preview picture before), both averaging sRGB
+    /// codes, against the linear-light area average now, on a 6K screenshot.
+    /// Run: `cargo test --release -p optchat-chief before_and_after_timing -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing; run by hand"]
+    fn before_and_after_timing() {
+        let image = image::load_from_memory(&screenshot_png(5344, 3044)).unwrap();
+        let best = |f: &dyn Fn() -> RgbImage| {
+            (0..5)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    std::hint::black_box(f());
+                    t.elapsed().as_secs_f64() * 1000.0
+                })
+                .fold(f64::INFINITY, f64::min)
+        };
+        let rgb = on_white(&image);
+        let (w, h) = cmux_image_linear::fit(5344, 3044, MAX_EDGE);
+        // gamma: allow the before reference this times
+        let thumbnail = best(&|| on_white(&image.thumbnail(MAX_EDGE, MAX_EDGE)));
+        let triangle = best(&|| {
+            // gamma: allow the before reference this times
+            image::imageops::resize(&rgb, w, h, image::imageops::FilterType::Triangle)
+        });
+        let linear = best(&|| scaled(&image, MAX_EDGE));
+        println!(
+            "5344x3044 -> {w}x{h}, best of 5: thumbnail (sRGB) {thumbnail:.1} ms, \
+             triangle (sRGB) {triangle:.1} ms, linear area {linear:.1} ms"
+        );
     }
 
     #[test]
