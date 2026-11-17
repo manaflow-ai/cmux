@@ -75,23 +75,6 @@ const mixedCommands: AcpmuxActivity[] = [
   ),
 ];
 
-const CAPTURE =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
-/// 100 reads of mixed heights: the lead thought, a read with an image every sixth step and a later
-/// thought every eleventh.
-const mixedReads: AcpmuxActivity[] = [
-  lead,
-  ...Array.from({ length: 99 }, (_, index) =>
-    index % 11 === 5
-      ? thought(`File ${index + 1} imports the helper.`)
-      : tool(`Read capture-${index + 1}.png`, "read", "completed", {
-          output: `Read capture ${index + 1}`,
-          ...(index % 6 === 3 ? { images: [CAPTURE] } : {}),
-        }),
-  ),
-];
-
 declare global {
   interface Window {
     /** The scene's hold on an opened run's deferred row draws (ToolGroupRow.tsx `stepProbe.hold`). */
@@ -151,7 +134,6 @@ export default agentPaneEntry({
     n20: variant(20),
     n100: variant(100),
     "mixed-commands": mixed("commands", mixedCommands),
-    "mixed-reads": mixed("reads", mixedReads),
     // An opened call stays open and in place when the next call regroups the run (pinnedToolRowsScenes.ts).
     ...pinnedVariants,
   },

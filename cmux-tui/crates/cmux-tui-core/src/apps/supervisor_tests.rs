@@ -1127,6 +1127,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 
 #[path = "supervisor_chat_widget_tests.rs"]
 mod chat_widgets;
+#[path = "supervisor_community_tests.rs"]
+mod community;
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
 #[path = "supervisor_github_tests.rs"]
