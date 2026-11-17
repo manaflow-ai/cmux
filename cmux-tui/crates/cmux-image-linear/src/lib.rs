@@ -35,7 +35,9 @@ fn to_srgb_table() -> &'static [u8] {
         for code in 0..255u8 {
             let end = (decode((f64::from(code) + 0.5) / 255.0) * 65535.0).ceil() as usize;
             let end = end.clamp(start, table.len());
-            table[start..end].fill(code);
+            if let Some(run) = table.get_mut(start..end) {
+                run.fill(code);
+            }
             start = end;
         }
         table
@@ -49,12 +51,14 @@ fn decode(v: f64) -> f64 {
 
 /// The 16-bit linear light of 8-bit sRGB `code`.
 pub fn to_linear(code: u8) -> u16 {
-    to_linear_table()[usize::from(code)]
+    // A u8 always indexes the 256 entries.
+    to_linear_table().get(usize::from(code)).copied().unwrap_or(0)
 }
 
 /// The 8-bit sRGB code nearest 16-bit linear light `linear`.
 pub fn to_srgb(linear: u16) -> u8 {
-    to_srgb_table()[usize::from(linear)]
+    // A u16 always indexes the 65536 entries.
+    to_srgb_table().get(usize::from(linear)).copied().unwrap_or(255)
 }
 
 /// Where one input pixel falls among the output pixels: `first` takes `w0` of it and
@@ -140,19 +144,16 @@ impl Downscaler {
         }
         // Across first: the row's pixels into its output columns, then that row of sums
         // down into the output rows it covers.
-        let lin = to_linear_table();
+        let table = to_linear_table();
+        // A u8 always indexes the 256 entries.
+        let lin = |code: u8| u64::from(table.get(usize::from(code)).copied().unwrap_or(0));
         let across = &mut self.across;
         for (column, [r, g, b, a]) in self.columns.iter().zip(pixels) {
             if a == 0 {
                 continue;
             }
             let a = u64::from(a);
-            let px = [
-                u64::from(lin[usize::from(r)]) * a,
-                u64::from(lin[usize::from(g)]) * a,
-                u64::from(lin[usize::from(b)]) * a,
-                a,
-            ];
+            let px = [lin(r) * a, lin(g) * a, lin(b) * a, a];
             if let Some(sum) = across.get_mut(column.first) {
                 for (s, v) in sum.iter_mut().zip(px) {
                     *s += v * column.w0;
