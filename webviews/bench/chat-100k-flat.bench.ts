@@ -77,23 +77,25 @@ const PAINT = process.env.PAINT !== "0";
 const RESIZE_WIDTHS = [700, 620, 540, 460];
 // CPU settle, so the idle windows read steady state: once a launch's chats are loaded or grown, its renderers' CPU and
 // the shown page's V8 heap in use (the pages share one renderer and isolate) are sampled every second. The settle ends
-// at the start of the first SETTLE_QUIET_S (20) seconds in which (a) no sample is a spike, above max(SETTLE_SPIKE_PCT
-// (10) % of a core, 3x the window's median); (b) the window's mean CPU is at most max(SETTLE_PCT (2) %, SETTLE_K (1.5)x
-// the matched empty launch's steady idle) (an empty launch, run first, has no match and skips this); and (c) the heap
-// never drops more than max(2 %, 2 MB) from one sample to the next. Why: after a load or growth V8's memory reducer
-// runs full collections on a timer (8 s after the last one, so about 9 s apart here, two of them), each a 1 s sample
-// at 100-220 % of a core, and the old rule (two quiet seconds under 2 %) could end before them, so they fell into the
-// idle windows by chance: the same commit back to back read long_x20 idle 5.79x and 1.21x, settle 6 s and 54 s, and 2 %
-// sits under 20 empty chats' own idle (3-6 %), so empty settled by luck. 20 s covers the reducer's 8-16 s timer, (a)
-// and (c) see a collection by its CPU or its heap drop, and (b) waits out a slow drain. SETTLE_MAX_S (120) caps it; a
-// launch that hits the cap reports settle = the cap and cpu_settle_capped 1, and its idle windows still run. Its cost
-// is kept, in rows of its own and out of ratio_max: cpu_settle_s (the settle time) and gc_spike_cpu_s (the CPU-seconds
-// of the settle's spikes that came with a heap drop, the collections). Each idle window's heap is read too, and a drop
-// in one is logged and counted (idle_gc_windows), so a collection the settle missed shows.
+// at the start of the first quiet window: SETTLE_QUIET_S (20) seconds once the settle has seen a collection (a heap
+// drop of more than max(2 %, 2 MB) between samples), else SETTLE_NOGC_S (40), in which (a) no sample is a spike, above
+// max(SETTLE_SPIKE_PCT (10) % of a core, 3x the window's median); (b) the mean CPU is at most max(SETTLE_PCT (2) %,
+// SETTLE_K (1.5)x the matched empty launch's steady idle) (an empty launch, run first, has no match and skips this);
+// and (c) the heap never drops. Why: after a load or growth V8 runs full collections on a timer (its memory reducer:
+// about 9 s apart, the first 7-34 s after the load, later in a small heap), each a 1 s sample at up to 220 % of a core;
+// the old rule (two quiet seconds under 2 %) could end before them, so they fell into the idle windows by chance (the
+// same commit back to back read long_x20 idle 5.79x and 1.21x, settle 6 s and 54 s), and 2 % sits under 20 empty
+// chats' own idle (3-6 %), so empty settled by luck. 20 s after a collection covers the next one's spacing; 40 s with
+// none seen covers a small heap's late first one. SETTLE_MAX_S (120) caps it: a launch that hits the cap reports settle
+// = the cap and cpu_settle_capped 1, and its idle windows still run. The cost stays in rows of its own, out of
+// ratio_max: cpu_settle_s (the time) and settle_spike_cpu_s (the CPU-seconds of the spikes after the load's burst, over
+// the settled level). Each idle window's heap is read too, and one with a drop is logged and counted
+// (idle_gc_windows), so a collection the settle missed shows.
 const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
 const SETTLE_K = Number(process.env.SETTLE_K ?? 1.5);
 const SETTLE_SPIKE_PCT = Number(process.env.SETTLE_SPIKE_PCT ?? 10);
 const SETTLE_QUIET_S = Number(process.env.SETTLE_QUIET_S ?? 20);
+const SETTLE_NOGC_S = Number(process.env.SETTLE_NOGC_S ?? 40);
 const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 120);
 // A heap drop that counts as a collection: more than 2 % of the heap and more than 2 MB (a small heap's jitter).
 const heapDropped = (before: number, after: number) => before - after > Math.max(0.02 * before, 2);
@@ -640,10 +642,15 @@ try {
         const pct = await window(1);
         const s = (performance.now() - from) / 1000;
         settleSamples.push({ from, s, pct, heap: await heapMB() });
-        // The quiet window: the samples from the latest one that started at least SETTLE_QUIET_S seconds ago.
+        // The quiet window: the samples from the latest one that started at least SETTLE_QUIET_S seconds ago, or
+        // SETTLE_NOGC_S while no collection (a heap drop) has been seen in the settle.
+        const collected = settleSamples.some(
+          (sample, index) => index > 0 && heapDropped(settleSamples[index - 1]!.heap, sample.heap),
+        );
+        const quietS = collected ? SETTLE_QUIET_S : SETTLE_NOGC_S;
         const now = performance.now();
         let first = settleSamples.length - 1;
-        while (first >= 0 && (now - settleSamples[first]!.from) / 1000 < SETTLE_QUIET_S) first--;
+        while (first >= 0 && (now - settleSamples[first]!.from) / 1000 < quietS) first--;
         if (first < 0) continue;
         const quiet = settleSamples.slice(first);
         const pcts = quiet.map((sample) => sample.pct);
@@ -661,27 +668,27 @@ try {
       }
       const capped = settleS === undefined;
       const settledS = settleS ?? SETTLE_MAX_S;
-      // The CPU-seconds of the settle's collections: its spikes (against the settled level, or the whole settle's median
-      // when it hit the cap) that came with a heap drop in that sample or the next (one can straddle a sample's end).
-      const gcBar = Math.max(SETTLE_SPIKE_PCT, 3 * (settledMedian ?? median(settleSamples.map((v) => v.pct))));
-      let gcSpikeCpuS = 0;
-      let gcSpikes = 0;
-      for (const [index, sample] of settleSamples.entries()) {
-        const prev = settleSamples[index - 1];
-        const next = settleSamples[index + 1];
-        const dropped =
-          (prev !== undefined && heapDropped(prev.heap, sample.heap)) ||
-          (next !== undefined && heapDropped(sample.heap, next.heap));
-        if (sample.pct > gcBar && dropped) {
-          gcSpikeCpuS += (sample.pct / 100) * sample.s;
-          gcSpikes++;
+      // The settle's spikes, after the load's own burst has drained (from the first sample at or under the bar): the
+      // CPU-seconds they take over the settled level (the whole settle's median when it hit the cap). In this bench they
+      // are V8's collections (the profiles in cmux#45210); a collection is counted by its heap drop.
+      const level = settledMedian ?? median(settleSamples.map((v) => v.pct));
+      const bar = Math.max(SETTLE_SPIKE_PCT, 3 * level);
+      const drained = settleSamples.findIndex((sample) => sample.pct <= bar);
+      let spikeCpuS = 0;
+      let spikes = 0;
+      for (const sample of drained < 0 ? [] : settleSamples.slice(drained))
+        if (sample.pct > bar) {
+          spikeCpuS += ((sample.pct - level) / 100) * sample.s;
+          spikes++;
         }
-      }
+      const collections = settleSamples.filter(
+        (sample, index) => index > 0 && heapDropped(settleSamples[index - 1]!.heap, sample.heap),
+      ).length;
       console.log(
         `  ${name}: CPU settled in ${settledS.toFixed(1)} s` +
-          (capped ? ` (cap: no ${SETTLE_QUIET_S} s quiet window in ${SETTLE_MAX_S} s)` : "") +
+          (capped ? ` (cap: no quiet window in ${SETTLE_MAX_S} s)` : "") +
           `; mean bar ${meanBar === undefined ? "none (empty launch)" : `${meanBar.toFixed(2)} %`}` +
-          `; ${gcSpikes} collection spike(s), ${gcSpikeCpuS.toFixed(2)} cpu-s` +
+          `; ${spikes} spike(s) after the load, ${spikeCpuS.toFixed(2)} cpu-s; ${collections} heap drop(s)` +
           `; samples ${settleSamples.map((v) => v.pct.toFixed(1)).join(", ")}`,
       );
       console.log(`  ${name}: settle heap MB ${settleSamples.map((v) => v.heap.toFixed(0)).join(", ")}`);
@@ -1004,7 +1011,7 @@ try {
       const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS: settledS, capped };
       perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settledS, p95: settledS, unit: "s" });
       perfRow({ name: `${ROW}.${name}.cpu_settle_capped`, p50: Number(capped), p95: Number(capped), unit: "count" });
-      perfRow({ name: `${ROW}.${name}.gc_spike_cpu_s`, p50: gcSpikeCpuS, p95: gcSpikeCpuS, unit: "s", clock: "cpu" });
+      perfRow({ name: `${ROW}.${name}.settle_spike_cpu_s`, p50: spikeCpuS, p95: spikeCpuS, unit: "s", clock: "cpu" });
       perfRow({ name: `${ROW}.${name}.idle_gc_windows`, p50: idleGcWindows, p95: idleGcWindows, unit: "count" });
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
       perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
