@@ -276,6 +276,8 @@ public final class DensityPlaygroundModel {
         let taken = Set((densities + extra).map { self.name($0).lowercased() })
         guard taken.contains(name.lowercased()) else { return name }
         var index = 2
+        // main-actor-ok: one lookup per density the playground holds (the built-in scale plus the person's
+        // own, a handful), and it stops at the first free name, so the loop runs at most `taken.count` times.
         while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
         return "\(name) \(index)"
     }
