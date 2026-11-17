@@ -641,7 +641,13 @@ impl MediaEngine {
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
-        state.force_idr = None;
+        // Only a frame asked for as a keyframe (or one that is independent anyway) answers a
+        // pending keyframe. A recovery that came in while an older P-frame request was still
+        // being encoded stays pending, so the next request is the keyframe: clearing it here
+        // lost the recovery, and a viewer that moved routes waited for another ask.
+        if req.force_idr || enc.idr || tile {
+            state.force_idr = None;
+        }
         state.last_frame = req.frame;
         state.probe_from_us = Some(now_us);
         state.probes = 0;
