@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// ``ChromeTextLayer`` through ``GlyphMask``) read the smoothing AppKit latched at launch and kept
 /// its glyph images. Chrome text now follows ``ProcessFontSmoothing/chrome``, which a live change
 /// (``ProcessFontSmoothing/applyLive(_:)``) moves, and draws again when it does.
-@MainActor @Suite(.serialized) struct ChromeFontSmoothingLiveTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ChromeFontSmoothingLiveTests {
     private static let on = ProcessFontSmoothing(smoothsStems: true)
     private static let off = ProcessFontSmoothing(smoothsStems: false)
     /// Light ink on dark: the case stem darkening thickens most.
@@ -46,7 +47,16 @@ import Testing
         root.wantsLayer = true
         root.addSubview(view)
         window.contentView = root
+        // On screen, as the sidebar is: AppKit displays its layers and lists it in NSApp.windows.
+        window.orderFrontRegardless()
         return window
+    }
+
+    /// Lays the window out and displays it, as a frame of the app does.
+    private func show(_ window: NSWindow) {
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.contentView?.displayIfNeeded()
+        CATransaction.flush()
     }
 
     /// The alpha sum of a glyph mask image.
@@ -94,14 +104,14 @@ import Testing
             label.frame = NSRect(x: 8, y: 30, width: 380, height: 20)
             let window = window(with: label)
             defer { window.close() }
-            window.contentView?.displayIfNeeded()
+            show(window)
             let smoothed = Self.coverage(Self.labelMask(label)?.contents)
             let draws = label.glyphDraws
             #expect(smoothed > 0)
 
             ProcessFontSmoothing.applyLive(.antialiased)
             #expect(label.needsDisplay, "a smoothing change marks every chrome label on screen")
-            window.contentView?.displayIfNeeded()
+            show(window)
             let thin = Self.coverage(Self.labelMask(label)?.contents)
             #expect(label.glyphDraws == draws + 1, "the glyphs draw again in the new smoothing")
             #expect(thin > 0)
@@ -109,7 +119,7 @@ import Testing
 
             // Back: the first smoothing's image is drawn again, the same as before.
             ProcessFontSmoothing.applyLive(.subpixel)
-            window.contentView?.displayIfNeeded()
+            show(window)
             #expect(Self.coverage(Self.labelMask(label)?.contents) == smoothed)
         }
     }
@@ -124,8 +134,7 @@ import Testing
             title.stringValue = Self.text
             let window = window(with: title)
             defer { window.close() }
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.contentView?.displayIfNeeded()
+            show(window)
             let text = try #require(title.layer?.sublayers?.first { $0 is ChromeTextLayer } as? ChromeTextLayer)
             let glyphs = try #require(text.sublayers?.lazy.compactMap(\.mask).first)
             text.frame = CGRect(x: 0, y: 0, width: 380, height: 20)
