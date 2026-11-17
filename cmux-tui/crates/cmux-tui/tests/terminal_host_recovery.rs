@@ -5478,3 +5478,6 @@ mod idle_template;
 
 #[path = "terminal_host_recovery/restart_host_leak.rs"]
 mod restart_host_leak;
+
+#[path = "terminal_host_recovery/template_binding.rs"]
+mod template_binding;
