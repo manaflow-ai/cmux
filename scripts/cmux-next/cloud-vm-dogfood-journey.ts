@@ -5,8 +5,10 @@
  *
  *   health -> create -> running -> listed -> first exec -> agent CLIs present
  *   -> named terminal over WebSocket (first prompt) -> a background process
- *   -> pause -> paused -> exec refused while paused -> resume -> running
- *   -> the background process survived (memory kept) -> the same terminal
+ *   -> pause -> paused -> resume -> running -> the background process survived
+ *   (memory kept) -> pause again -> an exec with no resume wakes the VM and finds
+ *   the process still alive
+ *   -> the same terminal
  *   reattaches and runs a command -> delete -> 404 -> gone from the list.
  *
  * It lives outside workers/cmux-vm so changing it never redeploys the Worker
@@ -315,7 +317,8 @@ async function awake(id: string): Promise<void> {
   if (state === "running") return;
   if (state === "paused" || state === "pausing") {
     if (state === "pausing") await waitForState(id, "paused", 3 * 60_000);
-    expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume (wake)");
+    // 409: something else (an exec, inbound traffic) woke it between the read and the resume.
+    expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200, 409], "POST resume (wake)");
   }
   await waitForState(id, "running", 5 * 60_000);
 }
@@ -703,20 +706,35 @@ try {
     await timed("paused", () => waitForState(id, "paused", 3 * 60_000));
     result["statusAfterPauseSeries"] = await stateSeries(id, pausedAt, [1_000, 5_000, 15_000]);
     result["statusAfterPause"] = (result["statusAfterPauseSeries"] as Array<{ status: string }>).at(-1)?.status ?? "unknown";
-    // A paused VM refuses exec with 409 instead of waking for it.
-    const whilePaused = await call("POST", `${vmPath(id)}/exec`, { command: "true", timeoutMs: 10_000 }, {}, 40_000);
-    result["execWhilePausedStatus"] = whilePaused.status;
-    if (whilePaused.status !== 409) note(`exec on a paused VM answered ${whilePaused.status}, expected 409`);
-
+    // Resume first, while the VM is surely paused: anything that reaches the VM (exec included) wakes it, and
+    // resume on a VM that is no longer paused is 409 by design ("Only a paused VM can be resumed").
     await timed("resume", async () => {
       expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume");
     });
     await timed("runningAfterResume", () => waitForState(id, "running", 3 * 60_000));
-    result["memoryKept"] = await timed("memoryKept", async () => {
-      const out = await exec(id, `kill -0 ${pid} 2>/dev/null && echo alive || echo gone`);
-      return out.stdout.trim() === "alive";
-    });
+    const alive = `kill -0 ${pid} 2>/dev/null && echo alive || echo gone`;
+    result["memoryKept"] = await timed("memoryKept", async () => (await exec(id, alive)).stdout.trim() === "alive");
     if (result["memoryKept"] !== true) failed.push("memoryKept");
+
+    // Then pause again and exec with no resume: the exec wakes the VM where it was, memory kept.
+    await timed("pauseAgain", async () => {
+      expectStatus(await call("POST", `${vmPath(id)}/pause`, undefined, {}, 3 * 60_000), [200], "POST pause (again)");
+    });
+    await timed("pausedAgain", () => waitForState(id, "paused", 3 * 60_000));
+    const whilePaused = await timed("execWakes", () =>
+      call("POST", `${vmPath(id)}/exec`, { command: alive, timeoutMs: 60_000 }, {}, 5 * 60_000));
+    result["execWhilePausedStatus"] = whilePaused.status;
+    if (whilePaused.status === 200) {
+      result["memoryKeptOnExecWake"] = String(field(whilePaused.body, "stdout") ?? "").trim() === "alive";
+      if (result["memoryKeptOnExecWake"] !== true) failed.push("memoryKeptOnExecWake");
+    } else {
+      // The exec failed: a red (exec should wake a paused VM). It may still have woken it; awake() resumes only a
+      // VM that is still paused, so the rest of the journey runs.
+      failed.push("execWakes");
+      note(`exec on a paused VM answered ${whilePaused.status}, expected it to wake the VM and answer 200`);
+      await awake(id);
+    }
+    await timed("runningAfterExecWake", () => waitForState(id, "running", 3 * 60_000));
   }
 
   if (terminalLeg) {

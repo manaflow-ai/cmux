@@ -432,6 +432,10 @@ jobs:
           CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
         run: |
           set -euo pipefail
+          # ghostty-vt-sys runs ZIG first; the ghostty-next Zig (CMUX_VT_ZIG, 0.17) goes there, not the
+          # default classic Zig on PATH (0.16), as nightly's refresh-build-in-tree-acpmux.sh does.
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+          echo "libghostty-vt zig: ${ZIG:-zig} ($("${ZIG:-zig}" version 2>/dev/null || echo unknown))"
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
@@ -519,6 +523,21 @@ jobs:
       # The Bundle cmux-tui phase bundles none (deferred): "Install universal
       # Ghostty CLI helper" below installs this tree's universal cmux-tui client
       # (install-cmux-tui-client.sh); the phase never takes another build's client.
+      # The app build refuses missing or stale cmux-next web bundles (agent pane, React pages, webviews).
+      # feat-cmux-next publishes them per source key (cmux-next-web-bundle-publish.yml); take that exact
+      # bundle, else build it here with this job's Node and Bun (handoff dry run 44014686155, 2026-11-17).
+      - name: Provide the cmux-next web bundles
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          status=0
+          scripts/cmux-next/fetch-web-bundles.sh --install || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "No published web bundles for this source key (exit $status); building them"
+            scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          scripts/cmux-next/build-web-bundles.sh --verify
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
