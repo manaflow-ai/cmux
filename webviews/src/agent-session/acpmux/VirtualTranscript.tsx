@@ -1,4 +1,4 @@
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
+import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -63,6 +63,7 @@ import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -94,8 +95,8 @@ import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./co
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
-import { noteTranscriptMount, noteReplyUnpainted, noteMounted, noteUnmounted } from "./flickerLog";
-import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
+import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
+import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
@@ -225,11 +226,17 @@ import {
   FOLLOW_BOTTOM_DEADBAND_PX,
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
+import { focusRoute } from "../../ui/focusRoute";
+import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 
-/// How soon after the box's last width a new one counts as the same live resize (a drag's frames come
-/// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
-/// long a width holds before the whole chat is measured at it.
-const LIVE_RESIZE_MS = 120;
+/// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
+/// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
+const LIVE_STEP_VARS = transcriptLiveVars();
+
+/// How soon after the last width step's work finished a new width counts as the same live resize,
+/// and how long a width holds before the whole chat is measured at it, come from
+/// conversation/liveResizeStep.ts, which owns the rule and its reason (LIVE_RESIZE_MS above).
+
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
 const PROMPT_TOPS_QUIET_MS = 1000;
@@ -424,7 +431,7 @@ const RowFrame = React.memo(function RowFrame({
   continuationFooter,
   lastTurn,
   index,
-  setSize,
+  setSizeRef,
   top,
   rowWidth,
   expanded,
@@ -481,7 +488,9 @@ const RowFrame = React.memo(function RowFrame({
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
   lastTurn: boolean;
   index: number;
-  setSize: number;
+  /// The list's length for `aria-setsize`, held in a ref so a row that arrives changes no prop here
+  /// (TranscriptView, `setSize`). The row writes the attribute on the mount that puts it in the list.
+  setSizeRef: React.MutableRefObject<string>;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -599,6 +608,14 @@ const RowFrame = React.memo(function RowFrame({
     return () => observer.unobserve(node);
   }, [observer]);
   useLayoutEffect(() => {
+    // The mount that puts this row in the list writes its `aria-setsize`. A later length is written
+    // by the transcript's own sweep, which runs only when the length changed, so a streamed token
+    // reads no mounted row at all.
+    ref.current?.setAttribute("aria-setsize", setSizeRef.current);
+    // Only this mount: the ref holds the length, so a changed one re-runs nothing here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
     const node = ref.current;
     if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
   }, [
@@ -633,7 +650,8 @@ const RowFrame = React.memo(function RowFrame({
       {...rowTabStop}
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
-      aria-setsize={setSize}
+      // `aria-setsize` is not here: the transcript writes it to the mounted nodes, so a row that arrives
+      // does not change a prop on every other one (TranscriptView, `setSize`).
       // `top`, not a transform: in the app (the page at its UI-scale zoom) a drag over a row placed
       // by `translateY` selected the line above the pointer (user 2026-10-21). A set `top` counts
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
@@ -795,7 +813,7 @@ type RowFramesView = {
   geometry: { topAt(index: number): number; gapAt(index: number): number };
   frameKey: string;
   registry: NativeRegistry;
-  setSize: number;
+  setSizeRef: React.MutableRefObject<string>;
   rowWidth: number;
   expanded: Folds;
   observer: ResizeObserver | undefined;
@@ -827,7 +845,7 @@ type RowFramesView = {
 /// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
 /// every other frame on the element `cache` kept, whatever the rows in view.
 function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: RowFramesView): React.ReactElement[] {
-  const { rows, geometry, setSize } = view;
+  const { rows, geometry } = view;
   const entering = view.enters ? sources.entering.current : undefined;
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
@@ -857,7 +875,6 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
-      inputs.setSize = setSize;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
       inputs.selected = view.selectedRows.has(absoluteIndex);
@@ -903,7 +920,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           continuationFooter={isContinuationFooter(row, next)}
           lastTurn={row.lastTurn === true}
           index={absoluteIndex}
-          setSize={setSize}
+          setSizeRef={view.setSizeRef}
           top={inputs.top}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
@@ -2164,8 +2181,12 @@ function TranscriptView({
   const liveResize = useRef<{
     at: number;
     live: boolean;
-    /// Width steps in a row, each within LIVE_RESIZE_MS of the one before.
+    /// Width steps in a row, each promptly after the one before was served.
     steps: number;
+    /// When the last width step's own work finished (conversation/liveResizeStep.ts): the next
+    /// width is judged against this, never against when the last step began, which is the cost
+    /// this judgement is used to avoid.
+    served?: number;
     flow?: number;
     /// The chat the rows flow in: another chat ends the flow.
     flowSession?: string;
@@ -2305,6 +2326,8 @@ function TranscriptView({
     // Only the size change of this frame is the card leaving.
     requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
   }, [queueIds]);
+  // The rows beside the stack stay in sight (conversation/useBesideStack.ts).
+  useBesideStack(dock, ref, TRAY_GHOST);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -2855,10 +2878,13 @@ function TranscriptView({
     const placed = lastPlaced.current;
     const threadNode = thread.current;
     const scroller = ref.current;
-    if (!placed || !threadNode || !scroller || placed.held.length > 0 || placed.last <= placed.first) return false;
-    if (foldRide.current?.riding) return false;
+    if (!placed || !threadNode || !scroller) return (acpmuxPerf.span("flow.refused.unplaced", 1), false);
+    if (placed.held.length > 0) return (acpmuxPerf.span("flow.refused.held", 1), false);
+    if (placed.last <= placed.first) return (acpmuxPerf.span("flow.refused.empty", 1), false);
+    if (foldRide.current?.riding) return (acpmuxPerf.span("flow.refused.riding", 1), false);
     const mounted = threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row");
-    if (mounted.length !== placed.last - placed.first) return false;
+    if (mounted.length !== placed.last - placed.first) return (acpmuxPerf.span("flow.refused.mounted", 1), false);
+    acpmuxPerf.span("flow.anchored", 1);
     const geometry = placed.layout.geometry;
     // Each mounted row's gap under it, its margin in the flow; the last one has no row under it there.
     // Written here and not by the row's render: outside a drag a row that arrives must cost what it
@@ -2941,6 +2967,7 @@ function TranscriptView({
   // 2026-11-11: "the dragging responsiveness is slow for agent chat but fast for browser hmmm").
   const startFlow = useCallback(() => {
     if (!anchorFlow()) return;
+    acpmuxPerf.span("flow.started", 1);
     thread.current!.classList.add(FLOW_CLASS);
     liveResize.current.flow = rowWidthRef.current;
     liveResize.current.flowSession = sessionIdRef.current;
@@ -2997,6 +3024,7 @@ function TranscriptView({
       const live = liveResize.current;
       const from = live.flow;
       if (from === undefined) return;
+      acpmuxPerf.span("flow.ended", 1);
       live.flow = undefined;
       live.flowSession = undefined;
       live.hold = undefined;
@@ -3336,21 +3364,38 @@ function TranscriptView({
     if (live.rearm) {
       // The run before had a settle on the way: it keeps its time, LIVE_RESIZE_MS after the last width.
       live.rearm = false;
-      timer = setTimeout(settle, Math.max(0, live.at + LIVE_RESIZE_MS - performance.now()));
+      timer = setTimeout(settle, Math.max(0, (live.served ?? live.at) + LIVE_RESIZE_MS - performance.now()));
     }
     /// A new width from the box's observer or the page's show (never the first measure). A second
-    /// width within LIVE_RESIZE_MS is a live resize: its frames measure the rows in view, and the
-    /// whole chat is measured once LIVE_RESIZE_MS after its last width.
+    /// width within LIVE_RESIZE_MS of the last one being served is a live resize: its frames measure
+    /// the rows in view, and the whole chat is measured once LIVE_RESIZE_MS after the last width was
+    /// served. Judged from when serving finished, never from when it began, so a chat long enough to
+    /// make a frame cost more than the window cannot read its own drag as a series of one-off
+    /// resizes (conversation/liveResizeStep.ts).
     const widthStep = () => {
       const now = performance.now();
-      live.live = now - live.at < LIVE_RESIZE_MS;
-      live.steps = live.live ? live.steps + 1 : 0;
-      live.at = now;
+      live.live = continuesLiveResize(live, now);
+      const next = stepLiveResize(live, now);
+      live.steps = next.steps;
+      live.at = next.at;
+      // The settle waits from the end of this step's work, not its start (`servedWidth` below): a
+      // 120 ms timer placed here fired between a long chat's 300 ms frames, so the settle ended the
+      // drag's flow once a frame.
       clearTimeout(timer);
-      timer = setTimeout(settle, LIVE_RESIZE_MS);
+      timer = undefined;
       // Rows flow from the drag's third step on: two width changes close together can be a
       // scrollbar or a column settling, never a drag.
       if (live.steps >= LIVE_FLOW_STEPS && live.flow === undefined) startFlow();
+    };
+    /// Closes a width step once its own work is done: the render it forced and the measuring with
+    /// it. The settle waits from here, and the next width is judged from here
+    /// (conversation/liveResizeStep.ts), so neither depends on what serving a width costs. `stepped`
+    /// is false when the box changed height alone, which starts no live resize.
+    const servedWidth = (stepped: boolean) => {
+      if (!stepped) return;
+      live.served = performance.now();
+      clearTimeout(timer);
+      timer = setTimeout(settle, LIVE_RESIZE_MS);
     };
     /// This transcript's box as last measured (`shown` below compares the box on show with it).
     const box = { height: -1, width: -1 };
@@ -3378,7 +3423,18 @@ function TranscriptView({
     // transcript at its old offset and caught up a frame later.
     const observer = new ResizeObserver(() => {
       noteQueue();
-      flushSync(() => measure(true, widthStep));
+      let stepped = false;
+      try {
+        flushSync(() =>
+          measure(true, () => {
+            stepped = true;
+            widthStep();
+          }),
+        );
+      } finally {
+        // Even if the pass threw: widthStep cleared the settle's timer, and only this places it again.
+        servedWidth(stepped);
+      }
     });
     observer.observe(node);
     measure(false);
@@ -3395,7 +3451,17 @@ function TranscriptView({
       if (doc.visibilityState === "hidden" || node.clientHeight <= 0) return;
       if (node.clientHeight === box.height && node.offsetWidth === box.width) return;
       noteQueue();
-      flushSync(() => measure(true, widthStep));
+      let stepped = false;
+      try {
+        flushSync(() =>
+          measure(true, () => {
+            stepped = true;
+            widthStep();
+          }),
+        );
+      } finally {
+        servedWidth(stepped);
+      }
     };
     doc.addEventListener("visibilitychange", shown);
     return () => {
@@ -4332,7 +4398,7 @@ function TranscriptView({
       if (!node) return;
       const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
       if (mounted) {
-        mounted.focus();
+        focusRoute(mounted, "system", "a transcript row mounted");
         pendingFocus.current = undefined;
         return;
       }
@@ -4358,7 +4424,7 @@ function TranscriptView({
     );
     if (target) {
       // focusRow already put the row in view; End's last row is in view at the end of its ride.
-      target.focus({ preventScroll: true });
+      focusRoute(target, "system", "the transcript's pending focus", { preventScroll: true });
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);
@@ -4388,7 +4454,7 @@ function TranscriptView({
           const mounted = [...(ref.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])].find(
             (row) => row.dataset.rowId === lastId,
           );
-          if (mounted) mounted.focus({ preventScroll: true });
+          if (mounted) focusRoute(mounted, "system", "the transcript's pending focus", { preventScroll: true });
           else pendingFocus.current = lastId;
         }
         jumpToLatestRef.current(false, "end-key");
@@ -5154,27 +5220,18 @@ function TranscriptView({
     // fold's bound (followChase `alongside`), so the rows move as one motion, never the sum of two.
     followChase.current?.alongside(turnEnd.current?.animations);
   }, [rows, sessionId, stopFollowMotion]);
-  // The detector for a reply the chat holds but does not paint (conversation/replyPainted.ts): once
-  // the turn has ended and the page has settled, the followed view must show its final reply, or
-  // the flicker ring file says why (`reply-unpainted`). Each reply is judged once.
-  const judgedReply = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (working || loading) return;
-    const id = finalReplyId(rows);
-    if (!id || judgedReply.current === id) return;
-    const timer = setTimeout(() => {
-      const scroller = ref.current;
-      const host = thread.current;
-      if (!scroller || !host || document.visibilityState !== "visible" || !scrolledTo.current.atLatest) return;
-      judgedReply.current = id;
-      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
-      const node = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
-      const view = scroller.getBoundingClientRect();
-      const why = replyUnpainted(node, host, { top: view.top, bottom: view.bottom - dockSpace });
-      if (why) noteReplyUnpainted(why, Math.round(node?.getBoundingClientRect().height ?? 0));
-    }, REPLY_SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [rows, working, loading, dockSpace]);
+  // The detector for a reply the chat holds but does not paint, for a turn this page saw end
+  // (conversation/replyJudge.ts).
+  useEndedReplyCheck({
+    rows,
+    sessionId,
+    working,
+    loading,
+    dockSpace,
+    scroller: ref,
+    host: thread,
+    follow: scrolledTo,
+  });
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(
     () => () => {
@@ -6614,12 +6671,14 @@ function TranscriptView({
     olderAsking.current = true;
     const ask = ++olderAsk.current;
     const askedAt = performance.now();
+    window.__cmuxOlderTrace?.("ask", askedAt, ask);
     // A page that lands changes the key in the commit it brings, and the check after it asks for
     // the next. An ask that brought nothing (a read that failed, or one the client dropped) leaves
     // the key as it was: ask once more a moment later, as long as the view is still near the top.
     // At the very top no scroll event comes to ask for it, and a check on every render would ask
     // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
     const settled = () => {
+      window.__cmuxOlderTrace?.("settled", performance.now(), ask);
       if (ask !== olderAsk.current) return;
       olderAsking.current = false;
       clearTimeout(olderRecheck.current);
@@ -6774,13 +6833,25 @@ function TranscriptView({
   };
   // Each mounted row's frame, its props worked out again only for rows whose rows or inputs changed
   // (`drawRowFrames`): a streamed token redoes the live row's alone.
+  /// `aria-setsize` on the mounted rows, written to the nodes instead of passed to each one. It is a
+  /// whole-list number (`rows.length`, or -1 while older history can still be paged in), so a row
+  /// that arrived changed it for every mounted row at once and React redrew them all: at 1,500 rows
+  /// while a reply streamed, `rowprop:setSize` was the first differing prop in 34 of the p95 frame's
+  /// 41 row renders (composer-typing.bench.ts, cmux#45237). A row that arrives must cost its own
+  /// draw, not the mounted window's. A screen reader reads the attribute. The row writes it on its
+  /// own mount, from this ref; a changed length is swept below.
+  const setSize = String(canLoadOlder ? -1 : rows.length);
+  // The ref is written by the sweep below, never in a render: a render that React throws away must
+  // leave nothing behind. A row's own mount effect runs before the sweep, so it reads the length as
+  // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
+  const setSizeRef = useRef(setSize);
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
     rows,
     mountedRanges,
     geometry: layout.geometry,
     frameKey,
     registry,
-    setSize: canLoadOlder ? -1 : rows.length,
+    setSizeRef,
     rowWidth: scaledRowWidth,
     expanded,
     observer,
@@ -6807,6 +6878,18 @@ function TranscriptView({
     rowRepositories,
     scopeAt,
   });
+  /// Only a changed length sweeps the mounted rows. A streamed token leaves the length alone, so it
+  /// reads no mounted row: a pass over the thread's rows is what `test/transcript-fold-anchor.test.tsx`
+  /// counts, and a token during a fold must run none. `[data-row-id]` keeps the write off a fold's
+  /// ghost copies, which hang in the thread with the row class and have this attribute stripped on
+  /// purpose (conversation/turnFold.ts `ghostOf`): an inert copy must not read as a row of the list.
+  useLayoutEffect(() => {
+    setSizeRef.current = setSize;
+    const threadNode = thread.current;
+    if (!threadNode) return;
+    for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
+      if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
+  }, [setSize]);
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -6857,6 +6940,8 @@ function TranscriptView({
                 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+              // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
+              ...LIVE_STEP_VARS,
             } as React.CSSProperties
           }
         >
@@ -6917,7 +7002,7 @@ function TranscriptView({
               <div
                 ref={thread}
                 className="acpmux-thread"
-                style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
+                style={{ top: lift + topInset }}
                 onPointerOver={(event) => pointAt(event.target)}
                 onPointerLeave={() => pointAt(null)}
               >

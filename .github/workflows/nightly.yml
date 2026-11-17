@@ -4280,11 +4280,15 @@ jobs:
           CMUX_NEXT_CEF_ON_DEMAND: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && '1' || '' }}
           CMUX_NEXT_CEF_RUNTIME_OUT: ${{ runner.temp }}/cef-runtime
           CMUX_NEXT_CEF_RUNTIME_BASE_URL: https://files-next.cmux.com
+          # sign-cef.sh reuses it when it is the same code and signer, so deltas leave Chromium out.
+          CMUX_CEF_REUSE_FRAMEWORK: ${{ runner.temp }}/cef-reuse/Chromium Embedded Framework.framework
         run: |
           if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
+          s=scripts/ci/nightly-steps/sign-fetch-published-chromium.sh
+          if [ -f "$s" ]; then bash "$s" join "$RUNNER_TEMP/cef-reuse"; fi
           # A submitted helper keeps the exact signature Apple is notarizing;
           # otherwise (fast or paused builds) sign it in the inside-out pass.
           sign_mode=all
@@ -7293,6 +7297,10 @@ jobs:
       - name: Refuse stray processes before secrets
         if: ${{ !env.LEFT_SLOT }}
         run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
+      # After the check above: "Codesign apps" joins it (sign-fetch-published-chromium.sh, sign-cef.sh reuse).
+      - name: Fetch the published Chromium framework
+        if: ${{ !env.LEFT_SLOT }}
+        run: bash scripts/ci/nightly-steps/sign-fetch-published-chromium.sh start "$RUNNER_TEMP/cef-reuse"
       - *x57
       - *x58
       - *x59

@@ -156,10 +156,11 @@ fn step_names(line: &serde_json::Value) -> Vec<String> {
 
 /// The parts of the `mux.build` step that a start names on their own. The
 /// entry `mux.build` is the rest of the step.
-const MUX_BUILD_PARTS: [&str; 5] = [
+const MUX_BUILD_PARTS: [&str; 6] = [
     "mux.build.committed_snapshots_open",
     "mux.build.command_history",
     "mux.build.output_store.prune",
+    "mux.build.output_store.snapshot_scan",
     "mux.build.output_store.parked_trim",
     "mux.build.output_store.stream_ends",
 ];

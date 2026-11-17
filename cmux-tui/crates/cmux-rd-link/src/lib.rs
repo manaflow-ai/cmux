@@ -40,6 +40,12 @@ pub const TAG_HANDSHAKE_1: u8 = 0xD0;
 pub const TAG_HANDSHAKE_2: u8 = 0xD1;
 pub const TAG_HANDSHAKE_3: u8 = 0xD2;
 pub const TAG_SEALED: u8 = 0xD3;
+/// A responder's hole punch: one byte, sent to each of the initiator's routes
+/// until the handshake finishes, so the responder's own NAT or firewall lets
+/// the initiator's message 1 in (a responder behind address-dependent
+/// filtering that only listens never hears it). Every side drops it unread;
+/// an older initiator does too, as an unknown tag.
+pub const TAG_PUNCH: u8 = 0xD4;
 /// Bytes a sealed packet adds to its payload: tag, nonce, inner kind, AEAD tag.
 pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 /// Largest handshake message (two keys, payloads and tags fit well inside).

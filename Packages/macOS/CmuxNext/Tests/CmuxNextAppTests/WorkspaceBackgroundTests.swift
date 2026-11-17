@@ -123,7 +123,7 @@ import Testing
     @Test func thePickerReadsPreviewsAndSavesAWorkspacesBackground() async throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "cnc-wsbg-\(UUID().uuidString)/cmux.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         let store = WorkspaceBackgroundStore(url: nil)
         await store.load()

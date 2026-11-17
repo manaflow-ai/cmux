@@ -5,8 +5,8 @@
 //   - it never reads an empty "Choose folder" while Cloud is the pick;
 //   - This Mac with no folder reads No folder too, with no Cloud detail; a picked folder keeps its
 //     name under Cloud;
-//   - a started Cloud chat in the fresh folder its machine made (`~/chats/<chat>`) reads No folder,
-//     not the folder's generated name.
+//   - a started Cloud chat in the fresh folder its machine made (`~/chats/<chat>`) names that
+//     folder: No folder is only the unsent chat's state.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -139,7 +139,7 @@ test("Cloud with a folder picked keeps the folder's name: choosing a folder stil
   expect(stripText()).not.toContain(t("composer.cloudNoFolder"));
 });
 
-test("a started Cloud chat in its machine's fresh folder reads No folder, not the folder's generated name", async () => {
+test("a started Cloud chat in its machine's fresh folder names that folder, not No folder", async () => {
   await mount({
     started: true,
     onNewChat: () => undefined,
@@ -154,8 +154,8 @@ test("a started Cloud chat in its machine's fresh folder reads No folder, not th
       cwd: "/home/cmux/chats/peer-4242",
     },
   });
-  expect(stripText()).toContain(t("composer.cloudNoFolder"));
-  expect(stripText()).not.toContain("peer-4242");
+  expect(stripText()).toContain("peer-4242");
+  expect(stripText()).not.toContain(t("composer.cloudNoFolder"));
 });
 
 test("an SSH chat in a folder shaped like a Cloud chat's keeps its name: only Cloud chats have a fresh folder", async () => {
@@ -175,4 +175,35 @@ test("an SSH chat in a folder shaped like a Cloud chat's keeps its name: only Cl
   expect(stripText()).toContain("api");
   expect(stripText()).not.toContain(t("composer.cloudNoFolder"));
   expect(stripText()).not.toContain(t("composer.chooseFolder"));
+});
+
+// A Cloud start copies the folder the chip names and nothing else (cloudRun.ts composerCloudStartFolder):
+// a chip that reads No folder starts in the machine's own folder, with nothing copied. A New Tab
+// page's inherited folder (the app's launch folder, `newTab.cwd`) once went as the project of a chat
+// whose chip said No folder, and the start asked to copy a 23 GB folder instead of starting.
+test("what a Cloud start copies is what the folder chip names", async () => {
+  const { composerCloudStartFolder } = await import("../src/agent-session/acpmux/cloudRun");
+  const local = { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" as const };
+  const cases = [
+    { name: "no folder", summary: local, copies: undefined },
+    {
+      name: "agent home",
+      summary: { ...local, cwd: "/Users/you/Library/Application Support/cmux/agent-home/abc" },
+      copies: undefined,
+    },
+    { name: "a picked project", summary: { ...local, cwd: "/Users/you/src/cmux/" }, copies: "/Users/you/src/cmux" },
+  ];
+  for (const { name, summary, copies } of cases) {
+    await mount({ ...cloud, summary });
+    const label = folderLabel();
+    const start = composerCloudStartFolder(summary);
+    if (copies === undefined) {
+      expect(label?.dataset.folderState, name).toBe("cloudFresh");
+      expect(start, name).toEqual({ home: true });
+    } else {
+      expect(label?.dataset.folderState, name).toBe("folder");
+      expect(start, name).toEqual({ cwd: copies });
+      expect(label?.textContent, name).toBe("cmux");
+    }
+  }
 });

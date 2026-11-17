@@ -74,6 +74,7 @@ const BACKDROP = [
   "--cmux-surface-background",
   "--cmux-surface-token",
   "--cmux-reading-background",
+  "--cmux-window-tint",
 ];
 
 /** The bundles whose custom properties resolve from their own sheets: each pages/<name> page builds

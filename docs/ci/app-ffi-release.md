@@ -49,7 +49,24 @@ first on every pass. Its runner-lost reds get one rerun. The base's pin check
 fails 120 min after the FFI change (`--stale-grace 7200`). At 90 min,
 base-red-watch sends the coordinator a WARN that names the open re-pin pull
 request. If the PR is still unmerged then, land it by hand: `merge_hold
-explain`, then a pinned squash.
+explain`, then a pinned squash. Only with a passing `cmux-next fast tier` (on a
+re-pin it runs `HandlerCoverageTests` alone) at the PR head: a `cancelled` or
+skipped tier is no verdict. When the release's action catalog differs from the
+current pin's, that test is the only proof that every tab, pane, screen and
+terminal action has an App handler. #43935 landed with its tier cancelled at the
+20-minute limit (2026-11-15), and every Debug launch then stopped in
+`HandlerCoverage.verify` until #44082. Without a verdict, get one on the fleet
+before landing:
+
+```sh
+cmux-ci run --class light --script scripts/ci/run-swift-testing-suites.sh \
+  --ref PR_HEAD_SHA --arg Packages/macOS/CmuxNext \
+  --env CMUX_SWIFT_TEST_SUITES=HandlerCoverageTests --key handler-coverage-PR_HEAD_SHA
+```
+
+A catalog row in one of those categories that lands before its App code needs a
+typed "unavailable" placeholder in the App before the re-pin (as
+`TerminalToChatPlaceholders` does), or the re-pin cannot pass.
 
 A tip whose FFI sources moved past the release still gets that release
 pinned. Until 2026-11-11 it was left to the newer push's own run, and when FFI

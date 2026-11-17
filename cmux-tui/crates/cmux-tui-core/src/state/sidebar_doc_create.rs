@@ -148,6 +148,18 @@ fn target(
     let Some(section) = doc.machine_section(local).map(|section| section.id.clone()) else {
         return Ok(None);
     };
+    // `top` from inside a group: first in that group, never loose above every
+    // group (Leo 2026-11-16: "I make a new space. Getting sent out of the
+    // group that I'm"). The app's `top` slot is the same (Lawrence
+    // 2026-10-28: Cmd-N in a group keeps the new one in it, at its top).
+    if placement == NewWorkspacePlacement::Top
+        && !anchors.by_creator
+        && let Some(current) = anchors.current
+        && let Some(in_group) = after_anchor(transaction, doc, local, placed, current, false)?
+        && in_group.parent.is_some()
+    {
+        return Ok(Some(Target { after: None, index: Some(0), ..in_group }));
+    }
     let anchor = match placement {
         NewWorkspacePlacement::Bottom => return Ok(None), // not reached: `place`
         NewWorkspacePlacement::Top => None,

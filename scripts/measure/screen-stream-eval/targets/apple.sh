@@ -29,28 +29,200 @@ screen_sharing_app() {
   return 1
 }
 
+# The Screen Sharing.app executable; every pid this target may quit runs exactly this path.
+viewer_executable() {
+  local app
+  app=$(screen_sharing_app) || return 1
+  echo "$app/Contents/MacOS/$(basename "$app" .app)"
+}
+
+# is_screen_sharing PID: PID is alive and runs the Screen Sharing executable (checked by path, so a
+# reused pid that now belongs to another process never matches).
+is_screen_sharing() {
+  local cmd
+  [[ "$1" =~ ^[1-9][0-9]*$ && -n "${apple_viewer_exe:-}" ]] || return 1
+  cmd=$(ps -ww -p "$1" -o command= 2>/dev/null) || return 1
+  cmd=${cmd#"${cmd%%[![:space:]]*}"}
+  [[ "$cmd" == "$apple_viewer_exe" || "$cmd" == "$apple_viewer_exe "* ]]
+}
+
+# viewer_pids: every running Screen Sharing process, matched by executable path, one pid a line.
+viewer_pids() {
+  local pid cmd
+  ps -ww -A -o pid= -o command= 2>/dev/null | while read -r pid cmd; do
+    if [[ "$cmd" == "$apple_viewer_exe" || "$cmd" == "$apple_viewer_exe "* ]]; then
+      echo "$pid"
+    fi
+  done
+  return 0
+}
+
+# stop_viewer: quit the instance this run launched (EVAL_STATE/viewer.pid) and only it: TERM, up to
+# 5 s, then KILL, each only while that pid still runs the Screen Sharing executable. Never by name.
+stop_viewer() {
+  local file="$EVAL_STATE/viewer.pid" pid
+  pid=$(cat "$file" 2>/dev/null || true)
+  if is_screen_sharing "$pid"; then
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+      is_screen_sharing "$pid" || break
+      sleep 0.1 # bounded: 5 s for the viewer to quit
+    done
+    if is_screen_sharing "$pid"; then
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$file"
+}
+
+# descendants PID: every process below PID (children, grandchildren, ...), one pid a line.
+descendants() {
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" '
+    { parent[$1] = $2; order[NR] = $1 }
+    END {
+      want[root] = 1
+      do {
+        grew = 0
+        for (i = 1; i <= NR; i++) {
+          p = order[i]
+          if (!(p in want) && (parent[p] in want)) { want[p] = 1; grew = 1; print p }
+        }
+      } while (grew)
+    }'
+}
+
+# start_watchdog LIMIT_S: bound this view verb. Past LIMIT_S a separate process quits the viewer
+# this run launched, then this verb's own descendants and the verb itself (TERM, then KILL 5 s
+# later), so a hung osascript or app cannot hold the run. It never touches its parent's process
+# group: the caller (a test runner, peer.py) may share it.
+# EVAL_APPLE_VIEW_DEADLINE_S is a test hook: it may only shorten the bound, never lengthen or disable it.
+start_watchdog() {
+  local limit=$1 override=${EVAL_APPLE_VIEW_DEADLINE_S:-}
+  if [[ "$override" =~ ^[1-9][0-9]*$ ]] && (( override < limit )); then
+    limit=$override
+  fi
+  rm -f "$EVAL_STATE/view-timed-out"
+  bash -c "$(declare -f is_screen_sharing stop_viewer descendants)"'
+    trap "kill \$nap 2>/dev/null; exit 0" TERM
+    sleep "$1" </dev/null >/dev/null 2>&1 &
+    nap=$!
+    wait "$nap" 2>/dev/null || exit 0
+    # The verb was killed outright (its EXIT trap never ran): pid $2 and viewer.pid may now
+    # belong to something else, so act on nothing.
+    [[ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d " ")" == "$2" ]] || exit 0
+    echo "apple-$3: view passed its $1 s deadline; quit the viewer this run launched; next: check the viewer Mac for a hung Screen Sharing.app or osascript, then rerun" >&2
+    : >"$EVAL_STATE/view-timed-out"
+    stop_viewer
+    for p in $(descendants "$2"); do
+      [[ "$p" == "$$" ]] || kill -TERM "$p" 2>/dev/null || true
+    done
+    kill -TERM "$2" 2>/dev/null || exit 0
+    for _ in $(seq 1 50); do
+      kill -0 "$2" 2>/dev/null || exit 0
+      sleep 0.1 # bounded: 5 s for the verb to exit on TERM
+    done
+    kill -KILL "$2" 2>/dev/null || true
+  ' apple-watchdog "$limit" "$$" "$mode" &
+  watchdog_pid=$!
+}
+
+# view_cleanup: the EXIT trap of every view verb, on success, failure or signal.
+view_cleanup() {
+  local status=$?
+  # Finish cleanup even when the watchdog's TERM lands now. Cleanup is bounded on its own: its
+  # only wait is stop_viewer's 5 s.
+  trap - EXIT
+  trap '' TERM INT HUP
+  if [[ -n "${watchdog_pid:-}" ]]; then
+    kill -TERM "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+  fi
+  stop_viewer || true
+  if [[ -e "$EVAL_STATE/view-timed-out" ]]; then
+    rm -f "$EVAL_STATE/view-timed-out"
+    status=124
+  fi
+  exit "$status"
+}
+
+# begin_view LIMIT_S: arm the cleanup trap and the watchdog before anything is launched.
+begin_view() {
+  apple_viewer_exe=$(viewer_executable) || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
+  export apple_viewer_exe
+  rm -f "$EVAL_STATE/viewer.pid"
+  watchdog_pid=""
+  trap view_cleanup EXIT
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
+  trap 'exit 129' HUP
+  start_watchdog "$1"
+}
+
 connect() {
   [[ "$host" != 127.* && "$host" != localhost ]] || {
     echo "apple-$mode: requires a second Mac; set lan=/viewer-of= or EVAL_APPLE_HOST" >&2
     return 1
   }
   app=$(screen_sharing_app) || return 1
-  if ! open -g -a "$app" "vnc://$host" >/dev/null 2>&1; then
+  # A new instance (-n), never activated (-g): the run binds to and later quits only the pid it
+  # launched, never a Screen Sharing window someone else opened.
+  local before new count pid candidate expected
+  before=" $(viewer_pids | tr '\n' ' ') "
+  if ! open -g -n -a "$app" "vnc://$host" >/dev/null 2>&1; then
     echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
     return 1
   fi
-  [[ "${EVAL_PRESENTED_OBSERVER_PID:-}" =~ ^[1-9][0-9]*$ && "${EVAL_PRESENTED_OBSERVER_WINDOW:-}" =~ ^[1-9][0-9]*$ ]] || {
-    echo "apple-$mode: explicit presented-pid/window required before quality selection" >&2
+  new="" count=0
+  for _ in $(seq 1 150); do
+    new="" count=0
+    for pid in $(viewer_pids); do
+      case "$before" in *" $pid "*) ;; *) new=$pid; count=$((count + 1)) ;; esac
+    done
+    (( count >= 1 )) && break
+    sleep 0.1 # bounded: the launched instance must appear within 15 s
+  done
+  # Hold for 1 s more: if a second Screen Sharing starts meanwhile, which one is ours is unknown,
+  # so bind neither (a wrong bind would later quit someone else's viewer).
+  if (( count == 1 )); then
+    candidate=$new
+    for _ in $(seq 1 10); do
+      sleep 0.1 # bounded: 1 s settle
+      new="" count=0
+      for pid in $(viewer_pids); do
+        case "$before" in *" $pid "*) ;; *) new=$pid; count=$((count + 1)) ;; esac
+      done
+      (( count == 1 )) && [[ "$new" == "$candidate" ]] || break
+    done
+  fi
+  if (( count != 1 )); then
+    echo "apple-$mode: found $count new Screen Sharing processes after open, not 1; next: rerun on a viewer Mac where nothing else launches Screen Sharing.app" >&2
+    return 1
+  fi
+  echo "$new" >"$EVAL_STATE/viewer.pid"
+  viewer_pid=$new
+  if [[ -n "${EVAL_PRESENTED_OBSERVER_PID:-}" && "$EVAL_PRESENTED_OBSERVER_PID" != "$viewer_pid" ]]; then
+    echo "apple-$mode: presented-pid=$EVAL_PRESENTED_OBSERVER_PID is not the instance this run launched ($viewer_pid); next: omit presented-pid= so the launched instance is used" >&2
+    return 1
+  fi
+  expected=${EVAL_PRESENTED_OBSERVER_WINDOW:-}
+  [[ -z "$expected" || "$expected" =~ ^[1-9][0-9]*$ ]] || {
+    echo "apple-$mode: presented-window must be a numeric CGWindowID; next: pass one or omit it" >&2
     return 1
   }
-  viewer_pid=$EVAL_PRESENTED_OBSERVER_PID
+  # Without presented-window, take the largest Screen Sharing window and accept it only when it
+  # is the launched process's sole window.
   window_id=""
   for _ in $(seq 1 100); do
-    window_id=$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" "$viewer_pid" "$EVAL_PRESENTED_OBSERVER_WINDOW" 2>/dev/null || true)
-    [[ "$window_id" == "$EVAL_PRESENTED_OBSERVER_WINDOW" ]] && break
+    candidate=$expected
+    [[ -n "$candidate" ]] || candidate=$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" 2>/dev/null || true)
+    if [[ "$candidate" =~ ^[1-9][0-9]*$ ]]; then
+      window_id=$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" "$viewer_pid" "$candidate" 2>/dev/null || true)
+      [[ "$window_id" == "$candidate" ]] && break
+    fi
+    window_id=""
     sleep 0.1
   done
-  [[ "$window_id" == "$EVAL_PRESENTED_OBSERVER_WINDOW" ]] || {
+  [[ -n "$window_id" ]] || {
     echo "apple-$mode: selected window is missing or ambiguous; next: leave one connection window in the selected process" >&2
     return 1
   }
@@ -59,6 +231,8 @@ connect() {
   # View menu contains the quality items directly (no Quality submenu).
   quality_item="Adaptive Quality"
   [[ "$mode" == high ]] && quality_item="Full Quality"
+  # `set frontmost` and AXRaise take focus (the View menu acts only on the frontmost app). This
+  # runs only on a dedicated fleet Mac: person_guard.py refuses apple* targets on a person's Mac.
   osascript - "$quality_item" "$viewer_pid" <<'OSA' || return 1
 on run argv
   tell application "System Events"
@@ -105,8 +279,8 @@ verify_scene_ready() {
     echo "apple-$mode: missing fresh source nonce; next: run the host half of screen-stream-eval.sh" >&2
     return 1
   }
-  for var in EVAL_PRESENTED_OBSERVER_BIN EVAL_PRESENTED_OBSERVER_PID EVAL_PRESENTED_OBSERVER_WINDOW \
-    EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE; do
+  # connect() already bound viewer_pid (the launched instance) and window_id.
+  for var in EVAL_PRESENTED_OBSERVER_BIN EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE; do
     [[ -n "${!var:-}" ]] || {
       echo "apple-$mode: source readiness requires $var; next: configure presented-observer=1 on the viewer" >&2
       return 1
@@ -177,12 +351,14 @@ case "$verb" in
   host-stop) ;;
   latency-view)
     input=$1; raw=$3
+    samples=$2
+    [[ "$samples" =~ ^[0-9]+$ ]] || { echo "apple-$mode: latency samples must be a whole number" >&2; exit 2; }
+    begin_view $((samples * 2 + 120))
     if [[ -n "${EVAL_PRESENTED_OBSERVER_BIN:-}" ]]; then
       # The managed GUI step may opt into cmux-rd's protocol-independent
       # compositor observer. Every identity and geometry value is explicit so
       # this target cannot silently observe another Screen Sharing window.
-      for var in EVAL_PRESENTED_OBSERVER_PID EVAL_PRESENTED_OBSERVER_WINDOW \
-        EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE EVAL_PRESENTED_INPUT_POINT; do
+      for var in EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE EVAL_PRESENTED_INPUT_POINT; do
         [[ -n "${!var:-}" ]] || {
           echo "apple-$mode: presented observer requires $var" >&2
           exit 1
@@ -197,8 +373,8 @@ case "$verb" in
       [[ "$input" == pointer ]] && kind=click
       observer_raw="$raw.observer"
       if ! "$EVAL_PRESENTED_OBSERVER_BIN" observe \
-        --pid "$EVAL_PRESENTED_OBSERVER_PID" \
-        --window "$EVAL_PRESENTED_OBSERVER_WINDOW" \
+        --pid "$viewer_pid" \
+        --window "$window_id" \
         --display "${EVAL_PRESENTED_DISPLAY:-main}" \
         --marker-origin "$EVAL_PRESENTED_MARKER_ORIGIN" \
         --cell-size "$EVAL_PRESENTED_CELL_SIZE" \
@@ -243,6 +419,8 @@ PY
     ;;
   window-view)
     seconds=$1; snapshot=$2; go=$3; raw=$4
+    [[ "$seconds" =~ ^[0-9]+$ ]] || { echo "apple-$mode: window seconds must be a whole number" >&2; exit 2; }
+    begin_view $((seconds + 120))
     rm -f "$go" "$raw.readiness.json" "$raw.readiness-observer.json"
     connect || exit 1
     verify_scene_ready "$raw" || exit 1

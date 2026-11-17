@@ -46,6 +46,9 @@ public nonisolated struct CloudMachineRules: Sendable {
         public var goneForPhones = false
         public var agentInfrastructure = false
         public var desktopViewer = "web"
+        /// The name for a title a person reads; nil when the machine has none or only a generated one
+        /// (cmux-cloud-machine `is_generated_name`: a `cmux cloud start-chat` machine's `chat-` and 16 hex).
+        public var humanName: String?
 
         init() {}
     }

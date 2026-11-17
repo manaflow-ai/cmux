@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "8a4cd1cfc2448475de5d55b793aed8dd33e52a0cb4cb4be76baa0010b57119b8",
+  "catalog_sha256": "c65200d278b09825f2210804a789f11d213d2bbe7840c416dfe36fa86180d2b3",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -206,6 +206,12 @@
       "class": "mutation"
     },
     "cloud.owner.github_app": {
+      "class": "read"
+    },
+    "cloud.owner.github_connect": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_repos": {
       "class": "read"
     },
     "cloud.owner.handoff_begin_turn": {

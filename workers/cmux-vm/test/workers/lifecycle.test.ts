@@ -339,8 +339,20 @@ describe("start, stop, pause, resume", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toMatchObject({ id: vmId, state: "stopped" });
     expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${upstreamId}/exec-await$`)).map((call) => call.json)).toEqual([
-      { command: "poweroff", timeoutMs: 10000 },
+      { command: "poweroff", timeoutMs: 10000, linuxUser: "root" },
     ]);
+  });
+
+  it("stop answers an error, not the running VM as stopped, when the guest refuses the poweroff", async () => {
+    const t = await harness();
+    const { vmId } = t.addVm(TENANT_A, "running");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    t.upstream.replyToExec("poweroff", () =>
+      Response.json({ statusCode: 1, stdout: "", stderr: "Call to PowerOff failed\n", vmId: "x", node: "n" }));
+
+    const response = await action(t, key, vmId, "stop");
+
+    expect(response.status).toBe(503);
   });
 
   it("stop is a no-op on a stopped VM and refuses a paused one", async () => {
