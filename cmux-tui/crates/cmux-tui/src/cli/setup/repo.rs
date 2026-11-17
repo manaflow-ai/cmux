@@ -273,7 +273,7 @@ fn fetch(reference: &Reference) -> Result<Checkout, Failure> {
         .map_or(0, |since| since.as_nanos());
     let dir = std::env::temp_dir().join(format!("cmux-setup-{}-{stamp}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|error| refused("setup.fetch", error.to_string()))?;
-    let checkout = Checkout { dir, commit: String::new() };
+    let mut checkout = Checkout { dir, commit: String::new() };
     let wanted = reference.git_ref.as_deref().unwrap_or("HEAD");
     let url = reference.clone_url();
     let fetched = git(&checkout.dir, &["init", "-q"])
@@ -285,10 +285,13 @@ fn fetch(reference: &Reference) -> Result<Checkout, Failure> {
         })
         .and_then(|_| git(&checkout.dir, &["rev-parse", "HEAD"]));
     match fetched {
-        Ok(commit) if commit.len() == 40 => Ok(Checkout { commit, ..checkout }),
+        Ok(commit) if commit.len() == 40 => {
+            checkout.commit = commit;
+            Ok(checkout)
+        }
         Ok(_) => Err(refused("setup.fetch", format!("{reference}: git named no commit"))),
         Err(why) => {
-            Err(refused("setup.fetch", format!("could not fetch {reference} ({}): {why}", url)))
+            Err(refused("setup.fetch", format!("could not fetch {reference} ({url}): {why}")))
         }
     }
 }
@@ -642,10 +645,11 @@ fn apply_update(
         install_extensions(apps, &extensions, &receipt.extensions);
     // An extension the new commit no longer lists, that this setup installed, goes.
     for old in &receipt.extensions {
-        if old.installed_by_setup && !plan.extensions.contains(&old.reference) {
-            if let Some(app) = &old.app {
-                let _ = apps.remove(app);
-            }
+        if old.installed_by_setup
+            && !plan.extensions.contains(&old.reference)
+            && let Some(app) = &old.app
+        {
+            let _ = apps.remove(app);
         }
     }
     extension_receipts.retain(|kept| plan.extensions.contains(&kept.reference));
