@@ -116,6 +116,7 @@ MODEL_BY_PATH = {
     'types/ReadScreenResult': models.ReadScreenResult,
     'types/ReadScrollbackResult': models.ReadScrollbackResult,
     'types/ReattachViewResult': models.ReattachViewResult,
+    'types/RemoteHostAppPermissions': models.RemoteHostAppPermissions,
     'types/RemoteHostAppResult': models.RemoteHostAppResult,
     'types/RenderCursor': models.RenderCursor,
     'types/RenderGraphicImage': models.RenderGraphicImage,
