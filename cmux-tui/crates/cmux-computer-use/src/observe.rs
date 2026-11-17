@@ -37,7 +37,8 @@ pub fn hash_identity(id: &str) -> u64 {
 pub struct Look {
     /// `format: "json"`: the tree as JSON (`root`), every element, no diff.
     pub json: bool,
-    /// `full: true`: the whole outline even after a first look.
+    /// `full: true`: the whole outline even after a first look, elements
+    /// scrolled out of view included.
     pub full: bool,
     /// `frames: true`: each line ends with its frame in screenshot pixels.
     pub frames: bool,
@@ -57,7 +58,12 @@ impl Look {
     }
 
     pub fn outline_options(&self) -> outline::Options {
-        outline::Options { frames: self.frames, menus: self.menus, ..outline::Options::default() }
+        outline::Options {
+            frames: self.frames,
+            menus: self.menus,
+            offscreen: self.full,
+            ..outline::Options::default()
+        }
     }
 }
 

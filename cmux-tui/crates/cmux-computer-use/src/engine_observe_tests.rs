@@ -97,14 +97,10 @@ fn the_first_look_is_whole_then_only_changes_and_ids_stay() {
         tree_text(&first),
         "[1] window \"Form\"\n  [2] text field \"Name\" actions: confirm\n  [3] button \"Save\"\n  [4] menu bar (click a menu's id to list its items)\n    [5] menu bar item \"File\"\n  [8] close button\nFocus: no element of this window has keyboard focus"
     );
-    // Nothing changed: said so, in one line.
+    // Nothing changed: said so, in one sentence.
     set_tree(&d, form(2, false, false, ""));
     let again = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
-    assert!(
-        tree_text(&again).starts_with("No change in window 1's elements"),
-        "{}",
-        tree_text(&again)
-    );
+    assert_eq!(tree_text(&again), "No change since your last look.");
     // A value changed: only that line, with what it was; same id.
     set_tree(&d, form(3, true, false, "Ada"));
     let changed = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
@@ -320,8 +316,7 @@ fn a_look_cut_short_never_says_no_change_for_what_it_did_not_read() {
     e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1", "max_nodes": 3}));
     let again = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1", "max_nodes": 3}));
     let text = tree_text(&again);
-    assert!(text.starts_with("No change in the part of window 1 this look read"), "{text}");
-    assert!(text.contains("past the element limit it is unknown"), "{text}");
+    assert_eq!(text, "No change in what this look read (it stopped at the element limit).");
 }
 
 #[test]
@@ -691,4 +686,27 @@ fn the_shown_map_keeps_only_live_ids_and_ends_with_the_session() {
     assert!(!kept.contains(&3), "{kept:?}");
     e.end_session("s1");
     assert!(lock(&e.observe.shown).keys().all(|(s, _)| s != "s1"));
+}
+
+#[test]
+fn a_look_with_nothing_to_compare_or_nothing_changed_costs_one_sentence() {
+    let (d, e) = rig();
+    // The first look: the outline, and no evidence (there is no action to judge).
+    let first = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    assert!(first.body.get("changes").is_none(), "{}", first.body);
+    // Nothing changed: the MCP result is the window id, truncated and one sentence.
+    set_tree(&d, form(2, false, false, ""));
+    let again = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"})).to_mcp();
+    let texts: Vec<&str> =
+        again["content"].as_array().unwrap().iter().map(|c| c["text"].as_str().unwrap()).collect();
+    assert_eq!(
+        texts,
+        ["{\"truncated\":false,\"window_id\":\"1\"}", "No change since your last look."]
+    );
+    // An action still carries the evidence its outcome is decided from.
+    let click = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
+    let c = &click.body["state"]["changes"];
+    assert_eq!(c["elements_read"], "all", "{}", click.body);
+    assert_eq!(c["added"], 0);
+    assert!(click.body["outcome"].is_string(), "{}", click.body);
 }

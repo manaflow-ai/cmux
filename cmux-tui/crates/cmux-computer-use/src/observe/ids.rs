@@ -139,6 +139,9 @@ struct Flat {
 
 /// Roles whose views AppKit recycles for other content (table and outline
 /// rows and cells): the same identity with another label is another item.
+/// Not a table's column: its identifier (NSTableColumn's, `name`,
+/// `dateModified`) names that column, and AppKit makes its element anew for
+/// every read, so it keeps its id by that identifier.
 const RECYCLED_ROLES: &[&str] = &[
     "row",
     "cell",
@@ -152,7 +155,6 @@ const RECYCLED_ROLES: &[&str] = &[
     "table row",
     "table_cell",
     "table cell",
-    "column",
 ];
 
 /// Walks an entry a cut walk did not reach is kept, carried, before it is gone.

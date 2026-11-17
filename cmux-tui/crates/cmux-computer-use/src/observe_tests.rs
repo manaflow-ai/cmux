@@ -872,3 +872,161 @@ fn a_fingerprint_names_what_differs() {
     other.label = "Delete".into();
     assert!(fp.difference(&other).unwrap().contains("\"Delete\""));
 }
+
+/// A Notes-like list: a window, a scroll area 100 high at y 50, a focused
+/// table whose rows are 20 high from `top` (every cell focused, as AppKit
+/// reports a focused table's cells), each row a cell with the row's text,
+/// and a scroll bar.
+fn long_list(top: f64, rows: usize) -> Element {
+    let mut table = framed(el("3", "table", "Notes"), 0.0, top, 200.0, 20.0 * rows as f64);
+    table.focused = true;
+    table.children = (0..rows)
+        .map(|i| {
+            let y = top + 20.0 * i as f64;
+            let mut cell = framed(el(&format!("{}", 200 + i), "cell", ""), 0.0, y, 200.0, 20.0);
+            cell.focused = true;
+            cell.actions = vec!["show_menu".into(), "pin".into()];
+            cell.children = vec![framed(
+                el(&format!("{}", 400 + i), "text", &format!("Note {i}")),
+                0.0,
+                y,
+                100.0,
+                20.0,
+            )];
+            let mut row = framed(el(&format!("{}", 100 + i), "table_row", ""), 0.0, y, 200.0, 20.0);
+            row.actions = vec!["pin".into()];
+            row.children = vec![cell];
+            row
+        })
+        .collect();
+    let bar = with(
+        el("4", "scroll_bar", ""),
+        vec![el("5", "value_indicator", ""), el("6", "increment_arrow", ""), el("7", "button", "")],
+    );
+    let mut area = framed(el("2", "scroll_area", ""), 0.0, 50.0, 200.0, 100.0);
+    area.actions =
+        vec!["scroll_up_by_page".into(), "scroll_down_by_page".into(), "show_menu".into()];
+    area.children = vec![table, bar];
+    let mut file = el("11", "menu_bar_item", "File");
+    file.actions = vec!["cancel".into(), "pick".into()];
+    let mut bar = with(el("10", "menu_bar", ""), vec![file]);
+    bar.actions = vec!["cancel".into()];
+    with(framed(el("1", "window", "Notes"), 0.0, 0.0, 200.0, 200.0), vec![area, bar])
+}
+
+#[test]
+fn rows_scrolled_out_of_view_are_counted_on_their_container_not_listed() {
+    let o = outline::build(&long_list(50.0, 40), false, &Options::default());
+    let text = outline::render(&o, &Options::default());
+    // Five rows fit in the 100-high area; the other 35 are a count.
+    assert_eq!(
+        text,
+        "[1] window \"Notes\"\n  [2] scroll area\n    [3] table \"Notes\" focused (out of view: 35 below)\n      [100] table row actions: pin\n        [400] text \"Note 0\"\n      [101] table row actions: pin\n        [401] text \"Note 1\"\n      [102] table row actions: pin\n        [402] text \"Note 2\"\n      [103] table row actions: pin\n        [403] text \"Note 3\"\n      [104] table row actions: pin\n        [404] text \"Note 4\"\n  [10] menu bar (click a menu's id to list its items)\n    [11] menu bar item \"File\"\nFocus: [3] table \"Notes\""
+    );
+    assert!(o.clipped.contains(&139) && o.clipped.contains(&439), "the hidden rows are known");
+    // full: true lists them.
+    let all = Options { offscreen: true, ..Options::default() };
+    let text = outline::render(&outline::build(&long_list(50.0, 40), false, &all), &all);
+    assert!(text.contains("[139] table row") && !text.contains("out of view"), "{text}");
+}
+
+#[test]
+fn a_scroll_shows_the_rows_that_came_into_view_and_removes_nothing() {
+    let opts = Options::default();
+    let before = outline::build(&long_list(50.0, 40), false, &opts);
+    // Scrolled by three rows: rows 0-2 above, 3-7 in view.
+    let after = outline::build(&long_list(-10.0, 40), false, &opts);
+    let c = diff::compute(&before, &after, &opts);
+    assert!(c.removed.is_empty(), "scrolled away is not removed: {c:?}");
+    let text = diff::render(&before, &after, &c, &opts).unwrap();
+    assert!(text.contains("+ [105] table row actions: pin (in [3])"), "{text}");
+    assert!(
+        text.contains("~ [3] table \"Notes\" focused (out of view: 3 above, 32 below) (was: out of view: 35 below)"),
+        "{text}"
+    );
+    assert!(!text.contains("- ["), "{text}");
+    // The same scroll position again: nothing to say.
+    let again = outline::build(&long_list(-10.0, 40), false, &opts);
+    assert!(diff::compute(&after, &again, &opts).is_empty());
+}
+
+#[test]
+fn only_the_element_with_keyboard_focus_is_marked_focused() {
+    // AppKit marks every cell of a focused table focused: the focus is the
+    // table, not the last cell.
+    let o = outline::build(&long_list(50.0, 3), false, &Options::default());
+    let text = outline::render(&o, &Options::default());
+    assert_eq!(text.matches(" focused").count(), 1, "{text}");
+    assert!(text.ends_with("Focus: [3] table \"Notes\""), "{text}");
+    // A cell of an unfocused table that alone has focus is the focus.
+    let mut root = long_list(50.0, 3);
+    root.children[0].children[0].focused = false;
+    for row in &mut root.children[0].children[0].children {
+        row.children[0].focused = false;
+    }
+    root.children[0].children[0].children[1].children[0].focused = true;
+    let text =
+        outline::render(&outline::build(&root, false, &Options::default()), &Options::default());
+    assert!(text.ends_with("Focus: [201] cell"), "{text}");
+    assert!(text.contains("[201] cell focused actions: pin"), "the focused cell is shown: {text}");
+}
+
+#[test]
+fn what_says_nothing_to_act_on_is_left_out() {
+    let text = outline::render(
+        &outline::build(&long_list(50.0, 2), false, &Options::default()),
+        &Options::default(),
+    );
+    // A cell that only repeats its row, a scroll bar's parts, the context
+    // menu and page scrolls every element has, a menu's cancel and pick.
+    assert!(!text.contains("cell"), "{text}");
+    assert!(!text.contains("scroll bar") && !text.contains("arrow"), "{text}");
+    assert!(!text.contains("show_menu") && !text.contains("by_page"), "{text}");
+    assert!(!text.contains("cancel") && !text.contains("pick"), "{text}");
+    // An empty row (a separator) and a tab's favicon go; a tab says on/off.
+    let mut tab = el("21", "tab_button", "CUEV Page");
+    tab.value = "1".into();
+    tab.children = vec![el("22", "image", "safari")];
+    let mut sep = el("23", "outline_row", "");
+    sep.children = vec![el("24", "cell", "")];
+    let root = with(
+        el("20", "window", "W"),
+        vec![tab, sep, with(el("25", "outline_row", ""), vec![el("26", "button", "Wi-Fi")])],
+    );
+    let text =
+        outline::render(&outline::build(&root, false, &Options::default()), &Options::default());
+    assert_eq!(
+        text,
+        "[20] window \"W\"\n  [21] tab button \"CUEV Page\" = on\n  [25] outline row\n    [26] button \"Wi-Fi\"\nFocus: no element of this window has keyboard focus"
+    );
+}
+
+#[test]
+fn a_table_column_made_anew_each_read_keeps_its_id_by_its_identifier() {
+    // Finder and Notes give their table columns new elements every read (no
+    // identity): the column's identifier names it.
+    let cols = |g: u32| {
+        with(
+            el(&format!("{g}.0"), "window", "Finder"),
+            vec![with(
+                el(&format!("{g}.1"), "table", "files"),
+                ["name", "dateModified"]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, id)| Element {
+                        identifier: (*id).into(),
+                        ..el(&format!("{g}.{}", 2 + i), "column", "")
+                    })
+                    .collect(),
+            )],
+        )
+    };
+    let mut w = WindowIds::default();
+    let mut n = 0u32;
+    let mut a = tree(cols(1));
+    w.assign(&mut a, false, &mut n);
+    let mut b = tree(cols(2));
+    w.assign(&mut b, false, &mut n);
+    assert_eq!(a.root.children[0].children[0].id, b.root.children[0].children[0].id);
+    assert_eq!(a.root.children[0].children[1].id, b.root.children[0].children[1].id);
+}

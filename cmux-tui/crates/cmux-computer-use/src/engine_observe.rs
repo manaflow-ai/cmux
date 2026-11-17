@@ -365,6 +365,8 @@ impl Engine {
         // The evidence in a fixed shape beside the text, for an outcome
         // (confirmed / no_effect / uncertain) to be decided from: what changed
         // in the elements, the windows over the target, and the pixels.
+        // get_ui_tree: no action, no screenshot, no windows to compare.
+        let pure_look = pixels == Pixels::NotRead && windows.is_empty() && menus.is_empty();
         let opened = windows.iter().filter(|l| l.starts_with('+')).count();
         let closed = windows.iter().filter(|l| l.starts_with('-')).count();
         let first_look = (old.is_none() || look.full) && menus.is_empty();
@@ -398,6 +400,17 @@ impl Engine {
                     evidence["renumbered"] = json!(changes.renumbered.len());
                     evidence["focus_moved"] = json!(changes.focus.is_some());
                     match diff::render(&old, &new, &changes, &opts) {
+                        // A look of its own (get_ui_tree) needs no account of
+                        // pixels or effects: one sentence, and no evidence
+                        // (there is no action to judge).
+                        None if pure_look => {
+                            evidence = Value::Null;
+                            parts.push(if truncated {
+                                "No change in what this look read (it stopped at the element limit).".into()
+                            } else {
+                                "No change since your last look.".into()
+                            });
+                        }
                         None => {
                             let elements = if truncated {
                                 format!(
@@ -426,10 +439,12 @@ impl Engine {
                 None => parts.push(full),
             }
         }
-        // Only a look compared with an earlier one has element changes.
+        // Only a look compared with an earlier one has element changes; a
+        // first get_ui_tree has nothing to compare (the evidence is for
+        // judging an action).
         if evidence.get("added").is_some() {
             body.insert("changes".into(), evidence);
-        } else if first_look {
+        } else if first_look && !pure_look {
             evidence["first_look"] = json!(true);
             body.insert("changes".into(), evidence);
         }

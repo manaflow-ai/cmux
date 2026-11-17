@@ -9,6 +9,9 @@
 //!
 //! The menu bar is left out (its items change with every selection and the
 //! state after an action does not read it). Frames count only when shown.
+//! An element scrolled out of view is neither removed nor changed (its
+//! container's `out of view` count says it moved); one scrolled into view is
+//! added, since the last look did not show it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -68,6 +71,7 @@ fn same(a: &Line, b: &Line, opts: &Options) -> bool {
         && a.selected == b.selected
         && a.actions == b.actions
         && a.tree_parent == b.tree_parent
+        && a.out_of_view == b.out_of_view
         && (!opts.frames || a.frame == b.frame)
 }
 
@@ -91,7 +95,7 @@ pub fn compute(old: &outline::Outline, new: &outline::Outline, opts: &Options) -
         }
         if new.present.contains(&l.id) {
             c.folded.push(j);
-        } else {
+        } else if !new.clipped.contains(&l.id) {
             c.removed.push(j);
         }
     }
@@ -225,6 +229,11 @@ fn changed_line(new: &Line, old: &Line, opts: &Options) -> String {
         } else {
             format!("actions: {}", old.actions.join(", "))
         });
+    }
+    if old.out_of_view != new.out_of_view {
+        was.push(
+            outline::out_of_view_text(&old.out_of_view).unwrap_or_else(|| "all in view".into()),
+        );
     }
     // Moves name the parents the outlines show.
     if old.parent != new.parent {
