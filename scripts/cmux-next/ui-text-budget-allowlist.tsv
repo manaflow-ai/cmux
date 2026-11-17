@@ -222,8 +222,6 @@ webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.alterna
 webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.cap	17	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	agentPair.paused.repeating	16	12
 webviews/src/agent-session/acpmux/Localizable.xcstrings	approval.title	7	6
-webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudRepository.lifetime	30	25
-webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudStart.stalled	29	25
 webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudStartup.folderTooBig	31	25
 webviews/src/agent-session/acpmux/Localizable.xcstrings	cloudStartup.folderTooBigRepos	27	25
 webviews/src/agent-session/acpmux/Localizable.xcstrings	composer.cloudStartingPlaceholder	11	6

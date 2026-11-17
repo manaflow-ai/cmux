@@ -81686,133 +81686,133 @@
       }
     },
     "cloudStart.stalled": {
-      "comment": "Agent pane: a Cloud first send the host has not answered or reported on for minutes; {minutes} is a whole number, {step} is the startup checklist row it stopped at. The composer takes input again.",
+      "comment": "Agent pane: a Cloud first send the host has not answered or reported on for minutes; {step} is the startup checklist row it stopped at ({minutes} is passed and not shown).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "توقف Cloud عن الاستجابة لمدة {minutes} دقائق عند «{step}». إذا فُتحت المحادثة رغم ذلك، فسينتقل ما تكتبه هنا إليها كمسودة. يبقى الإرسال معلّقًا حتى ينتهي هذا البدء."
+            "value": "يستغرق Cloud وقتًا أطول من المعتاد عند «{step}»."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud je šutio {minutes} minuta kod koraka „{step}“. Ako se chat ipak otvori, ono što ovdje upišete prelazi u njega kao skica. Slanje čeka da se ovo pokretanje završi."
+            "value": "Cloud traje duže nego obično kod koraka „{step}“."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud har været stille i {minutes} minutter ved “{step}”. Hvis chatten alligevel åbner, flyttes det, du skriver her, over i den som et udkast. Send venter, til denne start er slut."
+            "value": "Cloud tager længere tid end normalt ved “{step}”."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud war {minutes} Minuten lang still bei „{step}“. Falls der Chat sich doch noch öffnet, wandert das, was du hier tippst, als Entwurf in ihn. Senden wartet, bis dieser Start beendet ist."
+            "value": "Cloud braucht bei „{step}“ länger als üblich."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud went quiet for {minutes} minutes at “{step}”. If the chat still opens, what you type here moves to it as a draft. Send waits until this start ends."
+            "value": "Cloud is taking longer than usual at “{step}”."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud lleva {minutes} minutos sin dar señales en «{step}». Si el chat se abre de todos modos, lo que escribas aquí pasará a él como borrador. Enviar espera hasta que termine este inicio."
+            "value": "Cloud está tardando más de lo normal en «{step}»."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud est resté silencieux pendant {minutes} minutes à l’étape « {step} ». Si la conversation s’ouvre malgré tout, ce que vous saisissez ici y passe comme brouillon. L’envoi attend la fin de ce démarrage."
+            "value": "Cloud prend plus de temps que d’habitude à l’étape « {step} »."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud è rimasto in silenzio per {minutes} minuti a «{step}». Se la chat si apre comunque, ciò che scrivi qui passa in essa come bozza. L’invio attende la fine di questo avvio."
+            "value": "Cloud sta impiegando più del solito a «{step}»."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud は「{step}」で {minutes} 分間応答がありません。チャットが開いた場合、ここに入力した内容は下書きとしてそのチャットに引き継がれます。送信は、この開始が終わるまで待機します。"
+            "value": "Cloud は「{step}」でいつもより時間がかかっています。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud បានស្ងាត់រយៈពេល {minutes} នាទី នៅ “{step}”។ ប្រសិនបើការជជែកនៅតែបើក អ្វីដែលអ្នកវាយនៅទីនេះនឹងផ្លាស់ទៅក្នុងវាជាសេចក្ដីព្រាង។ ការផ្ញើនឹងរង់ចាំរហូតដល់ការចាប់ផ្ដើមនេះបញ្ចប់។"
+            "value": "Cloud កំពុងចំណាយពេលយូរជាងធម្មតានៅ “{step}”។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud가 “{step}” 단계에서 {minutes}분 동안 응답이 없습니다. 그래도 채팅이 열리면 여기에 입력한 내용이 임시 저장본으로 그 채팅에 옮겨집니다. 이 시작이 끝날 때까지 보내기는 대기합니다."
+            "value": "Cloud가 “{step}” 단계에서 평소보다 오래 걸리고 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud har vært stille i {minutes} minutter ved «{step}». Hvis chatten likevel åpnes, flyttes det du skriver her over til den som et utkast. Send venter til denne starten er ferdig."
+            "value": "Cloud bruker lengre tid enn vanlig ved «{step}»."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud milczy od {minutes} min na etapie „{step}”. Jeśli czat mimo to się otworzy, to, co tu wpiszesz, trafi do niego jako szkic. Wysyłanie czeka, aż ten start się zakończy."
+            "value": "Cloud trwa dłużej niż zwykle na etapie „{step}”."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Cloud ficou em silêncio por {minutes} minutos em “{step}”. Se o chat abrir mesmo assim, o que você digitar aqui vai para ele como rascunho. O envio espera até este início terminar."
+            "value": "O Cloud está demorando mais que o normal em “{step}”."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud молчит уже {minutes} мин на шаге «{step}». Если чат всё же откроется, то, что вы вводите здесь, перейдёт в него как черновик. Отправка ждёт, пока этот запуск не завершится."
+            "value": "Cloud запускается дольше обычного на шаге «{step}»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud เงียบไป {minutes} นาทีที่ “{step}” หากแชตยังเปิดขึ้น สิ่งที่คุณพิมพ์ที่นี่จะย้ายไปยังแชตนั้นเป็นฉบับร่าง การส่งจะรอจนกว่าการเริ่มนี้จะสิ้นสุด"
+            "value": "Cloud ใช้เวลานานกว่าปกติที่ “{step}”"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud “{step}” adımında {minutes} dakikadır sessiz. Sohbet yine de açılırsa burada yazdıklarınız taslak olarak ona taşınır. Gönder, bu başlatma bitene kadar bekler."
+            "value": "Cloud “{step}” adımında her zamankinden uzun sürüyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud мовчить уже {minutes} хв на кроці «{step}». Якщо чат усе ж відкриється, те, що ви вводите тут, перейде в нього як чернетка. Надсилання чекає, доки цей запуск не завершиться."
+            "value": "Cloud запускається довше, ніж зазвичай, на кроці «{step}»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud đã im lặng {minutes} phút ở bước “{step}”. Nếu cuộc trò chuyện vẫn mở ra, những gì bạn nhập ở đây sẽ chuyển sang đó dưới dạng bản nháp. Nút Gửi chờ đến khi lần khởi động này kết thúc."
+            "value": "Cloud đang mất nhiều thời gian hơn bình thường ở bước “{step}”."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 在“{step}”已无响应 {minutes} 分钟。如果聊天仍然打开，你在此输入的内容会作为草稿转到该聊天中。发送会等到本次启动结束。"
+            "value": "Cloud 在“{step}”花的时间比平常长。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 在「{step}」已無回應 {minutes} 分鐘。如果聊天仍然開啟，你在此輸入的內容會以草稿形式轉到該聊天中。傳送會等到本次啟動結束。"
+            "value": "Cloud 在「{step}」花的時間比平常長。"
           }
         }
       }
@@ -83138,133 +83138,133 @@
       }
     },
     "composer.cloudStartingSend": {
-      "comment": "Agent pane Send button tooltip while a new chat starts on a Cloud machine: Send waits; what is typed moves to the Cloud chat as a draft, to send there",
+      "comment": "Agent pane Send button tooltip while a new chat starts on a Cloud machine (Send waits for it)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "محادثة السحابة قيد البدء. ما تكتبه ينتقل إليها كمسودة لترسلها."
+            "value": "جارٍ البدء في Cloud…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaš Cloud chat se pokreće. Ono što upišete prelazi tamo kao skica koju šaljete vi."
+            "value": "Pokretanje u Cloudu…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Din Cloud-chat starter. Det, du skriver, flyttes dertil som en kladde, du selv sender."
+            "value": "Starter i Cloud…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dein Cloud-Chat startet. Was du schreibst, kommt dort als Entwurf an, den du sendest."
+            "value": "Startet in Cloud…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Cloud chat is starting. What you type moves there as a draft for you to send."
+            "value": "Starting in Cloud…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu chat en la nube se está iniciando. Lo que escribas pasará allí como borrador para que lo envíes."
+            "value": "Iniciando en Cloud…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ton chat Cloud démarre. Ce que tu écris y passe comme brouillon, à envoyer toi-même."
+            "value": "Démarrage dans Cloud…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La tua chat Cloud si sta avviando. Quello che scrivi passa lì come bozza da inviare."
+            "value": "Avvio in Cloud…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud チャットを起動中です。入力した内容は下書きとして移るので、そこで送信してください。"
+            "value": "Cloud で開始しています…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការជជែក Cloud របស់អ្នកកំពុងចាប់ផ្ដើម។ អ្វីដែលអ្នកវាយនឹងផ្លាស់ទៅទីនោះជាសេចក្ដីព្រាងសម្រាប់អ្នកផ្ញើ។"
+            "value": "កំពុងចាប់ផ្ដើមក្នុង Cloud…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 채팅을 시작하는 중입니다. 입력한 내용은 초안으로 옮겨지며 직접 보내면 됩니다."
+            "value": "Cloud에서 시작하는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-chatten starter. Det du skriver, flyttes dit som et utkast du sender selv."
+            "value": "Starter i Cloud…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czat w Cloud się uruchamia. To, co wpiszesz, trafi tam jako szkic do wysłania."
+            "value": "Uruchamianie w Cloud…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seu chat na nuvem está iniciando. O que você digitar vai para lá como rascunho para você enviar."
+            "value": "Iniciando no Cloud…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чат Cloud запускается. Набранный текст перейдёт туда черновиком, отправите его сами."
+            "value": "Запуск в Cloud…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แชท Cloud กำลังเริ่ม ข้อความที่พิมพ์จะย้ายไปเป็นฉบับร่างให้คุณส่งเอง"
+            "value": "กำลังเริ่มใน Cloud…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud sohbetiniz başlıyor. Yazdıklarınız oraya, sizin göndereceğiniz bir taslak olarak geçer."
+            "value": "Cloud'da başlatılıyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чат Cloud запускається. Набраний текст перейде туди чернеткою, надішлете його самі."
+            "value": "Запуск у Cloud…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuộc trò chuyện Cloud đang khởi động. Nội dung bạn gõ sẽ chuyển sang đó thành bản nháp để bạn gửi."
+            "value": "Đang bắt đầu trong Cloud…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 聊天正在启动。你输入的内容会作为草稿移过去，由你发送。"
+            "value": "正在 Cloud 中启动…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 聊天正在啟動。你輸入的內容會以草稿移過去，由你傳送。"
+            "value": "正在 Cloud 中啟動…"
           }
         }
       }
@@ -338366,138 +338366,6 @@
         }
       }
     },
-    "trust.continueWithoutFolder": {
-      "comment": "Folder trust: continue after declining access",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continue without folder context: project hooks and config won't load. Only draft text is copied. Attachments are not carried; they stay in the original chat."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المتابعة دون سياق المجلد: لن تُحمّل إعدادات المشروع وخطافاته. يُنسخ نص المسودة فقط. لا تُنقل المرفقات؛ وتبقى في المحادثة الأصلية."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nastavi bez konteksta foldera: postavke i hookovi projekta se neće učitati. Kopira se samo tekst nacrta. Prilozi se ne prenose; ostaju u izvornom razgovoru."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fortsæt uden mappekontekst: projektets hooks og konfiguration indlæses ikke. Kun kladdeteksten kopieres. Vedhæftninger flyttes ikke; de bliver i den oprindelige chat."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ohne Ordnerkontext fortfahren: Projekt-Hooks und -Konfiguration werden nicht geladen. Nur der Entwurfstext wird kopiert. Anhänge werden nicht übertragen; sie bleiben im ursprünglichen Chat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuar sin contexto de carpeta: no se cargarán los hooks ni la configuración del proyecto. Solo se copia el texto del borrador. Los archivos adjuntos no se transfieren; permanecen en el chat original."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuer sans contexte de dossier : les hooks et la configuration du projet ne seront pas chargés. Seul le texte du brouillon est copié. Les pièces jointes ne sont pas transférées ; elles restent dans la conversation d’origine."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continua senza contesto della cartella: hook e configurazione del progetto non verranno caricati. Viene copiato solo il testo della bozza. Gli allegati non vengono trasferiti e restano nella chat originale."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダのコンテキストなしで続行：プロジェクトのフックと設定は読み込まれません. 下書きのテキストのみコピーされます。添付ファイルは引き継がれず、元のチャットに残ります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បន្តដោយគ្មានបរិបទថត៖ hooks និងការកំណត់គម្រោងនឹងមិនត្រូវបានផ្ទុកទេ. មានតែអត្ថបទព្រាងប៉ុណ្ណោះដែលត្រូវបានចម្លង។ ឯកសារភ្ជាប់មិនត្រូវបានផ្ទេរទេ ហើយនៅក្នុងការជជែកដើម។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "폴더 컨텍스트 없이 계속: 프로젝트 훅과 구성을 불러오지 않습니다. 초안 텍스트만 복사됩니다. 첨부 파일은 전달되지 않고 원래 채팅에 남습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fortsett uten mappekontekst: prosjektets hooks og konfigurasjon lastes ikke inn. Bare utkastteksten kopieres. Vedlegg overføres ikke; de blir i den opprinnelige chatten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontynuuj bez kontekstu folderu: hooki i konfiguracja projektu nie zostaną załadowane. Kopiowany jest tylko tekst wersji roboczej. Załączniki nie są przenoszone; pozostają w pierwotnym czacie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuar sem contexto da pasta: os hooks e a configuração do projeto não serão carregados. Apenas o texto do rascunho é copiado. Os anexos não são transferidos; permanecem no chat original."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Продолжить без контекста папки: хуки и конфигурация проекта не загрузятся. Копируется только текст черновика. Вложения не переносятся и остаются в исходном чате."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ดำเนินการต่อโดยไม่มีบริบทโฟลเดอร์: จะไม่โหลด hooks และการตั้งค่าโปรเจกต์. คัดลอกเฉพาะข้อความร่าง ไฟล์แนบจะไม่ถูกย้ายและยังคงอยู่ในแชทเดิม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klasör bağlamı olmadan devam et: proje kancaları ve yapılandırması yüklenmeyecek. Yalnızca taslak metni kopyalanır. Ekler aktarılmaz; özgün sohbette kalır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Продовжити без контексту папки: хуки та конфігурацію проєкту не буде завантажено. Копіюється лише текст чернетки. Вкладення не переносяться й залишаються у вихідному чаті."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tiếp tục không có ngữ cảnh thư mục: hook và cấu hình dự án sẽ không được tải. Chỉ sao chép văn bản nháp. Tệp đính kèm không được chuyển và vẫn ở trong cuộc trò chuyện gốc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在没有文件夹上下文的情况下继续：不会加载项目钩子和配置. 仅复制草稿文本。附件不会转移，仍保留在原聊天中。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在沒有資料夾內容的情況下繼續：不會載入專案掛鉤和設定. 僅複製草稿文字。附件不會轉移，仍保留在原聊天中。"
-          }
-        }
-      }
-    },
     "trust.notNow": {
       "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
       "extractionState": "manual",
@@ -410493,138 +410361,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Add repository…"
-          }
-        }
-      }
-    },
-    "cloudRepository.lifetime": {
-      "comment": "Agent pane: Session Info Environment note on what a Cloud machine is and how long its files last",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جهاز Linux في cmux Cloud. تبقى ملفاته بين المحادثات حتى يُحذف الجهاز، وقد يتوقف مؤقتًا عند الخمول. ادفع إلى GitHub للاحتفاظ بالعمل في مكان آخر."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linux mašina u cmux Cloudu. Njene datoteke ostaju između chatova dok se mašina ne izbriše, a može se pauzirati kad miruje. Pošaljite rad na GitHub da ga sačuvate negdje drugo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En Linux-maskine i cmux Cloud. Dens filer bliver mellem chats, indtil maskinen slettes, og den kan sættes på pause, når den er inaktiv. Push til GitHub for at gemme arbejdet et andet sted."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Linux-Rechner in cmux Cloud. Seine Dateien bleiben zwischen Chats erhalten, bis der Rechner gelöscht wird, und er kann im Leerlauf pausieren. Pushe zu GitHub, um Arbeit woanders zu behalten."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A Linux machine in cmux Cloud. Its files stay between chats until the machine is deleted, and it may pause when idle. Push to GitHub to keep work anywhere else."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una máquina Linux en cmux Cloud. Sus archivos se conservan entre chats hasta que se elimina la máquina, y puede pausarse cuando está inactiva. Haz push a GitHub para conservar el trabajo en otro lugar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Une machine Linux dans cmux Cloud. Ses fichiers restent d’une discussion à l’autre jusqu’à la suppression de la machine, qui peut se mettre en pause au repos. Poussez sur GitHub pour garder votre travail ailleurs."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una macchina Linux in cmux Cloud. I suoi file restano tra una chat e l’altra finché la macchina non viene eliminata, e può andare in pausa quando è inattiva. Fai push su GitHub per conservare il lavoro altrove."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud の Linux マシンです。ファイルはマシンを削除するまでチャットをまたいで残り、アイドル時は一時停止することがあります。ほかの場所に残すには GitHub に push してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីន Linux ក្នុង cmux Cloud។ ឯកសាររបស់វានៅរវាងការជជែក រហូតដល់ម៉ាស៊ីនត្រូវបានលុប ហើយវាអាចផ្អាកពេលទំនេរ។ រុញទៅ GitHub ដើម្បីរក្សាការងារនៅកន្លែងផ្សេង។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud의 Linux 머신입니다. 파일은 머신을 삭제할 때까지 채팅 간에 유지되며, 유휴 상태에서는 일시 중지될 수 있습니다. 다른 곳에 보관하려면 GitHub에 푸시하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En Linux-maskin i cmux Cloud. Filene blir værende mellom chatter til maskinen slettes, og den kan settes på pause når den er inaktiv. Push til GitHub for å beholde arbeidet et annet sted."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maszyna Linux w cmux Cloud. Jej pliki zostają między czatami, dopóki maszyna nie zostanie usunięta, a w bezczynności może się wstrzymać. Wypchnij pracę do GitHub, aby zachować ją gdzie indziej."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma máquina Linux no cmux Cloud. Os arquivos ficam entre chats até a máquina ser excluída, e ela pode pausar quando ociosa. Faça push para o GitHub para manter o trabalho em outro lugar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linux-машина в cmux Cloud. Её файлы сохраняются между чатами, пока машину не удалят, а в простое она может приостанавливаться. Отправьте работу в GitHub, чтобы хранить её где-то ещё."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่อง Linux ใน cmux Cloud ไฟล์จะอยู่ข้ามแชทจนกว่าจะลบเครื่อง และเครื่องอาจหยุดชั่วคราวเมื่อว่าง พุชไปที่ GitHub เพื่อเก็บงานไว้ที่อื่น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Cloud'da bir Linux makinesi. Dosyaları makine silinene kadar sohbetler arasında kalır ve boştayken duraklayabilir. Çalışmayı başka yerde tutmak için GitHub'a gönderin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linux-машина в cmux Cloud. Її файли зберігаються між чатами, доки машину не видалять, а в простої вона може призупинятися. Надішліть роботу в GitHub, щоб зберегти її деінде."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một máy Linux trong cmux Cloud. Tệp của máy được giữ giữa các cuộc trò chuyện cho đến khi máy bị xóa, và máy có thể tạm dừng khi rảnh. Đẩy lên GitHub để giữ công việc ở nơi khác."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud 中的 Linux 机器。在删除机器之前，其文件会在各聊天之间保留；空闲时可能会暂停。要在别处保留工作，请推送到 GitHub。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud 中的 Linux 機器。在刪除機器之前，其檔案會在各聊天之間保留；閒置時可能會暫停。要在別處保留工作，請推送到 GitHub。"
           }
         }
       }
