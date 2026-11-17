@@ -151,13 +151,18 @@ test("a fling up the chat writes the rail's list offset at most twice, then plac
     expect(listWrites - before).toBeLessThanOrEqual(2);
     expect(list().scrollTop).toBeGreaterThan(0);
     // At rest the list is placed once, where the band at the chat's top puts it: its own top.
+    // The rest timer's render runs as the app's does, outside act (whose queue would hold it until the
+    // write it waits for): the test waits for that write.
     const atRest = listWrites;
-    await act(
-      () =>
-        new Promise<void>((resolve) => {
-          nextListWrite = resolve;
-        }),
-    );
+    scope.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      await new Promise<void>((resolve) => {
+        nextListWrite = resolve;
+      });
+    } finally {
+      scope.IS_REACT_ACT_ENVIRONMENT = true;
+    }
+    await act(async () => {});
     expect(listWrites - atRest).toBe(1);
     expect(list().scrollTop).toBe(0);
     expect(lit()).toContain(0);
