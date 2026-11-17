@@ -42,6 +42,9 @@ final class TabHoverCardController: HoverCardSource {
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
     /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
+    /// A tab's card is a preview the pointer never enters (user 2026-11-16): moving off the tab onto
+    /// the card hides it, as in Chrome. A sidebar row's card stays enterable.
+    var enterable: Bool { false }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
         didSet {
@@ -130,7 +133,8 @@ final class TabHoverCardController: HoverCardSource {
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave),
+                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave,
+                                enterable: enterable),
             anchor: target.anchor
         )
     }
