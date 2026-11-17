@@ -10,7 +10,7 @@
 use super::stream::{Picture, SharedMailbox, Waker};
 use crate::clock::now_ns;
 use crate::fdwait::wait_readable;
-use crate::shm::ShmSeg;
+use crate::shm::{ServerAccess, ShmSeg};
 use crate::Res;
 use cmux_encode::I420;
 use cmux_rd_proto::InputEvent;
@@ -20,10 +20,9 @@ use std::sync::mpsc;
 use x11rb::connection::{Connection, RequestConnection};
 use x11rb::properties::WmSizeHints;
 use x11rb::protocol::present::{self, ConnectionExt as _};
-use x11rb::protocol::shm::ConnectionExt as _;
 use x11rb::protocol::xproto::{
     AtomEnum, ConfigureWindowAux, ConnectionExt as _, CreateGCAux, CreateWindowAux, EventMask,
-    ImageFormat, PropMode, WindowClass,
+    PropMode, WindowClass,
 };
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -156,7 +155,7 @@ impl Window {
         hints.max_size = Some((w as i32, h as i32));
         hints.set_normal_hints(&self.conn, self.window)?;
         self.size = (w, h);
-        self.shm = Some(ShmSeg::new(&self.conn, w * h * 4)?);
+        self.shm = Some(ShmSeg::new(&self.conn, w * h * 4, ServerAccess::Read)?);
         Ok(())
     }
 
@@ -169,28 +168,9 @@ impl Window {
             self.resize(w, h)?;
         }
         let shm = self.shm.as_mut().ok_or("no shared memory segment")?;
-        i420_to_bgrx(&picture.image, h, shm.as_mut_slice());
-        self.conn
-            .shm_put_image(
-                self.window,
-                self.gc,
-                w as u16,
-                h as u16,
-                0,
-                0,
-                w as u16,
-                h as u16,
-                0,
-                0,
-                24,
-                ImageFormat::Z_PIXMAP.into(),
-                false,
-                shm.seg,
-                0,
-            )?
-            // The server has copied the segment when it answers, so it can be refilled.
-            .check()?;
-        Ok(())
+        i420_to_bgrx(&picture.image, h, shm.pixels_mut());
+        // The server has copied the segment when this returns, so it can be refilled.
+        shm.put_image(&self.conn, self.window, self.gc, (w as u16, h as u16), 24)
     }
 
     /// Presents and reads input until the stream closes the mailbox or the person closes the window.
