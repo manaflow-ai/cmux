@@ -4868,9 +4868,11 @@ function TranscriptView({
         if (jumping) jumpTarget.current = latest;
         followDeferred.current = !jumping && userScrollIntent(node).isHeld() && !followRequest.current?.();
         const settle = jumping || followDeferred.current ? undefined : settleFollowBottomAt(node, latest);
-        if (settle) passTop = settle.top;
+        // Where the view is from here: the settle's landed offset, else the one this pass read.
+        const viewTop = settle ? settle.top : live;
+        passTop = viewTop;
         // The chase below reads where the view is from here, not from the scroller it just wrote.
-        pinView.current = { top: passTop, height: liveHeight };
+        pinView.current = { top: viewTop, height: liveHeight };
         const settled = jumping ? clamped : settle?.moved || clamped;
         if (settled) followTrace.set(latest);
         // The rise this pass took, eased on screen (followGlide.ts): the same rows, the reply's
@@ -4879,7 +4881,7 @@ function TranscriptView({
         // In layout coordinates: the sub-pixel origin a settle keeps (scrollCoordinates.ts) moves the
         // rows on screen too, so a rise that only re-rounds the physical offset is no rise.
         const box = previousViewport.current;
-        const rose = passTop - scrollOrigin(node) - (scrolledTo.current.top - previousOrigin);
+        const rose = viewTop - scrollOrigin(node) - (scrolledTo.current.top - previousOrigin);
         const room = followRoom(rows, layout);
         // A resize (a window edge dragged, the dock growing) rewraps the rows, and they settle to
         // their drawn heights over the next passes at the same size: those are the resize too, not
