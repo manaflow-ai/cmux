@@ -723,6 +723,8 @@ PHASES = [
     ("daemon unadopted settled", "daemon_end", "settle unadopted"),
     ("daemon agents may spawn", "daemon", "agents may spawn"),
     ("page loaded", "app", "agent_pane.page_loaded"),
+    ("Chromium browser created", "app", "chromium_page.browser_created"),
+    ("page asked for the handshake", "app", "agent_pane.handshake_start"),
     ("handshake answered", "app", "agent_pane.handshake_end"),
     ("socket connected (transport open)", "app", "agent_pane.transport_open"),
     ("daemon first attach answered", "daemon", "first attach answered"),
