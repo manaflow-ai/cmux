@@ -76,7 +76,7 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     /// The daemon's tab of a create intent arrived carrying the intent's transaction (the event
     /// can come before the reply): the provisional tab gives way to it in this apply, and the
-    /// store reports both ids (`DaemonStore.onTabCreated`, `onPageTabCreated` for a page tab).
+    /// store reports both ids when this apply ends (``OverlayReports``, in the same turn).
     @MainActor static func echoed(_ event: DaemonEvent, transaction: ClientTransactionID, in store: DaemonStore) {
         if case .paneAdded(let delta) = event { return echoedSplit(delta, transaction: transaction, in: store) }
         guard case .tabAdded(let delta) = event,
@@ -87,7 +87,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard !paired else { return }
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""
-        if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+        store.intentLog.noteCreatedToReport(id, page: provisional.conversation?.page != nil, tab: tab)
     }
 
     /// The provisional tab a create intent shows: a created tab's, or a new workspace's first tab.
@@ -101,7 +101,7 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     /// The daemon's pane of a conversation tab's split (`conversation-tab-split-v1`) arrived
     /// carrying the split intent's transaction: its one tab is the provisional tab's, reported
-    /// in this apply as for a create (so view state moves before the pane shows).
+    /// when this apply ends as for a create (the same turn, so view state moves before the pane shows).
     @MainActor private static func echoedSplit(_ delta: PaneDelta, transaction: ClientTransactionID, in store: DaemonStore) {
         guard let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
               case .splitPane(_, _, _, let provisional) = entry.kind, let wanted = provisional.tab,
@@ -109,7 +109,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         store.intentLog.noteCreated(transaction, surface: tab.surface)
         guard !entry.closeWhenCreated else { return }
         let id = wanted.tabResourceID?.rawValue ?? ""
-        if wanted.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+        store.intentLog.noteCreatedToReport(id, page: wanted.conversation?.page != nil, tab: tab)
     }
 
     /// The daemon's raw `tab-added` of a conversation tab, with no transaction: the daemon sends it
