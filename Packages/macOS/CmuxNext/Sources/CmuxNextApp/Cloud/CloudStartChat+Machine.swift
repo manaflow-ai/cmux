@@ -82,7 +82,6 @@ extension CloudStartChat {
         }
         if let id = plan.machine { invocation.arguments["machine"] = .string(id) } else {
             if !plan.createSent {
-                if let refused = await cloud.agentCheck.newMachineRefusal(harness: start.harness, model: start.model, login: .init(), userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords { throw CloudMove.Failure(message: refused) } // before a new machine: an agent that cannot run (a used-up Claude limit) leases none
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
@@ -104,18 +103,15 @@ extension CloudStartChat {
             invocation.arguments["machine"] = .string(created.machineID)
         }
         let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
-        return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin or attach deletes a machine made for this start
+        return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
             if let id, plan.machine == nil { _ = try Self.checked(await cli.startChatPin(key: start.key, account: text, machine: id, workspace: workspace)) } // unpinned, a retry could open the chat elsewhere
-            id.map { Self.warmSpare(services, claimed: $0) } // the claim's copy overlaps the dial; the install waits on it
-            return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
+            let session = try await CloudMove(services: services).machine(invocation, pick: pick), machineID = session.machineID
+            // The machine reaches models through its edge (the Mac as the gateway), on the app's machine software.
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            return (session, plan)
         }
     }
 
-    /// `answer`, or its error as the person reads it.
-    static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
-        guard answer.0.ok else {
-            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
-        }
-        return answer.1
-    }
+    /// `answer`, or its error as the person reads it (``CloudMoveStrings/checked(_:)``).
+    static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T { try CloudMoveStrings.checked(answer) }
 }
