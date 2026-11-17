@@ -36,8 +36,8 @@ name: cmux-next tab switch (advisory)
 # In the 24 hours to 2026-11-17 08:27Z the frames job ran 354 times at p50 60.2 min: 220 "successes" were the client
 # waiting out --queue-timeout 3600 with 60 exclusive steps ahead and returning no report, and none of 354 returned
 # one. Each wait held one of its mini's two gateway tokens (glaeda docs/CMUX_MINI_RUNNER.md, gatewayRunners), which
-# the fleet compile and test clients and signing jobs need, so 31 jobs of other gateway clients and its own failed
-# in "Set up runner" waiting 600 s for a token.
+# the fleet compile and test clients and signing jobs need: 23 gateway jobs (test-compile, hot verify, this one) were
+# refused in "Set up runner" after waiting 600 s with "all 2 gateway tokens are taken".
 
 on:
   pull_request:
