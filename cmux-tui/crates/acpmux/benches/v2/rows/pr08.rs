@@ -51,8 +51,8 @@ pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "8",
         name: "v2.pr08.mirror_local_row_thirty",
-        done_when: "A local row's submit-to-publish p95 while 30 origins each queue a unit of 512 changes before one writer turn, 11k chats and 16,000 rows held: at most 10 ms under the turn's cap (MAX_TURN_UNIT_CHANGES, 2,048 changes), and the same with the cap lifted for comparison.",
-        measured: false,
+        done_when: "A local row's submit-to-publish p95 while 30 origins each queue a unit of 512 changes before one writer turn, 11k chats and 16,000 rows held: at most 10 ms under the turn's cap (MAX_TURN_UNIT_CHANGES, 1,024 changes), and the same with the cap lifted for comparison. The line's god_p95 is the capped p95, god_p95_all all capped samples pooled, small_p95 0: the bound is god_max.",
+        measured: true,
         ratio: f64::INFINITY,
         ratio_all: None,
         god_max: Some(10_000_000.0),

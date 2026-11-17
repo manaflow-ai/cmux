@@ -28,7 +28,8 @@ use std::time::Duration;
 const DEFAULT_DISPLAY: &str = ":99";
 #[cfg(target_os = "macos")]
 const DEFAULT_DISPLAY: &str = "main";
-/// Linux: Cisco's OpenH264 binary. macOS: the hardware encoder, fed the captured IOSurface.
+/// Linux: Cisco's OpenH264 binary (`--codec auto` opts into the GPU through VAAPI, else OpenH264;
+/// it becomes the default once it is measured on GPUs, hq#12040). macOS: the hardware encoder.
 #[cfg(target_os = "linux")]
 pub(crate) const DEFAULT_CODEC: &str = "openh264";
 #[cfg(target_os = "macos")]
@@ -149,7 +150,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         codec: opts.str_or("codec", DEFAULT_CODEC),
         content: opts.str_or("content", "screen"),
         openh264_lib: opts.get("openh264-lib").map(str::to_owned),
-        threads: opts.num_or("threads", 2)?,
+        threads: opts.num_or("threads", crate::encoder::default_threads())?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", DEFAULT_SETTLE_US)?,
         upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
