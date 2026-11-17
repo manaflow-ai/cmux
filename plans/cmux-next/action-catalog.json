@@ -78558,6 +78558,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -85558,14 +85560,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Assigned to Me",
                 "value" : "mine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Team",
                 "value" : "team"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Following",
                 "value" : "following"
               }
@@ -85661,6 +85669,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -85737,6 +85747,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -85816,6 +85828,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -85910,6 +85924,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -85994,6 +86010,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -86092,6 +86110,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -86178,6 +86198,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -86244,6 +86266,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -86307,6 +86331,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -86382,6 +86408,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -86444,14 +86472,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Owner",
                 "value" : "owner"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can edit",
                 "value" : "edit"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can view",
                 "value" : "view"
               }
@@ -86495,6 +86529,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -86581,6 +86617,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],

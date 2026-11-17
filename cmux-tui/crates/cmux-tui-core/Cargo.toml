@@ -35,6 +35,8 @@ cmux-url-input.workspace = true
 cmux-pty.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
+# cmux Remote's stop intent: a person's Quit never respawns (remote_host/unix.rs, F17).
+cmux-supervise-core.workspace = true
 cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
