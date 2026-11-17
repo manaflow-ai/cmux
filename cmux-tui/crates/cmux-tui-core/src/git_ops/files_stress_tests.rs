@@ -168,6 +168,21 @@ fn list_folder(repo: &Path, folder: &str) -> (Value, usize) {
     (reply, LOOKS.with(std::cell::Cell::get))
 }
 
+/// Readies the daemon's listing of `repo` before a measure: what a Files page
+/// that is already open has. Returns how long that took.
+fn warm(repo: &Path) -> std::time::Duration {
+    let start = Instant::now();
+    let _ = list_folder(repo, "");
+    start.elapsed()
+}
+
+/// The entries the daemon went over for `repo` since the last call
+/// ([`files::TOUCHED`]), on any thread.
+fn touched_since(repo: &Path) -> usize {
+    let mut touched = files::TOUCHED.lock().unwrap();
+    touched.iter_mut().find(|(root, _)| root == repo).map_or(0, |(_, n)| std::mem::take(n))
+}
+
 /// One `git.files.search` keystroke from the top folder.
 fn search(repo: &Path, query: &str) -> (Value, usize) {
     LOOKS.with(|looks| looks.set(0));
@@ -266,6 +281,59 @@ fn looks_of_a_filter_keystroke_grow_with_its_matches_not_the_tree() {
         // One look per match, and the second look per shown result.
         assert!(looks <= 2 * 3, "{count} paths: {looks} looks for 3 matches");
     }
+}
+
+/// The work of what a person waits on, in entries the daemon goes over (listed
+/// paths, kept tree nodes; [`files::TOUCHED`]), at 50 000 and 500 000 paths:
+/// listing the top folder, a one-file change then the top folder's relist,
+/// and each filter keystroke that extends the one before. None may grow with
+/// the tree: a listing goes over the folder's children, a change the changed
+/// path's folders, a keystroke the previous keystroke's matches.
+#[test]
+fn work_of_a_listing_a_change_and_a_keystroke_grows_with_what_it_shows_not_the_tree() {
+    let mut by_size = Vec::new();
+    for count in [50_000, 500_000] {
+        let temp = Temp::new("work");
+        let mut paths = Shape::Wide.paths(count);
+        paths.extend(
+            ["d001/needle-a.txt", "d002/needle-b.txt", "needle-top.txt"].map(str::to_owned),
+        );
+        let repo = repository(&temp, &paths, &[]);
+        warm(&repo);
+        touched_since(&repo);
+        let (top, _) = list_folder(&repo, "");
+        let children = entries(&top).len();
+        let list = touched_since(&repo);
+        std::fs::write(repo.join("d050/edit.txt"), "").unwrap();
+        let (top, _) = list_folder(&repo, "");
+        assert_eq!(entries(&top).len(), children, "{count} paths: {top}");
+        let change = touched_since(&repo);
+        let _ = search(&repo, "n");
+        touched_since(&repo);
+        let mut keystroke = 0;
+        for query in ["ne", "nee", "need", "needl", "needle"] {
+            let (reply, _) = search(&repo, query);
+            assert_eq!(reply["results"].as_array().unwrap().len(), 3, "{count} paths, {query}");
+            keystroke = keystroke.max(touched_since(&repo));
+        }
+        eprintln!(
+            "WORK-FILE-TREE paths={count} children={children} list={list} change={change} keystroke={keystroke}"
+        );
+        assert!(
+            list <= 2 * children + 8,
+            "{count} paths: listing went over {list} entries for {children} children"
+        );
+        assert!(
+            change <= list + 32,
+            "{count} paths: a one-file change and relist went over {change} entries"
+        );
+        assert!(
+            keystroke <= 16,
+            "{count} paths: an extending keystroke went over {keystroke} entries for 3 matches"
+        );
+        by_size.push((list, change, keystroke));
+    }
+    assert_eq!(by_size[0].0, by_size[1].0, "listing work at 50 000 and 500 000 paths");
 }
 
 /// The lazy look lists exactly what a look at every path lists, on a tree with
@@ -386,6 +454,12 @@ fn files_stress_bench() {
             let repo = repository(&temp, &shape.paths(count), &[]);
             let expanded = shape.expanded();
 
+            // Readying the daemon's listing, one time per repository (none
+            // before a kept listing: then it is one more listing).
+            let mut ready = Samples::default();
+            ready.0.push(warm(&repo).as_secs_f64() * 1000.0);
+            line(shape, count, "ready", &ready, 0, 0);
+
             let mut first = Samples::default();
             let (mut looks, mut shown) = (0, 0);
             for _ in 0..runs {
@@ -427,6 +501,25 @@ fn files_stress_bench() {
                 (looks, shown) = (l, reply["results"].as_array().unwrap().len());
             }
             line(shape, count, "filter_keystroke", &filter, looks, shown);
+
+            // Typing the query: each keystroke after the first extends the one
+            // before ("f", then "f1", then "f12").
+            let mut typed = [Samples::default(), Samples::default(), Samples::default()];
+            let mut typed_shown = [0; 3];
+            for _ in 0..runs {
+                for (at, query) in ["f", "f1", "f12"].into_iter().enumerate() {
+                    let start = Instant::now();
+                    let (reply, _) = search(&repo, query);
+                    typed[at].push(start);
+                    typed_shown[at] = reply["results"].as_array().unwrap().len();
+                }
+                // The next run types from an empty field.
+                let _ = search(&repo, "zz");
+            }
+            for (at, samples) in typed.iter().enumerate() {
+                let op = format!("typed_keystroke_{}", at + 1);
+                line(shape, count, &op, samples, 0, typed_shown[at]);
+            }
         }
     }
 }

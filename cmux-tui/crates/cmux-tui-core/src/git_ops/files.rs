@@ -210,6 +210,28 @@ thread_local! {
     pub(super) static LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// Entries (listed paths, kept tree nodes) the daemon's own code went over
+/// for the repository at `root`, on any thread: the stress tests count work
+/// with it (`files_stress_tests`). Nothing outside tests.
+#[cfg(test)]
+pub(super) static TOUCHED: std::sync::Mutex<Vec<(PathBuf, usize)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Counts `count` entries gone over for the repository at `root` ([`TOUCHED`]).
+#[inline]
+pub(super) fn touch(root: &Path, count: usize) {
+    #[cfg(test)]
+    {
+        let mut touched = TOUCHED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match touched.iter_mut().find(|(at, _)| at == root) {
+            Some((_, total)) => *total += count,
+            None => touched.push((root.to_path_buf(), count)),
+        }
+    }
+    #[cfg(not(test))]
+    let _ = (root, count);
+}
+
 /// The paths git lists under `directory`, relative to it, sorted and with no
 /// repeat, and whether the listing was cut.
 ///
@@ -237,6 +259,7 @@ pub(super) fn listed(
         bytes.truncate(end);
     }
     let mut files = parse::file_list(&bytes);
+    touch(&repository.root, files.len());
     // Sorted, the paths of one folder follow each other: the look opens each
     // folder one time.
     files.sort_unstable();
