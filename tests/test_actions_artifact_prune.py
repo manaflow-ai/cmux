@@ -243,7 +243,12 @@ class DropRun(unittest.TestCase):
                      mock.patch.object(prune.time, "sleep"), \
                      mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
                     self.assertEqual(prune.main(["--repo", "o/r", "--run-id", "9", "--delete"]), 0)
-                self.assertIn("stopped on the API limit", stdout.getvalue())
+                output = stdout.getvalue()
+                self.assertIn("stopped on the API limit", output)
+                if fail_at <= 2:
+                    self.assertIn("nothing was deleted", output)
+                else:
+                    self.assertIn(f"after deleting {fail_at - 2} artifacts", output)
                 self.assertEqual([op for op, result in api.operations if result == "after-refusal"], [])
                 self.assertEqual(api.deleted, [a["id"] for a in artifacts][:max(0, fail_at - 2)])
 
