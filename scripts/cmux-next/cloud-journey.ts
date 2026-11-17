@@ -2743,6 +2743,30 @@ export function credentialSeen(rows: { cred_sha256?: string }[], want: string): 
 }
 
 /**
+ * The stub step's credential rule. With a login written onto the machine (`launch` false) every model request carries
+ * it. With the agent's launch credential (cmux#40159) the credential is the chat agent's alone: every request that
+ * offers tools (the chat's turns) must carry it, and a side request with no tools (a chat title: acpmux's
+ * `_acpmux/complete` runs its own `claude -p`, which holds no session credential) carries it or the machine's
+ * model-route placeholder, never anything else.
+ */
+export function judgeStubCredentials(rows: { cred_sha256?: string; tools?: string[]; side?: boolean }[], want: string, launch: boolean): { error?: string; detail: string } {
+  const all = `${rows.length} model requests`;
+  if (!launch) {
+    return rows.every((x) => x.cred_sha256 === want)
+      ? { detail: `${all}, each with the forwarded login (SHA-256 match)` }
+      : { error: "a model request did not carry the login the journey passed", detail: "" };
+  }
+  const placeholder = createHash("sha256").update(MODEL_PLANE_PLACEHOLDER).digest("hex");
+  const chat = rows.filter((x) => (x.tools ?? []).length > 0 && !x.side);
+  const side = rows.filter((x) => !((x.tools ?? []).length > 0 && !x.side));
+  if (!chat.length) return { error: "no chat turn offered tools", detail: "" };
+  if (!chat.every((x) => x.cred_sha256 === want)) return { error: "a chat turn did not carry the login the journey passed", detail: "" };
+  if (!side.every((x) => x.cred_sha256 === want || x.cred_sha256 === placeholder)) return { error: "a side request carried neither the login nor the machine's model route", detail: "" };
+  const routed = side.filter((x) => x.cred_sha256 === placeholder).length;
+  return { detail: `${all}: ${chat.length} chat turns, each with the launch credential (SHA-256 match)${side.length ? `; ${side.length} side requests, ${routed} of them on the machine's model route` : ""}` };
+}
+
+/**
  * Which Claude processes on the machine could send a credential: each one's command (cut short) and which provider
  * names its env sets (names only, never a value).
  */
@@ -4464,12 +4488,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const turns = rows.filter((x: any) => x.method === "POST" && String(x.path).startsWith(route));
           const want = createHash("sha256").update(loginBearer(provider, login)).digest("hex");
           if (!turns.some((x: any) => x.stream && !x.side)) throw new Error(`${agent} sent the stub no streamed ${route} turn`);
-          if (!turns.every((x: any) => x.cred_sha256 === want)) {
+          const judged = judgeStubCredentials(turns, want, launchCredential);
+          if (judged.error) {
             const procs = (await exec(CREDENTIAL_PROCESSES_PROGRAM).catch(() => null))?.stdout.replace(/\n/g, "; ").slice(0, 900) ?? "unread";
-            throw new Error(`a model request did not carry the login the journey passed (the forwarded credential did not reach ${agent}): ${credentialSeen(turns, want)} (processes: ${procs})`);
+            throw new Error(`${judged.error} (the forwarded credential did not reach ${agent}): ${credentialSeen(turns, want)} (processes: ${procs})`);
           }
           if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the shell call's result");
-          return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); the shell call ran and its output came back` };
+          return { value: null, detail: `${judged.detail}; the shell call ran and its output came back` };
         });
       }
       if (gwExec || gatewayLocal) {

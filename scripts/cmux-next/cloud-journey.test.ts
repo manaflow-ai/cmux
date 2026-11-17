@@ -7,7 +7,7 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
@@ -2919,5 +2919,27 @@ open(out, 'w').write(json.dumps(seen))
     const rowsShaped = rows.map((r, i) => ({ ...r, path: "/v1/messages", model: i === 0 ? "claude-haiku" : "stub-model", stream: i !== 0, tools: i === 0 ? [] : ["Bash"], step: 0 }));
     expect(credentialSeen(rowsShaped, want)).toBe("2 with the model-route placeholder, 1 with the login, 1 with no credential, 1 with another credential; not the login: /v1/messages model=claude-haiku stream=false tools=0 step=0; /v1/messages model=stub-model stream=true tools=1 step=0; /v1/messages model=stub-model stream=true tools=1 step=0; /v1/messages model=stub-model stream=true tools=1 step=0");
     expect(credentialSeen([{ cred_sha256: want }], want)).toBe("1 with the login");
+  });
+});
+
+describe("the stub step's credential rule (cmux#40159)", () => {
+  const { createHash } = require("node:crypto") as typeof import("node:crypto");
+  const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+  const want = sha("sk-ant-oat01-mine");
+  const turn = (cred: string, step = 0) => ({ cred_sha256: cred, tools: ["Bash", "Read"], step });
+  // PR run 44092630546: three chat turns on the launch credential, and one title request (haiku, no tools) from
+  // acpmux's own `claude -p`, on the machine's model route.
+  const title = { cred_sha256: sha(MODEL_PLANE_PLACEHOLDER), tools: [], side: true, step: -1 };
+  test("with the launch credential, chat turns must carry it and a title request may use the model route", () => {
+    expect(judgeStubCredentials([turn(want), turn(want, 1), turn(want, 1), title], want, true)).toEqual({
+      detail: "4 model requests: 3 chat turns, each with the launch credential (SHA-256 match); 1 side requests, 1 of them on the machine's model route",
+    });
+    expect(judgeStubCredentials([turn(want), turn(sha(MODEL_PLANE_PLACEHOLDER), 1)], want, true).error).toBe("a chat turn did not carry the login the journey passed");
+    expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: sha("someone-else") }], want, true).error).toBe("a side request carried neither the login nor the machine's model route");
+    expect(judgeStubCredentials([title], want, true).error).toBe("no chat turn offered tools");
+  });
+  test("with a login on the machine, every request must carry it", () => {
+    expect(judgeStubCredentials([turn(want), title], want, false).error).toBe("a model request did not carry the login the journey passed");
+    expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: want }], want, false)).toEqual({ detail: "2 model requests, each with the forwarded login (SHA-256 match)" });
   });
 });
