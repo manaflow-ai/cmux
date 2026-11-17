@@ -2658,9 +2658,9 @@ FAST_LANE_CLAUSE = (
 )
 # While fast-tier-fleet ran, the fast tier only reports its verdict from Linux (GatewayRunsOnlyTheFleetClient);
 # a step still queued (verdict `queued`) hands it back, and it runs on Blacksmith macOS.
-# The hand-back reads the Blacksmith switch as every owned fallback does since #43860: with the value
-# `pr-rescue`, a pull request's re-run (attempt 2 and later), or a bot's re-run of a dispatch gating one
-# (cmuxterm-hq#12109), does not take the side lane label.
+# The hand-back reads the Blacksmith switch as every owned fallback does: only `on` leaves the side lane label
+# here. Under `pr-rescue` a re-run reaches Blacksmith macOS only through the placement's dead-aware retry label
+# (cmux#44966: the plain fallback queued re-runs on a Blacksmith label with no runner online).
 FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
@@ -2673,14 +2673,9 @@ FAST_TIER_REPORT_CLAUSE = (
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && "
-    "((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && "
-    "(github.event_name != 'workflow_dispatch' || "
-    "!contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || "
-    "inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || "
-    "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
-    "inputs.no_reuse == true)) "
-    "&& vars.CI_BLACKSMITH_MACOS != 'on' && "
-    "vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || "
+    "(vars.CI_BLACKSMITH_MACOS != 'on' && "
+    "(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || "
+    "fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
 
 
@@ -2696,7 +2691,7 @@ class FastTierRunner(unittest.TestCase):
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
         self.assertIn(FAST_LANE_CLAUSE + FAST_TIER_REPORT_CLAUSE, runs_on)
         # The owned side lane route; the Blacksmith off switch (note-350) reads the variable earlier as well.
-        side = runs_on.index("vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER")
+        side = runs_on.index("vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)")
         self.assertLess(runs_on.index("outputs.retry_runner"), side)
         self.assertLess(runs_on.index("outputs.deferred_runner"), side)
         self.assertIn("outputs.owned_jobs", runs_on)

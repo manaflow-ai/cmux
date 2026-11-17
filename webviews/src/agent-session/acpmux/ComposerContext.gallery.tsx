@@ -12,26 +12,20 @@ import type { Project } from "./ProjectChooser";
 import { fleetPeers } from "../../gallery/fixtures/acpmux";
 import { thisMacName } from "./environments";
 
-/// The Cloud face with its team (composerLocation.css, the team-tag rules): "Cloud" never cuts, the
-/// team's name cuts only when the strip has no room left, and the tag's tooltip names the team whole.
-async function checkCloudTeamFace(ctx: Parameters<Play>[0], team: string) {
+/// The Cloud face says only Cloud, whole, for every team: the team is named on the menu's Cloud row,
+/// never on the chip (Austin, 2026-11-16: "get rid of the austin wang's team part just have cloud and
+/// that's it").
+async function checkCloudFace(ctx: Parameters<Play>[0]) {
   const find = () =>
-    ctx.document.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] .acpmux-team-tag');
-  await ctx.waitFor(find);
-  const chip = find()!.closest<HTMLElement>(".acpmux-location-picker")!;
-  const label = chip.querySelector<HTMLElement>(".acpmux-location-label");
-  const tag = chip.querySelector<HTMLElement>(".acpmux-team-tag");
-  const name = chip.querySelector<HTMLElement>(".acpmux-team-tag-name");
-  if (!label || !tag || !name) throw new Error("the Cloud face draws no team");
+    ctx.document.querySelector<HTMLElement>(
+      '.acpmux-location-picker[data-kind="computer"] .acpmux-location-button .acpmux-location-label',
+    );
+  await ctx.waitFor(() => find()?.textContent === "Cloud");
+  const label = find()!;
+  const chip = label.closest<HTMLElement>(".acpmux-location-button")!;
+  if (chip.querySelector(".acpmux-team-tag")) throw new Error("the Cloud face names the team");
   if (label.offsetParent !== null && label.scrollWidth > label.clientWidth + 0.5)
     throw new Error(`"${label.textContent}" is cut`);
-  if (tag.getAttribute("title") !== team) throw new Error("the team's tooltip does not name it whole");
-  if (name.scrollWidth > name.clientWidth + 0.5) {
-    const leading = chip.parentElement!;
-    const last = leading.lastElementChild!.getBoundingClientRect();
-    const room = leading.getBoundingClientRect().right - last.right;
-    if (room > 8) throw new Error(`the team's name is cut with ${Math.round(room)} px of the strip empty`);
-  }
 }
 
 const projects: Project[] = [
@@ -1302,7 +1296,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-cloud-team-closed": {
-      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
+      note: "Active team: Cloud picked in a team, the closed control says only Cloud; the team is named on the menu's Cloud row.",
       props: {
         ...baseProps,
         environments: true,
@@ -1310,9 +1304,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         cloudTeam: { name: "cmux", personal: false },
         runMode: { mode: "cloud", onMode: () => undefined },
       },
+      play: checkCloudFace,
     },
     "environment-picker-cloud-long-team-closed": {
-      note: "Cloud picked in a long team: the location word reads Cloud in full; the team name gives up its width first.",
+      note: "Cloud picked in a team with a long name (Austin Wang's Team): the closed control still says only Cloud, never the team.",
       props: {
         ...baseProps,
         environments: true,
@@ -1320,6 +1315,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         cloudTeam: { name: "Austin Wang's Team", personal: false },
         runMode: { mode: "cloud", onMode: () => undefined },
       },
+      play: checkCloudFace,
     },
     "environment-picker-cloud-long-team-row": {
       note: "The Cloud row with a long team: label left, the team at the trailing edge in the shortcut's caption style (as This Mac's ⌥⌘1), the check in its own column.",
@@ -1364,30 +1360,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='listbox']"));
       },
     },
-    "environment-picker-cloud-team-long": {
-      note: 'Active team with a long name (Leo, 2026-11-10: "this broken too", the strip read "Cl..." and "leo@cmux.com\'..." beside empty room). The control takes the room the team needs: Cloud never cuts, and the team\'s name cuts only once the strip is full.',
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "leo@cmux.com's team", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: async (ctx) => checkCloudTeamFace(ctx, "leo@cmux.com's team"),
-    },
-    "environment-picker-cloud-team-overlong": {
-      note: "Active team whose name cannot fit any strip: only the team's name shortens, Cloud and both icons stay whole, and the tag's tooltip names the team in full.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Platform Infrastructure and Developer Experience (EMEA)", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: async (ctx) => checkCloudTeamFace(ctx, "Platform Infrastructure and Developer Experience (EMEA)"),
-    },
     "environment-picker-cloud-personal-closed": {
-      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
+      note: "Active team: the person's own team. The closed control says only Cloud, as for a shared team.",
       props: {
         ...baseProps,
         environments: true,
@@ -1395,6 +1369,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         cloudTeam: { name: "Personal", personal: true },
         runMode: { mode: "cloud", onMode: () => undefined },
       },
+      play: checkCloudFace,
     },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
