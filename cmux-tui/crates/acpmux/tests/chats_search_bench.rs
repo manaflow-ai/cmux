@@ -15,14 +15,14 @@
 //! Each query is a three-word phrase that is in one planted chat only, in an answer in the middle
 //! of its history; the planted chats are spread from the newest to the oldest. The bench types
 //! each phrase a key at a time into the page's window, `_acpmux/chats_window {window, gen, query,
-//! content: true, limit: 50}`, and times each key from the request to the window's first rows for
+//! content: true, limit: 200, topLevel, untitled, count}` as the Cmd-K chats page asks for it, and times each key from the request to the window's first rows for
 //! that `gen` (`_acpmux/chats_window_changed`, `full: true`). On a phrase's last key it waits
 //! until a message for that `gen` holds the planted chat, at most [`MISS_MS`]; a phrase whose
 //! chat never comes counts each of its keys as [`MISS_MS`], so a search that cannot find a chat
 //! by what was said reads as a number, not as nothing.
 //!
-//! Before typing, it times the text index's fill: from the daemon's start until a window finds
-//! the oldest planted chat (`chat_search.fill`, report-only). The same keys of one phrase also go
+//! Before typing, it times the text index's fill: from the daemon's start until the window's
+//! message no longer says `filling` (`chat_search.fill`, report-only). The same keys of one phrase also go
 //! to `_acpmux/chats_search`, the scan the CLI uses (`chat_search.scan_keystroke`, report-only; a
 //! `partial` answer is a miss).
 //!
@@ -145,7 +145,7 @@ fn write_chat(h: &Path, n: usize, bytes: usize, planted: Option<&str>, rng: &mut
     let id = format!("{:08x}-0000-4000-8000-{:012x}", n, n);
     let project = h.join(format!("work/p{}", n % 40));
     let path = if codex {
-        h.join(format!(".codex/sessions/2026/10/{:02}/rollout-2026-10-{:02}T10-00-00-{id}.jsonl", 1 + n % 28, 1 + n % 28))
+        h.join(format!(".codex/sessions/2026/11/{:02}/rollout-2026-11-{:02}T10-00-00-{id}.jsonl", 1 + n % 28, 1 + n % 28))
     } else {
         h.join(format!(".claude/projects/-work-p{}/{id}.jsonl", n % 40))
     };
@@ -153,10 +153,11 @@ fn write_chat(h: &Path, n: usize, bytes: usize, planted: Option<&str>, rng: &mut
     let mut out = BufWriter::new(std::fs::File::create(&path).expect("store"));
     let turns = (bytes / (TOOL_BYTES + 1_200)).max(2);
     let tool = "x".repeat(TOOL_BYTES);
-    // Chat n was last active n hours before the newest: the page lists newest first.
+    // Chat n was last active 20 minutes before chat n - 1, and its turns fit in those 20 minutes, so
+    // the page lists the chats in order, newest first, over 28 days (past 2,016 chats they tie).
     let at = |turn: usize| {
-        let minute = 2_000_000usize.saturating_sub(n * 60).saturating_add(turn);
-        format!("2026-11-{:02}T{:02}:{:02}:00.000Z", 1 + (minute / 1440) % 28, (minute / 60) % 24, minute % 60)
+        let minute = (28 * 1440 - 1usize).saturating_sub(n * 20) + turn * 19 / turns;
+        format!("2026-11-{:02}T{:02}:{:02}:00.000Z", 1 + minute / 1440, (minute / 60) % 24, minute % 60)
     };
     if codex {
         let meta = json!({"type": "session_meta", "payload": {"id": id, "cwd": project, "timestamp": at(0)}});
@@ -286,9 +287,12 @@ fn shown(params: &Value) -> Vec<&str> {
     params["keys"].as_array().into_iter().flatten().filter_map(Value::as_str).collect()
 }
 
-/// The page's window spec for `query`, at generation `generation`.
+/// The Cmd-K chats page's window spec for `query`, at generation `generation`
+/// (AgentChatsPalettePage.answers). The page also sends the person's choice history, which a new
+/// device does not have yet.
 fn window(generation: u64, query: &str) -> Value {
-    json!({"window": "bench", "gen": generation, "query": query, "content": true, "limit": 50})
+    json!({"window": "bench", "gen": generation, "query": query, "content": true, "limit": 200,
+        "topLevel": true, "untitled": "New chat", "count": true})
 }
 
 /// Types `phrase` a key at a time into the page's window: each key's ms to the window's first
@@ -390,7 +394,8 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
     let planted: Vec<(&str, &str)> =
         fixture.iter().filter_map(|c| c.planted.as_deref().map(|p| (p, c.key.as_str()))).collect();
 
-    // The fill: from the daemon's start until a window finds the oldest planted chat.
+    // The fill: from the daemon's start until the window's message no longer says `filling`; the
+    // oldest planted chat must show by then.
     let started = Instant::now();
     let hub = hub_on(&h.0).await;
     let mut conn = Conn::open(&hub).await;
@@ -401,18 +406,19 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
     let until = started + FILL_WAIT;
     let mut filled = None;
     while let Some(params) = conn.window_message(generation, until).await {
-        if shown(&params).contains(&oldest_key) {
-            filled = Some(started.elapsed());
+        if params["filling"] != json!(true) {
+            filled = Some((started.elapsed(), shown(&params).contains(&oldest_key)));
             break;
         }
     }
     match filled {
-        Some(took) => {
-            println!("fill: the oldest planted chat found {:.1} s after the daemon's start", took.as_secs_f64());
+        Some((took, seen)) => {
+            let seen = if seen { "the oldest planted chat found" } else { "the oldest planted chat NOT found" };
+            println!("fill: done {:.1} s after the daemon's start, {seen}", took.as_secs_f64());
             let ms = took.as_secs_f64() * 1000.0;
             println!("PERF_ROW {}", json!({"name": "chat_search.fill", "p50": ms, "p95": ms, "unit": "ms"}));
         }
-        None => println!("fill: the oldest planted chat was not found within {} s", FILL_WAIT.as_secs()),
+        None => println!("fill: still filling after {} s", FILL_WAIT.as_secs()),
     }
 
     let (mut times, mut found) = (Vec::new(), 0);

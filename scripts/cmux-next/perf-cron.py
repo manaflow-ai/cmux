@@ -218,7 +218,8 @@ PARTS = [
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
     # Full-text chat search (cmux-tui/crates/acpmux/tests/chats_search_bench.rs, goal chat-history-search in
-    # cmuxterm-hq's NOW): phrases typed a key at a time into the Cmd-K chats page's `_acpmux/chats {query}` on a
+    # cmuxterm-hq's NOW): phrases typed a key at a time into the Cmd-K chats page's window
+    # (`_acpmux/chats_window {query, content: true}`) on a
     # 2,000-chat fixture sized like real stores; the p95 per keystroke (chat_search.keystroke) and, report-only, the
     # scan through `_acpmux/chats_search` (chat_search.scan_keystroke). The release build runs first under its own cap.
     {"name": "chat-search", "where": "linux", "kind": "webui", "needs": "chat-search"},
@@ -245,9 +246,11 @@ ROW_PARTS = [
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
 # memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
 # composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
-# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate). The chat search's fill and the
+# CLI's scan (chat-search) are context for its judged keystroke row: shown, not judged.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$"
+                                r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
