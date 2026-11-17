@@ -29,6 +29,10 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     /// `attach-replay-history-rows-v1`); 0 for a whole replay. (A `resized`
     /// replay, always whole, says so with ``resetMirror(alternate:)``.)
     case historyRowsOmitted(Int)
+    /// An `agent-cli-frame` (`agent-cli-hybrid-v1`) was drawn: its stream and frame, which a
+    /// reattach names to resume from it; `resumed` when it applied on the screen the mirror
+    /// already held (a resume after a drop), so the attach keeps that screen.
+    case hybridFrame(stream: String, frame: Int, resumed: Bool)
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -39,6 +43,10 @@ struct DaemonTerminalEventParser: Sendable {
     private var detector = AlternateScreenDetector()
     /// The Mac's grid this mirror holds (from `vt-state` and `resized`).
     private var grid: (columns: Int, rows: Int)?
+    /// Whether this attach drew an `agent-cli-frame` yet: a later keyframe starts the mirror over.
+    private var drewHybridFrame = false
+    /// This attach's lean frames (`agent-cli-lean`): their header and style table.
+    private var lean = AgentCLIHybridLeanDecoder()
 
     init(surface: Int) { self.surface = surface }
 
@@ -92,6 +100,16 @@ struct DaemonTerminalEventParser: Sendable {
             for chunk in chunks { _ = detector.scan(chunk) }
             out.append(.resetMirror(alternate: detector.isActive))
             out.append(contentsOf: chunks.map { .output($0) })
+        case "agent-cli-frame":
+            // An agent CLI's screen as the cells that changed (`agent-cli-hybrid-v1`), drawn
+            // into the same mirror as terminal bytes, so it looks as it does from the PTY.
+            if let frame = AgentCLIHybridFrame(object) { draw(frame, into: &out) }
+        case "agent-cli-lean":
+            // The same frames, packed (`agent-cli-hybrid-v2`): fewer bytes than the PTY's.
+            if let encoded = object["f"] as? String, let bytes = Data(base64Encoded: encoded),
+               let frame = lean.decode(bytes) {
+                draw(frame, into: &out)
+            }
         case "detached":
             out.append(.detached(reason: object["reason"] as? String))
         case "size-state":
@@ -102,6 +120,31 @@ struct DaemonTerminalEventParser: Sendable {
             break
         }
         return out
+    }
+
+    /// Draws an agent CLI frame (`agent-cli-frame` or `agent-cli-lean`) into the mirror as
+    /// terminal bytes, so it looks as it does from the PTY.
+    private mutating func draw(_ frame: AgentCLIHybridFrame, into out: inout [DaemonTerminalInbound]) {
+        guard let bytes = frame.terminalBytes else { return }
+        let sameGrid = grid.map { $0.columns == frame.columns && $0.rows == frame.rows } ?? false
+        if !sameGrid || frame.base == nil {
+            out.append(.columns(frame.columns))
+            out.append(.rows(frame.rows))
+        }
+        grid = (frame.columns, frame.rows)
+        if frame.base == nil {
+            detector = AlternateScreenDetector()
+            if drewHybridFrame {
+                // A keyframe after a resize: the screen starts over at the new grid.
+                out.append(.resetMirror(alternate: false))
+            } else {
+                out.append(.historyRowsOmitted(0))
+                out.append(.alternateScreen(false))
+            }
+        }
+        out.append(.output(bytes))
+        out.append(.hybridFrame(stream: frame.stream, frame: frame.frame, resumed: frame.base != nil && !drewHybridFrame))
+        drewHybridFrame = true
     }
 
     private mutating func noteGrid(_ object: [String: Any]) {
