@@ -17,6 +17,7 @@ import type { Folds } from "./viewFolds";
 import type { Translate } from "../i18n";
 import { backgroundReactionLook, reactsOnCall } from "./backgroundReaction.experiment";
 import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
+import { isBgDoneTurn } from "./bgDoneNotice";
 
 /// The line of one background turn (direct.ts makes it at the turn's started record). Its rows are
 /// the rows an event between its started and ended record made (`inBackground`).
@@ -115,9 +116,11 @@ export function drawsBackgroundLine(row: AcpmuxRow): boolean {
 /// Whether a background turn that does not fold still draws its line, over its rows: a failure
 /// that ended with something to say keeps its named line, so a long reply never hides what failed
 /// (cmux#33319). Its rows draw as they came under it; the line opens nothing.
+/// So does a background command's finish (bgDoneNotice.ts) whose reply says something: its line
+/// names the task, and the reply draws under it.
 export function headsBackground(row: AcpmuxRow): boolean {
   if (row.kind !== BACKGROUND_TURN || !row.background || foldsBackground(row)) return false;
-  return backgroundWeight(row.background) === "failure";
+  return backgroundWeight(row.background) === "failure" || isBgDoneTurn(row.background.id);
 }
 
 /// Update the owner set while a caller is already walking the transcript. Keeping this mutation

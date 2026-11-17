@@ -7,6 +7,14 @@
 // These replay that stretch as the daemon pages it to the pane (`_acpmux/events`, kinds
 // `transcript`, text masked), through the pane's own reducer (direct.ts) and fold (turns.ts), on
 // reopen and live, under every fold arm, and check the class over random turn sequences.
+//
+// Again on 2026-11-17 (Leo: "im seeing no outputs from chats again"): a background command's finish
+// that acpmux sends as a prompt (`bg-done-<task>`) drew as a background turn whose reply folded
+// under its "Background task finished" line, so its words never drew (cmux#44710). The random
+// turns here had a "background" opener, but not the shape acpmux sends, so the class check passed.
+// Each opener below is the record acpmux writes (a person's prompt, an inbox notice, another agent's
+// message, a background finish that succeeded or failed), and two recorded stretches of the
+// coordinators' logs from that day replay through the same checks.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
@@ -39,9 +47,9 @@ afterAll(async () => {
 });
 
 /// The rows the pane's reducer folds `events` into, as a reopen reads them.
-function replay(events: readonly EventRecord[]): AcpmuxRow[] {
+function replay(events: readonly EventRecord[], session = SESSION): AcpmuxRow[] {
   let rows: readonly AcpmuxRow[] = [];
-  const client = AcpmuxDirectClient.replay(SESSION, [...events], (snapshot) => {
+  const client = AcpmuxDirectClient.replay(session, [...events], (snapshot) => {
     rows = snapshot.rows;
   });
   try {
@@ -185,15 +193,19 @@ const update = (kind: string, data: Record<string, unknown>, meta?: Record<strin
     params: { ...(meta && { _meta: meta }), update: { sessionUpdate: kind, ...data } },
   });
 
-function randomChat(random: () => number): EventRecord[] {
+/// `codex`: the messages carry Codex's phases (`_meta.codex.phase`), notes `commentary` and the
+/// reply `final_answer`, as Codex's app-server sends them; else none, as Claude's.
+function randomChat(random: () => number, codex = false): EventRecord[] {
   seq = 0;
   const pick = <T>(list: readonly T[]) => list[Math.floor(random() * list.length)]!;
   const events: EventRecord[] = [];
   const turns = 2 + Math.floor(random() * 5);
   for (let turn = 0; turn < turns; turn += 1) {
     const turnId = `t${turn}`;
-    const opener = pick(["person", "inbox", "background"] as const);
-    const promptId = `${opener}-${turn}`;
+    const opener = pick(["person", "inbox", "background", "agent", "bgDone", "bgFailed"] as const);
+    const bg = opener === "bgDone" || opener === "bgFailed";
+    // acpmux's own ids: a background finish's prompt is `bg-done-<task>` (bg_notify.rs).
+    const promptId = bg ? `bg-done-bg-${turn}` : `${opener}-${turn}`;
     events.push(
       record("user_message", "mux", {
         text: opener === "person" ? `Question ${turn}` : `[${opener}] notice ${turn}`,
@@ -203,6 +215,36 @@ function randomChat(random: () => number): EventRecord[] {
           ? { client: "cmux-react-agent-pane#01a1d1" }
           : {
               client: "acpmux",
+              ...(bg && {
+                _meta: {
+                  provenance: {
+                    kind: "notice",
+                    from: "fromAgent",
+                    fromName: "acpmux",
+                    bgTaskId: `bg-${turn}`,
+                    bgTaskDescription: `task ${turn}`,
+                    notice: {
+                      sender: "acpmux",
+                      severity: opener === "bgFailed" ? "warn" : "info",
+                      title: `Background command finished: run ${turn} (exit ${opener === "bgFailed" ? 1 : 0})`,
+                    },
+                  },
+                },
+              }),
+              ...(opener === "agent" && {
+                client: "acpmux-peer#01a1e7",
+                control: "peer",
+                _meta: {
+                  provenance: {
+                    kind: "agent_message",
+                    from: "fromAgent",
+                    fromName: "lane/helper",
+                    fromHarness: "claude",
+                    transport: "peer",
+                    verified: false,
+                  },
+                },
+              }),
               ...(opener === "inbox" && {
                 _meta: {
                   provenance: {
@@ -227,7 +269,9 @@ function randomChat(random: () => number): EventRecord[] {
       record("turn_started", "mux", {
         promptId,
         turnId,
-        client: opener === "person" ? "cmux-react-agent-pane#01a1d1" : "acpmux",
+        client:
+          opener === "person" ? "cmux-react-agent-pane#01a1d1" : opener === "agent" ? "acpmux-peer#01a1e7" : "acpmux",
+        ...(opener === "agent" && { control: "peer" }),
       }),
     );
     const steps = 1 + Math.floor(random() * 6);
@@ -253,7 +297,11 @@ function randomChat(random: () => number): EventRecord[] {
         events.push(
           update(
             "agent_message_chunk",
-            { content: { type: "text", text: `Note ${turn}.${step}.` }, messageId: `m${turn}.${segment}` },
+            {
+              content: { type: "text", text: `Note ${turn}.${step}.` },
+              messageId: `m${turn}.${segment}`,
+              ...(codex && { _meta: { codex: { phase: "commentary" } } }),
+            },
             { acpmux: { segment: `${turnId}.${segment}` } },
           ),
         );
@@ -261,15 +309,24 @@ function randomChat(random: () => number): EventRecord[] {
         events.push(update("subagent_progress", { subagentSessionId: "coord/helper", task: "Review" }));
       else events.push(update("task_progress", { taskId: "watch", description: "Watch CI", status: "running" }));
     }
-    // The final reply, in chunks, sometimes split by a thought or a helper's progress.
+    // The final reply, in chunks, sometimes split by a thought or a helper's progress: a short one
+    // ("Merged.", under any short-note threshold) or a long one.
     segment += 1;
     const messageId = `m${turn}.${segment}`;
-    const pieces = 1 + Math.floor(random() * 5);
+    const short = random() < 0.3;
+    const pieces = short ? 1 : 1 + Math.floor(random() * 5);
     for (let piece = 0; piece < pieces; piece += 1) {
       events.push(
         update(
           "agent_message_chunk",
-          { content: { type: "text", text: `Answer ${turn} part ${piece}. ` }, messageId },
+          {
+            content: {
+              type: "text",
+              text: short ? `Merged ${turn}.` : `Answer ${turn} part ${piece}, with what it found and what is next. `,
+            },
+            messageId,
+            ...(codex && { _meta: { codex: { phase: "final_answer" } } }),
+          },
           { acpmux: { segment: `${turnId}.${segment}` } },
         ),
       );
@@ -292,10 +349,11 @@ test("property: every ended turn's final reply draws, whatever opens the next tu
   };
   eachArm((arm) => {
     for (let run = 0; run < 60; run += 1) {
-      const events = randomChat(random);
+      const family = run % 2 ? "codex" : "claude";
+      const events = randomChat(random, family === "codex");
       const replies = turnReplies(events);
       expect(replies.length).toBeGreaterThan(0);
-      const drawn = turnView(replay(events), new Set(), { agentFamily: "claude" });
+      const drawn = turnView(replay(events), new Set(), { agentFamily: family });
       const missing = undrawnReplies(replies, drawn);
       // Every reply is found: a replay that drew nothing would pass the check below vacuously.
       expect(
@@ -306,3 +364,87 @@ test("property: every ended turn's final reply draws, whatever opens the next tu
     }
   });
 });
+
+// The coordinators' logs on 2026-11-17 (text masked): turns that background finishes, other agents'
+// messages and inbox notices opened, each with tool calls and then a short final reply (106 to
+// 1,002 characters). Each background finish's reply had folded under its line (cmux#44710).
+const RECORDED = [
+  { session: "01a18a35-b1e8-7951-ba2f-703bf916b9a6", file: "sr2-turns-3999123.ndjson" },
+  { session: "01a1e3f0-e8a7-7488-a4c1-0eb969d4bbc0", file: "sr2-coord-197051.ndjson" },
+].map(({ session, file }) => ({
+  session,
+  file,
+  events: readFileSync(new URL(`./fixtures/${file}`, import.meta.url), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as EventRecord),
+}));
+
+for (const { session, file, events } of RECORDED)
+  test(`${file}: every ended turn's final reply draws outside its fold, on reopen, under every arm`, () => {
+    const replies = turnReplies(events);
+    // The background finishes' turns are among them.
+    expect(
+      replies.filter((reply) =>
+        events.some((e) => e.seq === reply.startSeq && /^bg-done-/.test(String(e.msg?.promptId))),
+      ).length,
+    ).toBeGreaterThan(0);
+    const rows = replay(events, session);
+    eachArm((arm) => {
+      for (const family of ["claude", "codex", undefined]) {
+        const drawn = turnView(rows, new Set(), { agentFamily: family });
+        expect(named(undrawnReplies(replies, drawn)), `${arm} ${family}`).toBe("");
+      }
+    });
+  });
+
+for (const { file, events } of RECORDED)
+  test(`${file}: live, one record at a time, every ended turn's final reply draws`, async () => {
+    const { MockAcpmuxSocket, mockHost } = await import("../mock");
+    const { turnViewFrom } = await import("./turns");
+    let live: ReturnType<typeof turnViewFrom> | undefined;
+    let shown: any;
+    let snapshots = 0;
+    let socket!: any;
+    const client = await AcpmuxDirectClient.connect(
+      mockHost,
+      (snapshot) => {
+        shown = snapshot;
+        snapshots += 1;
+        live = turnViewFrom(
+          snapshot.rows,
+          new Set() as never,
+          {
+            working: snapshot.isWorking,
+            clockOffset: snapshot.clockOffsetMs,
+            turnStartedAtMs: snapshot.turnStartedAtMs,
+            agentFamily: "claude",
+            waitingSteers: snapshot.waitingSteers,
+          } as never,
+          live,
+        );
+      },
+      undefined,
+      () => (socket = new MockAcpmuxSocket(() => Promise.resolve())) as unknown as WebSocket,
+    );
+    const id = mockHost.sessionId!;
+    await settle(() => shown?.summary !== undefined);
+    const replies = turnReplies(events);
+    for (const event of events) {
+      if (event.dir === "mux") {
+        if (event.kind === "turn_started") socket.touch(id, { status: "running", turn: { turnId: event.msg?.turnId } });
+        socket.emit(id, { mux: event.kind, msg: event.msg });
+        if (event.kind === "turn_result") socket.touch(id, { status: "idle", turn: undefined });
+      } else
+        socket.emit(id, {
+          update: event.msg.params.update,
+          ...(event.msg.params._meta && { meta: event.msg.params._meta }),
+        });
+      const before = snapshots;
+      await settle(() => snapshots > before);
+      if (event.kind !== "turn_result") continue;
+      const ended = replies.filter((reply) => reply.endSeq <= event.seq);
+      expect(named(undrawnReplies(ended, live!.rows)), `live through ${event.seq}`).toBe("");
+    }
+    client.close?.();
+  }, 120_000);

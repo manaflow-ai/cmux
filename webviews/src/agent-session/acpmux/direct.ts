@@ -150,7 +150,7 @@ import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
-import { bgDoneNotice, bgDoneStarted } from "./conversation/bgDoneNotice";
+import { bgDoneNotice, bgDoneStarted, isBgDoneTurn } from "./conversation/bgDoneNotice";
 import { approvePlan, clearPlanScope, editPaths, rememberPlanEdit } from "./planScopeDriftStore";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import {
@@ -9030,9 +9030,16 @@ export class AcpmuxDirectClient {
     const row = this.rows.get(id);
     const line = row?.background;
     if (!row || !line || line.ownTurn) return;
-    // A background command's finish acpmux sent as a prompt folds under its line however it ended,
-    // its failure said on the line (conversation/bgDoneNotice.ts; Lucas, 2026-11-14).
-    if (turn.startsWith("bg-done-")) return;
+    // A background command's finish acpmux sent as a prompt keeps its line however it ended, its
+    // failure said on the line (conversation/bgDoneNotice.ts; Lucas, 2026-11-14). Only a reply that
+    // says nothing folds under it: one with words is the agent's own, drawn under the line
+    // (backgroundTurns.ts `headsBackground`), never hidden (Leo, 2026-11-17: "im seeing no outputs
+    // from chats again").
+    if (isBgDoneTurn(turn)) {
+      if (!saysNothing(this.rows.backgroundReply(turn)))
+        this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
+      return;
+    }
     if (!this.reactionOrigins.has(turn) && line.cause?.weight !== "failure") return;
     if (line.quiet !== true && line.cause?.weight !== "silent") return;
     if (saysNothing(this.rows.backgroundReply(turn))) return;

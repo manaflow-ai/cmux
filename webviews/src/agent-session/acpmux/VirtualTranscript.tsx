@@ -96,7 +96,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
 import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
-import { useEndedReplyCheck } from "./conversation/replyJudge";
+import { useEndedReplyCheck, useFoldedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
@@ -1528,6 +1528,13 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
   const source = (stable.sourceRows ?? stable.rows) as readonly AcpmuxRow[];
   delete stable.sourceRows;
   const references = useTranscriptReferences(source);
+  // An ended turn's final reply the fold hid is recorded (replyJudge.ts), as an unpainted one is.
+  useFoldedReplyCheck({
+    source,
+    rows: props.rows,
+    sessionId: props.sessionId,
+    working: props.working ?? false,
+  });
   return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
 }
 

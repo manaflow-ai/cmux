@@ -9,7 +9,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { AcpmuxRow } from "../model";
 import { noteReplyUnpainted } from "../flickerLog";
-import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./replyPainted";
+import { finalReplyId, foldedReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./replyPainted";
 
 export type EndedReplyCheck = {
   rows: readonly AcpmuxRow[];
@@ -64,3 +64,36 @@ export function useEndedReplyCheck({
 
 /// Whether the reader follows the newest row now, read when the check runs.
 const following = (follow: RefObject<{ atLatest: boolean }>) => follow.current.atLatest;
+
+/// The fold's half of the detector: once a turn this page watched has ended, the final reply the
+/// client holds (`source`) must be a drawn row of its own (`rows`), or the flicker ring file gets
+/// `reply-unpainted` with `why: "folded"` (replyPainted.ts `foldedReplyId`). The paint check above
+/// reads the drawn rows only, so a reply the fold hid was never judged (Leo, 2026-11-17: "im seeing
+/// no outputs from chats again"). It reads the rows' tails once per turn end, with no timer.
+export function useFoldedReplyCheck({
+  source,
+  rows,
+  sessionId,
+  working,
+}: {
+  source: readonly AcpmuxRow[];
+  rows: readonly AcpmuxRow[];
+  sessionId: string | undefined;
+  working: boolean;
+}): void {
+  const judged = useRef<string | undefined>(undefined);
+  const watched = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (watched.current !== sessionId) watched.current = undefined;
+    if (working) {
+      watched.current = sessionId;
+      return;
+    }
+    if (!sessionId || watched.current !== sessionId) return;
+    watched.current = undefined;
+    const lost = foldedReplyId(source, rows);
+    if (!lost || judged.current === lost) return;
+    judged.current = lost;
+    noteReplyUnpainted("folded", 0);
+  }, [source, rows, sessionId, working]);
+}

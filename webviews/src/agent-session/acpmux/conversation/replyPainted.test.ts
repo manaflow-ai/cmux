@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import { noteReplyUnpainted, resetFlickerLogForTests, startFlickerLog, type FlickerEvent } from "../flickerLog";
-import { finalReplyId, replyUnpainted } from "./replyPainted";
+import { finalReplyId, foldedReplyId, replyUnpainted } from "./replyPainted";
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -98,4 +98,34 @@ test("an unpainted reply reaches the flicker ring file as reply-unpainted, with 
   resetFlickerLogForTests();
   const event = sent.flat().find((each) => each.kind === "reply-unpainted");
   expect(event).toMatchObject({ kind: "reply-unpainted", why: "outside", h: 60 });
+});
+
+// The fold's half (Leo, 2026-11-17: "im seeing no outputs from chats again"): the client's final
+// reply that the drawn rows do not show is named, whatever hid it.
+test("an ended turn's final reply the drawn rows do not show is named; a drawn one, dots or work are not", () => {
+  const reply = row("a1", "assistant", { text: "lw#5587's tests passed." });
+  const source = [row("u1", "user", { text: "hi" }), row("t1", "activity"), reply, row("s1", "turnSummary")];
+  expect(foldedReplyId(source, [row("worked-u1", "worked"), row("s1", "turnSummary")])).toBe("a1");
+  expect(foldedReplyId(source, [row("worked-u1", "worked"), reply, row("s1", "turnSummary")])).toBeUndefined();
+  // Folded into a note when opened is not drawn as its own row.
+  expect(foldedReplyId(source, [{ ...reply, foldedReply: true }])).toBe("a1");
+  // A turn that ended on work, or said only dots, has no reply to show.
+  expect(
+    foldedReplyId([row("u1", "user"), reply, row("t2", "activity"), row("s1", "turnSummary")], []),
+  ).toBeUndefined();
+  expect(
+    foldedReplyId([row("u1", "user"), row("t1", "activity"), row("a2", "assistant", { text: "…" })], []),
+  ).toBeUndefined();
+});
+
+test("a background finish's reply counts; a turn acpmux called quiet keeps its reply behind its line", () => {
+  const line = (id: string, quiet: boolean) =>
+    row(`backgroundTurn-${id}`, "backgroundTurn", {
+      background: { id, trigger: "task_notification", running: false, quiet },
+    });
+  const reply = (id: string) => row(`a-${id}`, "assistant", { text: "Merged.", inBackground: id });
+  const done = [line("bg-done-bg-1", true), row("t1", "activity"), reply("bg-done-bg-1")];
+  expect(foldedReplyId(done, [done[0]!])).toBe("a-bg-done-bg-1");
+  const quiet = [line("wake-1", true), row("t1", "activity"), reply("wake-1")];
+  expect(foldedReplyId(quiet, [quiet[0]!])).toBeUndefined();
 });
