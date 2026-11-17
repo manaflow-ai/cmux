@@ -117,6 +117,81 @@ import UIKit
         #expect(theme.chatLook?.backgroundOpacity == 1)
     }
 
+    static func picture() throws -> (data: Data, id: String) {
+        let data = try #require(UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+            UIColor.purple.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }.pngData())
+        return (data, SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+    }
+
+    /// A malformed `chat` costs only the chat look: the frame's theme (accent, terminal) still applies.
+    @Test func aMalformedChatKeepsTheRestOfTheFrame() throws {
+        let appearance = try #require(CmuxMobileMacAppearance.decode(Self.frame(chat: ##"{"background":3}"##)))
+        #expect(appearance.chat == nil)
+        #expect(appearance.theme.background == "#1e1e2e")
+        let theme = Self.theme()
+        theme.apply(appearance)
+        #expect(theme.palette != nil)
+        #expect(theme.chatLook == nil)
+    }
+
+    /// The same picture named again while it downloads (the frame again, a color change) keeps the
+    /// one download, and the newest frame gets the picture.
+    @Test func onePictureIsDownloadedOncePerIdWhileFramesKeepComing() async throws {
+        let theme = Self.theme()
+        let feed = MacAppearanceFeed(theme: theme)
+        let (picture, id) = try Self.picture()
+        let fetches = ChatLookFetchCount()
+        let fetch: MacAppearanceFeed.Fetch = { _ in
+            fetches.count += 1
+            await Task.yield()
+            return picture
+        }
+        let chat = ##"{"background":"#1e1e2e","foreground":"#cdd6f4","background_opacity":0.45,"wallpaper":"\##(id)"}"##
+        feed.focus(macID: "mac")
+        feed.apply(Self.frame(chat: chat, wallpaper: (id, picture.count)), macID: "mac", fetch: fetch)
+        let first = feed.pictureFetch
+        feed.apply(Self.frame(chat: chat, wallpaper: (id, picture.count)), macID: "mac", fetch: fetch)
+        #expect(feed.pictureFetch != nil)
+        await first?.value
+        await theme.settled()
+        #expect(fetches.count == 1)
+        #expect(theme.chatLook?.picture != nil)
+    }
+
+    /// The SHA-256 check is callable off the main actor (the feed runs it in a detached task).
+    @Test func thePictureIsCheckedOffTheMainActor() async throws {
+        let (picture, id) = try Self.picture()
+        let wallpaper = CmuxMobileMacAppearance.Wallpaper(id: id, bytes: picture.count, tintOpacity: 0.4)
+        let checked = await Task.detached { (MacAppearanceFeed.verified(picture, wallpaper), Thread.isMainThread) }.value
+        #expect(checked.0 == picture)
+        #expect(!checked.1)
+    }
+
+    /// Match Mac theme turned back on fetches the focused Mac's picture this phone lacks, at once.
+    @Test func turningMatchMacBackOnFetchesAMissingPicture() async throws {
+        let theme = Self.theme()
+        theme.matchesMac = false
+        let feed = MacAppearanceFeed(theme: theme)
+        let (picture, id) = try Self.picture()
+        let fetches = ChatLookFetchCount()
+        let fetch: MacAppearanceFeed.Fetch = { _ in
+            fetches.count += 1
+            return picture
+        }
+        let chat = ##"{"background":"#1e1e2e","foreground":"#cdd6f4","background_opacity":0.45,"wallpaper":"\##(id)"}"##
+        feed.focus(macID: "mac")
+        feed.apply(Self.frame(chat: chat, wallpaper: (id, picture.count)), macID: "mac", fetch: fetch)
+        #expect(feed.pictureFetch == nil)
+        #expect(fetches.count == 0)
+        theme.matchesMac = true
+        await feed.pictureFetch?.value
+        await theme.settled()
+        #expect(fetches.count == 1)
+        #expect(theme.chatLook?.picture != nil)
+    }
+
     /// Bytes that are not the picture the frame names (size or SHA-256) are never kept.
     @Test func aPictureThatIsNotTheNamedOneIsRefused() {
         let wallpaper = CmuxMobileMacAppearance.Wallpaper(id: String(repeating: "ab", count: 32), bytes: 3, tintOpacity: 0.4)
