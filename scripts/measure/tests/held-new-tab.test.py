@@ -185,7 +185,9 @@ class World:
             if params.get("action") == "start":
                 return {"key_repeat_delay_s": 0.02, "key_repeat_interval_s": 0.02}
             if params.get("action") == "status":
-                return {"recording": True, "sequence_playing": False, "pending_intents": 0, "resize_idle": True,
+                # The fault `never_done`: the app has an intent that waits at each read.
+                waits = int(bool(self.faults.get("never_done")))
+                return {"recording": True, "sequence_playing": False, "pending_intents": waits, "resize_idle": True,
                         "terminals_awaiting_echo": 0}
             return {"events": list(self.marks), "dropped": 0}
         if method == "debug.key" and "key" in params:
@@ -390,8 +392,10 @@ class Sampler:
     """The system's sampler as a child of `take()`: it says its first line when it samples, and at its end it writes
     its report to the file of its command. The fault `sampler_fails` (the words): it says them, writes no file and
     ends with 1. The fault `sampler_says_nothing`: it keeps each word to its end (`first_line`: the wait for the first
-    line). The fault `sampler_hangs`: it does not end in the bound of its caller. The fake app's `calls` has its
-    start, its first line, its end and each kill among the app's own calls."""
+    line). The fault `sampler_hangs`: it does not end in the bound of its caller. The fault
+    `sampler_ends_before_the_keys`: it has its exit when the tool reads it after the wait for the first line. The
+    fault `sampler_ends_with_no_word`: the read of its first line is empty (its output is at its end). The fake
+    app's `calls` has its start, its first line, its end and each kill among the app's own calls."""
 
     def __init__(self, world, command):
         self.world, self.command, self.returncode, self.stdout = world, command, None, self
@@ -402,8 +406,16 @@ class Sampler:
         return (self.world.faults.get("sampler_fails") or said) + "\n"
 
     def readline(self):
+        if self.world.faults.get("sampler_ends_with_no_word"):
+            return ""
         self.world.calls.append(("sampler", "says its first line"))
         return self.said()
+
+    def poll(self):
+        return 0 if self.world.faults.get("sampler_ends_before_the_keys") else self.returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
 
     def communicate(self, timeout=None):
         self.world.calls.append(("sampler", "ends"))
@@ -420,6 +432,7 @@ class Sampler:
 
     def kill(self):
         self.world.calls.append(("sampler", "gets a kill"))
+        self.returncode = -9
 
 
 def first_line(world):
@@ -1574,6 +1587,57 @@ class Sample(Case):
         # The fake clock moves at each read: no time is left of a sample of 0 seconds when the app says that it is done.
         record = self.record(World(), sample=(77, 0))
         self.assertEqual((record.get("sample") or {}).get("app_was_done"), False)
+
+    def test_the_sample_take_is_before_the_film_take(self):
+        world = World()
+        self.rows(world, rounds=1, film=os.path.join(self.out, "film"), sample=30)
+        self.assertEqual([(take["row"], take["film"], take["sample"]) for take in world.takes][-2:],
+                         [("hold", False, ("1", "30")), ("mixed", True, None)])
+
+    def test_a_take_that_stops_at_a_fault_after_the_samplers_start_gives_the_sampler_one_kill(self):
+        # The fault of the tool: a call of the take raises between the sampler's start and its end. The sampler must
+        # not run on (the take that follows can be the film take).
+        world = World()
+        app = world.rpc
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.frames" and (params or {}).get("action") == "stop":
+                raise OSError("no socket")
+            return app(method, params, timeout)
+
+        world.rpc = rpc
+        with self.assertRaises(OSError):
+            self.record(world, sample=(77, 5))
+        self.assertEqual([call for call in world.calls if call[0] == "sampler"],
+                         [("sampler", "starts"), ("sampler", "says its first line"), ("sampler", "gets a kill")])
+
+    def test_a_sampler_that_ended_gets_no_kill_at_the_takes_end(self):
+        world = World()
+        self.record(world, sample=(77, 5))
+        self.assertNotIn(("sampler", "gets a kill"), world.calls)
+
+    def test_a_sampler_that_ended_before_the_first_key_is_an_error_of_the_sample(self):
+        # A sampler with few seconds that keeps its words to its end: its line comes in the wait, after its sample.
+        for faults in ({"sampler_ends_before_the_keys": True}, {"sampler_ends_before_the_keys": True, "sampler_says_nothing": True}):
+            with self.subTest(faults=faults):
+                world = World(**faults)
+                sample = self.record(world, sample=(77, 5)).get("sample") or {}
+                self.assertEqual((sample.get("first_line_before_the_keys"), sample.get("error")),
+                                 (False, "no sample of the keys: the sampler ended before the first key"))
+                self.assertEqual(world.keys > 0, True)
+
+    def test_an_empty_read_of_the_first_line_is_no_first_line(self):
+        sample = self.record(World(sampler_ends_with_no_word=True), sample=(77, 5)).get("sample") or {}
+        self.assertEqual(sample.get("first_line_before_the_keys"), False)
+
+    def test_the_first_line_of_a_sampler_that_fails_is_not_the_word_that_it_samples(self):
+        sample = self.record(World(sampler_fails="sample cannot examine process 77 for unknown reasons"), sample=(77, 5)).get("sample") or {}
+        self.assertEqual((sample.get("first_line_before_the_keys"), sample.get("sampler_exit")), (False, 1))
+
+    def test_a_sample_of_an_app_that_never_said_that_it_was_done_says_so(self):
+        world = World(never_done=True)
+        sample = self.record(world, sample=(77, 5)).get("sample") or {}
+        self.assertEqual((sample.get("app_was_done"), sample.get("sampler_exit")), (False, 0))
 
     def test_a_take_with_no_sampler_starts_none_and_its_record_has_no_sample(self):
         world = World()
