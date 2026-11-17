@@ -42,6 +42,8 @@ def load_router(directory: Path, name: str):
     try:
         spec = importlib.util.spec_from_file_location(name, directory / "affected_jobs.py")
         module = importlib.util.module_from_spec(spec)
+        # @dataclass resolves its module through sys.modules while the class body runs.
+        sys.modules[name] = module
         spec.loader.exec_module(module)
     finally:
         sys.path.remove(str(directory))
