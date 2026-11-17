@@ -409,8 +409,9 @@ async fn wait_all_connected(links: &[Linked], within: Duration) {
             within,
             state.wait_for(|state| *state == ConnectionState::Connected),
         )
-        .await;
-        assert!(up.is_ok(), "link {index} is {:?}, not connected", *state.borrow());
+        .await
+        .is_ok();
+        assert!(up, "link {index} is {:?}, not connected", *state.borrow());
     }
 }
 
