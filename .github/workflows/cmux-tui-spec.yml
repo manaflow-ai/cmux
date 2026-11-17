@@ -276,7 +276,11 @@ jobs:
   # suites miss such a crate or one of its tests/ files. acpmux's own tests/v2_gate_home.rs
   # runs here as well: it is the only test build of the v2 gate registry (benches/v2/mod.rs),
   # no hosted job ran it, and #42725 left two of its tests red on base. The same Python test
-  # asks for every tests/v2_*.rs of acpmux that holds a test a plain run starts. The job and
+  # asks for every tests/v2_*.rs of acpmux that holds a test a plain run starts.
+  # tests/permission_matrix.rs runs here too: every harness x access level x chat x host x
+  # default-policy combination a person meets, so a change to acpmux's permission handling
+  # shows its red on its own pull request (Leo, 2026-11-17: "we need to test out more of these
+  # permission related combinations in ci"). The job and
   # step keep their names: the scope step finds earlier runs by them.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
@@ -400,7 +404,7 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --test v2_chat_recorded_stream --no-fail-fast)
+            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"

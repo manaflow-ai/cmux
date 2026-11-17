@@ -7,8 +7,12 @@
 //!   x chat (a new chat, an existing chat after its harness restarted, an existing chat the person
 //!     switches to Full access)
 //!   x host (this Mac, a peer daemon the chat runs on)
+//!   x the daemon's default permission policy (`ask`, today's default; `approve-all`, the default
+//!     a pending change may flip it to; and the build's own default with nothing written, read
+//!     from `PermissionPolicy::default()`), so the matrix holds whichever default ships
 //!
-//! runs as the app's pane drives it: a proven app connection starts the chat (`session/new`), its
+//! runs as the app's pane drives it: a proven app connection starts the chat (`session/new`, which
+//! every cell asserts succeeds: no "cmux did not start a session"), its
 //! first message gets a reply, and a turn that runs a shell command (`perm-probe`, the stand-ins'
 //! `npm test`) either runs unasked (no approval reaches the app under full access) or shows the
 //! approval, which the person allows, and the turn completes. The chat's mode, model and effort
@@ -27,7 +31,7 @@ mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
-use acpmux::config::{Config, ProfileSources, StoreMode};
+use acpmux::config::{Config, PermissionPolicy, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
@@ -64,17 +68,63 @@ enum Level {
     ApproveAll,
 }
 
-impl Level {
-    fn config(self) -> Value {
+/// The daemon's default permission policy (config.json `permissionPolicy`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Policy {
+    /// Nothing written: whatever this build defaults to.
+    Builtin,
+    Ask,
+    ApproveAll,
+}
+
+impl Policy {
+    fn effective(self) -> PermissionPolicy {
         match self {
+            Policy::Builtin => PermissionPolicy::default(),
+            Policy::Ask => PermissionPolicy::Ask,
+            Policy::ApproveAll => PermissionPolicy::ApproveAll,
+        }
+    }
+
+    fn name(self) -> String {
+        match self {
+            Policy::Builtin => format!("built-in ({})", PermissionPolicy::default()),
+            Policy::Ask => "ask".into(),
+            Policy::ApproveAll => "approve-all".into(),
+        }
+    }
+
+    fn slug(self) -> &'static str {
+        match self {
+            Policy::Builtin => "builtin",
+            Policy::Ask => "ask",
+            Policy::ApproveAll => "approve_all",
+        }
+    }
+}
+
+impl Level {
+    fn config(self, policy: Policy) -> Value {
+        let mut config = match self {
             Level::Default => json!({}),
             Level::FullAccess => json!({"defaultPermissionMode": "fullAccess"}),
             Level::Standard => json!({"defaultPermissionMode": "standard"}),
             Level::Ask => json!({"defaultPermissionMode": "ask"}),
             Level::ApproveAll => {
-                json!({"defaultPermissionMode": "standard", "permissionPolicy": "approve-all"})
+                return json!({"defaultPermissionMode": "standard", "permissionPolicy": "approve-all"});
             }
+        };
+        match policy {
+            Policy::Builtin => {}
+            Policy::Ask => config["permissionPolicy"] = json!("ask"),
+            Policy::ApproveAll => config["permissionPolicy"] = json!("approve-all"),
         }
+        config
+    }
+
+    /// The policy the daemon answers approvals under at this level.
+    fn policy(self, policy: Policy) -> PermissionPolicy {
+        if self == Level::ApproveAll { PermissionPolicy::ApproveAll } else { policy.effective() }
     }
 
     /// Whether the person sees an approval for the probe at this level.
@@ -227,6 +277,8 @@ enum Host {
 /// What one cell saw.
 #[derive(Default, Debug)]
 struct Seen {
+    /// `session/new` gave the chat an id (the pane did not show "cmux did not start a session").
+    started: bool,
     mode: String,
     replied: bool,
     asked: bool,
@@ -355,16 +407,17 @@ async fn turn(app: &mut Client, host: &Host, id: &str, text: &str, seen: &mut Se
 }
 
 /// Runs one cell on a fresh daemon (and a fresh peer daemon for a remote cell).
-async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
+async fn cell(harness: &str, level: Level, policy: Policy, age: Age, remote: bool) -> Seen {
     let name = format!(
-        "{harness}-{}-{}-{}",
+        "{harness}-{}-{}-{}-{}",
         level.name().replace(' ', "_"),
+        policy.slug(),
         age.name().replace(' ', "_"),
         if remote { "peer" } else { "local" }
     );
     // A switched chat starts at Ask; the person then picks Full access.
     let start_level = if age == Age::Switched { Level::Ask } else { level };
-    let dir = home(&name, start_level.config());
+    let dir = home(&name, start_level.config(policy));
     let mut seen = Seen::default();
     // A remote chain's Claude Code runs only inside the platform sandbox (`hub/remote_sandbox.rs`):
     // on Linux that is bwrap, which the cmux-tui Linux test job installs and requires.
@@ -376,7 +429,7 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
         return seen;
     }
     let (here, host, cwd) = if remote {
-        let peer_dir = home(&format!("{name}-b"), start_level.config());
+        let peer_dir = home(&format!("{name}-b"), start_level.config(policy));
         let b = hub(&peer_dir);
         b.person.install_spawn_key(PEER_KEY).unwrap();
         let (port, token) = listen_with_peer_token(b.clone(), &name).await;
@@ -401,6 +454,7 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
         seen.problems.push(format!("no session started: {started}"));
         return seen;
     };
+    seen.started = true;
     app.call(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
 
     // The first message gets a reply.
@@ -459,10 +513,14 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
         seen.problems
             .push(format!("the chat's picks changed by themselves: {before:?} -> {after:?}"));
     }
+    let full_now = age == Age::Switched || matches!(level, Level::Default | Level::FullAccess);
+    // Whether the daemon's policy answers an approval the harness asks for (on this Mac).
+    let policy_answers = level.policy(policy) == PermissionPolicy::ApproveAll;
     // A chat a peer connection starts runs under its own `ask` policy, not the peer daemon's
-    // default (`server/remote_guard.rs`), so the approve-all default does not answer for it.
-    let expect_ask =
-        (level.asks() || (remote && level == Level::ApproveAll)) && age != Age::Switched;
+    // default (`server/remote_guard.rs`), so an approve-all default does not answer for it: it
+    // asks unless it runs under full access. On this Mac it asks at an asking level unless the
+    // approve-all policy answers.
+    let expect_ask = if remote { !full_now } else { level.asks() && !policy_answers };
     if seen.asked != expect_ask {
         seen.problems.push(format!(
             "an approval {} the app, expected {}",
@@ -473,17 +531,16 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
     if !seen.probe.contains("perm-probe ran npm test") {
         seen.problems.push(format!("the probe turn did not run its command: {:?}", seen.probe));
     }
-    let full_now = age == Age::Switched || matches!(level, Level::Default | Level::FullAccess);
     if remote {
         // Remote-origin: the harness asks, and the peer daemon answers under full access.
         if full_now && seen.auto.is_none() {
             seen.problems.push("the peer did not answer the approval under full access".into());
         }
     } else {
-        if level == Level::ApproveAll && seen.auto.is_none() {
+        if policy_answers && !full_now && seen.auto.is_none() {
             seen.problems.push("the approve-all policy did not answer the approval".into());
         }
-        if !expect_ask && level != Level::ApproveAll && !seen.probe.contains("unasked") {
+        if full_now && !seen.probe.contains("unasked") {
             seen.problems.push(format!("the harness asked under full access: {:?}", seen.probe));
         }
         let full = full_access_mode(harness);
@@ -539,20 +596,20 @@ async fn listen_with_peer_token(b: Arc<Hub>, tag: &str) -> (u16, String) {
 /// The cells of one harness, host and level (a new chat, an existing one, and under Full access
 /// a chat switched to it); prints their rows and fails naming each bad cell. One test each, so
 /// the cells run side by side and each stays inside nextest's per-test budget.
-async fn matrix(harness: &str, remote: bool, level: Level) {
+async fn matrix(harness: &str, remote: bool, level: Level, policy: Policy) {
     let mut ages = vec![Age::New, Age::Existing];
     if level == Level::FullAccess {
         ages.push(Age::Switched);
     }
     let mut rows = Vec::new();
     for age in ages {
-        rows.push((level, age, cell(harness, level, age, remote).await));
+        rows.push((level, age, cell(harness, level, policy, age, remote).await));
     }
     let host = if remote { "peer" } else { "local" };
     println!(
-        "\n| harness | host | access | chat | mode | first reply | approval shown | auto-answered | probe | result |"
+        "\n| harness | host | default policy | access | chat | started | mode | first reply | approval shown | auto-answered | probe | result |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|");
     let mut failed = Vec::new();
     for (level, age, seen) in &rows {
         let result = match (&seen.skipped, seen.problems.is_empty()) {
@@ -562,9 +619,11 @@ async fn matrix(harness: &str, remote: bool, level: Level) {
         };
         let yes = |b: bool| if b { "yes" } else { "no" };
         println!(
-            "| {harness} | {host} | {} | {} | {} | {} | {} | {} | {} | {result} |",
+            "| {harness} | {host} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {result} |",
+            policy.name(),
             level.name(),
             age.name(),
+            yes(seen.started),
             seen.mode,
             yes(seen.replied),
             yes(seen.asked),
@@ -572,41 +631,53 @@ async fn matrix(harness: &str, remote: bool, level: Level) {
             seen.probe.replace('|', "/"),
         );
         if !seen.problems.is_empty() {
-            failed.push(format!("{harness}/{host}/{}/{}: {result}", level.name(), age.name()));
+            failed.push(format!(
+                "{harness}/{host}/policy {}/{}/{}: {result}",
+                policy.name(),
+                level.name(),
+                age.name()
+            ));
         }
     }
     assert!(failed.is_empty(), "failing cells:\n{}", failed.join("\n"));
 }
 
-/// One test per harness, host and level: `cells!(name, harness, remote, level)`.
+/// One test per harness, host, level and default policy:
+/// `cells!(name: harness, remote, level, policy)`.
 macro_rules! cells {
-    ($($name:ident: $harness:literal, $remote:literal, $level:ident;)*) => {$(
+    ($($name:ident: $harness:literal, $remote:literal, $level:ident, $policy:ident;)*) => {$(
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn $name() {
-            matrix($harness, $remote, Level::$level).await;
+            matrix($harness, $remote, Level::$level, Policy::$policy).await;
         }
     )*};
 }
 
-cells! {
-    claude_here_default: "claude", false, Default;
-    claude_here_full_access: "claude", false, FullAccess;
-    claude_here_own_mode: "claude", false, Standard;
-    claude_here_ask: "claude", false, Ask;
-    claude_here_approve_all: "claude", false, ApproveAll;
-    codex_here_default: "codex", false, Default;
-    codex_here_full_access: "codex", false, FullAccess;
-    codex_here_own_mode: "codex", false, Standard;
-    codex_here_ask: "codex", false, Ask;
-    codex_here_approve_all: "codex", false, ApproveAll;
-    claude_peer_default: "claude", true, Default;
-    claude_peer_full_access: "claude", true, FullAccess;
-    claude_peer_own_mode: "claude", true, Standard;
-    claude_peer_ask: "claude", true, Ask;
-    claude_peer_approve_all: "claude", true, ApproveAll;
-    codex_peer_default: "codex", true, Default;
-    codex_peer_full_access: "codex", true, FullAccess;
-    codex_peer_own_mode: "codex", true, Standard;
-    codex_peer_ask: "codex", true, Ask;
-    codex_peer_approve_all: "codex", true, ApproveAll;
+/// Each harness and host: every access level under the `ask` and the `approve-all` default
+/// policy, the approve-all level (its own policy), and the build's own default with nothing set.
+macro_rules! harness_host {
+    ($($prefix:ident: $harness:literal, $remote:literal;)*) => {$(
+        mod $prefix {
+            use super::*;
+            cells! {
+                default_builtin: $harness, $remote, Default, Builtin;
+                default_policy_ask: $harness, $remote, Default, Ask;
+                default_policy_approve_all: $harness, $remote, Default, ApproveAll;
+                full_access_policy_ask: $harness, $remote, FullAccess, Ask;
+                full_access_policy_approve_all: $harness, $remote, FullAccess, ApproveAll;
+                own_mode_policy_ask: $harness, $remote, Standard, Ask;
+                own_mode_policy_approve_all: $harness, $remote, Standard, ApproveAll;
+                ask_policy_ask: $harness, $remote, Ask, Ask;
+                ask_policy_approve_all: $harness, $remote, Ask, ApproveAll;
+                approve_all: $harness, $remote, ApproveAll, Ask;
+            }
+        }
+    )*};
+}
+
+harness_host! {
+    claude_here: "claude", false;
+    codex_here: "codex", false;
+    claude_peer: "claude", true;
+    codex_peer: "codex", true;
 }
