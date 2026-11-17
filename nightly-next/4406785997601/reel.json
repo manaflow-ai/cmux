@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4406785997601",
+  "notes": "notes/4406785997601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44348,
+      "title": "Agent chat: the row store follow-ups from 6c's review",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45042,
+      "title": "ci: preserve partial guard base results",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45414,
+      "title": "measure: launch-ready machines=N seeds Cloud machine sections before each launch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45426,
+      "title": "Cloud VM image: install the agents' managed model route only where the coderouter edge resolves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45122,
+      "title": "Base compile: AgentPaneView imports LaunchPriorChat as a struct; the namespace --fix rewrites enum imports of what it converts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45341,
+      "title": "hot-verify: a merged PR whose receipt cannot be read is still looked at",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45181,
+      "title": "ci(cmux-next): no macOS job joins a Blacksmith label already queued at its slot count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45276,
+      "title": "base red: the cmux-next CI guard group's tip reds (short-timeout ratchet first, 11 more steps)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
