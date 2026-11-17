@@ -39,6 +39,7 @@
 #import <libproc.h>
 #import <mach/mach.h>
 #import <mach/mach_time.h>
+#import <pthread.h>
 #import <signal.h>
 #import <sys/sysctl.h>
 
