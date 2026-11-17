@@ -11,21 +11,25 @@
   gap: 24px;
 }
 .gallery-scene-clock-tile {
+  /* Apple's widget sizes in points: small 170 x 170, medium 364 x 170, large 364 x 382. */
+  --gallery-widget-unit: 170px;
+  --gallery-widget-wide: 364px;
+  --gallery-widget-tall: 382px;
   box-sizing: border-box;
   display: flex;
-  width: 170px;
-  height: 170px;
+  width: var(--gallery-widget-unit);
+  height: var(--gallery-widget-unit);
   border-radius: var(--surface-card-radius, 16px);
   background: var(--agent-control);
   color: var(--agent-text);
   overflow: hidden;
 }
 .gallery-scene-clock-tile[data-size="medium"] {
-  width: 364px;
+  width: var(--gallery-widget-wide);
 }
 .gallery-scene-clock-tile[data-size="large"] {
-  width: 364px;
-  height: 382px;
+  width: var(--gallery-widget-wide);
+  height: var(--gallery-widget-tall);
 }
 .gallery-scene-clock-tile > * {
   flex: 1;

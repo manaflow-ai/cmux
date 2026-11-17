@@ -33,6 +33,15 @@ afterEach(async () => {
   dom = undefined;
 });
 
+/** Yields to the event loop (a 0 ms macrotask) until `done()` holds; fails past `limitMs`. */
+async function waitUntil(done: () => boolean, limitMs: number): Promise<void> {
+  const deadline = Date.now() + limitMs;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(`condition not met within ${limitMs} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 function render(
   ops: SceneOp[],
   popupHost?: PopupHost,
@@ -825,17 +834,22 @@ test("a date Text ticks itself on the shared clock with no scene batch, and stop
   expect(text("time").textContent).toMatch(/\d:\d\d/);
   expect(sceneClockRunning()).toBe(true);
   const subscribed = store.getGeneration();
-  await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+  // Until the next wall-clock second has turned the timer over: the condition, not a fixed time.
+  await act(() => waitUntil(() => text("timer").textContent !== before, 3_000));
   expect(text("timer").textContent).not.toBe(before);
   // The renderer ticked it: no app call, no new scene.
   expect(calls).toEqual([]);
   expect(store.getGeneration()).toBe(subscribed);
   // A hidden page stops the clock; showing it again catches up at once.
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  await act(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
   expect(sceneClockRunning()).toBe(false);
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
-  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  await act(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
   expect(sceneClockRunning()).toBe(true);
   act(() => root?.unmount());
   root = undefined;
