@@ -111,6 +111,10 @@ public struct RootView: View {
         }
         _store = State(initialValue: store)
         self.options = options
+        #if DEBUG
+        // `-cmux-mobile-mac-appearance NAME`: a Mac's appearance frame as a fixture (the chat's look).
+        CmuxMobileMacTheme.shared.applyLaunchFixture()
+        #endif
     }
 
     private enum Destination: Hashable { case welcome, setup, shell }

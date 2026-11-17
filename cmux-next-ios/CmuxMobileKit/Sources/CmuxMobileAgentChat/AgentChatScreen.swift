@@ -365,7 +365,7 @@ public struct AgentChatScreen: View {
         // The transcript hosts the composer itself, docked to the keyboard
         // (ChatTranscriptController), instead of a SwiftUI safe-area inset.
         AgentChatTranscript(store: store, surface: surface, placement: .owned)
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
     }
@@ -475,9 +475,14 @@ public struct AgentChatTranscript: View {
     }
 
     public var body: some View {
+        // The chat in the light or dark style of the Mac's theme while it follows the Mac.
+        transcript.cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+    }
+
+    private var transcript: some View {
         let surface = surface
         let openFile = openFile
-        ChatTranscriptRepresentable(
+        return ChatTranscriptRepresentable(
             placement: placement, surface: surface, topInset: topInset, onUserScroll: onUserScroll,
             isEmpty: !store.hasTurns,
             store: store,
@@ -960,7 +965,8 @@ struct UserBubble: View {
             bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
-                .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                .foregroundStyle(Color.cmuxMobileChatBubbleText.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
+                .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
                 .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
                 .contextMenu {
                     Section(AgentTurn.menuTimestamp(promptAt)) {
