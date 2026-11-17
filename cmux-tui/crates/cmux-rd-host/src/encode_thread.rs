@@ -226,6 +226,17 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let mut access_unit = Vec::new();
     let idr = source.encode(req.force_idr, t_capture_us as i64, &mut access_unit)?;
     let t1 = now_ns();
+    eprintln!(
+        "DIAG enc us={} target={} kbps={} force={} idr={} bytes={} enc_ms={:.1} cam={}",
+        t1 / 1000,
+        req.target_kbps,
+        source.kbps(),
+        req.force_idr,
+        idr,
+        access_unit.len(),
+        (t1 - t0) as f64 / 1e6,
+        source.encoder_name().contains("camera")
+    ); // DIAG
     Ok(Frame {
         access_unit,
         idr,
