@@ -119,7 +119,7 @@ export class SessionListHost {
   }
 
   visible(shown: boolean): Promise<SessionListResult> {
-    return this.post("list.visible", { shown }).then(
+    return this.post("page.visible", { shown }).then(
       () => ({ ok: true }),
       (error) => ({ ok: false, code: refusalCode(error) }),
     );

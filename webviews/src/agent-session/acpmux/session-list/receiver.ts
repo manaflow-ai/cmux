@@ -28,34 +28,38 @@ const pump = createDocumentPump<SessionListBatch, SessionListChange, SessionList
     if (post) void post("list.taken", { batch: batch.batch }).catch(() => {});
   },
 });
-const visibilityHosts = new Set<SessionListHost>();
+const visibilityPosts = new Map<SessionListHost, SessionListPost>();
 let stopVisibility: (() => void) | undefined;
 
 export function addSessionListHost(host: SessionListHost, post: SessionListPost): void {
   pump.add(host, post);
-  visibilityHosts.add(host);
-  if (stopVisibility && typeof document !== "undefined") void host.visible(!document.hidden);
+  visibilityPosts.set(host, post);
 }
 
 export function removeSessionListHost(host: SessionListHost): void {
   pump.remove(host);
-  visibilityHosts.delete(host);
+  visibilityPosts.delete(host);
+}
+
+function postVisibility(shown: boolean): void {
+  const post = visibilityPosts.values().next().value as SessionListPost | undefined;
+  if (post) void post("page.visible", { shown }).catch(() => {});
 }
 
 export function listenForSessionList(lanes?: Lanes): void {
   pump.listen(lanes);
   if (stopVisibility || typeof document === "undefined") return;
   const onVisibility = () => {
-    for (const host of visibilityHosts) void host.visible(!document.hidden);
+    postVisibility(!document.hidden);
   };
   document.addEventListener("visibilitychange", onVisibility);
   stopVisibility = () => document.removeEventListener("visibilitychange", onVisibility);
-  for (const host of visibilityHosts) void host.visible(!document.hidden);
+  postVisibility(!document.hidden);
 }
 
 export function resetSessionListReceiver(): void {
   pump.reset();
-  visibilityHosts.clear();
+  visibilityPosts.clear();
   stopVisibility?.();
   stopVisibility = undefined;
 }

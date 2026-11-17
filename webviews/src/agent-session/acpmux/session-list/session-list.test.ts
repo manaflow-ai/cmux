@@ -51,6 +51,36 @@ function engine() {
   };
 }
 
+function fakeDocument(onHidden: (hidden: boolean) => void) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+  let hidden = false;
+  const listeners = new Set<() => void>();
+  const document = {
+    get hidden() {
+      return hidden;
+    },
+    addEventListener(type: string, listener: () => void) {
+      if (type === "visibilitychange") listeners.add(listener);
+    },
+    removeEventListener(type: string, listener: () => void) {
+      if (type === "visibilitychange") listeners.delete(listener);
+    },
+    setHidden(value: boolean) {
+      hidden = value;
+      onHidden(value);
+      for (const listener of listeners) listener();
+    },
+  };
+  Object.defineProperty(globalThis, "document", { configurable: true, value: document });
+  return {
+    setHidden: document.setHidden,
+    restore() {
+      if (previous) Object.defineProperty(globalThis, "document", previous);
+      else delete (globalThis as { document?: unknown }).document;
+    },
+  };
+}
+
 const row = (id: string) => ({ sessionId: id, chatId: id, title: id });
 const rowsChange = (sid: string, ids: string[]) => ({
   kind: "rows",
@@ -76,10 +106,13 @@ const pageChange = (sid: string, id: string, complete = true) => ({
 });
 
 const lanesMade: Lanes[] = [];
+let restoreDocument: (() => void) | undefined;
 afterEach(() => {
   for (const lanes of lanesMade) lanes.dispose();
   lanesMade.length = 0;
   resetSessionListReceiver();
+  restoreDocument?.();
+  restoreDocument = undefined;
 });
 
 test("registers before open, applies a batch once, and takes after subscribers", async () => {
@@ -142,6 +175,43 @@ test("malformed and unknown changes never prevent one taken", async () => {
       .map((item) => item.sessionId),
   ).toEqual(["ok"]);
   expect(calls.filter((call) => call.method === "list.taken").map((call) => call.params.batch)).toEqual([2]);
+});
+
+test("one document visibility post paces a hidden list and resumes its cursor", async () => {
+  const clock = engine();
+  const lanes = clock.lanes();
+  lanesMade.push(lanes);
+  const calls: Call[] = [];
+  const document = fakeDocument(clock.setHidden);
+  restoreDocument = document.restore;
+  const post = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, params });
+    return method === "list.open" ? { sid: params.sid } : {};
+  };
+  const host = new SessionListHost(post, new SessionListStore(), () => "s.visible");
+  const secondHost = new SessionListHost(post, new SessionListStore(), () => "s.second");
+  listenForSessionList(lanes);
+  expect(calls.filter((call) => call.method === "page.visible")).toEqual([
+    { method: "page.visible", params: { shown: true } },
+  ]);
+  await host.open();
+  document.setHidden(true);
+  expect(calls.filter((call) => call.method === "page.visible").at(-1)).toEqual({
+    method: "page.visible",
+    params: { shown: false },
+  });
+  receiveSessionList({ batch: 4, changes: [rowsChange("s.visible", ["hidden-row"]) ] }, lanes);
+  await clock.frame();
+  expect(calls.filter((call) => call.method === "list.taken")).toEqual([]);
+  document.setHidden(false);
+  expect(calls.filter((call) => call.method === "page.visible").at(-1)).toEqual({
+    method: "page.visible",
+    params: { shown: true },
+  });
+  await clock.frame();
+  expect(calls.filter((call) => call.method === "list.taken").map((call) => call.params.batch)).toEqual([4]);
+  expect(calls.filter((call) => call.method === "list.open")).toHaveLength(1);
+  expect(secondHost.store.has("s.second")).toBe(false);
 });
 
 test("the checked-in ListBatch bytes are applied once by the document store", async () => {
