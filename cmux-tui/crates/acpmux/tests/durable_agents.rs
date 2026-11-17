@@ -3533,6 +3533,45 @@ async fn an_older_option_report_does_not_hide_a_bare_answer_under_mdm_off() {
     );
 }
 
+/// #45385: a harness's own option report sent just before its `set_config_option` answer
+/// (`FAKE_OPTION_REPORT_FIRST`, as Codex's mode change reports the options as they were right
+/// before the next pick's answer) never lands over that answer, though the inbound loop holds the
+/// report past it (`ACPMUX_TEST_UPDATE_DELAY_MS`): the chat keeps the value picked, live and
+/// saved. Leo, 2026-11-17: picks "don't randomly change to other things".
+#[tokio::test]
+async fn an_option_report_sent_before_an_answer_never_overwrites_it() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                      "FAKE_MODE_OPTION": "1", "FAKE_OPTION_REPORT_FIRST": "1"}});
+    let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "800")];
+    let (mut daemon, mut rpc) = proven_daemon("optreportorder", fake, &delay).await;
+    let session = new_session(&daemon).await;
+    let mode_of = |options: &Value| {
+        options
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|o| o["id"] == "mode")
+            .map(|o| o["currentValue"].clone())
+    };
+    // The harness reports its mode option as "normal", then answers "strict".
+    let set = json!({"sessionId": session, "configId": "mode", "value": "strict"});
+    let r = rpc.reply("session/set_config_option", set).await;
+    assert_eq!(mode_of(&r["result"]["configOptions"]), Some(json!("strict")), "{r}");
+    // Past the held report.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(
+        mode_of(&attached["session"]["configOptions"]),
+        Some(json!("strict")),
+        "the report sent before the answer overwrote the pick: {attached}"
+    );
+    daemon.sigterm();
+    drop(rpc);
+    let saved = daemon.home.join("sessions").join(&session).join("session.json");
+    let meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    assert_eq!(mode_of(&meta["configOptions"]), Some(json!("strict")), "{meta}");
+}
+
 /// Review 1 of #26058: with MDM unset, an answer whose options are null is saved as before (the
 /// chat's options become null), so a full-access option the harness reported earlier is not
 /// kept for the next agent to replay.

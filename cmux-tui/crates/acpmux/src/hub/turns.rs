@@ -2215,7 +2215,8 @@ impl Hub {
         let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
             .then(|| super::full_access_bound::asked_option(&params))
             .flatten();
-        let res = match child.request(m, params).await {
+        let (answer, place) = child.request_in_order(m, params).await;
+        let res = match answer {
             Ok(v) => v,
             Err(mut e) => {
                 // A process that died on this request: quote its last stderr
@@ -2232,6 +2233,17 @@ impl Hub {
                 return Err(e);
             }
         };
+        // What the agent sent before this answer is applied first: a report it made on the way
+        // (Codex's `config_option_update` after a mode change, with the options as they were
+        // before this pick) never lands over the answer (#45385).
+        if matches!(
+            m,
+            method::SESSION_SET_MODE
+                | method::SESSION_SET_CONFIG_OPTION
+                | method::SESSION_SET_MODEL
+        ) {
+            child.drain_inbound().await;
+        }
         match m {
             method::SESSION_SET_MODE => {
                 // The mode first, then the mark, under the lock, only while the chat runs it:
@@ -2246,9 +2258,7 @@ impl Hub {
                 if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
                     writes.push(ModeWrite::CurrentMode(mode));
                 }
-                if !writes.is_empty() {
-                    self.write_mode_state(session, writes);
-                }
+                self.write_answer_mode_state(session, &child, place, writes);
                 let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                 if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {
                     meta.mode_set_by_cmux = asked_mode;
@@ -2267,9 +2277,7 @@ impl Hub {
                 {
                     writes.push(ModeWrite::CurrentMode(mode));
                 }
-                if !writes.is_empty() {
-                    self.write_mode_state(session, writes);
-                }
+                self.write_answer_mode_state(session, &child, place, writes);
                 // A mode picked through its option is cmux's as a `set_mode` one is, once the
                 // harness runs it (`trust_wait.rs` `full_access_by_cmux`).
                 if let Some(mode) = &asked_option_mode {
@@ -2302,6 +2310,34 @@ impl Hub {
             self.approve_pending_tools(session).await;
         }
         Ok(res)
+    }
+
+    /// Writes the mode state an answer of `child` reported, but no part of it that a later answer
+    /// of that agent wrote already (`ChildAgent::request_in_order`): two picks whose answers wake
+    /// their waiters out of order keep the agent's order. Place 0 (no order known) writes.
+    fn write_answer_mode_state(
+        &self,
+        session: &Session,
+        child: &crate::agent::ChildAgent,
+        place: u64,
+        writes: Vec<ModeWrite>,
+    ) {
+        // Held over the write, so a later answer's check cannot come between.
+        let mut newest = child.answer_writes.lock().unwrap_or_else(|e| e.into_inner());
+        let writes: Vec<ModeWrite> = writes
+            .into_iter()
+            .filter(|w| {
+                let newest = &mut newest[w.part()];
+                if place != 0 && place < *newest {
+                    return false;
+                }
+                *newest = (*newest).max(place);
+                true
+            })
+            .collect();
+        if !writes.is_empty() {
+            self.write_mode_state(session, writes);
+        }
     }
 
     pub async fn set_mode(
