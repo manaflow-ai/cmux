@@ -18,7 +18,8 @@ three more) go for each range. If none of them is there at the second start, the
 requests the server saw, and that the directory is back.
 
 The script takes a Cache Storage directory only below the tagged app's own directory in Application Support
-(its name ends with the tag). Of each other app it lists only the names of the profile directories.
+(its name is `com.cmuxterm.app.debug.` and the tag). Of each other app it lists only the names of the profile
+directories.
 
 What stays on the Mac: the profile's record in the tagged app's state (the action that deletes a profile is for
 a person only, so no script can run it) and the first workspace of the tag's layout. After the quit the script
@@ -242,10 +243,10 @@ def support_roots():
 
 
 def of_tagged_app(profile_dir):
-    """True for `<Application Support>/<a name that ends with the tag>/Chromium/<profile_dir's name>`."""
+    """True for `<Application Support>/com.cmuxterm.app.debug.<the tag>/Chromium/<profile_dir's name>`."""
     chromium = os.path.dirname(profile_dir)
     app_directory = os.path.basename(os.path.dirname(chromium))
-    return os.path.basename(chromium) == "Chromium" and app_directory.lower().endswith("." + TAG_PART)
+    return os.path.basename(chromium) == "Chromium" and app_directory.lower() == "com.cmuxterm.app.debug." + TAG_PART
 
 
 def profiles():
