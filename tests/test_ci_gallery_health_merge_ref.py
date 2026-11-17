@@ -46,6 +46,18 @@ def step(name: str) -> dict:
     return found[0]
 
 
+def plan_steps() -> list[dict]:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return workflow["jobs"]["plan"]["steps"]
+
+
+def plan_step(name: str) -> dict:
+    found = [entry for entry in plan_steps() if entry.get("name") == name]
+    if not found:
+        raise AssertionError(f"gallery-health.yml's plan job has no step named {name!r}")
+    return found[0]
+
+
 class GalleryHealthMergeRef(unittest.TestCase):
     def test_a_pull_request_renders_its_merge_with_base(self) -> None:
         checkout = step("Checkout")
@@ -60,7 +72,7 @@ class GalleryHealthMergeRef(unittest.TestCase):
     def test_the_touched_entries_are_the_pull_requests_own_change(self) -> None:
         # The merge's first parent is the base it was merged with: diffing against it is the pull
         # request's change, never base commits the branch has not merged yet.
-        run = step("Choose the entries to render")["run"]
+        run = plan_step("Choose the entries to render")["run"]
         self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
 
@@ -132,10 +144,112 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertLess(int(judge["timeout-minutes"]), int(workflow["jobs"]["health"]["timeout-minutes"]))
 
     def test_the_shard_count_matches_the_matrix(self) -> None:
+        # The plan sizes the matrix; each shard splits the manifest by the matrix's own size.
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        shards = workflow["jobs"]["health"]["strategy"]["matrix"]["shard"]
-        self.assertEqual(shards, list(range(len(shards))))
-        self.assertIn(f"--shard-count {len(shards)} ", step("Render the gallery and judge it")["run"])
+        self.assertEqual(workflow["jobs"]["health"]["strategy"]["matrix"]["shard"],
+                         "${{ fromJSON(needs.plan.outputs.shards) }}")
+        render = step("Render the gallery and judge it")
+        self.assertIn('--shard-count "$SHARDS" --shard-index "$SHARD"', render["run"])
+        self.assertEqual(render["env"]["SHARDS"], "${{ strategy.job-total }}")
+        self.assertIn("needs.plan.outputs.shards != '[]'", workflow["jobs"]["health"]["if"])
+        self.assertIn("needs.plan.outputs.shards != ''", workflow["jobs"]["health"]["if"])
+
+
+class GalleryHealthPlan(unittest.TestCase):
+    """cmuxterm-hq#12794: gallery health was 867 job-hours a day, 16 shards a run whatever it rendered, each
+    building the whole gallery. One plan job sizes the shards to the cases and builds the gallery once."""
+
+    def size(self, cases: int, all_: bool = False, ids: str = "a") -> dict[str, str]:
+        size = plan_step("Size the shards")
+        with tempfile.TemporaryDirectory(prefix="gallery-size-") as tmp:
+            root = Path(tmp)
+            (root / "webviews").mkdir()
+            (root / "bin").mkdir()
+            (root / "bin/bun").write_text(
+                "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = --out ] && { python3 -c \"import json,sys; "
+                "json.dump([{}]*int(sys.argv[1]), open(sys.argv[2], 'w'))\" \"$CASES\" \"$2\"; }; shift; done\n")
+            (root / "bin/bun").chmod(0o755)
+            out = root / "out"
+            env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "RUNNER_TEMP": tmp,
+                   "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(root / "summary"), "CASES": str(cases),
+                   "ALL": "true" if all_ else "false", "IDS": ids, **size["env"]}
+            done = subprocess.run(["bash", "-c", size["run"]], cwd=root, env=env, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_the_shards_follow_the_cases(self) -> None:
+        per = int(plan_step("Size the shards")["env"]["CASES_PER_SHARD"])
+        self.assertEqual(self.size(0, ids=""), {"cases": "0", "shards": "[]"})
+        self.assertEqual(self.size(1)["shards"], "[0]")
+        self.assertEqual(self.size(per)["shards"], "[0]")
+        self.assertEqual(self.size(per + 1)["shards"], "[0,1]")
+        # A full render keeps all sixteen.
+        self.assertEqual(json.loads(self.size(11_424, all_=True)["shards"]), list(range(16)))
+
+    def test_the_ceiling_is_the_case_budgets_shard_count(self) -> None:
+        self.assertEqual(plan_step("Size the shards")["env"]["SHARDS"],
+                         plan_step("Hold each shard within its time budget")["env"]["SHARDS"])
+
+    def test_the_gallery_is_built_once_and_fetched_by_every_shard(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        plan = workflow["jobs"]["plan"]
+        build = plan_step("Build the gallery once")
+        self.assertIn("bun run gallery:build", build["run"])
+        self.assertNotIn("CMUX_GALLERY_ENTRIES", build["run"], "the head renders the whole build, as before")
+        upload = plan_step("Upload the gallery build")
+        fetch = step("Fetch the gallery build")
+        self.assertEqual(upload["with"]["name"], fetch["with"]["name"])
+        self.assertEqual(str(upload["with"]["retention-days"]), "1")
+        self.assertIs(upload["with"].get("overwrite"), True)
+        render = step("Render the gallery and judge it")["run"]
+        self.assertNotIn("gallery:build", render, "a shard renders the plan's build")
+        self.assertNotIn("manifest.ts", render, "a shard renders the plan's manifest")
+        self.assertIn('--manifest "$RUNNER_TEMP/gallery-build/manifest.json"', render)
+        self.assertIn('--gallery-dir "$RUNNER_TEMP/gallery-build/gallery"', render)
+        # No shard chooses entries or installs webviews for its head render any more.
+        self.assertNotIn("Choose the entries to render", [entry.get("name") for entry in steps()])
+        # The plan checks out exactly what the shards do, so its build is the shards' tree.
+        self.assertEqual(plan["steps"][0]["with"], step("Checkout")["with"])
+        self.assertEqual(plan["if"], "${{ github.event_name != 'pull_request' || "
+                                     "github.event.pull_request.head.repo.full_name == github.repository }}")
+
+    def test_a_catalog_change_is_routed_against_the_base(self) -> None:
+        run = plan_step("Choose the entries to render")["run"]
+        self.assertIn('${base:+--base "$base"}', run)
+        self.assertIn("base=HEAD^1", run)
+        self.assertIn("base=$BEFORE", run)
+
+    def test_the_route_check_reads_the_one_builds_module_list(self) -> None:
+        # Detector for "paths filter misses inputs": after the upload (the shards render either way), it holds the
+        # build's metafile against the workflow's paths and touched.ts.
+        names = [entry.get("name") for entry in plan_steps()]
+        check = plan_step("Every file the gallery bundles is routed")
+        self.assertLess(names.index("Upload the gallery build"), names.index(check["name"]))
+        self.assertIn('CMUX_WEBVIEWS_METAFILE="$RUNNER_TEMP/gallery-meta.json"', plan_step("Build the gallery once")["run"])
+        self.assertIn('scripts/gallery/route-check.ts --metafile "$RUNNER_TEMP/gallery-meta.json"', check["run"])
+        self.assertNotIn("continue-on-error", check)
+        # A pull request fails only on a miss in a file it changed; run the branch with a stand-in bun.
+        with tempfile.TemporaryDirectory(prefix="gallery-route-") as tmp:
+            root = Path(tmp)
+            (root / "webviews").mkdir()
+            (root / "bin").mkdir()
+            (root / "bin/bun").write_text(
+                "#!/bin/sh\necho 'gallery route check: 3 bundled repo files, 1 missed by routing'\n"
+                "echo '::error file=schemas/new/thing.json,title=gallery routing misses an input::why'\nexit 1\n")
+            (root / "bin/bun").chmod(0o755)
+
+            def run(event: str, changed: str) -> subprocess.CompletedProcess:
+                (root / "changed.txt").write_text(changed)
+                env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "EVENT": event}
+                return subprocess.run(["bash", "-c", check["run"]], cwd=root, env=env, capture_output=True, text=True)
+
+            other = run("pull_request", "webviews/src/a.tsx\n")
+            self.assertEqual(other.returncode, 0, other.stdout + other.stderr)
+            self.assertIn("::warning file=schemas/new/thing.json", other.stdout)
+            own = run("pull_request", "schemas/new/thing.json\n")
+            self.assertEqual(own.returncode, 1, own.stdout + own.stderr)
+            self.assertIn("::error file=schemas/new/thing.json", own.stdout)
+            self.assertEqual(run("push", "").returncode, 1)
 
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
@@ -180,7 +294,8 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("github.event_name == 'pull_request'", job["if"])
         self.assertIn("head.repo.full_name == github.repository", job["if"])
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
-        self.assertNotIn("needs", workflow["jobs"]["health"])
+        # The shards wait only for the plan (their cases and the head build), never for the base.
+        self.assertEqual(workflow["jobs"]["health"]["needs"], "plan")
         runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
         self.assertNotIn("blacksmith", runs_on)
@@ -320,7 +435,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
-                "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
+                "SHARD": "0", "SHARDS": "1", "pass": "1",
             })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
@@ -577,7 +692,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         for path in ("Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json",
                      "webviews/src/unused/Thing.tsx", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [], path)
-        run = step("Choose the entries to render")["run"]
+        run = plan_step("Choose the entries to render")["run"]
         self.assertIn("scripts/gallery-matrix/unplaced.py ../.github/workflows/gallery-health.yml", run)
 
     def test_an_untraced_webviews_asset_or_string_catalog_renders_every_entry(self) -> None:
@@ -591,12 +706,17 @@ class GalleryHealthPathRouting(unittest.TestCase):
                      "webviews/src/agent-session/acpmux/mascots/ChiefMascotOwl.png"):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
         self.assertEqual(unplaced_tool.unplaced(paths, [placed], touched), [])
+        # A catalog touched.ts --base routed key by key and found in no rendered table (`inert`) is placed:
+        # it renders nothing, instead of everything (cmuxterm-hq#12794).
+        catalog = "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+        self.assertEqual(unplaced_tool.unplaced(paths, [catalog], {**touched, "inert": [catalog]}), [])
+        self.assertEqual(unplaced_tool.unplaced(paths, [catalog], touched), [catalog])
 
     def test_a_dispatch_renders_every_entry(self) -> None:
         # The nightly full render of the base: a main-side dispatcher starts it on feat-cmux-next, since a
         # schedule on this branch never fires.
         self.assertIn("workflow_dispatch", triggers())
-        run = step("Choose the entries to render")["run"]
+        run = plan_step("Choose the entries to render")["run"]
         branch = run[run.index('[ "$EVENT" = workflow_dispatch ]'):]
         branch = branch[:branch.index("elif", 1)]
         self.assertIn("echo .github/workflows/gallery-health.yml", branch)
@@ -644,17 +764,17 @@ class GalleryHealthTime(unittest.TestCase):
         self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
 
     def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
-        cap = step("Hold each shard within its time budget")
-        self.assertEqual(cap["env"]["SHARDS"], "${{ strategy.job-total }}")
-        self.assertIn("matrix.shard == 0", cap["if"])
-        self.assertIn("!cancelled()", cap["if"])
-        names = [entry.get("name") for entry in steps()]
-        # It counts before the base replay restores the base's webviews/ (review of #41296), goes on so the
-        # render still gives its verdict, and a later step fails the job.
-        self.assertLess(names.index("Hold each shard within its time budget"), names.index("Render the gallery and judge it"))
+        # The plan counts a full render (before any base replay restores the base's webviews/, review of
+        # #41296) and goes on, so the shards still give their verdict; shard 0 fails the run after its judge.
+        cap = plan_step("Hold each shard within its time budget")
+        self.assertEqual(cap["env"]["SHARDS"], "16")
         self.assertIs(cap["continue-on-error"], True)
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertEqual(workflow["jobs"]["plan"]["outputs"]["over_budget"], "${{ steps.cap.outcome == 'failure' }}")
+        names = [entry.get("name") for entry in steps()]
         fail = step("Fail past the case budget")
-        self.assertIn("steps.cap.outcome == 'failure'", fail["if"])
+        self.assertIn("needs.plan.outputs.over_budget == 'true'", fail["if"])
+        self.assertIn("matrix.shard == 0", fail["if"])
         self.assertLess(names.index("Judge the red states against the base"), names.index("Fail past the case budget"))
         self.assertIn("exit 1", fail["run"])
         with tempfile.TemporaryDirectory(prefix="gallery-cap-") as tmp:

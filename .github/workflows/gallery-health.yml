@@ -15,8 +15,11 @@ name: gallery health
 # path_route), so a skipped pull request reports a pass instead of waiting forever.
 #
 # A routed file that no entry imports renders every entry (scripts/gallery-matrix/unplaced.py): a file
-# outside webviews/src/, or a webviews/src/ file that is not source (a string catalog, an untraced
-# asset). It is global to every page. An unreached webviews/src/ source file renders nothing.
+# outside webviews/src/, or a webviews/src/ file that is not source (an untraced asset). It is global to
+# every page. An unreached webviews/src/ source file renders nothing. A string catalog renders the entries
+# whose page tables take a changed key (webviews/scripts/gallery/catalogs.ts), and a module a host's stage
+# loads renders every entry of that host. The plan job decides all of this once, sizes the shards to the
+# cases, builds the gallery once for them, and checks every bundled file is routed (route-check.ts).
 #
 # A dispatch (workflow_dispatch) renders every entry at the dispatched ref: the nightly full render
 # of the base. A schedule here would never fire: GitHub runs schedules only from the default
@@ -249,6 +252,231 @@ env:
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
+  # One job decides what the run renders, sizes the shards to it, and builds the head gallery once for them.
+  # Every one of 16 shards used to check out, install, choose the entries and build the whole gallery itself, so a
+  # change that reached 40 cases paid 16 of each: 11,131 shard jobs, 867 job-hours of 16 vCPU on pull requests
+  # in a day (controller timing records, 2026-11-16T08:27Z..11-17T08:27Z; shard p50 287 s, of it the build
+  # ~65 s and choosing the entries ~46 s). Now a run starts as many shards as its cases need at about
+  # CASES_PER_SHARD each (at most 16; a full render still takes 16) and none when it renders nothing, and the
+  # shards fetch the one build.
+  plan:
+    name: plan the render
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 15
+    outputs:
+      shards: ${{ steps.size.outputs.shards }}
+      cases: ${{ steps.size.outputs.cases }}
+      over_budget: ${{ steps.cap.outcome == 'failure' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
+          # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
+          # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
+          # Quoted: in an expression `cond && 0 || 2` is always 2, because 0 is falsy and `||` takes the
+          # right side. The string '0' is truthy, so a push really fetches full history.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
+          filter: blob:none
+          # Only what a render reads: the folders and files of the `paths` list above (every routed path
+          # is inside these; tests/test_ci_gallery_health_merge_ref.py keeps it so), and scripts/ and
+          # .github/ for this job's own tools. The whole tree minus verify/ fetched ~600 MB of blobs this
+          # job never opens (cmux-tui, Packages' Swift, web/, docs): ~60 s of every shard's ~8-minute job
+          # (2026-11-11 timing records). `git restore ... -- .` in the base replay keeps to these paths.
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/neko-candidates/
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /web/data/model-catalog/
+            /release-notes/next/highlights/
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Choose the entries to render
+        id: entries
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Each part in its own log group, so its time shows in the log and in the controller's
+          # /v1/github/job-groups.
+          cd webviews
+          echo "::group::bun install"
+          bun install --frozen-lockfile
+          echo "::endgroup::"
+          echo "::group::changed files"
+          base=
+          if [ "$EVENT" = pull_request ]; then
+            # The merge's first parent is the base it was merged with: the diff is the pull request's change.
+            base=HEAD^1
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          elif [ "$EVENT" = workflow_dispatch ]; then
+            # The nightly full render of the base: render everything.
+            echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base=$BEFORE
+            git diff --name-only "$BEFORE" HEAD > "$RUNNER_TEMP/changed.txt"
+          else
+            # A new branch tip with no previous commit to compare: render everything.
+            echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
+          fi
+          echo "$(wc -l < "$RUNNER_TEMP/changed.txt") changed files"
+          echo "::endgroup::"
+          if [ -s "$RUNNER_TEMP/changed.txt" ]; then
+            echo "::group::touched entries"
+            # --base: a changed string catalog renders only the entries whose page tables take a changed key
+            # (webviews/scripts/gallery/catalogs.ts); without a base every catalog change renders everything.
+            bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" ${base:+--base "$base"} \
+              --out "$RUNNER_TEMP/touched.json"
+            echo "::endgroup::"
+            # The checker itself changed: render everything with it. So does a routed file no entry
+            # imports (a theme, a font, a lockfile): it is global to every page, and rendering nothing
+            # would pass with no verdict.
+            if grep -q '^scripts/gallery-matrix/\|^\.github/workflows/gallery-health\.yml$' "$RUNNER_TEMP/changed.txt"; then
+              echo 'all=true' >> "$GITHUB_OUTPUT"
+            elif [ "$(python3 ../scripts/gallery-matrix/unplaced.py ../.github/workflows/gallery-health.yml \
+                "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/touched.json")" = true ]; then
+              echo 'all=true' >> "$GITHUB_OUTPUT"
+            else
+              echo "all=$(jq -r .all "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
+            fi
+            echo "ids=$(jq -r '.entries | join(",")' "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
+          else
+            echo 'all=false' >> "$GITHUB_OUTPUT"
+            echo 'ids=' >> "$GITHUB_OUTPUT"
+          fi
+
+      # Merge-time signal for the job's own time (cmuxterm-hq docs/handbook/fast-job-outgrows-its-budget.md):
+      # the gallery grows a few cases with most pull requests, and at a fixed shard count each shard's
+      # render grows with it, from ~15 to ~24 minutes in four days before anyone saw it (2026-11-07..11).
+      # A full render of 11,424 cases over 16 shards (714 a shard) ran its job in about 8.5 minutes at p90
+      # against a 10-minute budget (2026-11-11). The pull request that takes a full render's shard past
+      # MAX_CASES_PER_SHARD fails (shard 0's "Fail past the case budget"), naming the shard count that fits,
+      # so the matrix grows with the gallery instead of the job's time.
+      - name: Hold each shard within its time budget
+        id: cap
+        continue-on-error: true
+        env:
+          SHARDS: "16"
+          MAX_CASES_PER_SHARD: "800"
+        run: |
+          set -euo pipefail
+          cd webviews
+          bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/full-manifest.json"
+          cases=$(jq length "$RUNNER_TEMP/full-manifest.json")
+          per=$(( (cases + SHARDS - 1) / SHARDS ))
+          need=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
+          echo "a full render is $cases cases: $per a shard over $SHARDS shards (at most $MAX_CASES_PER_SHARD)"
+          if [ "$per" -gt "$MAX_CASES_PER_SHARD" ]; then
+            echo "::error title=gallery health outgrows its shards::a full render is $cases cases, $per a shard over $SHARDS shards; past $MAX_CASES_PER_SHARD a shard's job runs over its 10-minute budget. Raise SHARDS in .github/workflows/gallery-health.yml (plan and the health job's ceiling) to $need shards."
+            exit 1
+          fi
+
+      # The shards a run needs: one per CASES_PER_SHARD cases, at most SHARDS (a full render keeps all 16), and
+      # none when the change renders nothing (the health job is skipped, which passes: no ruleset requires it).
+      # A shard renders its cases with 12 workers on 16 vCPU at about 0.18 s a case, so 400 cases are about a
+      # minute of render beside its ~1.5 minutes of checkout, browser and fetch.
+      - name: Size the shards
+        id: size
+        env:
+          ALL: ${{ steps.entries.outputs.all }}
+          IDS: ${{ steps.entries.outputs.ids }}
+          SHARDS: "16"
+          CASES_PER_SHARD: "400"
+        run: |
+          set -euo pipefail
+          cd webviews
+          mkdir -p "$RUNNER_TEMP/gallery-build"
+          if [ "$ALL" = true ]; then
+            bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/gallery-build/manifest.json"
+          elif [ -n "$IDS" ]; then
+            bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/gallery-build/manifest.json"
+          else
+            echo '[]' > "$RUNNER_TEMP/gallery-build/manifest.json"
+          fi
+          cases=$(jq length "$RUNNER_TEMP/gallery-build/manifest.json")
+          count=$(( (cases + CASES_PER_SHARD - 1) / CASES_PER_SHARD ))
+          [ "$count" -le "$SHARDS" ] || count=$SHARDS
+          echo "cases=$cases" >> "$GITHUB_OUTPUT"
+          echo "shards=$(jq -cn --argjson n "$count" '[range($n)]')" >> "$GITHUB_OUTPUT"
+          echo "rendering $cases cases on $count of $SHARDS shards" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The head gallery, built here once for every shard (each shard built it itself, ~65 s of 16 vCPU apiece).
+      # A same-run handoff: one day is enough, and the overwrite lets a whole-run rerun upload it again.
+      - name: Build the gallery once
+        if: ${{ steps.size.outputs.cases != '0' }}
+        run: |
+          set -euo pipefail
+          cd webviews
+          # The build's module list (bundle-metafile.mjs) is what "Every file the gallery bundles is routed" reads.
+          CMUX_WEBVIEWS_METAFILE="$RUNNER_TEMP/gallery-meta.json" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-build/gallery" \
+            bun run gallery:build
+          echo "built the gallery: $(find "$RUNNER_TEMP/gallery-build/gallery" -type f | wc -l) files"
+
+      - name: Upload the gallery build
+        if: ${{ steps.size.outputs.cases != '0' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-head-build
+          path: ${{ runner.temp }}/gallery-build
+          retention-days: 1
+          if-no-files-found: error
+          overwrite: true
+
+      # Detector for "paths filter misses inputs": every repo file the build bundled must start this workflow
+      # (its `paths`) and be placed by touched.ts on some entry, or a change to it renders nothing
+      # (webviews/scripts/gallery/route-check.ts). After the upload, so the shards render either way. A push or
+      # the nightly fails on any miss; a pull request fails on a miss in a file it changed and warns on the rest,
+      # which are the base's (base reds are warnings).
+      - name: Every file the gallery bundles is routed
+        if: ${{ steps.size.outputs.cases != '0' }}
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          cd webviews
+          rc=0
+          bun scripts/gallery/route-check.ts --metafile "$RUNNER_TEMP/gallery-meta.json" \
+            --workflow ../.github/workflows/gallery-health.yml > "$RUNNER_TEMP/route-check.txt" || rc=$?
+          [ "$rc" = 0 ] || [ "$rc" = 1 ] || { cat "$RUNNER_TEMP/route-check.txt"; exit "$rc"; }
+          if [ "$rc" = 0 ] || [ "$EVENT" != pull_request ]; then
+            cat "$RUNNER_TEMP/route-check.txt"
+            exit "$rc"
+          fi
+          own=0
+          while IFS= read -r line; do
+            file=$(sed -n 's/^::error file=\([^,]*\),.*/\1/p' <<<"$line")
+            if [ -n "$file" ] && grep -qxF "$file" "$RUNNER_TEMP/changed.txt"; then
+              own=1
+              echo "$line"
+            else
+              echo "${line/::error /::warning }"
+            fi
+          done < "$RUNNER_TEMP/route-check.txt"
+          exit "$own"
+
   # The base gallery, built once a run while the shards render the head (~5 minutes, so it is ready before any
   # shard judges), for the shards whose red states replay on the base: each built the whole gallery itself,
   # ~55-85 s of every judged shard on 2026-11-11, and 54 of 72 pull request runs judged all 16 shards. It checks
@@ -329,7 +557,10 @@ jobs:
           overwrite: true
 
   health:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: plan
+    # Only the shards the plan sized (none when the change renders nothing). A plan that failed before sizing
+    # leaves no shards and fails the run; one whose route check failed after the upload still renders.
+    if: ${{ !cancelled() && needs.plan.outputs.shards != '' && needs.plan.outputs.shards != '[]' }}
     # The 16 vCPU pool (its next member is 32 vCPU when 16 starts nothing): a shard's render is CPU-bound, about
     # three quarters of each case is the stage's page loading and mounting in a fresh renderer, and on 4 vCPU the
     # four workers held the CPU at 91% (#41952's shards: per-case p50 1.0-1.6 s against 583 ms alone, render 4-6
@@ -341,11 +572,12 @@ jobs:
     timeout-minutes: 45
     # Sixteen shards, so a shard runs in under 10 minutes as the gallery grows: at eight, with three
     # cases at once, a shard's render took 9 to 13 minutes and its job 11 to 17 (run 42946512341,
-    # 2026-11-11). With four, a full render took ~27 minutes and its base replay ~14 more.
+    # 2026-11-11). With four, a full render took ~27 minutes and its base replay ~14 more. A full render
+    # still takes sixteen; a smaller one takes the plan's count (`[0, 1, ...]`, about 400 cases a shard).
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       # A pull request renders its merge with base (the event's merge ref), as the other PR gates do:
       # a branch cut before a base fix must not keep failing on what base already fixed. A push
@@ -429,124 +661,42 @@ jobs:
         with:
           engines: chromium
 
-      - name: Choose the entries to render
-        id: entries
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          # Each part in its own log group, so its time shows in the log and in the controller's
-          # /v1/github/job-groups: the step takes ~45 s a shard while bun install (~1.5 s) and touched.ts
-          # alone (~1.5 s on Linux) explain little of it (2026-11-11). Find the cost before cutting it.
-          cd webviews
-          echo "::group::bun install"
-          bun install --frozen-lockfile
-          echo "::endgroup::"
-          echo "::group::changed files"
-          if [ "$EVENT" = pull_request ]; then
-            # The merge's first parent is the base it was merged with: the diff is the pull request's change.
-            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
-          elif [ "$EVENT" = workflow_dispatch ]; then
-            # The nightly full render of the base: render everything.
-            echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
-          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            git diff --name-only "$BEFORE" HEAD > "$RUNNER_TEMP/changed.txt"
-          else
-            # A new branch tip with no previous commit to compare: render everything.
-            echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
-          fi
-          echo "$(wc -l < "$RUNNER_TEMP/changed.txt") changed files"
-          echo "::endgroup::"
-          if [ -s "$RUNNER_TEMP/changed.txt" ]; then
-            echo "::group::touched entries"
-            bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
-            echo "::endgroup::"
-            # The checker itself changed: render everything with it. So does a routed file no entry
-            # imports (a theme, a font, a string catalog, a lockfile): it is global to every page, and
-            # rendering nothing would pass with no verdict.
-            if grep -q '^scripts/gallery-matrix/\|^\.github/workflows/gallery-health\.yml$' "$RUNNER_TEMP/changed.txt"; then
-              echo 'all=true' >> "$GITHUB_OUTPUT"
-            elif [ "$(python3 ../scripts/gallery-matrix/unplaced.py ../.github/workflows/gallery-health.yml \
-                "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/touched.json")" = true ]; then
-              echo 'all=true' >> "$GITHUB_OUTPUT"
-            else
-              echo "all=$(jq -r .all "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
-            fi
-            echo "ids=$(jq -r '.entries | join(",")' "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
-          else
-            echo 'all=false' >> "$GITHUB_OUTPUT"
-            echo 'ids=' >> "$GITHUB_OUTPUT"
-          fi
-
-      # Merge-time signal for the job's own time (cmuxterm-hq docs/handbook/fast-job-outgrows-its-budget.md):
-      # the gallery grows a few cases with most pull requests, and at a fixed shard count each shard's
-      # render grows with it, from ~15 to ~24 minutes in four days before anyone saw it (2026-11-07..11).
-      # A full render of 11,424 cases over 16 shards (714 a shard) ran its job in about 8.5 minutes at p90
-      # against a 10-minute budget (2026-11-11). The pull request that takes a shard past
-      # MAX_CASES_PER_SHARD fails here, naming the shard count that fits, so the matrix grows with the
-      # gallery instead of the job's time. Shard 0 only: one error, not sixteen.
-      - name: Hold each shard within its time budget
-        # Before the render and the base replay: the replay restores the base's webviews/, which would then be
-        # counted. It goes on so the render still gives its verdict; "Fail past the case budget" fails the job.
-        id: cap
-        if: ${{ !cancelled() && matrix.shard == 0 && steps.entries.outcome == 'success' }}
-        continue-on-error: true
-        env:
-          SHARDS: ${{ strategy.job-total }}
-          MAX_CASES_PER_SHARD: "800"
-        run: |
-          set -euo pipefail
-          cd webviews
-          bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/full-manifest.json"
-          cases=$(jq length "$RUNNER_TEMP/full-manifest.json")
-          per=$(( (cases + SHARDS - 1) / SHARDS ))
-          need=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
-          echo "a full render is $cases cases: $per a shard over $SHARDS shards (at most $MAX_CASES_PER_SHARD)"
-          if [ "$per" -gt "$MAX_CASES_PER_SHARD" ]; then
-            echo "::error title=gallery health outgrows its shards::a full render is $cases cases, $per a shard over $SHARDS shards; past $MAX_CASES_PER_SHARD a shard's job runs over its 10-minute budget. Raise the matrix in .github/workflows/gallery-health.yml (and --shard-count) to $need shards."
-            exit 1
-          fi
-
       # GITHUB_ENV takes effect in the next step: resolve the browser before either head or base
       # renders, so both use the same executable instead of comparing Chrome with headless-shell.
       - name: Setup gallery browser
-        if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
         working-directory: scripts/gallery-matrix
         run: |
           set -euo pipefail
           bun install --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
+      # The plan job's one build of the head gallery and the manifest of the cases this run renders.
+      - name: Fetch the gallery build
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: gallery-head-build
+          path: ${{ runner.temp }}/gallery-build
+
       # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it
         id: render
-        if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
         continue-on-error: true
         # A render that stalls stops here with time left for the judge and the upload, instead of the job's
         # 45 minutes cancelling it with no verdict. With sixteen shards a render takes about 5 minutes.
         timeout-minutes: 20
         env:
-          ALL: ${{ steps.entries.outputs.all }}
-          IDS: ${{ steps.entries.outputs.ids }}
           SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
           CMUX_GALLERY_IN_VM: "1"
         run: |
           set -euo pipefail
-          cd webviews
-          if [ "$ALL" = true ]; then
-            bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/manifest.json"
-          else
-            bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
-          fi
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Three workers per four vCPUs past 8: two threads share each core there, and 12 workers on 16
           # vCPU rendered as fast as 16 with a lower p90 (3.0 s against 4.3) and less ready-CPU drift.
           cpus=$(nproc)
           workers=$(( cpus > 8 ? cpus * 3 / 4 : cpus ))
-          bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
-            --output-dir "$RUNNER_TEMP/health" --shard-count 16 --shard-index "$SHARD" --concurrency "$workers"
+          bun health.ts --manifest "$RUNNER_TEMP/gallery-build/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery-build/gallery" \
+            --output-dir "$RUNNER_TEMP/health" --shard-count "$SHARDS" --shard-index "$SHARD" --concurrency "$workers"
 
       # The base gallery the "base gallery" job built for this run. Not there yet, or failed: the judge step
       # builds the red entries itself.
@@ -661,10 +811,12 @@ jobs:
           grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$rc"
 
+      # The plan's "Hold each shard within its time budget" found a full render past the shards' budget. Shard 0
+      # only: one error, not sixteen, and after the render so the run still gives its verdict.
       - name: Fail past the case budget
-        if: ${{ !cancelled() && steps.cap.outcome == 'failure' }}
+        if: ${{ !cancelled() && matrix.shard == 0 && needs.plan.outputs.over_budget == 'true' }}
         run: |
-          echo "::error::gallery health outgrows its shards: see the step \"Hold each shard within its time budget\""
+          echo "::error::gallery health outgrows its shards: see the plan job's step \"Hold each shard within its time budget\""
           exit 1
 
       - name: Record what was rendered

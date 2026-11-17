@@ -15,12 +15,18 @@
 // broad change re-renders. A shared stylesheet touches every entry; the ranking still puts the
 // component that owns it first.
 //
-//   bun scripts/gallery/touched.ts --changed changed.txt            # one repo path per line
-//   -> {"all": false, "entries": ["agent-pane.composer"], "reasons": {...}, "ranked": [{"id": ..., "tier": 0, ...}]}
+// Every entry of a host is touched by a module its stage (src/gallery/frame/) reaches, since every entry of
+// that host loads it ("host-frame"). A string catalog reaches the entries that import the page tables its
+// changed keys go into (catalogs.ts, with --base); one whose keys reach no rendered table is `inert`.
+//
+//   bun scripts/gallery/touched.ts --changed changed.txt [--base REV]   # one repo path per line
+//   -> {"all": false, "entries": ["agent-pane.composer"], "reasons": {...}, "ranked": [{"id": ..., "tier": 0, ...}],
+//       "inert": []}
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { agentPaneStylesheets } from "../../dev-server/galleryHost";
+import { type CatalogRoute, catalogTables, isCatalog, readCheckout, readRevision } from "./catalogs";
 import { galleryFiles, SRC } from "./entries";
 
 /** Repo paths that re-render every entry when they change. */
@@ -37,8 +43,6 @@ const EVERYTHING = [
   /^webviews\/package\.json$/,
   /^bun\.lock$/,
   /^scripts\/gallery-matrix\//,
-  // A string catalog gen-strings.mjs compiles into the strings every page loads; no import reaches it.
-  /^webviews\/src\/.*\.xcstrings$/,
 ];
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];
@@ -46,7 +50,15 @@ const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];
 const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\s*\(\s*)["']([^"']+)["']/g;
 
 /** Why an entry is in the sample, closest first (the tier is the index here). */
-export const RANK_REASONS = ["own", "names", "imports", "same-folder", "host-stylesheet", "everything"] as const;
+export const RANK_REASONS = [
+  "own",
+  "names",
+  "imports",
+  "same-folder",
+  "host-stylesheet",
+  "host-frame",
+  "everything",
+] as const;
 export type RankReason = (typeof RANK_REASONS)[number];
 /** One touched entry in ranked order: the changed file that put it there and, for imports, the hops. */
 export type RankedEntry = { id: string; tier: number; why: RankReason; file: string; distance: number };
@@ -55,6 +67,9 @@ export type TouchedEntries = {
   entries: string[];
   reasons: Record<string, string[]>;
   ranked: RankedEntry[];
+  /** Changed files placed on no entry because no render shows them: a string catalog whose changed keys
+   * no page table takes, or whose tables no entry or host frame imports (unplaced.py counts them placed). */
+  inert: string[];
 };
 export type EntryRoots = { id: string; host: string; file: string; covers: string[] };
 
@@ -76,6 +91,18 @@ export function hostStylesheets(
   const frame = HOST_FRAMES[host];
   const reached = frame ? [...closure([path.join(src, frame)], read)].filter((file) => file.endsWith(".css")) : [];
   return host === "agent-pane" ? [...reached, ...paneStylesheets()] : reached;
+}
+
+/**
+ * The modules a host's stage loads for every entry it mounts: what its frame module reaches (the agent pane's
+ * mountModel and the whole pane under it, the pane's string table, the pages' mock hosts), stylesheets aside.
+ * An entry's own imports leave these out, so a change to one of them reached only the entries that happen to
+ * import it, while every entry of the host renders it.
+ */
+export function hostFrameModules(host: string, src: string, read: (file: string) => string | undefined): Set<string> {
+  const frame = HOST_FRAMES[host];
+  if (!frame) return new Set();
+  return new Set([...closure([path.join(src, frame)], read)].filter((file) => !file.endsWith(".css")));
 }
 
 /** The relative imports of one source file, resolved to files that exist. */
@@ -175,6 +202,8 @@ export function touchedEntries(
     repoRoot?: string;
     read?: (file: string) => string | undefined;
     paneStylesheets?: () => string[];
+    /** Where changed string catalogs land (catalogs.ts); without it every catalog change renders everything. */
+    catalogs?: CatalogRoute;
   } = {},
 ): TouchedEntries {
   const src = options.src ?? SRC;
@@ -182,12 +211,30 @@ export function touchedEntries(
   const read = options.read ?? readSource;
   const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
   const ids = entries.map((entry) => entry.id).sort();
-  const broad = changed.filter((file) => EVERYTHING.some((pattern) => pattern.test(file)));
-  const specific = changed.filter((file) => !broad.includes(file));
-  const changedFull = new Map(specific.map((file) => [path.join(repoRoot, file), file]));
+  const catalogs = options.catalogs;
+  // A catalog with no route (none given, or one no page lists) is global to every page, as before.
+  const routedCatalog = (file: string) =>
+    !!catalogs &&
+    !catalogs.global.includes(file) &&
+    (catalogs.inert.includes(file) || Object.values(catalogs.tables).some((from) => from.includes(file)));
+  const broad = changed.filter(
+    (file) => EVERYTHING.some((pattern) => pattern.test(file)) || (isCatalog(file) && !routedCatalog(file)),
+  );
+  const specific = changed.filter((file) => !broad.includes(file) && !isCatalog(file));
+  // Each changed path, and each page table a changed catalog reaches, with the changed files it stands for.
+  const changedFull = new Map<string, string[]>(specific.map((file) => [path.join(repoRoot, file), [file]]));
+  for (const [table, from] of Object.entries(catalogs?.tables ?? {})) {
+    const reaching = from.filter((file) => changed.includes(file) && !broad.includes(file));
+    if (reaching.length)
+      changedFull.set(path.join(repoRoot, table), [
+        ...(changedFull.get(path.join(repoRoot, table)) ?? []),
+        ...reaching,
+      ]);
+  }
   const reasons: Record<string, string[]> = {};
   const ranks = new Map<string, RankedEntry>();
   const sheets = new Map<string, string[]>();
+  const frames = new Map<string, Set<string>>();
   const rank = (candidate: RankedEntry) => {
     const best = ranks.get(candidate.id);
     if (!best || candidate.tier < best.tier || (candidate.tier === best.tier && candidate.distance < best.distance))
@@ -195,6 +242,7 @@ export function touchedEntries(
   };
   for (const entry of entries) {
     if (!sheets.has(entry.host)) sheets.set(entry.host, hostStylesheets(entry.host, src, read, paneStylesheets));
+    if (!frames.has(entry.host)) frames.set(entry.host, hostFrameModules(entry.host, src, read));
     const covered = entry.covers.flatMap((cover) => coverFiles(cover, src));
     const roots = [entry.file, ...covered];
     const hops = distances(roots, read);
@@ -205,10 +253,10 @@ export function touchedEntries(
     const folders = new Set(roots.map((root) => path.dirname(root)));
     const entryText = read(entry.file) ?? "";
     const hits = new Set<string>();
-    for (const [full, repoPath] of changedFull) {
+    for (const [full, repoPaths] of changedFull) {
       const why = (tier: number, reason: RankReason, distance = 0) => {
-        hits.add(repoPath);
-        rank({ id: entry.id, tier, why: reason, file: repoPath, distance });
+        for (const repoPath of repoPaths) hits.add(repoPath);
+        rank({ id: entry.id, tier, why: reason, file: repoPaths[0]!, distance });
       };
       // An asset (an image, a JSON file) counts only where an import or new URL() traces it; a guess by
       // name or folder would place it and skip the full render unplaced.py falls back to.
@@ -218,18 +266,53 @@ export function touchedEntries(
       else if (hops.has(full)) why(2, "imports", hops.get(full)!);
       else if (source && folders.has(path.dirname(full))) why(3, "same-folder");
       else if (sheets.get(entry.host)!.includes(full)) why(4, "host-stylesheet");
+      else if (frames.get(entry.host)!.has(full)) why(5, "host-frame");
     }
     if (hits.size) reasons[entry.id] = [...hits].sort();
   }
   if (broad.length)
     for (const id of ids) {
       reasons[id] = [...new Set([...(reasons[id] ?? []), ...broad.slice(0, 5)])].sort();
-      rank({ id, tier: 5, why: "everything", file: broad[0]!, distance: 0 });
+      rank({ id, tier: RANK_REASONS.indexOf("everything"), why: "everything", file: broad[0]!, distance: 0 });
     }
   const ranked = [...ranks.values()].sort(
     (a, b) => a.tier - b.tier || a.distance - b.distance || a.id.localeCompare(b.id),
   );
-  return { all: broad.length > 0, entries: Object.keys(reasons).sort(), reasons, ranked };
+  // A routed catalog that placed no entry: its keys reach no page table, or no render imports the tables they
+  // reach. Like a webviews/src module no entry reaches, it renders nothing.
+  const placed = new Set(Object.values(reasons).flat());
+  const inert = changed.filter((file) => isCatalog(file) && !broad.includes(file) && !placed.has(file)).sort();
+  return { all: broad.length > 0, entries: Object.keys(reasons).sort(), reasons, ranked, inert };
+}
+
+/**
+ * Every file touchedEntries can place on some entry (its imports, its covers, its folder, its host's frame
+ * modules and stylesheets), and the paths it renders everything for: what route-check.ts holds the
+ * gallery build's own module list against.
+ */
+export function reachableFiles(
+  entries: EntryRoots[],
+  options: { src?: string; read?: (file: string) => string | undefined; paneStylesheets?: () => string[] } = {},
+): { reachable: { has: (file: string) => boolean }; broad: (repoPath: string) => boolean } {
+  const src = options.src ?? SRC;
+  const read = options.read ?? readSource;
+  const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
+  const files = new Set<string>();
+  const folders = new Set<string>();
+  for (const host of new Set(entries.map((entry) => entry.host))) {
+    for (const sheet of hostStylesheets(host, src, read, paneStylesheets)) files.add(sheet);
+    for (const module of hostFrameModules(host, src, read)) files.add(module);
+  }
+  for (const entry of entries) {
+    const roots = [entry.file, ...entry.covers.flatMap((cover) => coverFiles(cover, src))];
+    for (const file of closure(roots, read)) files.add(file);
+    for (const root of roots) folders.add(path.dirname(root));
+  }
+  const reachable = {
+    has: (file: string) =>
+      files.has(file) || (SOURCE_EXTENSIONS.includes(path.extname(file)) && folders.has(path.dirname(file))),
+  };
+  return { reachable, broad: (repoPath) => EVERYTHING.some((pattern) => pattern.test(repoPath)) };
 }
 
 /** The entries under src/ with the file each one comes from. */
@@ -243,14 +326,22 @@ export async function loadEntryRoots(): Promise<EntryRoots[]> {
 }
 
 if (import.meta.main) {
-  const { values } = parseArgs({ options: { changed: { type: "string" }, out: { type: "string" } } });
+  const { values } = parseArgs({
+    options: { changed: { type: "string" }, out: { type: "string" }, base: { type: "string" } },
+  });
   if (!values.changed) throw new Error("--changed <file with one repo path per line> is required");
   const changed = fs
     .readFileSync(values.changed, "utf8")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const result = touchedEntries(await loadEntryRoots(), changed);
+  // --base REV: the revision the change is compared with, so a changed string catalog renders only the
+  // entries whose page tables take a changed key. Without it every catalog change renders everything.
+  const repoRoot = path.resolve(SRC, "../..");
+  const catalogs = values.base
+    ? catalogTables(changed, readCheckout(repoRoot), readRevision(repoRoot, values.base))
+    : undefined;
+  const result = touchedEntries(await loadEntryRoots(), changed, { catalogs });
   const json = `${JSON.stringify(result, null, 2)}\n`;
   if (values.out) fs.writeFileSync(values.out, json);
   else process.stdout.write(json);
