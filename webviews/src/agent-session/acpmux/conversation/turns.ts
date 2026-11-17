@@ -1180,6 +1180,14 @@ function shapedTurn(
       if (body[worked]!.foldOpen) body.splice(worked + 1, 0, user);
       drawnUser.length = 0;
     }
+    // While such a turn runs, its message is drawn where the open fold will hold it: right under the
+    // "Working for" that stands in the fold's line (`shapeLiveTurn`). The line keeps one place from
+    // the message's arrival to the turn's end, and the message keeps its place until the fold takes it.
+    const working = live && foldStyle.conclusion && isAgentPrompt(user) ? body.findIndex(isWorkingHeader(user)) : -1;
+    if (working >= 0 && drawnUser.length) {
+      body.splice(working + 1, 0, user);
+      drawnUser.length = 0;
+    }
     const emptyCompleted =
       isVisiblyEmptyMessage(user) &&
       body.length === 0 &&
@@ -1700,7 +1708,15 @@ function shapeTurn(
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs)
+      ? liveTurn(
+          user,
+          turn,
+          clockOffset,
+          sessionStatus,
+          trayAgents,
+          turnStartedAtMs,
+          turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
+        )
       : last
         ? planLast(turn.flatMap(withoutDrafts).map(endedPlan))
         : settledWithoutSummary(turn);
@@ -2605,8 +2621,12 @@ function liveTurn(
   sessionStatus = false,
   trayAgents = 0,
   turnStartedAtMs?: number,
+  foldsPrompt = false,
 ): AcpmuxRow[] {
-  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs));
+  return withRetry(
+    turn,
+    shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt),
+  );
 }
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
@@ -2637,6 +2657,7 @@ function shapeLiveTurn(
   sessionStatus = false,
   trayAgents = 0,
   turnStartedAtMs?: number,
+  foldsPrompt = false,
 ): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
@@ -2678,7 +2699,11 @@ function shapeLiveTurn(
   // The activity line (Debug Settings `agent.sessionStatus`) is the turn's clock in this place.
   if (shaped.at(-1)?.kind === ACTIVITY_LINE) return shaped;
   if (drawn.some((row) => row.kind === "turnSummary" || row.kind === BACKGROUND_TURN)) return shaped;
-  if (!drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
+  // Another agent's message that started the turn folds under its "Worked for" when it ends
+  // (`foldsPrompt`, shapedTurn), so its "Working for" stands from the start, in that place: the line
+  // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
+  // 2026-11-17: "the jostles and shifts and spacing are still bad here").
+  if (!foldsPrompt && !drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
   // As the Codex app and T3 Code draw a running turn: "Working for 32s" over its work, under the
   // prompt, where "Worked for" lands when the turn ends (liveTurnClock.experiment.ts); the line at
   // the bottom says only what the agent does now, "Thinking", with no clock.
@@ -2689,6 +2714,7 @@ function shapeLiveTurn(
 
 /// The running turn's "Working for" line over its work (`shapeLiveTurn`), keyed by the turn's prompt.
 export const workingHeaderId = (promptId: string) => `${WORKING}-${promptId}`;
+const isWorkingHeader = (user: AcpmuxRow) => (row: AcpmuxRow) => row.id === workingHeaderId(user.id);
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
 /// not send) that came after the agent had replied since then, which set it going again.
