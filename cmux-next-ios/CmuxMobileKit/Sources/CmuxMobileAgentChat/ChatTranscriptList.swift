@@ -739,11 +739,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             for (position, id) in shown.ids.enumerated() where landed.contains(id) {
                 guard let row = rows[id], lookup.eligible(row) else { continue }
                 let revision = revisions[id] ?? 0
-                guard shown.items[position].revision == revision,
-                      let height = lookup.layouts.height(id, revision: revision, expanded: lookup.expanded(id)) else {
+                let open = lookup.expanded(id)
+                guard shown.items[position].revision == revision, lookup.layouts.has(id, revision: revision, expanded: open) else {
                     whole = false
                     break
                 }
+                // Laid out as SwiftUI after all (math): it keeps its estimate, as a reload weighs it.
+                guard let height = lookup.layouts.height(id, revision: revision, expanded: open) else { continue }
                 shown.items[position].estimate = height
                 shown.items[position].exact = true
             }
