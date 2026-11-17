@@ -31,6 +31,13 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   keys=1       each measured launch types into the app from the moment its window shows: one key every 100 ms (a-z
+#                then 0-9, 36 at most, posted to the app's pid), 3 more once Home's first page is up and took keys, then
+#                Return, and the probe reads the sent message back from the app's daemon. Its row carries first_key_ms
+#                (when the earliest key the sent message holds went out, ms from process start), keys_sent, keys_landed
+#                and keys_text; LR-KEYS SIDE MEDIAN N/M prints the side's median first_key_ms and how many of its M
+#                launches sent a message holding any key. A keys=1 launch opens no terminal (state=bare's shell
+#                request moves focus). Default keys=0: no keys.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -47,7 +54,7 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept
+  LR_STATE=kept LR_KEYS=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -61,6 +68,7 @@ main() {
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
       state=kept|state=bare) LR_STATE="${arg#state=}" ;;
+      keys=0|keys=1) LR_KEYS="${arg#keys=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
@@ -76,6 +84,7 @@ main() {
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "LR state $LR_STATE"
+  [[ "$LR_KEYS" == 0 ]] || echo "LR keys 1: one key per 100 ms from the window, then Return, read back from the daemon"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
@@ -145,11 +154,20 @@ main() {
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
   [[ -n "$pids" ]] && kill $pids 2>/dev/null
-  python3 -I - "$out/runs.jsonl" "$LR_STATE" <<'PY'
+  summary "$out/runs.jsonl" "$LR_STATE" "$LR_KEYS"
+  tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
+  exit "$rc"
+}
+
+# summary RUNS STATE KEYS: from the runs.jsonl rows, per side LR-FAIL rows, LR-MEDIAN, LR-REOPENED and LR-USABLE, and
+# with KEYS 1 LR-KEYS (tests/launch-ready-keys.test.sh).
+summary() {
+  python3 -I - "$1" "$2" "${3:-0}" <<'PY'
 import json, statistics, sys
 from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 bare = sys.argv[2] == "bare"
+keys = sys.argv[3] == "1"
 for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
     loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
@@ -197,9 +215,15 @@ for side in dict.fromkeys(r["side"] for r in rows):
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
     print("LR-REOPENED", side, med["reopened"], flush=True)
     print("LR-USABLE", side, med["usable"], flush=True)
+    # keys=1: the side's median first_key_ms (the first key Home's box kept, ms from process start) over the measured
+    # launches whose sent message held a key, and how many of the M measured launches sent one.
+    if keys:
+        runs = [r for r in rows if r["side"] == side and r["label"].startswith("run")]
+        firsts = [r["first_key_ms"] for r in runs if r.get("first_key_ms") is not None]
+        landed = sum(1 for r in runs if (r.get("keys_landed") or 0) > 0)
+        median = round(statistics.median(firsts), 1) if firsts else None
+        print("LR-KEYS", side, median, f"{landed}/{len(runs)}", flush=True)
 PY
-  tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
-  exit "$rc"
 }
 
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
@@ -235,7 +259,7 @@ probe() {
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
-    $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $(probe_mode "$label") 2>>"$out/probe.log" | grep '^LR-RUN ')"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
   if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
@@ -256,6 +280,16 @@ probe() {
   fi
   [[ -z "$cross" ]] || { echo "LR-CROSS-ARM $side $label $cross"; return 1; }
   [[ "$line" != *'"error"'* ]]
+}
+
+# probe_mode LABEL: the probe's last argument. keys=1 types into a measured launch (runN) and opens no terminal; else
+# state=bare opens one (shell); else none.
+probe_mode() {
+  if [[ "${LR_KEYS:-0}" == 1 ]]; then
+    [[ "$1" == run* ]] && echo keys
+  elif [[ "$LR_STATE" == bare ]]; then
+    echo shell
+  fi
 }
 
 # seed OUT SIDE: one more launch of SIDE's copy with SIDE's home, in which launch-ready-seed.py makes the stress3
