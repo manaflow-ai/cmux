@@ -23,9 +23,30 @@ extension PaneFirstPaintGated {
 /// invisible, has not painted.
 @MainActor
 public final class PanePaintHold {
-    /// The longest the outgoing view stays: a page that never reports its
+    /// The longest a pane's outgoing tab stays: a page that never reports its
     /// first frame shows as it is after this.
     public static let limit: Duration = .milliseconds(500)
+
+    /// `count` frames of a display that draws `framesPerSecond` (33 ms for two at 60 Hz, 17 ms at 120 Hz).
+    public static func frames(_ count: Int, at framesPerSecond: Int) -> Duration {
+        .nanoseconds(Int64(count) * 1_000_000_000 / Int64(max(1, framesPerSecond)))
+    }
+
+    /// How often `view`'s screen draws: its window's screen, else the main one, else 60 Hz.
+    public static func framesPerSecond(of view: NSView) -> Int {
+        let rate = view.window?.screen?.maximumFramesPerSecond ?? NSScreen.main?.maximumFramesPerSecond ?? 60
+        return rate > 0 ? rate : 60
+    }
+
+    private let owner: String
+    /// How many frames of the host's screen a hold lasts at most; nil: ``limit``.
+    private let frames: Int?
+    /// Times the limit; a test sets its own before the first hold.
+    public var clock: any Clock<Duration> = ContinuousClock() {
+        didSet { deadline = DemandTimer(owner: owner, clock: clock) }
+    }
+    /// How often the screen showing a host draws; a test sets its own.
+    public var displayFramesPerSecond: @MainActor (NSView) -> Int = { PanePaintHold.framesPerSecond(of: $0) }
 
     private weak var outgoing: NSView?
     private weak var incoming: NSView?
@@ -33,7 +54,7 @@ public final class PanePaintHold {
     private var holding = false
     private var release: ((NSView) -> Void)?
     private var ended: (() -> Void)?
-    private let deadline: DemandTimer
+    private var deadline: DemandTimer
     /// Where the outgoing view shows in the container (``begin(outgoing:incoming:in:keepingPlaceIn:release:ended:)``).
     private var place: KeptPlace?
     /// Work that waits for the kept view to stop showing (``afterHold(of:_:)``); it outlives a hand-off to the next hold.
@@ -49,8 +70,18 @@ public final class PanePaintHold {
         let autoresizingMask: NSView.AutoresizingMask
     }
 
-    public init(owner: String) {
+    /// `frames`: a hold lasts that many frames of its host's screen at most (two for the window's workspace swap: 33 ms at
+    /// 60 Hz, 17 ms at 120 Hz); nil keeps ``limit``. Past it the incoming view shows, and a page in it that has not
+    /// painted stands in with its picture (``PaneFirstPaintGated/standInUntilPainted()``).
+    public init(owner: String, frames: Int? = nil) {
+        self.owner = owner
+        self.frames = frames
         deadline = DemandTimer(owner: owner)
+    }
+
+    /// The longest a hold in `host` keeps the outgoing view.
+    private func limit(in host: NSView) -> Duration {
+        frames.map { Self.frames($0, at: displayFramesPerSecond(host)) } ?? Self.limit
     }
 
     /// Whether `view` replacing `hosted` waits for its first frame. Content
@@ -85,8 +116,10 @@ public final class PanePaintHold {
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
-        // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        // A later hold replaces this deadline; the token keeps it to its own hold. A hand-off to the next swap starts the
+        // next one's own limit: a run of swaps faster than the limit keeps one view on screen and never shows the views it
+        // passes over (ending holds mid-burst showed each one and started a new hold on it, cmux#44329).
+        deadline.schedule(after: limit(in: host)) { @MainActor [weak self] in
             self?.end(token)
         }
     }

@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextTestSupport
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-11-15: "it should be instant even under load". A workspace that appears (new, or switched to cold) shows
 /// its content in the first frame that shows it, and the old one stays until then. A pane's tab switch already waits
@@ -14,17 +15,144 @@ import Testing
     final class UnpaintedPage: NSView, PaneFirstPaintGated {
         private var painted = false
         private var waiting: [() -> Void] = []
+        /// The picture it keeps of itself (a chat's last frame), shown only while it stands in.
+        let picture = NSView()
+        private(set) var stoodIn = 0
         var awaitsFirstPaint: Bool { !painted }
         func whenFirstPainted(_ body: @escaping () -> Void) {
             if painted { body() } else { waiting.append(body) }
         }
 
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            picture.isHidden = true
+            addSubview(picture)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        func standInUntilPainted() {
+            stoodIn += 1
+            picture.isHidden = false
+        }
+
         func paint() {
             painted = true
+            picture.isHidden = true
             let callbacks = waiting
             waiting = []
             callbacks.forEach { $0() }
         }
+    }
+
+    /// A window root whose swap hold runs on `clock` at a screen of `framesPerSecond`.
+    static func root(clock: ManualClock, framesPerSecond: Int) -> (NSWindow, WindowRootView) {
+        let (window, root) = WorkspaceSwitchRedrawHoldTests.root()
+        root.paintHold.clock = clock
+        root.paintHold.displayFramesPerSecond = { _ in framesPerSecond }
+        return (window, root)
+    }
+
+    /// Two frames at `framesPerSecond`, as a display draws them.
+    static func twoFrames(at framesPerSecond: Int) -> Duration { .nanoseconds(2_000_000_000 / Int64(framesPerSecond)) }
+
+    /// Lets the hold's deadline, which hops to the main actor, run; true once `condition` holds (no sleep, no wall wait
+    /// past 2 s).
+    static func settles(_ condition: () -> Bool) async -> Bool {
+        let by = ContinuousClock.now + .seconds(2)
+        while !condition(), ContinuousClock.now < by { await Task.yield() }
+        return condition()
+    }
+
+    /// The forced never-paints case on the wall clock, for the A/B (no limit asserted: it is a measure): five switches to
+    /// a workspace whose page never paints, each timed from the switch to the frame the workspace shows in, and whether
+    /// its page showed its picture then (`never-paints:` line).
+    @Test func neverPaintsTimeToFirstVisible() async throws {
+        var times: [Double] = [], pictures = 0
+        for _ in 0..<5 {
+            let (window, root) = WorkspaceSwitchRedrawHoldTests.root()
+            let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
+            WorkspaceSwitchRedrawHoldTests.show(old, in: root)
+            let page = UnpaintedPage()
+            let new = WorkspaceSwitchRedrawHoldTests.workspace(page)
+            let start = ContinuousClock.now
+            root.show(new)
+            let shown = await Self.settles { new.alphaValue == 1 }
+            let took = ContinuousClock.now - start
+            times.append(Double(took.components.seconds) * 1000 + Double(took.components.attoseconds) / 1e15)
+            if !page.picture.isHidden { pictures += 1 }
+            window.close()
+            #expect(shown, "a page that never paints kept its workspace unseen past 2 s")
+        }
+        let sorted = times.sorted()
+        print("never-paints: first visible ms \(sorted.map { ($0 * 10).rounded() / 10 }) p50 \(sorted[2]) max \(sorted[4]); with its picture \(pictures)/5")
+    }
+
+    /// interim-coord 2026-11-17: "500 ms worst case is too long for a switch ... bring the cap down to about 2 frames
+    /// (~33 ms at 60 Hz, adaptive to refresh rate)". A page that never paints shows two frames of its screen after the
+    /// switch, not 500 ms.
+    @Test(arguments: [60, 120]) func aPageThatNeverPaintsShowsTwoFramesAfterTheSwitch(framesPerSecond: Int) async throws {
+        let clock = ManualClock()
+        let (window, root) = Self.root(clock: clock, framesPerSecond: framesPerSecond)
+        defer { window.close() }
+        let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
+        WorkspaceSwitchRedrawHoldTests.show(old, in: root)
+        let page = UnpaintedPage()
+        let new = WorkspaceSwitchRedrawHoldTests.workspace(page)
+        root.show(new)
+        #expect(new.alphaValue == 0 && !old.isHidden)
+        try await clock.waitForSleeper()
+        let limit = Self.twoFrames(at: framesPerSecond)
+        #expect(clock.sleeperDeadlines.map(\.offset) == [limit], "the hold's limit is not two frames at \(framesPerSecond) Hz")
+        clock.advance(by: limit)
+        #expect(await Self.settles { new.alphaValue == 1 && old.isHidden },
+                "a page that never painted kept the old workspace past two frames at \(framesPerSecond) Hz")
+    }
+
+    /// interim-coord 2026-11-17: "show the cached snapshot for anything still unpainted". At the limit the page shows
+    /// its picture, in the frame the workspace shows, not a clear pane; once it paints, its own frame.
+    @Test func aPageStillUnpaintedAtTheLimitShowsItsPicture() async throws {
+        let clock = ManualClock()
+        let (window, root) = Self.root(clock: clock, framesPerSecond: 60)
+        defer { window.close() }
+        let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
+        WorkspaceSwitchRedrawHoldTests.show(old, in: root)
+        let page = UnpaintedPage()
+        let new = WorkspaceSwitchRedrawHoldTests.workspace(page)
+        root.show(new)
+        try await clock.waitForSleeper()
+        clock.advance(by: Self.twoFrames(at: 60))
+        #expect(await Self.settles { new.alphaValue == 1 })
+        #expect(page.stoodIn == 1 && !page.picture.isHidden, "the unpainted page showed clear, not its picture")
+        page.paint()
+        #expect(page.picture.isHidden && new.alphaValue == 1)
+    }
+
+    /// Fifty quick Cmd-Ns (`RapidWorkspaceCreateTests`): each swap that hands the hold on starts its own two frames, so
+    /// a run of swaps faster than that keeps one view on screen and never shows, or stands in, the ones it passes over
+    /// (ending holds mid-burst showed each one and started a new hold on it, cmux#44329).
+    @Test func swapsFasterThanTwoFramesKeepTheShownWorkspaceAndNeverShowTheOnesPassedOver() async throws {
+        let clock = ManualClock()
+        let (window, root) = Self.root(clock: clock, framesPerSecond: 60)
+        defer { window.close() }
+        let old = WorkspaceSwitchRedrawHoldTests.workspace(NSView())
+        WorkspaceSwitchRedrawHoldTests.show(old, in: root)
+        let first = UnpaintedPage(), second = UnpaintedPage()
+        let a = WorkspaceSwitchRedrawHoldTests.workspace(first), b = WorkspaceSwitchRedrawHoldTests.workspace(second)
+        let limit = Self.twoFrames(at: 60)
+        root.show(a)
+        try await clock.waitForSleeper()
+        clock.advance(by: limit / 2)
+        root.show(b)
+        try await clock.waitForSleeper()
+        clock.advance(by: limit / 2 + .milliseconds(1)) // past A's two frames, inside B's
+        for _ in 0..<100 { await Task.yield() } // a deadline that wrongly fired runs by now
+        #expect(!old.isHidden && old.alphaValue == 1 && b.alphaValue == 0, "the hand-off kept A's limit")
+        clock.advance(by: limit)
+        #expect(await Self.settles { b.alphaValue == 1 && old.isHidden }, "B never showed at its limit")
+        #expect(a.isHidden && first.stoodIn == 0, "the workspace passed over showed or stood in")
+        #expect(second.stoodIn == 1)
     }
 
     @Test func aNewWorkspaceWhosePageHasNotPaintedKeepsTheOldOneUntilItPaints() {
