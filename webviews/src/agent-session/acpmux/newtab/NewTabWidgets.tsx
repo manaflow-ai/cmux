@@ -55,8 +55,12 @@ export function useNewTabWidgets(injected?: PageClient | null) {
   useEffect(() => {
     if (!owner) return;
     owner.start();
-    const stop = () => owner.stop();
-    // Native pane retirement can discard the document without unmounting React first.
+    // Native pane retirement can discard the document without unmounting React first. A page that
+    // goes into the back/forward cache keeps its mounts (a hidden page's tiles get no ticks), so a
+    // restore needs no new list or mount.
+    const stop = (event: Event) => {
+      if (!(event as PageTransitionEvent).persisted) owner.stop();
+    };
     globalThis.addEventListener?.("pagehide", stop);
     return () => {
       globalThis.removeEventListener?.("pagehide", stop);
