@@ -767,7 +767,7 @@ impl KeptFocus {
         {
             target.active_screen = index;
         }
-        target.screens[screen].active_pane = self.pane;
+        target.screens[screen].set_active_pane(self.pane);
         if let Some(active) = active {
             state.active_workspace = active;
         }
