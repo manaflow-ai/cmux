@@ -107,7 +107,9 @@ describe("synced app storage (appkv) through the Worker", { timeout: 60_000 }, (
     const reg = await callOp(t.session, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "cli", name: `${t.canary} narrow`, device_name: `${t.canary} narrow device`, platform: "macos", op_classes: ["mutate-own"] })
     expect(succeeded(reg), reg.raw).toBe(true)
     const narrow = (await mintInstallToken({ user: t.user, install: reg.body.value.id as string, keyPair }))!
-    expect((await callRead(narrow, "appkv.list", {})).code).toBe("auth.forbidden")
+    const grants = await callRead(t.session, "install.list", {})
+    const read = await callRead(narrow, "appkv.list", {})
+    expect(read.code, `${read.status} ${read.raw} grants=${grants.raw.slice(0, 1500)}`).toBe("auth.forbidden")
     const sock = await openSocket(narrow, t.user)
     expect(sock.frames.some((f) => f.t === "snapshot" && f.stream === `appkv:${t.user}`)).toBe(false)
     expect(JSON.stringify(sock.frames)).not.toContain(t.canary)
