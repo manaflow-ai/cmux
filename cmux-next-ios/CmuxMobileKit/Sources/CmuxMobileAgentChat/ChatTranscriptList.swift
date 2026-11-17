@@ -925,10 +925,21 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var heldRows: [String] = []
         var heldMissing: [String] = []
         if !primed, lookup.layouts.environment != nil {
-            primed = true
-            for turn in built.reversed() where prime.count < 24 {
-                for row in turn.rows.reversed() where prime.count < 24 && lookup.eligible(row) { prime.insert(row.id) }
+            // The newest 24 rows, and more while they fill less than a screen and a half (short rows),
+            // up to 80: every row the chat opens on is laid out at its real height.
+            let fill = collectionView.bounds.height * 1.5
+            var filled: CGFloat = 0
+            func wants() -> Bool { prime.count < 80 && (prime.count < 24 || filled < fill) }
+            for turn in built.reversed() where wants() {
+                for row in turn.rows.reversed() where wants() {
+                    filled += row.estimatedHeight(width: width) + row.gap
+                    if lookup.eligible(row) { prime.insert(row.id) }
+                }
             }
+            // Primed once there were rows to prime: a chat that opened before its history landed (an
+            // empty first reload) primes the history's newest rows when it lands. They took
+            // estimates before, then their real heights a few frames later, moving every row on screen.
+            primed = !prime.isEmpty
         }
         for turn in built {
             if let shown = shownTurns[turn.turnID], shown.generation == turn.generation, !shown.ids.contains(where: seen.contains) {
