@@ -272,7 +272,8 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
     c.busy(&session, None).await;
     hub.shutdown_all().await;
     // The stopped request gets no reply. The turn continues after its future is dropped;
-    // `hub/turns.rs:1090-1094` clears `Session::turn` when the agent exit is handed off.
+    // `fail_unless_shutdown_settles` clears `Session::turn` under the shutdown guard when the
+    // agent exit is handed off.
     tokio::time::timeout(Duration::from_secs(30), async {
         while hub.resolve(&session).is_ok_and(|s| s.turn().is_some()) {
             tokio::task::yield_now().await;

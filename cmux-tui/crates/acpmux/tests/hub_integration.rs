@@ -152,6 +152,19 @@ struct TestClient {
 
 impl TestClient {
     async fn request(&mut self, m: &str, params: Value) -> Result<Value, String> {
+        self.request_inner(m, params, false).await
+    }
+
+    async fn request_with_error_data(&mut self, m: &str, params: Value) -> Result<Value, String> {
+        self.request_inner(m, params, true).await
+    }
+
+    async fn request_inner(
+        &mut self,
+        m: &str,
+        params: Value,
+        include_error_data: bool,
+    ) -> Result<Value, String> {
         self.next += 1;
         let id = self.next;
         self.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
@@ -164,9 +177,10 @@ impl TestClient {
                 && rid == id
             {
                 return match error {
-                    Some(e) => Err(e
+                    Some(e) if include_error_data => Err(e
                         .data
                         .map_or(e.message.clone(), |data| format!("{}: {}", e.message, data))),
+                    Some(e) => Err(e.message),
                     None => Ok(result.unwrap_or(Value::Null)),
                 };
             }

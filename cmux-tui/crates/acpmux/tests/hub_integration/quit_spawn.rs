@@ -19,7 +19,7 @@ async fn no_agent_starts_once_the_shutdown_has_begun() {
     let id = s["sessionId"].as_str().unwrap().to_owned();
     hub.shutdown_all().await;
     let fresh = c
-        .request(
+        .request_with_error_data(
             method::SESSION_NEW,
             json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "during-quit"}}}),
         )
