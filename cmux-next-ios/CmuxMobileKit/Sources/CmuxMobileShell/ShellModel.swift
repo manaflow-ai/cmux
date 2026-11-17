@@ -190,6 +190,12 @@ final class ShellModel {
         }
         // `-cmux-mobile-no-agents`: the Mac starts no agents from the phone (New Task is not offered).
         if CommandLine.arguments.contains("-cmux-mobile-no-agents") { mock.offersAgents = false }
+        // `-cmux-mobile-refuse-next-create`: the next workspace the phone makes is refused in the
+        // live Mac's words for a chat folder it has no workspace in (New Workspace's error capture).
+        if CommandLine.arguments.contains("-cmux-mobile-refuse-next-create") {
+            mock.failNext = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
+            mock.failNextForPerson = true
+        }
         // `-cmux-mobile-task-delivery not-sent|uncertain|refused`: the next task doesn't reach its agent.
         switch UserDefaults.standard.string(forKey: "cmux-mobile-task-delivery") {
         case "not-sent": mock.taskFailure = .notSent("Not connected to the Mac")
