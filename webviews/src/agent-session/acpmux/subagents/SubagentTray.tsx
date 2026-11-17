@@ -576,6 +576,9 @@ export const SubagentTray = memo(function SubagentTray({
   const workText =
     items.length + finished.length === 0 ? "" : loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
   const headText = [planText, workText].filter(Boolean).join(" · ");
+  // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
+  // plan the head keeps the work's ring.
+  const planOnly = Boolean(planText) && !workText;
   const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
@@ -773,12 +776,18 @@ export const SubagentTray = memo(function SubagentTray({
             // (desktop.css --grid-tray-text) instead of jumping to the inset.
             <span
               className="acpmux-lineage__icon"
-              data-state={runs ? "running" : "done"}
-              // An empty stack (a plan with nothing running) keeps the slot blank, never the ring.
-              data-blank={head === "bare" || head === "stack" || undefined}
+              data-state={planOnly ? "done" : runs ? "running" : "done"}
+              // A plan-only header draws the Plan mode mark over its rows' status column (Lucas, 2026-11-14:
+              // "we should either have an icon (ideally) or align it"). Else an empty stack keeps the slot
+              // blank, never the ring.
+              data-blank={(!planOnly && (head === "bare" || head === "stack")) || undefined}
               aria-hidden="true"
             >
-              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
+              <Icon
+                name={planOnly ? PLAN_ICON : head === "session" ? "agent.session" : HEAD_ICON}
+                size={ROW_ICON}
+                row
+              />
             </span>
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
@@ -1325,6 +1334,8 @@ function stackMarks(
 /// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
+/// A plan header's mark: the composer's Plan mode checklist (composerPlusRegistry.ts).
+const PLAN_ICON = "mode.plan";
 
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
