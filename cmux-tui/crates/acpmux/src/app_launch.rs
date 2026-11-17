@@ -379,6 +379,9 @@ enum Platform {
     Mac,
     #[cfg(target_os = "linux")]
     Linux(linux::Session),
+    /// No launcher on this system (Windows answers `app.unsupported`); never made.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    Other(std::convert::Infallible),
 }
 
 impl Platform {
@@ -397,6 +400,8 @@ impl Platform {
             Self::Mac => macos::session(),
             #[cfg(target_os = "linux")]
             Self::Linux(session) => session.check(),
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            Self::Other(never) => match *never {},
         }
     }
 
@@ -406,6 +411,8 @@ impl Platform {
             Self::Mac => macos::apps(),
             #[cfg(target_os = "linux")]
             Self::Linux(_) => linux::apps(),
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            Self::Other(never) => match *never {},
         }
     }
 
@@ -417,6 +424,8 @@ impl Platform {
             Self::Mac => true,
             #[cfg(target_os = "linux")]
             Self::Linux(_) => false,
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            Self::Other(never) => match *never {},
         }
     }
 
@@ -426,6 +435,8 @@ impl Platform {
             Self::Mac => macos::running(),
             #[cfg(target_os = "linux")]
             Self::Linux(_) => linux::running(),
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            Self::Other(never) => match *never {},
         }
     }
 
@@ -440,6 +451,11 @@ impl Platform {
             Self::Mac => macos::open(app, request, deadline),
             #[cfg(target_os = "linux")]
             Self::Linux(session) => session.open(app, request, deadline),
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            Self::Other(never) => {
+                let _ = (app, request, deadline);
+                match *never {}
+            }
         }
     }
 }

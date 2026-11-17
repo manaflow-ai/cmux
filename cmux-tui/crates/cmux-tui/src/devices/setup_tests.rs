@@ -118,10 +118,7 @@ impl Remote for FakeMac {
                 Some(p) if p == input => "file=same\n",
                 Some(_) => "file=differs\n",
             })
-        } else if script == READY {
-            mac.running = true;
-            ok("ready=1\n")
-        } else if script == START {
+        } else if script == READY || script == START {
             mac.running = true;
             ok("ready=1\n")
         } else if script == WHOAMI {
