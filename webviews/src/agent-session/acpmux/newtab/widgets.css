@@ -81,7 +81,8 @@
   bottom: var(--ds-space-2);
   padding: 2px var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  /* Opaque over the dimmed scene, so the words never mix with the widget's own. */
+  background: color-mix(in srgb, var(--agent-text) 10%, var(--acpmux-base));
   color: var(--agent-muted);
   font-size: var(--text-caption);
 }
@@ -204,6 +205,10 @@
   display: flex;
   gap: var(--ds-space-1);
 }
+/* The size chips sit under each tile, so the rows open up for them while editing. */
+.nt-widgets[data-editing][data-edit-look="chips"] .nt-widget-grid {
+  row-gap: calc(var(--nt-widget-gap) + 28px);
+}
 .nt-widget-frame .nt-widget-chips {
   position: absolute;
   top: calc(100% + var(--ds-space-1));
@@ -225,12 +230,18 @@
   color: var(--agent-text);
 }
 .nt-widget-meter {
+  /* Along the card's bottom edge, one line, clear of the widget's title and of the size control on
+     the right (badge and corner looks). */
   position: absolute;
-  top: var(--ds-space-2);
-  right: var(--ds-space-2);
+  bottom: var(--ds-space-2);
+  left: var(--ds-space-2);
+  max-width: calc(100% - var(--ds-space-2) - 36px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   padding: 1px var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--acpmux-base) 80%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base));
   color: var(--agent-muted);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;

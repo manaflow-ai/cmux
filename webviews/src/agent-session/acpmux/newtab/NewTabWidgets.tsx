@@ -97,6 +97,7 @@ export function NewTabWidgets({
       aria-label={nt("widgets.label")}
       data-look={tileLook}
       data-editing={editing.editing || undefined}
+      data-edit-look={editLook}
     >
       {view.tiles.length > 0 && (
         <div className="nt-widget-grid">
