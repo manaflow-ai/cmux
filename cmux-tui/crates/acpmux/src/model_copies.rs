@@ -275,13 +275,13 @@ fn file_uri_path(uri: &str) -> Option<PathBuf> {
     let raw = rest.as_bytes();
     let mut out = Vec::with_capacity(raw.len());
     let mut at = 0;
-    while at < raw.len() {
-        if raw[at] == b'%' {
+    while let Some(&byte) = raw.get(at) {
+        if byte == b'%' {
             let hex = std::str::from_utf8(raw.get(at + 1..at + 3)?).ok()?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
             at += 3;
         } else {
-            out.push(raw[at]);
+            out.push(byte);
             at += 1;
         }
     }
@@ -429,7 +429,10 @@ pub fn downscale_jpeg(bytes: &[u8], max_edge: u32) -> Option<(Vec<u8>, u32, u32)
     let (out_w, out_h) = cmux_image_linear::fit(w, h, max_edge);
     let mut scaler = cmux_image_linear::Downscaler::new(w, h, out_w, out_h, false);
     for line in rgb.chunks_exact(row).take(h as usize) {
-        scaler.push_row(line.chunks_exact(3).map(|p| [p[0], p[1], p[2], 255]));
+        scaler.push_row(line.chunks_exact(3).map(|p| match *p {
+            [r, g, b] => [r, g, b, 255],
+            _ => [0, 0, 0, 255],
+        }));
     }
     encode(scaler.finish(), out_w, out_h, false, crate::image_privacy::orientation(bytes))
 }

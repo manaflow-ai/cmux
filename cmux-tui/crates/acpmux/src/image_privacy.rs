@@ -91,8 +91,8 @@ pub async fn sanitize_prompt(m: &str, params: &mut Value) {
 fn png_exif(bytes: &[u8]) -> Option<&[u8]> {
     let mut at = 8;
     while at + 8 <= bytes.len() {
-        let len = u32::from_be_bytes(bytes[at..at + 4].try_into().ok()?) as usize;
-        let kind = &bytes[at + 4..at + 8];
+        let len = u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
+        let kind = bytes.get(at + 4..at + 8)?;
         if kind == b"IDAT" || kind == b"IEND" {
             return None;
         }
@@ -109,11 +109,11 @@ fn png_chunks(bytes: &[u8]) -> Option<Vec<([u8; 4], &[u8], &[u8])>> {
     let mut at = 8;
     let mut chunks = Vec::new();
     while at + 12 <= bytes.len() {
-        let len = u32::from_be_bytes(bytes[at..at + 4].try_into().ok()?) as usize;
+        let len = u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
         let end = at.checked_add(12)?.checked_add(len)?;
-        let kind: [u8; 4] = bytes[at + 4..at + 8].try_into().ok()?;
+        let kind: [u8; 4] = bytes.get(at + 4..at + 8)?.try_into().ok()?;
         let whole = bytes.get(at..end)?;
-        chunks.push((kind, &whole[8..8 + len], whole));
+        chunks.push((kind, whole.get(8..8 + len)?, whole));
         at = end;
         if &kind == b"IEND" {
             return Some(chunks);
@@ -132,7 +132,7 @@ fn png(bytes: &[u8]) -> Option<Vec<u8>> {
     let chunks = png_chunks(bytes)?;
     let turn = orientation(bytes);
     let mut out = Vec::with_capacity(bytes.len());
-    out.extend_from_slice(&bytes[..8]);
+    out.extend_from_slice(bytes.get(..8)?);
     let mut dropped = false;
     for (kind, _, whole) in &chunks {
         // Critical chunks (an upper-case first letter) draw it; so do the ancillary ones listed.
@@ -149,7 +149,7 @@ fn png(bytes: &[u8]) -> Option<Vec<u8>> {
             let start = out.len();
             out.extend_from_slice(b"eXIf");
             out.extend_from_slice(&exif);
-            let crc = crc32(&out[start..]);
+            let crc = crc32(out.get(start..).unwrap_or_default());
             out.extend(crc.to_be_bytes());
         }
     }
@@ -178,7 +178,7 @@ fn jpeg_segments(bytes: &[u8]) -> Option<(Vec<(u8, &[u8], &[u8])>, usize)> {
             return None;
         }
         let whole = bytes.get(at..at + 2 + len)?;
-        segments.push((marker, &whole[4..], whole));
+        segments.push((marker, whole.get(4..)?, whole));
         at += 2 + len;
     }
 }
@@ -216,9 +216,9 @@ fn jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
     // The scan up to its end-of-image marker; what a phone appends after it (MPF pictures,
     // each with its own EXIF) goes. In the scan a 0xFF byte is followed by 0x00 or a restart
     // marker, so the first FF D9 is the end of the image.
-    let rest = &bytes[scan..];
+    let rest = bytes.get(scan..)?;
     let end = rest.windows(2).position(|w| w == [0xff, 0xd9]).map_or(rest.len(), |p| p + 2);
-    out.extend_from_slice(&rest[..end]);
+    out.extend_from_slice(rest.get(..end)?);
     Some(out)
 }
 
@@ -301,7 +301,11 @@ pub fn orient(pixels: Vec<u8>, w: u32, h: u32, channels: usize, turn: u16) -> (V
             };
             let from = (y * w + x) * channels;
             let to = (dy * ow + dx) * channels;
-            out[to..to + channels].copy_from_slice(&pixels[from..from + channels]);
+            if let (Some(dst), Some(src)) =
+                (out.get_mut(to..to + channels), pixels.get(from..from + channels))
+            {
+                dst.copy_from_slice(src);
+            }
         }
     }
     (out, ow as u32, oh as u32)
