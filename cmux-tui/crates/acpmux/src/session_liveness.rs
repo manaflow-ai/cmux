@@ -96,7 +96,8 @@ pub fn failure_error(summary: &Value) -> Value {
 
 #[cfg(test)]
 mod blocked_reply_tests {
-    use super::blocked_reply;
+    use super::{blocked_reply, failure_error, sandbox_failed};
+    use serde_json::json;
 
     #[test]
     fn only_an_explicit_blocked_result_changes_the_row() {
@@ -120,6 +121,18 @@ mod blocked_reply_tests {
         ] {
             assert_eq!(blocked_reply(reply), None, "{reply}");
         }
+    }
+
+    #[test]
+    fn failure_projection_preserves_sandbox_reason_and_blocked_reply() {
+        let sandbox =
+            json!({"harnessSandboxFailing": true, "harnessSandboxError": "bwrap unavailable"});
+        assert!(sandbox_failed(&sandbox));
+        assert_eq!(failure_error(&sandbox), json!("bwrap unavailable"));
+
+        let blocked = json!({"preview": "BLOCKED: cannot create .git", "lastTurn": {}});
+        assert!(!sandbox_failed(&blocked));
+        assert_eq!(failure_error(&blocked), json!("cannot create .git"));
     }
 }
 
