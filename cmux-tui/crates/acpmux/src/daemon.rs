@@ -22,7 +22,7 @@ use lock::live_holder_pid;
 #[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
-    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release,
+    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, same_path, wait_for_lock_release,
     wait_for_lock_release_with_budget,
 };
 mod running;
@@ -484,11 +484,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
 
     let store = crate::store::open(&config.store, &home())?;
-    // Before any session starts: its harness then gets the `cmux` server over HTTP. Without it,
-    // each harness keeps its stdio server, as before.
-    if let Err(e) = crate::mcp_gateway::start(&home()).await {
-        tracing::warn!("mcp gateway not started; chats keep their own cmux MCP server: {e:#}");
-    }
+    crate::mcp_gateway::start(&home()).await; // before any session starts
     let mut moved_listener = false;
     let ws_listener = match &ws {
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
@@ -1564,17 +1560,6 @@ async fn take_over_holder(socket: &std::path::Path) {
             serde_json::json!({"reason": "handover: another daemon of this home starts"}),
         )
         .await;
-}
-
-/// Whether two paths name the same file: equal, or equal once canonical (a missing file through
-/// its canonical folder).
-fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
-    fn canonical(path: &std::path::Path) -> Option<std::path::PathBuf> {
-        std::fs::canonicalize(path)
-            .ok()
-            .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
-    }
-    left == right || canonical(left).zip(canonical(right)).is_some_and(|(l, r)| l == r)
 }
 
 fn random_token() -> Result<String> {

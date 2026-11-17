@@ -170,12 +170,19 @@ pub fn forget(home: &Path, session: &str) {
     }
 }
 
-/// Binds the daemon's gateway ([`bind`]) and makes it the one sessions get.
-pub async fn start(home: &Path) -> Result<Arc<Gateway>> {
-    let gateway = bind(home, IDLE_STOP, REAP_EVERY).await?;
-    let _ = GATEWAY.set(gateway.clone());
-    tracing::info!("mcp gateway on 127.0.0.1:{}", gateway.port);
-    Ok(gateway)
+/// Binds the daemon's gateway ([`bind`]) and makes it the one sessions get. The daemon calls it
+/// before any session starts, so each harness then gets the `cmux` server over HTTP. A gateway
+/// that does not bind is logged: each harness keeps its stdio server, as before.
+pub async fn start(home: &Path) {
+    match bind(home, IDLE_STOP, REAP_EVERY).await {
+        Ok(gateway) => {
+            tracing::info!("mcp gateway on 127.0.0.1:{}", gateway.port);
+            let _ = GATEWAY.set(gateway);
+        }
+        Err(e) => {
+            tracing::warn!("mcp gateway not started; chats keep their own cmux MCP server: {e:#}");
+        }
+    }
 }
 
 /// Binds a gateway (the kept port when it is free), keeps its port and key, and serves it,

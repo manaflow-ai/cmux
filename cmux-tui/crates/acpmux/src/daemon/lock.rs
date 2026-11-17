@@ -129,6 +129,17 @@ pub(super) fn live_holder_pid(path: &Path) -> Option<u32> {
     lock_is_held(&file).then_some(pid)
 }
 
+/// Whether two paths name the same file: equal, or equal once canonical (a missing file through
+/// its canonical folder).
+pub(super) fn same_path(left: &Path, right: &Path) -> bool {
+    fn canonical(path: &Path) -> Option<PathBuf> {
+        std::fs::canonicalize(path)
+            .ok()
+            .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
+    }
+    left == right || canonical(left).zip(canonical(right)).is_some_and(|(l, r)| l == r)
+}
+
 /// The pid of another process that holds a daemon lock serving `socket`: this home's lock, or the
 /// one in the socket's folder (an `ACPMUX_SOCKET` that names another home's socket). Only a lock's
 /// holder may remove the socket it serves (`server::bind_unix`): a daemon of another home, or a
