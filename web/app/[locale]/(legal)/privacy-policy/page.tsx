@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import type { Locale } from "../../../../i18n/routing";
 import { buildAlternates } from "../../../../i18n/seo";
+import { cmuxCloudPrivacySection } from "./cmux-cloud";
 import {
   type PrivacyPolicySection,
   type PrivacyPolicySubsection,
@@ -39,6 +40,9 @@ export default async function PrivacyPolicyPage({ params }: PageProps) {
       {sections.map((section, index) => (
         <PolicySection key={index} section={section} />
       ))}
+      <section id="cmux-cloud">
+        <PolicySection section={cmuxCloudPrivacySection} />
+      </section>
     </>
   );
 }

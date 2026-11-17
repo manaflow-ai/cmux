@@ -5,7 +5,7 @@ import { getCurrentYear } from "@/app/lib/current-year";
 export const metadata: Metadata = legalMetadata(
   "/terms-of-service",
   "Terms of Service — cmux",
-  "Terms of service for the cmux website and macOS application",
+  "Terms of service for the cmux website, macOS application, and cmux Cloud",
 );
 
 export default async function TermsOfServicePage() {
@@ -34,6 +34,7 @@ export default async function TermsOfServicePage() {
         agree with all of the provisions of these Terms, do not access and/or
         use the Site or Application.
       </p>
+      <p>If you use cmux Cloud, Section 10 also applies to you.</p>
 
       <h2>1. License</h2>
       <p>
@@ -91,7 +92,10 @@ export default async function TermsOfServicePage() {
         You retain full ownership of all code, files, and content you create or
         process using the Application. The Application runs locally on your
         device and your content is not transmitted to our servers during normal
-        use.
+        use. cmux Cloud is different: it processes your content on our servers,
+        as Section 10 and our{" "}
+        <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
+        describe.
       </p>
 
       <h2>3. Indemnification</h2>
@@ -178,7 +182,141 @@ export default async function TermsOfServicePage() {
         force and effect.
       </p>
 
-      <h2>10. Contact</h2>
+      <h2 id="cmux-cloud">10. cmux Cloud</h2>
+      <p>
+        This Section 10 applies to cmux Cloud, the hosted cmux service at{" "}
+        <a href="https://cmux.cloud">cmux.cloud</a>, including its web app,
+        command-line tools, Slack app, meeting notetaker, and the AI agents
+        that run in cloud machines (&ldquo;cmux Cloud&rdquo;). For cmux Cloud,
+        references in these Terms to the Application include cmux Cloud. If
+        this Section 10 and another section of these Terms conflict, this
+        Section 10 controls for cmux Cloud. If you or your organization signed
+        a separate written agreement with Company for cmux Cloud, that
+        agreement controls where it conflicts with these Terms.
+      </p>
+
+      <h3>Teams and accounts</h3>
+      <p>
+        cmux Cloud is used by teams. If you create or administer a team, you
+        represent that you have authority to bind your organization to these
+        Terms, and you are responsible for the people you invite, the tools
+        you connect, and the settings and policies you choose. You are
+        responsible for keeping your sign-in credentials secure.
+      </p>
+
+      <h3>Your content and connected tools</h3>
+      <p>
+        You keep ownership of the content you and your team put into or create
+        with cmux Cloud, including messages, files, code, meeting transcripts,
+        notes, memory, and agent output (&ldquo;Your Content&rdquo;). You grant
+        Company a worldwide, non-exclusive license to host, copy, process,
+        transmit, and display Your Content only as necessary to provide,
+        secure, and support cmux Cloud for you, as our{" "}
+        <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
+        describes. We do not use Your Content to train generalized AI models.
+        You represent that you have the rights and permissions necessary to
+        put Your Content into cmux Cloud and to connect each tool you connect.
+        Your use of a connected tool, such as Slack, Google, GitHub, or Linear,
+        is also subject to that tool&rsquo;s own terms.
+      </p>
+
+      <h3>Agents act on your behalf</h3>
+      <p>
+        cmux Cloud agents can read data from, and take actions in, the tools you
+        connect, and can run code, use the web, and spend credits. When you
+        connect a tool or give an agent a task, you authorize cmux Cloud agents
+        to act in that tool on your behalf, within the permissions you and your
+        team grant and the approvals and policies you set. Actions an agent
+        takes on your behalf are your actions as between you and Company. You
+        are responsible for reviewing agent work before you rely on it, and for
+        the permissions you grant. Company is not liable for actions that an
+        agent takes within the permissions and instructions that you or your
+        team gave.
+      </p>
+
+      <h3>AI output</h3>
+      <p>
+        cmux Cloud uses AI models. AI output, including code, answers, meeting
+        notes, summaries, action items, and transcripts, can be incomplete,
+        inaccurate, or offensive, and can differ for similar requests. Do not
+        rely on AI output as your only source of truth, or as professional,
+        legal, medical, financial, or safety advice. You are responsible for
+        evaluating AI output and for how you use it. Other users can receive
+        output that is similar to yours.
+      </p>
+
+      <h3>Meeting recording and consent</h3>
+      <p>
+        The cmux notetaker records and transcribes the meetings that you send it
+        to, or that match the calendar rules you turn on. Laws about recording
+        conversations differ by place, and some require the consent of every
+        participant. You are responsible for giving any notice and getting any
+        consent that the law requires before the notetaker records a meeting,
+        and for following the rules of your organization and of the meeting
+        platform. You must not use the notetaker to record a meeting unlawfully,
+        to record a meeting secretly, or to record a meeting where a participant
+        objected and the law requires that participant&rsquo;s consent. You
+        must not hide, remove, or change the notice that the notetaker posts
+        when it joins.
+      </p>
+
+      <h3>Acceptable use</h3>
+      <p>You must not use cmux Cloud, including its agents and cloud machines, to:</p>
+      <ul>
+        <li>Break the law or violate the rights of others, including privacy and intellectual property rights</li>
+        <li>Record, monitor, or collect information about people without the notice and consent that the law requires</li>
+        <li>Make, send, or store malware, spam, phishing, or content that sexually exploits children</li>
+        <li>Attack, scan, or get unauthorized access to any system, network, or account</li>
+        <li>Mine cryptocurrency, or use resources in a way that harms cmux Cloud or other users</li>
+        <li>Get around usage limits, spend limits, billing, approvals, or security controls</li>
+        <li>Make decisions with legal or similarly significant effects on people without human review</li>
+        <li>Store or process protected health information or payment card data, unless Company agreed to it in writing</li>
+        <li>Break the acceptable use policies of the AI models and connected tools that cmux Cloud uses</li>
+      </ul>
+
+      <h3>Fees, credits, and spend limits</h3>
+      <p>
+        cmux Cloud charges for usage, such as AI model use, transcription,
+        meeting notetaking, and cloud machine time, at the prices shown in
+        cmux Cloud or on its pricing page when the usage occurs. Usage is paid
+        from your team&rsquo;s credits or charged to your payment method
+        through our payment processor. You authorize those charges. Prices do
+        not include taxes, and you are responsible for applicable taxes.
+        Except where the law requires otherwise, purchased credits are not
+        refundable and have no cash value. We can change prices with notice;
+        a change applies to usage after it takes effect.
+      </p>
+      <p>
+        cmux Cloud has no spend limit unless a person on your team sets one.
+        You and your team set dollar limits, and you are responsible for the
+        limits you set or do not set. Limits are checked while work runs, so
+        usage can go over a limit by a small amount before work stops; you pay
+        for that usage. When your credits run out or a limit is reached, cmux
+        Cloud can stop or refuse work.
+      </p>
+
+      <h3>Suspension</h3>
+      <p>
+        We can suspend or limit access to cmux Cloud, or stop an agent, a cloud
+        machine, or a notetaker, if payment is overdue, if you break these
+        Terms, if your use creates a security or legal risk or harms cmux Cloud
+        or other users, or if the law requires it. When it is practical, we
+        will tell you before we suspend access and give you a chance to fix the
+        problem.
+      </p>
+
+      <h3>Data export and deletion</h3>
+      <p>
+        While your team&rsquo;s account is active, you can delete Your Content
+        in cmux Cloud and ask us at{" "}
+        <a href="mailto:founders@cmux.com">founders@cmux.com</a> for a copy of
+        it. When your team&rsquo;s account ends, you can ask for a copy of Your
+        Content for 30 days. After that, we delete Your Content as our{" "}
+        <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
+        describes, except data that we must keep to comply with the law.
+      </p>
+
+      <h2>11. Contact</h2>
       <p>
         Questions about these Terms should be sent to{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a>.
