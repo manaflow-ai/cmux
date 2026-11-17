@@ -9,6 +9,9 @@
 mod codec;
 mod picture;
 
+/// A per-frame size guard any encoder can run (each frame's QP floor from its damage and budget).
+pub mod frame_guard;
+
 #[cfg(any(feature = "openh264-source", feature = "openh264-runtime"))]
 pub mod openh264;
 

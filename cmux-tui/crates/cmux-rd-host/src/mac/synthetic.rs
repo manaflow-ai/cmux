@@ -398,6 +398,10 @@ impl FrameSource for SyntheticFrames {
         self.encoder.set_refine(refine);
     }
 
+    fn set_changed_pixels(&mut self, pixels: u64) {
+        self.encoder.set_changed_pixels(pixels);
+    }
+
     fn kbps(&self) -> u32 {
         SurfaceEncoder::kbps(&self.encoder)
     }
