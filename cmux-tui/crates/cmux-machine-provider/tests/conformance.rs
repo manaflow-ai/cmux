@@ -141,3 +141,20 @@ fn the_shipped_profiles_parse() {
     }
     assert!(seen >= 1);
 }
+
+#[test]
+fn a_journey_whose_turn_failed_detaches_through_its_cleanup_delete() {
+    let journey = serde_json::json!({"steps": [
+        {"step": "create machine", "status": "pass", "ms": 2003},
+        {"step": "running (status)", "status": "pass", "ms": 27},
+        {"step": "send chat", "status": "pass", "ms": 3311},
+        {"step": "reply", "status": "fail", "ms": 182595, "detail": "acp wait exit 1"},
+        {"step": "delete (cleanup)", "status": "pass", "ms": 1945}
+    ]});
+    let run = import_journey("cmux Cloud", &journey).unwrap();
+    assert_eq!(status(&run, Step::AgentTurn), Status::Fail);
+    assert_eq!(status(&run, Step::Detach), Status::Pass);
+    let connect = run.steps.iter().find(|s| s.step == Step::Connect).unwrap();
+    assert_eq!(connect.status, Status::Skipped);
+    assert!(connect.detail.contains("earlier failure"), "{}", connect.detail);
+}

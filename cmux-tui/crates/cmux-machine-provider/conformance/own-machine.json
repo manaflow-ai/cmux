@@ -1,14 +1,14 @@
 {
   "provider": "own machine",
-  "about": "A machine of your own: cmux's daemon on it, reached with {on} (`sh -c` on the machine itself, `ssh HOST` from another), and one agent turn placed there by acpmux (`--machine {machine}`). No pause or resume. Set on, cmux (the cmux binary on that machine) and machine.",
+  "about": "A machine of your own: its cmux server session, and one agent turn on it through its acpmux. Every step runs through {on}: `sh -c` on the machine itself, `ssh HOST` from another. Set on and cmux, the machine's cmux-tui (its `server` scope; the `cmux` front end calls the same scope `daemon`). No pause or resume. The turn runs on the machine (`--machine local`): acpmux refuses a remote chain into a machine whose sandbox canary shows no sandbox.",
   "steps": {
-    "attach": { "run": "{on} '{cmux} daemon ensure --session {tag}'", "timeout_s": 120 },
-    "connect": { "run": "{on} '{cmux} daemon status --session {tag}'", "timeout_s": 60 },
+    "attach": { "run": "{on} '{cmux} server ensure --session {tag}'", "timeout_s": 120 },
+    "connect": { "run": "{on} '{cmux} server status --session {tag}'", "timeout_s": 60 },
     "agent_turn": {
-      "run": "acpmux run --machine {machine} -m claude/haiku --ephemeral --on-permission fail --timeout 150 'Reply with exactly the word PONG and nothing else.'",
+      "run": "{on} 'acpmux run --machine local -m claude/haiku --ephemeral --on-permission fail --timeout 150 \"Reply with exactly the word PONG and nothing else.\"'",
       "expect": "PONG",
       "timeout_s": 180
     },
-    "detach": { "run": "{on} '{cmux} daemon stop --session {tag} --end-terminals'", "timeout_s": 60 }
+    "detach": { "run": "{on} '{cmux} server stop --session {tag}'", "timeout_s": 60 }
   }
 }

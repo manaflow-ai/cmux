@@ -217,13 +217,17 @@ fn last_line(text: &str) -> String {
 /// as one conformance run: its steps summed into ours.
 pub fn import_journey(provider: &str, journey: &Value) -> Result<Run, String> {
     let rows = journey.get("steps").and_then(Value::as_array).ok_or("journey.json has no steps")?;
+    let named = |n: &str| rows.iter().any(|r| r.get("step").and_then(Value::as_str) == Some(n));
+    // A journey whose turn fails skips its later steps and deletes the
+    // machine in its cleanup instead: that delete is the run's detach.
+    let detach: &[&str] = if named("delete") { &["delete"] } else { &["delete (cleanup)"] };
     let parts: [(Step, &[&str]); 6] = [
         (Step::Attach, &["create machine", "running (status)"]),
         (Step::Connect, &["connect (carrier dial)"]),
         (Step::AgentTurn, &["send chat", "reply"]),
         (Step::Pause, &["pause"]),
         (Step::Resume, &["resume"]),
-        (Step::Detach, &["delete"]),
+        (Step::Detach, detach),
     ];
     let mut steps = Vec::new();
     for (step, names) in parts {
@@ -232,15 +236,19 @@ pub fn import_journey(provider: &str, journey: &Value) -> Result<Run, String> {
             .filter_map(|n| rows.iter().find(|r| r.get("step").and_then(Value::as_str) == Some(n)))
             .collect();
         if found.len() != names.len() {
-            let missing: Vec<_> = names
-                .iter()
-                .filter(|n| !rows.iter().any(|r| r.get("step").and_then(Value::as_str) == Some(n)))
-                .collect();
+            let missing: Vec<_> = names.iter().filter(|n| !named(n)).collect();
+            // The journey stops its later steps at a failure (connect,
+            // pause and resume run after the reply).
+            let why = if rows.iter().any(|r| status_of(r) == "fail") {
+                "not run after an earlier failure"
+            } else {
+                "not in the journey"
+            };
             steps.push(StepResult {
                 step,
                 status: Status::Skipped,
                 ms: 0,
-                detail: format!("not in the journey: {missing:?}"),
+                detail: format!("{why}: {missing:?}"),
             });
             continue;
         }
