@@ -16,8 +16,8 @@ import Testing
 /// sign of it.
 ///
 /// The app on a fresh same-tree daemon, with the keys and the helpers of `ACloseTabKeyAfterKeptNewTabKeysTests`, whose
-/// rows have the same keys and check the tabs. The rows here check the two counts only. Each row starts a new app, and
-/// the counts are since the app started.
+/// rows have the same keys and check the tabs. The rows here check the two counts, and the rows of a forced end check
+/// the end's name too. Each row starts a new app, and the counts are since the app started.
 ///
 /// Limits:
 /// - The limits of `ACloseTabKeyAfterKeptNewTabKeysTests`: no HID event, the keys of a test in one turn of the main
@@ -57,10 +57,11 @@ struct AHoldsEndCountsItsTabKeyPairsAndLostCloseKeysTests {
 
     /// A forced end. The test opens a hold with a creation that never answers, so the hold ends at its reply bound
     /// (1 second here). The keys of a row come in one turn, and the hold keeps each. The test waits for the forced end
-    /// by its event: the hold's log names the reply bound as its end, or a kept key ran again. Each row has 1 pair (its
-    /// first Close Tab key with the New Tab key before it); the last row has a second Close Tab key, which is lost.
+    /// by its event: the hold's log names the reply bound as its end, or a kept key ran again; then it reads the end's
+    /// name, which must be the reply bound. Each row has 1 pair (its first Close Tab key with the New Tab key before
+    /// it); the last row has a second Close Tab key, which is lost.
     @Test(arguments: zip(["Cmd-T Cmd-T Cmd-W", "Cmd-T Cmd-W", "Cmd-T Cmd-W Cmd-W"], [0, 0, 1]))
-    func aForcedEndCountsItsPairsAndItsLostCloseTabKeys(typed: String, lostCloseKeys: Int) async throws {
+    func anEndAtItsReplyBoundCountsItsPairsAndItsLostCloseTabKeys(typed: String, lostCloseKeys: Int) async throws {
         try await Rows.withTerminalPane { services, window, log in
             services.agentTabs.holdsTabs = { _ in false }
             let holds = services.keyRouter.creationInputCoordinator
@@ -79,6 +80,8 @@ struct AHoldsEndCountsItsTabKeyPairsAndLostCloseKeysTests {
             }
             try await PasswordManagerRouteTests.until({ holds.lastHoldEnd(in: window) == .replyBoundReached || log.replays > 0 },
                                                       report: { "setup: the hold did not end at its reply bound; \(keys.said)" })
+            let end = Rows.endOfTheFirstHold(log, in: window, services: services)
+            #expect(end == .replyBoundReached, "the test's hold ended as \(end.map { "\($0)" } ?? "not known") (want its reply bound); \(keys.said)")
             try await Rows.settle(keys, in: window, services: services)
             let counted = Self.counts(services), want: [Double?] = [1, Double(lostCloseKeys)]
             #expect(counted == want, "the debug read counts \(counted) (want 1 cancelled pair, then \(lostCloseKeys) lost Close Tab keys); \(keys.said)")

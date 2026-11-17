@@ -25,7 +25,8 @@ import Testing
 ///
 /// Where the text went: each terminal that is open at the end first runs a line that the test sends to it by the
 /// daemon (the line prints `kd42`). When that shows, the terminal handled each key that came before it, and the test
-/// reads its screen one time. There is no fixed wait for a thing that must not show.
+/// reads its screen one time. There is no fixed wait for a thing that must not show: the end of the keys' work is
+/// `settle` of `ACloseTabKeyAfterKeptNewTabKeysTests` (named facts, then one answer of the daemon).
 ///
 /// Limits:
 /// - The limits of `ACloseTabKeyAfterKeptNewTabKeysTests`: no HID event, the keys of a test in one turn of the main
@@ -96,8 +97,8 @@ struct TextBetweenANewTabKeyAndACloseTabKeyTests {
     /// (1 second here): Cmd-T, the text, Cmd-W, in one turn, and the hold keeps each. At the end: one new tab, the
     /// terminal of the New Tab key, and it is the only terminal that shows the text; no tab that was there before the
     /// keys is closed. The test waits for the forced end by its event: the hold's log names the reply bound as its
-    /// end, or a kept key ran again.
-    @Test func textBetweenAKeptNewTabKeyAndACloseTabKeyGoesToTheNewTabWhenTheHoldEndsByForce() async throws {
+    /// end, or a kept key ran again. Then it reads the end's name: it must be the reply bound.
+    @Test func textBetweenAKeptNewTabKeyAndACloseTabKeyGoesToTheNewTabWhenTheHoldEndsAtItsReplyBound() async throws {
         try await Rows.withTerminalPane { services, window, log in
             services.agentTabs.holdsTabs = { _ in false }
             let holds = services.keyRouter.creationInputCoordinator
@@ -109,7 +110,7 @@ struct TextBetweenANewTabKeyAndACloseTabKeyTests {
             holds.replyWaitLimit = CreationInputBuffer.replyWaitBound
             let keys = Rows.Keys(services: services, window: window, log: log)
             let text = "zq\(UInt32.random(in: 1000...9999))"
-            var failure: (any Error)?, close: Rows.Keys.Outcome?
+            var failure: (any Error)?, close: Rows.Keys.Outcome?, end: CreationHoldEnd?
             do {
                 // One turn of the main actor, inside the hold.
                 let newTab = try keys.newTab()
@@ -119,12 +120,14 @@ struct TextBetweenANewTabKeyAndACloseTabKeyTests {
                 if close == .kept {
                     try await PasswordManagerRouteTests.until({ holds.lastHoldEnd(in: window) == .replyBoundReached || log.replays > 0 },
                                                               report: { "setup: the hold did not end at its reply bound; \(keys.said)" })
+                    end = Rows.endOfTheFirstHold(log, in: window, services: services)
                 }
                 try await Rows.settle(keys, in: window, services: services)
             } catch { failure = error }
             let new = keys.newTabs, gone = keys.oldTabsGone
             print("KEYS-IN-ORDER a hold that ends by force, Cmd-T text Cmd-W: \(keys.count) keys, \(keys.keptNewTabKeys) New Tab keys kept by a hold, \(new.count) new tabs at the end")
             #expect(close == .kept, "the Close Tab key that came after a kept New Tab key and text was not kept by the hold; \(keys.said)")
+            #expect(end == .replyBoundReached, "the test's hold ended as \(end.map { "\($0)" } ?? "not known") (want its reply bound); \(keys.said)")
             #expect(gone.isEmpty && keys.oldTabsClosedAfterANewTabKey.isEmpty, "the keys closed \(gone), tabs that were there before the first key; \(keys.said)")
             #expect(new.count == 1, "at the end \(new.count) new tabs (want 1, the tab of the New Tab key): \(new); \(keys.said)")
             let counted = AHoldsEndCountsItsTabKeyPairsAndLostCloseKeysTests.counts(services)
