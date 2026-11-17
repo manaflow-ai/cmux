@@ -61,7 +61,7 @@ fn request(sections: usize, workspaces: usize) -> Request {
     }
     Request {
         sections: json!({"hidden": ["key_0", "key_1"], "order": order}),
-        workspaces: serde_json::Value::Object(rules),
+        workspaces: Value::Object(rules),
         input: sidebar(sections, workspaces),
         // The selected workspace's section is never hidden; select one in the last.
         selected: Some(format!("ws_{}", workspaces - 1)),
@@ -105,7 +105,7 @@ fn settings_still_apply_with_500_workspaces_in_one_section() {
 
 #[test]
 fn settings_still_apply_with_a_300_workspace_group_and_300_rules() {
-    let rules: serde_json::Map<String, serde_json::Value> =
+    let rules: serde_json::Map<String, Value> =
         (0..300).map(|w| (format!("ws_{w}"), json!({"order": w}))).collect();
     let request: Request = serde_json::from_value(json!({
         "sections": {"hidden": []},
