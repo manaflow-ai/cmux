@@ -3,6 +3,7 @@
 use crate::Entry;
 use crate::text::{
     CharClass, FoldedText, Query, char_class, has_prefix, is_lu, js_trim, mask_of, title_is_query,
+    whole_key,
 };
 
 pub(crate) const TITLE_WEIGHT: i64 = 100;
@@ -47,21 +48,42 @@ pub(crate) const DEMOTION: i64 = 3;
 pub(crate) struct Field {
     pub text: FoldedText,
     pub weight: i64,
+    /// The title field's [`whole_key`], prepared once so a keystroke compares without allocating
+    /// (empty for the other fields).
+    pub whole: String,
+}
+
+/// Whether the row's whole title is the query ([`title_is_query`] over prepared text).
+pub(crate) fn title_is(fields: &[Field], query: &Query) -> bool {
+    !query.whole.is_empty() && fields.first().is_some_and(|title| title.whole == query.whole)
 }
 
 pub(crate) fn fields_for(entry: &Entry) -> Vec<Field> {
-    let mut fields = vec![Field { text: FoldedText::new(&entry.title), weight: TITLE_WEIGHT }];
+    let mut fields = vec![Field {
+        text: FoldedText::new(&entry.title),
+        weight: TITLE_WEIGHT,
+        whole: whole_key(&entry.title),
+    }];
     if !entry.keywords.is_empty() {
         fields.push(Field {
             text: FoldedText::new(&entry.keywords.join(" ")),
             weight: KEYWORD_WEIGHT,
+            whole: String::new(),
         });
     }
     if let Some(subtitle) = entry.subtitle.as_deref().filter(|text| !text.is_empty()) {
-        fields.push(Field { text: FoldedText::new(subtitle), weight: SUBTITLE_WEIGHT });
+        fields.push(Field {
+            text: FoldedText::new(subtitle),
+            weight: SUBTITLE_WEIGHT,
+            whole: String::new(),
+        });
     }
     if let Some(accessory) = entry.accessory.as_deref().filter(|text| !text.is_empty()) {
-        fields.push(Field { text: FoldedText::new(accessory), weight: ACCESSORY_WEIGHT });
+        fields.push(Field {
+            text: FoldedText::new(accessory),
+            weight: ACCESSORY_WEIGHT,
+            whole: String::new(),
+        });
     }
     fields
 }
@@ -75,7 +97,7 @@ struct TokenMatch {
 fn substring_start(
     needle: &[char],
     folded: &[char],
-    bonuses: &[i64],
+    bonuses: &[u8],
     require_boundary: bool,
 ) -> Option<usize> {
     if needle.is_empty() || needle.len() > folded.len() {
@@ -86,7 +108,7 @@ fn substring_start(
     })
 }
 
-fn window_score(token: &[char], folded: &[char], bonuses: &[i64], start: usize, end: usize) -> i64 {
+fn window_score(token: &[char], folded: &[char], bonuses: &[u8], start: usize, end: usize) -> i64 {
     let mut score = 0;
     let mut token_index = 0;
     let mut previous_match: i64 = -2;
@@ -94,7 +116,7 @@ fn window_score(token: &[char], folded: &[char], bonuses: &[i64], start: usize, 
     let mut index = start;
     while index <= end && token_index < token.len() {
         if folded[index] == token[token_index] {
-            let mut bonus = bonuses[index];
+            let mut bonus = i64::from(bonuses[index]);
             if index as i64 == previous_match + 1 {
                 bonus = bonus.max(run_bonus);
                 score += 5;
@@ -484,7 +506,7 @@ fn text_tier<'q>(
     let title = &fields[0].text;
     let tiered = |tier: i64| Some(TierMatch { tier, query: QueryRef::Original(query) });
     let title_has_letters = title.mask & query.mask == query.mask;
-    if title_has_letters && title_is_query(&entry.title, &query.raw) {
+    if title_has_letters && title_is(fields, query) {
         return tiered(match_tier::WHOLE_TITLE);
     }
     if entry.enters_scope == Some(true)
