@@ -92,10 +92,6 @@ pub struct TerminalChatCandidate {
     pub status: String,
 }
 
-/// A chat no terminal runs: the Mac resumes it in a new terminal (its Toggle stops the
-/// chat's run first), which the phone does not do yet.
-pub const NO_TERMINAL: &str = "No terminal runs this chat. Toggle it on the Mac to resume it in a terminal.";
-
 /// A terminal whose session no chat shows, when the Mac's acpmux makes no View Only chat
 /// for a phone: the Mac's Toggle Terminal and Chat opens one, which the phone then shows.
 pub const NO_CHAT: &str =
@@ -125,39 +121,35 @@ pub fn terminal_chat_faces(facts: TerminalChatFacts) -> TerminalChatFaces {
         harness: None,
         session: None,
     };
-    let pair = |harness: String, session: String, terminal_enabled: bool| TerminalChatFaces {
+    let pair = |harness: String, session: String| TerminalChatFaces {
         offered: true,
         default_face: own,
         chat_enabled: true,
-        terminal_enabled,
-        disabled_reason: (!terminal_enabled).then(|| NO_TERMINAL.to_owned()),
+        terminal_enabled: true,
+        disabled_reason: None,
         harness: Some(harness),
         session: Some(session),
     };
-    match route(&facts) {
-        TerminalChatToggle::NotAgentTab
-        | TerminalChatToggle::NoSession
-        | TerminalChatToggle::UnsupportedHarness => none,
+    let route = route(&facts);
+    // A chat no terminal runs is a GUI chat: just a chat, no toggle and no banner asking for a
+    // terminal (Leo, 2026-11-17: "just... stop showing the toggle on gui"). The Mac's right-click
+    // row reads the same rule.
+    if !route.shows_toggle() {
+        return none;
+    }
+    match route {
         // No chat to show: the terminal stays, its chat face shown but disabled with why.
         TerminalChatToggle::ToChat { harness, session } if facts.chat_refused => TerminalChatFaces {
             default_face: TabFace::Terminal,
             chat_enabled: false,
             terminal_enabled: true,
             disabled_reason: Some(NO_CHAT.to_owned()),
-            ..pair(harness, session, true)
+            ..pair(harness, session)
         },
         TerminalChatToggle::ToChat { harness, session }
-        | TerminalChatToggle::ToTerminal { harness, session } => pair(harness, session, true),
-        // The Mac's own hand-off: stop the chat's run, resume the session in a new
-        // terminal. The phone has no such step, so the terminal face stays disabled.
-        TerminalChatToggle::ResumeInTerminal { harness, session } => pair(harness, session, false),
-        // The phone sends no hand-off or turn facts, so these never come; were they to,
-        // the terminal face waits as above.
-        TerminalChatToggle::HandingOff { .. } | TerminalChatToggle::Busy => {
-            let harness = tabs::harness(facts.agent.as_deref()).map(str::to_owned);
-            let session = facts.session.clone().map(|s| s.trim().to_owned());
-            TerminalChatFaces { harness, session, ..pair(String::new(), String::new(), false) }
-        }
+        | TerminalChatToggle::ToTerminal { harness, session } => pair(harness, session),
+        // The phone sends no hand-off facts, and the rest show no toggle (above).
+        _ => none,
     }
 }
 
@@ -178,11 +170,9 @@ pub fn terminal_chat_swap(facts: TerminalChatFacts, shown: TabFace, to: TabFace)
         return TerminalChatSwap::Show { face: to };
     }
     // A chat tab's terminal face is the terminal that runs its session.
-    match (faces.terminal_enabled, faces.harness, faces.session) {
-        (true, Some(harness), Some(session)) => TerminalChatSwap::RevealTerminal { harness, session },
-        _ => TerminalChatSwap::Unavailable {
-            reason: faces.disabled_reason.unwrap_or_else(|| NO_TERMINAL.to_owned()),
-        },
+    match (faces.harness, faces.session) {
+        (Some(harness), Some(session)) => TerminalChatSwap::RevealTerminal { harness, session },
+        _ => TerminalChatSwap::Stay,
     }
 }
 
@@ -359,14 +349,15 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_no_terminal_runs_keeps_its_terminal_face_disabled() {
+    fn a_gui_chat_no_terminal_runs_is_only_a_chat() {
         let faces = terminal_chat_faces(chat("claude", Some("h-3"), false));
-        assert!(faces.offered);
+        assert!(!faces.offered);
+        assert_eq!(faces.default_face, TabFace::Chat);
         assert!(faces.chat_enabled && !faces.terminal_enabled);
-        assert_eq!(faces.disabled_reason.as_deref(), Some(NO_TERMINAL));
+        assert_eq!(faces.disabled_reason, None);
         assert_eq!(
             terminal_chat_swap(chat("claude", Some("h-3"), false), TabFace::Chat, TabFace::Terminal),
-            TerminalChatSwap::Unavailable { reason: NO_TERMINAL.to_owned() }
+            TerminalChatSwap::Stay
         );
     }
 

@@ -403,6 +403,22 @@ pub enum TerminalChatToggle {
     Busy,
 }
 
+impl TerminalChatToggle {
+    /// Whether the tab shows the toggle (the Mac's tab right-click row, the phone's Show Chat /
+    /// Show Terminal row): only on half of a live pair, a terminal running its session or a
+    /// chat a terminal runs (or one an earlier Toggle is handing to a terminal). A chat no
+    /// terminal runs is a GUI chat and shows none (Leo, 2026-11-17: "just... stop showing the
+    /// toggle on gui"); Toggle's key and palette entry still resume it in a terminal.
+    pub fn shows_toggle(&self) -> bool {
+        matches!(
+            self,
+            TerminalChatToggle::ToChat { .. }
+                | TerminalChatToggle::ToTerminal { .. }
+                | TerminalChatToggle::HandingOff { .. }
+        )
+    }
+}
+
 pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
     let (agent, session) = (facts.agent.as_deref(), facts.session.as_deref());
     if facts.terminal {

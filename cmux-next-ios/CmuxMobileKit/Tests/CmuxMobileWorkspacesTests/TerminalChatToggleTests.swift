@@ -132,17 +132,21 @@ struct TerminalChatToggleTests {
         #expect(!source.showsChatFace(terminal, in: workspace))
     }
 
-    @Test func aChatNoTerminalRunsKeepsItsTerminalFaceDisabled() throws {
+    // A GUI chat is just a chat: no Show Terminal row, no "No terminal runs this chat" toast
+    // (Leo, 2026-11-17: "just... stop showing the toggle on gui").
+    @Test func aChatNoTerminalRunsShowsNoToggle() throws {
         let backend = PairBackend(listings: [Self.watch])
         let (_, source) = Self.make(backend, tabs: [Self.chat("c1", session: "a-1")])
         let workspace = try #require(source.workspace)
         let chat = try #require(source.workspaceTab("c1"))
         let faces = source.pairFaces(chat, in: workspace)
-        #expect(faces.offered && !faces.terminalEnabled)
+        #expect(!faces.offered && faces.chatEnabled && faces.disabledReason == nil)
+        #expect(source.terminalChatItems(chat, in: workspace).isEmpty)
         source.activate("c1")
+        let toast = source.toastText
         source.swapTerminalChat("c1", to: .terminal)
         #expect(source.activeTabID == "c1")
-        #expect(source.toastText == faces.disabledReason)
+        #expect(source.toastText == toast)
     }
 
     @Test func aPlainTerminalOrAnAgentAcpmuxCannotAdoptHasNoControl() throws {
