@@ -296,6 +296,7 @@ mod tests {
             env: vec![(TOKEN_ENV.into(), "old".into())],
             call_timeout: Duration::from_secs(1),
             shared: None,
+            http: None,
         };
         assert!(applies(&spec));
         let same = acpmux::cua_socket::Socket { path: "/old.sock".into(), token: "old".into() };
