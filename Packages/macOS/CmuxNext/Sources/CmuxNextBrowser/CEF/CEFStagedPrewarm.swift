@@ -184,11 +184,17 @@ final class CEFPrewarmSession {
     func endWithParent() {
         let parent = getppid()
         guard parent > 1 else { _exit(0) }  // already orphaned: the running app is gone
-        let source = DispatchSource.makeProcessSource(identifier: parent, eventMask: .exit, queue: .global(qos: .userInitiated))
-        source.setEventHandler { _exit(0) }
-        source.resume()
-        parentWatch = source
+        parentWatch = Self.watchExit(of: parent) { _exit(0) }
         if getppid() != parent { _exit(0) }  // the parent ended before the watch was armed
+    }
+
+    /// Runs `end` on a background queue when process `pid` exits; the returned source must be kept for the watch to last.
+    static func watchExit(of pid: pid_t, then end: @escaping @Sendable () -> Void) -> any DispatchSourceProcess {
+        // A process source: the only exit signal for a process this one did not start (the pre-warm's main thread is Chromium's).
+        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
+        source.setEventHandler { end() }
+        source.resume()
+        return source
     }
 
     /// `OnScheduleMessagePumpWork` from any thread: to the session's pump on the main run loop.
