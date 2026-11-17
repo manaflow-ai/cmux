@@ -19,7 +19,17 @@ Per size it measures:
                 (the selection is applied and drawn by then) and the frame intervals
   drag          a row dragged over the list (`debug.mouse` down, then one dragged event per RPC):
                 main-thread time per mouse-move (Time Profiler) and frame intervals
-Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
+  theme_scroll  (sidebar customization) the theme switched --theme-switches times during one trackpad gesture
+                (`settings.set appearance.appTheme`), against the same gesture with no switch: per window around
+                each switch, debug.frames and the debug.sidebar_perf deltas (rebuilds, list_reloads, layout_rows).
+                A switch restyles drawn rows; it must not rebuild or reload the whole list
+  custom_sections (--custom-sections 1,10,50) N sidebar sections of the launched app's own customize app
+                (CMUX_CUSTOMIZE_DIR, scratch): time to install, then scroll and switch as above, then
+                --section-saves saves of main.js, each timed to the window's mirror showing the new headline
+                (`apps.views`), with the sidebar counter deltas of the save
+Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames, and its
+`table` (also printed as `SIDEBAR_STRESS {json}` lines) one row per scenario and size.
+Fleet entry: scripts/measure/sidebar-stress.sh (1x and scale, customization included).
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
@@ -38,6 +48,13 @@ parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,d
                     help="which scenarios to run per size; add switch_matrix for the workspace switch matrix")
 parser.add_argument("--switches", type=int, default=16, help="switch_matrix: switches per input and kind")
 parser.add_argument("--target-hz", type=float, help="count lost refresh slots against this target instead of display cadence")
+parser.add_argument("--theme-switches", type=int, default=6, help="theme_scroll: theme switches during the scroll gesture")
+parser.add_argument("--themes", default="GitHub Light Default,GitHub Dark Default",
+                    help="theme_scroll: the appearance.appTheme values it alternates between")
+parser.add_argument("--custom-sections", default="",
+                    help="custom_sections: comma list of sidebar section counts (e.g. 1,10,50) the customize app "
+                         "contributes, measured in turn at each size (scroll, switch, save to rendered section)")
+parser.add_argument("--section-saves", type=int, default=5, help="custom_sections: timed saves per section count")
 parser.add_argument("--no-trace", action="store_true")
 parser.add_argument("--stop", action="store_true", help="quit the launched app at the end (jobs without $NX_APP_STOP)")
 opts = parser.parse_args()
@@ -53,6 +70,9 @@ from bench_launch import launch_app, pinned_tiles, unlisted_workspaces, wait_for
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
+# The launched app's customize folder (`CMUX_CUSTOMIZE_DIR`, the daemon's `local/customize` app): empty until the
+# custom_sections scenario writes a manifest, never the account's own folder.
+CUSTOMIZE = os.path.join(SCRATCH, "customize")
 GHOSTTY = os.path.join(SCRATCH, "ghostty")
 FLAG = os.path.join(SCRATCH, "ticking")
 DEBUG_CLI = os.path.join(HERE, "..", "cmux-debug-cli.sh")
@@ -803,6 +823,257 @@ def scenario_hitches(pid, size):
     return {"frames": stats, "trace": os.path.relpath(tr.path, OUT), "hitches": hitches}
 
 
+# ---------------------------------------------------------------- customization: theme and extension sections
+PERF_KEYS = ("rebuilds", "section_sets", "list_reloads", "layout_rows", "row_configures", "row_patches", "band_updates",
+             "scroll_realizes", "rows_walked", "main_ns")
+
+
+def sidebar_perf():
+    """The sidebar's work counters (`debug.sidebar_perf`), only the named ones; {} on a build without them."""
+    reply = rpc("debug.sidebar_perf", {"reset": False}, timeout=20)
+    if not isinstance(reply, dict) or reply.get("error"):
+        return {}
+    return {k: reply.get(k, 0) for k in PERF_KEYS}
+
+
+def perf_delta(before, after):
+    return {k: after.get(k, 0) - before.get(k, 0) for k in PERF_KEYS} if before and after else {}
+
+
+def frame_window(stats):
+    """The numbers of one debug.frames window that the table reads: interval percentiles and lost slots."""
+    intervals = stats.get("intervals_ms") if isinstance(stats, dict) else None
+    metrics = (stats or {}).get("frame_metrics") or {}
+    return {"intervals_ms": percentiles(intervals or []), "dropped_slots": metrics.get("dropped_slots"),
+            "complete": metrics.get("complete")}
+
+
+def scroll_event(x, y, dy, phase):
+    t0 = time.perf_counter()
+    ms, _ = timed_rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": dy, "phase": phase})
+    rest = 1 / 60 - (time.perf_counter() - t0)
+    if rest > 0:
+        time.sleep(rest)  # 60 events per second, as a trackpad sends them
+    return ms
+
+
+def windowed_gesture(switch, count, gap=10, window=40, dy=-30.0):
+    """One trackpad gesture of count*(gap+window) events at 60 Hz. Before each of `count` windows `switch(i)` runs
+    (None: the baseline gesture, the same windows with nothing switched). Each window is its own debug.frames
+    recording and its own sidebar counter delta, so a switch's frames and work are read apart from the rest."""
+    x, y = list_point()
+    total = count * (gap + window)
+    events, windows, sent = [], [], 0
+
+    def phase():
+        return "began" if sent == 0 else ("ended" if sent == total - 1 else "changed")
+
+    for i in range(count):
+        for _ in range(gap):
+            events.append(scroll_event(x, y, dy, phase()))
+            sent += 1
+        before = sidebar_perf()
+        frames("start")
+        call_ms = switch(i) if switch else None
+        for _ in range(window):
+            events.append(scroll_event(x, y, dy, phase()))
+            sent += 1
+        stats = frames("stop")
+        windows.append({"switch_rpc_ms": call_ms, "frames": frame_window(stats),
+                        "max_frame_ms": stats.get("max_ms") if isinstance(stats, dict) else None,
+                        "perf": perf_delta(before, sidebar_perf())})
+    return {"events": len(events), "event_rpc_ms": percentiles(events), "windows": windows}
+
+
+def summarize_windows(windows):
+    """Frames of every window together, and the counter deltas summed and per window (max)."""
+    intervals, maxes = [], []
+    for w in windows:
+        if isinstance(w.get("max_frame_ms"), (int, float)):
+            maxes.append(w["max_frame_ms"])
+    perf_sum = {k: sum((w.get("perf") or {}).get(k, 0) for w in windows) for k in PERF_KEYS}
+    perf_max = {k: max(((w.get("perf") or {}).get(k, 0) for w in windows), default=0) for k in PERF_KEYS}
+    return {"max_frame_ms": percentiles(maxes), "perf_sum": perf_sum, "perf_max_per_window": perf_max,
+            "dropped_slots": sum(w["frames"].get("dropped_slots") or 0 for w in windows)}
+
+
+def scenario_theme_scroll(pid, size):
+    """Theme switches during a trackpad scroll (`settings.set appearance.appTheme`, alternating --themes), against
+    the same gesture with no switch. The rule: a switch restyles the drawn rows; it never rebuilds the sidebar or
+    reloads the whole list (rebuilds, list_reloads, layout_rows per switch stay 0 or constant at any size), and the
+    frames of a switch window stay within the scroll baseline's windows."""
+    themes = [t.strip() for t in opts.themes.split(",") if t.strip()]
+    count = opts.theme_switches
+    scroll_to_top()
+    time.sleep(1)
+    baseline = windowed_gesture(None, count)
+    scroll_to_top()
+    time.sleep(1)
+    replies = []
+
+    def switch(i):
+        t0 = time.perf_counter()
+        reply = rpc("settings.set", {"path": "appearance.appTheme", "value": themes[i % len(themes)]})
+        replies.append(reply if isinstance(reply, dict) and reply.get("error") else None)
+        return round((time.perf_counter() - t0) * 1000, 3)
+
+    tr = Trace(pid, f"{size}-theme-scroll", 4 + count * 50 / 60 + 6)
+    tr.__enter__()
+    switched = windowed_gesture(switch, count)
+    tr.__exit__(None, None, None)
+    rpc("settings.set", {"path": "appearance.appTheme", "value": themes[-1]})
+    errors = [r for r in replies if r]
+    return {"themes": themes, "switches": count, "switch_errors": errors[:3],
+            "baseline": dict(baseline, summary=summarize_windows(baseline["windows"])),
+            "switched": dict(switched, summary=summarize_windows(switched["windows"])),
+            "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
+
+
+def section_manifest(count):
+    """The customize app (`local/customize`, manifest v1) contributing `count` sidebar sections in the scrolling
+    area after the list (`defaultRegion: middle`), each its own render export."""
+    sections = [{"id": f"s{i:02d}", "title": f"Bench section {i:02d}", "symbol": "bolt.horizontal",
+                 "defaultRegion": "middle", "render": f"render{i:02d}", "maxRows": 4} for i in range(count)]
+    return {"manifestVersion": 1, "id": "local/customize", "name": "Sidebar stress", "version": "1.0.0",
+            "description": "Sidebar sections the sidebar stress bench writes.", "engines": {"cmux": "^1.0"},
+            "main": "main.js", "contributes": {"sidebarSections": sections},
+            "activation": [f"onSidebarSection:{s['id']}" for s in sections]}
+
+
+def section_headline(index, revision):
+    return f"section {index:02d} rev {revision}"
+
+
+def section_script(count, revision, edited=0):
+    """main.js: section `edited` shows `revision` in its headline, every other section revision 0."""
+    lines = ["// Written by scripts/cmux-next/sidebar-stress-bench.py (custom_sections).", "const exportsByName = {}"]
+    for i in range(count):
+        headline = section_headline(i, revision if i == edited else 0)
+        lines.append(f"exportsByName.render{i:02d} = function () {{ return VStack({{ spacing: 2 }}, ["
+                     f"Text({json.dumps(headline)}).font(\"headline\"), "
+                     + ", ".join(f"Row({{ title: {json.dumps(f'row {i:02d}.{r}')}, symbol: \"circle\" }})" for r in range(3))
+                     + "]) }")
+    lines.append("globalThis.__cmuxAppExports = exportsByName")
+    return "\n".join(lines) + "\n"
+
+
+def write_sections(count, revision, edited=0):
+    os.makedirs(CUSTOMIZE, exist_ok=True)
+    with open(os.path.join(CUSTOMIZE, "main.js"), "w") as f:  # main.js first: the manifest appearing installs the app
+        f.write(section_script(count, revision, edited))
+    with open(os.path.join(CUSTOMIZE, "cmux-app.json"), "w") as f:
+        json.dump(section_manifest(count), f, indent=1)
+
+
+def section_views():
+    """The customize app's section views as the window's mirror holds them (`apps.views`), as edit-repaint.py reads."""
+    reply = rpc("apps.views", {"app": "local/customize"}, timeout=10)
+    views = reply.get("views") if isinstance(reply, dict) else None
+    return [v for v in views or [] if "section" in str(v.get("interface", ""))]
+
+
+def views_show(views, text):
+    return any(text in (v.get("texts") or []) for v in views)
+
+
+def scenario_custom_sections(pid, size, count):
+    """`count` customize-app sidebar sections installed, then the same scroll and switch, then `--section-saves`
+    saves of main.js (an editor's in-place save) that change section 0's headline: each timed from the write to
+    the poll of `apps.views` that shows the new headline (the window's mirror of the section: an upper bound to its
+    render, polled every ~10 ms), with the sidebar counter deltas of the save."""
+    t0 = time.monotonic()
+    write_sections(count, 0)
+    mounted = wait(lambda: (lambda v: v if len(v) >= count and views_show(v, section_headline(0, 0)) else None)(section_views()), 90)
+    install_s = round(time.monotonic() - t0, 2)
+    views = section_views()
+    entry = {"sections": count, "install_s": install_s if mounted else None, "views_mounted": len(views),
+             "sidebar_rows": len(sidebar().get("rows") or []), "statuses": sorted({str(v.get("status")) for v in views})}
+    note(f"custom sections {count}: {len(views)} views mounted in {install_s} s")
+    if not mounted:
+        entry["error"] = f"{len(views)} of {count} section views mounted 90 s after the write"
+        entry["views_sample"] = views[:2]
+        return entry
+    time.sleep(2)
+    before = sidebar_perf()
+    entry["scroll"] = scenario_scroll(pid, size, f"sections{count}-scroll", trace=count == max(section_counts()))
+    entry["scroll"]["perf"] = perf_delta(before, sidebar_perf())
+    entry["switch"] = scenario_switch(pid, f"{size}-sections{count}")
+    saves = []
+    for rnd in range(1, opts.section_saves + 1):
+        want = section_headline(0, rnd)
+        before = sidebar_perf()
+        t_write = time.perf_counter()
+        with open(os.path.join(CUSTOMIZE, "main.js"), "w") as f:
+            f.write(section_script(count, rnd))
+        seen = None
+        deadline = time.perf_counter() + 20
+        while time.perf_counter() < deadline:  # bounded poll of the live app's mirror
+            if views_show(section_views(), want):
+                seen = (time.perf_counter() - t_write) * 1000
+                break
+            time.sleep(0.01)
+        time.sleep(0.5)  # the redraw after the mirror settles before the counters are read
+        saves.append({"round": rnd, "save_to_mirror_ms": round(seen, 1) if seen else None,
+                      "perf": perf_delta(before, sidebar_perf())})
+        time.sleep(0.5)
+    shown = [s["save_to_mirror_ms"] for s in saves if s["save_to_mirror_ms"] is not None]
+    entry["saves"] = saves
+    entry["save_to_mirror_ms"] = percentiles(shown)
+    entry["save_missed"] = len(saves) - len(shown)
+    entry["save_perf_max"] = {k: max((s["perf"].get(k, 0) for s in saves if s["perf"]), default=0) for k in PERF_KEYS}
+    return entry
+
+
+def section_counts():
+    return [int(n) for n in opts.custom_sections.split(",") if n.strip()]
+
+
+def remove_sections():
+    for name in ("cmux-app.json", "main.js"):
+        path = os.path.join(CUSTOMIZE, name)
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+def table(results):
+    """One row per scenario and size: what the PR's table shows (scenario | size | p50 | p95 | p99/max | work)."""
+    rows = []
+
+    def add(scenario, size, unit, stats, work):
+        stats = stats or {}
+        rows.append({"scenario": scenario, "size": size, "unit": unit, "p50": stats.get("p50"), "p95": stats.get("p95"),
+                     "p99": stats.get("p99"), "max": stats.get("max"), "n": stats.get("n"), "work": work})
+
+    for size, entry in (results.get("sizes") or {}).items():
+        label = f"{size} ws / {opts.groups} groups"
+        for key, name in (("scroll", "scroll"), ("scroll_while_ticking", "scroll_ticking")):
+            if (entry.get(key) or {}).get("frames"):
+                add(name, label, "frame ms", entry[key]["frames"].get("intervals_ms") and percentiles(entry[key]["frames"]["intervals_ms"]),
+                    {"dropped_slots": (entry[key]["frames"].get("frame_metrics") or {}).get("dropped_slots")})
+        if (entry.get("switch") or {}).get("click_to_idle_ms"):
+            add("switch", label, "click-to-idle ms", entry["switch"]["click_to_idle_ms"], {})
+        theme = entry.get("theme_scroll") or {}
+        for arm in ("baseline", "switched"):
+            if theme.get(arm):
+                s = theme[arm]["summary"]
+                add(f"theme_scroll.{arm}", label, "window max frame ms", s["max_frame_ms"],
+                    {"rebuilds": s["perf_sum"].get("rebuilds"), "list_reloads": s["perf_sum"].get("list_reloads"),
+                     "layout_rows": s["perf_sum"].get("layout_rows"), "dropped_slots": s["dropped_slots"],
+                     "windows": theme.get("switches")})
+        for sec in entry.get("custom_sections") or []:
+            n = sec.get("sections")
+            if sec.get("error"):
+                add(f"sections{n}", label, "error", {}, {"error": sec["error"]})
+                continue
+            fr = (sec.get("scroll") or {}).get("frames") or {}
+            add(f"sections{n}.scroll", label, "frame ms", percentiles(fr.get("intervals_ms") or []),
+                dict((sec["scroll"].get("perf") or {}), dropped_slots=(fr.get("frame_metrics") or {}).get("dropped_slots")))
+            add(f"sections{n}.switch", label, "click-to-idle ms", (sec.get("switch") or {}).get("click_to_idle_ms"), {})
+            add(f"sections{n}.save", label, "save-to-mirror ms", sec.get("save_to_mirror_ms"),
+                dict(sec.get("save_perf_max") or {}, missed=sec.get("save_missed"), install_s=sec.get("install_s")))
+    return rows
+
+
 def main():
     global SOCKET
     sizes = [int(s) for s in opts.sizes.split(",")]
@@ -814,7 +1085,9 @@ def main():
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
-           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW))}
+           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
+           "CMUX_CUSTOMIZE_DIR": CUSTOMIZE}
+    os.makedirs(CUSTOMIZE, exist_ok=True)
     results["load_at_start"] = os.getloadavg()
     # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
     app, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180)
@@ -877,6 +1150,17 @@ def main():
                 entry["drag"] = scenario_drag(app.pid, size)
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
+            if "theme_scroll" in want:
+                entry["theme_scroll"] = scenario_theme_scroll(app.pid, size)
+                note(f"theme_scroll: {json.dumps(entry['theme_scroll']['switched']['summary'])[:600]}")
+            if "custom_sections" in want or section_counts():
+                entry["custom_sections"] = []
+                for count in section_counts():
+                    entry["custom_sections"].append(scenario_custom_sections(app.pid, size, count))
+                    with open(os.path.join(OUT, "results.json"), "w") as f:
+                        json.dump(dict(results, partial_size=entry), f, indent=1, default=str)
+                remove_sections()
+                time.sleep(3)
             entry["hangs"] = rpc("debug.hangs", {})
             cells = (entry.get("switch_matrix") or {}).values()
             entry["measurement_complete"] = (scrolls_complete(entry, want) and not stopped
@@ -906,6 +1190,9 @@ def main():
         results["measurement_complete"] = all((results["sizes"].get(str(size)) or {}).get("measurement_complete") is True for size in sizes)
         results["target_hz"] = opts.target_hz
         results["made"] = {k: len(v) for k, v in made.items()}
+        results["table"] = table(results)
+        for row in results["table"]:
+            print("SIDEBAR_STRESS " + json.dumps(row, default=str), flush=True)
         with open(os.path.join(OUT, "results.json"), "w") as f:
             json.dump(results, f, indent=1, default=str)
         if opts.stop:

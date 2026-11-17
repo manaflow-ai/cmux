@@ -78,6 +78,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `menu-tracking-main-queue.swift` | Swift probe for menu-tracking-main-queue.sh. | - | 2026-10-30 | active |
 | `devtools-calls.sh` | Main-thread time of large Chromium DevTools calls. | cmux-ad decision 5 | 2026-11-14 | active |
 | `action-signposts.sh` | Action perform, commit and gate signposts, light and STRESS. | perf-lead row 23 | 2026-10-27 | active |
+| `sidebar-stress.sh` | Sidebar scroll, switch, theme switch during a scroll and custom sidebar sections (install, save to render) at 20 and 500 workspaces. | - | 2026-11-17 | active |
 | `main-thread-large-session.sh` | Main thread under the LARGE session (60 workspaces x 6 tabs). | MTS-0 | 2026-11-10 | active |
 
 ## Rendering and frames
