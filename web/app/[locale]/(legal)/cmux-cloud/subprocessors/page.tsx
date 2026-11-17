@@ -87,6 +87,13 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "content",
     category: "AI model providers",
+    name: "Anthropic, PBC",
+    purpose: "AI models, called directly with our own API keys (for example to describe shared screens in meetings).",
+    location: "United States",
+  },
+  {
+    group: "content",
+    category: "AI model providers",
     name: "The provider of each AI model that your team uses on the routes above (for example Anthropic, PBC, OpenAI, L.L.C., and Google LLC)",
     purpose: "AI models.",
     location: "See the provider's privacy policy",
