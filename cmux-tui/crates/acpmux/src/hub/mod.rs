@@ -202,6 +202,7 @@ mod tool_output_cut;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 #[cfg(test)]
 mod fork_retarget_tests;
+mod image_header;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;

@@ -138,6 +138,12 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     if let Some(name) = block.get("name").and_then(Value::as_str) {
         named.set("name", json!(name));
     }
+    // Its size as it draws, so the transcript reserves its box before reading it back
+    // (`image_header.rs`); none when its header is not one acpmux reads.
+    if let Some((width, height)) = super::image_header::image_size(&bytes) {
+        named.set("width", json!(width));
+        named.set("height", json!(height));
+    }
     Some((bytes, named))
 }
 

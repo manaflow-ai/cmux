@@ -18,6 +18,7 @@ import {
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+import { dataUrlImageSize } from "./conversation/imageEntries";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 import {
   journeyCell,
@@ -989,8 +990,16 @@ export class MockAcpmuxSocket {
           .filter((block: Record<string, unknown>) => block?.type === "image" && typeof block.data === "string")
           .map((block: Record<string, string>) => {
             const id = `image-${this.promptImages.size + 1}`;
-            this.promptImages.set(id, { mimeType: block.mimeType ?? "image/png", data: block.data! });
-            return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
+            const mimeType = block.mimeType ?? "image/png";
+            this.promptImages.set(id, { mimeType, data: block.data! });
+            // Its size from its header, as acpmux names a kept image's (hub/image_header.rs).
+            const size = dataUrlImageSize(`data:${mimeType};base64,${block.data}`);
+            return {
+              id,
+              mimeType,
+              ...(block.name ? { name: block.name } : {}),
+              ...(size && { width: size.width, height: size.height }),
+            };
           });
         const queued = this.pending > 0 && promptId !== undefined;
         // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).
