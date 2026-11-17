@@ -123,7 +123,8 @@
   grid-row: 3;
   align-self: end;
   margin-top: 0;
-  margin-bottom: var(--acpmux-codex-row-bottom);
+  /* A capped draft's controls keep the grid look's lift (composerLocation.css sets it on the box). */
+  margin-bottom: var(--acpmux-prompt-control-below, var(--acpmux-codex-row-bottom));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
   grid-column: 2;
