@@ -259,4 +259,28 @@ unverified="$(repair_args EXPORTS_VERIFIED=false SETTINGS_VERIFIED=)"
 [[ " $unverified " == *" --unverified-exports "* && " $unverified " == *" --unverified-settings-exports "* ]] \
   || fail "unverified exports are not marked: $unverified"
 
+# 9. Swift the repair rewrote (the namespace lint's rewrites) never goes straight onto the branch: this
+#    job cannot compile the app, and 8f33d7030473 pushed a rewrite that broke its Release compile on
+#    every later push. The rest of the repair lands; the Swift goes to a proposal branch, on the
+#    commit the repair was made at, for a pull request whose CI compiles it.
+setup
+(cd "$tmp/bot" && echo "graph for manifest v1" > "$graph" && echo "setting rewritten" > "$setting" \
+  && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "- regenerated $graph" -m "- namespace rewrite in $setting")
+run > "$tmp/out" 2>&1 || fail "a repair with a Swift rewrite did not land the rest: $(cat "$tmp/out")"
+[[ "$(remote_show "$graph")" == "graph for manifest v1" ]] || fail "the graph beside a Swift rewrite did not land: $(remote_show "$graph")"
+[[ "$(remote_show "$setting")" == "setting v1" ]] || fail "a Swift rewrite was pushed onto the branch unchecked: $(remote_show "$setting")"
+git -C "$tmp/remote.git" log -1 --format=%B feat | grep -qF "$setting" && fail "the landed repair still names the Swift rewrite it left out"
+proposal="$(git -C "$tmp/remote.git" rev-parse --verify -q refs/heads/base-autofix-sources)" \
+  || fail "the Swift rewrite went to no proposal branch: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" show "$proposal:$setting")" == "setting rewritten" ]] || fail "the proposal does not hold the rewrite"
+[[ "$(git -C "$tmp/remote.git" rev-parse "$proposal^")" == "$base" ]] || fail "the proposal is not on the commit the repair was made at"
+[[ "$(git -C "$tmp/remote.git" diff --name-only "$proposal^" "$proposal")" == "$setting" ]] || fail "the proposal carries more than the Swift rewrite"
+grep -q "pull request" "$tmp/out" || fail "the run does not say the rewrite waits for a pull request: $(cat "$tmp/out")"
+# A repair that is only a Swift rewrite pushes nothing onto the branch, and passes.
+setup
+(cd "$tmp/bot" && echo "setting rewritten" > "$setting" && git commit -q -am "chore(next): base autofix at ${base:0:12}")
+run > "$tmp/out" 2>&1 || fail "a repair that is only a Swift rewrite failed: $(cat "$tmp/out")"
+[[ "$(remote_tip)" == "$base" ]] || fail "a repair that is only a Swift rewrite moved the branch"
+[[ "$(git -C "$tmp/remote.git" show "base-autofix-sources:$setting")" == "setting rewritten" ]] || fail "the only-Swift repair went to no proposal"
+
 echo "PASS: base autofix makes a held repair again on the moved tip and lands it, a bounded number of times, without the push token"
