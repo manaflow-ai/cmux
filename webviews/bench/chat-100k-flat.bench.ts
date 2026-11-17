@@ -23,7 +23,8 @@
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
 // traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
-// windows.
+// windows, and of each profiled launch's CPU settle; each idle and settle profile prints its self time per site and its
+// time per entry (the outermost script frame: the timer, frame callback, handler or observer that ran).
 // WAKES=1 counts what wakes the renderers in each idle window, per second: the renderer threads' context switches
 // (/proc/PID/task/*/status), and on every page the timer and interval callbacks, animation frames, MessagePort posts
 // (React's scheduler) and DOM mutations. CASES=running runs only empty x1 and running x1, for an A/B of the running
@@ -183,6 +184,41 @@ function selfTimes(cpu: CpuProfile, sources?: (file: string, line: number, colum
   }
   return out;
 }
+
+/// The same profile's time per entry: the outermost JavaScript frame under the root (a timer's, a frame callback's, a
+/// message handler's or an observer's function), so a self-time site reads with what started it. Samples with no
+/// JavaScript frame ((program), (garbage collector), (idle)) read by their own name.
+function entryTimes(
+  cpu: CpuProfile,
+  sources?: (file: string, line: number, column: number) => string,
+): Map<string, number> {
+  const nodes = cpu.nodes as (CpuProfile["nodes"][number] & { children?: number[] })[];
+  const parent = new Map<number, number>();
+  for (const node of nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const out = new Map<string, number>();
+  const samples = cpu.samples ?? [];
+  const deltas = cpu.timeDeltas ?? [];
+  for (let i = 0; i < samples.length; i++) {
+    let entry = byId.get(samples[i]!)?.callFrame;
+    for (let id: number | undefined = samples[i]!; id !== undefined; id = parent.get(id)) {
+      const frame = byId.get(id)?.callFrame;
+      if (frame?.url) entry = frame;
+    }
+    if (!entry) continue;
+    const file = entry.url.split("/").pop() ?? "";
+    const where =
+      entry.url && sources ? sources(file, entry.lineNumber, entry.columnNumber) : `${file}:${entry.lineNumber + 1}`;
+    const site = `${entry.functionName || "(anonymous)"} ${entry.url ? where : ""}`.trim();
+    out.set(site, (out.get(site) ?? 0) + (deltas[i + 1] ?? 0) / 1000);
+  }
+  return out;
+}
+const printTop = (title: string, sites: Map<string, number>, limit: number) => {
+  console.log(title);
+  for (const [site, ms] of [...sites].sort((a, b) => b[1] - a[1]).slice(0, limit))
+    console.log(`    ${ms.toFixed(1).padStart(8)} ms  ${site}`);
+};
 
 type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number; settleS: number };
 
@@ -528,7 +564,13 @@ try {
         return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
       };
       // The pages' own settling (read-ahead, fonts, the first paints, and after a burst its drain) is not idle: it is
-      // timed from the last record in to the first of two quiet seconds.
+      // timed from the last record in to the first of two quiet seconds. PROFILE profiles it too (every page of a launch
+      // of many chats; the profiler's own cost lengthens it, so read its settle time from a run without PROFILE).
+      const settleProfiled = profile ? (count > 1 ? pages.map((p) => p.cdp) : [pages.at(-1)!.cdp]) : [];
+      for (const cdp of settleProfiled) {
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.start");
+      }
       const settleFrom = performance.now();
       const settleSamples: number[] = [];
       let settleS = SETTLE_MAX_S;
@@ -546,6 +588,20 @@ try {
       console.log(
         `  ${name}: CPU settled in ${settleS.toFixed(1)} s${settleS >= SETTLE_MAX_S ? " (cap)" : ""}; samples ${settleSamples.map((v) => v.toFixed(1)).join(", ")}`,
       );
+      if (settleProfiled.length) {
+        fs.mkdirSync(profile!, { recursive: true });
+        const self = new Map<string, number>();
+        const entries = new Map<string, number>();
+        for (const [index, cdp] of settleProfiled.entries()) {
+          const { profile: cpu } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+          const file = settleProfiled.length > 1 ? `${name}-settle-${index}.cpuprofile` : `${name}-settle.cpuprofile`;
+          fs.writeFileSync(path.join(profile!, file), JSON.stringify(cpu));
+          for (const [site, ms] of selfTimes(cpu, sources)) self.set(site, (self.get(site) ?? 0) + ms);
+          for (const [site, ms] of entryTimes(cpu, sources)) entries.set(site, (entries.get(site) ?? 0) + ms);
+        }
+        printTop(`  ${name}: settle profile, self ms over ${settleProfiled.length} page(s):`, self, 30);
+        printTop(`  ${name}: settle profile, ms by entry (outermost script frame):`, entries, 20);
+      }
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
       if (HIDDEN) {
         // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
@@ -653,15 +709,16 @@ try {
         if (profiled.length) {
           fs.mkdirSync(profile!, { recursive: true });
           const self = new Map<string, number>();
+          const entries = new Map<string, number>();
           for (const [index, cdp] of profiled.entries()) {
             const { profile: cpu } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
             const file = profiled.length > 1 ? `${name}-idle-${index}.cpuprofile` : `${name}-idle.cpuprofile`;
             fs.writeFileSync(path.join(profile!, file), JSON.stringify(cpu));
             for (const [site, ms] of selfTimes(cpu, sources)) self.set(site, (self.get(site) ?? 0) + ms);
+            for (const [site, ms] of entryTimes(cpu, sources)) entries.set(site, (entries.get(site) ?? 0) + ms);
           }
-          const top = [...self].sort((a, b) => b[1] - a[1]).slice(0, 25);
-          console.log(`  ${name}: idle profile, self ms over ${profiled.length} page(s) in ${IDLE_S}s:`);
-          for (const [site, ms] of top) console.log(`    ${ms.toFixed(1).padStart(8)} ms  ${site}`);
+          printTop(`  ${name}: idle profile, self ms over ${profiled.length} page(s) in ${IDLE_S}s:`, self, 25);
+          printTop(`  ${name}: idle profile, ms by entry (outermost script frame):`, entries, 15);
         }
       }
       // WAKES=1 in a launch of many chats: what each page draws while idle (a hidden one and the shown one traced),
