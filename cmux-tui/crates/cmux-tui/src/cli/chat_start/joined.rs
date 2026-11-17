@@ -310,8 +310,9 @@ pub(in crate::cli) fn account_rows(global: &GlobalArgs) -> Result<Vec<Value>, St
         .unwrap_or_else(|| Err("not signed in".to_owned()))
 }
 
-/// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`).
-fn app_token(global: &GlobalArgs) -> Result<String, String> {
+/// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`); also
+/// `automation create --webhook --on cloud`.
+pub(in crate::cli) fn app_token(global: &GlobalArgs) -> Result<String, String> {
     const TIMEOUT: Duration = Duration::from_secs(30);
     let mut stream = super::super::app::connect_command(global)
         .map_err(|_| "not signed in: no CMUX_CLOUD_ACCESS_TOKEN and no cmux app".to_owned())?;

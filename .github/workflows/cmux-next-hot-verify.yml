@@ -20,8 +20,9 @@ name: cmux-next hot verify
 #   - look: the build-fleet gateway runner's thin cmux-ci client submits cmuxterm-hq's
 #     build-fleet/pr_capture/fleet-step-hot-verify.sh (a display worker copies the NEXT nightly, applies the
 #     change with the engine from the feat-cmux-next tip, shoots, clicks, records) and reads its out.tar. It
-#     does not wait for web or rust: the worker applies the change from the source itself, so the look comes
-#     first and those two serve everyone else's `pr:N` paths beside it.
+#     does not wait for web (the worker serves the head's web from its own checkout), but a rust look waits for
+#     the rust job: the worker looks at a sha: source, which gets no cargo build, so the daemon comes only from the published
+#     tree, and 6 of 8 looks that failed on a worker (2026-11-15/16) had started before it was published.
 #   - publish: the pr-media environment (it admits only the protected branches) checks every file with the
 #     shared pr-media privacy check (the worker's own text reader's lines too), uploads through
 #     .github/actions/pr-media-publish and writes the comment (scripts/cmux-next/hot-verify-ci.py render/post).
@@ -347,8 +348,10 @@ jobs:
   # step at the HQ main commit the controller runs, and reads its out.tar. No checkout of pull request code.
   look:
     name: look
-    needs: target
-    if: ${{ needs.target.outputs.ok == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    needs: [target, rust]
+    # After the rust job: skipped when the change has no rust layer, green with a warning when the tree never
+    # comes (the engine's receipt then says the apply failed).
+    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' && (needs.rust.result == 'success' || needs.rust.result == 'skipped') }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 75
     permissions:
@@ -428,6 +431,8 @@ jobs:
   # (3 decliners fail a step), a worker that stopped renewing its lease, and a reserved mini whose gateway runner
   # took 8 looks in 20 minutes and refused each one. Nothing else starts a look again, so each such look was
   # lost for good. A look's own verdict (needs a build, failed shots) comes back in out.tar and is never retried.
+  # A look its 75 min timeout stopped ends `cancelled`, not `failure`, and is as lost, so it looks again too; a
+  # person's cancel or a newer head's run cancels the whole run, which `!cancelled()` keeps out.
   # Once: the retry carries attempt=1, and a newer head's run replaces it (the concurrency group).
   again:
     name: look again

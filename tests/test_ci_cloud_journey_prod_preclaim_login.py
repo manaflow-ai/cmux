@@ -69,7 +69,8 @@ class ProdJourneyPreclaimLogin(unittest.TestCase):
         secrets = sorted(k for k, v in run["env"].items() if "secrets." in str(v))
         self.assertEqual(secrets, ["CLAUDE_CODE_OAUTH_TOKEN", "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
         self.assertEqual(jobs()["journey"]["environment"]["name"], "cmux-next-cloud-journey")
-        # actions: read is the red-journey step's deploy listing (gh run list / view), from main's copy (#43870).
+        # actions: read is the red-journey step's `gh run list / view` of cmux VM deploys (48a3688e7fb, #43870,
+        # main's twin), not a secret.
         self.assertEqual(jobs()["journey"]["permissions"], {"contents": "read", "issues": "write", "actions": "read"})
 
     def test_warm_sources_entry(self) -> None:

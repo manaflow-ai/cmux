@@ -79,6 +79,8 @@ OWN_REPOSITORY = {
     "scripts/ci/cmux_next_base_merge_carry.py":
         "clean_merge_tree fetches only into its own `git init --bare` scratch repository, deleted when it returns",
     "scripts/ci/base_red_excuse.py": "git_text fetches only into its own `git init --bare` cache repository under source_cache(), never the caller's clone",
+    "scripts/ci/cmux_next_base_merge_carry.py":
+        "clean_merge_tree fetches only into a scratch `git init --bare` temporary directory it just made",
     "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
