@@ -634,6 +634,41 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "write" } })).status).toBe(401)
   })
 
+  it("GET /repos answers a person in every environment: filtered across pages, default branch, truncated; no connection is integration.not_found", async () => {
+    // The test Worker runs with ENVIRONMENT=test: outside development, as staging and production.
+    const list = (bearer: string | undefined, query: string) => worker.fetch(`https://api.test/v1/integrations/github/repos?${query}`, { headers: bearer ? { authorization: `Bearer ${bearer}` } : {} })
+    const a = await signedInWithInstall("gh-token-repos-1", "cli")
+    const none = await list(a.session, `team=${a.team}`)
+    expect([none.status, ((await none.json()) as any).error.code]).toEqual([404, "integration.not_found"])
+
+    const { gh } = await linkGitHub(a.session, a.team)
+    // The whole installation, so every listed repository is in scope (the default scope narrows to the linking user's list).
+    await policy(a.session, a.team, { github: { scope: "installation" } })
+    gh.routes["https://api.github.com/installation/repositories"] = (request) => {
+      const page = Number(new URL(request.url).searchParams.get("page"))
+      const filler = Array.from({ length: 100 }, (_, i) => ({ full_name: `acme/filler-${page}-${i}`, private: false }))
+      return ok({ total_count: 350, repositories: page === 1 ? [{ full_name: "acme/web", private: true, default_branch: "main" }, ...filler.slice(1)] : page === 3 ? [{ full_name: "acme/Web-site", private: false, default_branch: "trunk" }, ...filler.slice(1)] : page === 4 ? [{ full_name: "acme/api" }] : filler })
+    }
+    // A filter walks pages past the first hundred; every row carries its default branch or null.
+    const web = await list(a.session, `team=${a.team}&query=WEB`)
+    expect([web.status, web.headers.get("cache-control")]).toEqual([200, "no-store"])
+    expect(await web.json()).toEqual({ repos: [{ full_name: "acme/web", private: true, default_branch: "main" }, { full_name: "acme/Web-site", private: false, default_branch: "trunk" }], truncated: false, cursor: null })
+    // The person's own install lists too; without a filter one answer stops at a hundred and says more remain.
+    const all = await list(a.installToken, `team=${a.team}`)
+    const body = (await all.json()) as any
+    expect([all.status, body.repos.length, body.repos[0], body.repos[1].default_branch, body.truncated, typeof body.cursor]).toEqual([200, 100, { full_name: "acme/web", private: true, default_branch: "main" }, null, true, "string"])
+    const rest = (await (await list(a.installToken, `team=${a.team}&cursor=${encodeURIComponent(body.cursor)}`)).json()) as any
+    expect([rest.repos.length, rest.truncated]).toEqual([100, true])
+
+    // Refusals: no bearer, another team, an over-long query; the machine-only seam stays a development surface.
+    expect((await list(undefined, `team=${a.team}`)).status).toBe(401)
+    const other = await signedInWithInstall("gh-token-repos-2", "cli")
+    expect((await list(other.session, `team=${a.team}`)).status).toBe(403)
+    expect((await list(a.session, `team=${a.team}&query=${"x".repeat(257)}`)).status).toBe(400)
+    const seam = await worker.fetch("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) })
+    expect(seam.status).toBe(404)
+  })
+
   // A VM install's token is gated on CloudDO's vm-self read of its own machine (github-token-route.ts); CloudDO and its
   // VM installs are cmux-platform's, which tests the gate's other half.
   it("a chief-less phone install is refused", async () => {
