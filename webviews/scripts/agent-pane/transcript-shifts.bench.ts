@@ -147,6 +147,8 @@ function installProbe(inputMs: number) {
   };
   const w = window as unknown as Record<string, unknown> & Window;
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll");
+  // Within this many px of the end, the pane is following (the panes' own pin slop).
+  const FOLLOW_SLOP = 2;
   let lastAct = -Infinity;
   const act = () => (lastAct = performance.now());
   for (const kind of ["wheel", "pointerdown", "keydown", "touchmove"])
@@ -202,7 +204,7 @@ function installProbe(inputMs: number) {
     if (input) p.inputFrames++;
     const common = now.order.filter((id) => before.rows.has(id));
     if (!common.length) return;
-    const following = before.gap <= 2;
+    const following = before.gap <= FOLLOW_SLOP;
     const first = common[0]!;
     const base = now.rows.get(first)!.top - before.rows.get(first)!.top;
     let moved = 0;
@@ -228,7 +230,8 @@ function installProbe(inputMs: number) {
       return;
     }
     // Drift: scrolled up, nothing may move; following, the bottom edge holds.
-    const drift = following ? Math.abs(now.gap) > 1 : Math.abs(base) > 1;
+    // Following, the gap may rest anywhere inside the slop; leaving it is drift.
+    const drift = following ? now.gap > FOLLOW_SLOP || now.gap < -1 : Math.abs(base) > 1;
     if (drift) worst = Math.max(worst, following ? Math.abs(now.gap) : Math.abs(base));
     moved = drift ? common.length : jostle;
     if (moved) {
@@ -256,13 +259,14 @@ function installProbe(inputMs: number) {
 function installFirstPaint() {
   const w = window as unknown as Record<string, unknown>;
   const started = performance.now();
-  // The dev server's module load dominates navigation-to-paint; the socket's open is where the
-  // chat's own work starts.
+  // The dev server's module load dominates navigation-to-paint; the daemon socket's open is where
+  // the chat's own work starts (not the dev server's own HMR socket, which opens first).
+  const endpoint = new URLSearchParams(location.hash.slice(1)).get("endpoint") ?? "";
   const Socket = window.WebSocket;
   window.WebSocket = class extends Socket {
     constructor(...args: ConstructorParameters<typeof WebSocket>) {
       super(...args);
-      w.replaySocketAt ??= performance.now();
+      if (endpoint && String(args[0]).startsWith(endpoint)) w.replaySocketAt ??= performance.now();
     }
   };
   const tick = (frame: number) => {
@@ -318,7 +322,8 @@ async function openChat(rows: number, record: boolean) {
     const w = window as unknown as { replayFirstPaint: number; replaySocketAt?: number };
     return { firstPaintMs: w.replayFirstPaint, socketToPaintMs: w.replayFirstPaint - (w.replaySocketAt ?? 0) };
   });
-  return { daemon, context, page, errors, firstPaintMs, socketToPaintMs, buildMs };
+  // The records at open: streaming adds a timing-dependent number of them later.
+  return { daemon, context, page, errors, firstPaintMs, socketToPaintMs, buildMs, openRows: daemon.events.length };
 }
 
 const frames = (page: Page, count: number) =>
@@ -492,7 +497,7 @@ try {
       totals[key] = key === "maxShiftPx" ? Math.max(totals[key], p[key] ?? 0) : totals[key] + (p[key] ?? 0);
   totals.maxShiftPx = Math.round(totals.maxShiftPx);
   runs.big = {
-    rows: daemon.events.length,
+    rows: big.openRows,
     turns: daemon.turns(),
     buildMs: Math.round(big.buildMs),
     firstPaintMs: Math.round(big.firstPaintMs),
