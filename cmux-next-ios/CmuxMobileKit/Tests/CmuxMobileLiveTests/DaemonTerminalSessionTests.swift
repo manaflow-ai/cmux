@@ -85,10 +85,15 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         case "send" where lock.withLock({ unansweredSends }):
             return []
         case "identify" where initialSize || sizeLease || sharedSizing || tailReplay || fencesAttach || lock.withLock({ advertisesHybrid }):
-            return [reply(["generation": lock.withLock { generation }, "capabilities": (fencesAttach ? ["attach-identity-v1"] : []) + (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
-                    + (lock.withLock { advertisesHybrid } ? ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] : [])
-                    + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
-                    + (tailReplay ? ["attach-replay-history-rows-v1"] : [])])]
+            var capabilities: [String] = []
+            if fencesAttach { capabilities.append("attach-identity-v1") }
+            if initialSize { capabilities.append("attach-initial-size") }
+            if sizeLease { capabilities.append("size-lease-v1") }
+            if lock.withLock({ advertisesHybrid }) { capabilities += ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] }
+            if sharedSizing { capabilities += ["shared-sizing-v1", "host-size-policy-v1"] }
+            if tailReplay { capabilities.append("attach-replay-history-rows-v1") }
+            let currentGeneration: String = lock.withLock { generation }
+            return [reply(["generation": currentGeneration, "capabilities": capabilities])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":
