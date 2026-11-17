@@ -305,16 +305,22 @@ extension MacScreenHomeView {
 
     /// The quiet look's one row for every offline Mac: a chevron, "Offline" and the count; a click opens it.
     private func offlineGroupRow(count: Int) -> NSView {
-        let button = MacScreenButton(String(format: L.t("macScreen.home.offlineGroup", "Offline (%d)"), count), role: .icon,
-                                     symbol: offlineExpanded ? "chevron.down" : "chevron.right",
-                                     id: "macScreen.home.offlineGroup") { [weak self] in
+        let toggle: () -> Void = { [weak self] in
             guard let self else { return }
             offlineExpanded.toggle()
             if let built { build(built) }
         }
-        button.setAccessibilityValue(offlineExpanded ? "expanded" : "collapsed")
-        return MacScreenStack.make(.horizontal, spacing: 0, alignment: .centerY, [button, MacScreenSpacer()],
-                                   insets: NSEdgeInsets(top: 6, left: 48, bottom: 6, right: 14))
+        // A MacScreenButton draws its symbol or its title, never both: the chevron sits in the rows' glyph
+        // column and the title beside it, so "Offline (N)" lines up with the Macs' names.
+        let chevron = MacScreenButton("", role: .icon, symbol: offlineExpanded ? "chevron.down" : "chevron.right",
+                                      id: "macScreen.home.offlineChevron", action: toggle)
+        chevron.setAccessibilityElement(false)
+        chevron.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        let label = MacScreenButton(String(format: L.t("macScreen.home.offlineGroup", "Offline (%d)"), count), role: .icon,
+                                    id: "macScreen.home.offlineGroup", action: toggle)
+        label.setAccessibilityValue(offlineExpanded ? "expanded" : "collapsed")
+        return MacScreenStack.make(.horizontal, spacing: 6, alignment: .centerY, [chevron, label, MacScreenSpacer()],
+                                   insets: NSEdgeInsets(top: 6, left: 14, bottom: 6, right: 14))
     }
 
     // MARK: Classic rows (Debug Settings `macScreen.devicesLook` = classic)

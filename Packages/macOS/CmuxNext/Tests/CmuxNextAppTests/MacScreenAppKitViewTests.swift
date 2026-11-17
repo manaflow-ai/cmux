@@ -109,6 +109,8 @@ struct MacScreenAppKitViewTests {
         #expect(findView("macScreen.home.control.Air Blue", under: home) == nil)
         #expect(findView("macScreen.home.name.Air Blue", under: home) == nil)
         let group = try #require(findView("macScreen.home.offlineGroup", under: home) as? NSButton)
+        // The group says what it holds (a symbol-only button once drew just the chevron).
+        #expect(group.attributedTitle.string == "Offline (1)")
         group.performClick(nil)
         #expect(findView("macScreen.home.name.Air Blue", under: home) != nil)
         #expect(findView("macScreen.home.view.Air Blue", under: home) == nil)

@@ -1543,6 +1543,25 @@ if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mo
 fi
 [[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
+# The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): the cmux.rd/1 host in
+# its own signed app, which holds the Screen Recording and Accessibility grants so a grant
+# never relaunches cmux. Same rule as cmux-mobile-host: fleet and CI builds compile it on a
+# miss and require it; a local reload bundles a cached build when one exists and otherwise
+# builds an app that shares its screen from its own process (never Cargo on the developer Mac).
+if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
+  export CMUX_NEXT_SCREEN_HELPER_ARCHS="${CMUX_NEXT_SCREEN_HELPER_ARCHS:-$RELOAD_HELPER_ARCHS}"
+fi
+if [[ -z "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" ]]; then
+  if cmux_screen_helper_cached="$("$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_SCREEN_HELPER_BIN="$cmux_screen_helper_cached"
+  elif "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" || exit 1
+    export CMUX_NEXT_SCREEN_HELPER_BIN="$("$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_SCREEN_HELPER=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" ]] && echo "==> cmux-next: bundling the Screen Sharing helper from $CMUX_NEXT_SCREEN_HELPER_BIN"
+
 # The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
@@ -2248,6 +2267,20 @@ if [[ -x "$CMUX_CUA_HELPER_APP/Contents/MacOS/cmux-cua" ]]; then
 else
   "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
     --helper-app "$CMUX_CUA_HELPER_APP"
+fi
+# The Screen Sharing helper, when this build has its binary (CMUX_NEXT_SCREEN_HELPER_BIN, above)
+# but the app came out without it: the Xcode phase's only declared output is its stamp in
+# TARGET_TEMP_DIR, so a reused DerivedData (fleet slots) whose app bundle was removed or rebuilt
+# while the stamp stayed skips the phase, and the app falls back to sharing from its own process.
+# Bundle the same binary into the final app here, named and signed as the phase would.
+cmux_screen_helper_bins=("$APP_PATH/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+if [[ -x "${cmux_screen_helper_bins[0]}" ]]; then
+  echo "Preserving Xcode-built Screen Sharing helper at ${cmux_screen_helper_bins[0]%/Contents/MacOS/*}"
+elif [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" ]]; then
+  echo "==> cmux-next: the Bundle Screen Sharing helper phase did not run; bundling it into $APP_PATH"
+  env CONFIGURATION="$BUILD_CONFIGURATION" CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 \
+    EXPANDED_CODE_SIGN_IDENTITY="${CMUX_DEV_SIGN_IDENTITY:-}" CMUX_TIMESTAMP=none \
+    "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" --app "$APP_PATH" || exit 1
 fi
 # A dev build uses a Developer ID helper from an installed release, NIGHTLY or
 # RC, or none. Drop an ad-hoc helper an older build left in this app.
