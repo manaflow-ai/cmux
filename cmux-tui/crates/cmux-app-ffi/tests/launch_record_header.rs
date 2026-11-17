@@ -1,6 +1,6 @@
 use cmux_launch_record::{
-    CmuxLaunchDisplay, CmuxLaunchNow, CmuxLaunchShellPlan, CmuxLaunchSidebarInput,
-    CmuxLaunchWindow, CmuxLaunchWindowInput,
+    CmuxLaunchDisplay, CmuxLaunchShellDisplay, CmuxLaunchShellNow, CmuxLaunchShellPlan,
+    CmuxLaunchSidebarInput, CmuxLaunchWindow, CmuxLaunchWindowInput,
 };
 use std::{
     mem::{align_of, offset_of, size_of},
@@ -42,7 +42,8 @@ fn launch_record_c_layout_and_exports_match_rust() {
         screen_frame_height,
         appearance,
         appearance_follows_system,
-        fullscreen
+        fullscreen,
+        image_ok
     );
     check!(
         CmuxLaunchWindowInput,
@@ -79,7 +80,8 @@ fn launch_record_c_layout_and_exports_match_rust() {
         frame_height,
         backing_scale
     );
-    check!(CmuxLaunchNow, build, appearance, displays, n, support_dir);
+    check!(CmuxLaunchShellDisplay, x, y, width, height, scale);
+    check!(CmuxLaunchShellNow, build, appearance, displays, display_count, support_dir);
     check!(
         CmuxLaunchShellPlan,
         frame_x,
@@ -90,6 +92,9 @@ fn launch_record_c_layout_and_exports_match_rust() {
         bar_rgba,
         appearance,
         reason,
+        shows_window,
+        uses_default_frame,
+        window_id,
         image_path
     );
     std::fs::write(&source, c).unwrap();
@@ -120,6 +125,7 @@ fn launch_record_c_layout_and_exports_match_rust() {
         "_cmux_launch_record_front_window",
         "_cmux_launch_record_write",
         "_cmux_launch_record_windows",
+        "_cmux_launch_record_windows_now",
         "_cmux_launch_record_layout_matches",
         "_cmux_launch_shell_plan",
     ] {

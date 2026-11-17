@@ -3,8 +3,11 @@
 use std::ffi::{CStr, c_char};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+pub mod shell;
+pub use shell::{CmuxLaunchShellDisplay, CmuxLaunchShellNow, CmuxLaunchShellPlan};
 
 /// Version 2 adds scale, appearance, full screen and the display frame, and
 /// replaces the image path with an image key. Version 1 records still read.
@@ -13,14 +16,8 @@ pub const MAX_BYTES: usize = 64 * 1024;
 const MAGIC: &[u8; 8] = b"CMUXLR01";
 /// Smallest encoded v2 window: empty strings, no tabs. Bounds FFI counts.
 const WINDOW_MIN_BYTES: usize = 103;
-/// The plan's inline image path buffer, NUL included.
-pub const IMAGE_PATH_CAPACITY: usize = 1024;
 /// More displays than any Mac drives; a larger count is a caller bug.
 const MAX_DISPLAYS: usize = 1024;
-/// Files in the support directory that show an earlier launch left state, so a
-/// missing record means it was lost rather than never written.
-pub const PRIOR_STATE_MARKERS: &[&str] = &["launch-times.jsonl"];
-
 /// Startup work is explicitly classified so a new task cannot accidentally
 /// move ahead of the first committed frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +89,7 @@ pub struct LaunchRecordData {
     pub session_socket_path: String,
 }
 
+/// A validated record (v1 or v2). See `read`, `windows`, `front_window`.
 pub struct LaunchRecord {
     bytes: Vec<u8>,
     version: u16,
@@ -112,6 +110,8 @@ impl std::fmt::Debug for LaunchRecord {
     }
 }
 impl LaunchRecord {
+    /// Reads and validates the record at `path`; None when missing, unreadable, over
+    /// `MAX_BYTES` or malformed. Fields are views into the one buffer it reads.
     pub fn read(path: impl AsRef<Path>) -> Option<Self> {
         let file = File::open(path).ok()?;
         let length = file.metadata().ok()?.len();
@@ -127,6 +127,7 @@ impl LaunchRecord {
         }
         Self::from_bytes(bytes)
     }
+    /// Validates a whole record in memory; None for anything malformed or over `MAX_BYTES`.
     pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
         if bytes.len() > MAX_BYTES {
             return None;
@@ -158,9 +159,11 @@ impl LaunchRecord {
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
+    /// 1 or 2; a v1 record's windows read with the v2 fields defaulted.
     pub fn version(&self) -> u16 {
         self.version
     }
+    /// Windows in the record, front included.
     pub fn window_count(&self) -> usize {
         self.windows
     }
@@ -261,85 +264,13 @@ impl<'a> Iterator for TabIter<'a> {
     }
 }
 
-/// A display as the shell sees it now.
+/// A display as the app sees it now, for `layout_matches`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Display {
     pub display_id: u32,
     pub frame: Frame,
     pub backing_scale: f64,
 }
-/// What the shell knows about this launch before the app core runs.
-#[derive(Debug, Clone, Copy)]
-pub struct LaunchNow<'a> {
-    /// CFBundleVersion and commit; image keys start with it and a slash.
-    pub build: &'a str,
-    pub appearance: u8,
-    pub displays: &'a [Display],
-    /// Where `PRIOR_STATE_MARKERS` live; `None` skips the check.
-    pub support_dir: Option<&'a Path>,
-}
-/// The record as the shell found it.
-#[derive(Debug, Clone, Copy)]
-pub enum SavedRecord<'a> {
-    /// No file at the record path.
-    Missing,
-    /// A file that cannot be read or does not parse.
-    Unusable,
-    Read(&'a LaunchRecord),
-}
-impl<'a> SavedRecord<'a> {
-    pub fn from_read(path: &Path, record: Option<&'a LaunchRecord>) -> Self {
-        match record {
-            Some(r) => Self::Read(r),
-            None if fs::symlink_metadata(path)
-                .is_err_and(|e| e.kind() == io::ErrorKind::NotFound) =>
-            {
-                Self::Missing
-            }
-            None => Self::Unusable,
-        }
-    }
-}
-/// Why the saved image can or cannot be shown; the first failure wins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum PlanReason {
-    ImageOk = 0,
-    NoRecord = 1,
-    NoWindows = 2,
-    BuildDiffers = 3,
-    LayoutDiffers = 4,
-    ScaleDiffers = 5,
-    AppearanceDiffers = 6,
-    ImageMissing = 7,
-    ImageSizeDiffers = 8,
-    FullScreen = 9,
-    /// No record file, but a prior-state marker exists in the support directory.
-    NoRecordPriorState = 10,
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct ShellPlan {
-    pub frame: Frame,
-    pub background_rgba: [u8; 4],
-    pub bar_rgba: [u8; 4],
-    pub appearance: u8,
-    /// Set only with `PlanReason::ImageOk`; fits `IMAGE_PATH_CAPACITY`.
-    pub image_path: Option<PathBuf>,
-    pub reason: PlanReason,
-}
-impl ShellPlan {
-    fn empty(reason: PlanReason) -> Self {
-        Self {
-            frame: Frame::default(),
-            background_rgba: [0; 4],
-            bar_rgba: [0; 4],
-            appearance: 0,
-            image_path: None,
-            reason,
-        }
-    }
-}
-
 /// True iff every saved window's display is present with the same frame and scale.
 pub fn layout_matches(record: &LaunchRecord, now: &[Display]) -> bool {
     record.windows().all(|w| {
@@ -351,95 +282,7 @@ pub fn layout_matches(record: &LaunchRecord, now: &[Display]) -> bool {
     })
 }
 
-/// The first-frame plan for the front window. `image_dir` must be absolute.
-pub fn shell_plan(record: SavedRecord<'_>, image_dir: &Path, now: &LaunchNow<'_>) -> ShellPlan {
-    shell_plan_with(record, image_dir, now, |p| fs::metadata(p).is_ok_and(|m| m.is_file()))
-}
-
-/// `shell_plan` with the regular-file check (image, markers) supplied by the caller.
-pub fn shell_plan_with(
-    record: SavedRecord<'_>,
-    image_dir: &Path,
-    now: &LaunchNow<'_>,
-    is_file: impl Fn(&Path) -> bool,
-) -> ShellPlan {
-    let prior_state = |d: &Path| PRIOR_STATE_MARKERS.iter().any(|m| is_file(&d.join(m)));
-    let record = match record {
-        SavedRecord::Read(r) => r,
-        SavedRecord::Missing if now.support_dir.is_some_and(prior_state) => {
-            return ShellPlan::empty(PlanReason::NoRecordPriorState);
-        }
-        SavedRecord::Missing | SavedRecord::Unusable => {
-            return ShellPlan::empty(PlanReason::NoRecord);
-        }
-    };
-    let Some(w) = record.front_window() else { return ShellPlan::empty(PlanReason::NoWindows) };
-    // A window with no usable frame cannot be drawn, so there is no window to plan.
-    if !frame_is_usable(w.frame) {
-        return ShellPlan::empty(PlanReason::NoWindows);
-    }
-    let verdict = image_verdict(record.version(), &w, image_dir, now, is_file);
-    let (image_path, reason) = match verdict {
-        Ok(path) => (Some(path), PlanReason::ImageOk),
-        Err(reason) => (None, reason),
-    };
-    ShellPlan {
-        frame: w.frame,
-        background_rgba: w.background_rgba,
-        bar_rgba: w.bar_rgba,
-        appearance: w.appearance,
-        image_path,
-        reason,
-    }
-}
-
-fn image_verdict(
-    version: u16,
-    w: &WindowView<'_>,
-    image_dir: &Path,
-    now: &LaunchNow<'_>,
-    is_file: impl Fn(&Path) -> bool,
-) -> Result<PathBuf, PlanReason> {
-    // v1 stored no build in its image path, so its image is always stale.
-    let same_build = version >= 2
-        && !now.build.is_empty()
-        && w.image_key.strip_prefix(now.build).is_some_and(|rest| rest.starts_with('/'));
-    if !same_build {
-        return Err(PlanReason::BuildDiffers);
-    }
-    let display = now.displays.iter().find(|d| d.display_id == w.display_id);
-    let Some(display) = display.filter(|d| d.frame == w.screen_frame) else {
-        return Err(PlanReason::LayoutDiffers);
-    };
-    if display.backing_scale != w.backing_scale {
-        return Err(PlanReason::ScaleDiffers);
-    }
-    if w.appearance_follows_system != 0 && now.appearance != w.appearance {
-        return Err(PlanReason::AppearanceDiffers);
-    }
-    // The key is plain relative segments inside the image directory, and the
-    // path fits the plan's buffer.
-    let key = Path::new(w.image_key);
-    let path = image_dir.join(key);
-    if !image_dir.is_absolute()
-        || w.image_key.split('/').any(|s| matches!(s, "" | "." | ".."))
-        || path.as_os_str().len() >= IMAGE_PATH_CAPACITY
-        || path.to_str().is_none_or(|p| p.contains('\0'))
-        || !is_file(&path)
-    {
-        return Err(PlanReason::ImageMissing);
-    }
-    let fits = |pixels: u32, points: f64| (pixels as f64 - points * w.backing_scale).abs() <= 1.0;
-    if !fits(w.image_pixel_width, w.frame.width) || !fits(w.image_pixel_height, w.frame.height) {
-        return Err(PlanReason::ImageSizeDiffers);
-    }
-    if w.fullscreen != 0 {
-        return Err(PlanReason::FullScreen);
-    }
-    Ok(path)
-}
-
-fn frame_is_usable(f: Frame) -> bool {
+pub(crate) fn frame_is_usable(f: Frame) -> bool {
     [f.x, f.y, f.width, f.height].iter().all(|n| n.is_finite()) && f.width > 0.0 && f.height > 0.0
 }
 
@@ -688,6 +531,9 @@ pub struct CmuxLaunchWindow {
     pub appearance: u8,
     pub appearance_follows_system: u8,
     pub fullscreen: u8,
+    /// 1 when the window's saved image may be drawn now (`shell::image_for`);
+    /// set only by `cmux_launch_record_windows_now`, else 0.
+    pub image_ok: u8,
 }
 
 /// v2 fields follow the v1 fields so their offsets are unchanged.
@@ -735,30 +581,7 @@ pub struct CmuxLaunchDisplay {
     pub backing_scale: f64,
 }
 
-#[repr(C)]
-pub struct CmuxLaunchNow {
-    pub build: *const c_char,
-    pub appearance: u8,
-    pub displays: *const CmuxLaunchDisplay,
-    pub n: usize,
-    pub support_dir: *const c_char,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct CmuxLaunchShellPlan {
-    pub frame_x: f64,
-    pub frame_y: f64,
-    pub frame_width: f64,
-    pub frame_height: f64,
-    pub background_rgba: [u8; 4],
-    pub bar_rgba: [u8; 4],
-    pub appearance: u8,
-    pub reason: u8,
-    pub image_path: [c_char; IMAGE_PATH_CAPACITY],
-}
-
-unsafe fn c_string<'a>(p: *const c_char) -> Option<&'a str> {
+pub(crate) unsafe fn c_string<'a>(p: *const c_char) -> Option<&'a str> {
     if p.is_null() {
         return None;
     }
@@ -868,11 +691,6 @@ impl Default for CmuxLaunchWindow {
         unsafe { std::mem::zeroed() }
     }
 }
-impl Default for CmuxLaunchShellPlan {
-    fn default() -> Self {
-        unsafe { std::mem::zeroed() }
-    }
-}
 fn copy_c(dst: &mut [c_char], s: &str) {
     // The caller has validated capacity and embedded NULs.
     for (d, b) in dst.iter_mut().zip(s.bytes()) {
@@ -960,9 +778,39 @@ pub unsafe extern "C" fn cmux_launch_record_front_window(
     }
     true
 }
+/// Fills up to `cap` entries of `out` from `record`, front first; `image_ok`
+/// sets each entry's flag. Returns the window count, or 0 (entries it wrote
+/// zeroed) when a window does not fit `CmuxLaunchWindow`.
+fn windows_into(
+    record: &LaunchRecord,
+    out: &mut [CmuxLaunchWindow],
+    image_ok: impl Fn(&WindowView<'_>) -> bool,
+) -> usize {
+    for (i, w) in record.windows().enumerate() {
+        let mut one = CmuxLaunchWindow::default();
+        if !fill_window(&w, &mut one) {
+            out.fill(CmuxLaunchWindow::default());
+            return 0;
+        }
+        one.image_ok = image_ok(&w) as u8;
+        if let Some(slot) = out.get_mut(i) {
+            *slot = one;
+        }
+    }
+    record.window_count()
+}
+/// The first `min(count, cap)` entries of `out`; empty when `cap` is 0.
+unsafe fn out_slice<'a>(
+    record: &LaunchRecord,
+    out: *mut CmuxLaunchWindow,
+    cap: usize,
+) -> &'a mut [CmuxLaunchWindow] {
+    let filled = cap.min(record.window_count());
+    if filled == 0 { &mut [] } else { unsafe { std::slice::from_raw_parts_mut(out, filled) } }
+}
 /// Returns the record's window count and fills the first `min(count, cap)`
-/// entries, front window first. Returns 0 when the record or any window is
-/// unusable, with the entries it wrote zeroed.
+/// entries, front window first, with `image_ok` 0. Returns 0 when the record
+/// or any window is unusable, with the entries it wrote zeroed.
 ///
 /// # Safety
 /// `out` must be writable for `cap` entries unless `cap` is 0. `path`, if
@@ -977,29 +825,44 @@ pub unsafe extern "C" fn cmux_launch_record_windows(
         return 0;
     }
     let Some(record) = (unsafe { read_at(path) }) else { return 0 };
-    let count = record.window_count();
-    let filled = cap.min(count);
-    let out = if filled == 0 {
-        &mut [][..]
-    } else {
-        unsafe { std::slice::from_raw_parts_mut(out, filled) }
-    };
-    let mut all = true;
-    for (i, w) in record.windows().enumerate() {
-        let mut one = CmuxLaunchWindow::default();
-        all &= fill_window(&w, &mut one);
-        if !all {
-            break;
-        }
-        if let Some(slot) = out.get_mut(i) {
-            *slot = one;
-        }
-    }
-    if !all {
-        out.fill(CmuxLaunchWindow::default());
+    windows_into(&record, unsafe { out_slice(&record, out, cap) }, |_| false)
+}
+/// `cmux_launch_record_windows`, with each entry's `image_ok` set when that
+/// window's saved image in `image_dir` may be drawn `now`. `now->support_dir`
+/// is not read. Returns 0 for a null `now` or a non-UTF-8 string.
+///
+/// # Safety
+/// As `cmux_launch_record_windows`; `image_dir` and `now->build` are null or
+/// NUL-terminated, and `now->displays` readable for `now->display_count`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_launch_record_windows_now(
+    path: *const c_char,
+    image_dir: *const c_char,
+    now: *const CmuxLaunchShellNow,
+    out: *mut CmuxLaunchWindow,
+    cap: usize,
+) -> usize {
+    if (cap != 0 && out.is_null()) || now.is_null() {
         return 0;
     }
-    count
+    let now = unsafe { &*now };
+    let (Some(image_dir), Some(build)) =
+        (unsafe { c_string(image_dir) }, unsafe { c_string(now.build) })
+    else {
+        return 0;
+    };
+    let displays = unsafe { shell::displays_from_c(now.displays, now.display_count) };
+    let now = shell::Now {
+        build,
+        appearance: shell::Appearance::from_u8(now.appearance),
+        displays: &displays,
+        support_dir: None,
+    };
+    let Some(record) = (unsafe { read_at(path) }) else { return 0 };
+    let image_dir = Path::new(image_dir);
+    windows_into(&record, unsafe { out_slice(&record, out, cap) }, |w| {
+        shell::image_for(&shell::SavedWindow::from_view(w), image_dir, &now).is_ok()
+    })
 }
 /// True iff every saved window's display is in `now` with the same frame and scale.
 /// False for a missing or unreadable record.
@@ -1016,60 +879,6 @@ pub unsafe extern "C" fn cmux_launch_record_layout_matches(
     let Some(displays) = (unsafe { displays_from(now, n) }) else { return false };
     let Some(record) = (unsafe { read_at(path) }) else { return false };
     layout_matches(&record, &displays)
-}
-/// Fills `out` with the first-frame plan; false (output zeroed) only for null
-/// or non-UTF-8 arguments. A missing record is a plan with reason 1, or 10 when
-/// a prior-state marker is in `now->support_dir` (null skips that check).
-///
-/// # Safety
-/// `out`, if non-null, must be writable and aligned. Non-null strings must be
-/// NUL-terminated, and `now->displays` readable for `now->n` entries.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_launch_shell_plan(
-    record_path: *const c_char,
-    image_dir: *const c_char,
-    now: *const CmuxLaunchNow,
-    out: *mut CmuxLaunchShellPlan,
-) -> bool {
-    if out.is_null() || now.is_null() {
-        return false;
-    }
-    let o = unsafe { &mut *out };
-    *o = CmuxLaunchShellPlan::default();
-    let now = unsafe { &*now };
-    let (Some(record_path), Some(image_dir), Some(build), Some(displays)) = (unsafe {
-        (
-            c_string(record_path),
-            c_string(image_dir),
-            c_string(now.build),
-            displays_from(now.displays, now.n),
-        )
-    }) else {
-        return false;
-    };
-    let support_dir = if now.support_dir.is_null() {
-        None
-    } else {
-        let Some(dir) = (unsafe { c_string(now.support_dir) }) else { return false };
-        Some(Path::new(dir))
-    };
-    let record = LaunchRecord::read(record_path);
-    let saved = SavedRecord::from_read(Path::new(record_path), record.as_ref());
-    let now = LaunchNow { build, appearance: now.appearance, displays: &displays, support_dir };
-    let plan = shell_plan(saved, Path::new(image_dir), &now);
-    o.frame_x = plan.frame.x;
-    o.frame_y = plan.frame.y;
-    o.frame_width = plan.frame.width;
-    o.frame_height = plan.frame.height;
-    o.background_rgba = plan.background_rgba;
-    o.bar_rgba = plan.bar_rgba;
-    o.appearance = plan.appearance;
-    o.reason = plan.reason as u8;
-    // The plan checked the path is UTF-8, NUL-free and fits the buffer.
-    if let Some(path) = plan.image_path.as_deref().and_then(Path::to_str) {
-        copy_c(&mut o.image_path, path);
-    }
-    true
 }
 #[cfg(test)]
 mod tests {
@@ -1141,14 +950,6 @@ mod tests {
             Display { display_id: 3, frame: Frame { x: 1512., ..SCREEN }, backing_scale: 1.0 },
             Display { display_id: 7, frame: SCREEN, backing_scale: 2.0 },
         ]
-    }
-    fn plan_for(data: &LaunchRecordData, displays: &[Display], appearance: u8) -> ShellPlan {
-        let record = LaunchRecord::from_bytes(encode(data).unwrap()).unwrap();
-        let now = LaunchNow { build: BUILD, appearance, displays, support_dir: None };
-        shell_plan_with(SavedRecord::Read(&record), Path::new("/images"), &now, |_| true)
-    }
-    fn reason(data: &LaunchRecordData) -> PlanReason {
-        plan_for(data, &displays(), 1).reason
     }
     #[test]
     fn round_trip() {
@@ -1264,7 +1065,7 @@ mod tests {
         assert!(LaunchRecord::from_bytes(b).is_none())
     }
     #[test]
-    fn v1_record_reads_with_defaults_and_is_stale() {
+    fn v1_record_reads_with_defaults() {
         let data = sample();
         let r = LaunchRecord::from_bytes(encode_v1(&data)).unwrap();
         assert_eq!(r.version(), 1);
@@ -1276,209 +1077,7 @@ mod tests {
         assert_eq!((w.appearance, w.appearance_follows_system, w.fullscreen), (0, 0, 0));
         assert_eq!(r.sidebar_rows().next().unwrap().title, "Side");
         assert_eq!(r.session_socket_path(), "/tmp/sock");
-        let now =
-            LaunchNow { build: BUILD, appearance: 0, displays: &displays(), support_dir: None };
-        let plan = shell_plan_with(SavedRecord::Read(&r), Path::new("/images"), &now, |_| true);
-        assert_eq!(plan.reason, PlanReason::BuildDiffers);
-        assert_eq!(plan.frame, data.windows[0].frame);
-        assert_eq!(plan.image_path, None);
         assert!(!layout_matches(&r, &displays()));
-    }
-    #[test]
-    fn plan_image_ok() {
-        let plan = plan_for(&sample(), &displays(), 1);
-        assert_eq!(plan.reason, PlanReason::ImageOk);
-        assert_eq!(plan.image_path, Some(PathBuf::from(format!("/images/{BUILD}/w/3"))));
-        assert_eq!(plan.frame, sample().windows[0].frame);
-        assert_eq!(
-            (plan.background_rgba, plan.bar_rgba, plan.appearance),
-            ([1, 2, 3, 4], [5, 6, 7, 8], 1)
-        );
-    }
-    #[test]
-    fn plan_no_record_and_no_windows_are_zeroed() {
-        let now = LaunchNow { build: BUILD, appearance: 0, displays: &[], support_dir: None };
-        for saved in [SavedRecord::Missing, SavedRecord::Unusable] {
-            assert_eq!(
-                shell_plan_with(saved, Path::new("/images"), &now, |_| true),
-                ShellPlan::empty(PlanReason::NoRecord)
-            );
-        }
-        let mut data = sample();
-        data.windows.clear();
-        assert_eq!(plan_for(&data, &displays(), 1), ShellPlan::empty(PlanReason::NoWindows));
-        data.windows.push(window("w"));
-        data.windows[0].frame.width = f64::NAN;
-        assert_eq!(plan_for(&data, &displays(), 1), ShellPlan::empty(PlanReason::NoWindows));
-    }
-    #[test]
-    fn plan_missing_record_with_and_without_prior_state() {
-        let support = Path::new("/support");
-        let now =
-            LaunchNow { build: BUILD, appearance: 0, displays: &[], support_dir: Some(support) };
-        let marker = support.join("launch-times.jsonl");
-        let with = |saved| shell_plan_with(saved, Path::new("/images"), &now, |p| p == marker);
-        assert_eq!(with(SavedRecord::Missing), ShellPlan::empty(PlanReason::NoRecordPriorState));
-        assert_eq!(with(SavedRecord::Unusable).reason, PlanReason::NoRecord);
-        let without = shell_plan_with(SavedRecord::Missing, Path::new("/images"), &now, |_| false);
-        assert_eq!(without, ShellPlan::empty(PlanReason::NoRecord));
-        let skip = LaunchNow { support_dir: None, ..now };
-        assert_eq!(
-            shell_plan_with(SavedRecord::Missing, Path::new("/images"), &skip, |_| true).reason,
-            PlanReason::NoRecord
-        );
-        // The real stat, through SavedRecord::from_read.
-        let dir = TestDir::new();
-        let saved = SavedRecord::from_read(&dir.record(), None);
-        assert!(matches!(saved, SavedRecord::Missing));
-        let now = LaunchNow { support_dir: Some(&dir.0), ..now };
-        assert_eq!(shell_plan(saved, Path::new("/images"), &now).reason, PlanReason::NoRecord);
-        fs::write(dir.0.join("launch-times.jsonl"), b"").unwrap();
-        assert_eq!(
-            shell_plan(saved, Path::new("/images"), &now).reason,
-            PlanReason::NoRecordPriorState
-        );
-        fs::write(dir.record(), b"garbage").unwrap();
-        assert!(matches!(SavedRecord::from_read(&dir.record(), None), SavedRecord::Unusable));
-    }
-    #[test]
-    fn plan_stale_build() {
-        for key in ["other/w/3", "1234-abcdef0x/w/3", "1234-abcdef0", "", "1234/w/3"] {
-            let mut data = sample();
-            data.windows[0].image_key = key.into();
-            let plan = plan_for(&data, &displays(), 1);
-            assert_eq!(plan.reason, PlanReason::BuildDiffers, "{key}");
-            assert_eq!(
-                (plan.frame, plan.bar_rgba, plan.image_path),
-                (data.windows[0].frame, [5, 6, 7, 8], None)
-            );
-        }
-        let record = LaunchRecord::from_bytes(encode(&sample()).unwrap()).unwrap();
-        let now = LaunchNow { build: "", appearance: 1, displays: &displays(), support_dir: None };
-        assert_eq!(
-            shell_plan_with(SavedRecord::Read(&record), Path::new("/images"), &now, |_| true)
-                .reason,
-            PlanReason::BuildDiffers
-        );
-    }
-    #[test]
-    fn plan_layout_display_missing_or_moved() {
-        let mut d = displays();
-        d.retain(|d| d.display_id != 7);
-        assert_eq!(plan_for(&sample(), &d, 1).reason, PlanReason::LayoutDiffers);
-        assert_eq!(plan_for(&sample(), &[], 1).reason, PlanReason::LayoutDiffers);
-        for moved in [Frame { x: 1., ..SCREEN }, Frame { height: 1117., ..SCREEN }] {
-            let mut d = displays();
-            d[1].frame = moved;
-            let plan = plan_for(&sample(), &d, 1);
-            assert_eq!(plan.reason, PlanReason::LayoutDiffers);
-            assert_eq!(plan.frame, sample().windows[0].frame);
-        }
-    }
-    #[test]
-    fn plan_scale_changed() {
-        let mut d = displays();
-        d[1].backing_scale = 1.0;
-        assert_eq!(plan_for(&sample(), &d, 1).reason, PlanReason::ScaleDiffers);
-    }
-    #[test]
-    fn plan_appearance_only_when_following_system() {
-        let mut data = sample();
-        assert_eq!(plan_for(&data, &displays(), 0).reason, PlanReason::AppearanceDiffers);
-        assert_eq!(plan_for(&data, &displays(), 1).reason, PlanReason::ImageOk);
-        data.windows[0].appearance_follows_system = 0;
-        assert_eq!(plan_for(&data, &displays(), 0).reason, PlanReason::ImageOk);
-        data.windows[0].appearance = 0;
-        assert_eq!(plan_for(&data, &displays(), 1).reason, PlanReason::ImageOk);
-        data.windows[0].appearance_follows_system = 1;
-        assert_eq!(plan_for(&data, &displays(), 1).reason, PlanReason::AppearanceDiffers);
-        let plan = plan_for(&data, &displays(), 0);
-        assert_eq!((plan.reason, plan.appearance), (PlanReason::ImageOk, 0));
-    }
-    #[test]
-    fn plan_image_missing_unsafe_or_too_long() {
-        let record = LaunchRecord::from_bytes(encode(&sample()).unwrap()).unwrap();
-        let d = displays();
-        let now = LaunchNow { build: BUILD, appearance: 1, displays: &d, support_dir: None };
-        let plan =
-            shell_plan_with(SavedRecord::Read(&record), Path::new("/images"), &now, |_| false);
-        assert_eq!((plan.reason, plan.image_path), (PlanReason::ImageMissing, None));
-        assert_eq!(
-            shell_plan_with(SavedRecord::Read(&record), Path::new("images"), &now, |_| true).reason,
-            PlanReason::ImageMissing
-        );
-        for key in [
-            format!("{BUILD}/../../etc/passwd"),
-            format!("{BUILD}/./w"),
-            format!("{BUILD}/w//3"),
-            format!("{BUILD}/w/3/"),
-        ] {
-            let mut data = sample();
-            data.windows[0].image_key = key;
-            assert_eq!(reason(&data), PlanReason::ImageMissing);
-        }
-        // "/images/" is 8 bytes; the path plus its NUL must fit 1024.
-        for (len, expected) in [(1023, PlanReason::ImageOk), (1024, PlanReason::ImageMissing)] {
-            let mut data = sample();
-            let prefix = format!("{BUILD}/");
-            data.windows[0].image_key = format!("{prefix}{}", "k".repeat(len - 8 - prefix.len()));
-            assert_eq!(reason(&data), expected, "{len}");
-        }
-        // The real stat: a directory or a missing file is not an image.
-        let dir = TestDir::new();
-        let path = dir.0.join(BUILD).join("w");
-        fs::create_dir_all(&path).unwrap();
-        assert_eq!(
-            shell_plan(SavedRecord::Read(&record), &dir.0, &now).reason,
-            PlanReason::ImageMissing
-        );
-        fs::create_dir(path.join("3")).unwrap();
-        assert_eq!(
-            shell_plan(SavedRecord::Read(&record), &dir.0, &now).reason,
-            PlanReason::ImageMissing
-        );
-        fs::remove_dir(path.join("3")).unwrap();
-        fs::write(path.join("3"), b"png").unwrap();
-        let plan = shell_plan(SavedRecord::Read(&record), &dir.0, &now);
-        assert_eq!((plan.reason, plan.image_path), (PlanReason::ImageOk, Some(path.join("3"))));
-    }
-    #[test]
-    fn plan_image_size_with_one_pixel_tolerance() {
-        for (w, h, expected) in [
-            (1601, 1199, PlanReason::ImageOk),
-            (1599, 1201, PlanReason::ImageOk),
-            (1602, 1200, PlanReason::ImageSizeDiffers),
-            (1600, 1198, PlanReason::ImageSizeDiffers),
-            (800, 600, PlanReason::ImageSizeDiffers),
-        ] {
-            let mut data = sample();
-            data.windows[0].image_pixel_width = w;
-            data.windows[0].image_pixel_height = h;
-            assert_eq!(reason(&data), expected, "{w}x{h}");
-        }
-    }
-    #[test]
-    fn plan_fullscreen_and_first_failure_wins() {
-        let mut data = sample();
-        data.windows[0].fullscreen = 1;
-        assert_eq!(reason(&data), PlanReason::FullScreen);
-        data.windows[0].image_pixel_width = 1;
-        assert_eq!(reason(&data), PlanReason::ImageSizeDiffers);
-        let mut d = displays();
-        d[1].backing_scale = 3.0;
-        assert_eq!(plan_for(&data, &d, 0).reason, PlanReason::ScaleDiffers);
-        data.windows[0].image_key = "old/w/1".into();
-        assert_eq!(plan_for(&data, &d, 0).reason, PlanReason::BuildDiffers);
-    }
-    #[test]
-    fn plan_uses_front_window_only() {
-        let mut data = sample();
-        let mut back = window("back");
-        back.display_id = 99;
-        data.windows.push(back);
-        assert_eq!(reason(&data), PlanReason::ImageOk);
-        let record = LaunchRecord::from_bytes(encode(&data).unwrap()).unwrap();
-        assert!(!layout_matches(&record, &displays()));
     }
     #[test]
     fn layout_matches_every_window() {
@@ -1537,11 +1136,9 @@ mod tests {
         assert_eq!(ids(&out[..3]), ["", "", ""]);
     }
     #[test]
-    fn ffi_layout_and_shell_plan() {
+    fn ffi_layout_matches() {
         let dir = TestDir::new();
         let record = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
-        let images = std::ffi::CString::new(dir.0.join("images").to_str().unwrap()).unwrap();
-        let build = std::ffi::CString::new(BUILD).unwrap();
         let d = displays()
             .iter()
             .map(|d| CmuxLaunchDisplay {
@@ -1553,79 +1150,17 @@ mod tests {
                 backing_scale: d.backing_scale,
             })
             .collect::<Vec<_>>();
-        let support = std::ffi::CString::new(dir.0.join("support").to_str().unwrap()).unwrap();
-        let now = CmuxLaunchNow {
-            build: build.as_ptr(),
-            appearance: 1,
-            displays: d.as_ptr(),
-            n: d.len(),
-            support_dir: support.as_ptr(),
-        };
-        let mut out = CmuxLaunchShellPlan { reason: 42, ..Default::default() };
-        let plan = |out: &mut CmuxLaunchShellPlan| unsafe {
-            cmux_launch_shell_plan(record.as_ptr(), images.as_ptr(), &now, out)
-        };
-        let image_path = |out: &CmuxLaunchShellPlan| {
-            unsafe { CStr::from_ptr(out.image_path.as_ptr()) }.to_str().unwrap().to_owned()
-        };
-        assert!(plan(&mut out));
-        assert_eq!((out.reason, out.frame_width, image_path(&out)), (1, 0.0, String::new()));
-        // A missing record after an earlier launch left state is reason 10.
-        fs::create_dir(dir.0.join("support")).unwrap();
-        fs::write(dir.0.join("support").join(PRIOR_STATE_MARKERS[0]), b"{}\n").unwrap();
-        assert!(plan(&mut out));
-        assert_eq!((out.reason, out.frame_width), (10, 0.0));
-        let skip = CmuxLaunchNow { support_dir: std::ptr::null(), ..now };
-        assert!(unsafe {
-            cmux_launch_shell_plan(record.as_ptr(), images.as_ptr(), &skip, &mut out)
-        });
-        assert_eq!(out.reason, 1);
-        // An unreadable record is reason 1 even with prior state.
-        fs::write(dir.record(), b"garbage").unwrap();
-        assert!(plan(&mut out));
-        assert_eq!(out.reason, 1);
-        assert!(!unsafe {
-            cmux_launch_record_layout_matches(record.as_ptr(), d.as_ptr(), d.len())
-        });
+        let matches =
+            |n| unsafe { cmux_launch_record_layout_matches(record.as_ptr(), d.as_ptr(), n) };
+        assert!(!matches(d.len()));
         write_atomic(dir.record(), &sample()).unwrap();
-        assert!(unsafe { cmux_launch_record_layout_matches(record.as_ptr(), d.as_ptr(), d.len()) });
-        assert!(!unsafe { cmux_launch_record_layout_matches(record.as_ptr(), d.as_ptr(), 1) });
-        assert!(!unsafe {
-            cmux_launch_record_layout_matches(record.as_ptr(), std::ptr::null(), 2)
-        });
-        assert!(plan(&mut out));
-        assert_eq!(out.reason, 7);
-        assert_eq!((out.frame_x, out.frame_width, out.appearance), (100., 800., 1));
-        assert_eq!((out.background_rgba, out.bar_rgba), ([1, 2, 3, 4], [5, 6, 7, 8]));
-        assert_eq!(image_path(&out), "");
-        let file = dir.0.join("images").join(BUILD).join("w").join("3");
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, b"png").unwrap();
-        assert!(plan(&mut out));
-        assert_eq!((out.reason, image_path(&out)), (0, file.to_str().unwrap().to_owned()));
-        // Invalid arguments: false with a zeroed plan.
-        let bad = [0xffu8, 0];
-        let none = CmuxLaunchNow { build: bad.as_ptr().cast(), ..now };
-        assert!(!unsafe {
-            cmux_launch_shell_plan(record.as_ptr(), images.as_ptr(), &none, &mut out)
-        });
-        assert_eq!((out.reason, out.frame_width, out.image_path[0]), (0, 0.0, 0));
-        let none = CmuxLaunchNow { displays: std::ptr::null(), ..now };
-        assert!(!unsafe {
-            cmux_launch_shell_plan(record.as_ptr(), images.as_ptr(), &none, &mut out)
-        });
-        assert!(!unsafe {
-            cmux_launch_shell_plan(std::ptr::null(), images.as_ptr(), &now, &mut out)
-        });
-        assert!(!unsafe {
-            cmux_launch_shell_plan(record.as_ptr(), std::ptr::null(), &now, &mut out)
-        });
-        assert!(!unsafe {
-            cmux_launch_shell_plan(record.as_ptr(), images.as_ptr(), std::ptr::null(), &mut out)
-        });
-        assert!(!unsafe {
-            cmux_launch_shell_plan(record.as_ptr(), images.as_ptr(), &now, std::ptr::null_mut())
-        });
+        assert!(matches(d.len()));
+        assert!(!matches(1));
+        let null = std::ptr::null();
+        assert!(!unsafe { cmux_launch_record_layout_matches(record.as_ptr(), null, 2) });
+        assert!(!unsafe { cmux_launch_record_layout_matches(null.cast(), d.as_ptr(), 2) });
+        fs::write(dir.record(), b"garbage").unwrap();
+        assert!(!matches(d.len()));
     }
 
     struct TestDir(std::path::PathBuf);

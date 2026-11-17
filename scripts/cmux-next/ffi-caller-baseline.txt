@@ -21,6 +21,7 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_wri
 # window list, layout check and shell plan reads ahead of that Swift caller.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_layout_matches
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows
+cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows_now
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_shell_plan
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_machine_init
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_reduce

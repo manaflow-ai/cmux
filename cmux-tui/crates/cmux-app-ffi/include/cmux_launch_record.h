@@ -1,6 +1,7 @@
 #ifndef CMUX_LAUNCH_RECORD_H
 #define CMUX_LAUNCH_RECORD_H
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #ifdef __cplusplus
 extern "C" {
@@ -28,6 +29,9 @@ typedef struct CmuxLaunchWindow {
   uint8_t appearance;  // 0 light, 1 dark
   uint8_t appearance_follows_system;
   uint8_t fullscreen;
+  // 1 when the saved image may be drawn now; set only by
+  // cmux_launch_record_windows_now, else 0.
+  uint8_t image_ok;
 } CmuxLaunchWindow;
 
 typedef struct CmuxLaunchWindowInput {
@@ -60,30 +64,38 @@ typedef struct CmuxLaunchDisplay {
   double backing_scale;
 } CmuxLaunchDisplay;
 
-typedef struct CmuxLaunchNow {
-  const char *build;  // CFBundleVersion and commit, as in image keys
-  uint8_t appearance;  // 0 light, 1 dark
-  const CmuxLaunchDisplay *displays;
-  uintptr_t n;
-  // Directory holding prior-state markers (launch-times.jsonl); may be null.
-  const char *support_dir;
-} CmuxLaunchNow;
+// The stage-0 launch window's plan (src/shell.rs, ported from cmux-launch-shell):
+// the saved image, the plain shell (saved frame and colors, no image), or no
+// window. Displays match by frame.
+typedef struct CmuxLaunchShellDisplay {
+  double x, y, width, height;
+  double scale;
+} CmuxLaunchShellDisplay;
 
-// reason, first failure wins in this order:
-//  0 image ok, 1 no record, 2 no windows, 3 build differs (or a v1 record),
-//  4 layout differs (display missing or its frame moved), 5 scale differs,
-//  6 appearance differs (only when the window follows the system),
-//  7 image missing or unreadable, 8 image pixels != frame x scale (+-1 px),
-//  9 full screen, 10 no record but support_dir holds prior state.
-// 1, 2 and 10 leave the rest zeroed. 3-9 fill frame, colors and appearance
-// from the front window. image_path is absolute and non-empty only for 0.
+typedef struct CmuxLaunchShellNow {
+  const char *build;
+  uint8_t appearance; /* 0 light, 1 dark */
+  const CmuxLaunchShellDisplay *displays;
+  size_t display_count;
+  // Null, or the directory holding launch-times.jsonl (prior state).
+  const char *support_dir;
+} CmuxLaunchShellNow;
+
 typedef struct CmuxLaunchShellPlan {
   double frame_x, frame_y, frame_width, frame_height;
   uint8_t background_rgba[4];
   uint8_t bar_rgba[4];
   uint8_t appearance;
+  /* 0 image, 1 no record, 2 no windows, 3 build (or a v1 record), 4 layout,
+   * 5 scale, 6 appearance, 7 image unreadable, 8 image size, 9 full screen,
+   * 10 no record but launch-times.jsonl in support_dir.
+   * No window for 4, 9 and 10; the default frame for 1 and 2; the saved
+   * frame with no image for 3 and 5-8; the image for 0. */
   uint8_t reason;
-  char image_path[1024];
+  bool shows_window;
+  bool uses_default_frame;
+  char window_id[65];
+  char image_path[1025];
 } CmuxLaunchShellPlan;
 
 // False leaves a non-null output zeroed. Success strings are NUL-terminated.
@@ -101,16 +113,20 @@ bool cmux_launch_record_write(const char *path,
 // the record or any window is unusable, zeroing the entries it wrote.
 uintptr_t cmux_launch_record_windows(const char *path, CmuxLaunchWindow *out,
                                      uintptr_t cap);
+// As cmux_launch_record_windows, with each entry's image_ok set for now.
+// now->support_dir is not read. 0 for a null now or a non-UTF-8 string.
+uintptr_t cmux_launch_record_windows_now(const char *path,
+                                         const char *image_dir,
+                                         const CmuxLaunchShellNow *now,
+                                         CmuxLaunchWindow *out, uintptr_t cap);
 // True iff every saved window's display_id is in now with the same frame and
 // backing scale. False for a missing or unreadable record.
 bool cmux_launch_record_layout_matches(const char *path,
                                        const CmuxLaunchDisplay *now,
                                        uintptr_t n);
-// Fills out and returns true; false (out zeroed) only for null or non-UTF-8
-// arguments. image_dir must be absolute for an image to be usable.
+/* False only for a null out or now, or a non-UTF-8 argument; a missing record is reason 1. */
 bool cmux_launch_shell_plan(const char *record_path, const char *image_dir,
-                            const CmuxLaunchNow *now,
-                            CmuxLaunchShellPlan *out);
+                            const CmuxLaunchShellNow *now, CmuxLaunchShellPlan *out);
 #ifdef __cplusplus
 }
 #endif
