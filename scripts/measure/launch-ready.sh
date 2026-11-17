@@ -146,6 +146,7 @@ probe() {
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   quiesce "$app" "$side" "$label"
+  side_defaults load "$app" "$out/home-$side/defaults.plist"
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
@@ -154,6 +155,7 @@ probe() {
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
   fi
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  side_defaults save "$app" "$out/home-$side/defaults.plist"
   if [[ -n "$recorder" ]]; then
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
@@ -201,6 +203,23 @@ quiesce() {
   echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
 }
 
+# side_defaults load|save APP PLIST: each side keeps its own app defaults. Both sides share one bundle id, and
+# cfprefsd keeps an app's defaults in the console user's real ~/Library/Preferences whatever HOME and
+# CFFIXED_USER_HOME say, so cmuxNext.launchSnapshotPath.<session> pointed each launch at the launch snapshot the
+# other side wrote last: head's first launch adopted base's Home, then made a workspace of its own, and every
+# prerun=60 relaunch of either side opened what the other side had left (cmux#44204's A/B). load clears the
+# bundle's defaults and imports PLIST when the side has one; save exports them to PLIST. As the app's user.
+side_defaults() {
+  local verb="$1" app="$2" plist="$3" bundle
+  bundle="$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" || return 1
+  if [[ "$verb" == load ]]; then
+    GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh defaults delete "$bundle" >/dev/null 2>&1
+    [[ ! -f "$plist" ]] || GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh defaults import "$bundle" "$plist"
+  else
+    GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh defaults export "$bundle" "$plist"
+  fi
+}
+
 # quiesce_left APP: how many processes run from APP/Contents/MacOS or APP/Contents/Frameworks. The paths reach awk
 # through its environment (in its arguments, awk would match its own command line), so the prefix goes on awk: on
 # ps, awk read empty strings, macOS awk's index($0, "") matched every line, and each launch waited the full 60 s.
@@ -214,5 +233,5 @@ load_1m() {
   sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }'
 }
 
-# Sourced (tests/launch-ready-quiesce.test.sh), it only defines its functions.
+# Sourced (tests/launch-ready-quiesce.test.sh, tests/launch-ready-defaults.test.sh), it only defines its functions.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; exit $?; fi
