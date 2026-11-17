@@ -666,7 +666,18 @@ test("a refold after a shed keeps a later activity row apart from the kept one",
     // Just after a reply chunk, at most 500 records before the next shed, the turn thinks again and lists a folder:
     // the reply chunk closed the build's row, so these draw a second activity row, while the build runs on in the
     // first. The next shed keeps the build's row across its cut and this one below it.
-    while (chat.pane.events.length < chat.HELD_RECORDS - 500 || (chat.state.total + 1) % 4 !== 1) chat.deliver();
+    // Delivered records land a tick later: the wait yields, and gives up rather than spin.
+    for (
+      let sent = 0;
+      chat.pane.events.length < chat.HELD_RECORDS - 500 || (chat.state.total + 1) % 4 !== 1;
+      sent += 1
+    ) {
+      if (sent >= 4_000) throw new Error(`held ${chat.pane.events.length} records after ${sent} more`);
+      chat.deliver();
+      if (sent % 50 !== 49) continue;
+      await tick();
+      chat.flush();
+    }
     const made = chat.state.total + 1;
     [thinking(CHECK), ...listing(LS_2, "out\n")].forEach((record, index) => later.set(made + index, record));
     const rest = await streamTurn(chat, 1_000);
