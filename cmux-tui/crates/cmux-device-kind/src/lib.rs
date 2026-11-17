@@ -340,5 +340,8 @@ pub fn glyph_table_json() -> String {
     format!("{{\n{}\n}}\n", rows.join(",\n"))
 }
 
+/// What the Screen Sharing page offers for a machine of each kind.
+pub mod screen;
+
 #[cfg(test)]
 mod tests;

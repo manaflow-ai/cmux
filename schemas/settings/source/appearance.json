@@ -1371,14 +1371,14 @@
         },
         {
           "key": "appearance.fontSmoothing",
-          "note": "Stem darkening of cmux's native text (AppleFontSmoothing in the app's domain, written at launch: ProcessFontSmoothing). Ghostty's font-thicken and web pages are not affected.",
+          "note": "How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.",
           "title": {
             "key": "settings.appearance.fontSmoothing",
             "text": "Text Smoothing"
           },
           "help": {
             "key": "settings.appearance.fontSmoothing.help",
-            "text": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."
+            "text": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages, tabs and the sidebar change at once; other text changes after cmux restarts. Terminal text keeps its own setting."
           },
           "kind": "choice",
           "swift_owner": "FontSmoothingSetting",
@@ -1389,6 +1389,13 @@
           },
           "choices": [
             {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.fontSmoothingAuto",
+                "text": "Auto"
+              }
+            },
+            {
               "value": "antialiased",
               "title": {
                 "key": "settings.choice.fontSmoothingThin",
@@ -1396,26 +1403,30 @@
               }
             },
             {
-              "value": "system",
+              "value": "subpixel",
               "title": {
-                "key": "settings.choice.fontSmoothingSystem",
-                "text": "System"
+                "key": "settings.choice.fontSmoothingSmooth",
+                "text": "Smooth"
               }
             }
           ],
-          "default": "antialiased",
+          "default": "auto",
           "keywords": [
-            "font",
-            "text",
-            "smoothing",
-            "antialiasing",
+            "AppleFontSmoothing",
             "antialiased",
-            "thin",
+            "antialiasing",
+            "auto",
             "bold",
-            "weight",
-            "rendering",
             "crisp",
-            "AppleFontSmoothing"
+            "font",
+            "rendering",
+            "smooth",
+            "smoothing",
+            "subpixel",
+            "system",
+            "text",
+            "thin",
+            "weight"
           ]
         },
         {

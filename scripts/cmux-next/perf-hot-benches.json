@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "chat-rows-frame-apply": {
+      "what": "one slice of a v2 chat's row batch in the frame lane (webviews rows/receiver.ts drain): parse and apply changes one at a time, give way to a pending key, commit and answer taken at the batch's end",
+      "bench": "cd webviews && bun bench/page-row-store.bench.ts (v2.frame_paced: apply ms per batch, taken per frame, longest task, one 256 KiB change)",
+      "owner": "agent chat"
+    },
     "terminal-host-output": {
       "what": "one PTY read in a terminal host (terminal_host_runtime/shared): publish_pty_frame makes the one shared Output frame, and the client writer sends the frames queued at each wake in one vectored write",
       "bench": "cmux-tui/scripts/bench-terminal-perf.py (throughput and busy sections: MB/s and host CPU %), on the bench Mac with cmux-tui and cmux-tui-host built",
@@ -141,6 +146,11 @@
       "bench": "cmux-tui-rust-check.sh test a_streamed_tokens_line_is_built_once_for_every_attached_connection (FANOUT-ENCODE line), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client, 2 clients) on the fleet",
       "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
     },
+    "agent-chat-token-rows": {
+      "what": "one streamed token's pass over the agent chat's rows in the pane (App.tsx turnRowsShown: the started chat cards, the subagent lines, turns.ts turnViewFrom, the layout); each pass starts at the first changed row (prefixFlatMap.ts noteKeptPrefix), so a long chat costs what a short one does",
+      "bench": "cd webviews && PAIRED=1 CLOCK=cpu bun bench/transcript-replay.bench.ts --only long (god/small p95 ratio of token and thought), and FIXTURE=god PROFILE=1 for the steps that grow with rows",
+      "owner": "agent chat (CMUX-571)"
+    },
     "composer-draft-typing": {
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
@@ -172,7 +182,7 @@
       "owner": "agent chat transcript"
     },
     "ios-terminal-chat-swap": {
-      "what": "a tap on the iPhone's Chat | Terminal control (cmux-next-ios WorkspaceTabsSource+TerminalChat.swift swapTerminalChat): Rust's terminal_chat_swap, one face flag, and the parked pair (TerminalChatPair) laid out with the other face visible; no reload, the chat's scroll kept",
+      "what": "a tap on the iPhone page menu's Show Chat / Show Terminal row (cmux-next-ios WorkspaceTabsSource+TerminalChat.swift swapTerminalChat): Rust's terminal_chat_swap, one face flag, and the parked pair (TerminalChatPair) laid out with the other face visible; no reload, the chat's scroll kept",
       "bench": "swift test --package-path cmux-next-ios/CmuxMobileKit --filter terminal_chat_swap on an iOS simulator (CmuxMobileInstantPerfTests TerminalChatSwapPerfTests: INSTANTPERF terminal_chat_swap with p50 and p95 of each way, small vs god chat; Leo's target p95 under 100 ms)",
       "owner": "iOS"
     },

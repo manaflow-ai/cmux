@@ -20,6 +20,30 @@ Development › Device Hub Address overrides it; empty means the built-in hub.
 Both are on workers.dev: a custom domain (as `workers/presence` uses) would
 add a DNS record, which this hub does not need.
 
+## Normal path: the `device-hub` workflow
+
+`.github/workflows/device-hub.yml` deploys the hub. Nobody runs `wrangler
+deploy` by hand for a code change.
+
+- A pull request touching `workers/device-hub/**` runs the checks: `npm ci`,
+  typecheck, the vitest suite on workerd, and a `wrangler deploy --dry-run` of
+  both environments.
+- A push to `feat-cmux-next` touching `workers/device-hub/**` runs the checks,
+  deploys dev, then production, each followed by a `/v1/health` check. The run
+  summary names the deployed version ids.
+- A manual run (Actions > device-hub > Run workflow, branch `feat-cmux-next`,
+  target `prod` or `dev`) redeploys one environment.
+
+The deploy uploads code and applies the Durable Object migrations in
+`wrangler.toml`; it never reads or writes Worker secrets. It uses the
+repository's `CLOUDFLARE_API_TOKEN` in the GitHub environments
+`cmux-next-development` and `cmux-next-production`, the ones `backend.yml`
+deploys the NEXT API with on the same account.
+
+The manual commands below are for setting up an environment's keys (a new
+environment, or a key rotation), and for a deploy while the workflow cannot
+run.
+
 ## Dev deploy
 
 Run from `workers/device-hub` with wrangler signed in to the account.
@@ -53,6 +77,23 @@ curl -fsS https://cmux-device-hub-dev.debussy.workers.dev/v1/health
 Without `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`, the Worker still runs:
 subscribers get `ice: []`, as free users do, and the apps fall back to direct
 paths and the user's own relays.
+
+### cmux relay ICE from cmux-platform
+
+cmux-platform runs the one TURN minter. The hub asks it for each grant
+(`POST <PLATFORM_TURN_ORIGIN>/v1/relay/ice-servers`, src/turn.ts) and keeps its
+own mint (`TURN_KEY_*` above) only as the fallback until that is removed.
+
+- `TURN_SOURCE` (var, wrangler.toml): `platform-first` in both environments.
+  The hub asks the platform; on a non-200, no answer within 4.5 s, a bad body
+  or an empty list it logs a warning and mints locally (`[]` without
+  `TURN_KEY_*`). `platform` uses the platform only (`[]` on failure); `local`,
+  or any other value, only the hub's own mint.
+- `PLATFORM_TURN_ORIGIN` (var, wrangler.toml): the production platform for the
+  top level, the development platform for `[env.dev]`.
+- `DEVICE_HUB_TURN_TOKEN` (secret): the bearer for that route. A cmux-platform
+  workflow puts it into each hub environment; nobody sets it by hand. Without
+  it, every `TURN_SOURCE` behaves as `local`.
 
 Rotating `SESSION_KEY` signs every device out (their hub sessions stop
 verifying and their sealed Stack tokens stop opening; the apps exchange their

@@ -93,7 +93,7 @@ public nonisolated enum TabTunables {
         BrowserChromeTuning.value(.closeInk)
     }
     public static let iconTitleSpacing = points("iconTitleSpacing", "Icon to title", help: "Gap between a tab's icon and its title.") {
-        Metrics.compactTabs ? Metrics.space2 : Metrics.space3
+        Metrics.compactTabs ? Metrics.space2 : (Metrics.densityToken("tabIconTitleGap") ?? Metrics.space3)
     }
     public static let titleCloseSpacing = points("titleCloseSpacing", "Title to close", help: "Gap between a tab's title and its close button.") { Metrics.space2 }
     public static let titleFadeWidth = points("titleFadeWidth", "Title fade", help: "Length of the fade that clips a long title.") { Metrics.space6 + Metrics.space2 }

@@ -5,8 +5,8 @@
 //! `cmux-rd linux-host approve|deny` answers it. This desktop's own consent (`consent.json`,
 //! set at `enable`) may further refuse control, as the Mac's local consent does.
 
-use super::identity::{read_private, write_private};
 use crate::Res;
+use cmux_hub_host::identity::{read_private, write_private};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -41,8 +41,9 @@ pub struct Request {
     pub received_ms: u64,
 }
 
-/// This desktop's own consent: which session scopes it serves. Default: view only; control
-/// needs `enable --allow-control`.
+/// This desktop's own consent: which session scopes it serves. `enable` writes view and control:
+/// the person joined this desktop to their own account, so their devices view and control it with no
+/// prompt here (`enable --view-only` keeps control off). `Default` is view only.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub struct LocalConsent {
     pub view: bool,
@@ -123,7 +124,7 @@ impl<'a> Pending<'a> {
 }
 
 /// Why `--scope full` is refused on a host whose capture applies no input.
-const NO_INPUT_FULL: &str = "this desktop is captured through the Wayland portal, which applies no input: it is shared view only (approve with --scope view)";
+const NO_INPUT_FULL: &str = "this desktop is captured through the Wayland portal, which has no keyboard and pointer grant (`cmux-rd linux-host grant --control` asks for it once): it is shared view only (approve with --scope view)";
 
 /// The person's answer to a request, checked before it reaches the hub: only a recorded
 /// request, a scope at most the requested one (`full` may be lowered to `view`, never
@@ -144,7 +145,7 @@ pub fn decision_scope(
         }
     }
     if consent.serve(scope, applies_input).is_none() {
-        return Err(format!("this desktop does not allow {scope} sessions (enable with --allow-control to allow full)"));
+        return Err(format!("this desktop does not allow {scope} sessions (enable without --view-only to allow full)"));
     }
     if scope == "full" && !applies_input {
         if wanted == Some("full") {

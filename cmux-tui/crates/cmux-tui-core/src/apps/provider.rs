@@ -70,6 +70,10 @@ pub const FAMILIES: &[&str] = &[
     "credential",
     // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
     "toast",
+    // A browser tab's page in the Mac app (`page.read`, `page.hints`,
+    // `page.follow`): reader-mode extraction and link hints, run as page
+    // scripts in the app's WebKit or CEF tab, which the daemon cannot reach.
+    "page",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.

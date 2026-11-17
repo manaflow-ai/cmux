@@ -494,7 +494,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -1220,8 +1220,16 @@ jobs:
     # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
     # 2026-10-20 (runs 39505208959, 39506071754), which failed
     # react-apps-check. It takes the 16 vCPU size from the capability map.
+    # It has grown back into its cap: on 2026-11-16 `bun run react-doctor:ci`
+    # measured 20m02s at the feat-cmux-next tip and 13m58s on a PR head, both
+    # on one 8 vCPU Blacksmith runner, and the job itself ran 14 min of its 15
+    # before GitHub cancelled it three times on #44127 (jobs 133551852130,
+    # 133579638216, 133602056508). A cancelled job has no verdict, so the
+    # base-red classifier cannot excuse it and every PR that changes a React
+    # app waits on a rerun. 30 min is the headroom; the time to cut is in the
+    # doctor run, not in this cap.
     runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: webviews

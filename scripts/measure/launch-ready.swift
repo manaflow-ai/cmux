@@ -12,7 +12,8 @@
 //   request_to_start    the open request to the process start (LaunchServices' own part, before exec)
 // and `marks`: the app's launch marks (CMUX_NEXT_LAUNCH_MARKS_PATH, a FIFO read here), the ones every build has.
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
-// the next launch with the same HOME_ROOT is a person's relaunch. Exit 0: a window showed; 1: none in 30 s.
+// the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
+// session=stress3's seed launch) ends the run then. Exit 0: a window showed; 1: none in 30 s.
 import AppKit
 import Darwin
 
@@ -109,6 +110,7 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     if window == nil, ownWindowOnScreen(pid) { window = t; windowSeenAt = t }
     if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 { quitSent = t; kill(pid, SIGTERM) }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
+    if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
     if let sent = quitSent {
         if app.isTerminated || kill(pid, 0) != 0 { done = true }
         else if t - sent > 30_000 { kill(pid, SIGKILL); done = true }
@@ -122,16 +124,27 @@ extension Double { func rounded(toPlaces places: Int) -> Double { let p = pow(10
 let keep = ["main_start", "main.warmup_started", "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers",
             "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start",
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
-            "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home"]
+            "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
+            "deferred_windows_restored"]
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
     "finished_launching": rel(finished), "window_on_screen": rel(window), "active": rel(active),
     // The prime launch (a fresh home: no Home cache, no Chief yet) keeps every mark, so the steps of its
     // wait for Home (home.chief_owner_ready, home.chief_create_replied, ...) can be named; every launch keeps
-    // the launch steps (dfl.*) and Home's (home.*), so a relaunch's cache read shows too.
-    "marks": marks.filter { label == "prime" || keep.contains($0.key) || $0.key.hasPrefix("dfl.") || $0.key.hasPrefix("home.") },
+    // the launch steps (dfl.*), Home's (home.*) and every region the first window reveals (reveal.*): a launch that
+    // opens on a pane, not Home, is timed by reveal.pane, so a relaunch's cache read and its first region show too.
+    // It also keeps what the first window waits on before it shows: the bundled CLI's `cloud env get`
+    // (cloud_env.*), the app delegate's steps (app.*), the daemon's snapshot read (daemon.*) and the launch
+    // snapshot's own steps (launch_snapshot*). Only the prime launch had them, so a relaunch could not say how long
+    // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
+    "marks": marks.filter { mark in
+        label == "prime" || keep.contains(mark.key)
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot"].contains { mark.key.hasPrefix($0) }
+    },
     "all_marks": marks.count,
+    // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
+    "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])

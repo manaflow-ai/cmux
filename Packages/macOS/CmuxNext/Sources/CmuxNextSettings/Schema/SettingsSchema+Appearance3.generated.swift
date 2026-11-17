@@ -67,13 +67,14 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.fontSmoothing", "Text Smoothing"),
-                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."),
+                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages, tabs and the sidebar change at once; other text changes after cmux restarts. Terminal text keeps its own setting."),
                 kind: .choice([
+                    SettingChoice(FontSmoothing.auto.rawValue, SettingsText.keyed("settings.choice.fontSmoothingAuto", "Auto")),
                     SettingChoice(FontSmoothing.antialiased.rawValue, SettingsText.keyed("settings.choice.fontSmoothingThin", "Thin")),
-                    SettingChoice(FontSmoothing.system.rawValue, SettingsText.keyed("settings.choice.fontSmoothingSystem", "System")),
+                    SettingChoice(FontSmoothing.subpixel.rawValue, SettingsText.keyed("settings.choice.fontSmoothingSmooth", "Smooth")),
                 ]),
                 default: .string(FontSmoothingSetting.fallback.rawValue),
-                keywords: ["font", "text", "smoothing", "antialiasing", "antialiased", "thin", "bold", "weight", "rendering", "crisp", "AppleFontSmoothing"]
+                keywords: ["AppleFontSmoothing", "antialiased", "antialiasing", "auto", "bold", "crisp", "font", "rendering", "smooth", "smoothing", "subpixel", "system", "text", "thin", "weight"]
             ),
             SettingDescriptor(
                 InterfaceScaleSetting.configPath,

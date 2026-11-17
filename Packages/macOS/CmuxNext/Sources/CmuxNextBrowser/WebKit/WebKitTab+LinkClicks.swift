@@ -56,9 +56,9 @@ enum WebKitLinkClick: Equatable {
     func runsInOpener(_ request: URLRequest, tab: WebKitTab) -> Bool {
         switch self {
         case .navigate:
-            tab.webView.load(request)
+            if tab.resumeIfSuspended() { tab.webView.load(request) }
         case .download:
-            guard let url = request.url, WebKitTab.isWebScheme(url) else { return true }
+            guard let url = request.url, WebKitTab.isWebScheme(url), tab.resumeIfSuspended() else { return true }
             tab.webView.startDownload(using: request) { [weak tab] download in tab?.downloads.register(download, source: url) }
         case .open, .pageDefault:
             return false
