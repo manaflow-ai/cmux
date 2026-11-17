@@ -1,7 +1,9 @@
 // l10n-allow-file: gallery fixtures (team names, a mode name), not shipped UI.
 // A new chat's composer with Cloud picked, the prompt empty: every chip of the location strip and
 // the Mode chip shows its whole label, the Mode chip names a mode (never the bare "Mode" placeholder),
-// and a team the account no longer has is never named in the team tag. This is the gallery half of
+// the Cloud chip says only Cloud (Austin, 2026-11-16: "get rid of the austin wang's team part just
+// have cloud and that's it"; the team is named on the Environment menu's Cloud row), and a team the
+// account no longer has is never named in the team tag. This is the gallery half of
 // scripts/cmux-next/cloud-composer-journey.py's matrix. Leo, 2026-11-10, of the nightly's Cloud
 // composer ("Cl…", "Mode", a removed team still named): "how did NONE of these work/get tested?",
 // "i already told you to test these", "did you guys not test these". Each play throws, naming the
@@ -62,7 +64,7 @@ async function pickCloud(ctx: PlayContext) {
       ),
     { capMs: 10_000 },
   );
-  await ctx.waitFor(() => listAnswered || ctx.document.querySelector(`${STRIP} .acpmux-team-tag`), { capMs: 10_000 });
+  await ctx.waitFor(() => listAnswered, { capMs: 10_000 });
   await frames(frame);
 }
 
@@ -82,10 +84,10 @@ function chipProblems(document: Document): string[] {
   for (const button of document.querySelectorAll(`${STRIP} .acpmux-location-button`)) {
     if (!visible(button)) continue;
     const chip = `the “${(button.getAttribute("aria-label") ?? textOf(button)).split(":")[0]}”`;
+    if (button.querySelector(".acpmux-team-tag"))
+      problems.push(`${chip} chip names the team (“${textOf(button.querySelector(".acpmux-team-tag")!)}”)`);
     const parts = [
-      ...button.querySelectorAll(
-        ".acpmux-location-label, .acpmux-location-head, .acpmux-location-tail, .acpmux-team-tag-name",
-      ),
+      ...button.querySelectorAll(".acpmux-location-label, .acpmux-location-head, .acpmux-location-tail"),
     ].filter(visible);
     for (const part of parts.length ? parts : [button]) cut(chip, part);
   }
@@ -112,6 +114,17 @@ async function assertChips(ctx: PlayContext, before: string[] = []) {
     problems.push(...chipProblems(ctx.document));
   }
   if (problems.length) throw new Error(problems.join("; "));
+}
+
+/// The Environment menu's Cloud row's team tag, the menu opened, then closed.
+async function cloudRowTeam(ctx: PlayContext): Promise<string | undefined> {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  const row = () => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag');
+  await ctx.waitFor(row, { capMs: 5_000 });
+  const team = textOf(row()!);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-env-popover"), { capMs: 5_000 });
+  return team;
 }
 
 /// Bypass permissions picked from the Mode menu, as a click picks it.
@@ -157,7 +170,7 @@ export default agentPaneEntry({
   keywords: ["cloud", "composer", "chips", "truncation", "mode", "team", "bypass", "removed team"],
   variants: {
     "personal-default": variant(
-      "Cloud picked in the person's own team, the default mode: the Cloud chip, its team and the Mode chip show whole, and the Mode chip names a mode.",
+      "Cloud picked in the person's own team, the default mode: the Cloud chip says only Cloud, it and the Mode chip show whole, and the Mode chip names a mode.",
       { name: "Personal", personal: true },
       [{ id: PERSONAL_ID, name: "Personal", personal: true }],
       async (ctx) => {
@@ -166,7 +179,7 @@ export default agentPaneEntry({
       },
     ),
     "team-bypass": variant(
-      `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: every chip shows whole.`,
+      `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: the Cloud chip says only Cloud and every chip shows whole.`,
       { name: LONG_TEAM, personal: false },
       [
         { id: PERSONAL_ID, name: "Personal", personal: true },
@@ -174,7 +187,6 @@ export default agentPaneEntry({
       ],
       async (ctx) => {
         await pickCloud(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(`${STRIP} .acpmux-team-tag`), { capMs: 10_000 });
         const refused = await pickBypass(ctx).then(
           () => [],
           (error: unknown) => [(error as Error).message],
@@ -183,7 +195,7 @@ export default agentPaneEntry({
       },
     ),
     "removed-team": variant(
-      `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: the team tag never names it and falls back to Personal.`,
+      `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: the Environment menu's Cloud row never names it and falls back to Personal.`,
       { name: LONG_TEAM, personal: false },
       [{ id: PERSONAL_ID, name: "Personal", personal: true }],
       async (ctx) => {
@@ -197,9 +209,9 @@ export default agentPaneEntry({
             ]
           : [];
         // It falls back to the person's own team, as the start does (the app re-reads the account's teams).
-        const strip = ctx.document.querySelector(`${STRIP} .acpmux-team-tag`);
-        if (!named.length && (!strip || textOf(strip) !== "Personal"))
-          removed.push(`the team tag reads “${strip ? textOf(strip) : "nothing"}” instead of falling back to Personal`);
+        const row = await cloudRowTeam(ctx).catch(() => undefined);
+        if (row !== "Personal")
+          removed.push(`the Cloud row's team tag reads “${row ?? "nothing"}” instead of falling back to Personal`);
         await assertChips(ctx, removed);
       },
     ),
