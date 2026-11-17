@@ -230,22 +230,24 @@ struct Seen {
     mode: String,
     replied: bool,
     asked: bool,
-    /// The daemon answered the probe's approval itself (`permission_auto`, a policy).
-    auto: bool,
+    /// What answered the probe's approval in the daemon (`permission_auto`): full access in
+    /// its mode, or a policy.
+    auto: Option<String>,
     probe: String,
     /// Why the cell did not run here (a remote Claude chain with no sandbox on this host).
     skipped: Option<String>,
     problems: Vec<String>,
 }
 
-/// How many approvals the daemon answered itself in the chat (`permission_auto` records).
-fn autos(owner: &Arc<Hub>, id: &str) -> usize {
+/// The approvals the daemon answered itself in the chat (`permission_auto` records).
+fn autos(owner: &Arc<Hub>, id: &str) -> Vec<Value> {
     owner
         .events(id, 0, 100_000)
         .unwrap_or_default()
-        .iter()
+        .into_iter()
         .filter(|e| e.kind == "permission_auto")
-        .count()
+        .map(|e| e.msg)
+        .collect()
 }
 
 /// The chat's mode, model and effort as `_acpmux/info` reports them.
@@ -446,15 +448,21 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
     let before = picks(&mut app, &id).await;
     seen.mode = before.0.as_str().unwrap_or("?").to_owned();
     seen.asked = false;
-    let auto_before = autos(&owner, &raw);
+    let auto_before = autos(&owner, &raw).len();
     seen.probe = turn(&mut app, &host, &id, "perm-probe", &mut seen).await;
-    seen.auto = autos(&owner, &raw) > auto_before;
+    seen.auto = autos(&owner, &raw).get(auto_before).map(|r| match r["fullAccess"].as_str() {
+        Some(mode) => format!("full access ({mode})"),
+        None => format!("policy {}", r["policy"].as_str().unwrap_or("?")),
+    });
     let after = picks(&mut app, &id).await;
     if before != after {
         seen.problems
             .push(format!("the chat's picks changed by themselves: {before:?} -> {after:?}"));
     }
-    let expect_ask = level.asks() && age != Age::Switched;
+    // A chat a peer connection starts runs under its own `ask` policy, not the peer daemon's
+    // default (`server/remote_guard.rs`), so the approve-all default does not answer for it.
+    let expect_ask =
+        (level.asks() || (remote && level == Level::ApproveAll)) && age != Age::Switched;
     if seen.asked != expect_ask {
         seen.problems.push(format!(
             "an approval {} the app, expected {}",
@@ -468,10 +476,13 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
     let full_now = age == Age::Switched || matches!(level, Level::Default | Level::FullAccess);
     if remote {
         // Remote-origin: the harness asks, and the peer daemon answers under full access.
-        if (full_now || level == Level::ApproveAll) && !seen.auto {
+        if full_now && seen.auto.is_none() {
             seen.problems.push("the peer did not answer the approval under full access".into());
         }
     } else {
+        if level == Level::ApproveAll && seen.auto.is_none() {
+            seen.problems.push("the approve-all policy did not answer the approval".into());
+        }
         if !expect_ask && level != Level::ApproveAll && !seen.probe.contains("unasked") {
             seen.problems.push(format!("the harness asked under full access: {:?}", seen.probe));
         }
@@ -557,7 +568,7 @@ async fn matrix(harness: &str, remote: bool, level: Level) {
             seen.mode,
             yes(seen.replied),
             yes(seen.asked),
-            yes(seen.auto),
+            seen.auto.as_deref().unwrap_or("no"),
             seen.probe.replace('|', "/"),
         );
         if !seen.problems.is_empty() {
