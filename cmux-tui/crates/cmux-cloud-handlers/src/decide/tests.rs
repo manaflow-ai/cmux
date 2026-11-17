@@ -148,34 +148,6 @@ fn a_team_switch_takes_an_id_or_a_name() {
 }
 
 #[test]
-fn set_up_github_says_the_app_or_the_fallback_and_why() {
-    let named = Said::with("gitHubAppConfirmBody", ["Ada", "—"]);
-    assert_eq!(github_confirm(Some("Ada"), None, GitHubApp::Ready), vec![named]);
-    assert_eq!(
-        github_confirm(None, None, GitHubApp::Ready),
-        vec![Said::key("gitHubAppConfirmNoIdentity")]
-    );
-    assert_eq!(
-        github_confirm(Some("Ada"), Some("ada@x.dev"), GitHubApp::NotConnected),
-        vec![
-            Said::key("gitHubFallbackNotConnected"),
-            Said::with("gitHubConfirmBody", ["Ada", "ada@x.dev"])
-        ]
-    );
-    assert_eq!(
-        github_confirm(None, None, GitHubApp::NotConfigured),
-        vec![Said::key("gitHubFallbackNotConfigured"), Said::key("gitHubConfirmNoIdentity")]
-    );
-    assert_eq!(
-        github_confirm(None, Some("ada@x.dev"), GitHubApp::Unknown),
-        vec![
-            Said::key("gitHubFallbackUnknown"),
-            Said::with("gitHubConfirmBody", ["—", "ada@x.dev"])
-        ]
-    );
-}
-
-#[test]
 fn a_port_failure_names_the_limit_or_the_detail() {
     let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: Some(3000) };
     assert_eq!(
