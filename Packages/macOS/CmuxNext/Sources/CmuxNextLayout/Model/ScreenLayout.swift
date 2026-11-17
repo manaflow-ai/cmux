@@ -192,6 +192,9 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     public var layout: ScreenLayout
     /// The layout is one zoomed pane; the screen's other panes are hidden, not closed.
     public var zoomed: Bool
+    /// The zoom is a page that takes the whole window (its fullscreen), not a zoom the person asked for: the other
+    /// panes step aside with no dim.
+    public var presented = false
     /// Splits whose divider draws no line (Hide Divider); they still drag and still have their menu.
     public var hiddenDividers: Set<SplitID>
     /// The screen's floating panes, back to front. `layout` is the tiled layout: it has none of them.

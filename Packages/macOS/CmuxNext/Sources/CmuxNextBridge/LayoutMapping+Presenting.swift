@@ -17,6 +17,7 @@ extension LayoutMapping.Result {
             result.screens[index].layout = .splits(.leaf(pane))
             result.screens[index].zoomed = true
             result.screens[index].floating = []
+            result.screens[index].presented = true
         }
         return result
     }
