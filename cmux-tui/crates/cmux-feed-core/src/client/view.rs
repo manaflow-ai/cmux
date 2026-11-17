@@ -168,7 +168,9 @@ impl ViewContext<'_> {
         });
         // Moved in, not through `json!`: it serializes an embedded `Value`
         // again, which deep-copied every entry (three times per item).
-        view["groups"] = Value::Array(groups);
+        if let Value::Object(members) = &mut view {
+            members.insert("groups".to_owned(), Value::Array(groups));
+        }
         view
     }
 }
