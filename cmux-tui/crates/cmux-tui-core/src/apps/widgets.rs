@@ -97,15 +97,6 @@ impl Size {
     pub(super) fn parse(name: &str) -> Option<Size> {
         Size::ALL.into_iter().find(|size| size.as_str() == name)
     }
-
-    /// Its tiles on the grid, (columns, rows).
-    pub(super) fn tiles(self) -> (u8, u8) {
-        match self {
-            Size::Small => (1, 1),
-            Size::Medium => (2, 1),
-            Size::Large => (2, 2),
-        }
-    }
 }
 
 /// Where a widget is placed.
@@ -415,6 +406,9 @@ fn checked_size(spec: &Spec, place: Place, name: &str) -> Result<Size, String> {
 pub(super) struct WidgetState {
     layout: Option<Layout>,
     keys: VecDeque<(String, Value)>,
+    /// The saved layout exists but could not be read (an I/O error, not a missing file): it is
+    /// read again on next use, and no edit is saved over it meanwhile.
+    unreadable: bool,
     /// Names each widget mount's timers (`WidgetMount::epoch`).
     pub next_epoch: u64,
 }
@@ -440,11 +434,21 @@ pub(super) struct WidgetMount {
     pub failures: u32,
     /// The pending remount after a failure.
     pub retry: Option<TimerId>,
+    /// A remount came due while the tile was hidden: it runs when the page shows it again.
+    pub retry_due: bool,
+    /// The wall-clock boundary (Unix ms) the armed tick is for. A timer is armed for at most
+    /// [`MAX_ARM`] at a time and checks the wall clock when it fires, so a sleep or a clock change
+    /// never delays a tick by more than that.
+    pub due_ms: u64,
 }
+
+/// The longest a widget's tick timer is armed for before it looks at the wall clock again.
+pub(super) const MAX_ARM: Duration = Duration::from_secs(60);
 
 /// The mount context a page's `{place, size, instance}` gets for a widget with `spec`, or why
 /// it is refused. `settings` are the tile's own from the layout (empty for a gallery preview).
 pub(super) fn mount_context(
+    app: &str,
     spec: &Spec,
     asked: &Value,
     layout: &Layout,
@@ -469,10 +473,26 @@ pub(super) fn mount_context(
     if instance.is_empty() || instance.len() > MAX_INSTANCE_BYTES {
         return Err(bad_request("a widget mounts with an instance id of 1 to 128 bytes"));
     }
+    // Only this app's own tile in this place lends its settings: a page cannot mount one widget
+    // with another's instance id and read that tile's settings.
     let settings = layout
         .find(instance)
+        .filter(|(at, item)| *at == place && item.app == app)
         .map(|(_, item)| Value::Object(item.settings.clone()))
         .unwrap_or_else(|| json!({}));
+    // The page's locale and time zone (it has Intl and the system's settings; the sandbox has
+    // neither), so a widget names the local zone and formats for the person. A missing or
+    // malformed one falls back: English, and the zone this daemon runs in.
+    let locale = asked
+        .get("locale")
+        .and_then(Value::as_str)
+        .filter(|tag| is_word(tag, 35, |c| c == '-'))
+        .unwrap_or("en");
+    let time_zone = asked
+        .get("timeZone")
+        .and_then(Value::as_str)
+        .filter(|zone| is_zone_name(zone))
+        .map_or_else(local_zone, str::to_string);
     let mut context = json!({
         "surface": SURFACE,
         "place": place.as_str(),
@@ -480,6 +500,8 @@ pub(super) fn mount_context(
         "instance": instance,
         "settings": settings,
         "refresh": spec.every.map(|every| json!({ "everySeconds": every })),
+        "locale": locale,
+        "timeZone": time_zone,
     });
     if asked.get("preview").and_then(Value::as_bool) == Some(true)
         && let Some(object) = context.as_object_mut()
@@ -498,8 +520,39 @@ pub(super) fn mount_context(
         ticks: 0,
         failures: 0,
         retry: None,
+        retry_due: false,
+        due_ms: 0,
     };
     Ok((context, widget))
+}
+
+/// `text` is 1 to `max` bytes of ASCII letters, digits and the characters `extra` allows.
+fn is_word(text: &str, max: usize, extra: impl Fn(char) -> bool) -> bool {
+    !text.is_empty()
+        && text.len() <= max
+        && text.chars().all(|c| c.is_ascii_alphanumeric() || extra(c))
+}
+
+/// An IANA zone name's shape (`Europe/Paris`, `America/Argentina/Buenos_Aires`, `Etc/GMT+9`).
+fn is_zone_name(zone: &str) -> bool {
+    is_word(zone, 64, |c| matches!(c, '/' | '_' | '-' | '+'))
+        && !zone.starts_with('/')
+        && !zone.split('/').any(|part| part.is_empty() || part == "..")
+}
+
+/// The IANA name of the zone this daemon runs in: `TZ`, else where `/etc/localtime` points
+/// (`.../zoneinfo/Europe/Paris`), else `UTC`.
+fn local_zone() -> String {
+    let from_env = std::env::var("TZ").ok().map(|tz| tz.trim_start_matches(':').to_string());
+    let from_link = || {
+        let target = std::fs::read_link("/etc/localtime").ok()?;
+        let target = target.to_str()?;
+        Some(target.split_once("zoneinfo/")?.1.to_string())
+    };
+    from_env
+        .filter(|zone| is_zone_name(zone))
+        .or_else(|| from_link().filter(|zone| is_zone_name(zone)))
+        .unwrap_or_else(|| "UTC".to_string())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -565,12 +618,16 @@ impl Supervisor {
     /// The layout, read from the state directory on first use (empty when none was saved or
     /// the file does not read).
     pub(super) fn widget_layout_locked<'a>(&self, inner: &'a mut Inner) -> &'a mut Layout {
-        let dir = self.config.state_dir.clone();
-        inner.widgets.layout.get_or_insert_with(|| {
-            dir.and_then(|dir| std::fs::read(dir.join(LAYOUT_FILE)).ok())
-                .and_then(|raw| serde_json::from_slice::<Layout>(&raw).ok())
-                .unwrap_or_default()
-        })
+        let state = &mut inner.widgets;
+        if state.layout.is_none() || state.unreadable {
+            let read = match &self.config.state_dir {
+                Some(dir) => read_layout(dir),
+                None => Ok(Layout::default()),
+            };
+            state.unreadable = read.is_err();
+            state.layout = Some(read.unwrap_or_default());
+        }
+        state.layout.get_or_insert_with(Layout::default)
     }
 
     /// `apps.widgets.list {place?}`: every widget the person can place (in `place` when named),
@@ -596,7 +653,7 @@ impl Supervisor {
             };
             let mut row = json!({
                 "app": app,
-                "title": entry.get("title").map_or_else(|| text(&package.manifest["name"]), text),
+                "title": entry.get("title").map_or_else(|| text(package.manifest.get("name").unwrap_or(&Value::Null)), text),
                 "sizes": spec.sizes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                 "defaultSize": spec.default_size.as_str(),
                 "places": spec.places.iter().map(|p| p.as_str()).collect::<Vec<_>>(),
@@ -606,10 +663,9 @@ impl Supervisor {
                 if let Some(symbol) = entry.get("symbol").and_then(Value::as_str) {
                     object.insert("symbol".into(), Value::String(symbol.into()));
                 }
-                let description = entry
-                    .get("description")
-                    .map(text)
-                    .unwrap_or_else(|| text(&package.manifest["description"]));
+                let description = entry.get("description").map(text).unwrap_or_else(|| {
+                    text(package.manifest.get("description").unwrap_or(&Value::Null))
+                });
                 if !description.is_empty() {
                     object.insert("description".into(), Value::String(description));
                 }
@@ -649,6 +705,12 @@ impl Supervisor {
                 .collect();
             let shown = specs.keys().cloned().collect();
             let mut next = self.widget_layout_locked(&mut inner).clone();
+            if inner.widgets.unreadable {
+                return Err(ApiError::new(
+                    "operation.failed",
+                    "the saved widget layout could not be read; nothing was changed",
+                ));
+            }
             apply(&mut next, place, p.edit, |app| specs.get(app).cloned())
                 .map_err(|message| ApiError::new("apps.widgets.edit", message))?;
             // Under the supervisor lock: two pages' edits land one after the other.
@@ -702,6 +764,14 @@ impl Supervisor {
             return Ok(json!({}));
         }
         mount.budget.settle(now, SETTLE);
+        if std::mem::take(&mut widget.retry_due) {
+            // The remount it missed while hidden runs now; its fresh mount starts a fresh clock.
+            let outs = self.widget_remount_locked(&mut inner, &key);
+            self.schedule_tick_locked(&mut inner, &key);
+            drop(inner);
+            self.emit(outs);
+            return Ok(json!({}));
+        }
         let missed = widget.every.is_some_and(|every| {
             now_ms.saturating_sub(widget.last_tick_ms) >= every.saturating_mul(1000)
         });
@@ -738,7 +808,8 @@ impl Supervisor {
                 }))
             })
             .collect();
-        meters.sort_by(|a, b| a["mount_id"].as_str().cmp(&b["mount_id"].as_str()));
+        let id = |meter: &Value| meter.get("mount_id").and_then(Value::as_str).map(str::to_owned);
+        meters.sort_by_key(id);
         json!({ "meters": meters })
     }
 
@@ -751,7 +822,15 @@ impl Supervisor {
             self.timers.cancel(timer);
         }
         let Some(every) = widget.every.filter(|_| widget.visible) else { return };
-        let delay = next_tick_delay(super::supervisor::now_ms(), every);
+        let now_ms = super::supervisor::now_ms();
+        // A boundary not yet ticked for stays the target (one passed while hidden ticks at once).
+        // A clock set back leaves the boundary too far ahead: aim at the next one from now.
+        if widget.due_ms <= widget.last_tick_ms
+            || widget.due_ms > now_ms.saturating_add(every.saturating_mul(1000))
+        {
+            widget.due_ms = now_ms.saturating_add(as_ms(next_tick_delay(now_ms, every)));
+        }
+        let delay = Duration::from_millis(widget.due_ms.saturating_sub(now_ms)).min(MAX_ARM);
         let me = self.me.clone();
         let timer_key = key.clone();
         let epoch = widget.epoch;
@@ -771,7 +850,11 @@ impl Supervisor {
             return;
         }
         widget.timer = None;
-        self.send_tick_locked(&mut inner, key, super::supervisor::now_ms());
+        let now_ms = super::supervisor::now_ms();
+        // Armed for at most MAX_ARM: until the wall clock reaches the boundary, only re-arm.
+        if now_ms >= widget.due_ms {
+            self.send_tick_locked(&mut inner, key, now_ms);
+        }
         self.schedule_tick_locked(&mut inner, key);
     }
 
@@ -836,6 +919,10 @@ impl Supervisor {
         let Some(widget) = inner.mounts.get_mut(key).and_then(|m| m.widget.as_mut()) else {
             return vec![];
         };
+        if let Some(timer) = widget.retry.take() {
+            self.timers.cancel(timer);
+        }
+        widget.retry_due = false;
         if widget.failures == 0 {
             return vec![];
         }
@@ -855,17 +942,35 @@ impl Supervisor {
                 return;
             }
             widget.retry = None;
-            // Its first batch replaces the stale tree the page kept (and any ops held for it).
-            mount.reset = true;
-            mount.budget.clear_pending();
-            let (host, export, ctx) =
-                (mount.host.clone(), mount.export.clone(), mount.context.clone());
-            let wire = key.wire();
-            self.revive_host_locked(&mut inner, &host, |process| {
-                process.send(&ToHost::Mount { mount: wire, export, ctx });
-            })
+            // A hidden tile is not remounted (it would spend a render nobody sees): it is when shown.
+            if !widget.visible {
+                widget.retry_due = true;
+                return;
+            }
+            self.widget_remount_locked(&mut inner, key)
         };
         self.emit(outs);
+    }
+
+    /// Mounts `key` again in its host: its first batch replaces the stale tree the page kept (and
+    /// any ops held for it), at frame rate.
+    fn widget_remount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
+        let Some(mount) = inner.mounts.get_mut(key) else { return vec![] };
+        mount.reset = true;
+        mount.budget.clear_pending();
+        mount.budget.settle(Instant::now(), SETTLE);
+        let (host, export, ctx) = (mount.host.clone(), mount.export.clone(), mount.context.clone());
+        let wire = key.wire();
+        self.revive_host_locked(inner, &host, |process| {
+            process.send(&ToHost::Mount { mount: wire, export, ctx });
+        })
+    }
+
+    /// Cancels a widget mount's timers (its tick and a pending remount), when it goes away.
+    pub(super) fn cancel_widget_timers(&self, widget: Option<&WidgetMount>) {
+        for timer in widget.into_iter().flat_map(|w| [w.timer, w.retry]).flatten() {
+            self.timers.cancel(timer);
+        }
     }
 }
 
@@ -883,6 +988,13 @@ impl Supervisor {
         let key = MountKey { client, mount_id: mount_id.to_string() };
         let inner = self.inner.lock().recover_poison();
         inner.mounts.get(&key)?.widget.as_ref().map(|w| w.timer.is_some())
+    }
+
+    /// Test hook: whether a hidden widget mount owes a remount (`None`: no such widget).
+    pub(super) fn widget_retry_due(&self, client: u64, mount_id: &str) -> Option<bool> {
+        let key = MountKey { client, mount_id: mount_id.to_string() };
+        let inner = self.inner.lock().recover_poison();
+        inner.mounts.get(&key)?.widget.as_ref().map(|w| w.retry_due)
     }
 }
 
@@ -915,7 +1027,45 @@ fn write_durably(dir: &std::path::Path, name: &str, value: &impl Serialize) -> s
     let mut file = std::fs::File::create(&temp)?;
     file.write_all(&body)?;
     file.sync_all()?;
-    std::fs::rename(&temp, dir.join(name))
+    std::fs::rename(&temp, dir.join(name))?;
+    // The rename survives a crash only once the directory is synced. The file is already in
+    // place, so a failed sync is logged, not an error the in-memory copy would disagree with.
+    if let Err(error) = std::fs::File::open(dir).and_then(|d| d.sync_all()) {
+        eprintln!("cmux-tui: sync of {}: {error}", dir.display());
+    }
+    Ok(())
+}
+
+fn as_ms(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The saved layout in `dir` (empty when none was saved). A file that does not parse as a layout
+/// is renamed to `<name>.bad-<unix ms>` and logged, never overwritten by the next edit; one that
+/// cannot be read (permissions, I/O) is an error, so nothing is saved over it.
+fn read_layout(dir: &std::path::Path) -> Result<Layout, std::io::Error> {
+    let path = dir.join(LAYOUT_FILE);
+    let raw = match std::fs::read(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Layout::default()),
+        Err(error) => {
+            eprintln!("cmux-tui: widget layout {} does not read: {error}", path.display());
+            return Err(error);
+        }
+    };
+    Ok(match serde_json::from_slice::<Layout>(&raw) {
+        Ok(layout) => layout,
+        Err(error) => {
+            let aside = dir.join(format!("{LAYOUT_FILE}.bad-{}", super::supervisor::now_ms()));
+            let kept = std::fs::rename(&path, &aside);
+            eprintln!(
+                "cmux-tui: widget layout {} does not read ({error}); kept as {} ({kept:?}), starting empty",
+                path.display(),
+                aside.display()
+            );
+            Layout::default()
+        }
+    })
 }
 
 #[cfg(test)]
@@ -1092,12 +1242,13 @@ mod tests {
             settings: json!({ "zone": "UTC" }).as_object().cloned().unwrap(),
         });
         let (context, widget) =
-            mount_context(&s, &json!({ "place": "sidebar", "size": "medium", "instance": "w7", "surface": "x", "settings": { "evil": 1 } }), &layout)
+            mount_context("local/clock", &s, &json!({ "place": "sidebar", "size": "medium", "instance": "w7", "surface": "x", "settings": { "evil": 1 }, "locale": "fr-FR", "timeZone": "Europe/Paris" }), &layout)
                 .unwrap();
         assert_eq!(
             context,
             json!({ "surface": "widget", "place": "sidebar", "size": "medium", "instance": "w7",
-                    "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 } })
+                    "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 },
+                    "locale": "fr-FR", "timeZone": "Europe/Paris" })
         );
         assert_eq!(widget.every, Some(60));
         assert!(widget.visible);
@@ -1107,7 +1258,48 @@ mod tests {
             json!({ "place": "sidebar", "size": "small" }),
             json!({ "place": "dock", "size": "small", "instance": "w7" }),
         ] {
-            assert!(mount_context(&s, &bad, &layout).is_err(), "{bad}");
+            assert!(mount_context("local/clock", &s, &bad, &layout).is_err(), "{bad}");
         }
+        // Another app mounting with this tile's instance id does not get its settings.
+        let (other, _) = mount_context(
+            "local/spy",
+            &s,
+            &json!({ "place": "sidebar", "size": "medium", "instance": "w7" }),
+            &layout,
+        )
+        .unwrap();
+        assert_eq!(other["settings"], json!({}));
+        // A malformed locale or zone falls back rather than reaching the widget.
+        let (fallback, _) = mount_context(
+            "local/clock",
+            &s,
+            &json!({ "place": "sidebar", "instance": "w7", "locale": "fr FR<", "timeZone": "../etc/passwd" }),
+            &layout,
+        )
+        .unwrap();
+        assert_eq!(fallback["locale"], "en");
+        assert_ne!(fallback["timeZone"], "../etc/passwd");
+        assert!(is_zone_name(fallback["timeZone"].as_str().unwrap()));
+        assert!(is_zone_name("America/Argentina/Buenos_Aires") && is_zone_name("Etc/GMT+9"));
+        assert!(!is_zone_name("/etc/x") && !is_zone_name("a//b") && !is_zone_name(""));
+    }
+
+    #[test]
+    fn a_layout_file_that_does_not_read_is_kept_aside_not_replaced() {
+        let dir = std::env::temp_dir().join(format!("cmux-widgets-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(LAYOUT_FILE), b"{ not json").unwrap();
+        assert_eq!(read_layout(&dir).unwrap(), Layout::default());
+        assert!(!dir.join(LAYOUT_FILE).exists());
+        let kept: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name().to_string_lossy().starts_with("apps-widgets-layout.json.bad-")
+            })
+            .collect();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(std::fs::read(kept[0].path()).unwrap(), b"{ not json");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

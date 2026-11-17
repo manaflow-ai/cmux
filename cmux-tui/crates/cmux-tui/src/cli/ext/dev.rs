@@ -885,14 +885,22 @@ fn probe_context(manifest: &Value, interface: &str) -> Value {
         .and_then(Value::as_array)
         .map(|list| list.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    let size = options
+    let default = options
         .and_then(|o| o.get("defaultSize"))
         .and_then(Value::as_str)
         .or_else(|| sizes.first().copied())
         .unwrap_or("small");
+    // The place first (New Tab unless the widget goes only in the sidebar), then a size it takes:
+    // the sidebar holds small and medium.
     let places = options.and_then(|o| o.get("places")).and_then(Value::as_array);
     let newtab = places.is_none_or(|list| list.iter().any(|p| p == "newtab"));
-    let place = if newtab || size == "large" { "newtab" } else { "sidebar" };
+    let (place, size) = if newtab {
+        ("newtab", default)
+    } else if default != "large" {
+        ("sidebar", default)
+    } else {
+        ("sidebar", sizes.iter().copied().find(|s| *s != "large").unwrap_or("small"))
+    };
     json!({ "place": place, "size": size, "instance": "ext-dev-probe" })
 }
 /// The interface the load check mounts: a view that renders with no context.
@@ -1384,6 +1392,11 @@ impl Session {
             }
             match value.field("event").as_str()? {
                 "apps-scene" => Some(Ok(value.field("ops").clone())),
+                // A widget whose render throws stays mounted and goes stale (let it crash):
+                // the probe reports its error rather than waiting out the deadline.
+                "apps-widget-health" if value.field("stale").as_bool() == Some(true) => {
+                    Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
+                }
                 "apps-mount-failed" => {
                     Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
                 }

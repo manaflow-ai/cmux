@@ -366,23 +366,21 @@
   animation: cmux-app-scene-fade-in var(--cmux-app-scene-enter) var(--cmux-app-scene-ease) both;
 }
 :root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-leaving][data-transition] {
-  animation: cmux-app-scene-fade-out var(--cmux-app-scene-leave) ease-in both;
+  animation: cmux-app-scene-fade-out var(--cmux-app-scene-leave) var(--cmux-app-scene-ease) both;
 }
 :root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="smooth"] {
   transition:
-    opacity var(--cmux-motion-standard) ease,
-    color var(--cmux-motion-standard) ease,
-    background-color var(--cmux-motion-standard) ease,
-    transform var(--cmux-motion-standard) ease,
-    text-decoration-color var(--cmux-motion-standard) ease;
+    opacity var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    background-color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    text-decoration-color var(--cmux-motion-standard) var(--cmux-app-scene-ease);
 }
 :root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="snappy"] {
   transition:
-    opacity var(--cmux-motion-micro) ease,
-    color var(--cmux-motion-micro) ease,
-    background-color var(--cmux-motion-micro) ease,
-    transform var(--cmux-motion-micro) ease,
-    text-decoration-color var(--cmux-motion-micro) ease;
+    opacity var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    background-color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
 }
 /* Full motion moves; reduced keeps the crossfades above. */
 @media (prefers-reduced-motion: no-preference) {
@@ -409,5 +407,22 @@
   }
   :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-digit[data-roll="down"] {
     animation-name: cmux-app-scene-roll-down;
+  }
+  /* A transform change moves only under full motion; reduced keeps the color and opacity fades. */
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="smooth"] {
+    transition:
+      opacity var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      background-color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      transform var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      text-decoration-color var(--cmux-motion-standard) var(--cmux-app-scene-ease);
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="snappy"] {
+    transition:
+      opacity var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      background-color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      transform var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
   }
 }

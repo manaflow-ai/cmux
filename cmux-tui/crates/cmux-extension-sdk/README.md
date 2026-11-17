@@ -151,7 +151,7 @@ use cmux_extension_sdk::{Manifest, Region, check_package, is_valid};
 let manifest = Manifest::new("local/my-ext", "My extension", "0.1.0", "My workspaces, live.")
     .section("renderSection", "Mine", "sparkles", Region::Top)
     .new_tab("renderNewTab", "Mine", "house")   // a whole New Tab page, once picked
-    .widget("renderClock", "Clock", "clock", &["small", "medium"], 60, &[]) // a tile on New Tab and in the sidebar
+    .widget("renderClock", "Clock", "clock", &["small", "medium"], Some(60), &[]) // a tile on New Tab and in the sidebar
     .chat_widget("renderCard", "PR", "arrow.triangle.pull", &["mcp__github__*pull_request*"]) // a card under matching tool calls
     .listen("workspace.changed")?          // asks for workspace:read
     .listen("agent_chat.changed")?;        // asks for agent_chat:read

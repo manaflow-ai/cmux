@@ -355,13 +355,12 @@ const NO_CHILDREN: readonly string[] = [];
 
 const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving: own }: NodeViewProps): ReactNode {
   const live = useSceneNode(store, id);
-  // A leaving node (and its subtree) draws from its last props until its transition ends.
-  const last = useRef(live);
-  if (live) last.current = live;
+  // A leaving node (and its subtree) draws from its last props, which the store keeps, until
+  // its transition ends.
   const inLeaving = useContext(SceneLeavingContext);
   const leaving = own === true || inLeaving;
-  const node = live ?? (leaving ? last.current : undefined);
-  const entering = useSceneEntering(node);
+  const node = live ?? (leaving ? store.getDeparted(id) : undefined);
+  const entering = useSceneEntering(store, node);
   const inheritedDisabled = useContext(DisabledContext);
   const shown = useSceneChildren(store, node?.children ?? NO_CHILDREN);
   if (!node) return null;
@@ -485,11 +484,12 @@ export function SceneRenderer({
   resolveAsset?: SceneAssetResolver;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
+  const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
       {root ? (
         <div className="cmux-app-scene-root">
-          <SceneAppeared>
+          <SceneAppeared key={generation} store={store} generation={generation}>
             <SceneNodeView id={root} store={store} dispatch={dispatch} />
           </SceneAppeared>
         </div>

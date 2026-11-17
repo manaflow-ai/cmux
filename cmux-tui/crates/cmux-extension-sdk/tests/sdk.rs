@@ -155,7 +155,7 @@ fn the_builder_makes_a_widget_cmux_loads() {
         "Clock",
         "clock",
         &["small", "medium"],
-        60,
+        Some(60),
         &[],
     );
     let issues = manifest.validate();
@@ -173,9 +173,10 @@ fn the_builder_makes_a_widget_cmux_loads() {
         "Big",
         "square",
         &["large"],
-        300,
+        None,
         &["sidebar"],
     );
+    assert!(wrong.to_json()["implements"]["cmux.widget/1"]["options"].get("refresh").is_none());
     assert!(!is_valid(&wrong.validate()), "the sidebar holds no large tile");
 }
 

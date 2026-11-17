@@ -187,7 +187,8 @@ impl Manifest {
     /// A widget (`cmux.widget/1`) drawn by the script's `export`: a glanceable tile the person
     /// places on the New Tab page or in the sidebar from Edit Widgets > Add Widget. `sizes` are
     /// the sizes it draws (small 1x1, medium 2x1, large 2x2 tiles; the first is the default),
-    /// `every_seconds` how often cmux ticks its `now()` clock (at least 60, only while shown) and
+    /// `every_seconds` how often cmux ticks its `now()` clock (at least 60, only while shown;
+    /// `None` for a widget that never ticks) and
     /// `places` where it may go (empty means both).
     pub fn widget(
         self,
@@ -195,14 +196,16 @@ impl Manifest {
         title: &str,
         symbol: &str,
         sizes: &[&str],
-        every_seconds: u32,
+        every_seconds: Option<u32>,
         places: &[&str],
     ) -> Self {
         let mut options = Map::new();
         if !sizes.is_empty() {
             options.insert("sizes".into(), json!(sizes));
         }
-        options.insert("refresh".into(), json!({ "everySeconds": every_seconds }));
+        if let Some(every) = every_seconds {
+            options.insert("refresh".into(), json!({ "everySeconds": every }));
+        }
         if !places.is_empty() {
             options.insert("places".into(), json!(places));
         }

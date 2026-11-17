@@ -92,7 +92,7 @@ impl Supervisor {
                     })?;
                     let layout = self.widget_layout_locked(&mut inner);
                     let (context, mut widget) =
-                        super::widgets::mount_context(&spec, &context, layout)?;
+                        super::widgets::mount_context(app, &spec, &context, layout)?;
                     inner.widgets.next_epoch = inner.widgets.next_epoch.wrapping_add(1);
                     widget.epoch = inner.widgets.next_epoch;
                     (context, Some(widget))
@@ -183,9 +183,7 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
-        for timer in mount.widget.iter().flat_map(|w| [w.timer, w.retry]).flatten() {
-            self.timers.cancel(timer);
-        }
+        self.cancel_widget_timers(mount.widget.as_ref());
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
             process.send(&ToHost::Unmount { mount: key.wire() });
         }
@@ -306,6 +304,7 @@ impl Supervisor {
         let mut failed = Vec::new();
         for mount in gone {
             if let Some(record) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(record.widget.as_ref());
                 let reason = format!(
                     "{} does not implement {} with a scene export",
                     key.app, record.interface
@@ -374,7 +373,9 @@ impl Supervisor {
         let failed: Vec<MountKey> =
             inner.mounts.iter().filter(|(_, m)| m.host == *key).map(|(k, _)| k.clone()).collect();
         for mount in failed {
-            inner.mounts.remove(&mount);
+            if let Some(gone) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(gone.widget.as_ref());
+            }
             outs.push(Out::Client(
                 mount.client,
                 json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
@@ -477,7 +478,9 @@ impl Supervisor {
             .map(|(k, _)| k.clone())
             .collect();
         for mount in doomed {
-            inner.mounts.remove(&mount);
+            if let Some(gone) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(gone.widget.as_ref());
+            }
             outs.push(Out::Client(
                 mount.client,
                 json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
@@ -849,5 +852,9 @@ fn mark_reset(inner: &mut Inner, key: &HostKey) {
         mount.reset = true;
         // Held ops of the old process would land on the new tree.
         mount.budget.clear_pending();
+        // A widget's fresh mount draws at frame rate, as any mount does.
+        if mount.widget.is_some() {
+            mount.budget.settle(Instant::now(), super::widgets::SETTLE);
+        }
     }
 }

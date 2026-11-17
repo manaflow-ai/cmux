@@ -155,9 +155,11 @@ fn layout_edits_are_the_persons_saved_and_broadcast() {
     assert_eq!(list["layout"]["newtab"].as_array().unwrap().len(), 1);
 
     // A new daemon on the same state directory reads the same layout.
-    let state = f.state.clone();
-    let again =
-        fixture_with(&[], Duration::from_secs(60), TempDir(state.parent().unwrap().to_path_buf()));
+    let again = fixture_with(
+        &[],
+        Duration::from_secs(60),
+        TempDir(f.state.parent().unwrap().to_path_buf()),
+    );
     let layout =
         call(&again, "apps.widgets.list", json!({}), Origin::Script).unwrap()["layout"].clone();
     assert_eq!(layout["revision"], 4);
@@ -195,7 +197,7 @@ fn a_placed_tile_mounts_with_the_context_built_here_and_ticks_while_shown() {
         "t1",
         "local/clock",
         "cmux.widget/1",
-        json!({ "place": "sidebar", "size": "small", "instance": "w1" }),
+        json!({ "place": "sidebar", "size": "small", "instance": "w1", "locale": "ja-JP", "timeZone": "Asia/Tokyo" }),
     );
     let context = {
         let inner = f.supervisor.inner.lock().unwrap();
@@ -205,7 +207,8 @@ fn a_placed_tile_mounts_with_the_context_built_here_and_ticks_while_shown() {
     assert_eq!(
         context,
         json!({ "surface": "widget", "place": "sidebar", "size": "small", "instance": "w1",
-                "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 } })
+                "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 },
+                "locale": "ja-JP", "timeZone": "Asia/Tokyo" })
     );
 
     // The host's tick reaches the render, which redraws.
@@ -262,7 +265,7 @@ fn a_widget_that_throws_goes_stale_and_is_mounted_again_with_a_backoff() {
         )
         .unwrap();
     let not_failed = |e: &Value| {
-        assert!(e["event"] != "apps-mount-failed", "a widget never fails its tile: {e}")
+        assert!(e["event"] != "apps-mount-failed", "a widget never fails its tile: {e}");
     };
     let first = f.wait("the first stale", |e| {
         not_failed(e);
@@ -287,4 +290,48 @@ fn a_widget_that_throws_goes_stale_and_is_mounted_again_with_a_backoff() {
     // Unmounting cancels the pending retry.
     f.supervisor.unmount(CLIENT, "w").unwrap();
     assert_eq!(f.supervisor.widget_armed(CLIENT, "w"), None);
+}
+
+/// A hidden tile whose render threw is not mounted again while nobody sees it: the remount waits
+/// for the page to show it, then runs at once.
+#[test]
+fn a_hidden_stale_widget_is_mounted_again_only_when_shown() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    write_widget(&f.state, "broken", "renderFail", json!({ "sizes": ["small"] }));
+    f.supervisor.reload_local_apps(&prints);
+    f.install("local/broken");
+    edit(&f, "k1", "newtab", json!({ "op": "add", "app": "local/broken" })).unwrap();
+    f.supervisor
+        .mount(
+            CLIENT,
+            "w",
+            "local/broken",
+            "cmux.widget/1",
+            json!({ "place": "newtab", "size": "small", "instance": "w1" }),
+        )
+        .unwrap();
+    f.wait("the first stale", |e| e["event"] == "apps-widget-health" && e["failures"] == 1);
+    call(&f, "apps.widgets.visible", json!({ "mount_id": "w", "visible": false }), Origin::Script)
+        .unwrap();
+
+    // The 1 s retry comes due while hidden and only marks the remount owed.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.widget_retry_due(CLIENT, "w") != Some(true) {
+        assert!(Instant::now() < deadline, "the retry never came due");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    while let Ok(event) = f.events.try_recv() {
+        assert!(
+            !(event["event"] == "apps-widget-health" && event["failures"] == 2),
+            "a hidden tile was mounted again: {event}"
+        );
+    }
+
+    call(&f, "apps.widgets.visible", json!({ "mount_id": "w", "visible": true }), Origin::Script)
+        .unwrap();
+    let second =
+        f.wait("the remount on show", |e| e["event"] == "apps-widget-health" && e["failures"] == 2);
+    assert_eq!(second["retry_ms"], 2000);
+    assert_eq!(f.supervisor.widget_retry_due(CLIENT, "w"), Some(false));
 }

@@ -634,8 +634,30 @@ test("a transition animates a node in after the first frame and keeps a removed 
   const leaving = container.querySelector('[data-app-node="a"]')!;
   expect(leaving.hasAttribute("data-leaving")).toBe(true);
   expect(leaving.textContent).toBe("Milk");
-  await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  // The leave ends on its own timer (the motion scale's quick step): wait for the node to go.
+  for (let turn = 0; turn < 200 && container.querySelector('[data-app-node="a"]'); turn += 1) {
+    await act(() => new Promise<void>((resolve) => queueMicrotask(resolve)));
+    await act(() => new Promise<void>((resolve) => dom!.window.requestAnimationFrame(() => resolve())));
+  }
   expect(container.querySelector('[data-app-node="a"]')).toBeNull();
+});
+
+test("a reset scene draws fresh: nothing enters and nothing old stays to leave", () => {
+  const { container, store } = render(list);
+  act(() =>
+    store.apply(
+      [
+        { op: "create", id: "root", type: "VStack", props: {} },
+        { op: "create", id: "z", type: "Text", props: { text: "Eggs", transition: "slide" } },
+        { op: "children", id: "root", children: ["z"] },
+        { op: "root", id: "root" },
+      ],
+      true,
+    ),
+  );
+  const order = [...container.querySelectorAll("[data-app-node]")].map((n) => n.getAttribute("data-app-node"));
+  expect(order).toEqual(["root", "z"]);
+  expect(container.querySelector('[data-app-node="z"]')!.hasAttribute("data-entering")).toBe(false);
 });
 
 test("with motion off a removed node goes at once", () => {
