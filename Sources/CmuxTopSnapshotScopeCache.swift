@@ -116,9 +116,10 @@ extension CmuxTopProcessSnapshot {
     private static func containsSubcommandPath(_ path: [String], in arguments: [String]) -> Bool {
         let normalizedPath = path.map { $0.lowercased() }
         guard !normalizedPath.isEmpty, arguments.count >= normalizedPath.count + 1 else { return false }
-        let executableName = URL(fileURLWithPath: arguments[0])
-            .lastPathComponent
-            .lowercased()
+        // A string operation on purpose: `URL(fileURLWithPath:)` resolves a
+        // relative argv[0] under the working directory, a `getcwd` and an
+        // `lstat` each time.
+        let executableName = (arguments[0] as NSString).lastPathComponent.lowercased()
         guard executableName == "cmux" else { return false }
         let subcommands = arguments
             .dropFirst()
