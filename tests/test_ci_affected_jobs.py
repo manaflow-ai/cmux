@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 spec = importlib.util.spec_from_file_location("affected_jobs", ROOT / "scripts/ci/affected_jobs.py")
 jobs = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = jobs  # @dataclass reads its module from sys.modules (Python 3.12 raises without it)
 spec.loader.exec_module(jobs)
 git_tree = jobs.git_tree
 verdict = jobs.cargo_test_verdict

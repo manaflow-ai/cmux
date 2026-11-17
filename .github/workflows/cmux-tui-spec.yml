@@ -25,6 +25,11 @@ on:
       - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
       - "Resources/theme-files/*.json"
