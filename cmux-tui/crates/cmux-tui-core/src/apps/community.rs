@@ -471,8 +471,9 @@ enum Sort {
     Name,
 }
 
+/// Unknown fields are ignored: the page router adds the local catalog's
+/// (`developer`, `shelf`) to every `catalog.list`.
 #[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ListParams {
     #[allow(dead_code)]
     source: String,
@@ -487,7 +488,6 @@ struct ListParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct GetParams {
     #[allow(dead_code)]
     source: String,

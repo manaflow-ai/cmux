@@ -44,7 +44,12 @@ fn catalog_list_with_source_community_serves_the_registry_index() {
     assert_eq!(list["listings"].as_array().unwrap().len(), 2);
     assert_eq!(list["stale"], false);
     assert!(list["fetched_at"].as_u64().is_some());
-    let found = store(&f, "apps.catalog.list", json!({ "source": "community", "query": "TIMER" }));
+    // The page router adds the local catalog's params; they are ignored here.
+    let found = store(
+        &f,
+        "apps.catalog.list",
+        json!({ "source": "community", "query": "TIMER", "developer": false }),
+    );
     assert_eq!(found["listings"][0]["ref"], "github.com/Zed/timer");
     let paged = store(
         &f,
