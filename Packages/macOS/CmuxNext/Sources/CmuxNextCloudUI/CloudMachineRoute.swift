@@ -113,7 +113,7 @@ public struct CloudMachineRoute: Sendable {
     /// and that the machine could not be updated to: its start card's text, with Retry on the same machine.
     public nonisolated static var tooOld: String {
         String(localized: "cloud.machineRoute.tooOld",
-               defaultValue: "This Cloud machine's software is too old for this version of cmux, and it couldn't be updated. Try again in a few minutes, or update cmux.",
+               defaultValue: "This Cloud machine's software is too old for this cmux and couldn't be updated. Try again in a few minutes, or update cmux.",
                table: "Cloud", bundle: .module)
     }
 
@@ -123,7 +123,7 @@ public struct CloudMachineRoute: Sendable {
             ""
         case .unsupported, .invalid:
             String(localized: "cloud.machineRoute.outdated",
-                   defaultValue: "This Cloud machine's software could not be updated to match this app, so its agents can't reach models yet. Try again, or start the chat on a new machine.",
+                   defaultValue: "This Cloud machine's software couldn't be updated to match this app, so its agents can't reach models. Try again, or use a new machine.",
                    table: "Cloud", bundle: .module)
         case .noDaemon:
             String(localized: "cloud.machineRoute.noDaemon",
@@ -131,7 +131,7 @@ public struct CloudMachineRoute: Sendable {
                    table: "Cloud", bundle: .module)
         case .holdsCredential:
             String(localized: "cloud.machineRoute.holdsCredential",
-                   defaultValue: "This Cloud machine holds its own provider sign-in, so its agents would not use the Cloud service's model route. Start the chat on a new machine.",
+                   defaultValue: "This Cloud machine holds its own provider sign-in, so its agents skip the Cloud service's model route. Start the chat on a new machine.",
                    table: "Cloud", bundle: .module)
         case .notEdge:
             String(localized: "cloud.machineRoute.notEdge",

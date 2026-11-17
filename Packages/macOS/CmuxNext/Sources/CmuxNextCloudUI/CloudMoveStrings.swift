@@ -116,7 +116,7 @@ public struct CloudMoveStrings {
     /// The app server's refusal of a create at the team's machine count limit (upstream `cloud.quota.vm_limit`).
     public nonisolated static let machineLimitCode = "cmux.cloud.vm_limit"
     public nonisolated static var machineLimit: String {
-        String(localized: "cloud.error.machineLimit", defaultValue: "This team is at its Cloud machine limit, and paused machines count. Delete a machine you no longer need, then try again.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.error.machineLimit", defaultValue: "This team is at its Cloud machine limit, paused machines included. Delete a machine you don't need, then try again.", table: "Cloud", bundle: .module)
     }
 }
 

@@ -25,7 +25,7 @@ public struct CloudTransferLocalStrings {
         String(localized: "cloud.transferLocal.noFolder", defaultValue: "This chat has no folder on the machine to copy.", table: "Cloud", bundle: .module)
     }
     public static var tooBroad: String {
-        String(localized: "cloud.transferLocal.tooBroad", defaultValue: "This chat's folder on the machine is a home or top folder, which holds the machine's sign-ins. Open the chat in a project folder to transfer it.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.transferLocal.tooBroad", defaultValue: "This chat's folder is the machine's home or top folder, which holds its sign-ins. Open the chat in a project folder to transfer it.", table: "Cloud", bundle: .module)
     }
     public static func copyFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.transferLocal.copyFailed", defaultValue: "Couldn't copy the folder from %1$@: %2$@", table: "Cloud", bundle: .module),

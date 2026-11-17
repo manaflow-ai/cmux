@@ -7,7 +7,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Cloud machine's software could not be updated to match this app, so its agents can't reach models yet. Try again, or start the chat on a new machine."
+            "value": "This Cloud machine's software couldn't be updated to match this app, so its agents can't reach models. Try again, or use a new machine."
           }
         },
         "ar": {
@@ -138,7 +138,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Cloud machine's software is too old for this version of cmux, and it couldn't be updated. Try again in a few minutes, or update cmux."
+            "value": "This Cloud machine's software is too old for this cmux and couldn't be updated. Try again in a few minutes, or update cmux."
           }
         },
         "ar": {
@@ -269,7 +269,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This team is at its Cloud machine limit, and paused machines count. Delete a machine you no longer need, then try again."
+            "value": "This team is at its Cloud machine limit, paused machines included. Delete a machine you don't need, then try again."
           }
         },
         "ar": {
@@ -531,7 +531,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Cloud machine holds its own provider sign-in, so its agents would not use the Cloud service's model route. Start the chat on a new machine."
+            "value": "This Cloud machine holds its own provider sign-in, so its agents skip the Cloud service's model route. Start the chat on a new machine."
           }
         },
         "ar": {
@@ -793,7 +793,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub so the machine can clone it."
+            "value": "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it."
           }
         },
         "ar": {
@@ -10463,7 +10463,7 @@
     "cloud.transferLocal.tooBroad": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "This chat's folder on the machine is a home or top folder, which holds the machine's sign-ins. Open the chat in a project folder to transfer it."}},
+        "en": {"stringUnit": {"state": "translated", "value": "This chat's folder is the machine's home or top folder, which holds its sign-ins. Open the chat in a project folder to transfer it."}},
         "de": {"stringUnit": {"state": "translated", "value": "Der Ordner dieses Chats auf der Maschine ist ein Home- oder oberster Ordner mit den Anmeldungen der Maschine. Öffne den Chat in einem Projektordner, um ihn zu übertragen."}},
         "fr": {"stringUnit": {"state": "translated", "value": "Le dossier de cette discussion sur la machine est un dossier personnel ou de premier niveau, qui contient les connexions de la machine. Ouvrez la discussion dans un dossier de projet pour la transférer."}},
         "ar": {"stringUnit": {"state": "translated", "value": "مجلد هذه المحادثة على الجهاز هو مجلد رئيسي أو مجلد علوي يحتوي على تسجيلات دخول الجهاز. افتح المحادثة في مجلد مشروع لنقلها."}},

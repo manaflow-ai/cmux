@@ -184,7 +184,7 @@ extension AcpmuxEnvironment {
     nonisolated static let harnessesChanged = "_acpmux/harnesses_changed"
     nonisolated static let connectionsChanged = "_acpmux/connections.changed"
 
-    /// One `_acpmux/watch` connection calling `onChange` with each notification line named `method`.
+    /// One watch connection calling `onChange` with each notification line named `method`.
     private nonisolated func watchNotifications(_ method: String, _ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
         let socketPath = socketPath
         return Task.detached {

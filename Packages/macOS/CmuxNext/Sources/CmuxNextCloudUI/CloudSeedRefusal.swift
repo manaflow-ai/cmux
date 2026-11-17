@@ -47,7 +47,7 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
 
     /// Why a copy that does not fit is not made, for the chat: the folder's size and the machine's name.
     public var tooLarge: String {
-        String(format: String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub so the machine can clone it.", table: "Cloud", bundle: .module),
+        String(format: String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .module),
                ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
     }
 
