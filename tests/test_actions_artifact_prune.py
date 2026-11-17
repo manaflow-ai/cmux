@@ -228,7 +228,11 @@ class DropJob(unittest.TestCase):
     def test_the_drop_waits_for_every_job_and_runs_only_after_a_clean_run(self):
         jobs = artifacts_jobs()
         drop = jobs["drop-build-artifacts"]
-        self.assertEqual(set(drop["needs"]), set(jobs) - {"drop-build-artifacts"})
+        # All but the pending-notify sweep: it reads no build output, and GitHub ends a sweep its concurrency
+        # group replaced while pending as cancelled, which would hold back every such run's drop.
+        self.assertEqual(set(drop["needs"]), set(jobs) - {"drop-build-artifacts", "sweep-pending-tree-notify"})
+        self.assertIn("sweep-pending-tree-notify", jobs)
+        self.assertFalse(reads_dropped_artifacts(jobs["sweep-pending-tree-notify"]))
         # Every reader of a dropped name is among them: a reader added later is covered by the rule above.
         readers = {name for name, job in jobs.items() if reads_dropped_artifacts(job)}
         self.assertTrue({"publish", "publish-tree", "sentry-dsyms", "point-machine-channel-early",

@@ -148,6 +148,9 @@ class FakeApi:
                           "event": "workflow_dispatch", "head_branch": body["ref"],
                           "head_sha": inputs["same_tree_status_sha"], "status": "queued", "run_attempt": 1,
                           "created_at": f"2026-11-02T05:{len(self.runs):02d}:00Z"})
+        # A failed-state run reports its tiers red and skips its Mac jobs (cmux-next.yml reads same_tree_state).
+        self.jobs.setdefault(self.runs[-1]["id"], same_tree_jobs(mac="skipped" if inputs["same_tree_state"] == "failed"
+                                                                 else "queued", tiers=inputs["same_tree_tiers"]))
         return 204
 
     def delete(self, path: str) -> int:
@@ -155,13 +158,15 @@ class FakeApi:
         return 204
 
 
-def same_tree_jobs(mac: str = "queued") -> list[dict]:
+def same_tree_jobs(mac: str = "queued", tiers: str = "scheme") -> list[dict]:
     """A same-tree run's jobs as the jobs API lists them (run 42607592895): its routing and push head
-    preflight skipped, its Mac job in state MAC."""
+    preflight skipped, the Mac job of each of TIERS in state MAC (`skipped`: completed, skipped)."""
+    names = {"daemon": "cmux-next daemon tests", "scheme": "cmux app scheme compile (Debug)"}
+    mac_jobs = [{"name": names[tier], "status": "completed", "conclusion": "skipped"} if mac == "skipped"
+                else {"name": names[tier], "status": mac, "conclusion": None} for tier in tiers.split(",")]
     return [{"name": "cmux-next push head preflight", "status": "completed", "conclusion": "skipped"},
             {"name": "cmux-next path routing", "status": "completed", "conclusion": "skipped"},
-            {"name": "cmux-next macOS placement", "status": "completed", "conclusion": "success"},
-            {"name": "cmux app scheme compile (Debug)", "status": mac, "conclusion": None}]
+            {"name": "cmux-next macOS placement", "status": "completed", "conclusion": "success"}] + mac_jobs
 
 
 def plain_dispatch_jobs() -> list[dict]:
@@ -461,7 +466,7 @@ class Notify(unittest.TestCase):
         self.assertEqual(run(api, state="failed"), 1)
         self.assertEqual(run(api, state="failed"), 0)
 
-    def test_the_run_history_is_read_once_per_failed_notify_and_never_for_ready(self):
+    def test_the_run_history_is_read_once_per_notify(self):
         markers = [push_marker(origin="dispatch", tip_suite="base", sha=sha, status_sha=sha)
                    for sha in ("1" * 40, "2" * 40, "3" * 40)]
         api = FakeApi(markers, branch_head=NEWER)
@@ -470,8 +475,10 @@ class Notify(unittest.TestCase):
         self.assertIn(f"created=%3E%3D{UPLOADED}&", api.history_reads[0])
         self.assertEqual(run(api, state="failed"), 0)
         self.assertEqual(len(api.history_reads), 2)
+        # The failed-state runs skipped their Mac jobs: they never stand in for the ready tree jobs. A ready
+        # notify reads the history once too (OpenSameTreeRun).
         self.assertEqual(run(api, state="ready"), 3)
-        self.assertEqual(len(api.history_reads), 2)
+        self.assertEqual(len(api.history_reads), 3)
 
     def test_the_run_name_is_read_from_display_title_or_name(self):
         """REST lists the evaluated run-name as display_title (and, with run-name set, as name)."""
@@ -795,6 +802,76 @@ class SupersededSameTreeRuns(unittest.TestCase):
         self.assertTrue(any("superseded same-tree" in line for line in messages), messages)
 
 
+class OpenSameTreeRun(unittest.TestCase):
+    """2026-11-17: overlapping `--sweep-pending` steps (one per push) each read the same pending record and
+    marker before either deleted them, and each dispatched the same same-tree run: lane/launch-stage0-window
+    b0549a37 had three runs (44077022520, 44077027695, 44077028039), each queueing a Debug scheme compile on
+    the owned Mac minis. A ready dispatch is skipped when an open same-tree run already carries its tiers."""
+
+    def both(self, **extra) -> dict:
+        return pr_marker(tiers=["daemon", "scheme"], **extra)
+
+    def test_two_sweeps_reading_the_same_pending_record_dispatch_once(self):
+        api = PendingApi([self.both()], [(500, pending_zip(), None)])
+        for _sweep in range(2):
+            # GitHub deletes nothing between the two reads: both sweeps list the marker and the record.
+            self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None,
+                                                  fetch_completion=lambda key: completion_json(key)), [])
+        [body] = api.dispatched
+        self.assertEqual((body["ref"], body["inputs"]["same_tree_tiers"]), ("lane/x", "daemon,scheme"))
+
+    def test_an_open_same_tree_run_of_the_head_starts_nothing_and_drops_the_marker(self):
+        existing = open_run(501, 30, sha=HEAD)
+        api = FakeApi([self.both()], runs=[existing], jobs={501: same_tree_jobs(tiers="daemon,scheme")})
+        messages: list[str] = []
+        self.assertEqual(notify.notify(api, repo="o/r", key=KEY, state="ready", reason="", log=messages.append,
+                                       fetch_completion=lambda _key: None), 0)
+        self.assertEqual((api.dispatched, api.deleted), ([], [100]))
+        self.assertTrue(any("501" in line and "already" in line for line in messages), messages)
+        # an in-progress run, and a tip suite's run by its own name, likewise
+        running = FakeApi([self.both()], runs=[open_run(501, 30, sha=HEAD, status="in_progress")],
+                          jobs={501: same_tree_jobs(mac="in_progress", tiers="daemon,scheme")})
+        self.assertEqual(run(running), 0)
+        base = push_marker(origin="dispatch", tip_suite="base")
+        tip = FakeApi([base], branch_head=NEWER,
+                      runs=[open_run(501, 30, branch="feat-cmux-next", sha=NEWER, title=f"cmux-next base tier · {SHA}")],
+                      jobs={501: same_tree_jobs(tiers="daemon,scheme")})
+        self.assertEqual(run(tip), 0)
+
+    def test_a_run_that_does_not_carry_the_tiers_still_dispatches(self):
+        cases = {
+            "created before the marker was uploaded": (open_run(501, 30, sha=HEAD, created_at=EARLIER),
+                                                       same_tree_jobs(tiers="daemon,scheme")),
+            "a failed-state report (Mac jobs skipped)": (open_run(501, 30, sha=HEAD),
+                                                         same_tree_jobs(mac="skipped", tiers="daemon,scheme")),
+            "one tier only": (open_run(501, 30, sha=HEAD), same_tree_jobs(tiers="scheme")),
+            "a cancelled Mac job": (open_run(501, 30, sha=HEAD),
+                                    same_tree_jobs(tiers="daemon") + [{"name": "cmux app scheme compile (Debug)",
+                                                                       "status": "completed",
+                                                                       "conclusion": "cancelled"}]),
+            "a plain dispatch (routes itself)": (open_run(501, 30, sha=HEAD), plain_dispatch_jobs()),
+            "jobs not created yet": (open_run(501, 30, sha=HEAD), []),
+            "finished": (open_run(501, 30, sha=HEAD, status="completed", conclusion="success"),
+                         same_tree_jobs(tiers="daemon,scheme")),
+            "another branch": (open_run(501, 30, sha=HEAD, branch="lane/y"), same_tree_jobs(tiers="daemon,scheme")),
+            "another commit": (open_run(501, 30, sha=NEWER), same_tree_jobs(tiers="daemon,scheme")),
+        }
+        for why, (existing, jobs) in cases.items():
+            with self.subTest(why):
+                api = FakeApi([self.both()], runs=[existing], jobs={501: jobs})
+                self.assertEqual(run(api), 1)
+
+    def test_an_unreadable_run_history_still_dispatches(self):
+        api = FakeApi([self.both()], runs=[open_run(501, 30, sha=HEAD)], history_error=True,
+                      jobs={501: same_tree_jobs(tiers="daemon,scheme")})
+        self.assertEqual(run(api), 1)
+
+    def test_a_failed_state_report_is_never_held_by_an_open_run(self):
+        api = FakeApi([push_marker()], runs=[open_run(501, 30, branch="feat-cmux-next", sha=SHA)],
+                      jobs={501: same_tree_jobs(tiers="daemon,scheme")})
+        self.assertEqual(run(api, state="failed"), 1)
+
+
 def pending_zip(key: str = KEY, state: str = "ready") -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -923,9 +1000,18 @@ class NotifyNeverLost(unittest.TestCase):
         publish_tree = text.split("\n  publish-tree:\n", 1)[1].split("\n  publish-tree-tested:", 1)[0]
         self.assertNotIn("CMUX_BOT_APP_KEY", publish_tree)
         self.assertIn("name: cmux-next-tree-notify-pending", text)
-        sweep = text.split("\n  sweep-commit-manifests:\n", 1)[1].split("\n  point-machine-channel-early:", 1)[0]
+        manifests = text.split("\n  sweep-commit-manifests:\n", 1)[1].split("\n  sweep-pending-tree-notify:", 1)[0]
+        self.assertNotIn("--sweep-pending", manifests)
+        sweep = text.split("\n  sweep-pending-tree-notify:\n", 1)[1].split("\n  point-machine-channel-early:", 1)[0]
         self.assertIn("cmux_next_tree_notify.py --repo \"$GITHUB_REPOSITORY\" --sweep-pending", sweep)
         self.assertIn("pull-requests: read", sweep)
+        # Overlapping sweeps serialize (OpenSameTreeRun): one group for every run, never cancelled once started.
+        self.assertIn("    concurrency:\n      group: cmux-tui-sweep-pending-tree-notify\n"
+                      "      cancel-in-progress: false\n", sweep)
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", sweep.split("\n    if: ", 1)[1].split("\n", 1)[0])
+        # A sweep replaced while pending ends cancelled: it must not hold back the artifact drop.
+        drop = text.split("\n  drop-build-artifacts:\n", 1)[1].split("\n    if: ", 1)[0]
+        self.assertNotIn("sweep-pending-tree-notify", drop)
         rerun = text.split("\n  rerun-deferred-commits:\n", 1)[1].split("\n  verify-cdn-publication:", 1)[0]
         self.assertNotIn("github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') &&", rerun)
 
