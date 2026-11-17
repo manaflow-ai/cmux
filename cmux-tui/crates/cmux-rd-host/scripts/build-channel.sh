@@ -10,8 +10,8 @@
 # leg's gnu triple, linked by Zig against the glibc floor (a symbol newer than the floor
 # does not link), with the release features of cmux-rd-release.yml: OpenH264 downloaded on
 # the machine and the device hub link, no bench, no x264 (tests/release_features.rs checks
-# FEATURES below and the crates it links). Writes cmux-rd and cmux-rd-notices.md (the
-# notices for exactly this build's crate tree, release.py notices) to
+# FEATURES below; release.py RELEASE_FEATURES names the same). Writes cmux-rd and
+# cmux-rd-notices.md (release.py notices, after its license gate) to
 # $CARGO_TARGET_DIR/LEG_TRIPLE/release, where cargo-groups.sh gathers a group's files:
 # both, or neither when any part fails.
 set -euo pipefail
@@ -46,10 +46,10 @@ rustup target add "$target"
 CMUX_BUILD_SHA="$ref" cargo zigbuild --release --locked --manifest-path "$manifest" \
   --no-default-features --features "$FEATURES" --bin cmux-rd --target "$target.$GLIBC_FLOOR"
 
-cargo tree --locked --manifest-path "$manifest" --no-default-features --features "$FEATURES" \
-  -e normal,no-proc-macro --target "$target" --prefix none -f "{p}" > "$tmp/cargo-tree.txt"
+# The license gate and the notices read one crate list (release.py linked_crates, from
+# `cargo metadata`): a crate the gate stops writes no notices, and so no cmux-rd.
 python3 "$scripts/release.py" notices --target "$target" --ref "$ref" \
-  --cargo-tree "$tmp/cargo-tree.txt" --out "$tmp/notices.md" --cache "${RUNNER_TEMP:-$tmp}/cmux-rd-notices-cache"
+  --out "$tmp/notices.md" --cache "${RUNNER_TEMP:-$tmp}/cmux-rd-notices-cache"
 
 mkdir -p "$out"
 install -m 644 "$tmp/notices.md" "$out/cmux-rd-notices.md"

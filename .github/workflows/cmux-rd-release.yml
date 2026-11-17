@@ -138,12 +138,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo tree --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml \
-            --no-default-features --features "$FEATURES" -e normal,no-proc-macro \
-            --target "$TARGET" --prefix none -f "{p}" > "$RUNNER_TEMP/cargo-tree.txt"
-          python3 cmux-tui/crates/cmux-rd-host/scripts/release.py notices \
-            --cargo-tree "$RUNNER_TEMP/cargo-tree.txt" --out "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md" \
-            --cache "$RUNNER_TEMP/notices-cache"
+          # The crates come from release.py's own `cargo metadata` read, the list its license gate judges.
+          python3 cmux-tui/crates/cmux-rd-host/scripts/release.py notices --target "$TARGET" \
+            --out "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md" --cache "$RUNNER_TEMP/notices-cache"
 
       - name: Package
         shell: bash

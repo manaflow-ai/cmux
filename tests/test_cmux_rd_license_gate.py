@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""cmux-rd's license gate (cmux-tui/crates/cmux-rd-host/scripts/release.py license-gate): it lists
-every crate not under permissive licenses only and stops on one that is GPL, LGPL or AGPL only and
-not this repository's own. These are its unit tests on synthetic cargo-license output; the check of
-the real release crate tree is the Rust test cmux-rd-host/tests/release_features.rs, which feeds
-cargo-license's output for the release features to the same gate."""
+"""cmux-rd's license gate and notices list (cmux-tui/crates/cmux-rd-host/scripts/release.py): the
+crates a release links, read from `cargo metadata`'s resolve graph (normal edges, no proc macros),
+stop on one that is GPL, LGPL or AGPL only or has no license unless it is this repository's own,
+and the notices document exactly the gated list. Unit tests on fabricated metadata; the real crate
+tree is checked by cmux-rd-host's tests/release_features.rs."""
 
 from __future__ import annotations
 
 import importlib.util
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -26,25 +25,6 @@ def load():
 
 
 release = load()
-
-LOCK = """
-version = 4
-
-[[package]]
-name = "cmux-rd-host"
-version = "0.2.6"
-
-[[package]]
-name = "serde"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "gpl-thing"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-"""
-
 
 class LicenseClass(unittest.TestCase):
     def test_permissive_expressions(self):
@@ -79,34 +59,92 @@ class LicenseClass(unittest.TestCase):
         )
 
 
+REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+
+
+def metadata(deps):
+    """A fabricated `cargo metadata`: cmux-rd-host from a path, and each (name, license, source,
+    kind) one edge from it; `inner` deps hang off the first one."""
+    def pkg(name, license, source, kind="lib"):
+        return {"id": f"{name} 1.0.0", "name": name, "version": "1.0.0", "license": license,
+                "source": source, "targets": [{"kind": [kind]}]}
+    packages = [pkg("cmux-rd-host", "GPL-3.0-or-later", None)]
+    nodes = []
+    edges = []
+    for name, license, source, kind, *rest in deps:
+        packages.append(pkg(name, license, source, rest[0] if rest else "lib"))
+        edges.append({"name": name, "pkg": f"{name} 1.0.0", "dep_kinds": [{"kind": kind, "target": None}]})
+        nodes.append({"id": f"{name} 1.0.0", "deps": [], "features": []})
+    nodes.append({"id": "cmux-rd-host 1.0.0", "deps": edges, "features": []})
+    return {"packages": packages, "resolve": {"root": "cmux-rd-host 1.0.0", "nodes": nodes}}
+
+
+class Closure(unittest.TestCase):
+    def test_only_normal_edges_and_no_proc_macros(self):
+        crates = release.linked_crates(metadata([
+            ("serde", "MIT", REGISTRY, None),
+            ("dev-only", "GPL-3.0", REGISTRY, "dev"),
+            ("build-only", "GPL-3.0", REGISTRY, "build"),
+            ("a-macro", "MIT", REGISTRY, None, "proc-macro"),
+        ]))
+        self.assertEqual([c["name"] for c in crates], ["cmux-rd-host", "serde"])
+
+
 class Gate(unittest.TestCase):
-    def run_gate(self, crates):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            (tmp / "Cargo.lock").write_text(LOCK)
-            (tmp / "license.json").write_text(json.dumps(crates))
-            out = tmp / "table.md"
-            code = release.license_gate(tmp / "license.json", out, lock=tmp / "Cargo.lock")
-            return code, out.read_text()
+    def gate(self, deps):
+        return release.license_gate(release.linked_crates(metadata(deps)))
 
     def test_own_gpl_crate_and_permissive_crates_pass(self):
-        code, table = self.run_gate([
-            {"name": "cmux-rd-host", "version": "0.2.6", "license": "GPL-3.0-or-later"},
-            {"name": "serde", "version": "1.0.0", "license": "MIT OR Apache-2.0"},
-        ])
+        code, table = self.gate([("cmux-rd-core", "GPL-3.0-or-later", None, None), ("serde", "MIT OR Apache-2.0", REGISTRY, None)])
         self.assertEqual(code, 0)
-        self.assertIn("| cmux-rd-host | 0.2.6 | GPL-3.0-or-later | this repository's own crate", table)
+        self.assertIn("| cmux-rd-core | 1.0.0 | GPL-3.0-or-later | this repository's own crate", table)
         self.assertNotIn("serde", table)
 
     def test_a_registry_gpl_crate_stops_the_release(self):
-        code, table = self.run_gate([{"name": "gpl-thing", "version": "0.1.0", "license": "GPL-2.0-only"}])
+        code, table = self.gate([("gpl-thing", "GPL-2.0-only", REGISTRY, None)])
         self.assertEqual(code, 1)
         self.assertIn("STOP", table)
 
+    def test_no_license_stops_the_release(self):
+        code, table = self.gate([("bare", None, REGISTRY, None)])
+        self.assertEqual(code, 1)
+        self.assertIn("STOP: no license field", table)
+
+    def test_an_own_name_from_a_registry_is_not_ours(self):
+        code, _ = self.gate([("cmux-rd-core", "GPL-3.0-or-later", REGISTRY, None)])
+        self.assertEqual(code, 1)
+
     def test_mpl_is_listed_without_a_stop(self):
-        code, table = self.run_gate([{"name": "serde", "version": "1.0.0", "license": "MPL-2.0"}])
+        code, table = self.gate([("serde", "MPL-2.0", REGISTRY, None)])
         self.assertEqual(code, 0)
         self.assertIn("| serde | 1.0.0 | MPL-2.0 | listed, no stop", table)
+
+
+class NoticesReadTheGatedList(unittest.TestCase):
+    def test_notices_document_exactly_the_gated_crates(self):
+        meta = metadata([("serde", "MIT", REGISTRY, None), ("dev-only", "GPL-3.0", REGISTRY, "dev")])
+        seen = {}
+        real = release.crates_markdown
+
+        def fake(cargo_tree, cache, tag, target=release.TARGET):
+            seen["lines"] = cargo_tree.read_text(encoding="utf-8")
+            raise SystemExit("stop after the crate list")
+
+        release.crates_markdown = fake
+        try:
+            with tempfile.TemporaryDirectory() as tmp, self.assertRaises(SystemExit):
+                release.notices(Path(tmp) / "n.md", Path(tmp) / "cache", metadata=meta)
+        finally:
+            release.crates_markdown = real
+        self.assertEqual(seen["lines"], release.crate_lines(release.linked_crates(meta)))
+        self.assertEqual(seen["lines"], "cmux-rd-host v1.0.0\nserde v1.0.0\n")
+
+    def test_a_stopped_gate_writes_no_notices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as stop:
+                release.notices(Path(tmp) / "n.md", Path(tmp) / "cache", metadata=metadata([("gpl", "GPL-2.0-only", REGISTRY, None)]))
+            self.assertIn("no notices written", str(stop.exception))
+            self.assertFalse((Path(tmp) / "n.md").exists())
 
 
 if __name__ == "__main__":
