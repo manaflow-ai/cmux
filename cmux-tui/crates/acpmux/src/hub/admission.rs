@@ -302,7 +302,7 @@ pub(super) fn claim(id: &str) {
 
 /// A session counts as live when its harness runs: a live status, or (any
 /// status but Closed) an agent host still running for it.
-fn is_live(status: SessionStatus, hosted: bool) -> bool {
+pub(super) fn is_live(status: SessionStatus, hosted: bool) -> bool {
     match status {
         SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting => true,
         SessionStatus::Closed => false,

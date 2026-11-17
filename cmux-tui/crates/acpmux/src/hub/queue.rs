@@ -1456,9 +1456,18 @@ impl Hub {
             for q in restored {
                 let hub = self.clone();
                 let session = session.clone();
+                let staged = self.clone_of().is_none();
+                if staged {
+                    self.restore_gate.expect();
+                }
                 tokio::spawn(async move {
                     // After the login env and the catalog reload: its harness may need them.
                     hub.wait_startup().await;
+                    // Then its stage: a restart never starts every chat's agent at once
+                    // (`restore_gate.rs`). A copy's first start is no restart.
+                    if staged {
+                        hub.admit_restored(&session).await;
+                    }
                     let opts = PromptOptions {
                         prompt_id: Some(q.prompt_id.clone()),
                         message_id: q.run.message_id.clone(),

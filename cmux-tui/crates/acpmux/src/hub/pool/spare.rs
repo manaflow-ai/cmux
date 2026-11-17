@@ -174,6 +174,8 @@ impl Hub {
         if !self.spare_enabled().await {
             return;
         }
+        // After the chats a restart cut short are back (`restore_gate.rs`): a spare can wait.
+        self.restore_gate.wait_drained().await;
         let h = self.clone();
         let list =
             tokio::task::spawn_blocking(move || h.spares_with(|_| {})).await.unwrap_or_default();

@@ -229,6 +229,7 @@ mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod reply_fit;
+mod restore_gate;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
@@ -1210,6 +1211,8 @@ pub struct Hub {
     pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
+    /// Restored prompts waiting for their stage after a restart (`restore_gate.rs`).
+    pub(super) restore_gate: restore_gate::RestoreGate,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
@@ -1573,6 +1576,7 @@ impl Hub {
             subsessions: Default::default(),
             races_running: Default::default(),
             admitting: Default::default(),
+            restore_gate: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             session_update_encodes: Default::default(),
