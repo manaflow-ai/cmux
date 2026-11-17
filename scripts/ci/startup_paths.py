@@ -10,8 +10,10 @@ settled_ms, prior_chat_front_ms, prior_chat_live_ms, warm_switch_ms; t0 = the pr
                  does), the app is copied out (ditto keeps the quarantine the image gives its files) and the image
                  detached; the disk cache is purged when `sudo -n purge` is allowed; then `open -n` the copy with a
                  new HOME (CFFIXED_USER_HOME, a login keychain, the bundle's defaults set aside), as a double-click.
-                 The first-launch "downloaded from the Internet" prompt is answered Open (cua-driver, else System
-                 Events) and the time it waited for a person is kept apart (prompt_wait_ms). Also from the `open`:
+                 The first-launch "downloaded from the Internet" prompt is answered Open through cua-driver; a host
+                 whose cua-driver cannot answer it skips the round (`skipped`) rather than raise a prompt nobody
+                 answers, and one never got past is put off with Cancel before the round ends. The time it waited
+                 for a person is kept apart (prompt_wait_ms). Also from the `open`:
                  open_to_spawn_ms, open_to_first_window_ms, open_to_settled_ms; Home or the first-run page in a
                  visible window (home_ms); and from the unified log, syspolicyd's and XProtect's first and last event
                  after the `open` (gate.syspolicyd_span_ms, gate.xprotect_span_ms) with the lines naming an
@@ -119,37 +121,46 @@ def walk(obj, pred, out=None) -> list:
     return out
 
 
-def answer_prompt() -> dict | None:
-    """When the first-launch prompt is on screen, press its Open button; None while there is none. cua-driver holds
-    the Accessibility grant a measure step lacks; System Events only without it (a first System Events call may ask
-    for the Automation grant in a dialog of its own)."""
+def cannot_answer_prompt() -> str | None:
+    """Why this host could not answer the first-launch prompt, or None when cua-driver can.
+
+    A fresh install raises Gatekeeper's "downloaded from the Internet" prompt, and nothing ends it but a press.
+    On a fleet Mac whose cua-driver is missing or lacks Accessibility, the prompt stayed on the screen after the
+    round, one per round (five on a fleet Mac on 2026-11-17, over every later capture, until a person came). So
+    the quarantined launch runs only where cua-driver holds Accessibility. System Events is no way: its first
+    call from a step's shell asks for an Automation grant, a prompt of its own."""
+    if not CUA.exists():
+        return f"no cua-driver at {CUA}"
+    granted = cua("check_permissions", {})
+    if granted.get("error"):
+        return f"cua-driver check_permissions failed: {granted['error'][-200:]}"
+    if not walk(granted, lambda o: isinstance(o, dict) and o.get("accessibility") is True):
+        return "cua-driver holds no Accessibility grant"
+    return None
+
+
+def answer_prompt(button: str = "Open") -> dict | None:
+    """When the first-launch prompt is on screen, press BUTTON on it through cua-driver; None while there is none.
+    cua-driver holds the Accessibility grant a measure step lacks (cannot_answer_prompt checks it first)."""
     code, out = run_text(["pgrep", "-x", "-U", str(os.getuid()), "CoreServicesUIAgent"], timeout=10)
     agents = [int(p) for p in out.split() if p.isdigit()] if code == 0 else []
     if not agents:
         return None
-    if CUA.exists():
-        wins = [w for w in walk(cua("list_windows", {"pid": agents[0]}), lambda o: isinstance(o, dict) and "window_id" in o)
-                if w.get("is_on_screen")]
-        for win in wins:
-            state = cua("get_window_state", {"pid": agents[0], "window_id": win["window_id"],
-                                             "include_screenshot": False, "max_depth": 30, "max_elements": 400})
-            buttons = [e for e in walk(state, lambda o: isinstance(o, dict) and "frame" in o and "role" in o)
-                       if "button" in str(e.get("role", "")).lower()
-                       and str(e.get("label") or e.get("title") or "").strip() == "Open"]
-            if buttons:
-                f = buttons[0]["frame"]
-                click = cua("click", {"x": f["x"] + f["w"] / 2, "y": f["y"] + f["h"] / 2, "scope": "desktop"})
-                return {"by": "cua-driver", "click": None if click.get("error") else click}
-        return {"by": "cua-driver", "click": None, "windows": len(wins)} if wins else None
-    script = ('tell application "System Events" to tell process "CoreServicesUIAgent"\n'
-              'if (count of windows) is 0 then return "none"\n'
-              'click button "Open" of window 1\nreturn "clicked"\nend tell')
-    code, out = run_text(["osascript", "-e", script], timeout=20)
-    if code == 0 and out == "none":
-        return None
-    if code != 0:  # no grant: it cannot see a prompt, so none is counted
-        return {"by": "system-events", "shown": False, "error": out[-200:]}
-    return {"by": "system-events", "click": out}
+    if not CUA.exists():
+        return {"by": "cua-driver", "shown": False, "error": f"no cua-driver at {CUA}"}
+    wins = [w for w in walk(cua("list_windows", {"pid": agents[0]}), lambda o: isinstance(o, dict) and "window_id" in o)
+            if w.get("is_on_screen")]
+    for win in wins:
+        state = cua("get_window_state", {"pid": agents[0], "window_id": win["window_id"],
+                                         "include_screenshot": False, "max_depth": 30, "max_elements": 400})
+        buttons = [e for e in walk(state, lambda o: isinstance(o, dict) and "frame" in o and "role" in o)
+                   if "button" in str(e.get("role", "")).lower()
+                   and str(e.get("label") or e.get("title") or "").strip() == button]
+        if buttons:
+            f = buttons[0]["frame"]
+            click = cua("click", {"x": f["x"] + f["w"] / 2, "y": f["y"] + f["h"] / 2, "scope": "desktop"})
+            return {"by": "cua-driver", "click": None if click.get("error") else click}
+    return {"by": "cua-driver", "click": None, "windows": len(wins)} if wins else None
 
 
 def parse_log_time(stamp: str) -> float | None:
@@ -235,6 +246,13 @@ def fresh_install_round(smoke, dmg: Path, index: int, prepare_env=None, seconds:
     root = Path(tempfile.mkdtemp(prefix="cmux-gfi-", dir="/tmp"))
     row: dict = {"path": "fresh-install", "state": "first-run", "fresh_round": index, "failures": [],
                  "prior_chat_front_ms": None, "prior_chat_live_ms": None, "warm_switch_ms": None}
+    reason = cannot_answer_prompt()
+    if reason:
+        # Never raise a prompt nobody can answer: the round is a failure that says why, and no quarantined copy runs.
+        shutil.rmtree(root, ignore_errors=True)
+        row["skipped"] = reason
+        row["failures"].append(f"skipped: Gatekeeper's first-launch prompt could not be answered here ({reason})")
+        return row
     try:
         app, row["install"] = install(smoke, dmg, root)
         bundle_id, executable = smoke.bundle_info(app)
@@ -325,6 +343,9 @@ def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, s
             time.sleep(0.05 if "first_window_frame_committed" not in marks else 0.25)
     finally:
         until_wall = time.time()
+        if prompt.get("shown_ms") is not None and not prompt.get("clicked_ms"):
+            # A prompt this round raised and never got past is put off before the round ends, never left behind.
+            prompt["cancel"] = answer_prompt("Cancel")
         pids = set(smoke.own_pids(root))
         if found is not None:
             bundle = found[1].split("/Contents/MacOS/")[0]
@@ -448,6 +469,20 @@ def self_test() -> int:
     assert settled({"first_window_frame_committed": 1, "reveal.sidebar": 2, "reveal.tabs": 3}) is None
     assert settled({"first_window_frame_committed": 1, "reveal.sidebar": 2, "reveal.tabs": 3, "reveal.pane": 9}) == 9
     assert timings({}, {}, None, {})["first_window_ms"] is None
+    # No way to answer Gatekeeper's prompt: the round never installs or opens a quarantined copy.
+    global CUA
+    saved_cua = CUA
+    try:
+        CUA = Path("/nonexistent/cua-driver")
+        assert cannot_answer_prompt() == "no cua-driver at /nonexistent/cua-driver", cannot_answer_prompt()
+
+        class NoInstall:
+            def __getattr__(self, name):
+                raise AssertionError(f"a skipped round used smoke.{name}")
+        row = fresh_install_round(NoInstall(), Path("/nonexistent.dmg"), 0)
+        assert row["skipped"] and row["failures"][0].startswith("skipped: Gatekeeper"), row
+    finally:
+        CUA = saved_cua
     print("startup_paths self-test: ok")
     return 0
 
