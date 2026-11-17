@@ -2,7 +2,7 @@
 //! `MacScreenRdDocument`), the fingerprint signature both sides put on them (`fpSig`,
 //! PROTOCOL.md Session flow 5), and the session's ICE servers as `cmux-rd serve` takes them.
 
-use super::b64;
+use crate::b64;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -70,7 +70,7 @@ impl RdDocument {
                             let (w, h) = s.split_once('x')?;
                             Some((w.parse().ok()?, h.parse().ok()?))
                         })
-                        .collect()
+                        .collect();
                 }
                 _ => {}
             }
@@ -104,7 +104,7 @@ pub fn verify_fp_sig(sdp: &str, fp_sig: &str, session: &str, role: &str, peer_ke
     let (Some(fingerprint), Some(sig)) = (fingerprint_of(sdp), b64::decode(fp_sig)) else {
         return false;
     };
-    super::hub::verify(peer_key, &fingerprint_message(session, role, &fingerprint), &sig)
+    crate::hub::verify(peer_key, &fingerprint_message(session, role, &fingerprint), &sig)
 }
 
 /// One TURN relay as `cmux-rd serve` takes it.
@@ -169,7 +169,7 @@ pub fn is_relayed(kind: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::linux_host::identity::Device;
+    use crate::identity::Device;
     use serde_json::json;
 
     const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";

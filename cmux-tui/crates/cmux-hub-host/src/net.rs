@@ -3,7 +3,7 @@
 //! request per connection (`Connection: close`). `http://` and `ws://` are accepted only for
 //! a loopback hub (development).
 
-use super::b64;
+use crate::b64;
 use crate::Res;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -28,6 +28,11 @@ pub struct Url {
 }
 
 impl Url {
+    #[allow(
+        clippy::indexing_slicing,
+        clippy::string_slice,
+        reason = "every cut is at an ASCII delimiter find returned in the same string"
+    )]
     pub fn parse(text: &str) -> Res<Self> {
         let (tls, rest) = if let Some(r) =
             text.strip_prefix("https://").or_else(|| text.strip_prefix("wss://"))
@@ -224,6 +229,7 @@ fn host_header(url: &Url) -> String {
 }
 
 /// A complete response: status, then a body by `Content-Length`, chunked, or to the end.
+#[allow(clippy::indexing_slicing, reason = "end is where the 4-byte header end was found in raw")]
 pub fn parse_response(raw: &[u8]) -> Res<Response> {
     let end = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or("no HTTP header")?;
     let head = std::str::from_utf8(&raw[..end]).map_err(|_| "header is not text")?;
@@ -254,6 +260,7 @@ pub fn parse_response(raw: &[u8]) -> Res<Response> {
     Ok(Response { status, body })
 }
 
+#[allow(clippy::indexing_slicing, reason = "eol is where the 2-byte line end was found in rest")]
 fn dechunk(mut rest: &[u8]) -> Res<Vec<u8>> {
     let mut out = Vec::new();
     loop {
@@ -293,6 +300,10 @@ const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 impl WebSocket {
     /// Opens `url` with `headers`; the server must answer 101 with the right accept key.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "n is what read returned for chunk, and end was found in buf"
+    )]
     pub fn connect(url: &Url, headers: &[(String, String)]) -> Res<Self> {
         let mut conn = Conn::open(url)?;
         let mut nonce = [0u8; 16];
@@ -329,7 +340,7 @@ impl WebSocket {
         let status = head.split_whitespace().nth(1).unwrap_or("");
         if status != "101" {
             let body = parse_response(&buf).map(|r| r.body).unwrap_or_default();
-            return Err(super::hub::HubError::from_body(status.parse().unwrap_or(0), &body).into());
+            return Err(crate::hub::HubError::from_body(status.parse().unwrap_or(0), &body).into());
         }
         let expected = accept_key(&key);
         let accepted = head.split("\r\n").any(|line| {
@@ -364,6 +375,7 @@ impl WebSocket {
     }
 
     /// The next message, waiting at most `timeout`; None when nothing complete arrived.
+    #[allow(clippy::indexing_slicing, reason = "n is what read returned for chunk")]
     pub fn recv(&mut self, timeout: Duration) -> Res<Option<Message>> {
         loop {
             if let Some(message) = self.take_message()? {
@@ -384,6 +396,10 @@ impl WebSocket {
         }
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "the close payload is at least 2 bytes where it is read"
+    )]
     fn take_message(&mut self) -> Res<Option<Message>> {
         while let Some((fin, opcode, payload, used)) = decode_frame(&self.buf)? {
             self.buf.drain(..used);
@@ -424,6 +440,7 @@ pub fn accept_key(key: &str) -> String {
 }
 
 /// A masked client frame.
+#[allow(clippy::indexing_slicing, reason = "the mask index is i % 4 of a 4-byte mask")]
 pub fn encode_frame(opcode: u8, payload: &[u8]) -> Res<Vec<u8>> {
     let mut mask = [0u8; 4];
     ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut mask)
@@ -449,6 +466,10 @@ pub fn encode_frame(opcode: u8, payload: &[u8]) -> Res<Vec<u8>> {
 pub type Frame = (bool, u8, Vec<u8>, usize);
 
 /// One complete frame at the start of `buf`.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "each header byte read is behind a length check, and the mask is 4 bytes"
+)]
 pub fn decode_frame(buf: &[u8]) -> Res<Option<Frame>> {
     if buf.len() < 2 {
         return Ok(None);
@@ -533,9 +554,9 @@ mod tests {
     #[test]
     fn a_plaintext_hub_is_reached_only_on_a_loopback_address() {
         let local = Url::parse("http://localhost:8787/v1").unwrap();
-        let remote: std::net::SocketAddr = "203.0.113.7:8787".parse().unwrap();
-        let v4: std::net::SocketAddr = "127.0.0.1:8787".parse().unwrap();
-        let v6: std::net::SocketAddr = "[::1]:8787".parse().unwrap();
+        let remote: SocketAddr = "203.0.113.7:8787".parse().unwrap();
+        let v4: SocketAddr = "127.0.0.1:8787".parse().unwrap();
+        let v6: SocketAddr = "[::1]:8787".parse().unwrap();
         // A hosts file or resolver that sends `localhost` elsewhere gets no cleartext.
         assert!(addresses(&local, vec![remote]).is_err());
         assert_eq!(addresses(&local, vec![remote, v6, v4]).unwrap(), vec![v6, v4]);

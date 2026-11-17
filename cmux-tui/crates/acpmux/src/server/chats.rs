@@ -115,6 +115,9 @@ pub(super) async fn route(
     if let Some(reply) = super::vault::dispatch(conn, m).await {
         return reply;
     }
+    if let Some(reply) = super::share_host::dispatch(conn, m) {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = heap(|| super::secrets::dispatch(hub, conn, m, &params)).await {
         return reply;

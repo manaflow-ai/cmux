@@ -2133,6 +2133,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/share_host_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_enroll",
       "params": true,
       "result": true

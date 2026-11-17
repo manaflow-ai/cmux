@@ -1,17 +1,19 @@
 //! One approved hub session served by this desktop, the way the Mac's `MacScreenRdHost`
 //! serves it: wait for the viewer's cmux.rd/1 offer (its `fpSig` checked against the
-//! ticket's viewer key), start `cmux-rd serve`, send it the setup line, answer with this
-//! side's signed session key, displays and candidates, relay candidates both ways, report
-//! the path, and end on `bye`, the process ending, or the hub's revocation.
+//! ticket's viewer key), start the helper (`cmux-rd serve`, a [`ServeCommand`]), send it the
+//! setup line, answer with this side's signed session key, displays and candidates, relay
+//! candidates both ways, report the path, and end on `bye`, the process ending, or the hub's
+//! revocation.
 
-use super::b64;
-use super::hub::Hub;
-use super::net::Message;
-use super::rd_doc::{self, RdDocument};
+use crate::b64;
+use crate::hub::Hub;
+use crate::net::Message;
+use crate::rd_doc::{self, RdDocument};
 use crate::Res;
 use cmux_process::{Child, Command, Stdio};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 use std::process::ChildStdin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -40,6 +42,10 @@ impl Ticket {
 
     /// The push, when it is a `role` ticket (`host`, or `viewer` for `cmux-rd view`) whose JWS
     /// names this session, that role and the same peer key as the push.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "serde_json's Value index reads Null for a missing key"
+    )]
     pub fn from_push_as(push: &Value, role: &str) -> Res<Self> {
         let s = |v: &Value| v.as_str().unwrap_or_default().to_owned();
         let ticket = Self {
@@ -76,9 +82,22 @@ pub fn jws_payload(jws: &str) -> Option<Value> {
     serde_json::from_slice(&b64::decode(payload)?).ok()
 }
 
-/// Options passed to `cmux-rd serve` (`--display`, `--xauthority`, `--capture`).
-#[derive(Debug, Clone, Default)]
-pub struct ServeArgs(pub Vec<String>);
+/// The cmux.rd/1 helper a session starts, and how this side names itself in the log.
+#[derive(Debug, Clone)]
+pub struct ServeCommand {
+    pub program: PathBuf,
+    /// What follows the program, e.g. `["serve", "--display", ":0"]`.
+    pub args: Vec<String>,
+    /// macOS: the helper becomes its own responsible process, so Screen Recording and
+    /// Accessibility are checked against its own signature, in its own session (`setsid`).
+    /// Elsewhere it changes nothing.
+    pub disclaim: bool,
+    /// The prefix of this side's log lines, e.g. `linux-host` (`linux-host: answer not sent`).
+    pub log_prefix: String,
+    /// The prefix of the helper's own status lines this side passes on, e.g.
+    /// `cmux-rd linux-host` (`cmux-rd linux-host: session <id>: <message>`).
+    pub status_prefix: String,
+}
 
 /// How a session ended: the reason, whether the viewer had connected, and the reason to give
 /// the hub (`/end`) when this side ends it.
@@ -96,15 +115,17 @@ struct Serve {
 }
 
 impl Serve {
-    fn start(args: &ServeArgs) -> Res<Self> {
-        let exe = std::env::current_exe()?;
-        let mut child = Command::new(exe)
-            .arg("serve")
-            .args(&args.0)
+    fn start(command: &ServeCommand) -> Res<Self> {
+        let mut builder = Command::new(&command.program);
+        builder
+            .args(&command.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?;
+            .stderr(Stdio::inherit());
+        if command.disclaim {
+            disclaim(&mut builder);
+        }
+        let mut child = builder.spawn()?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
         let stdin = child.stdin.take();
         let (tx, lines) = mpsc::channel();
@@ -146,13 +167,18 @@ impl Serve {
 
 /// Serves `ticket` until it ends. `view_only` comes from the ticket's scope and this
 /// desktop's consent; `stop` is set by a revocation, an end, or the host stopping.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "serde_json's Value index reads Null for a missing key or element"
+)]
 pub fn serve(
     hub: &Hub,
     ticket: &Ticket,
     view_only: bool,
-    args: &ServeArgs,
+    command: &ServeCommand,
     stop: &Arc<AtomicBool>,
 ) -> Ended {
+    let log = &command.log_prefix;
     let mut ws = match hub.session_socket(&ticket.signal_url, &ticket.jws) {
         Ok(ws) => ws,
         Err(e) => {
@@ -204,18 +230,18 @@ pub fn serve(
                                 match signed("answer", &doc.text(), &ticket.session_id, hub) {
                                     Ok(frame) => {
                                         if let Err(e) = ws.send_text(&frame) {
-                                            eprintln!("linux-host: answer not sent: {e}");
+                                            eprintln!("{log}: answer not sent: {e}");
                                         }
                                     }
-                                    Err(e) => eprintln!("linux-host: answer not signed: {e}"),
+                                    Err(e) => eprintln!("{log}: answer not signed: {e}"),
                                 }
                             }
                         }
                         if line["connected"].as_bool() == Some(true) && !connected {
                             connected = true;
                             eprintln!(
-                                "linux-host: {} is {} this desktop",
-                                super::printable(&ticket.peer_name),
+                                "{log}: {} is {} this desktop",
+                                crate::printable(&ticket.peer_name),
                                 if view_only { "viewing" } else { "controlling" }
                             );
                         }
@@ -226,9 +252,10 @@ pub fn serve(
                         }
                         if let Some(message) = line["status"]["message"].as_str() {
                             eprintln!(
-                                "cmux-rd linux-host: session {}: {}",
-                                super::printable(&ticket.session_id),
-                                super::printable(message)
+                                "{}: session {}: {}",
+                                command.status_prefix,
+                                crate::printable(&ticket.session_id),
+                                crate::printable(message)
                             );
                         }
                         if let Some(reason) = line["ended"].as_str() {
@@ -261,7 +288,7 @@ pub fn serve(
                 break Ended {
                     reason: format!(
                         "the hub closed the session ({code} {})",
-                        super::printable(&why)
+                        crate::printable(&why)
                     ),
                     connected,
                     tell_hub: None,
@@ -312,7 +339,7 @@ pub fn serve(
                         tell_hub: Some("failed"),
                     };
                 };
-                let mut started = match Serve::start(args) {
+                let mut started = match Serve::start(command) {
                     Ok(s) => s,
                     Err(e) => {
                         break Ended {
@@ -343,6 +370,16 @@ pub fn serve(
     ws.close();
     ended
 }
+
+/// Starts the helper as its own responsible process in its own session (macOS).
+#[cfg(target_os = "macos")]
+fn disclaim(builder: &mut Command) {
+    builder.disclaim_responsibility().new_session();
+}
+
+/// Elsewhere a helper has no responsible process to disclaim.
+#[cfg(not(target_os = "macos"))]
+fn disclaim(_: &mut Command) {}
 
 /// Whether a signaling close `code` ends the session rather than only its signaling. Only
 /// lost transport is survivable (going away, no code, abnormal, server error, restart, try
@@ -442,5 +479,29 @@ mod tests {
         assert_eq!(line["viewer"]["user"], "v1");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["display"], "main");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["scope"], "control");
+    }
+
+    #[test]
+    fn the_helper_is_the_command_given_and_hears_the_setup_line() {
+        // A helper that answers its first line back as `{"echo": ..}`, then waits for the end
+        // of its input, as `cmux-rd serve` waits for `stop`.
+        let script = r#"read -r line; printf '{"echo":%s}\n' "$line"; cat >/dev/null"#;
+        for disclaim in [false, true] {
+            let command = ServeCommand {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), script.into()],
+                disclaim,
+                log_prefix: "share-host".into(),
+                status_prefix: "share-host".into(),
+            };
+            let mut serve = Serve::start(&command).unwrap();
+            serve.send(&json!({ "session": "s1" }));
+            let line = serve.lines.recv_timeout(Duration::from_secs(10)).unwrap();
+            assert_eq!(line, json!({ "echo": { "session": "s1" } }));
+            let started = std::time::Instant::now();
+            serve.stop();
+            // It ended at its end of input, well before the 3 s kill.
+            assert!(started.elapsed() < Duration::from_secs(3));
+        }
     }
 }
