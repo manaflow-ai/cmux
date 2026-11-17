@@ -279,9 +279,14 @@ FORK_WRAP = re.compile(
 # vars.CI_SIDE_LANE_RUNNER, so for an unset variable it falls back exactly as that one read does.
 SIDE_LANE_LABELS_READ = ("(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || "
                          "vars.CI_SIDE_LANE_RUNNER)")
+# A side job measured light reads CI_SIDE_LANE_LABELS_LIGHT first, then the array read above
+# (scripts/ci/side_lane_light_tier.py); both unset it is vars.CI_SIDE_LANE_RUNNER too.
+SIDE_LANE_LIGHT_READ = ("(vars.CI_SIDE_LANE_LABELS_LIGHT != '' && fromJSON(vars.CI_SIDE_LANE_LABELS_LIGHT) || "
+                        f"{SIDE_LANE_LABELS_READ})")
 
 
 def fork_view(text: str) -> str:
+    text = text.replace(SIDE_LANE_LIGHT_READ, "vars.CI_SIDE_LANE_RUNNER")
     return FORK_WRAP.sub(r"\1", text.replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER"))
 
 
