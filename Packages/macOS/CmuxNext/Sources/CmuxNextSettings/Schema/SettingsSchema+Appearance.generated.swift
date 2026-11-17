@@ -120,6 +120,13 @@ extension WallpaperTintSetting {
     public nonisolated static let fallback = true
 }
 
+extension LiveWallpaperFrameRateSetting {
+    /// `appearance.liveWallpaperFrameRate`.
+    public nonisolated static let configPath = ["appearance", "liveWallpaperFrameRate"]
+    public nonisolated static let fallback = "30"
+    public nonisolated static let values = ["15", "30", "60"]
+}
+
 extension AppearanceTuningSetting {
     /// `appearance.glassTransparency`.
     public nonisolated static let glassTransparencyPath = ["appearance", "glassTransparency"]

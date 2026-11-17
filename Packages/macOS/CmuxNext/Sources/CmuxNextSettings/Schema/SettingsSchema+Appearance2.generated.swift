@@ -324,6 +324,20 @@ extension AppearanceSettingsSchema {
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
             ),
+            SettingDescriptor(
+                LiveWallpaperFrameRateSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.liveWallpaperFrameRate", "Live Wallpaper Frame Rate"),
+                help: SettingsText.keyed("settings.appearance.liveWallpaperFrameRate.help", "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode."),
+                kind: .choice([
+                    SettingChoice("15", SettingsText.keyed("settings.choice.liveWallpaperFrameRate.15", "15 fps")),
+                    SettingChoice("30", SettingsText.keyed("settings.choice.liveWallpaperFrameRate.30", "30 fps")),
+                    SettingChoice("60", SettingsText.keyed("settings.choice.liveWallpaperFrameRate.60", "60 fps")),
+                ]),
+                default: .string(LiveWallpaperFrameRateSetting.fallback),
+                keywords: ["live wallpaper", "wallpaper", "frame rate", "fps", "animation", "motion", "background", "battery"]
+            ),
         ]
     }
 }
