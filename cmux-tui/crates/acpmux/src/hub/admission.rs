@@ -10,8 +10,10 @@
 //!   this host's live sessions (running, ready, waiting; a peer's are not
 //!   counted) are at the cap starts all the same, with a warning that names
 //!   the cap and the host the placement engine would pick instead
-//!   (`placement.rs`, as `new --host auto` and lane-place weigh hosts). A cap
-//!   only warns: no launch is refused for load or a cap (Leo's rulebook; at
+//!   (`placement.rs`, as `new --host auto` and lane-place weigh hosts). Before
+//!   that, a create a full host can send elsewhere starts on the least-loaded
+//!   connected host instead (`admission/redirect.rs`, Leo 2026-11-08). A cap
+//!   never refuses: no launch is refused for load or a cap (Leo's rulebook; at
 //!   huge-blue's 12 the stall reconciler's PONG to claude-sr2 was refused,
 //!   2026-10-26). The registry is `FLEET_REGISTRY` when set,
 //!   else the first that exists of `~/.ssh/config.d/fleet-registry.json` (the
@@ -36,6 +38,8 @@
 use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::OnceLock;
+
+pub(crate) mod redirect;
 
 /// `data.reason` of a refusal; the CLI exits 5 on it (`cli/errors.rs`).
 pub const REASON: &str = "admission_refused";
