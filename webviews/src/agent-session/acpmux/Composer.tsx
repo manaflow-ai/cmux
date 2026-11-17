@@ -35,6 +35,7 @@ import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
 import { useTurnHandover } from "./composer/turnHandover";
+import { glideComposerFromHeld } from "./composer/composerHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -639,6 +640,9 @@ function ComposerFrame({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
+  // A chat New Tab just started: the box glides down from New Tab's place instead of jumping
+  // (composer/composerHandover.ts).
+  useLayoutEffect(() => glideComposerFromHeld(form.current), []);
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
