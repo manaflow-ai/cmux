@@ -74,6 +74,68 @@ got="$(defaults read com.example.shared)"
 cross="$(python3 -I "$out/defaults.py" check "$root/b/defaults.plist" "$root/a/home/" || true)"
 [[ "$cross" == *"$root/b/home/launch-snapshot.json"* ]] || fail "side b's path read from side a's home was not named: '$cross'"
 
+# snapshot=foreign: the donor's saved snapshot path is planted in side a's own plist and printed for check --allow.
+mkdir -p "$root/donor/home" && echo '{}' >"$root/donor/home/launch-snapshot.json"
+side_defaults "$out" load "$a" "$root/donor/defaults.plist"
+defaults write com.example.shared "$key" "$root/donor/home/launch-snapshot.json"
+side_defaults "$out" save "$a" "$root/donor/defaults.plist"
+python3 -I "$out/defaults.py" plant "$root/a/defaults.plist" "$root/b/defaults.plist" >/dev/null \
+  && fail "a donor whose snapshot file does not exist was planted"
+planted="$(python3 -I "$out/defaults.py" plant "$root/a/defaults.plist" "$root/donor/defaults.plist")"
+[[ "$planted" == "$key=$root/donor/home/launch-snapshot.json" ]] || fail "plant printed '$planted'"
+side_defaults "$out" load "$a" "$root/a/defaults.plist"
+got="$(defaults read com.example.shared)"
+[[ "$got" == "$key=$root/donor/home/launch-snapshot.json" ]] || fail "side a's planted launch read '$got'"
+side_defaults "$out" save "$a" "$root/a/defaults.plist"
+# The planted key passes check only with --allow naming exactly it; any other foreign key or path still fails.
+python3 -I "$out/defaults.py" check "$root/a/defaults.plist" "$root/a/home/" >/dev/null \
+  && fail "the planted path passed check without --allow"
+[[ -z "$(python3 -I "$out/defaults.py" check "$root/a/defaults.plist" "$root/a/home/" --allow "$planted")" ]] \
+  || fail "the planted path was named with --allow"
+cross="$(python3 -I "$out/defaults.py" check "$root/a/defaults.plist" "$root/a/home/" \
+  --allow "$key=$root/b/home/launch-snapshot.json" || true)"
+[[ "$cross" == *"$root/donor/home/launch-snapshot.json"* ]] || fail "--allow of another path let the planted one pass: '$cross'"
+defaults write com.example.shared cmuxNext.launchSnapshotPath.other "$root/b/home/launch-snapshot.json"
+side_defaults "$out" save "$a" "$root/a/defaults.plist"
+cross="$(python3 -I "$out/defaults.py" check "$root/a/defaults.plist" "$root/a/home/" --allow "$planted" || true)"
+[[ "$cross" == *cmuxNext.launchSnapshotPath.other* && "$cross" != *"$root/donor/"* ]] \
+  || fail "a foreign key other than the planted one was not named, or the planted one was: '$cross'"
+
+# stale_reason reads the verdict from the app's log line; stale_verdict prints LR-STALE-SNAPSHOT and fails a launch
+# that did not show Home or made a workspace.
+cat >"$root/bin/log" <<'STUB'
+#!/usr/bin/env bash
+[[ -z "${LOG_FAIL:-}" ]] || exit 1
+[[ "$*" == *"processIdentifier == 42 "* ]] && echo "2026-11-17 Df cmux[42:1] [com.cmuxterm.app.next:window-rules] launch snapshot stale (otherSession): launching as with nothing to restore"
+exit 0
+STUB
+chmod +x "$root/bin/log"
+[[ "$(stale_reason 42 "2026-11-17 00:00:00")" == otherSession ]] || fail "stale_reason did not read otherSession"
+[[ "$(stale_reason 43 "2026-11-17 00:00:00")" == none ]] || fail "stale_reason named a verdict the app did not log"
+[[ "$(LOG_FAIL=1 stale_reason 42 "2026-11-17 00:00:00")" == unknown ]] || fail "an unread log was not unknown"
+v="$root/verdict" && mkdir -p "$v"
+row() { # LABEL TOP WORKSPACES SHOWN_MS TREE_MS
+  local marks="{}"
+  [[ -n "$4" ]] && marks="{\"launch_snapshot_shown\": $4, \"daemon.first_tree_applied\": $5}"
+  echo "{\"side\": \"head\", \"label\": \"$1\", \"front\": {\"top_page\": \"$2\", \"workspaces\": $3}, \"marks\": $marks}"
+}
+{
+  row prime home 1 "" ""; row run1 home 1 100 140; row run2 home 1 100 120; row run3 home 1 "" ""
+  row run4 home 1 100 200; row run5 home 1 100 110
+  echo '{"side": "foreign-head", "label": "prime", "front": {"top_page": "home", "workspaces": 1}, "marks": {}}'
+} >"$v/runs.jsonl"
+for i in 1 2 3 4 5; do printf 'head\trun%s\totherSession\n' "$i"; done >"$v/stale.tsv"
+got="$(stale_verdict "$v" 5)" || fail "five Home launches failed the verdict: $got"
+[[ "$got" == *"LR-STALE-SNAPSHOT head shown=Home reason=otherSession flash_ms=20.0 flash_ms_max=100.0 drawn=4/5 n=5"* ]] \
+  || fail "the verdict line was '$got'"
+[[ "$got" != *foreign-head* ]] || fail "the donor was given a verdict: $got"
+row run6 pane 2 "" "" >>"$v/runs.jsonl"
+got="$(stale_verdict "$v" 5)" && fail "a launch that showed a pane and made a workspace passed: $got"
+[[ "$got" == *"LR-FAIL head run6 stale snapshot launch showed pane and made a workspace"* ]] || fail "no LR-FAIL for run6: $got"
+[[ "$got" == *"reason=otherSession,unknown"* ]] || fail "run6's unread reason was not unknown: $got"
+head -4 "$v/runs.jsonl" >"$v/short" && mv "$v/short" "$v/runs.jsonl"
+stale_verdict "$v" 5 >/dev/null && fail "three launches passed a verdict that wants five"
+
 # A put-back that fails is a failure (the step exits 4), and the copy stays for the next run to put back.
 DEFAULTS_FAIL_IMPORT=1 defaults_restore "$out" && fail "a failed put-back returned success"
 
@@ -81,4 +143,4 @@ DEFAULTS_FAIL_IMPORT=1 defaults_restore "$out" && fail "a failed put-back return
 defaults_restore "$out"
 got="$(defaults read com.example.shared)"
 [[ "$got" == "mine=yes" ]] || fail "the account's defaults came back as '$got'"
-echo "launch-ready defaults: each side reads only its own, and the account's come back"
+echo "launch-ready defaults: each side reads only its own, a planted foreign snapshot passes only by name, and the account's come back"
