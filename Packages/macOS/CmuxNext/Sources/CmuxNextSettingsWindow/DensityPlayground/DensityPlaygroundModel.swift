@@ -260,6 +260,7 @@ public final class DensityPlaygroundModel {
         let taken = Set((densities + extra).map { self.name($0).lowercased() })
         guard taken.contains(name.lowercased()) else { return name }
         var index = 2
+        // main-actor-ok: at most one Set lookup per saved density (a handful), on a copy, save-as or import click.
         while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
         return "\(name) \(index)"
     }
