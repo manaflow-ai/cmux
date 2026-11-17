@@ -336,6 +336,41 @@ mod tests {
         assert_eq!(&px[last..], &[0, 0, 255]);
     }
 
+    /// A `n`x`n` grey PNG of 1 px black and white: a checkerboard, or alternating rows.
+    fn black_and_white(n: u32, checker: bool) -> Vec<u8> {
+        let data: Vec<u8> = (0..n * n)
+            .map(|i| {
+                let (x, y) = (i % n, i / n);
+                let on = if checker { (x + y) % 2 == 0 } else { y % 2 == 0 };
+                if on { 255 } else { 0 }
+            })
+            .collect();
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, n, n);
+        e.set_color(png::ColorType::Grayscale);
+        e.set_depth(png::BitDepth::Eight);
+        e.write_header().unwrap().write_image_data(&data).unwrap();
+        out
+    }
+
+    /// Fine black and white detail (text, thin lines in a screenshot) keeps its light: half
+    /// black, half white is 188, not the 127 an average of sRGB codes gives
+    /// ("What every coder should know about gamma").
+    #[test]
+    fn a_model_copy_averages_light_not_srgb_codes() {
+        for checker in [true, false] {
+            for edge in [256, 128] {
+                let (bytes, w, h) =
+                    downscale(std::io::Cursor::new(black_and_white(512, checker)), edge).unwrap();
+                assert_eq!((w, h), (edge, edge));
+                let px = pixels(&bytes).2;
+                let off: Vec<u8> =
+                    px.iter().copied().filter(|v| !(187..=188).contains(v)).take(4).collect();
+                assert!(off.is_empty(), "checker {checker} edge {edge}: {off:?}");
+            }
+        }
+    }
+
     #[test]
     fn a_png_too_large_to_decode_quickly_gets_no_copy() {
         assert!(copyable(8000, 8000) && copyable(10_000, 10_000));

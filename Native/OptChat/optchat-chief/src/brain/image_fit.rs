@@ -158,6 +158,55 @@ pub(crate) mod tests {
         assert!(fitted.jpeg.len() as u64 <= limit);
     }
 
+    /// A `n`x`n` PNG of 1 px black and white: a checkerboard, or alternating rows.
+    fn black_and_white_png(n: u32, checker: bool) -> Vec<u8> {
+        let image = image::GrayImage::from_fn(n, n, |x, y| {
+            let on = if checker {
+                (x + y) % 2 == 0
+            } else {
+                y % 2 == 0
+            };
+            image::Luma([if on { 255 } else { 0 }])
+        });
+        let mut png = Vec::new();
+        DynamicImage::ImageLuma8(image)
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        png
+    }
+
+    /// The mean of a decoded JPEG's middle half, one channel.
+    fn middle_mean(jpeg: &[u8]) -> f64 {
+        let rgb = image::load_from_memory(jpeg).unwrap().to_rgb8();
+        let (w, h) = rgb.dimensions();
+        let (mut sum, mut n) = (0u64, 0u64);
+        for y in h / 4..3 * h / 4 {
+            for x in w / 4..3 * w / 4 {
+                sum += u64::from(rgb.get_pixel(x, y)[1]);
+                n += 1;
+            }
+        }
+        sum as f64 / n as f64
+    }
+
+    /// Fine black and white detail (a screenshot's text and lines) keeps its light: half
+    /// black, half white is 188, not the 128 an average of sRGB codes gives
+    /// ("What every coder should know about gamma").
+    #[test]
+    fn a_model_copy_averages_light_not_srgb_codes() {
+        for checker in [true, false] {
+            for n in [MAX_EDGE * 2, MAX_EDGE * 4] {
+                let fitted = fit(&black_and_white_png(n, checker), u64::MAX).unwrap();
+                assert_eq!(fitted.width, MAX_EDGE);
+                let mean = middle_mean(&fitted.jpeg);
+                assert!(
+                    (185.0..=191.0).contains(&mean),
+                    "checker {checker} {n}: {mean}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn not_an_image_says_why() {
         let why = fit(b"%PDF-1.7 not an image", 3_750_000).unwrap_err();
