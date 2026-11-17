@@ -12,6 +12,7 @@
 //   layout    the page's layouts and style recalcs (CDP Performance.getMetrics LayoutCount, RecalcStyleCount)
 //   script    main-thread script, layout and style time (ScriptDuration, LayoutDuration, RecalcStyleDuration), ms
 //   to_frame  the page's own typingStats (keydown to the next frame, p50 / p95 / max), as the Mac bench reads it
+//   to_paint  keydown to after that frame paints (p50 / p95): input to paint
 //   long_tasks  main-thread tasks of 50 ms or more while the keys are typed (PerformanceObserver longtask), and
 //             longest_task_ms the longest (0 when none)
 //   stream    with --modes idle,stream: the same keys while the chat streams a reply (60 deltas/s, a tool call every
@@ -63,6 +64,8 @@ const ARM_METRICS = [
   "to_frame_p50",
   "to_frame_p95",
   "to_frame_max",
+  "to_paint_p50",
+  "to_paint_p95",
   "to_listener_p95",
   "longest_task_ms",
   "long_tasks",
@@ -328,6 +331,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
       to_frame_max: typing.to_frame?.max_ms,
+      to_paint_p50: typing.to_paint?.p50_ms,
+      to_paint_p95: typing.to_paint?.p95_ms,
       longest_task_ms: Math.round(Math.max(0, ...long.map((task) => task.ms)) * 10) / 10,
       long_tasks: long.length,
       composer_per_stream_event: composerPerEvent,
