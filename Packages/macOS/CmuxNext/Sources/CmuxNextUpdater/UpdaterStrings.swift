@@ -36,7 +36,7 @@ nonisolated enum UpdaterStrings {
         text("updater.installFailed.translocated.short", "cmux runs from a read-only copy")
     }
     static var installFailedTranslocated: String {
-        text("updater.installFailed.translocated", "macOS runs this cmux from a read-only copy, so the installer couldn't replace it. Move cmux to Applications and open it from there, or download the update manually.")
+        text("updater.installFailed.translocated", "cmux can't update itself from a read-only copy. Move cmux to Applications, open it from there, and try again.")
     }
     static var installFailedFolderShort: String { text("updater.installFailed.folder.short", "cmux can't replace itself here") }
     static func installFailedFolder(_ folder: String) -> String {
@@ -74,11 +74,10 @@ nonisolated enum UpdaterStrings {
     // Rollback
     static var rollbackNothingKept: String { text("updater.rollback.nothingKept", "No previous version is kept on this Mac.") }
     static func rollbackPredates(_ version: String) -> String {
-        format("updater.rollback.predates", "cmux %@ is from before rollback support, so cmux cannot check that it reads your data.", version)
+        format("updater.rollback.predates", "cmux %@ is too old to tell whether it reads your data, so cmux didn't roll back.", version)
     }
-    static func rollbackStoreTooNew(_ version: String, _ store: String, _ stored: Int, _ readable: Int) -> String {
-        format("updater.rollback.storeTooNew", "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it.",
-               version, store, stored, readable)
+    static func rollbackStoreTooNew(_ version: String, _ store: String) -> String {
+        format("updater.rollback.storeTooNew", "cmux %1$@ can't read your %2$@ data, so rolling back would lose it.", version, store)
     }
     static func rollbackUnknownStore(_ version: String, _ store: String) -> String {
         format("updater.rollback.unknownStore", "cmux %1$@ does not know your %2$@ data. Rolling back would hide it.", version, store)
@@ -92,7 +91,7 @@ nonisolated enum UpdaterStrings {
     }
 
     static var rollbackStoresUnknown: String {
-        text("updater.rollback.storesUnknown", "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback.")
+        text("updater.rollback.storesUnknown", "cmux can't tell whether the previous version reads your data, so it didn't roll back.")
     }
     // The question every rollback entrypoint asks (UpdateDropBack.confirmation)
     static var rollbackConfirmTitle: String { text("updater.rollback.confirm.title", "Roll Back to the Previous Version?") }
@@ -145,7 +144,7 @@ nonisolated enum UpdaterStrings {
         format("updater.detail.onChannel", "cmux %@ (%@) is the newest %@ build.", version, build, channel)
     }
     static func devProbeFound(_ version: String) -> String {
-        format("updater.detail.devProbeFound", "The feed offers %@. This development build never installs updates; the check only read the feed.", version)
+        format("updater.detail.devProbeFound", "%@ is available. Development builds don't install updates.", version)
     }
     static func requiresMacOS(_ version: String, _ required: String, _ system: String) -> String {
         format("updater.detail.requiresMacOS", "cmux %@ requires macOS %@ or later. This Mac runs macOS %@, so it stays on the current version.", version, required, system)
