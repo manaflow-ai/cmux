@@ -136,7 +136,7 @@ impl Timing {
         release_us: u64,
         encoded_us: u64,
         encoded_bytes: usize,
-        idr: bool,
+        idr_reason: Option<&'static str>,
     ) -> serde_json::Value {
         serde_json::json!({
             "input_us": self.input_us.take(),
@@ -146,7 +146,8 @@ impl Timing {
             "release_us": release_us,
             "encoded_us": encoded_us,
             "encoded_bytes": encoded_bytes,
-            "idr": idr,
+            "idr": idr_reason.is_some(),
+            "idr_reason": idr_reason,
         })
     }
 
@@ -482,7 +483,9 @@ impl MediaSession {
         // Logged after the send, with the send time (`sent_us`).
         let logged = self.timing.is_some().then(|| {
             let len = frame.access_unit.len();
-            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, frame.idr)
+            // An IDR the engine did not ask for is the encoder's own choice.
+            let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
+            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
         });
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {

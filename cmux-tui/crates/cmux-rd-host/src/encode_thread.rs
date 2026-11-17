@@ -276,6 +276,7 @@ mod tests {
             frame: 1,
             damage,
             force_idr: true,
+            idr_reason: None,
             target_kbps,
             profile: Default::default(),
             refine: false,

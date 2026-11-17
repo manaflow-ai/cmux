@@ -135,6 +135,35 @@ class SideInstanceRemakeTests(unittest.TestCase):
         self.assertEqual(ident["live"], "1")
         self.assertNotIn("CMUX_LIVE_CODE_DIR", plistlib.load(open(Path(self.make(nightly)["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"])
 
+    def test_neutral_shell_gives_the_copys_terminals_a_prompt_with_no_host_name(self):
+        """hot-verify.py's look copies showed `cmux@cmux23 ~ %` in every terminal, and the privacy check withheld the
+        new-tab shot and the video for the worker's name (2026-11-16). --neutral-shell names a folder of neutral zsh
+        files in CMUX_CAPTURE_SHELL_HOME, which the app hands its terminals' zsh as ZDOTDIR."""
+        nightly = self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next")
+        subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(nightly), "--neutral-shell"], env=self.env,
+                       check=True, capture_output=True, text=True)
+        ident = dict(line.split("=", 1) for line in (self.tmp / "side/pr-1/.side-instance").read_text().splitlines())
+        env = plistlib.load(open(Path(ident["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"]
+        home = Path(env["CMUX_CAPTURE_SHELL_HOME"])
+        self.assertEqual(home, (self.tmp / "side/pr-1/shell-home").resolve())
+        self.assertIn("PROMPT='$ '", (home / ".zshrc").read_text())
+        self.assertTrue((home / ".zshenv").is_file())
+        zsh = shutil.which("zsh")
+        if zsh:
+            # The account's own files would set a prompt naming the host; ZDOTDIR keeps zsh from reading them.
+            account = self.tmp / "account"
+            account.mkdir()
+            (account / ".zshrc").write_text("PROMPT='%n@%m %1~ %# '\n")
+            (account / ".zshenv").write_text("PROMPT='leak '\n")
+            shown = subprocess.run([zsh, "-i", "-c", 'print -rn -- "$PROMPT"'], capture_output=True, text=True,
+                                   env={"PATH": os.environ["PATH"], "HOME": str(account), "ZDOTDIR": str(home),
+                                        "TERM": "dumb"}, timeout=30).stdout
+            self.assertEqual(shown, "$ ")
+        # A copy made again without the flag (the copy comes fresh from the app) has none.
+        plain = plistlib.load(open(Path(self.make(nightly)["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"]
+        self.assertNotIn("CMUX_CAPTURE_SHELL_HOME", plain)
+        self.assertFalse(home.exists())
+
     def test_remove_clears_the_current_identity(self):
         ident = self.make(self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next"))
         state = self.state_of(ident)
