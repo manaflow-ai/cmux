@@ -87,10 +87,7 @@ struct Child {
 /// first path reached, so a child costs one or two looks, not one per path
 /// below it: listing a folder costs what it holds, not its whole subtree
 /// (`files_stress_tests`). Only paths that are gone cost a look each.
-fn children<'a>(
-    paths: &'a [String],
-    mut kind: impl FnMut(&str) -> Option<Kind>,
-) -> BTreeMap<&'a str, bool> {
+fn children(paths: &[String], mut kind: impl FnMut(&str) -> Option<Kind>) -> BTreeMap<&str, bool> {
     let mut children: BTreeMap<&str, Child> = BTreeMap::new();
     for path in paths {
         let (name, nested) = match path.split_once('/') {
