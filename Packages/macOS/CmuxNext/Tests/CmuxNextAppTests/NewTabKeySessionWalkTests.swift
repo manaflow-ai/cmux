@@ -291,6 +291,10 @@ struct NewTabKeySessionWalkTests {
     /// The second cost of the same walk (decision of 2026-11-16): with 3 open New Tab pages and the app's places feed,
     /// a New Tab key and a title change of one tab map one workspace at most after them (the one that changed).
     ///
+    /// One more map has a name (decision of 2026-11-17): at each store event the store takes the stand-in tab of each
+    /// waiting creation out of its pane and puts it in again. So the workspace of a pane with a waiting creation is
+    /// mapped 1 time, and its kept rows do not change. The title change's condition allows this map and no other.
+    ///
     /// Before the decision, each change of a workspace's rows started one whole walk of the session for each New Tab
     /// page that has a view. The feed is the app's own (`NewTabPlacesFeed.wire`), which the setup starts.
     ///
@@ -363,8 +367,16 @@ struct NewTabKeySessionWalkTests {
                 + "showed its selected tab's content before the change: \(shownBefore), after it: \(start.pane.selectedContentIsAlive); "
                 + "New Tab pages with a view before: \(pages.count), after: \(viewsAfter)")
             try #require(after != before, "setup: no New Tab page got the changed row in the drain, so the feed did not run")
-            #expect(afterTitle.count <= 1,
-                    "a title change of one tab mapped \(afterTitle.count) workspaces in \(titleMaps) maps, want the tab's own at most")
+            // Allowed: the changed tab's workspace, 1 map; the keys' pane's while a creation waits there, 1 map, equal rows.
+            let ownWaits = start.pane.pane.tabs.contains(where: { ProvisionalTab.isProvisional(surface: $0.surface) })
+            let notAllowed = afterTitle.keys.sorted().filter { id in
+                if id == changed { return (afterTitle[id] ?? 0) > 1 }
+                let sameRows = keptBefore.first(where: { $0.id == id }) == keptAfter.first(where: { $0.id == id })
+                return !(id == own && ownWaits && afterTitle[id] == 1 && sameRows)
+            }
+            #expect(notAllowed.isEmpty,
+                    "a title change of one tab mapped \(afterTitle.count) workspaces in \(titleMaps) maps; not allowed: \(notAllowed) "
+                        + "(want the tab's own, and the workspace of a pane with a waiting creation 1 time with equal rows)")
         }
     }
 
