@@ -257,6 +257,33 @@ fn a_recovery_request_forces_a_keyframe_at_most_every_250_ms() {
     assert!(out.encode.is_none_or(|r| !r.force_idr), "a second forced keyframe within 250 ms");
 }
 
+/// A source encodes asynchronously: a recovery request can arrive while an
+/// older P-frame request is still in its encoder. That P-frame must not
+/// answer the recovery; the next request is the keyframe.
+#[test]
+fn a_recovery_that_arrives_while_a_p_frame_is_encoding_still_gets_its_keyframe() {
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 500, 0);
+    let ack = feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() });
+    e.on_datagram(&ack, true, 20_000);
+    let p =
+        e.damage(0, Rect { x: 0, y: 0, width: 8, height: 8 }, 300_000).expect("a P-frame request");
+    assert!(!p.force_idr);
+    // The viewer asks for recovery while that P-frame is in the encoder.
+    let ask = feedback(&Feedback {
+        acked_frame: first.frame,
+        need_recovery: true,
+        ..Feedback::default()
+    });
+    // The frame-rate cap holds the keyframe for a moment.
+    assert!(e.on_datagram(&ask, true, 301_000).encode.is_none());
+    send(&mut e, &p, false, 500, 302_000);
+    let next =
+        e.damage(0, Rect { x: 0, y: 0, width: 8, height: 8 }, 340_000).expect("the next request");
+    assert!(next.force_idr, "the recovery was answered by a P-frame requested before it");
+}
+
 #[test]
 fn input_is_applied_once_and_acknowledged_and_refused_input_is_acknowledged_too() {
     let mut e = engine();
@@ -466,6 +493,36 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 160_000);
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
+}
+
+#[test]
+fn a_frame_the_encoder_dropped_is_encoded_again_with_no_new_damage() {
+    // A dropped frame's change has to reach the viewer even when nothing else moves on
+    // screen; before, it stayed unsent until other damage came, a stuck region.
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let out = e.encoded(&first, None, 0).expect("ok");
+    assert!(out.datagrams.is_empty());
+    let due = e.next_deadline_us().expect("the dropped frame waits for its slot");
+    let again = e.poll(due.max(20_000)).expect("the dropped frame's damage is encoded again");
+    assert_eq!(again.damage, first.damage, "the same change, with no new damage");
+    assert!(again.force_idr, "the dropped keyframe is still a keyframe");
+}
+
+#[test]
+fn a_recovery_request_with_damage_pending_hands_out_one_keyframe() {
+    // Damage waits in the gate (here: a frame the encoder dropped) when the viewer asks for
+    // recovery. The ack used to hand that damage a frame number and the keyframe's own poll
+    // then answered Wait over it, so the frame was never encoded and no keyframe went out.
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let _ = e.encoded(&first, None, 0).expect("ok");
+    let fb = Feedback { need_recovery: true, ..Feedback::default() };
+    let out = e.on_datagram(&feedback(&fb), true, 40_000);
+    let recovery = out.encode.expect("the recovery keyframe is requested");
+    assert!(recovery.force_idr);
+    assert_eq!(recovery.damage, first.damage, "the whole surface");
+    assert!(e.poll(80_000).is_none(), "one frame, not a second one for the same damage");
 }
 
 #[test]

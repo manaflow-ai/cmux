@@ -171,11 +171,20 @@ With the switch on (Debug Settings, default off; read when each resize begins an
    last frame inside its pane (the hosted root takes the page window's size; the GPU layer keeps the frame's size), not
    stretched; the next frame catches up. `pagesWait` above 0 is for measurement films only (the cost of a same-frame page).
 
-Known limit: a page frame drawn after the pane's commit shows one or more refreshes later, so S5 at `pagesWait` 0 shows
-the page at its pane's size from Chromium's next frame, not always in the pane's own frame. A same-frame page without a
-main-thread wait needs a fork call that hands the wait to the render server (the page's frame as a fence the embedder's
-commit waits on there, as viz's surface synchronization does inside Chrome's GPU process). That is the next fork API,
-owned by S5; the films with S5 on say how many frames a page lags.
+Window frame sync (fork API 32, `cmux_browser_resize_fence`, fork version 34 on the Chromium 157 line; hq#11877): a
+page frame drawn after the pane's commit used to show one or more refreshes later, so S5 showed the page at its pane's
+size from Chromium's next frame, not in the pane's own frame. With an engine that has API 32, every resize of a hosted
+page's view in a page sync (`CEFLayerHosting.pageViewResized`, from `CEFHostView.setFrameSize`) joins the window's Core
+Animation fence for that turn (`CEFResizeFence`: one `-[CAContext createFencePort]` per window per turn). The fork sends
+a send right of it to the page's GPU process, which sets it on the commit of the page's first frame at the new size
+(Chromium's surface synchronization, with the render server as the display compositor that waits). The render server
+then shows the pane's commit and the page's frame together. The main thread never waits: the app drops its own right
+when every page's `done` came, or at its own deadline (the GPU's deadline, one refresh of the fastest display and at
+least 8 ms, plus one refresh). A page that misses the GPU's deadline shows its last frame for that step, as before, and
+the window's commit is late by at most that deadline. `CMUX_CEF_RESIZE_FENCE=0` keeps it off and
+`CMUX_CEF_RESIZE_FENCE_MS` sets the GPU's deadline, for A/B runs on one engine; `debug.cef` `tracker` counts `fences`,
+`fence_joined`, `fence_presented`, `fence_missed` and `fences_expired`. Below fork version 34 nothing changes. Before/after
+numbers: hq#11877 and the cmux PR that wired it.
 
 Red test: `CEFPageFrameOwnerTests` (switch by key, so it compiles before it exists). Evidence and dates: the S5 PR.
 
