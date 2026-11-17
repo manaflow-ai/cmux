@@ -32,7 +32,9 @@ const SIZE_SPECS: Record<CloudSize, { cpu: number; memory: number }> = {
 /// What each plan offers: its name (a product name, never translated), its monthly price, and the largest
 /// machine it includes (cmux-platform domain/Plan.ts limits: Pro up to 8 vCPU and 16 GB, Max up to 32 and 64).
 export const CLOUD_PLANS: Record<CloudPlanId, { name: string; price: string; maxSize: CloudSize }> = {
+  // l10n-allow: a product name, never translated.
   pro: { name: "Pro", price: "$50", maxSize: "lg" },
+  // l10n-allow: a product name, never translated.
   max: { name: "Max", price: "$200", maxSize: "2xl" },
 };
 
