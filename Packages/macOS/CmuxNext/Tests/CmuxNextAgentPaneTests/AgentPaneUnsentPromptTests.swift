@@ -162,6 +162,35 @@ struct AgentPaneUnsentPromptTests {
                 "the Send's gesture paid for a mode")
     }
 
+    /// A prompt the CLI, MCP or a script seeded (no seed ticket) still waits in the composer for
+    /// the person's own Send, though a typed Send needs no gesture: without a ticket, with a ticket
+    /// that does not redeem, or with one the page asks for, it is refused until the person sends it.
+    @Test func anAutomationSeededPromptWaitsForThePersonsSend() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let run = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        run.transport.gestures.holdAutomationSeed()
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 3, promptId: "seed")]) == .gestureRequired,
+                "an automation seed went out by itself")
+        let forged = #"{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"s-1","prompt":[{"type":"text","text":"x"}],"_meta":{"cmuxGesture":"forged","acpmux":{"promptId":"seed"}}}}"#
+        #expect(await run.transport.send(connection: run.id, frames: [forged]) == .gestureRequired,
+                "a ticket that did not redeem sent an automation seed")
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": ["method": "session/prompt", "params": ["promptId": "seed"]],
+        ]))
+        #expect(run.transport.reserveGesture(intent) == nil, "an automation seed got a ticket with no gesture")
+        #expect(Self.prompts(daemon, peer: 0).isEmpty)
+
+        run.transport.gestures.record()
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 5, promptId: "seed")]) == nil,
+                "the person's own Send did not send it")
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 6, promptId: "next")]) == nil,
+                "the hold outlived the person's Send")
+    }
+
     /// An app relaunch while the daemon is still holding a compose keeps the prompt in the host
     /// journal. The replacement pane receives it once, without making the person retype it.
     @Test func anAppRelaunchMidComposeKeepsThePromptAndRecovers() async throws {
