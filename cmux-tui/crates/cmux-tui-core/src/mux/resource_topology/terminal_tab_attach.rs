@@ -61,7 +61,7 @@ impl Mux {
             let active = refused.is_none()
                 && match &landing {
                     Some(landing) => landing.active,
-                    None => spot.placed.takes_active(&state, target),
+                    None => spot.placed.takes_active(&state, target, true),
                 };
             let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
             let delta = match pane {
@@ -87,10 +87,13 @@ impl Mux {
                     }
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
-                    let (workspace_index, screen_index) =
-                        state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[workspace_index].id;
-                    let screen = state.workspaces[workspace_index].screens[screen_index].id;
+                    let (workspace, screen) = state
+                        .screen_of(target)
+                        .and_then(|(workspace_index, screen_index)| {
+                            let workspace = state.workspaces.get(workspace_index)?;
+                            Some((workspace.id, workspace.screens.get(screen_index)?.id))
+                        })
+                        .expect("live pane belongs to a screen");
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
