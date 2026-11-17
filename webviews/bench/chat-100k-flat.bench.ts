@@ -47,6 +47,7 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
+import { idleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
@@ -88,6 +89,7 @@ if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
 const WAKES = process.env.WAKES === "1";
+const TRACE = process.env.TRACE;
 type Wakes = { timers: number; raf: number; posts: number; mutations: number };
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
   console.error("usage: bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]");
@@ -356,11 +358,21 @@ try {
           (timeout as Callback)(counted(fn), ...rest)) as typeof setTimeout;
         globalThis.setInterval = ((fn: unknown, ...rest: unknown[]) =>
           (interval as Callback)(counted(fn), ...rest)) as typeof setInterval;
-        globalThis.requestAnimationFrame = (fn: FrameRequestCallback) =>
-          frame((time) => {
+        const sites = new Map<string, number>();
+        (globalThis as unknown as { __benchRafSites: typeof sites }).__benchRafSites = sites;
+        globalThis.requestAnimationFrame = (fn: FrameRequestCallback) => {
+          const site =
+            new Error().stack
+              ?.split("\n")
+              .slice(2, 5)
+              .map((line) => line.trim())
+              .join(" < ") ?? "?";
+          return frame((time) => {
             wakes.raf += 1;
+            sites.set(site, (sites.get(site) ?? 0) + 1);
             fn(time);
           });
+        };
         MessagePort.prototype.postMessage = function (this: MessagePort, ...args: unknown[]) {
           wakes.posts += 1;
           return (post as Callback).apply(this, args) as void;
@@ -683,6 +695,39 @@ try {
           const traced = await paintWindow(page, cdp, IDLE_S, sources);
           console.log(describePaintWindow(`${name} page ${index} idle`, traced));
         }
+      }
+      if (TRACE) {
+        // TRACE=DIR: what each page's frames come from (the rAF sites the init script saw, through the build's maps),
+        // a control page of plain text in the same browser, and one browser-wide trace of IDLE_S idle.
+        if (WAKES)
+          for (const index of [0, count - 1]) {
+            const sites = await pages[index]!.page.evaluate(() => {
+              const map = (globalThis as unknown as { __benchRafSites?: Map<string, number> }).__benchRafSites;
+              const out = map ? [...map] : [];
+              map?.clear();
+              return out;
+            });
+            const mapSite = (site: string) =>
+              sources
+                ? site.replace(
+                    /(?:https?:\/\/[^\s)]*\/)?assets\/([^\s/:)]+\.js):(\d+):(\d+)/g,
+                    (_, file: string, line: string, column: string) =>
+                      sources(file, Number(line) - 1, Number(column) - 1),
+                  )
+                : site;
+            for (const [site, n] of sites.sort((a, b) => b[1] - a[1]).slice(0, 6))
+              console.log(`  ${name}: page ${index} rAF since load x${n} from ${mapSite(site)}`);
+          }
+        const control = await context.newPage();
+        await control.goto("data:text/html,<p>control</p>");
+        const controlCdp = await context.newCDPSession(control);
+        console.log(describePaintWindow(`${name} control page idle`, await paintWindow(control, controlCdp, IDLE_S)));
+        await control.close();
+        fs.mkdirSync(TRACE, { recursive: true });
+        const browserCdp = await browser.newBrowserCDPSession();
+        console.log(`  ${name}: browser-wide idle trace`);
+        console.log(await idleTrace(browserCdp, IDLE_S, path.join(TRACE, `${name}-idle.json.gz`)));
+        await browserCdp.detach();
       }
       const idlePct = median(idleWindows);
       for (const [round, wakes] of idleWakes.entries())
