@@ -282,7 +282,7 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # pool (aws_side_reason), so every read of them is gated too. CI_FAST_LANE_RUNNER
 # names the fast tier's own owned label and CI_SESSION_LANE_RUNNER generated
 # files' session label, so they are gated as well.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_SIDE_LANE_LABELS|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -691,7 +691,9 @@ FORK_WRAPPED_GUARDED_POOL_READ = re.compile(
     r"inputs\.same_tree_origin != '' && inputs\.same_tree_origin != 'pull_request' \|\| "
     r"inputs\.dev_daily == true \|\| inputs\.tip_swift_suite == true \|\| inputs\.tip_daemon_suite == true \|\| "
     r"inputs\.base_tier == true \|\| inputs\.no_reuse == true\)\) && )?"
-    r"vars\.CI_BLACKSMITH_MACOS != 'on' && vars\.CI_SIDE_LANE_RUNNER \|\| "
+    r"vars\.CI_BLACKSMITH_MACOS != 'on' && "
+    r"(?:vars\.CI_SIDE_LANE_RUNNER|\(vars\.CI_SIDE_LANE_LABELS != '' && fromJSON\(vars\.CI_SIDE_LANE_LABELS\) \|\| "
+    r"vars\.CI_SIDE_LANE_RUNNER\)) \|\| "
     r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)\)"
 )
 
