@@ -245,9 +245,9 @@ fn a_drag_start_walks_each_group_tree_once() {
         let s = sidebar(2000, 2, group_size, 0);
         let rows = s.rows();
         let item = s.middle_item();
-        super::doc::SUBTREE_VISITS.with(|visits| visits.set(0));
+        doc::SUBTREE_VISITS.with(|visits| visits.set(0));
         let table = drag_begin(&s.doc, &rows, std::slice::from_ref(&item));
-        let visits = super::doc::SUBTREE_VISITS.with(std::cell::Cell::get);
+        let visits = doc::SUBTREE_VISITS.with(std::cell::Cell::get);
         assert_eq!(table.len(), rows.len());
         assert!(
             visits <= 3 * rows.len(),
