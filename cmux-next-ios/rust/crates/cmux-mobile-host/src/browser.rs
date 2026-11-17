@@ -651,15 +651,20 @@ pub(crate) async fn splice(
     let Claim { addr, secret, stopped: mut cancelled, visible, .. } = claim_of_host;
     let secret = secret.as_str();
     let video_tag = track.and_then(|(_, tag, _)| tag);
-    // Lane frames count here, as they go onto the media lane (traffic.rs).
+    // Lane frames count where the lane hands them to a route (traffic.rs;
+    // `VideoClaim::count_into`), so a frame the lane drops counts nothing.
     let video_meter = track.map(|(_, _, kind)| crate::traffic::TRAFFIC.meter(kind));
+    let claim_lane = |video: &cmux_mobile_link::media::VideoOut| {
+        let mut claim = video.claim();
+        if let Some(meter) = &video_meter {
+            claim.count_into(Arc::clone(meter));
+        }
+        claim
+    };
     // A tagged phone keeps only its own tab's lane frames (the lane changes
     // tabs without telling it when); an older phone sent no tag.
     let lane_frame = |frame: cmux_rd_core::reassembly::CompleteFrame| {
         let access_unit = Bytes::from(frame.body.access_unit);
-        if let Some(meter) = &video_meter {
-            meter.add_sent(access_unit.len());
-        }
         cmux_mobile_link::media::OutgoingFrame {
             access_unit: match video_tag {
                 Some(tag) => cmux_mobile_link::media::tag::append(&access_unit, tag),
@@ -690,7 +695,7 @@ pub(crate) async fn splice(
     // the page's frames ride the media lane. A newer browser channel on the
     // same link takes the lane over; this one then carries its video on
     // the channel again (the host deframer stays, so frames stay whole).
-    let mut claim = track.map(|(video, _, _)| video.claim());
+    let mut claim = track.map(|(video, _, _)| claim_lane(video));
     // Every host frame is read whole: the guard reads the host's `rb.page`,
     // and track mode takes the video datagrams out.
     let mut host_deframer = StreamDeframer::default();
@@ -821,7 +826,7 @@ pub(crate) async fn splice(
                                             && !video.is_closed()
                                         {
                                             tracing::info!("browser: the shown tab takes the media lane back");
-                                            claim = Some(video.claim());
+                                            claim = Some(claim_lane(video));
                                             // A fresh viewer of the main stream,
                                             // starting at a keyframe.
                                             bridge = crate::browser_track::TrackBridge::new();
