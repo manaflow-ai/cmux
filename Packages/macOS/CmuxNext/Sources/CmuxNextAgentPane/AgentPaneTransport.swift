@@ -438,8 +438,9 @@ import CmuxNextCompat
         }
         let reserved = gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
         // A Send needs no key press or click (Leo, 2026-11-17: "go remove this"): it always gets its
-        // ticket, which its large attachments' uploads ride on. A credential transfer's (`personOnly`) does not.
-        if reserved == nil, intent.method == "session/prompt", !personOnly {
+        // ticket, which its large attachments' uploads ride on. A credential transfer's (`personOnly`) does not,
+        // nor an automation seed's (``AgentPaneUserGestures/automationSeedWaits``).
+        if reserved == nil, intent.method == "session/prompt", !personOnly, !gestures.automationSeedWaits {
             return gestures.reserve(connection: current, intent: intent, paid: true)
         }
         return reserved

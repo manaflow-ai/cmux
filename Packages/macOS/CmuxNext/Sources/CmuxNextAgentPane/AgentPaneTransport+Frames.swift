@@ -355,6 +355,16 @@ extension AgentPaneTransport {
         return await Self.checkPaths(box, scope: scope)
     }
 
+    /// Whether a prompt is refused because the CLI, MCP or a script seeded it and the person has not
+    /// sent it (``AgentPaneUserGestures/automationSeedWaits``). The person's own Send (`personSent`, a
+    /// posted one under their grant too) ends the hold.
+    private func automationSeedHolds(_ facts: Facts, personSent: @autoclosure () -> Bool) -> Bool {
+        guard facts.method == "session/prompt", gestures.automationSeedWaits else { return false }
+        guard personSent() || gestures.consumePosted(for: "session/prompt") else { return true }
+        gestures.releaseAutomationSeed()
+        return false
+    }
+
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
         // The pane reconnected while the frame was read off the main actor: it goes nowhere, and it
@@ -423,8 +433,9 @@ extension AgentPaneTransport {
                 } ?? false
                 let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
                 // A frame that needs no gesture (a Send) is never refused for a ticket that did not redeem.
-                granted = !facts.needsGesture || (redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
-                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true))
+                granted = (!facts.needsGesture || (redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
+                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true)))
+                    && !automationSeedHolds(facts, personSent: redeemed || gestures.consumeForSend())
                 ticketPick = granted
                 // A prompt that goes with its own ticket spends the start's credit too, as one
                 // without a ticket does: the credit never grants a later prompt (#23031).
@@ -462,12 +473,13 @@ extension AgentPaneTransport {
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
                 // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``),
                 // though it needs none: the Send's key press must not pay for the agent's next gated frame.
-                if facts.method == "session/prompt" { _ = gestures.consumeForSend() }
+                let sent = facts.method == "session/prompt" && gestures.consumeForSend()
                 // Computer use acting as the person (``AgentPaneActAsMe``, on only by the person's own grant)
                 // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
-                granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
+                granted = !automationSeedHolds(facts, personSent: sent || credit)
+                    && (redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
-                    || gestures.consumePosted(for: facts.method)
+                    || gestures.consumePosted(for: facts.method))
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.

@@ -17,6 +17,9 @@ They did, and the person's own typed messages kept coming back "Not sent: it nee
 press or click." (Leo, 2026-11-17: "oh god this is so f***ing shitty i can't believe this dialogue
 is still in the app + i can't belive that it still occurs ... go remove this"). A Send's gesture
 ticket, if the page reserved one, is redeemed when it can be and never refuses the prompt.
+A Send still spends the person's gesture, so the Enter never pays for the agent's next gated frame.
+One prompt still waits for the person: one the CLI, MCP or a script seeded into a new chat (no seed
+ticket) stays in the composer until the person sends it (`automationSeedWaits`).
 
 ## "Computer use can act as me"
 
