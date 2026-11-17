@@ -18,13 +18,17 @@
 //! a bundle of what the machine lacks, not this copy, so it is not counted here; the copy a seed
 //! falls back to is, `.git/` included.
 //!
+//! Time counts as well as size: a fresh copy this Mac's link would take longer than a minute to
+//! send starts from a first pass too, and every start knows which before any machine is made
+//! ([`super::estimate`]).
+//!
 //! `--allow-large` (on `link seed push`, `link sync push` and `cloud start-chat --from-folder`)
 //! records the folder here ([`allow`]) for [`GRANT_LASTS`], and a copy of that folder in that time,
 //! by any surface (the app's own runs too), sends it whole.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use sha2::{Digest as _, Sha256};
 
@@ -57,13 +61,43 @@ pub(super) struct Cap {
     /// The files counted that are not repository history.
     working: u64,
     sizes: HashMap<String, u64>,
+    /// When a start's estimate before any machine (`estimate.rs`) stops listing, as at the file
+    /// limit; none for a copy.
+    until: Option<Instant>,
+    /// The listing stopped at `until`.
+    timed_out: bool,
 }
 
 impl Cap {
     /// The limits for a copy ([`MAX_BYTES`], [`MAX_FILES`]; a test's own in tests).
     pub(super) fn new() -> Self {
         let (max_bytes, max_files) = limits();
-        Self { max_bytes, max_files, bytes: 0, files: 0, working: 0, sizes: HashMap::new() }
+        Self {
+            max_bytes,
+            max_files,
+            bytes: 0,
+            files: 0,
+            working: 0,
+            sizes: HashMap::new(),
+            until: None,
+            timed_out: false,
+        }
+    }
+
+    /// [`Cap::new`] for a listing that also stops at `until`, as at the file limit
+    /// ([`Cap::timed_out`] then says so).
+    pub(super) fn until(until: Instant) -> Self {
+        Self { until: Some(until), ..Self::new() }
+    }
+
+    /// Whether the listing stopped at its time bound ([`Cap::until`]).
+    pub(super) fn timed_out(&self) -> bool {
+        self.timed_out
+    }
+
+    /// The files and bytes counted so far.
+    pub(super) fn listed(&self) -> (u64, u64) {
+        (self.files, self.bytes)
     }
 
     /// Counts one file of `bytes` going as `relative`: [`FileLimit`] once the files that are not
@@ -78,6 +112,13 @@ impl Cap {
         {
             return Err(FileLimit);
         }
+        // The clock is read once every 1,024 files, so the bound adds nothing to the walk's cost.
+        if self.files.is_multiple_of(1024)
+            && self.until.is_some_and(|until| Instant::now() >= until)
+        {
+            self.timed_out = true;
+            return Err(FileLimit);
+        }
         self.bytes = self.bytes.saturating_add(bytes);
         self.sizes.insert(relative.to_owned(), bytes);
         Ok(())
@@ -86,6 +127,11 @@ impl Cap {
     /// Whether what was listed is more than a copy sends whole, in bytes or in files.
     pub(super) fn past(&self) -> bool {
         self.bytes > self.max_bytes || self.files > self.max_files
+    }
+
+    /// Whether what was listed is more bytes than a copy sends whole.
+    pub(super) fn past_bytes(&self) -> bool {
+        self.bytes > self.max_bytes
     }
 
     /// The size `relative` was counted at (0 for one never counted).
@@ -188,7 +234,8 @@ pub(super) fn first_limits() -> (u64, u64) {
     if let Some(limits) = TEST_FIRST.with(std::cell::Cell::get) {
         return limits;
     }
-    (FIRST_BYTES, FIRST_FILES)
+    // On a slow link the first pass is what goes within the start's time budget (estimate.rs).
+    (super::estimate::within_budget(FIRST_BYTES), FIRST_FILES)
 }
 
 #[cfg(test)]
