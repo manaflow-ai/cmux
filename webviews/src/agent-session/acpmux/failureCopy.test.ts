@@ -340,3 +340,16 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   expect(copy).toContain("spending cap");
   expect(copy).toContain("team admin");
 });
+
+test("a resumed Cloud chat the owner's Mac has not signed in again names the Mac, never a login on the machine", () => {
+  // acpmux's refusal (hub/credentials.rs `needs_mac`): the machine resumed and forgot the chat's credential.
+  const refusal = "Claude needs the Mac to sign in: open cmux";
+  const cloud = { hostKind: "cloud" as const, harness: "claude", name: "Claude Code" };
+  expect(failureKind(refusal, cloud)).toBe("needs-mac");
+  expect(isAuthenticationFailure(refusal)).toBe(false);
+  expect(isTeamMachineSignIn(failureKind(refusal, cloud), { ...cloud, teamMachine: true })).toBe(false);
+  expect(failureRecovery("needs-mac")).toBe("retry");
+  const copy = failureCopy(translatorFor("en"), refusal, cloud);
+  expect(copy).toBe("Claude Code needs the Mac to sign in: open cmux");
+  expect(copy.toLowerCase()).not.toContain("not logged in");
+});

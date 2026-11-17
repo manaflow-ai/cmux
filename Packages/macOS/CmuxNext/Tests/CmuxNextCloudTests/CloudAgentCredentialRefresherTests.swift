@@ -221,4 +221,40 @@ struct CloudAgentCredentialRefresherTests {
         #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude", "no choice to move leaves the tab's own")
         #expect(CloudSetup.Action.setUpClaude.settingsRow == "claude" && CloudSetup.Action.addKey.settingsRow == "apiKey" && CloudSetup.Action.openSettings.settingsRow == nil)
     }
+
+    /// A machine paused and resumed: its acpmux restarted and forgot every chat credential (memory
+    /// only, cmux#40159). When this Mac's link to it comes back, every live chat there gets its own
+    /// credential again, every provider and kind (a Claude token, an API key, a ChatGPT token), one
+    /// read per connection; a chat on another machine is left alone, and one its machine no longer
+    /// has is dropped.
+    @Test func everyLiveChatGetsItsCredentialAgainWhenTheLinkToItsMachineReturns() async throws {
+        var asked: [String] = []
+        let replies = [
+            "claude-token": #"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#,
+            "openai-key": #"{"family":"codex","kind":"api-key","env":{"OPENAI_API_KEY":"sk-proj-abc"},"expires_at":null}"#,
+        ]
+        let credentials = CloudAgentCredentials { id in
+            asked.append(id)
+            return Data((replies[id] ?? #"{"error":"nope"}"#).utf8)
+        }
+        let (claudeA, claudeB, codex, elsewhere) = (Machine(), Machine(), Machine(), Machine())
+        for (chat, connection, machine, session) in [("tab-1", "claude-token", "m1", claudeA), ("tab-2", "claude-token", "m1", claudeB),
+                                                     ("tab-3", "openai-key", "m1", codex), ("tab-4", "claude-token", "m2", elsewhere)] {
+            let launch = try await credentials.credential(forConnection: connection)
+            credentials.started(chat: chat, machine: machine, on: launch, push: session.push)
+        }
+        asked = []
+        await credentials.linkReturned(machine: "m1")
+        #expect(claudeA.pushes == [["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"]])
+        #expect(claudeB.pushes == [["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"]])
+        #expect(codex.pushes == [["OPENAI_API_KEY": "sk-proj-abc"]])
+        #expect(elsewhere.pushes.isEmpty, "another machine's link did not come back")
+        #expect(asked.sorted() == ["claude-token", "openai-key"], "one read per connection")
+        // A chat its machine no longer has is dropped; the others get it again on the next return.
+        codex.answer = .gone
+        await credentials.linkReturned(machine: "m1")
+        #expect(credentials.liveCount(machine: "m1") == 2 && claudeA.pushes.count == 2)
+        await credentials.linkReturned(machine: "m1")
+        #expect(codex.pushes.count == 2, "a chat that is gone gets no more pushes")
+    }
 }

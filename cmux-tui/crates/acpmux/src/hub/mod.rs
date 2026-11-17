@@ -232,6 +232,8 @@ pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod credentials;
+#[cfg(test)]
+mod credentials_resume_tests;
 mod live_name;
 mod profile_respawn;
 mod rediscover;
