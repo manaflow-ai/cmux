@@ -437,6 +437,7 @@ Use these existing owners instead of duplicating their checklists here:
 | Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
+| The cmux-next iPhone app (`cmux-next-ios/`, `Packages/iOS/`, the mobile Rust crates) | [cmux-ios](skills/cmux-ios/SKILL.md): fleet simulator tests, App Review gate, TestFlight, how iOS PRs merge |
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
 | A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
