@@ -41,7 +41,7 @@ Fleet (an owned mini with a console; the step builds the app):
 """
 import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -289,6 +289,30 @@ def router_decision(key="x"):
     return rpc("debug.key", {"key": key, "dry_run": True}, timeout=10)
 
 
+def activate_app():
+    """Bring the app to the front with an Apple Event to itself, as agent-engine-bench's `--activate` does.
+
+    Dropping CMUX_NEXT_NO_ACTIVATE only *permits* activation; nothing asks for it, and BenchApp spawns the
+    binary directly rather than through `open`, so the app stayed inactive: the claimant read at
+    37373e0cd80 reported `app_active: false` and `key_window: null`, which is why no window took the keys
+    and the page's listener never ran. `tell application id ... to activate` is the one call that fixes
+    that and needs no Accessibility grant (the System Events route did, and timed out on the fleet host).
+    Returns `debug.focus`'s own answer, so a round says whether the app really came forward.
+    """
+    ident = bundle_id(APP)
+    if not ident:
+        note("chat: the app has no bundle id in its Info.plist; not activating")
+        return None
+    done = subprocess.run(["osascript", "-e", f'tell application id "{ident}" to activate'],
+                          capture_output=True, text=True, timeout=30)
+    time.sleep(1)  # the activation settles before the focus read
+    report = rpc("debug.focus") or {}
+    state = {"rc": done.returncode, "stderr": (done.stderr or "").strip()[:120],
+             "app_active": report.get("app_active"), "key_window": report.get("key_window")}
+    note(f"chat: activate {json.dumps(state)}")
+    return state
+
+
 def claimant_state():
     """The `debug.focus` fields that name a key's holder: the creation and New Tab holds, and the window
     the keys go to (`app_active`, `key_window`). Read before the probe key, so a held key says who held it."""
@@ -315,6 +339,7 @@ def chat_key_route(pane):
     whichever route the page saw, and returns None when neither did, so the surface measures nothing rather
     than report a wrong number.
     """
+    activate_app()
     focus_chat_composer(pane)
     note(f"chat: router dry_run {json.dumps(router_decision())[:300]}")
     # Which claimant inside `interceptKeyDown` holds the key. `handled_by: "app"` with an empty trace and
