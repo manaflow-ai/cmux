@@ -151,6 +151,11 @@ public protocol TerminalChatBackend: AnyObject {
     func keptTerminalChatFace(tabID: String, on macID: String) -> Bool?
     /// Keeps the face the person chose for tab `tabID`.
     func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String)
+    /// The kept pairings were read from disk: until then `keptTerminalChat` answers nil for a
+    /// pairing that is kept.
+    var keptTerminalChatsLoaded: Bool { get }
+    /// Returns once the kept pairings are read (the read runs off the main thread).
+    func loadKeptTerminalChats() async
 }
 
 extension TerminalChatBackend {
@@ -159,6 +164,8 @@ extension TerminalChatBackend {
     public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {}
     public func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? { nil }
     public func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {}
+    public var keptTerminalChatsLoaded: Bool { true }
+    public func loadKeptTerminalChats() async {}
 }
 
 extension AgentChatsBackend {
