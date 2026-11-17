@@ -63,12 +63,19 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    let (candidates, mut cut) = candidates(repository, directory, &below, OPERATION)?;
+    let (listed, mut cut) = listed(repository, directory, OPERATION)?;
     let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
     let mut ranked = Vec::new();
-    for path in &candidates {
+    // Only a match is looked at: a keystroke's looks grow with its matches,
+    // not with every path in the folder (`files_stress_tests`).
+    let mut reached = Folders::of(repository, &below);
+    for path in &listed {
         match scorer.score(path) {
-            Scored::Match(score, matches) => ranked.push(Ranked { path, score, matches }),
+            Scored::Match(score, matches) => {
+                if reached.kind(path).is_some() {
+                    ranked.push(Ranked { path, score, matches });
+                }
+            }
             Scored::NoMatch => {}
             Scored::OutOfBudget => {
                 // The rest are unranked; say the results are partial.
@@ -196,26 +203,6 @@ impl Folders {
     }
 }
 
-/// The files under `directory`, relative to it and sorted, and whether the
-/// listing was cut. `below` is the result of [`folder`] for `directory`.
-///
-/// git gives the names: the paths of its index and the untracked names. It
-/// is not asked if a tracked path is still there, because git looks at a
-/// path by its name and so through a link. The daemon looks itself
-/// ([`Folders::kind`]): a candidate is a listed path that it reaches through
-/// real folders and that has a name on the disk.
-pub(super) fn candidates(
-    repository: &Repository,
-    directory: &Path,
-    below: &Path,
-    operation: &'static str,
-) -> Result<(Vec<String>, bool), ResourceError> {
-    let (mut files, cut) = listed(repository, directory, operation)?;
-    let mut folders = Folders::of(repository, below);
-    files.retain(|path| folders.kind(path).is_some());
-    Ok((files, cut))
-}
-
 /// Looks ([`Folders::kind`]) made on this thread: the stress tests count
 /// work with it (`files_stress_tests`).
 #[cfg(test)]
@@ -224,8 +211,15 @@ thread_local! {
 }
 
 /// The paths git lists under `directory`, relative to it, sorted and with no
-/// repeat, before any look: some may not be there or not be reachable
-/// ([`candidates`] keeps the ones that are). And whether the listing was cut.
+/// repeat, and whether the listing was cut.
+///
+/// git gives the names: the paths of its index and the untracked names. It
+/// is not asked if a tracked path is still there, because git looks at a
+/// path by its name and so through a link. The daemon looks itself
+/// ([`Folders::kind`]): a candidate is a listed path that it reaches through
+/// real folders and that has a name on the disk. That look is the caller's,
+/// made only for the paths it needs (a match, a child), so its cost is what
+/// the reply shows, not every path below `directory`.
 pub(super) fn listed(
     repository: &Repository,
     directory: &Path,

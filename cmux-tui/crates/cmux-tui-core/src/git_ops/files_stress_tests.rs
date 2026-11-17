@@ -217,12 +217,12 @@ fn every_path_look(repo: &Path, folder: &str) -> (Vec<(String, bool)>, bool) {
 }
 
 /// Listing the top folder or one folder makes a fixed number of looks per
-/// child shown, at 100 paths and at 100 times that: never one per path below.
+/// child shown, at 200 paths and at 100 times that: never one per path below.
 #[test]
 fn looks_of_a_folder_listing_grow_with_its_children_not_the_tree() {
     for shape in [Shape::Wide, Shape::Deep] {
         let mut by_size = Vec::new();
-        for count in [100, 10_000] {
+        for count in [200, 20_000] {
             let temp = Temp::new("looks-list");
             let repo = repository(&temp, &shape.paths(count), &[]);
             for folder in [String::new(), shape.expanded()] {
@@ -244,7 +244,7 @@ fn looks_of_a_folder_listing_grow_with_its_children_not_the_tree() {
         assert_eq!(
             by_size[0].2,
             by_size[2].2,
-            "{}: top folder looks at 100 and 10 000 paths",
+            "{}: top folder looks at 200 and 20 000 paths",
             shape.name()
         );
     }
@@ -253,7 +253,7 @@ fn looks_of_a_folder_listing_grow_with_its_children_not_the_tree() {
 /// A filter keystroke looks at the paths it matches, not every path.
 #[test]
 fn looks_of_a_filter_keystroke_grow_with_its_matches_not_the_tree() {
-    for count in [100, 10_000] {
+    for count in [200, 20_000] {
         let temp = Temp::new("looks-search");
         let mut paths = Shape::Wide.paths(count);
         paths.extend(
