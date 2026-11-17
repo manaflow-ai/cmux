@@ -136,11 +136,6 @@ import Testing
     /// turns of 16 KB replies arrive 100 at a time, with the window applied after each arrival
     /// as the list does at rest, then without. Measured as live heap bytes (malloc's size in
     /// use, with the store alive), which allocator reuse between the runs does not skew.
-    ///
-    /// malloc's size in use is the whole process's, and `swift test` runs other suites on other
-    /// threads meanwhile, so one pair of runs can read their bytes as the window's. Up to five
-    /// pairs run; the window passes when one pair shows it flat. Other threads' bytes only add
-    /// noise, so a window that really keeps every turn never passes.
     @Test func memoryStaysFlatWithTheWindow() async {
         func run(windowed: Bool) -> (live: Int, held: Int) {
             let store = Self.store()
@@ -155,20 +150,14 @@ import Testing
             store.spill?.reset()
             return (live, held)
         }
-        var lines: [String] = []
-        var flat = false
-        for _ in 0..<5 where !flat {
-            let before = run(windowed: false)
-            let after = run(windowed: true)
-            lines.append("MEMBENCH agent-chat turns=1000 reply=16KB before=\(before.live >> 10)KB held=\(before.held) after=\(after.live >> 10)KB held=\(after.held)")
-            #expect(after.held <= AgentChatStore.windowTrigger)
-            #expect(before.held == 1000)
-            flat = after.live < before.live / 4
-        }
-        let text = lines.joined(separator: "\n")
-        print(text)
-        Attachment.record(text, named: "membench.txt")
-        #expect(flat, "the window's memory was not flat in any pair:\n\(text)")
+        let before = run(windowed: false)
+        let after = run(windowed: true)
+        let line = "MEMBENCH agent-chat turns=1000 reply=16KB before=\(before.live >> 10)KB held=\(before.held) after=\(after.live >> 10)KB held=\(after.held)"
+        print(line)
+        Attachment.record(line, named: "membench.txt")
+        #expect(after.held <= AgentChatStore.windowTrigger)
+        #expect(before.held == 1000)
+        #expect(after.live < before.live / 4)
     }
 
     /// Bytes malloc holds for live allocations, in every zone.
