@@ -695,12 +695,18 @@ async fn relay(
     stream.write_all(head.as_bytes()).await?;
     tokio::pin!(reply);
     loop {
+        // Progress first: the reader queues a call's progress before its answer, and an
+        // unbiased pick could take the answer while a note still waits.
         tokio::select! {
-            answer = &mut reply => {
-                return answer.map_err(|_| anyhow!("the server ended before it answered"));
-            }
+            biased;
             Some(note) = progress_rx.recv() => {
                 stream.write_all(&sse_event(&note)).await?;
+            }
+            answer = &mut reply => {
+                while let Ok(note) = progress_rx.try_recv() {
+                    stream.write_all(&sse_event(&note)).await?;
+                }
+                return answer.map_err(|_| anyhow!("the server ended before it answered"));
             }
         }
     }
