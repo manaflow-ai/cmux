@@ -17,7 +17,7 @@ cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ## macOS host
 
 ```
-cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline] [--encode-profile standard|ultra]
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline]
 ```
 
 The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
@@ -193,13 +193,6 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
   decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
-- `--encode-profile ultra` (`host` and `serve`; opt-in, standard is the default) stops saving
-  bandwidth on a fat link: frames at the viewer's rate (else the display's refresh) up to 120 fps,
-  a 150 Mbps ceiling unless `--max-kbps` names one, and on VideoToolbox a QP ceiling of 20
-  (`CMUX_RD_VT_ULTRA_MAX_QP` overrides it), DataRateLimits as a one-second window at twice the
-  target instead of a per-frame cap, and one refinement frame under QP 12 one frame interval
-  after the screen goes still. H.264 level 5.2 still bounds the frame rate at large sizes
-  (`mac::encoder_fps`): a 4K display encodes at most about 64 fps in H.264.
 
 ## Upstream media (development)
 

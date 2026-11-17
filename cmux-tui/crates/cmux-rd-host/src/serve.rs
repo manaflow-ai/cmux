@@ -471,12 +471,7 @@ fn serve_session(
     let display = display.to_owned();
     // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
     let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    // `--encode-profile ultra`: frames at that rate up to 120, a higher ceiling, and the
-    // encoder's ultra settings. Standard (the default) is unchanged.
-    let encode_profile = opts.encode_profile()?;
-    let max_fps = encode_profile.stream_fps(max_fps);
-    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
-    let max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
+    let max_kbps = opts.num_or("max-kbps", 50_000)?;
     let start_kbps = opts.num_or(
         "start-kbps",
         default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
@@ -484,7 +479,6 @@ fn serve_session(
     let cfg = SessionCfg {
         display,
         max_fps,
-        encode_profile,
         start_kbps,
         max_kbps,
         preset: String::new(),
