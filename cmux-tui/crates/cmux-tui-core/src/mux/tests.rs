@@ -42,6 +42,7 @@ mod disk_usage_read_cost;
 mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
+pub(crate) mod floating_panes;
 mod history_agent_fold;
 #[cfg(unix)]
 mod holder_late_start;
@@ -320,6 +321,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
                     },
                 ],
             },
+            floating: Vec::new(),
         },
         RegistryScreen {
             public_id: second_screen.clone(),
@@ -331,6 +333,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
             zoomed_pane: Some(panes[4].clone()),
             auto_layout: Some(vec![panes[4].clone()]),
             viewport: RegistryViewport::default(),
+            floating: Vec::new(),
         },
     ];
     let registry_panes = vec![
