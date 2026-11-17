@@ -756,3 +756,37 @@ fn stalled_host_handshake_is_time_bounded() {
     assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
+
+struct FailingInputWriter;
+
+impl Write for FailingInputWriter {
+    fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "synthetic write failure"))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A host's PTY write is one `host.pty.write` hop; a write that failed is none (the mark fired
+/// before the writer lock, for every write).
+#[test]
+fn a_host_pty_write_is_marked_once_and_a_failed_one_not_at_all() {
+    let host = test_host_shared();
+    let (pty_writer, mut pty_reader) = UnixStream::pair().unwrap();
+    *host.writer.lock().unwrap() = Box::new(pty_writer);
+    let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+    let (target_tx, _target_rx) = mpsc_channel();
+    let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+    crate::pty_write_marks::take_marked();
+
+    assert!(host.write_input(b"x", 0, &target));
+    let mut byte = [0u8; 1];
+    pty_reader.read_exact(&mut byte).unwrap();
+    assert_eq!(crate::pty_write_marks::take_marked(), vec!["host.pty.write"]);
+
+    *host.writer.lock().unwrap() = Box::new(FailingInputWriter);
+    assert!(host.write_input(b"y", 0, &target));
+    assert_eq!(crate::pty_write_marks::take_marked(), Vec::<&str>::new());
+}

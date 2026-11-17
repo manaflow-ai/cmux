@@ -137,10 +137,12 @@ pub mod hub;
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
 pub mod hunk_summary;
+pub mod idempotency;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+pub mod left_on_mac;
 pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
