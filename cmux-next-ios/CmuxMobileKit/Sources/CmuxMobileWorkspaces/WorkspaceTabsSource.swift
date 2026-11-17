@@ -2387,7 +2387,7 @@ struct WorkspaceTabPage: View {
 
     /// A card's space under its newest turn: the page's own at rest, above the composer
     /// (`AgentChatSurface.restingTranscriptBottomInset`), so the card opens into its page
-    /// without a jump (Aziz 2026-11-17: the card had 4 pt more, and 66 pt less for a tab
+    /// without a jump (Leo 2026-11-17: the card had 4 pt more, and 66 pt less for a tab
     /// whose composer was not measured yet).
     static func bottomInset(surface: AgentChatSurface) -> CGFloat {
         surface.restingTranscriptBottomInset

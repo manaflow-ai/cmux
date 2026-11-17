@@ -1,6 +1,6 @@
 import XCTest
 
-/// Aziz (2026-11-17): "Preview causes layout shift bc preview vs display with composer is
+/// Leo (2026-11-17): "Preview causes layout shift bc preview vs display with composer is
 /// different". Opens ws-cmux from the Workspaces list, opens the tab grid, and opens the Claude
 /// tab's card, twice: first a tab not shown yet in this launch (its composer never measured),
 /// then again after it was shown. Screenshots of the grid and of the page's first frames after

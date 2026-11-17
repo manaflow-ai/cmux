@@ -8,7 +8,7 @@ import UIKit
 @testable import CmuxMobileAgentChat
 @testable import CmuxMobileWorkspaces
 
-/// Aziz (2026-11-17): "Preview causes layout shift bc preview vs display with composer is
+/// Leo (2026-11-17): "Preview causes layout shift bc preview vs display with composer is
 /// different". An agent tab's grid card is its page's preview (`AgentChatPreview`, drawn at the
 /// page's size and clipped to the card), and opening the card zooms it into the live page
 /// (`AgentChatTranscript` above the tab's `AgentChatBottomStack`). Every message the card shows
