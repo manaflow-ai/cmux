@@ -253,19 +253,22 @@ impl<'a> Reader<'a> {
         Some(bytes)
     }
 
+    /// An unsigned LEB128 value; `None` when the bytes end first or it does not fit 64 bits.
+    /// The tenth byte holds bit 63 alone: anything more (a higher bit, or an eleventh byte) is a
+    /// value past 64 bits, which the shift would drop and read as a smaller one.
     fn varint(&mut self) -> Option<u64> {
         let mut value = 0u64;
         let mut shift = 0;
         loop {
             let byte = self.byte()?;
+            if shift == 63 && byte > 1 {
+                return None;
+            }
             value |= u64::from(byte & 0x7f).checked_shl(shift)?;
             if byte & 0x80 == 0 {
                 return Some(value);
             }
             shift += 7;
-            if shift > 63 {
-                return None;
-            }
         }
     }
 
@@ -456,5 +459,21 @@ mod tests {
         let bytes = delta.encode();
         assert_eq!(Delta::decode(&bytes), Some(delta));
         assert_eq!(Delta::decode(&bytes[..bytes.len() - 1]), None);
+    }
+
+    /// A varint past 64 bits is not a delta: its high bits are not dropped to read a smaller
+    /// value (#44052 F2).
+    #[test]
+    fn a_varint_past_64_bits_is_not_a_delta() {
+        // seq, then at_ms 0, shift 0 and no spans.
+        let with_seq = |seq: &[u8]| [seq, &[0, 0, 0]].concat();
+        let max = [[0xff; 9].as_slice(), &[0x01]].concat();
+        assert_eq!(Delta::decode(&with_seq(&max)).map(|delta| delta.seq), Some(u64::MAX));
+        // Bit 64 set: the shift used to drop it and read seq 0.
+        let bit_64 = [[0x80; 9].as_slice(), &[0x02]].concat();
+        assert_eq!(Delta::decode(&with_seq(&bit_64)), None);
+        // An eleventh byte.
+        let eleven = [[0x80; 10].as_slice(), &[0x00]].concat();
+        assert_eq!(Delta::decode(&with_seq(&eleven)), None);
     }
 }

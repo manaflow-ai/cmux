@@ -5,16 +5,28 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
 
-/// The pane toolbar's page tools (a chat's own tools in the row, `chrome.tabs.nativeRowTools`): a press or the
-/// keyboard opens a tool's menu, the chat's own menu ("chat-menu") is a button like the others, last in the row
-/// (the pane's "…" that hosted it is gone, user 2026-11-13), and it lists the tools a narrow pane hid. Every
-/// menu is a standard macOS menu, like every right-click menu.
+/// The pane toolbar's more button is the app's one overflow button (⋮, Leo 2026-10-20, #22972):
+/// a pointer press opens its menu on mouse-down, and VoiceOver's press opens the same menu. Its menu
+/// is a standard macOS menu, like every right-click menu.
 @MainActor @Suite struct PaneMoreOverflowButtonTests {
+    @Test func voiceOversPressOpensThePanesMenu() {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        view.show(more: true, lit: false)
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Rename Tab", action: nil, keyEquivalent: "")
+        view.moreMenu = { menu }
+        var shown: NSMenu?
+        view.moreButton.presentMenu = { menu, _ in shown = menu }
+        #expect(view.moreButton.accessibilityPerformPress())
+        #expect(shown === menu)
+        #expect(view.moreButton.accessibilityLabel() == view.moreButton.label)
+    }
+
     @Test func nativeToolKeyboardActivationOpensItsMenu() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
         let tool = PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review",
                                   menu: [PaneTabRowMenuItem(id: "open", label: "Open")])
-        view.show(nativeItems: [tool])
+        view.show(more: false, lit: false, nativeItems: [tool])
         var invoked: [String] = []
         view.onNativeTool = { id, _ in invoked.append(id) }
         let button = try #require(view.nativeButtons.first)
@@ -104,7 +116,7 @@ import Testing
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
         let tool = PaneTabRowTool(id: "terminal", symbol: "terminal", label: "Terminal",
                                   contextMenu: [PaneTabRowMenuItem(id: "move", label: "Move right")])
-        view.show(nativeItems: [tool])
+        view.show(more: false, lit: false, nativeItems: [tool])
         var invoked: (String, String?)?
         view.onNativeTool = { id, menuItemID in invoked = (id, menuItemID) }
         let button = try #require(view.nativeButtons.first)
@@ -119,7 +131,7 @@ import Testing
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
         let tool = PaneTabRowTool(id: "terminal", symbol: "terminal", label: "Terminal",
                                   contextMenu: [PaneTabRowMenuItem(id: "move", label: "Move right")])
-        view.show(nativeItems: [tool])
+        view.show(more: false, lit: false, nativeItems: [tool])
         let button = try #require(view.nativeButtons.first)
         #expect(button.onMenuOpenChange != nil, "context-only tools use the same held-menu path")
         button.onMenuOpenChange?(true)
@@ -131,7 +143,7 @@ import Testing
     @Test func overflowValidationPreservesDisabledToolsAndAncestors() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         let child = PaneTabRowMenuItem(id: "child", label: "Child")
-        view.show(nativeItems: [
+        view.show(more: true, lit: false, nativeItems: [
             PaneTabRowTool(id: "disabled", symbol: "checkmark", label: "Disabled", enabled: false),
             PaneTabRowTool(id: "disabled-menu", symbol: "checkmark", label: "Disabled menu", enabled: false, menu: [child]),
             PaneTabRowTool(id: "menu", symbol: "checkmark", label: "Menu", menu: [
@@ -173,14 +185,14 @@ import Testing
 
     @Test func retainedOverflowRowsCannotInvokeReplacedTools() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
-        view.show(nativeItems: [
+        view.show(more: true, lit: false, nativeItems: [
             PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review"),
         ])
         view.layoutSubtreeIfNeeded()
         var invoked = false
         view.onNativeTool = { _, _ in invoked = true }
         let row = try #require(view.nativeOverflowItems().first)
-        view.show(nativeItems: [
+        view.show(more: true, lit: false, nativeItems: [
             PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review", enabled: false),
         ])
         view.layoutSubtreeIfNeeded()
@@ -192,17 +204,17 @@ import Testing
         #expect(!invoked)
     }
 
-    /// The overflow lists only the native tools whose buttons do not fit: a tool that shows is not listed twice.
+    /// "…" lists only the native tools whose buttons do not fit: a tool that shows is not listed twice.
     @Test func overflowListsOnlyNativeToolsThatDoNotFit() {
         let tools = ["review", "share"].map { PaneTabRowTool(id: $0, symbol: "checkmark", label: $0) }
         let wide = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
-        wide.show(nativeItems: tools)
+        wide.show(more: true, lit: false, nativeItems: tools)
         wide.layoutSubtreeIfNeeded()
         #expect(wide.nativeButtons.allSatisfy { !$0.isHidden })
-        #expect(wide.nativeOverflowItems().isEmpty, "visible native tools are duplicated in the overflow")
+        #expect(wide.nativeOverflowItems().isEmpty, "visible native tools are duplicated under …")
 
         let narrow = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
-        narrow.show(nativeItems: tools)
+        narrow.show(more: true, lit: false, nativeItems: tools)
         narrow.layoutSubtreeIfNeeded()
         let hidden = zip(tools, narrow.nativeButtons).filter { $0.1.isHidden }.map(\.0.label)
         #expect(!hidden.isEmpty)
@@ -210,18 +222,17 @@ import Testing
 
     }
 
-    @Test func narrowToolbarHidesPartialNativeSlotWithoutOverlap() {
+    @Test func narrowToolbarHidesPartialNativeSlotWithoutOverlappingMore() {
         DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let tools = [
                 PaneTabRowTool(id: "first", symbol: "checkmark", label: "First"),
                 PaneTabRowTool(id: "second", symbol: "square", label: "Second"),
             ]
-            // Room for one slot, not two: the second is partial.
-            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
-            view.show(nativeItems: tools)
+            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 60, height: 30))
+            view.show(more: true, lit: false, nativeItems: tools)
             view.layoutSubtreeIfNeeded()
 
-            let visible = view.nativeButtons.filter { !$0.isHidden }
+            let visible = view.nativeButtons.filter { !$0.isHidden } + [view.moreButton]
             for (index, button) in visible.enumerated() {
                 for other in visible.dropFirst(index + 1) {
                     #expect(!button.frame.intersects(other.frame), "visible native controls must not overlap")
@@ -237,17 +248,17 @@ import Testing
         let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
         let text = PaneTabRowTool(id: "text", symbol: "checkmark", label: "Text", text: "#123 ✓3/5")
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
-        view.show(nativeItems: [icon, text])
+        view.show(more: false, lit: false, nativeItems: [icon, text])
         view.layoutSubtreeIfNeeded()
         #expect(view.nativeButtons[0].frame.width == TitlebarBandButton.side)
         #expect(view.nativeButtons[1].frame.width > view.nativeButtons[0].frame.width)
         #expect(view.nativeOverflowItems().isEmpty)
     }
 
-    @Test func aToolFitsAtItsIntrinsicWidth() {
+    @Test func iconAndOverflowFitAtTheirIntrinsicWidth() {
         let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
         let view = PaneToolbarView(frame: .zero)
-        view.show(nativeItems: [icon])
+        view.show(more: true, lit: false, nativeItems: [icon])
         let width = view.intrinsicContentSize.width
         view.frame.size.width = width
         view.layoutSubtreeIfNeeded()
@@ -260,7 +271,7 @@ import Testing
         let item = PaneTabRowMenuItem(id: "open", label: "Open", url: url)
         let tool = PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review", menu: [item])
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
-        view.show(nativeItems: [tool])
+        view.show(more: false, lit: false, nativeItems: [tool])
         var owner = "first"
         var opened: [URL] = []
         var invoked: [(String, String?)] = []
@@ -277,18 +288,29 @@ import Testing
         #expect(invoked.map { [$0.0, $0.1 ?? ""] } == [["review", "open"]])
 
         owner = "second"
-        view.show(nativeItems: [tool])
+        view.show(more: false, lit: false,
+                  nativeItems: [tool])
         #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
         #expect(opened.count == 1)
         #expect(invoked.count == 1)
     }
 
-    /// The tab bar's right-click rows that replace "…" (Search Tabs, Show in Tab Bar): every one a standard macOS row.
-    @Test func everyTabBarRowIsNative() throws {
+    @Test func aLitMenuDrawsInTheAccent() {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        view.show(more: true, lit: true)
+        #expect(view.moreButton.tintOverride != nil)
+        view.show(more: true, lit: false)
+        #expect(view.moreButton.tintOverride == nil)
+    }
+
+    /// The menu starts with the New Tab rows and adds the tab's actions, Search Tabs and Show in Tab
+    /// Bar: every one a standard macOS row.
+    @Test func everyRowOfTheMenuIsNative() throws {
         let registry = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { registry })
         toolbar.update(target: "tab0", kind: .terminal)
-        let rows = toolbar.tabBarMenuRows().joined().filter { !$0.isSeparatorItem }
+        let menu = try #require(toolbar.view.moreMenu?())
+        let rows = menu.items.filter { !$0.isSeparatorItem }
         #expect(!rows.isEmpty)
         for item in rows {
             #expect(item.view == nil, "\(item.title) is custom-drawn, not a standard macOS row")

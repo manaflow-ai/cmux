@@ -2171,6 +2171,29 @@ pub fn twice(value: u32) -> u32 {
         self.assertNotIn("CmuxNextApp.swift", output)
         self.assertNotIn("did not run cleanly", output)
 
+    def test_a_main_based_push_touching_a_shared_package_is_judged_without_the_cmux_next_package(self):
+        # main has no Packages/macOS/CmuxNext at all. A main push touching Packages/Shared/ (2026-11-17, a CmuxHomeCore
+        # test) ran "Main-thread concurrency", whose check-concurrency.sh opened the missing Package.swift, died with
+        # FileNotFoundError in package_targets, and the hook refused the push without a verdict.
+        self.main_branch()
+        self.git("rm", "-r", "--quiet", PKG)
+        self.commit("main: no CmuxNext package")
+        self.assertEqual(self.push_ref("HEAD:main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("reset", "--quiet", "--hard", "origin/main")
+        self.write("Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/FixtureTests.swift",
+                   "import Testing\n\n@Test func fixture() {\n    #expect(1 + 1 == 2)\n}\n")
+        self.commit("main-based: a shared package test")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertNotIn("FileNotFoundError", output)
+        self.assertNotIn("did not run cleanly", output)
+        self.assertEqual(self.remote_head_of("topic"), self.git("rev-parse", "HEAD").stdout.strip())
+
     def test_a_feat_based_push_that_adds_a_lock_unwrap_is_refused(self):
         self.write(self.CRATE_FILE, self.RUST_CLEAN)
         self.commit("base: a clean crate file")
@@ -2324,7 +2347,24 @@ mod tests {
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
-            "swift-type-scale-baseline.tsv"})
+            "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv"})
+
+    def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
+        spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "concentric-containers-baseline.txt"
+        self.write(f"scripts/cmux-next/{name}", "# only shrinks\nA.swift: kept\nC.swift: added\n")
+        self.commit("pushed concentric baseline: one line fixed and removed, one added")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("# only shrinks\nA.swift: kept\nB.swift: fixed\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "# only shrinks\nA.swift: kept\n")
+        self.assertEqual(taken, [f"{name}: B.swift: fixed (line removed)"])
+        self.assertEqual(gate.LINE_BASELINES, (name,))
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))

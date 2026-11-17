@@ -60,8 +60,8 @@ pub(in crate::cli) enum ChatCommand {
         after: u64,
         limit: usize,
     },
-    /// Start a GUI agent chat (chat_control.rs).
-    New(super::chat_control::NewChat),
+    /// Start a GUI agent chat (chat_control.rs); boxed, as the largest variant by far.
+    New(Box<super::chat_control::NewChat>),
     /// What a chat is doing.
     State {
         target: String,
@@ -77,7 +77,9 @@ pub(in crate::cli) enum ChatCommand {
 /// <chat>` and `chat continue <chat> [[--] <text>]` (the words after `chat`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
-        ["new", rest @ ..] => super::chat_control::parse_new(rest).map(ChatCommand::New),
+        ["new", rest @ ..] => {
+            super::chat_control::parse_new(rest).map(|chat| ChatCommand::New(Box::new(chat)))
+        }
         ["state", target] => Ok(ChatCommand::State { target: chat_word(target)? }),
         ["interrupt", target] => Ok(ChatCommand::Interrupt { target: chat_word(target)? }),
         // A nudge: a send whose text defaults to "Continue.".
@@ -267,6 +269,12 @@ pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
     (same(&acp::own_socket()) != same(&app)).then_some(app)
 }
 
+/// The peers of the acpmux `chat new` starts chats in (the app's own, else the one `cmux acp`
+/// reaches): its `_acpmux/peers` answer, the machines New Agent Chat's Environment picker lists.
+pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
+    acp::peers(app_acpmux(global).as_deref())
+}
+
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
@@ -409,6 +417,31 @@ fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<V
                 not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
             })?;
     Ok(transcript.page(chat, after, limit, more, cursor))
+}
+
+/// A read page (`cmux chat read`'s shape) of `events`, a chat's records oldest first that another
+/// place read: a chat on a Cloud VM, whose records its machine prints (cloud_start_chat.rs
+/// `read_existing`). `more_before`: older records exist that `events` does not hold.
+pub(in crate::cli) fn page_of_events(
+    chat: &str,
+    events: &[Value],
+    after: u64,
+    limit: usize,
+    more_before: bool,
+) -> Value {
+    let mut once = Some(json!({"events": events, "hasMore": false}));
+    let read = load(after, limit, |_| {
+        Ok(once.take().unwrap_or_else(|| json!({"events": [], "hasMore": false})))
+    });
+    let (transcript, more, cursor) = match read {
+        Ok(read) => read,
+        Err(_) => (Transcript::default(), false, after),
+    };
+    let mut page = transcript.page(chat, after, limit, more, cursor);
+    if more_before {
+        page.set("older_not_read", json!(true));
+    }
+    page
 }
 
 /// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
@@ -801,21 +834,24 @@ pub(super) mod acp {
     }
 
     /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the
-    /// `session/new` reply.
+    /// `session/new` reply. No `cwd`: the peer `meta` names picks the folder (`acpmux new --on`).
     pub(in crate::cli) fn new_session(
-        cwd: &str,
+        cwd: Option<&str>,
         meta: Value,
         socket: Option<&Path>,
     ) -> Result<Value, String> {
+        let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+        if let (Some(cwd), Some(object)) = (cwd, params.as_object_mut()) {
+            object.insert("cwd".into(), json!(cwd));
+        }
         block_on(async {
-            client(socket)
-                .await?
-                .request(
-                    acpmux::rpc::method::SESSION_NEW,
-                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
-                )
-                .await
+            client(socket).await?.request(acpmux::rpc::method::SESSION_NEW, params).await
         })
+    }
+
+    /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
+    pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
     }
 
     /// Queues `text` as a prompt of `session` and returns once acpmux accepted it (started, or

@@ -23,7 +23,8 @@ these are path diagnostics, not a matched wire-bandwidth comparison with another
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
 main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
-uploads `results.json` and a `summary.md` that shows each number's change against the last daily
+uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
+screen-share-fast goal reads. The summary shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
 ## Prebuilt tools
@@ -108,6 +109,24 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
+- `apple-rfb`: Apple's Screen Sharing server measured headless, with no window on any Mac.
+  `rfb-viewer.py` runs from a shell on the viewer Mac, logs in to the host's screensharingd with
+  the host account (RFB security type 30, the login Screen Sharing.app uses), keeps one update
+  request outstanding and decodes only the marker rows, so its pure-Python decoder never throttles
+  the stream. Latency is an RFB key or click to the first decoded update whose marker counter
+  changed (it ends at decode, like rd's `bench`); kbps is the RFB bytes it read; fps is the
+  framebuffer updates that carried a rectangle; the OCR frame is one fully decoded framebuffer at
+  the end of the hold. Readiness is the same fresh nonce as below, read from the framebuffer.
+  The client offers ZRLE, zlib, CopyRect and raw (`encodings_seen` records what the server used),
+  so this is Apple's server with standard RFB encodings, not the picture Screen Sharing.app gets
+  over Apple's own encodings. The login is the one Screen Sharing.app saved in the viewer
+  account's keychain for the host ("Remember this password"; the first read may show macOS's
+  keychain prompt once), or a file in the viewer account's real home,
+  `~/.config/screen-stream-eval/login` (mode 0600), which wins when present: the host account's
+  password, for the account with the viewer's name (the fleet Macs share one), or a user name line
+  first. Never argv, environment or logs. Each view runs under a hard time limit. Its viewer opens
+  no window and posts nothing on its own Mac, so `viewer-of=` runs it from a person's Mac too;
+  `person_guard.py` still refuses a person's Mac as its host, where its input lands.
 - `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
   same host and sample the displayed connection for OCR and viewer CPU. They
   request Standard + Full Quality and Standard + Adaptive Quality respectively;
@@ -129,8 +148,11 @@ Today's targets:
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
   defaults remain `rd,webrtc`.
-  Apple window runs require `presented-observer=1` with numeric
-  `presented-pid=PID`, `presented-window=CGWINDOW_ID`,
+  Each view launches its own Screen Sharing.app instance (`open -g -n`, never
+  activated), binds its pid and window, quits only that pid when the view ends
+  (success, failure or signal), and a watchdog ends a view that hangs; a
+  Screen Sharing process the target did not start is never touched. Apple
+  window runs require `presented-observer=1` with
   `presented-marker-origin=X,Y`, `presented-cell-size=N` and
   `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
   optional `presented-display=main`, `presented-timeout-ms=1000` and
@@ -269,6 +291,58 @@ There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.
+
+`probe.json` is the goal-facing row. It is complete only for a two-Mac run (`run.link` starts with
+`lan`), with an `rd` key p50 and an Apple comparison target's key p50. A missing pair or comparison is
+`outcome: unknown`; a complete run is `pass` only when the cmux key p50 is at most 160 ms, otherwise
+`fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
+observations. It never invents a comparison number from a one-Mac loopback run.
+
+## Linux, kernel netem jitter (no Mac)
+
+`rd-netem-linux.py` builds `cmux-rd` at each `--commit` and runs the Linux host (Xvfb,
+`cmux-rd testapp --workload motion`, `--profile baseline`) and `cmux-rd bench --carrier udp` in two
+network namespaces joined by a veth, with `tc netem` on each direction: clean, 5±5 ms,
+15±15 ms with 1 % burst loss (Gilbert-Elliott, bursts of about 4 packets), 30±30 ms with 2 % loss.
+Per commit and profile it writes one JSON line (`cmux.rd-netem-linux/1`): key-to-frame p50/p95 and
+lost, received Mbps for every second of a 20 s passive session, the host's target kbps for every
+second (its stats message), IDRs from the host's timing records, and the bench line's
+`stage_ledger` (`cmux.rd-stage-ledger/1`) when that commit has one. `results.md` is the table;
+`rd-netem-linux.py table results.jsonl` redraws it.
+
+It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the fleet it runs through
+HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
+
+```
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+  git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
+  git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
+  python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
+    --commit FULL_SHA [--commit FULL_SHA ...]'
+```
+
+DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
+prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
+
+Hosts encode with Cisco's OpenH264 binary, the one shipped hosts load: the measured binary's own
+`cmux-rd openh264-install` fetches it and checks its pinned SHA-256. `--openh264 PATH` uses a copy
+you already have. `--openh264 source` keeps OpenH264 compiled from source by the `bench` feature.
+That build has no assembly and encodes about 3x slower (`cmux-rd encode-selftest` at 1080p on the
+pool: a typed glyph costs 15 to 20 ms from source and 6 ms with Cisco's binary). The tables mark
+its rows "source-built, about 3x slower". They mark rows from before this flag the same way,
+because those were all source-built, including #44486's 14.9 and 9.8 ms encode rows.
+
+The build controller's Linux pool has `sch_netem` too and runs it from this repository directly
+(the script exits 3 before measuring when `modprobe sch_netem` fails):
+
+```
+cmux-ci submit --kind fast-checks --label cmux-next-linux --repo https://github.com/manaflow-ai/cmux.git \
+  --ref DRIVER_SHA --command 'set -e; out=${FAST_CHECKS_OUT:-$PWD/rd-netem-out}; mkdir -p "$out";
+  python3 -u scripts/measure/screen-stream-eval/rd-netem-linux.py --deps --out "$out" --commit FULL_SHA'
+cmux-ci wait JOB && cmux-ci log JOB
+```
+
+The JSON lines and the table are in the job's log.
 
 ## Two Macs
 
