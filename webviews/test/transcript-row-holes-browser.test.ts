@@ -304,7 +304,9 @@ await requireBrowserLane("transcript-row-holes-browser.test.ts", async () => {
     return true;
   };
 
-  type Step = { label: string; act: (page: Page) => Promise<void>; shiftFree?: string[] };
+  /// `scrolled`: the step scrolled the view itself (a toggle out of view brought in), so lines moving is
+  /// the scroll, not a shift.
+  type Step = { label: string; act: (page: Page) => Promise<void>; shiftFree?: string[]; scrolled?: boolean };
   /// Runs `step` under the frame sampler and returns the failures it shows.
   const measure = async (page: Page, mode: string, step: Step, track: Record<string, string>) => {
     await page.evaluate((track) => window.cmuxRowHoles.start(track), track);
@@ -322,7 +324,7 @@ await requireBrowserLane("transcript-row-holes-browser.test.ts", async () => {
     if (sample.worstBlank > BLANK_LIMIT)
       failures.push(`${at}: BLANK a ${sample.worstBlank}px uncovered band in a painted frame`);
     for (const leftover of rest.leftovers) failures.push(`${at}: LEFTOVER ${leftover}`);
-    for (const name of step.shiftFree ?? [])
+    for (const name of step.scrolled ? [] : (step.shiftFree ?? []))
       if ((sample.moved[name] ?? 0) > 1) failures.push(`${at}: SHIFT ${name} moved ${sample.moved[name]}px`);
     console.log(
       `row-holes ${at}: ${sample.frames} frames, worst hole in motion ${
@@ -354,6 +356,7 @@ await requireBrowserLane("transcript-row-holes-browser.test.ts", async () => {
               ? selector.slice(4).split("|")[0]!
               : /data-row-id="([^"]+)"/.exec(selector)![1]!;
             await bring(page, id, 160);
+            step.scrolled = true;
             await click(page, selector);
           }
           await settle(page);

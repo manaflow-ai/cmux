@@ -4,7 +4,7 @@
 // (rowOpenState.ts `drawnOpenStateHolds`), and the estimate reads the same choices (model.ts
 // `runLineChoice`), so a run the reader closed is never placed at its open height (Leo, 2026-11-17:
 // "why is there this big gap when i have shit expanded").
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -55,10 +55,11 @@ const run = (id: string, runOpen = false): AcpmuxRow => ({
   at: 0,
   foldRun: true,
   ...(runOpen ? { runOpen: true as const } : {}),
-  items: [0, 1, 2].map((step) => ({
+  // Three kinds of call, three groups: a run that folds under one summary line (toolGroups.ts).
+  items: (["read", "execute", "search"] as const).map((kind, step) => ({
     kind: "tool",
     text: `Run step ${step}`,
-    tool: { id: `${id}-c${step}`, title: `Run step ${step}`, kind: "execute", status: "completed", command: "true" },
+    tool: { id: `${id}-c${step}`, title: `Run step ${step}`, kind, status: "completed", command: "true" },
   })),
 });
 const runKey = (row: AcpmuxRow) => runDisclosureKey({ items: row.items!, from: 0 }, row.id);
@@ -117,4 +118,11 @@ test("the estimate draws a run line as the reader left it, not as it starts", as
   const shut = estimate(plain);
   await choose(runKey(plain), true);
   expect(estimate(plain)).toBeGreaterThan(shut);
+});
+
+// The page globals `choose` set go with the file (test/support/leakDetector.ts).
+afterAll(() => {
+  for (const key of ["window", "document", "IS_REACT_ACT_ENVIRONMENT"]) delete scope[key];
+  dom?.window.close();
+  dom = undefined;
 });
