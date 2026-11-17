@@ -391,11 +391,10 @@ fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
         true,
         10_000,
     );
-    // The carrier measured a 10 ms round trip: the probe waits two of them plus 10 ms, at least
-    // two frame intervals, not the 250 ms ceiling.
+    // The carrier measured a 10 ms round trip; the probe still waits the fixed 250 ms, so a
+    // 50-100 ms hold of the acks never sets it off.
     let probe_us = e.tail_probe_us();
-    assert_eq!(probe_us, 2 * (1_000_000 / 60));
-    assert!(probe_us < TAIL_PROBE_US);
+    assert_eq!(probe_us, TAIL_PROBE_US);
     // A small P-frame of one datagram, which the path loses: the viewer sees nothing of it.
     let small = Rect { x: 1, y: 1, width: 10, height: 10 };
     let p = e.damage(0, small, 20_000).expect("second frame");

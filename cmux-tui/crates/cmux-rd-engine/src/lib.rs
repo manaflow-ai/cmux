@@ -38,11 +38,11 @@ pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// recovery frame answers every request sent before it arrived, which is one
 /// round trip of requests, so a second one sooner is wasted.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
-/// The longest a stream's newest frame may go unacknowledged before the host
+/// How long a stream's newest frame may go unacknowledged before the host
 /// resends it (a tail-loss probe). On a datagram path a frame whose every
 /// datagram was lost leaves the viewer nothing to NACK and the gate nothing
 /// to open on; the probe recovers it. A received frame's resend is dropped by
-/// the viewer's reassembler. The wait itself is sized from the round trip
+/// the viewer's reassembler. Not sized from the round trip
 /// ([`MediaEngine::tail_probe_us`]).
 pub const TAIL_PROBE_US: u64 = 250_000;
 /// What the round-trip-sized intervals add for turnaround and jitter (design
@@ -898,13 +898,13 @@ impl MediaEngine {
     }
 
     /// How long a stream's newest frame may go unacknowledged before it is
-    /// resent: two round trips plus 10 ms, because a frame the viewer is
-    /// repairing is acknowledged one repair round trip after a clean one would
-    /// be, and probing it then only resends what the repair already carries.
-    /// At least two frame intervals, at most [`TAIL_PROBE_US`]; that ceiling
-    /// until a round trip is known.
+    /// resent: [`TAIL_PROBE_US`], whatever the round trip. A round-trip-sized
+    /// probe fires inside every 50-100 ms Wi-Fi hold (the acks stop with the
+    /// data), so its resends, and the keyframe after [`TAIL_PROBES`] of them,
+    /// queue behind the hold and leave in one burst when it lifts; on the
+    /// wifi-away netem profile that added about 50 ms to slow presses.
     pub fn tail_probe_us(&self) -> u64 {
-        self.rtt_sized(self.rtt_us().map(|rtt| rtt.saturating_mul(2)), TAIL_PROBE_US)
+        TAIL_PROBE_US
     }
 
     fn rtt_sized(&self, wait_us: Option<u64>, ceiling_us: u64) -> u64 {
