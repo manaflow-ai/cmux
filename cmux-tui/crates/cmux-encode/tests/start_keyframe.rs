@@ -282,3 +282,72 @@ fn steady_motion_report() {
         }
     }
 }
+
+/// The netem rig's start: `cmux-rd testapp --workload motion` (a full-screen moving gradient
+/// and noise texture) from the first frame, a press every 100 ms in a marker block, and the
+/// host's target rising the way the rig's clean link moved it (8, 11, 20, 38, then 50 Mbit/s).
+/// Answers the worst press over `secs` seconds, the frames coded per second, and Mbit/s per second.
+fn motion_start(enc: &mut OpenH264, secs: i64) -> (f64, Vec<usize>, Vec<f64>) {
+    let mut rng = Lcg(3);
+    let noise: Vec<u8> = (0..1024 * 1024).map(|_| (rng.next() >> 16) as u8).collect();
+    let mut pic = I420::new(W, H);
+    let mut au = Vec::new();
+    let (mut coded, mut presses) = (Vec::new(), Vec::new());
+    let mut fps = vec![0usize; secs as usize];
+    let mut bits = vec![0f64; secs as usize];
+    let mut next_press = 50_000i64;
+    let mut counter = 0u8;
+    for frame in 0..secs * FPS as i64 {
+        let t = frame * FRAME_US;
+        let sec = (frame / FPS as i64) as usize;
+        if frame % FPS as i64 == 0 && frame > 0 {
+            enc.set_bitrate([11_000, 20_000, 38_000, 50_000][(sec - 1).min(3)]);
+        }
+        let f = frame as usize + 1;
+        let (dx, dy) = (f * 7, f * 3);
+        for y in 0..H {
+            let ny = ((y + dy) & 1023) * 1024;
+            let gy = ((y * 255 / H) + f * 3) as u8;
+            for x in 0..W {
+                let n = noise[ny + ((x + dx) & 1023)] >> 2;
+                pic.y[y * W + x] = 16 + ((gy.wrapping_add(n) as u32 * 219) / 255) as u8;
+            }
+        }
+        while t >= next_press {
+            counter = counter.wrapping_add(1);
+            presses.push(next_press);
+            next_press += 100_000;
+        }
+        // The marker: 16 cells of the counter's bits, black or white, top left.
+        for bit in 0..8 {
+            let v = if (counter >> bit) & 1 == 1 { 235 } else { 16 };
+            for y in 0..32 {
+                pic.y[y * W + bit * 32..y * W + bit * 32 + 32].fill(v);
+            }
+        }
+        enc.encode(&pic, frame == 0, t, &mut au).expect("encode");
+        if !au.is_empty() {
+            coded.push(t);
+            fps[sec] += 1;
+            bits[sec] += au.len() as f64 * 8.0 / 1e6;
+        }
+    }
+    let worst = presses
+        .iter()
+        .filter(|&&p| p < 2_000_000)
+        .map(|&p| answer_ms(&coded, p))
+        .fold(0.0, f64::max);
+    let firsts: Vec<i64> = coded.iter().take(12).map(|t| t / FRAME_US).collect();
+    println!("first coded frames: {firsts:?}");
+    (worst, fps, bits)
+}
+
+#[test]
+#[ignore = "a measurement: cargo test --release -- --ignored --nocapture"]
+fn motion_start_report() {
+    let (worst2, fps, mbps) = motion_start(&mut encoder(START_KBPS), 12);
+    let mbps: Vec<String> = mbps.iter().map(|m| format!("{m:.1}")).collect();
+    println!(
+        "motion start: worst press in 2 s {worst2:.0} ms; fps per s {fps:?}; Mbit/s per s {mbps:?}"
+    );
+}
