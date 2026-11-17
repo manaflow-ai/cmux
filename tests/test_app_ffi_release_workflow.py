@@ -1387,6 +1387,143 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
         self.assertEqual(nightly[self.SMALL], ("release-compile",))
 
 
+class BuildRescueToBlacksmith(unittest.TestCase):
+    """hq#3690: a build no owned runner took in 20 minutes is re-dispatched to Blacksmith macOS (scripts/ci/
+    app_ffi_rescue.py). On 2026-11-16 run 43978720557's build sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to
+    02:38Z with no runner and was cancelled having never run."""
+
+    SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    MINUTE = 60.0
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.rescue_module = load_module("app_ffi_rescue", ROOT / "scripts/ci/app_ffi_rescue.py")
+
+    def runner(self, rescue: str, twelve: bool = False, switch: str = "pr-rescue") -> str:
+        build = self.workflow["jobs"]["build"]
+        return evaluate(workflow_jobs.single_runs_on(build), {
+            "github": {"repository_owner": "manaflow-ai", "event_name": "workflow_dispatch", "run_attempt": 1},
+            "inputs": {"rescue": rescue},
+            "needs": {"placement": {"outputs": {"placed_attempt": "1",
+                                                "blacksmith_12_jobs": " app-ffi-build " if twelve else ""}}},
+            "vars": {"CI_SIDE_LANE_RUNNER": self.SIDE, "CI_BLACKSMITH_MACOS": switch, "RUNNER_POOLS": json.dumps(
+                {"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+
+    def test_a_rescued_run_takes_blacksmith_ahead_of_every_owned_route(self):
+        self.assertEqual(self.runner("blacksmith"), self.SMALL)
+        self.assertEqual(self.runner("blacksmith", twelve=True), self.LARGE)
+        self.assertEqual(self.runner("blacksmith", switch="off"), self.SMALL)
+
+    def test_an_ordinary_run_keeps_its_owned_route(self):
+        self.assertEqual(self.runner(""), self.SIDE)
+        self.assertEqual(self.runner("something-else"), self.SIDE)
+
+    POOL = "glaeda-promote-trusted-light-xcode-26.6"
+
+    def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1) -> str:
+        build = self.workflow["jobs"]["build"]
+        return evaluate(workflow_jobs.single_runs_on(build), {
+            "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
+            "inputs": {"rescue": rescue}, "needs": {"placement": {"outputs": {"placed_attempt": "1"}}},
+            "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE,
+                     "CI_NEXT_PROMOTE_POOL": "glaeda-promote-trusted-std-xcode-26.6",
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+
+    def test_the_ffi_release_pool_takes_every_attempt_when_set(self):
+        for event in ("push", "workflow_dispatch"):
+            for attempt in (1, 2):
+                with self.subTest(event=event, attempt=attempt):
+                    self.assertEqual(self.pool_runner(self.POOL, event=event, attempt=attempt), self.POOL)
+
+    def test_a_rescue_still_goes_first_and_unset_keeps_the_earlier_routes(self):
+        self.assertEqual(self.pool_runner(self.POOL, rescue="blacksmith"), self.SMALL)
+        self.assertEqual(self.pool_runner(""), self.SIDE)
+
+    def test_only_this_workflow_reads_the_ffi_release_pool(self):
+        readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")
+                         if "CI_FFI_RELEASE_POOL" in path.read_text(encoding="utf-8"))
+        self.assertEqual(readers, ["app-ffi-release.yml"])
+
+    def test_a_rescued_run_places_with_blacksmith_on(self):
+        place = next(step for step in self.workflow["jobs"]["placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["CI_BLACKSMITH_MACOS"]
+        self.assertEqual(render(expression, {"inputs": {"rescue": "blacksmith"}, "vars": {"CI_BLACKSMITH_MACOS": ""}}),
+                         "on")
+        self.assertEqual(render(expression, {"inputs": {"rescue": ""}, "vars": {"CI_BLACKSMITH_MACOS": "pr-rescue"}}),
+                         "pr-rescue")
+
+    def rescue_runs(self, switch: str, rescue: str = "", ref: str = "refs/heads/feat-cmux-next") -> bool:
+        job = self.workflow["jobs"]["rescue"]
+        return bool(evaluate(str(job["if"]).strip()[3:-2].replace("!cancelled()", "true"), {
+            "github": {"ref": ref, "repository_owner": "manaflow-ai"}, "inputs": {"rescue": rescue},
+            "vars": {"CI_BLACKSMITH_MACOS": switch}}))
+
+    def test_the_watch_runs_only_under_a_rescue_switch_and_never_in_a_rescued_run(self):
+        self.assertTrue(self.rescue_runs("pr-rescue"))
+        self.assertTrue(self.rescue_runs("on"))
+        for switch in ("", "off", "pr-rescue-later"):
+            self.assertFalse(self.rescue_runs(switch), switch)
+        self.assertFalse(self.rescue_runs("pr-rescue", rescue="blacksmith"))
+        self.assertFalse(self.rescue_runs("pr-rescue", ref="refs/heads/main"))
+
+    def test_nothing_waits_on_the_watch(self):
+        for name, job in self.workflow["jobs"].items():
+            needs = job.get("needs") or []
+            self.assertNotIn("rescue", [needs] if isinstance(needs, str) else needs, name)
+        self.assertEqual(self.workflow["jobs"]["rescue"]["permissions"], {"actions": "write", "contents": "read"})
+
+    def test_decide(self):
+        m = self.rescue_module
+        queued = {"name": m.BUILD_JOB, "status": "queued", "runner_name": None}
+        self.assertEqual(m.decide(None, None, 0.0), (m.WAIT, None))
+        self.assertEqual(m.decide(queued, None, 100.0), (m.WAIT, 100.0))
+        self.assertEqual(m.decide(queued, 100.0, 100.0 + 19 * self.MINUTE)[0], m.WAIT)
+        self.assertEqual(m.decide(queued, 100.0, 100.0 + 20 * self.MINUTE)[0], m.RESCUE)
+        self.assertEqual(m.decide(dict(queued, runner_name="cmux18-glaeda-3"), 100.0, 1e9)[0], m.DONE)
+        for status in ("in_progress", "completed"):
+            self.assertEqual(m.decide(dict(queued, status=status), 100.0, 1e9)[0], m.DONE)
+        # A build that stops being queued (pending again) restarts the clock.
+        self.assertEqual(m.decide(dict(queued, status="pending"), 100.0, 1e9), (m.WAIT, None))
+
+    def watch(self, switch: str, pages: list) -> tuple[str, list]:
+        m = self.rescue_module
+        calls, clock = [], [0.0]
+
+        def api(method, path, token, body=None):
+            calls.append((method, path, body))
+            return {"jobs": pages[min(len([c for c in calls if c[0] == "GET"]) - 1, len(pages) - 1)]} \
+                if method == "GET" else None
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1",
+               "GH_TOKEN": "t", "GITHUB_REF_NAME": "feat-cmux-next", "CI_BLACKSMITH_MACOS": switch}
+        verdict = m.watch(env, api=api, clock=lambda: clock[0], sleep=sleep, out=lambda line: None)
+        return verdict, [c for c in calls if c[0] == "POST"]
+
+    def test_a_build_queued_20_minutes_is_dispatched_to_blacksmith_then_its_run_cancelled(self):
+        m = self.rescue_module
+        verdict, posts = self.watch("pr-rescue", [[{"name": m.BUILD_JOB, "status": "queued"}]])
+        self.assertEqual(verdict, m.RESCUE)
+        self.assertEqual(posts, [
+            ("POST", "repos/manaflow-ai/cmux/actions/workflows/app-ffi-release.yml/dispatches",
+             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith"}}),
+            ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None)])
+
+    def test_a_build_that_got_a_runner_or_a_switch_that_is_off_rescues_nothing(self):
+        m = self.rescue_module
+        started = [[{"name": m.BUILD_JOB, "status": "queued"}], [{"name": m.BUILD_JOB, "status": "in_progress",
+                                                                  "runner_name": "cmux14-glaeda-2"}]]
+        self.assertEqual(self.watch("pr-rescue", started), (m.DONE, []))
+        self.assertEqual(self.watch("off", [[{"name": m.BUILD_JOB, "status": "queued"}]]), (m.WAIT, []))
+
+    def test_the_watch_is_bounded(self):
+        m = self.rescue_module
+        self.assertEqual(self.watch("pr-rescue", [[]]), (m.WAIT, []))
+
+
 STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")
 
 
