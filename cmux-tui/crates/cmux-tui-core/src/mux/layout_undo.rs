@@ -1,7 +1,7 @@
 //! Layout undo: undo with confirmation tokens, including the resource-effect path.
 
 use super::*;
-use crate::model::LayoutUndoEntry;
+use crate::model::{LayoutUndoEntry, ScreenLayoutSnapshot};
 
 /// An undo that closes the panes of `entry` does not close a hidden quick
 /// terminal (`quick-terminal-v1`): the user does not see that pane, so a
@@ -20,6 +20,17 @@ pub(super) fn keep_hidden_quick_terminal(
             )))
         }
         _ => Ok(()),
+    }
+}
+
+/// Puts the snapshot `before` back into `screen`, as an undo of the layout
+/// does it. A workspace has one quick terminal (`quick-terminal-v1`): with
+/// `elsewhere`, another screen of the workspace has it now, so a mark that
+/// the snapshot puts back ends, and its pane is a floating pane that shows.
+fn restore_snapshot(screen: &mut Screen, before: ScreenLayoutSnapshot, elsewhere: bool) {
+    screen.restore_layout_snapshot(before);
+    if elsewhere {
+        screen.unmark_quick_terminal();
     }
 }
 
@@ -258,9 +269,13 @@ impl Mux {
                         .push_back(entry);
                     return Err(error);
                 }
+                let elsewhere = state
+                    .workspaces
+                    .get(workspace_index)
+                    .is_some_and(|workspace| workspace.quick_terminal_elsewhere(screen_index));
                 let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                 let revision = screen.layout_revision.saturating_add(1);
-                screen.restore_layout_snapshot(entry.before);
+                restore_snapshot(screen, entry.before, elsewhere);
                 screen.layout_revision = revision;
                 if let Some(previous) = screen.layout_undo.back_mut() {
                     previous.after_revision = revision;
@@ -384,9 +399,13 @@ impl Mux {
                 )
                 .into());
             };
+            let elsewhere = state
+                .workspaces
+                .get(workspace_index)
+                .is_some_and(|workspace| workspace.quick_terminal_elsewhere(screen_index));
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
             let revision = screen.layout_revision.max(entry.after_revision).saturating_add(1);
-            screen.restore_layout_snapshot(entry.before);
+            restore_snapshot(screen, entry.before, elsewhere);
             screen.layout_revision = revision;
             screen.layout_undo = remaining_history;
             if let Some(previous) = screen.layout_undo.back_mut() {

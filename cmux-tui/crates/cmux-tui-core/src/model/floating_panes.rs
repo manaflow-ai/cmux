@@ -238,6 +238,14 @@ impl Workspace {
         })
     }
 
+    /// Whether a screen of the workspace that is not the one at `index` has a quick terminal.
+    pub(crate) fn quick_terminal_elsewhere(&self, index: usize) -> bool {
+        self.screens
+            .iter()
+            .enumerate()
+            .any(|(at, screen)| at != index && screen.quick_terminal().is_some())
+    }
+
     /// One quick terminal for the workspace: the first screen that has a mark keeps it, and the quick terminal
     /// of each later screen becomes a plain floating pane. The load of a store ends here.
     pub(crate) fn settle_quick_terminals(&mut self) {
