@@ -66,6 +66,7 @@ import bisect
 import contextvars
 import copy
 import functools
+import hashlib
 import importlib.util
 import io
 import json
@@ -325,6 +326,87 @@ def escape_flag_unknown(stderr: str) -> bool:
     return bool(gh_lines) and gh_lines[0] == UNKNOWN_ESCAPE_FLAG
 
 
+# Conditional CI reads. Every judgement is a new process, and every landing check of a head judges its reds again: on
+# 2026-11-17 (2 h to 12:58Z on cosmic-gray) this script spent 673 REST under merge_hold, 402 of them a run's jobs and
+# 133 of those the exact page read again, mostly base runs that finished long before. When the caller names a folder in
+# BASE_RED_EXCUSE_ETAGS (merge_hold names its own, teamleaderleo/leo-workspace tools/merge_hold.py ci_etags_root), a
+# run's jobs, a run, a workflow's runs and a commit's check runs and statuses are read with the ETag of the answer kept
+# there for the same route and --jq (gh_conditional's file format and names, so merge_hold's reads and these share one
+# store), and GitHub answers an unchanged one 304, which costs no quota. A 304 is GitHub's word that the answer is the
+# same, so every judgement reads exactly what a plain read gives. Anything but a 200 or a 304 (a wrapper refusing the
+# conditional form, an error, a timeout) is the plain read, as before; with no folder named, every read is plain.
+ETAGS_ENV = "BASE_RED_EXCUSE_ETAGS"
+CONDITIONAL_ROUTE = re.compile(r"repos/[^/]+/[^/]+/(?:actions/runs(?:/\d+(?:/attempts/\d+)?(?:/jobs)?)?"
+                               r"|actions/workflows/[^/?]+/runs|commits/[0-9A-Fa-f]{40}/(?:check-runs|status|statuses))"
+                               r"(?:\?.*)?")
+HTTP_STATUS = re.compile(r"HTTP/[0-9.]+ ([0-9]{3})")
+CONDITIONAL_SECONDS = 90  # main_fix_evidence.GitHub.run's bound
+
+
+def etags_root() -> Path | None:
+    """The folder BASE_RED_EXCUSE_ETAGS names (absolute), or None: every read is plain."""
+    folder = os.environ.get(ETAGS_ENV, "")
+    return Path(folder) if folder and os.path.isabs(folder) else None
+
+
+def conditional_read(args: list[str], root: Path) -> str | None:
+    """gh ARGS' answer by a conditional read against the one kept under ROOT, for `api ROUTE [--jq JQ]` of a
+    CONDITIONAL_ROUTE; None for any other ARGS, or when GitHub's answer was neither a 200 nor a 304 (the caller reads
+    it plainly)."""
+    if args[:1] != ["api"] or len(args) not in (2, 4) or (len(args) == 4 and args[2] != "--jq"):
+        return None
+    route, jq = args[1], (args[3] if len(args) == 4 else None)
+    if not CONDITIONAL_ROUTE.fullmatch(route):
+        return None
+    name = f"{route}\0{jq}" if jq is not None else f"{route}\0\0whole"
+    store = root / (hashlib.sha256(name.encode()).hexdigest()[:32] + ".json")
+    try:
+        kept = json.loads(store.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        kept = None
+    if not (isinstance(kept, dict) and kept.get("url") == route and kept.get("jq") == jq
+            and isinstance(kept.get("etag"), str) and kept["etag"] and isinstance(kept.get("out"), str)):
+        kept = None
+    argv = ["gh", "api", "--include", *(["-H", f"If-None-Match: {kept['etag']}"] if kept else []), route,
+            *(["--jq", jq] if jq is not None else [])]
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            process = subprocess.Popen(argv, stdout=output, stderr=errors, stdin=subprocess.DEVNULL)
+        except OSError:
+            return None
+        try:
+            process.wait(timeout=CONDITIONAL_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            return None
+        if output.tell() > _evidence.MAX_OUTPUT:
+            return None
+        output.seek(0)
+        said = output.read().decode(errors="replace")
+    head, _, body = said.replace("\r\n", "\n").partition("\n\n")
+    status = HTTP_STATUS.match(head)
+    if status and status.group(1) == "304" and kept:
+        try:
+            os.utime(store)
+        except OSError:
+            pass
+        return kept["out"]
+    if not (status and status.group(1) == "200" and process.returncode == 0):
+        return None
+    etag = next((line.split(":", 1)[1].strip() for line in head.splitlines()[1:]
+                 if line.lower().startswith("etag:")), "")
+    if etag:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            tmp = store.with_name(f".{store.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"url": route, "jq": jq, "etag": etag, "out": body}), encoding="utf-8")
+            os.replace(tmp, store)
+        except OSError:
+            pass  # a failed write only costs the next read its 304
+    return body
+
+
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
@@ -332,7 +414,13 @@ class GitHub(_evidence.GitHub):
         """gh ARGS' output; a read is read once per judgement (JUDGEMENT_READS), whatever asked it."""
         if not gh_read(args):
             return _evidence.GitHub.run(self, args)
-        return read_once(("gh", *args), lambda: _evidence.GitHub.run(self, args))
+        return read_once(("gh", *args), lambda: self.read_conditional(args))
+
+    def read_conditional(self, args: list[str]) -> str:
+        """gh ARGS (a read): conditional first when the caller named an ETag folder (etags_root), else plain."""
+        root = etags_root()
+        said = conditional_read(args, root) if root is not None else None
+        return said if said is not None else _evidence.GitHub.run(self, args)
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
@@ -6073,6 +6161,15 @@ def ws_check_names_step(described: str, step: str) -> bool:
 
 UNITTEST_RED = re.compile(r"^(?:FAIL|ERROR): (\S.*)$")
 UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
+# A unittest failure block's parts, on lines lines_of has stripped: the separator lines that end it, a frame's
+# `File "...", line N` line, and the caret line under a frame's source (Python 3.11+). What is left after the frames is
+# the failure's own text: its exception line and, for an assertEqual, the diff.
+UNITTEST_RULE = re.compile(r"^(?:={70,}|-{70,})$")
+UNITTEST_FRAME = re.compile(r'^File ".*", line \d+')
+UNITTEST_CARETS = re.compile(r"^[\^~ ]+$")
+# The line a traceback ends with (`AssertionError: ...`, `subprocess.CalledProcessError: ...`, `KeyError: 'x'`): never
+# skipped as a frame's source line when Python printed none.
+UNITTEST_RAISED = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt|Warning|Iteration|Failure)\b")
 # A step that crashed (a signal, a fatal interpreter error) is never compared by its test names: a crash after a
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
@@ -6262,7 +6359,8 @@ def ws_check_status(repo: str, sha: str, github) -> dict | None:
 
 
 def ws_check_step(lines: list[str], end: int, step: str) -> dict:
-    """{"tests", "lines"} for red STEP, whose closing line is LINES[END]; Refused when its output cannot be read."""
+    """{"tests", "lines", "failures" ({test: its failure text, unittest_failures'})} for red STEP, whose closing line
+    is LINES[END]; Refused when its output cannot be read."""
     start = next((n for n in range(end - 1, -1, -1) if lines[n] in (f"##[group]{step}", f"::group::{step}")), None)
     if start is None:
         raise Refused(f"no '##[group]{step}' line before its result")
@@ -6292,12 +6390,52 @@ def ws_check_step(lines: list[str], end: int, step: str) -> dict:
     own = {norm(text) for text in section if text.startswith("ws-check: ")}
     if not reds and not section:
         raise Refused(f"'{step}' failed with no failing test and no output to compare")
-    return {"tests": frozenset(reds), "lines": frozenset(own if reds else {norm(text) for text in section})}
+    failures: dict[str, set[str]] = {}
+    for test, body in unittest_failures(section):
+        failures.setdefault(test, set()).update(norm(text) for text in body)
+    return {"tests": frozenset(reds), "lines": frozenset(own if reds else {norm(text) for text in section}),
+            "failures": {test: frozenset(body) for test, body in failures.items()}}
+
+
+def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
+    """(test, its failure text) for each FAIL/ERROR block of a unittest run's SECTION (lines_of's lines, blanks
+    dropped): the block's lines after its traceback's frames, up to the next separator. A lint test that lists its
+    offenders fails with them in this text (its AssertionError and diff), so the base's red of that test is told apart
+    from a head's red of it that lists a new offender (leo-workspace#5683)."""
+    found: list[tuple[str, list[str]]] = []
+    at = 0
+    while at < len(section):
+        match = UNITTEST_RED.match(section[at])
+        at += 1
+        if not match:
+            continue
+        if at < len(section) and UNITTEST_RULE.match(section[at]):  # the dashes under "FAIL: test"
+            at += 1
+        body: list[str] = []
+        frames = False
+        while at < len(section) and not UNITTEST_RULE.match(section[at]) and not UNITTEST_RED.match(section[at]):
+            text = section[at]
+            at += 1
+            if text == "Traceback (most recent call last):":
+                frames = True
+            elif frames and UNITTEST_FRAME.match(text):
+                # Its source line, when Python printed one, and the carets under it.
+                if at < len(section) and not (UNITTEST_FRAME.match(section[at]) or UNITTEST_RAISED.match(section[at])
+                                              or UNITTEST_RULE.match(section[at])):
+                    at += 1
+                while at < len(section) and UNITTEST_CARETS.match(section[at]):
+                    at += 1
+            else:
+                frames = False
+                body.append(text)
+        found.append((match[1], body))
+    return found
 
 
 def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
-    "steps" ({step: {"tests", "lines"}}), "url" and "at" (the status time); Refused when a failure cannot be read."""
+    "steps" ({step: {"tests", "lines", "failures" ({test: its failure text})}}), "url" and "at" (the status time);
+    Refused when a failure cannot be read."""
     status = ws_check_status(repo, sha, github)
     if status is None:
         return "none", {"why": "no ws-check status"}
@@ -6365,7 +6503,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
         if not ends:
             raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
-        tests, printed = set(), set()
+        tests, printed, failures = set(), set(), {}
         try:
             for end, unit in ends:
                 red = ws_check_step(lines, end, step + unit)
@@ -6375,10 +6513,18 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
                 suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
                 tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
                 printed |= red["lines"]
+                for test, body in red["failures"].items():
+                    failures.setdefault(f"[{suite}] {test}" if suite else test, set()).update(body)
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
-        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed)}
+        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed),
+                       "failures": {test: frozenset(body) for test, body in failures.items()}}
     return "fail", dict(found, steps=steps)
+
+
+def failure_text(verdict: dict, step: str, test: str) -> frozenset:
+    """TEST's failure text (normalised lines) in STEP of a ws_check_verdict fail VERDICT; empty when none was read."""
+    return verdict["steps"].get(step, {}).get("failures", {}).get(test, frozenset())
 
 
 def ws_check_units(steps: dict) -> list[tuple[str, str, str]]:
@@ -6484,7 +6630,17 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
-        return step in verdict["steps"] and item in verdict["steps"][step]["tests" if kind == "test" else "lines"]
+        if step not in verdict["steps"]:
+            return False
+        red = verdict["steps"][step]
+        if kind != "test":
+            return item in red["lines"]
+        # A failing test is the base's red only when it fails there the same way: every line of its failure text
+        # (normalised: numbers masked, file names kept) is in the base's failure of that test. 2026-11-17:
+        # leo-workspace#5683 at 16b96c09 merged with its test_text_io_encoding.py red excused by name, main d240eaab
+        # failing that test too, though the head's failure listed a new offender (tools/test_merge_hold.py) main's
+        # did not.
+        return item in red["tests"] and failure_text(head, step, item) <= failure_text(verdict, step, item)
 
     if tip_kind == "pass":
         header = f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n"
@@ -6573,9 +6729,22 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': {where(found)} "
                              f"({found[1]['url'] or 'no run'})")
             else:
-                missing.append(f"'{step} :: {test}'")
-                lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
-                             f"{mb_note()}; this head's own red")
+                # Red by name on a base verdict, but failing another way there: the failure lines none of those
+                # verdicts' failures of it print, a few (a lint's new offender is often not its first new line).
+                named = [verdict for _, verdict in window + at_merge_base
+                         if test in verdict["steps"].get(step, {}).get("tests", ())]
+                new = sorted(line for line in failure_text(head, step, test)
+                             if not any(line in failure_text(verdict, step, test) for verdict in named))
+                if named and new:
+                    missing.append(f"'{step} :: {test}' failure '{new[0][:200]}'")
+                    shown = "".join(f", then '{line[:200]}'" for line in new[1:3])
+                    lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': red on {tested}{older()}"
+                                 f"{mb_note()} too, but failing another way there: {len(new)} line(s) of its failure "
+                                 f"are not in that red's, first '{new[0][:200]}'{shown}; this head's own red")
+                else:
+                    missing.append(f"'{step} :: {test}'")
+                    lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
+                                 f"{mb_note()}; this head's own red")
         unmatched = [line for line in sorted(red["lines"]) if on((step, "line", line)) is None]
         label = f"step '{step}'" + (" (its ws-check lines)" if red["tests"] else " (no test names: its output)")
         if unmatched:
