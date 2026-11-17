@@ -33214,130 +33214,130 @@
       "comment": "Settings > Agents (BRING-YOUR-OWN-HARNESS); keep commands, ACP, cmux.json and ~/.acpx exactly",
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Names only, separated by commas. Set each value with cmux harness secret set."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الأسماء فقط مفصولة بفواصل. اضبط كل قيمة باستخدام cmux harness secret set؛ لا ترى الإعدادات القيمة أبدًا."
+            "value": "الأسماء فقط، مفصولة بفواصل. عيّن كل قيمة باستخدام cmux harness secret set."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Samo nazivi, odvojeni zarezima. Svaku vrijednost postavi s cmux harness secret set; Postavke je nikad ne vide."
+            "value": "Samo imena, odvojena zarezima. Postavite svaku vrijednost pomoću cmux harness secret set."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kun navne, adskilt af kommaer. Angiv hver værdi med cmux harness secret set; Indstillinger ser den aldrig."
+            "value": "Kun navne, adskilt af kommaer. Angiv hver værdi med cmux harness secret set."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nur Namen, durch Kommas getrennt. Setze jeden Wert mit cmux harness secret set; die Einstellungen sehen ihn nie."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Names only, separated by commas. Set each value with cmux harness secret set; Settings never sees it."
+            "value": "Nur Namen, durch Kommas getrennt. Setze jeden Wert mit cmux harness secret set."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Solo nombres, separados por comas. Define cada valor con cmux harness secret set; Ajustes nunca lo ve."
+            "value": "Solo nombres, separados por comas. Define cada valor con cmux harness secret set."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noms seulement, séparés par des virgules. Définissez chaque valeur avec cmux harness secret set ; les Réglages ne la voient jamais."
+            "value": "Noms uniquement, séparés par des virgules. Définissez chaque valeur avec cmux harness secret set."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Solo nomi, separati da virgole. Imposta ogni valore con cmux harness secret set; le Impostazioni non lo vedono mai."
+            "value": "Solo nomi, separati da virgole. Imposta ogni valore con cmux harness secret set."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "名前のみをカンマ区切りで入力します。値はcmux harness secret setで設定します。設定画面が値を見ることはありません。"
+            "state": "needs_review",
+            "value": "名前のみをカンマ区切りで入力します。値はcmux harness secret setで設定します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "តែឈ្មោះ បំបែកដោយក្បៀស។ កំណត់តម្លៃនីមួយៗដោយ cmux harness secret set; ការកំណត់មិនដែលឃើញវាទេ។"
+            "value": "តែឈ្មោះប៉ុណ្ណោះ ដោយបំបែកដោយសញ្ញាក្បៀស។ កំណត់តម្លៃនីមួយៗដោយ cmux harness secret set។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이름만 쉼표로 구분해 입력하세요. 각 값은 cmux harness secret set으로 설정하며, 설정에서는 값을 볼 수 없습니다."
+            "value": "이름만 쉼표로 구분해 입력합니다. 각 값은 cmux harness secret set으로 설정하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bare navn, skilt med komma. Angi hver verdi med cmux harness secret set; Innstillinger ser den aldri."
+            "value": "Bare navn, atskilt med komma. Angi hver verdi med cmux harness secret set."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tylko nazwy, oddzielone przecinkami. Każdą wartość ustaw przez cmux harness secret set; Ustawienia nigdy jej nie widzą."
+            "value": "Tylko nazwy, oddzielone przecinkami. Ustaw każdą wartość poleceniem cmux harness secret set."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Somente nomes, separados por vírgulas. Defina cada valor com cmux harness secret set; os Ajustes nunca o veem."
+            "value": "Apenas nomes, separados por vírgulas. Defina cada valor com cmux harness secret set."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Только имена через запятую. Значения задаются командой cmux harness secret set; настройки их не видят."
+            "value": "Только имена через запятую. Задайте каждое значение командой cmux harness secret set."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ชื่อเท่านั้น คั่นด้วยจุลภาค ตั้งค่าแต่ละค่าด้วย cmux harness secret set การตั้งค่าไม่เห็นค่าเลย"
+            "value": "ใส่เฉพาะชื่อ คั่นด้วยจุลภาค ตั้งค่าแต่ละค่าด้วย cmux harness secret set"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yalnızca adlar, virgülle ayrılmış. Her değeri cmux harness secret set ile ayarlayın; Ayarlar değeri hiç görmez."
+            "value": "Yalnızca adlar, virgülle ayrılmış. Her değeri cmux harness secret set ile ayarlayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Лише імена через кому. Значення задаються командою cmux harness secret set; налаштування їх не бачать."
+            "value": "Лише назви через кому. Задайте кожне значення командою cmux harness secret set."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chỉ tên, cách nhau bằng dấu phẩy. Đặt từng giá trị bằng cmux harness secret set; Cài đặt không bao giờ thấy giá trị."
+            "value": "Chỉ nhập tên, phân tách bằng dấu phẩy. Đặt từng giá trị bằng cmux harness secret set."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "仅填写名称，用逗号分隔。用 cmux harness secret set 设置各个值；设置永远看不到值。"
+            "value": "仅填写名称，用逗号分隔。使用 cmux harness secret set 设置每个值。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "僅填寫名稱，以逗號分隔。用 cmux harness secret set 設定各個值；設定永遠看不到值。"
+            "value": "僅填寫名稱，以逗號分隔。使用 cmux harness secret set 設定每個值。"
           }
         }
       }
@@ -65658,127 +65658,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legacy Computer Use is off: this cmux build isn't team-signed, so the helper can't verify it. Use the built-in Computer Use (driver: upstream) or a signed cmux build."
+            "value": "Legacy Computer Use works only in a signed cmux build. Use the built-in Computer Use instead."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use القديم متوقف: إصدار cmux هذا غير موقّع من الفريق، لذا لا يستطيع المساعد التحقق منه. استخدم Computer Use المدمج (driver: upstream) أو إصدار cmux موقّعًا."
+            "value": "يعمل Computer Use القديم فقط في إصدار cmux موقَّع. استخدم Computer Use المدمج بدلاً منه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stari Computer Use je isključen: ova cmux verzija nije potpisana od tima, pa je pomoćni program ne može provjeriti. Koristite ugrađeni Computer Use (driver: upstream) ili potpisanu cmux verziju."
+            "value": "Stari Computer Use radi samo u potpisanoj verziji cmuxa. Umjesto toga koristite ugrađeni Computer Use."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ældre Computer Use er slået fra: denne cmux-build er ikke signeret af teamet, så hjælperen kan ikke bekræfte den. Brug den indbyggede Computer Use (driver: upstream) eller en signeret cmux-build."
+            "value": "Ældre Computer Use virker kun i et signeret cmux-build. Brug den indbyggede Computer Use i stedet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das alte Computer Use ist aus: Dieser cmux-Build ist nicht vom Team signiert, daher kann der Helfer ihn nicht prüfen. Nutze das integrierte Computer Use (driver: upstream) oder einen signierten cmux-Build."
+            "value": "Das ältere Computer Use funktioniert nur in einem signierten cmux-Build. Verwende stattdessen das integrierte Computer Use."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use heredado está desactivado: esta compilación de cmux no está firmada por el equipo, así que el asistente no puede verificarla. Usa Computer Use integrado (driver: upstream) o una compilación de cmux firmada."
+            "value": "Computer Use heredado solo funciona en una compilación firmada de cmux. Usa el Computer Use integrado en su lugar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L'ancien Computer Use est désactivé : ce build de cmux n'est pas signé par l'équipe, l'assistant ne peut donc pas le vérifier. Utilisez le Computer Use intégré (driver: upstream) ou un build de cmux signé."
+            "value": "L’ancien Computer Use ne fonctionne que dans une version signée de cmux. Utilisez plutôt le Computer Use intégré."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il Computer Use legacy è disattivato: questa build di cmux non è firmata dal team, quindi l'helper non può verificarla. Usa il Computer Use integrato (driver: upstream) o una build di cmux firmata."
+            "value": "Il Computer Use legacy funziona solo in una build firmata di cmux. Usa invece il Computer Use integrato."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "従来の Computer Use はオフです: この cmux ビルドはチーム署名されていないため、ヘルパーが検証できません。内蔵の Computer Use (driver: upstream) か署名済みの cmux ビルドを使ってください。"
+            "state": "needs_review",
+            "value": "旧 Computer Use は署名済みの cmux ビルドでのみ動作します。代わりに内蔵の Computer Use を使ってください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use ចាស់ត្រូវបានបិទ៖ កំណែ cmux នេះមិនមានហត្ថលេខាពីក្រុមទេ ដូច្នេះកម្មវិធីជំនួយមិនអាចផ្ទៀងផ្ទាត់វាបានទេ។ ប្រើ Computer Use ដែលភ្ជាប់មកជាមួយ (driver: upstream) ឬកំណែ cmux ដែលមានហត្ថលេខា។"
+            "value": "Computer Use ចាស់ដំណើរការតែក្នុងកំណែ cmux ដែលបានចុះហត្ថលេខាប៉ុណ្ណោះ។ សូមប្រើ Computer Use ដែលភ្ជាប់មកជាមួយជំនួសវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "기존 Computer Use가 꺼져 있습니다: 이 cmux 빌드는 팀 서명이 없어 도우미가 확인할 수 없습니다. 내장 Computer Use(driver: upstream)나 서명된 cmux 빌드를 사용하세요."
+            "value": "레거시 Computer Use는 서명된 cmux 빌드에서만 작동합니다. 대신 내장 Computer Use를 사용하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eldre Computer Use er av: denne cmux-builden er ikke signert av teamet, så hjelperen kan ikke bekrefte den. Bruk innebygd Computer Use (driver: upstream) eller en signert cmux-build."
+            "value": "Eldre Computer Use fungerer bare i et signert cmux-bygg. Bruk den innebygde Computer Use i stedet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Starszy Computer Use jest wyłączony: ta kompilacja cmux nie jest podpisana przez zespół, więc pomocnik nie może jej zweryfikować. Użyj wbudowanego Computer Use (driver: upstream) lub podpisanej kompilacji cmux."
+            "value": "Starszy Computer Use działa tylko w podpisanej kompilacji cmux. Zamiast tego użyj wbudowanego Computer Use."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Computer Use legado está desligado: esta build do cmux não é assinada pela equipe, então o assistente não consegue verificá-la. Use o Computer Use integrado (driver: upstream) ou uma build assinada do cmux."
+            "value": "O Computer Use legado só funciona em um build assinado do cmux. Use o Computer Use integrado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Старый Computer Use выключен: эта сборка cmux не подписана командой, поэтому помощник не может её проверить. Используйте встроенный Computer Use (driver: upstream) или подписанную сборку cmux."
+            "value": "Устаревший Computer Use работает только в подписанной сборке cmux. Используйте встроенный Computer Use."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use แบบเดิมปิดอยู่: บิลด์ cmux นี้ไม่ได้ลงนามโดยทีม ตัวช่วยจึงตรวจสอบไม่ได้ ใช้ Computer Use ในตัว (driver: upstream) หรือบิลด์ cmux ที่ลงนามแล้ว"
+            "value": "Computer Use แบบเดิมใช้ได้เฉพาะในบิลด์ cmux ที่ลงนามแล้ว ให้ใช้ Computer Use ในตัวแทน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eski Computer Use kapalı: bu cmux derlemesi ekip tarafından imzalanmadığı için yardımcı onu doğrulayamıyor. Yerleşik Computer Use'u (driver: upstream) veya imzalı bir cmux derlemesini kullanın."
+            "value": "Eski Computer Use yalnızca imzalı bir cmux derlemesinde çalışır. Bunun yerine yerleşik Computer Use'u kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Старий Computer Use вимкнено: ця збірка cmux не підписана командою, тож помічник не може її перевірити. Використовуйте вбудований Computer Use (driver: upstream) або підписану збірку cmux."
+            "value": "Застарілий Computer Use працює лише в підписаній збірці cmux. Натомість використовуйте вбудований Computer Use."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use cũ đang tắt: bản dựng cmux này không được nhóm ký, nên trình trợ giúp không thể xác minh. Hãy dùng Computer Use tích hợp (driver: upstream) hoặc một bản dựng cmux đã ký."
+            "value": "Computer Use cũ chỉ hoạt động trong bản dựng cmux đã ký. Hãy dùng Computer Use tích hợp sẵn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "旧版 Computer Use 已关闭：此 cmux 构建未经团队签名，助手无法验证它。请使用内置 Computer Use（driver: upstream）或已签名的 cmux 构建。"
+            "value": "旧版 Computer Use 仅适用于已签名的 cmux 版本。请改用内置的 Computer Use。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "舊版 Computer Use 已關閉：此 cmux 建置未經團隊簽署，輔助程式無法驗證它。請使用內建 Computer Use（driver: upstream）或已簽署的 cmux 建置。"
+            "value": "舊版 Computer Use 僅適用於已簽署的 cmux 版本。請改用內建的 Computer Use。"
           }
         }
       }
