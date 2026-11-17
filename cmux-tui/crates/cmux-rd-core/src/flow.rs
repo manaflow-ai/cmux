@@ -18,6 +18,17 @@
 //! one-shot timer rounds that wait up to the next millisecond). On the schedule it goes at once, and
 //! over any stretch of time the frames still never outnumber the cap's by more than one. The first
 //! frame after an idle gap or an input's window is spaced from the previous send, as before.
+//!
+//! A frame the viewer NACKed is in repair, not in the send path: the viewer already holds the
+//! shards after it (or its tail stopped arriving), so it no longer counts against the bound
+//! ([`FrameGate::repairing`]), and neither do the frames before it. Otherwise the newest frame
+//! (often the one showing a key press) waits behind the stale one for its repair, its ack and its
+//! own trip, when the viewer could have held it ready to release the moment the repair lands.
+//! Frames in repair never let more than [`REPAIR_SLOTS_FACTOR`] times the bound go unacknowledged.
+
+/// Unacknowledged frames, as a multiple of the in-flight bound, past which frames in repair stop
+/// freeing slots: a run of losses never turns the gate into unbounded sending.
+pub const REPAIR_SLOTS_FACTOR: u32 = 2;
 
 /// How far before its slot on the cap's schedule a frame may go while frames flow (at most half
 /// an interval): covers ScreenCaptureKit's delivery jitter and the session's pickup jitter.
@@ -70,6 +81,9 @@ pub struct FrameGate {
     min_interval_us: u64,
     last_sent: u32,
     acked: u32,
+    /// The newest frame the viewer reported in repair (a NACK); it and the frames before it hold
+    /// no slot (see the module docs).
+    repairing: u32,
     last_encode_us: Option<u64>,
     /// The next frame's slot on the cap's schedule (see the module docs).
     cap_slot_us: Option<u64>,
@@ -90,6 +104,7 @@ impl FrameGate {
             min_interval_us: 1_000_000 / u64::from(max_fps.max(1)),
             last_sent: 0,
             acked: 0,
+            repairing: 0,
             last_encode_us: None,
             cap_slot_us: None,
             on_schedule: false,
@@ -111,6 +126,22 @@ impl FrameGate {
     /// Frames sent and not yet acknowledged.
     pub fn in_flight(&self) -> u32 {
         self.last_sent.saturating_sub(self.acked)
+    }
+
+    /// Whether the in-flight bound holds the next frame back: frames after the newest one in repair
+    /// fill the bound, and all unacknowledged frames together fill [`REPAIR_SLOTS_FACTOR`] times it.
+    fn full(&self) -> bool {
+        let sending = self.last_sent.saturating_sub(self.acked.max(self.repairing));
+        sending >= self.max_in_flight
+            || self.in_flight() >= self.max_in_flight.saturating_mul(REPAIR_SLOTS_FACTOR)
+    }
+
+    /// The viewer NACKed `frame`: it is in repair, not in the send path, so it and the frames before
+    /// it free their slots (call [`Self::poll`] or [`Self::ack`] after).
+    pub fn repairing(&mut self, frame: u32) {
+        if frame > self.acked && frame <= self.last_sent {
+            self.repairing = self.repairing.max(frame);
+        }
     }
 
     /// Records an input injected now: for [`INPUT_FRAME_WINDOW_US`] frames wait only for
@@ -156,7 +187,7 @@ impl FrameGate {
     /// The earliest time a pending frame may be encoded, if one waits only on
     /// the frame-rate cap (a one-shot timer, never a poll loop).
     pub fn next_deadline_us(&self) -> Option<u64> {
-        if self.pending.is_none() || self.in_flight() >= self.max_in_flight {
+        if self.pending.is_none() || self.full() {
             return None;
         }
         let Some(last) = self.last_encode_us else { return Some(0) };
@@ -174,7 +205,7 @@ impl FrameGate {
     /// [`Self::next_deadline_us`]).
     pub fn poll(&mut self, now_us: u64) -> FlowAction {
         let Some(damage) = self.pending else { return FlowAction::Wait };
-        if self.in_flight() >= self.max_in_flight {
+        if self.full() {
             return FlowAction::Wait;
         }
         // A window that has passed is gone: the deadline is the cap's again.

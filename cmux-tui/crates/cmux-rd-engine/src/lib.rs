@@ -716,6 +716,9 @@ impl MediaEngine {
         }
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
+            // In repair, not in the send path: the newer frame waiting on the gate goes now and
+            // waits at the viewer instead, released the moment the repair lands.
+            state.gate.repairing(nack.frame);
             let Some(datagrams) = state.history.get(&nack.frame) else { continue };
             for &i in &nack.indexes {
                 if budget == 0 {
