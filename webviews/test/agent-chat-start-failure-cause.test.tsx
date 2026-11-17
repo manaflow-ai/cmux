@@ -184,7 +184,7 @@ test("a start with no connection to acpmux says the agent service is unreachable
   captureLog();
   const card = await failedCard(harnessSwitch);
   expect(card.sentence).toBe(
-    "Claude Code didn't start because cmux couldn't reach its agent service. Try again, and if it keeps happening, quit and reopen cmux.",
+    "cmux lost its connection to the agent service while starting Claude Code. Try again, and if it keeps happening, quit and reopen cmux to reconnect.",
   );
   expect(card.details).toContain("code native.not_connected");
   expect(logged.some((entry) => entry.includes("code native.not_connected"))).toBe(true);

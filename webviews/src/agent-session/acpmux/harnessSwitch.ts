@@ -872,6 +872,9 @@ export class HarnessSwitch {
         ...(typeof refusal?.reason === "string" ? { reason: refusal.reason } : {}),
         // What actually failed, for a caller's own card (New Tab's): startFailureCause reads it back.
         ...(intent.cause ? { startCause: intent.cause } : {}),
+        // Its code, apart from `code` (a handed-back prompt's own failure reads `code`): the caller's
+        // card reads it back through startFailureCode, so New Tab words the start as this card does.
+        ...(intent.code ? { startCode: intent.code } : {}),
       });
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];

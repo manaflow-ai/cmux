@@ -61,6 +61,9 @@ const SERVICE_UNREACHABLE = new Set([
   "transport.outbound_overflow",
 ]);
 
+/// Codes whose card already says all it needs (startFailureSentence's own views).
+const CODED = new Set([SIGN_IN_REQUIRED, HARNESS_MISSING, ROUTE_UNAVAILABLE]);
+
 type StartFailure = {
   harness: string;
   name: string;
@@ -76,6 +79,9 @@ type StartFailure = {
 export function startFailureView(t: Translate, switching: StartFailure): StartFailureView {
   const view = startFailureSentence(t, switching);
   const cause = switching.cause?.trim();
+  // A refusal coded with its own way out (startRefusal.ts: sign-in, a missing agent, a route, a
+  // folder) is written for people and keeps the Details its view chose; the log has its cause.
+  if (startRefusalAction(switching.code) || CODED.has(switching.code ?? "")) return view;
   if (view.detail || !cause || view.sentence.includes(cause)) return view;
   return { ...view, detail: cause };
 }
@@ -107,7 +113,9 @@ export function startFailureCause(error: unknown): string | undefined {
 /// acpmux started the agent (direct.ts `rejectPending`, `interrupted`), whose `native.timed_out` is
 /// also a deadline's, so it reads by its own (`START_CONNECTION_LOST`).
 export function startFailureCode(error: unknown): string | undefined {
-  const typed = error as { code?: unknown; interrupted?: unknown } | undefined;
+  const typed = error as { code?: unknown; interrupted?: unknown; startCode?: unknown } | undefined;
+  // A start HarnessSwitch already failed hands its prompts back with the code it read.
+  if (typeof typed?.startCode === "string") return typed.startCode;
   if (typed?.interrupted === true) return START_CONNECTION_LOST;
   return typeof typed?.code === "string" ? typed.code : undefined;
 }
