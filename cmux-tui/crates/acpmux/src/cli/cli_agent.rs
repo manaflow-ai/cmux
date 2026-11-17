@@ -288,8 +288,8 @@ fn initialize_result(options: &Options) -> Value {
         "promptCapabilities": {"image": false, "audio": false, "embeddedContext": false},
         "mcpCapabilities": {"http": false, "sse": false}
     });
-    if options.prints_only {
-        capabilities["_meta"] = json!({"acpmux": {"asksBeforeTools": true}});
+    if let (true, Some(fields)) = (options.prints_only, capabilities.as_object_mut()) {
+        fields.insert("_meta".into(), json!({"acpmux": {"asksBeforeTools": true}}));
     }
     json!({
         "protocolVersion": 1,
