@@ -135,6 +135,7 @@ fn readers_get_the_kept_body_while_it_is_revalidated() {
     cache.entries.lock().unwrap().get_mut(URL).unwrap().inflight = true;
     let during = cache.get(&fetcher, request(), t0 + secs(90)).unwrap();
     assert_eq!((during.response.body.as_str(), during.stale, during.hit), ("old", true, true));
+    assert_eq!(during.failed, None, "revalidating is not failing");
     assert_eq!(fetcher.count(), 1, "no second request while one is in flight");
     cache.entries.lock().unwrap().get_mut(URL).unwrap().inflight = false;
     let after = cache.get(&fetcher, request(), t0 + secs(90)).unwrap();
@@ -154,14 +155,39 @@ fn a_failed_revalidation_serves_the_kept_body_and_is_tried_once_per_floor() {
     cache.get(&fetcher, request(), t0).unwrap();
     let failed = cache.get(&fetcher, request(), t0 + secs(61)).unwrap();
     assert_eq!((failed.response.body.as_str(), failed.stale), ("good", true));
+    // The reader learns the body is there because the fetch failed.
+    assert_eq!(failed.failed, Some(json!({ "code": "operation.failed", "message": "offline" })));
+    assert_eq!(failed.clone().json()["value"]["cache"]["failed"]["message"], "offline");
     // Within the floor after the failure every reader gets the kept body, no request.
-    assert!(cache.get(&fetcher, request(), t0 + secs(100)).unwrap().stale);
+    let again = cache.get(&fetcher, request(), t0 + secs(100)).unwrap();
+    assert!(again.stale && again.failed.is_some());
     assert_eq!(fetcher.count(), 2);
     let server_error = cache.get(&fetcher, request(), t0 + secs(121)).unwrap();
     assert_eq!((server_error.response.status, server_error.stale), (200, true));
+    assert_eq!(server_error.failed, Some(json!({ "status": 503 })));
     let back = cache.get(&fetcher, request(), t0 + secs(181)).unwrap();
-    assert_eq!((back.response.body.as_str(), back.stale), ("back", false));
+    assert_eq!((back.response.body.as_str(), back.stale, back.failed), ("back", false, None));
+    assert!(back.json()["value"]["cache"].get("failed").is_none());
     assert_eq!(fetcher.count(), 4);
+}
+
+#[test]
+fn the_failure_floor_counts_from_when_a_slow_fetch_ended() {
+    let fetcher = Scripted {
+        delay: Duration::from_millis(300),
+        ..Scripted::new(vec![Err(EgressError {
+            code: "operation.failed",
+            message: "timed out".into(),
+        })])
+    };
+    let cache = HttpCache::default();
+    let t0 = Instant::now();
+    assert!(cache.get(&fetcher, request(), t0).is_err());
+    // 60.1 s after the request began but under 60 s after it failed: still remembered.
+    assert!(cache.get(&fetcher, request(), t0 + FLOOR + Duration::from_millis(100)).is_err());
+    assert_eq!(fetcher.count(), 1);
+    assert!(cache.get(&fetcher, request(), t0 + FLOOR + secs(1)).is_err());
+    assert_eq!(fetcher.count(), 2);
 }
 
 #[test]

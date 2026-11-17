@@ -62,6 +62,44 @@ describe("cmux.watch http.json", () => {
     expect(w.error().message).toContain("not JSON")
   })
 
+  test("408, 429 and 5xx are retried with backoff; another 4xx is not", async () => {
+    let reply = { status: 503, body: "busy" }
+    const host = weatherHost(twoViews(`{ url: ${JSON.stringify(URL_A)} }`, `{}`), () => reply)
+    host.mount("a", "one")
+    await host.settle()
+    expect(host.timers.size).toBe(1)
+    reply = { status: 404, body: "gone" }
+    await (host.ctx as any).w.refresh()
+    await host.settle()
+    expect((host.ctx as any).w.error().details.status).toBe(404)
+    expect((host.ctx as any).w.error().retryable).toBe(false)
+    expect(host.timers.size).toBe(0)
+  })
+
+  test("a kept body the daemon serves after a failed fetch is the watch's error, its value stays", async () => {
+    let failed: object | undefined
+    const host = new FakeHost(twoViews(`{ url: ${JSON.stringify(URL_A)} }`, `{}`))
+    host.handlers["net.fetch"] = () =>
+      ok({ status: 200, headers: {}, body: JSON.stringify({ current: { temperature_2m: 21.5 } }), cache: { shared: true, stale: !!failed, ...(failed ? { failed } : {}) } })
+    host.mount("a", "one")
+    await host.settle()
+    expect(texts(host, "a")).toEqual(["t=21.5", "status=fresh"])
+    failed = { status: 503 }
+    await (host.ctx as any).w.refresh()
+    await host.settle()
+    expect(texts(host, "a")).toEqual(["t=21.5", "status=stale"])
+    const w = (host.ctx as any).w
+    expect([w.error().code, w.error().details.status, w.error().retryable]).toEqual(["upstream.failed", 503, true])
+    failed = { code: "operation.failed", message: "offline" }
+    await w.refresh()
+    expect(w.error().message).toContain("offline")
+    failed = undefined
+    await w.refresh()
+    await host.settle()
+    expect(texts(host, "a")).toEqual(["t=21.5", "status=fresh"])
+    expect(w.error()).toBeUndefined()
+  })
+
   test("a refused grant is scope.missing and is not retried", async () => {
     const host = new FakeHost(twoViews(`{ url: "https://elsewhere.example/x" }`, `{}`))
     host.handlers["net.fetch"] = () => ({ ok: false, body: { code: "scope.missing", message: "the app holds no net:elsewhere.example grant", retryable: false } })

@@ -1771,16 +1771,28 @@
   }
   async function httpJson(params, call) {
     const url = String(params.url ?? "");
-    const r = await call("net.fetch", { url, method: "GET", headers: {}, body: null, cache: "shared" });
+    const r = await call("net.fetch", {
+      url,
+      method: "GET",
+      headers: {},
+      body: null,
+      cache: "shared"
+    });
+    const host = () => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return url;
+      }
+    };
+    const retryable = (status) => status === 408 || status === 429 || status >= 500;
+    const failed = r.cache?.failed;
+    if (failed) {
+      const message = failed.status !== undefined ? `${host()} answered ${failed.status}` : `${host()}: ${failed.message ?? failed.code ?? "the fetch failed"}`;
+      throw new CmuxError("upstream.failed", message, { signal: "http.json", ...failed }, failed.status === undefined || retryable(failed.status));
+    }
     if (r.status < 200 || r.status >= 300) {
-      const host = (() => {
-        try {
-          return new URL(url).host;
-        } catch {
-          return url;
-        }
-      })();
-      throw new CmuxError("upstream.failed", `${host} answered ${r.status}`, { signal: "http.json", status: r.status }, r.status === 408 || r.status === 429 || r.status >= 500);
+      throw new CmuxError("upstream.failed", `${host()} answered ${r.status}`, { signal: "http.json", status: r.status }, retryable(r.status));
     }
     try {
       return JSON.parse(r.body ?? "");
@@ -2547,7 +2559,7 @@
     if (!active(e))
       return;
     if (error) {
-      if (FINAL.has(error.code))
+      if (FINAL.has(error.code) || error.code === "upstream.failed" && !error.retryable)
         return schedule(e, -1);
       const floor = e.def.pollFloorSeconds * 1000;
       return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)));

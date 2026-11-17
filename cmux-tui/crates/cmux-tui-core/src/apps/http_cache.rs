@@ -73,7 +73,13 @@ impl Kept {
             age: now.saturating_duration_since(self.fetched),
             fresh_for: self.fresh_for,
             fetched_ms: self.fetched_ms,
+            failed: None,
         }
+    }
+
+    /// The kept body, served because the URL's last fetch failed.
+    fn reply_failed(&self, now: Instant, hit: bool, failure: &Failure) -> Shared {
+        Shared { failed: Some(failure.describe()), ..self.reply(now, hit, true) }
     }
 }
 
@@ -82,6 +88,17 @@ struct Failure {
     at: Instant,
     at_ms: u64,
     outcome: Result<FetchResponse, EgressError>,
+}
+
+impl Failure {
+    /// What went wrong, for a reader served the kept body instead:
+    /// `{status}` for a non-2xx answer, `{code, message}` otherwise.
+    fn describe(&self) -> Value {
+        match &self.outcome {
+            Ok(response) => json!({ "status": response.status }),
+            Err(error) => json!({ "code": error.code, "message": error.message }),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -114,6 +131,8 @@ pub struct Shared {
     pub fresh_for: Duration,
     /// When the body was fetched (or last revalidated), Unix ms.
     pub fetched_ms: u64,
+    /// Set when the kept body is served because the URL's last fetch failed.
+    pub failed: Option<Value>,
 }
 
 impl Shared {
@@ -122,19 +141,18 @@ impl Shared {
         let FetchResponse { status, headers, body } = self.response;
         let headers: serde_json::Map<String, Value> =
             headers.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
-        json!({ "value": {
-            "status": status,
-            "headers": headers,
-            "body": body,
-            "cache": {
-                "shared": true,
-                "hit": self.hit,
-                "stale": self.stale,
-                "ageSeconds": self.age.as_secs(),
-                "maxAgeSeconds": self.fresh_for.as_secs(),
-                "fetchedAt": self.fetched_ms,
-            },
-        } })
+        let mut cache = json!({
+            "shared": true,
+            "hit": self.hit,
+            "stale": self.stale,
+            "ageSeconds": self.age.as_secs(),
+            "maxAgeSeconds": self.fresh_for.as_secs(),
+            "fetchedAt": self.fetched_ms,
+        });
+        if let (Some(failed), Some(cache)) = (self.failed, cache.as_object_mut()) {
+            cache.insert("failed".into(), failed);
+        }
+        json!({ "value": { "status": status, "headers": headers, "body": body, "cache": cache } })
     }
 }
 
@@ -233,7 +251,7 @@ impl HttpCache {
                 e.failure.as_ref().filter(|f| now.saturating_duration_since(f.at) < FLOOR)
             {
                 if let Some(kept) = stale {
-                    return Ok(kept.reply(now, true, true));
+                    return Ok(kept.reply_failed(now, true, failure));
                 }
                 return failure.outcome.clone().map(|response| Shared {
                     response,
@@ -242,6 +260,7 @@ impl HttpCache {
                     age: now.saturating_duration_since(failure.at),
                     fresh_for: FLOOR,
                     fetched_ms: failure.at_ms,
+                    failed: None,
                 });
             }
             if e.inflight {
@@ -275,6 +294,7 @@ impl HttpCache {
             break request;
         };
         drop(entries);
+        let started = Instant::now();
         // A fetcher that panics must not leave the URL in flight for good:
         // every later reader would wait on it and then fail.
         let fetched =
@@ -285,6 +305,9 @@ impl HttpCache {
                         message: "the fetch failed".into(),
                     })
                 });
+        // Freshness and the failure floor count from when the answer came, so a
+        // slow or timed-out fetch is not tried again sooner than FLOOR after it.
+        let now = now + started.elapsed();
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         // Prune keeps an entry in flight, so this finds the one this read marked.
         let entry = entries.entry(key).or_insert_with(|| Entry::new(now));
@@ -359,9 +382,16 @@ impl HttpCache {
             }
             Err(error) => Err(error),
         };
-        e.failure = Some(Failure { at: now, at_ms: fetched_ms, outcome: outcome.clone() });
-        if let Some(kept) = e.kept.as_ref().filter(|k| k.servable(now)) {
-            return Ok(kept.reply(now, false, true));
+        let failure = Failure { at: now, at_ms: fetched_ms, outcome };
+        let served = e
+            .kept
+            .as_ref()
+            .filter(|k| k.servable(now))
+            .map(|k| k.reply_failed(now, false, &failure));
+        let outcome = failure.outcome.clone();
+        e.failure = Some(failure);
+        if let Some(served) = served {
+            return Ok(served);
         }
         outcome.map(|response| Shared {
             response,
@@ -370,6 +400,7 @@ impl HttpCache {
             age: Duration::ZERO,
             fresh_for: FLOOR,
             fetched_ms,
+            failed: None,
         })
     }
 

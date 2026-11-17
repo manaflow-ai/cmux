@@ -221,7 +221,8 @@ function schedule(e: Entry, ms: number) {
 function next(e: Entry, error: CmuxError | null) {
   if (!active(e)) return
   if (error) {
-    if (FINAL.has(error.code)) return schedule(e, -1)
+    // An upstream answer its reader marks not retryable (a 404, a 401) stays until a refresh or a remount.
+    if (FINAL.has(error.code) || (error.code === "upstream.failed" && !error.retryable)) return schedule(e, -1)
     const floor = e.def.pollFloorSeconds * 1000
     return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)))
   }
