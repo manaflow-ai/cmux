@@ -717,7 +717,7 @@ public final class DaemonService {
         return { notReady in batcher.scheduleFrame { show(notReady) } }
     }
 
-    private func showPaneNotReady(_ notReady: PaneNotReady) {
+    func showPaneNotReady(_ notReady: PaneNotReady) {
         #if DEBUG || CMUX_BENCH_HOOKS
         paneNotReadyCauses = Array((paneNotReadyCauses + [notReady.description]).suffix(100)) // as RefusalHUD.history
         #endif

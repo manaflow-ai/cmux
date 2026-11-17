@@ -367,7 +367,7 @@ struct KeyboardResizeShownStepTests {
     }
 }
 
-/// Claude review of #34123: a trade sent two widths, one daemon command each, under one transaction. The first
+/// #34123: a trade sent two widths, one daemon command each, under one transaction. The first
 /// command's reply settled the whole transaction, so a daemon snapshot that came before the second command's event
 /// (the store applies events once per display frame) dropped the second width's override, and for a frame that column
 /// showed its old width and every column after it jumped. The transaction settles when its last value is answered.
@@ -482,7 +482,7 @@ struct KeyboardResizeTradeAtomicTests {
         #expect(rig.model.screens[0].layout.columns.map(\.width) == [0.6, 0.4], "the trade's one reply did not settle both of its widths")
     }
 
-    /// Codex review 3 of #34123: a handler that answers the trade at once and applies the daemon's snapshot in that
+    /// #34123: a handler that answers the trade at once and applies the daemon's snapshot in that
     /// turn (a synchronous source, such as the layout demo's) removes the trade's overrides because it succeeded; the press
     /// read that as a refusal and said nothing moved.
     @Test func aTradeAnsweredAndAppliedInItsOwnTurnIsAPress() throws {

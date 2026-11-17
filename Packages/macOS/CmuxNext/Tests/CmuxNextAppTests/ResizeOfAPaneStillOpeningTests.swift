@@ -40,6 +40,26 @@ struct ResizeOfAPaneStillOpeningTests {
         #expect(content.gestureTransactions.latest == first, "a width for a pane the daemon has not made took a daemon transaction")
     }
 
+    /// A caller that collects an action's refusals in the action's turn (a control client's run of a width preset) gets
+    /// the notice's text as its answer: the notice goes through the registry in the handler's turn, not a frame later.
+    @Test func aCallerThatCollectsRefusalsInTheTurnGetsTheNoticeAsItsAnswer() throws {
+        let standIn: UInt64 = (1 << 62) + 7 // a stand-in's handle, as above
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(DaemonPaneID(rawValue: 1)),
+                                    columns: [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(DaemonPaneID(rawValue: 1))),
+                                              ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(DaemonPaneID(rawValue: standIn)))],
+                                    panes: [PaneSnapshot(id: DaemonPaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")]),
+                                            PaneSnapshot(id: DaemonPaneID(rawValue: standIn), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~")])])
+        let shown = try PaneCloseControllerTests.Shown(tree: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])]))
+        defer { shown.end() }
+        let content = try #require(shown.content)
+        try #require(content.layoutModel.screens.first?.layout.columns.count == 2, "the stand-in column does not show")
+        content.layoutModel.intentHandler = { [weak content] intent in content?.handle(intent) }
+        let answer = shown.services.registry.capturingRefusal {
+            content.layoutModel.setColumnWidth(LayoutColumnID("column:11"), width: 0.75, transaction: .make(), phase: .ended)
+        }
+        #expect(answer == MiscHandlerStrings.paneNotReady, "the caller's answer is not the pane-still-opening notice: \(answer ?? "none")")
+    }
+
     /// The notice is for a pane still opening only. A width whose pane has no handle (the pane went away while the
     /// width was on its way) is not sent either, and it says nothing: no pane is opening.
     @Test func aWidthWhoseColumnsPaneIsGoneSaysNothing() throws {

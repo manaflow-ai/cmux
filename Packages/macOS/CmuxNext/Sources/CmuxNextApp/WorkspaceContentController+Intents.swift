@@ -21,7 +21,7 @@ extension WorkspaceContentController {
             // A gesture's ended sizes. One value goes as its own command; more go as one commit on a daemon with
             // `layout-sizes-batch-v1`, else as each value's own command, in order (`LayoutSizeCommands`).
             guard let sizes = intent.sizes else { return }
-            guard let wire = handles.sizeValues(sizes.values) else { return layoutModel.rejectTransaction(sizes.transaction) }
+            guard let wire = GestureSizeValues.wire(sizes.values, in: handles, noticeOn: daemon) else { return layoutModel.rejectTransaction(sizes.transaction) }
             let commands = LayoutSizeCommands(wire, transaction: gestureTransactions.number(for: sizes.transaction),
                                               batch: daemon.supports(DaemonCapability.layoutSizesBatch.rawValue))
             sendGesture(sizes.transaction, label: commands.label) { try await commands.send(on: $0) }

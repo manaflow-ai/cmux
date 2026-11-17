@@ -33,9 +33,6 @@ struct TransactionReplies {
     /// removed.
     mutating func beginSending(_ transaction: LayoutTransactionID) { sending.append((transaction, false)) }
 
-    /// Whether the app refused the innermost change going out: the caller's own once its emit returned (sends nest).
-    var refusedInnermost: Bool { sending.last?.refused == true }
-
     /// The innermost change went out (or stopped): whether the app refused its transaction meanwhile.
     mutating func endSending() -> Bool { sending.popLast()?.refused == true }
 }
