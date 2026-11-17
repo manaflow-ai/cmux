@@ -854,6 +854,21 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    /// True when [`Self::send_durable`] would queue for a running writer:
+    /// the durable lane exists, the writer runs, and the caller is not the
+    /// writer thread (which would wait on itself).
+    pub(crate) fn accepts_durable(&self) -> bool {
+        self.durable_sender.is_some()
+            && self.state.admission_error().is_none()
+            && self.writer.lock().is_ok_and(|owner| {
+                matches!(
+                    &*owner,
+                    JournalWriterOwner::Running(writer)
+                        if writer.thread.thread().id() != std::thread::current().id()
+                )
+            })
+    }
+
     pub(crate) fn is_current_writer_thread(&self) -> bool {
         self.writer.lock().is_ok_and(|owner| {
             matches!(

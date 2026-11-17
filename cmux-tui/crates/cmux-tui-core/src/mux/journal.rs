@@ -670,7 +670,7 @@ impl Mux {
         if ingress.producer_id != crate::AGENT_HOOK_PRODUCER_ID {
             return Ok(());
         }
-        if self.journal_ingress.accepts_effects()
+        if self.journal_ingress.accepts_durable()
             && self
                 .journal_ingress
                 .send_durable(crate::journal_ingress::JournalIngressEvent::AgentHookCleared {

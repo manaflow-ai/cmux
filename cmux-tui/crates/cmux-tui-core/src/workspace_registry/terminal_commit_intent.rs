@@ -4,8 +4,7 @@
 //!
 //! The request thread validates the record and renders its canonical JSON
 //! while it holds the registry; the CAS on the terminal revision and every
-//! write run inside the commit transaction (the writer's SAVEPOINT, or a
-//! request-side transaction when the writer does not run).
+//! write run inside a request-side commit transaction.
 
 use super::*;
 
@@ -77,12 +76,17 @@ impl WorkspaceRegistry {
         let tx = db.unchecked_transaction()?;
         let mut commits = Vec::with_capacity(intents.len());
         for intent in intents {
-            let commit = RegistryIntent::Terminal(intent).apply_in_savepoint(&tx)?;
-            commits.push(
-                commit.and_then(|receipt| {
-                    receipt.into_terminal().map_err(|error| format!("{error:#}"))
-                }),
-            );
+            tx.execute_batch("SAVEPOINT terminal_commit")?;
+            match intent.apply(&tx) {
+                Ok(commit) => {
+                    tx.execute_batch("RELEASE terminal_commit")?;
+                    commits.push(Ok(commit));
+                }
+                Err(error) => {
+                    tx.execute_batch("ROLLBACK TO terminal_commit; RELEASE terminal_commit")?;
+                    commits.push(Err(format!("{error:#}")));
+                }
+            }
         }
         tx.commit()?;
         drop(db);
