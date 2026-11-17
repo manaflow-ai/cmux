@@ -6660,6 +6660,14 @@ class JourneyPerStep(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "cut short|no closing summary"):
             self.judge(JourneyGitHub(head, JOURNEY_BASE))
 
+    def test_a_retry_after_a_run_cut_short_hides_no_judged_run(self):
+        # The first run dies before its summary; the retry line must not mark an earlier judged run as retried.
+        head = [*journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32"),
+                *journey_run(2416, "vm_86ee22a3fd8aa45b272e", "c451a71dc5fc", summary=False)[:3], RETRIED,
+                *journey_run(1327, "vm_c6537f75e4c600364ef7", "6e7bedbd4444")]
+        with self.assertRaisesRegex(excuse.Refused, "retry line that follows no closed failed run"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
     def test_a_summary_that_counts_more_failures_than_its_lines_is_refused(self):
         head = [line.replace("1 failed", "2 failed") for line in JOURNEY_HEAD]
         with self.assertRaisesRegex(excuse.Refused, "2 failed"):
@@ -10909,6 +10917,7 @@ VIEW_COMPARATORS = frozenset({
     "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
+    "journey",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
     "owned_unnamed", "cited_red", "compile_errors_verdict", "setup_errors"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
@@ -14553,6 +14562,7 @@ SCANNERS = {
     "base_red_excuse.step_evidence": lambda f: excuse.step_evidence(f.view, "Tests"),
     "base_red_excuse.rollup_log_reds": lambda f: excuse.rollup_log_reds(f.log),
     "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
+    "base_red_excuse.journey_reds": lambda f: excuse.journey_reds(f.log),
     "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
     "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
     "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
