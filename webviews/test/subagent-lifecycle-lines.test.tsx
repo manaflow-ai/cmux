@@ -1,4 +1,5 @@
 // l10n-allow-file: recorded subagent and transcript fixtures.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SubagentFold, SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -94,7 +95,7 @@ for (const harness of ["claude-opus-5-5", "codex"])
     expect(withSubagentLines(replayed)).toBe(replayed);
     const geometry = layoutConversation(closed, 760);
     for (const entry of closed.filter((entry) => entry.kind === SUBAGENT_STARTED || entry.kind === SUBAGENT_DONE))
-      expect(geometry.heights[closed.indexOf(entry)]).toBe(22);
+      expect(geometry.heights[closed.indexOf(entry)]).toBe(ROW_METRIC.height);
   });
 
 test("queued placeholders and missing identities do not announce work", () => {

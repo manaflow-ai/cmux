@@ -135,29 +135,36 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
   };
 
   const lineRows = (rows: Row[]) => rows.filter((row) => row.kind !== "");
+  /** An opened run draws a row per call with the grid base (4) between calls: how many rows tall. */
+  const callsIn = (height: number) => Math.round((height + 4) / (ROW_METRIC.height + 4));
+  const runHeight = (calls: number) => calls * ROW_METRIC.height + (calls - 1) * 4;
 
   for (const variant of MEASURED) {
     test(`each shut one-line row is one row of the metric, ${ROW_METRIC.height}px (${variant})`, async () => {
       const lines = lineRows((await of(variant)).rows);
       if (variant !== "folded") expect(lines.length).toBeGreaterThanOrEqual(4);
-      // An opened run is a row per call (and the grid base between calls): a whole number of rows.
-      for (const row of lines)
-        if (variant === "runs-open" && row.id.startsWith("messageRun-")) continue;
-        else
-          expect({ row: `${row.id} | ${row.text}`, height: Math.round(row.height * 4) / 4 }).toEqual({
-            row: `${row.id} | ${row.text}`,
-            height: ROW_METRIC.height,
-          });
+      // Opened (runs-open), a run is a whole number of rows of the metric.
+      for (const row of lines) {
+        const calls = variant === "runs-open" ? Math.max(1, callsIn(row.height)) : 1;
+        expect({ row: `${row.id} | ${row.text}`, height: Math.round(row.height * 4) / 4 }).toEqual({
+          row: `${row.id} | ${row.text}`,
+          height: runHeight(calls),
+        });
+      }
     });
     test(`consecutive one-line rows sit flush, ${ROW_METRIC.height}px top to top (${variant})`, async () => {
       const { rows } = await of(variant);
       for (let index = 1; index < rows.length; index += 1) {
         const above = rows[index - 1]!;
         const below = rows[index]!;
-        if (!above.kind || !below.kind || (variant === "runs-open" && above.id.startsWith("messageRun-"))) continue;
+        if (!above.kind || !below.kind) continue;
         expect({ pair: `${above.id} -> ${below.id}`, pitch: Math.round((below.top - above.top) * 4) / 4 }).toEqual({
           pair: `${above.id} -> ${below.id}`,
-          pitch: ROW_METRIC.height,
+          pitch: Math.round(above.height * 4) / 4,
+        });
+        expect({ pair: `${above.id} -> ${below.id}`, above: Math.round(above.height * 4) / 4 }).toEqual({
+          pair: `${above.id} -> ${below.id}`,
+          above: runHeight(Math.max(1, callsIn(above.height))),
         });
       }
     });

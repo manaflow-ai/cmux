@@ -17,7 +17,7 @@ export type RowMetric = {
   font: number;
   /** A session chip's box (a sender, "Sent to"'s recipient): no taller than the row's words. */
   chip: number;
-  /** A row's leading glyph inside its 16 icon column. */
+  /** A row's leading glyph box in its 16 icon column (a tool glyph's ink is 3/4 of it). */
   glyph: number;
   /** "Worked for"'s rule: the room under its words, and the room under the rule to the next row. */
   ruleAbove: number;
@@ -41,7 +41,7 @@ export const ROW_METRIC_VARIANTS = {
     height: 20,
     font: 13,
     chip: 16,
-    glyph: 14,
+    glyph: 16,
     ruleAbove: 2,
     ruleBelow: 6,
     note: "The pick: one point under the prose, a desktop chat agent's activity list.",
@@ -50,7 +50,7 @@ export const ROW_METRIC_VARIANTS = {
     height: 18,
     font: 12,
     chip: 15,
-    glyph: 13,
+    glyph: 14,
     ruleAbove: 2,
     ruleBelow: 4,
     note: "The tightest: a chip nearly fills its line and the words read as captions.",

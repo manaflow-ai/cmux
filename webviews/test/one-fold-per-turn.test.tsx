@@ -7,6 +7,7 @@
 // and the replies and the steer it never hides (cmux#37245), and no run line beside them; opened, its
 // run lines draw already open. A turn without a steer folds as before.
 // Gallery: agent-pane.one-fold-per-turn.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -163,7 +164,7 @@ test("a plain turn's opened run line starts closed, as before", async () => {
 // with `runOpen`, each stretch's line over its steps (ToolRunSteps.tsx, a line per call), as a run of
 // plain work does. Every one of those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
 // height is the count of `.cv-tool` lines and sent-message rows (`.cv-sent-msg`, one each) times 22.
-const LINE = 22;
+const LINE = ROW_METRIC.height;
 const read = (id: string): AcpmuxActivity => ({
   kind: "tool",
   text: "Read",

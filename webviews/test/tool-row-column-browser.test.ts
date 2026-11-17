@@ -9,6 +9,7 @@
 // The two live cases of the mixed run test the `runs` arm of live-turn-work, not the shipped `line` arm:
 // their calls are finished calls of a turn that still runs, which only `runs` draws
 // (support/liveTurnRuns.ts). The other cases take the shipped arms.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -245,7 +246,8 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         for (let at = 0; at < geometry.length; at++) {
           expect(geometry[at]!.icon).toBe("visible");
           expect(Math.abs(geometry[at]!.text - geometry[0]!.text)).toBeLessThanOrEqual(0.5);
-          if (at) expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - 22)).toBeLessThanOrEqual(0.5);
+          if (at)
+            expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - ROW_METRIC.height)).toBeLessThanOrEqual(0.5);
         }
         await steps.getByRole("button", { name: "Find the retry handler" }).click();
         // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.

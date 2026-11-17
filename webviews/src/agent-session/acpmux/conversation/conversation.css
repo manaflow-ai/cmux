@@ -77,7 +77,7 @@
   --cv-tool-row-height: 20px;
   --cv-row-font-size: calc(var(--cv-font-size) - 1px);
   --cv-row-chip-height: 16px;
-  --cv-row-glyph: 14px;
+  --cv-row-glyph: 16px;
   /* "Worked for"'s rule: this much under its words and this much over the next row. */
   --cv-worked-rule-above: 2px;
   --cv-worked-rule-below: 6px;
@@ -3225,8 +3225,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   height: var(--cv-glyph-line);
   margin-right: calc(var(--cv-row-icon-gap) - var(--cv-tool-gap));
 }
-/* The row's glyph is the shared metric's (rowMetric.ts `glyph`), centred in the 16 icon column, so
-   it stays in proportion to the row's words; the column and the words' start do not move. */
+/* The row's glyph box is the shared metric's (rowMetric.ts `glyph`): a tool glyph's ink is 12 in it,
+   the size of a sender's mark, so every row kind's glyph reads at one size (transcript-icon-column). */
 .cv-tool__icon > svg {
   width: var(--cv-row-glyph);
   height: var(--cv-row-glyph);
@@ -4183,6 +4183,11 @@ button.cv-video-frames__frame:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: inherit;
+}
+/* On the line, the command's mono box sits on the words' baseline at its own size: at the row's
+   line height its other font's ascent stood 2px out of the row (22 in a 20 row). */
+.cv-bgtask__text .cv-bgtask__command {
+  line-height: 1;
 }
 .cv-bgtask__state {
   color: var(--cv-text-muted);
