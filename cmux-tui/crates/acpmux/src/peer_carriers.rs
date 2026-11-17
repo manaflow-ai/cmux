@@ -83,6 +83,7 @@ pub(crate) fn direct_via(wireguard_running: bool, link_host: bool) -> Option<Via
 /// the one before, or at once when every one started so far failed. The first to open wins;
 /// the rest are dropped, which cancels them. Returns the winner and the failures seen before
 /// it, or every failure, in the order they came.
+#[cfg(test)]
 #[allow(clippy::type_complexity)]
 pub(super) async fn race<T, F>(
     candidates: Vec<(Via, F)>,
@@ -94,7 +95,7 @@ where
     race_together(candidates, 1, stagger).await
 }
 
-/// [`race`] with the first `together` candidates dialed at once (relay first: the hub relay
+/// `race` with the first `together` candidates dialed at once (relay first: the hub relay
 /// and the remembered path, `Paths::dial_together`), the rest staggered after them.
 #[allow(clippy::type_complexity)]
 pub(super) async fn race_together<T, F>(
@@ -406,6 +407,7 @@ impl Peer {
     }
 
     /// The order a cold connect dials this peer's paths in (`Paths::dial_order`).
+    #[cfg(test)]
     pub(super) fn dial_order(&self) -> Vec<Via> {
         self.with_paths(|paths| paths.dial_order(crate::store::now_ms()))
     }
