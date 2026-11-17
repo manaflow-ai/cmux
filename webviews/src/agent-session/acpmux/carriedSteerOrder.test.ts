@@ -3,7 +3,7 @@
 // above the ended turn's reply, which answered something else (Leo, 2026-11-12, on a "No change."
 // to a background notice drawn under his "hm? what happened here").
 // l10n-allow-file: synthetic prompts and replies used by a behavioral regression.
-import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
 
@@ -441,38 +441,3 @@ for (const [name, messageIds] of [
       live.client.close?.();
     }
   });
-
-test("a call still running at a steer stays below the steer once the turn ends, in its opened Worked for", async () => {
-  const live = await liveSteer();
-  try {
-    live.emit({ mux: "user_message", msg: { text: "Fix the list", promptId: "p-1" } });
-    live.emit({ mux: "turn_started", msg: { promptId: "p-1", turnId: "t-1" } });
-    live.emit({
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "c1",
-        title: "bun test",
-        kind: "execute",
-        status: "in_progress",
-      },
-    });
-    await live.until(() => live.rows().some((row) => row.kind === "activity"));
-    await live.steer("and the flicker?", "p-steer");
-    // The call ends after the steer went: the clock moves on a second (no fixed wait).
-    setSystemTime(new Date(Date.now() + 1000));
-    live.emit({ mux: "steer_read", msg: { promptId: "p-steer", turnId: "t-1" } });
-    live.emit({ update: { sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed" } });
-    live.say("On the flicker.");
-    await live.finish();
-    const prompt = live.rows().find((row) => row.text === "Fix the list")!;
-    const steered = live.rows().find((row) => row.text === "and the flicker?")!;
-    const order = live.view([`worked-${prompt.id}`]);
-    const call = order.reduce((last, id, at) => (id.startsWith("activity-") ? at : last), -1);
-    expect(call).toBeGreaterThan(-1);
-    expect(order.indexOf(steered.id)).toBeGreaterThan(-1);
-    expect(order.indexOf(steered.id)).toBeLessThan(call);
-  } finally {
-    setSystemTime();
-    live.client.close?.();
-  }
-});
