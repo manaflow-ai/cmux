@@ -125,13 +125,6 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 
-/// Whether the "Worked for" row from `rowAt` to `endAt` shows a `turn` moment now. A
-/// boolean, so only that row draws again when a moment starts or ends.
-export function useFinishedTurn(rowAt: number, endAt?: number): boolean {
-  const read = () => isFinishedTurnRow(current, rowAt, endAt);
-  return useSyncExternalStore(subscribe, read, read);
-}
-
 /// The `ci` or `merged` moment pull request `url` shows now.
 export function usePullRequestFinish(url: string): FinishKind | undefined {
   const read = () => (current && current.kind !== "turn" && current.url === url ? current.kind : undefined);

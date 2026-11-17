@@ -14,7 +14,7 @@ use crate::adapters::{PathRole, classify_path};
 use crate::entry::{ChatEntry, ChatKey};
 use crate::roots::ChatRoot;
 use crate::scan::{RootScan, read_file, scan_root};
-use crate::stamp::FileStamp;
+use crate::stamp::{FileStamp, FileState};
 use crate::store_file;
 
 // 2: Codex rollouts count their typed prompts from message items (current Codex writes no
@@ -375,9 +375,12 @@ impl ChatIndex {
 }
 
 fn rescan(slot: &mut Slot) {
-    let prior = slot.scan.files.iter().cloned().collect();
-    if let Ok(scan) = scan_root(&slot.root.config(), &prior) {
-        slot.scan = scan;
+    // Moved, not cloned: each state holds its kept read.
+    let prior: HashMap<PathBuf, FileState> =
+        std::mem::take(&mut slot.scan.files).into_iter().collect();
+    match scan_root(&slot.root.config(), &prior) {
+        Ok(scan) => slot.scan = scan,
+        Err(_) => slot.scan.files = prior.into_iter().collect(),
     }
 }
 

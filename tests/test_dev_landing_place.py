@@ -339,6 +339,30 @@ class DailyPickerTests(unittest.TestCase):
                             {}, stalled)
         self.assertEqual((result["runs_on"], result["pool"]), ("", ""))
 
+    def test_a_blacksmith_label_queued_at_its_slot_count_is_no_overflow_even_from_a_stale_snapshot(self):
+        # 2026-11-17 04:42Z, cmux#44204's DEV Release compile (run 44018999063): no owned runner idle and no
+        # snapshot under 15 min old, so it took blacksmith-6vcpu-macos-26 unverified and sat over an hour behind
+        # 56 queued jobs on its 10 slots. A snapshot up to 45 min old still counts the queue against the slots.
+        busy = [slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE, busy=True)]
+
+        def counted(queued: dict[str, int], age_minutes: int) -> dict:
+            snap = snapshot({label: 5 for label in queued}, age_minutes)
+            for label, count in queued.items():
+                snap["pools"][label]["queued"] = count
+            return snap
+        for age in (2, 30):
+            with self.subTest(age=age):
+                result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 5}, age))
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
+                self.assertIn("DEV slot", result["reason"])
+                result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 2}, age))
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (LARGE, "blacksmith"))
+        # Under its slot count it is still the overflow; a snapshot past 45 min counts nothing.
+        result = self.daily(busy, {}, counted({SMALL: 9, LARGE: 5}, 2))
+        self.assertEqual(json.loads(result["runs_on"]), SMALL)
+        result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 5}, 60))
+        self.assertEqual(json.loads(result["runs_on"]), SMALL)
+
     def test_an_idle_owned_runner_always_beats_blacksmith(self):
         result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], {},
                             snapshot({SMALL: 0, LARGE: 0}))
