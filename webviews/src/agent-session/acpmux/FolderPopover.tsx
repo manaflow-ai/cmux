@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "../../ui/Button";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -6,6 +7,8 @@ import type { BrowseRequest } from "./AddProjectPanel";
 import type { BrowseResult } from "./addProjectPanelModel";
 import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
+import { GitHubInstallCard, GitHubMark, LockIcon } from "./GitHubInstallCard";
+import { githubFolder, githubFolderRepo, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
@@ -32,6 +35,10 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// name it; ↑/↓ move through the rows and the actions; Return picks; Escape closes back to the
 /// strip. A typed absolute or `~/` path is offered as typed. `note` is a quiet line under the list:
 /// where the chat starts while no folder is picked (a new chat's private folder).
+/// `github` (a new Cloud chat only, githubRepos.ts) adds the person's GitHub repositories under the
+/// folders: a GitHub group, filtered by the same search, whose pick is the folder `github:owner/name`;
+/// before the cmux GitHub App is installed, one Add repositories from GitHub row that turns the menu
+/// into the install card (Escape or Back returns to the list).
 export function FolderPopover({
   label,
   menu,
@@ -46,6 +53,7 @@ export function FolderPopover({
   noProject = false,
   note,
   extra,
+  github,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -70,10 +78,26 @@ export function FolderPopover({
   /// The new chat's extra folders (extraFolders.ts): Add another folder… turns the list into a pick
   /// of one more folder the chat sees beside its own, and the ones added are listed under it.
   extra?: ExtraFolderRows;
+  /// A new Cloud chat's GitHub repositories (githubRepos.ts); none for any other chat.
+  github?: GitHubPicker;
 }) {
   // Add another folder… was chosen: a pick adds a folder the chat also sees instead of moving the chat.
   const [addingExtra, setAddingExtra] = useState(false);
   const [query, setQuery] = useState("");
+  // Add repositories from GitHub was chosen: the install card stands in for the list until the
+  // status says ready, Back or Escape, or the menu closes.
+  const [githubCard, setGitHubCard] = useState(false);
+  // Back from the card (Back, Escape, or the status turning ready while it waited): the list's fresh
+  // field takes the keyboard as it mounts.
+  const refocusField = useRef(false);
+  const fieldMounted = useCallback(
+    (node: HTMLInputElement | null) => {
+      if (!node || (!refocusField.current && !githubCard)) return;
+      refocusField.current = false;
+      node.focus();
+    },
+    [githubCard],
+  );
   // The repositories whose worktrees are open under their row, by group key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const highlighted = useRef<string | undefined>(undefined);
@@ -83,7 +107,11 @@ export function FolderPopover({
   const escaped = useRef(false);
   const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
   const setOpen = (next: boolean) => {
-    if (next) setHighlightAuto(true);
+    if (next) {
+      setHighlightAuto(true);
+      // Each open reads whether GitHub is connected, and its repositories once it is.
+      if (!open) github?.onOpen();
+    } else setGitHubCard(false);
     setPopoverOpen(next);
   };
   const press = usePopoverTrigger(open, (next) => {
@@ -135,6 +163,22 @@ export function FolderPopover({
     });
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
+  // The GitHub part: a pick of one more folder (Add another folder…) never lists repositories.
+  const githubStatus = !addingExtra ? github?.state.status?.state : undefined;
+  const cardShown = githubCard && githubStatus === "not_connected";
+  const githubReady = githubStatus === "ready" && github?.state.error === undefined;
+  const githubRepos = github?.state.repos;
+  const repos = useMemo(
+    () => (githubReady && githubRepos ? matchingRepos(githubRepos, typed) : []),
+    [githubReady, githubRepos, typed],
+  );
+  const githubRows = [
+    ...(githubStatus === "not_connected" ? [GITHUB_ADD] : []),
+    ...repos.map((repo) => GITHUB_REPO + repo.fullName),
+    ...(githubReady && github?.state.status?.reposScope === "selected" ? [GITHUB_MORE] : []),
+  ];
+  const repoRows = useMemo(() => new Map(repos.map((repo) => [GITHUB_REPO + repo.fullName, repo])), [repos]);
+  const currentRepo = githubFolderRepo(current);
   // Actions stay under the folders; the arrows reach them after the last folder.
   const actions: {
     value: string;
@@ -164,9 +208,10 @@ export function FolderPopover({
         ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
       ];
   const pinned = actions.map((action) => action.value);
-  const suggestions = [...pinned, ...shown.keys(), ...(typedPath ? [typedPath] : [])];
+  const suggestions = [...pinned, ...shown.keys(), ...(typedPath ? [typedPath] : []), ...githubRows];
   const close = () => {
     setOpen(false);
+    setGitHubCard(false);
     setQuery("");
     setExpanded(new Set());
     setAddingExtra(false);
@@ -174,6 +219,25 @@ export function FolderPopover({
     escaped.current = false;
   };
   const submit = (value: string) => {
+    // Add repositories from GitHub keeps the menu open on its install card.
+    if (value === GITHUB_ADD) {
+      setGitHubCard(true);
+      return;
+    }
+    // Return on words no loaded repository matches: ask GitHub for them (the loaded page may be
+    // only the first of the person's repositories).
+    // Choose more repositories… is then the only row, highlighted by the typing, not by the person.
+    if (
+      githubReady &&
+      typed &&
+      !typedPath &&
+      repos.length === 0 &&
+      github?.state.truncated &&
+      (value === query || (value === GITHUB_MORE && highlightAuto))
+    ) {
+      github.onSearch(typed);
+      return;
+    }
     // Add another folder… keeps the menu open: its list now adds a folder.
     if (value === ACTION_EXTRA) {
       setAddingExtra(true);
@@ -192,9 +256,52 @@ export function FolderPopover({
       void Promise.resolve()
         .then(() => action.run())
         .catch(() => undefined);
-    else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
+    else if (value === GITHUB_MORE) github?.onConnect();
+    else if (repoRows.has(value)) {
+      const folder = githubFolder(repoRows.get(value)!.fullName);
+      if (folder !== current) onPick(folder);
+    } else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
   };
   const row = (value: string) => {
+    // The GitHub group's heading sits over its first row (composerLocation.css `data-section`).
+    const section = value === githubRows[0] && value !== GITHUB_ADD ? t("cloudRepository.github") : undefined;
+    if (value === GITHUB_ADD || value === GITHUB_MORE)
+      return (
+        <span className="acpmux-location-action acpmux-location-row" data-github="" data-section={section}>
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            {value === GITHUB_ADD ? <GitHubMark /> : <ActionIcon action={ACTION + "browse"} />}
+          </span>
+          <span className="acpmux-menu-label">
+            {t(value === GITHUB_ADD ? "composer.githubAddRepos" : "composer.githubChooseMore")}
+          </span>
+        </span>
+      );
+    const githubRepo = repoRows.get(value);
+    if (githubRepo)
+      return (
+        <span
+          className="acpmux-location-row"
+          data-github=""
+          data-section={section}
+          data-current={githubRepo.fullName === currentRepo ? "" : undefined}
+        >
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            <GitHubMark />
+          </span>
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{githubRepo.fullName}</span>
+          </span>
+          {githubRepo.private && (
+            <span className="acpmux-location-lock">
+              <LockIcon />
+              <span className="acpmux-env-status-text">{t("composer.githubPrivate")}</span>
+            </span>
+          )}
+          <span className="acpmux-location-check" aria-hidden="true">
+            {githubRepo.fullName === currentRepo && <CheckIcon />}
+          </span>
+        </span>
+      );
     const action = actions.find((candidate) => candidate.value === value);
     if (action)
       return (
@@ -331,6 +438,12 @@ export function FolderPopover({
         id={press["aria-controls"]}
         open={open}
         onOpenChange={(next, details) => {
+          // Escape on the install card goes back to the list, not out of the menu.
+          if (!next && details?.escape && cardShown) {
+            refocusField.current = true;
+            setGitHubCard(false);
+            return;
+          }
           if (!next && details?.escape) {
             escaped.current = true;
             close();
@@ -354,42 +467,70 @@ export function FolderPopover({
         flip={flip}
         finalFocus={false}
       >
-        <Combobox
-          // A fresh field for Add another folder…'s pick.
-          key={addingExtra ? "extra" : "folder"}
-          suggestions={suggestions}
-          pinnedSuggestions={pinned}
-          pinnedPlacement="bottom"
-          cancelOnBlur={false}
-          onQuery={setQuery}
-          onSubmit={submit}
-          onCancel={close}
-          onHighlight={(value, by) => {
-            highlighted.current = value;
-            setHighlightAuto(by === "none");
-          }}
-          // Tab completes a folder's path into the field, never an action's.
-          onCommand={(event) => {
-            if (event.key === "Escape") escaped.current = true;
-            if (arrow(event.key)) event.preventDefault();
-            if (event.key === "Tab" && highlighted.current?.startsWith(ACTION)) event.preventDefault();
-          }}
-          label={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
-          placeholder={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
-          inputClassName="acpmux-location-search"
-          listClassName="acpmux-location-folders"
-          itemClassName="acpmux-menu-item"
-          renderItem={row}
-          autoHighlight
-          inline
-          // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
-          virtualRows={{ estimate: 28 }}
-        />
-        {shown.size === 0 && !typedPath && (
-          <div className="acpmux-location-empty">{t(typed ? "composer.folderNone" : "composer.folderNoneYet")}</div>
+        {cardShown ? (
+          <GitHubInstallCard
+            waiting={github?.state.waiting === true}
+            {...(github?.state.connectError ? { error: github.state.connectError } : {})}
+            onInstall={() => github?.onConnect()}
+            onBack={() => {
+              refocusField.current = true;
+              setGitHubCard(false);
+            }}
+          />
+        ) : (
+          <>
+            <Combobox
+              // A fresh field for Add another folder…'s pick.
+              key={addingExtra ? "extra" : "folder"}
+              inputRef={fieldMounted}
+              suggestions={suggestions}
+              pinnedSuggestions={pinned}
+              pinnedPlacement="bottom"
+              cancelOnBlur={false}
+              onQuery={(next) => {
+                setQuery(next);
+                // Words that no longer hold the ones GitHub was asked for: back to the whole first page.
+                const asked = github?.state.query;
+                if (asked && !next.trim().toLowerCase().includes(asked.toLowerCase())) github.onSearch(null);
+              }}
+              onSubmit={submit}
+              onCancel={close}
+              onHighlight={(value, by) => {
+                highlighted.current = value;
+                setHighlightAuto(by === "none");
+              }}
+              // Tab completes a folder's path into the field, never an action's or a GitHub row's.
+              onCommand={(event) => {
+                if (event.key === "Escape") escaped.current = true;
+                if (arrow(event.key)) event.preventDefault();
+                if (event.key === "Tab" && highlighted.current?.startsWith("\u0000")) event.preventDefault();
+              }}
+              label={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
+              placeholder={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
+              inputClassName="acpmux-location-search"
+              listClassName="acpmux-location-folders"
+              itemClassName="acpmux-menu-item"
+              renderItem={row}
+              autoHighlight
+              inline
+              // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
+              virtualRows={{ estimate: 28 }}
+            />
+            {shown.size === 0 && !typedPath && githubRows.length === 0 && (
+              <div className="acpmux-location-empty">{t(typed ? "composer.folderNone" : "composer.folderNoneYet")}</div>
+            )}
+            {github?.state.error !== undefined && githubStatus === "ready" && (
+              <div className="acpmux-location-empty acpmux-github-error" role="alert">
+                <span className="acpmux-github-error-text">{github.state.error}</span>
+                <Button variant="ghost" size="sm" onClick={() => github.onRetry()}>
+                  {t("project.retry")}
+                </Button>
+              </div>
+            )}
+            {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
+            {note && <p className="acpmux-location-note">{note}</p>}
+          </>
         )}
-        {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
-        {note && <p className="acpmux-location-note">{note}</p>}
       </Popover>
     </span>
   );
@@ -398,6 +539,10 @@ export function FolderPopover({
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";
 const ACTION_EXTRA = ACTION + "extra";
+/// The GitHub part's rows: never a path either.
+const GITHUB_ADD = "\u0000github:add";
+const GITHUB_MORE = "\u0000github:more";
+const GITHUB_REPO = "\u0000github:repo:";
 
 /// An action's glyph in the folders' icon column: + adds, a folder with + adds one more, the branch
 /// is a worktree, × is no folder.

@@ -523,6 +523,21 @@ jobs:
       # The Bundle cmux-tui phase bundles none (deferred): "Install universal
       # Ghostty CLI helper" below installs this tree's universal cmux-tui client
       # (install-cmux-tui-client.sh); the phase never takes another build's client.
+      # The app build refuses missing or stale cmux-next web bundles (agent pane, React pages, webviews).
+      # feat-cmux-next publishes them per source key (cmux-next-web-bundle-publish.yml); take that exact
+      # bundle, else build it here with this job's Node and Bun (handoff dry run 44014686155, 2026-11-17).
+      - name: Provide the cmux-next web bundles
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          status=0
+          scripts/cmux-next/fetch-web-bundles.sh --install || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "No published web bundles for this source key (exit $status); building them"
+            scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          scripts/cmux-next/build-web-bundles.sh --verify
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -595,9 +610,21 @@ jobs:
           # tree (resolve-release-cmux-tui-client) or fails.
           cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
           [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-release-cmux-tui-client produced no commit" >&2; exit 1; }
+          manifest_url="https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json"
+          # Only main and rc/** pushes build an Intel cmux-tui; a tree first published from
+          # feat-cmux-next has none. A tag release stays universal or fails; a dry run
+          # (workflow_dispatch, non-tag) of such a tree bundles an arm64-only CLI and says so.
+          tui_arch=universal
+          if [[ "$GITHUB_REF" != refs/tags/* ]] && ! curl -fsSL --retry 3 "$manifest_url" \
+              | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["binaries"].get("cmux-tui-x86_64-apple-darwin") else 1)'; then
+            echo "::warning title=arm64-only CLI::cmux-tui tree ${CMUX_TUI_CLIENT_KEY} has no x86_64-apple-darwin build; this dry run bundles an arm64-only bin/cmux. Do not offer it to Intel Macs."
+            tui_arch=arm64
+            echo "CMUX_TUI_ARM64_ONLY=1" >> "$GITHUB_ENV"
+          fi
           ./scripts/install-cmux-tui-client.sh \
             build-universal/Build/Products/Release/cmux.app \
-            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+            --arch "$tui_arch" \
+            --manifest-url "$manifest_url" \
             --expected-commit "$cmux_tui_commit" \
             --require-capability wireguard-hub \
             --require-acpmux
@@ -625,7 +652,7 @@ jobs:
           echo "Ghostty helper architectures: $HELPER_ARCHS"
           echo "App SDK version: $SDK_VERSION"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
-          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+          [[ "$CLI_ARCHS" == *arm64* && ( "$CLI_ARCHS" == *x86_64* || -n "${CMUX_TUI_ARM64_ONLY:-}" ) ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           for alias in cmux-tui acpmux; do
