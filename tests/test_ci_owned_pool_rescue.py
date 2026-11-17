@@ -3181,9 +3181,10 @@ class SideLanes(unittest.TestCase):
                                         "?branch=feat-cmux-next&event=push&per_page=20")])
 
     def test_cmux_next_overflows_a_queued_side_job_with_a_running_sibling(self):
-        # cmux-next's explicit rescue window is the overflow boundary. A queued
-        # side job moves with the bot rerun even when another side job is still
-        # running; attempt 2 remains minis-first and attempt 3 is Blacksmith.
+        # cmux-next's explicit rescue window is the overflow boundary: a queued side job is found even when another
+        # side job is still running. While vars.CI_BLACKSMITH_MACOS is off every bot attempt takes the side label
+        # again, so a dispatch's queued side job is held, never re-run onto the queue it waits on
+        # (SameLabelQueuedRerun); a pull request run at its open head is left to the failover.
         def cmux_next(done_at):
             def jobs(seconds):
                 test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
@@ -3199,10 +3200,10 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=payload,
                                  env_extra={"SIDE_RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
-        self.assertIn("cancel", api.calls)
-        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("overflowing the queued side jobs", summary)
-        self.assertIn("attempt 2 stays on the side lane's owned label", summary)
+        self.assertIn(f"{SIDE} is the label it waits on", summary)
         # The same pull request run at its open head is found but never cancelled.
         clock = Clock()
         api = FakeAPI(clock, cmux_next(done_at=None))

@@ -3502,8 +3502,10 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
         return "busy", ""
     if side_label and target.path == CMUX_NEXT_WORKFLOW_PATH \
             and not bot_rerun_leaves_owned(target.path, target.attempt, side_label=side_label):
-        if side_label in set(sources):
+        if side_label in set(sources) and not target.pr_number and not push_tip_failover(target):
             # The re-run takes the label the job waits on: the cancel only sends it to the back of the same queue.
+            # A pull request run at its head and a push run at its tip move only by the stall-aware failover, which
+            # re-runs the placement (rescue(), open_head_failover()), never the failed jobs alone.
             return "deeper", (f"{side_label} is the label it waits on, so its re-run would only rejoin that queue "
                               "at its back")
         deeper = deeper_queue(snapshot, sources, side_label)
