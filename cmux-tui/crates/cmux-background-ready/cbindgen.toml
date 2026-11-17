@@ -1,4 +1,4 @@
-# include/cmux_background_ready.h is cbindgen's output for src/ffi.rs (the one
+# cmux-app-ffi/include/cmux_background_ready.h is cbindgen's output for src/ffi.rs (the one
 # file it reads, so no other item of the crate reaches the header).
 # cmux-app-ffi's tests/background_ready_header.rs regenerates it and fails with
 # the diff when the committed header differs;
