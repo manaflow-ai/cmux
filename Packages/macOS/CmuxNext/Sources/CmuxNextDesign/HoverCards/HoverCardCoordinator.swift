@@ -174,7 +174,9 @@ public final class HoverCardCoordinator {
         let timing = HoverIntentTiming.current
         machine.leaveWindow = timing.cardGrace
         machine.aimWindow = timing.cardAim
-        let card = shownCardFrame
+        // A card the pointer never enters (a horizontal tab's preview) is not there for it: the pointer
+        // on it is off its target, as anywhere else, and heads into nothing.
+        let card = shownCardFrame.flatMap { shownCardIsEnterable ? $0 : nil }
         let aiming = card?.isAimedAt(from: lastPointer, to: now) == true
         lastPointer = now
         // On the card the pointer is on no target (the card ignores the mouse,
@@ -216,8 +218,12 @@ public final class HoverCardCoordinator {
         return panel.cardFrame
     }
 
-    /// Whether the pointer rests on the shown card now.
-    private func pointerIsOnCard() -> Bool { shownCardFrame?.contains(currentPointer()) == true }
+    /// Whether the pointer rests on the shown card now; never on a card it does not enter.
+    private func pointerIsOnCard() -> Bool { shownCardIsEnterable && shownCardFrame?.contains(currentPointer()) == true }
+
+    /// The shown card's target lets the pointer onto its card (`HoverTarget.enterable`): a sidebar row's
+    /// card does, a horizontal tab's preview does not (user 2026-11-16).
+    private var shownCardIsEnterable: Bool { machine.shownTarget?.enterable != false }
 
     /// The pointer rests on the shown card now (a source holds its targets still while it does: the card
     /// follows its target, so a target moving would carry the card out from under the pointer).

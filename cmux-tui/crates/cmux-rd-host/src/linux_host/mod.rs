@@ -39,7 +39,8 @@
 //! captures through the Wayland portal without a RemoteDesktop grant: there it is served view
 //! only.
 
-mod consent;
+// Consent is shared with `cmux-rd windows-host` (src/screen_host/).
+use crate::screen_host::consent;
 mod machine;
 mod setup;
 pub(crate) mod stack_login;

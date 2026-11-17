@@ -3,7 +3,7 @@
 # Mac's console session, one copy of the NIGHTLY and one home:
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-premain.sh --ref <sha> [--arg=dmg=nightly|URL] [--arg=reps=5] \
-#     [--arg=arms=h,a,b,c,g,d,k,e,e2,x,f] --artifact .build/launch-premain/report.tgz --timeout 5400
+#     [--arg=arms=h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6] --artifact .build/launch-premain/report.tgz --timeout 5400
 # A launch reaches `main` in 30 to 80 ms when launches follow each other closely, and 600 to 1170 ms when about 60 s
 # have passed since a full run began. Each arm is one pair (A, then the measured launch B), interleaved per rep, each
 # pair started only while the Mac's 1-minute load is under 8. A and B are open (LaunchServices) launches, as the Dock
@@ -17,6 +17,9 @@
 #   d   A short, then `purge` (root) before B: slow means evicted pages alone reproduce it (no root: no B)
 #   k   A short, then `ln EXE x; rm x` before B: slow means a new link count and ctime alone make the system scan the
 #       executable again, as Chromium's code-sign clone links it on every full run (cmux#44204)
+#   t1, t3, t6  A kept 1, 3 or 6 s past its first window, quit as Cmd-Q does; B: at which point of a run the next
+#       launch turns slow (a 6 s run and quit already does, launch-ready back to back), and B's nlink and ctime_age_s
+#       say whether the executable was linked by then
 #   e   our executable exec'd to main (X), Calculator opened and kept 60 s, quit, 3 s, B exec'd to main
 #   e2  as e with 63 s of idle in place of Calculator (e's control)
 #   x   as a, B exec'd to main (no LaunchServices)
@@ -32,7 +35,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f" arg rc=0 rep arm
+  local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" arg rc=0 rep arm
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
@@ -43,7 +46,7 @@ main() {
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$arms" =~ ^(h|a|b|c|g|d|k|e|e2|x|f)(,(h|a|b|c|g|d|k|e|e2|x|f))*$ ]] || { echo "arms= takes h,a,b,c,g,d,k,e,e2,x,f" >&2; exit 2; }
+  [[ "$arms" =~ ^(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6)(,(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6))*$ ]] || { echo "arms= takes h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" >&2; exit 2; }
   echo "LP host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LP root yes" || echo "LP root no (arms d and f need it: their rows say so)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -161,6 +164,7 @@ pair() {
     g) launch open A 0 term && quiesce 0 && sleep 60 && measured open ;;
     d) launch open A 0 term && quiesce 0 && root /usr/sbin/purge && sleep 3 && measured open ;;
     k) launch open A 0 term && ended && relink && measured open ;;
+    t1|t3|t6) launch open A "${ARM#t}" quit && ended && measured open ;;
     e) launch exec X && other_app 60 && sleep 3 && measured exec ;;
     e2) launch exec X && sleep 63 && measured exec ;;
     x) launch open A 60 quit && ended && measured exec ;;
@@ -172,7 +176,25 @@ ended() { quiesce 0; sleep 3; }
 
 # relink: a second hard link to the executable made and removed, as Chromium's code-sign clone links it into
 # $DARWIN_USER_TEMP/../X/<bundle id>.code_sign_clone/ (cmux#44204): the link count and ctime change, the bytes do not.
-relink() { ln "$EXE" "$OUT/exe-link" && rm -f "$OUT/exe-link"; }
+# First as the step's user; if that is refused, as the console user the app runs as (Chromium links as the app). A row
+# (role relink) says who made the link, or both errors.
+relink() {
+  local direct console="" by=step nlink
+  nlink="$(stat -f %l "$EXE")"
+  if ! direct="$(ln "$EXE" "$OUT/exe-link" 2>&1)"; then
+    rm -f "$OUT/home/exe-link"
+    if console="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/sh -c \
+        'ln "$1" "$2" && rm -f "$2"' sh "$EXE" "$OUT/home/exe-link" 2>&1 >/dev/null)"; then
+      by=console
+    else
+      by=none
+    fi
+  fi
+  rm -f "$OUT/exe-link"
+  record relink "LP-RUN $(python3 -I -c 'import json,sys; print(json.dumps({"relink_by": sys.argv[1], "nlink_before": int(sys.argv[2]), "nlink_after": int(sys.argv[3]), "direct_error": sys.argv[4][-300:], "console_error": sys.argv[5][-300:]}))' \
+    "$by" "$nlink" "$(stat -f %l "$EXE")" "$direct" "$console")"
+  [[ "$by" != none ]]
+}
 
 # measured open|exec|sampled: the measured launch B (open: SIGTERM at its first window), with the executable's link
 # count and seconds since its ctime before it, and the CPU the system's code checkers (syspolicyd, XprotectService,
