@@ -145,6 +145,101 @@ function isConfigurationAnswer(status: number, body: unknown): boolean {
   return status === 503 && (body as { error?: unknown } | null)?.error === "health_token_missing";
 }
 
+type DeliveryState = {
+  notificationUuid: string | null;
+  attempts: DeliveryReport["attempts"];
+  appleDelivered: boolean;
+  recorded: boolean;
+  receivedAt: string | null;
+  processedAt: string | null;
+};
+
+/** Waits one interval if that stays before `deadline`; false when time is up. */
+async function pauseUntil(clock: NightlyClock, deadline: number, intervalMs: number): Promise<boolean> {
+  if (clock.now() + intervalMs > deadline) return false;
+  await clock.wait(intervalMs);
+  return true;
+}
+
+/** Phase 1: Apple's own record of delivering it to our notification URL. Null on success, else the failure. */
+async function waitForAppleDelivery(
+  client: NightlyAppleClient,
+  token: string,
+  state: DeliveryState,
+  clock: NightlyClock,
+  timeoutMs: number,
+  intervalMs: number,
+): Promise<string | null> {
+  const deadline = clock.now() + timeoutMs;
+  for (;;) {
+    let lastWait: string;
+    try {
+      const status = await client.getTestNotificationStatus(token);
+      state.attempts = attemptsOf(status);
+      state.notificationUuid = notificationUuidFromSignedPayload(status.signedPayload) ?? state.notificationUuid;
+      if (state.attempts.some((attempt) => attempt.result === "SUCCESS")) {
+        state.appleDelivered = true;
+        return null;
+      }
+      if (state.attempts.length > 0) {
+        // Apple retries a failed delivery hours later, not within this job.
+        return `Apple could not deliver the TEST notification: ${state.attempts.map((a) => a.result).join(", ")}`;
+      }
+      lastWait = "Apple has recorded no delivery attempt";
+    } catch (error) {
+      if (!(error instanceof NotYet)) return `reading the TEST notification status failed: ${describeError(error)}`;
+      lastWait = error.message;
+    }
+    if (!(await pauseUntil(clock, deadline, intervalMs))) {
+      return `no delivery attempt within ${Math.round(timeoutMs / 1000)} s (${lastWait})`;
+    }
+  }
+}
+
+/**
+ * Phase 2: our ledger's record of it, in the environment we asked for. Apple
+ * counts a delivery only after our 200, which the route sends once the row is
+ * durable, so this is normally immediate; its own short budget covers a read
+ * replica that lags, however late Apple's attempt came.
+ */
+async function waitForLedger(
+  readHealth: HealthReader,
+  uuid: string,
+  environment: string,
+  state: DeliveryState,
+  clock: NightlyClock,
+  timeoutMs: number,
+  intervalMs: number,
+): Promise<string | null> {
+  const deadline = clock.now() + timeoutMs;
+  for (;;) {
+    let answer: { status: number; body: unknown };
+    try {
+      answer = await readHealth(uuid);
+    } catch (error) {
+      answer = { status: 0, body: { error: describeError(error) } };
+    }
+    const body = answer.body as
+      | { found?: unknown; environment?: unknown; receivedAt?: unknown; processedAt?: unknown }
+      | null;
+    if (answer.status === 200 && body?.found === true) {
+      if (body.environment !== environment) {
+        return `the ledger recorded ${uuid} as ${String(body.environment)}, not ${environment}`;
+      }
+      state.recorded = true;
+      state.receivedAt = typeof body.receivedAt === "string" ? body.receivedAt : null;
+      state.processedAt = typeof body.processedAt === "string" ? body.processedAt : null;
+      return null;
+    }
+    if (isConfigurationAnswer(answer.status, answer.body)) {
+      return `the health read answered HTTP ${answer.status} ${JSON.stringify(answer.body)}`;
+    }
+    if (!(await pauseUntil(clock, deadline, intervalMs))) {
+      return `Apple delivered ${uuid}, but it was not recorded in apple_notifications within ${Math.round(timeoutMs / 1000)} s (last health answer HTTP ${answer.status})`;
+    }
+  }
+}
+
 export async function checkAppleDelivery(input: {
   readonly client: NightlyAppleClient;
   readonly readHealth: HealthReader;
@@ -157,35 +252,23 @@ export async function checkAppleDelivery(input: {
   readonly intervalMs?: number;
 }): Promise<DeliveryReport> {
   const { client, readHealth, clock, environment } = input;
-  const timeoutMs = input.timeoutMs ?? 5 * 60_000;
-  const ledgerTimeoutMs = input.ledgerTimeoutMs ?? 60_000;
   const intervalMs = input.intervalMs ?? 10_000;
   const started = clock.now();
-  let deadline = started + timeoutMs;
-  let notificationUuid: string | null = null;
-  let attempts: DeliveryReport["attempts"] = [];
-  let appleDelivered = false;
-  let recorded = false;
-  let receivedAt: string | null = null;
-  let processedAt: string | null = null;
+  const state: DeliveryState = {
+    notificationUuid: null,
+    attempts: [],
+    appleDelivered: false,
+    recorded: false,
+    receivedAt: null,
+    processedAt: null,
+  };
   const report = (failure: string | null): DeliveryReport => ({
     ok: failure === null,
     environment,
-    notificationUuid,
-    appleDelivered,
-    attempts,
-    recorded,
-    receivedAt,
-    processedAt,
+    ...state,
     elapsedMs: clock.now() - started,
     failure,
   });
-  /** Waits one interval if that stays inside the deadline; false when time is up. */
-  const pause = async () => {
-    if (clock.now() + intervalMs > deadline) return false;
-    await clock.wait(intervalMs);
-    return true;
-  };
 
   let token: string;
   try {
@@ -193,68 +276,14 @@ export async function checkAppleDelivery(input: {
   } catch (error) {
     return report(`requesting a TEST notification failed: ${describeError(error)}`);
   }
-
-  // 1. Apple's own record of delivering it to our notification URL.
-  let lastWait = "";
-  for (;;) {
-    try {
-      const status = await client.getTestNotificationStatus(token);
-      attempts = attemptsOf(status);
-      notificationUuid = notificationUuidFromSignedPayload(status.signedPayload) ?? notificationUuid;
-      if (attempts.some((attempt) => attempt.result === "SUCCESS")) {
-        appleDelivered = true;
-        break;
-      }
-      if (attempts.length > 0) {
-        // Apple retries a failed delivery hours later, not within this job.
-        return report(`Apple could not deliver the TEST notification: ${attempts.map((a) => a.result).join(", ")}`);
-      }
-      lastWait = "Apple has recorded no delivery attempt";
-    } catch (error) {
-      if (!(error instanceof NotYet)) {
-        return report(`reading the TEST notification status failed: ${describeError(error)}`);
-      }
-      lastWait = error.message;
-    }
-    if (!(await pause())) {
-      return report(`no delivery attempt within ${Math.round(timeoutMs / 1000)} s (${lastWait})`);
-    }
-  }
-  if (!notificationUuid) {
-    return report("Apple's signed TEST payload carries no notification UUID");
-  }
-
-  // 2. Our ledger's record of it, in the environment we asked for. Apple
-  // counts a delivery only after our 200, which the route sends once the row
-  // is durable, so this is normally immediate; its own short budget covers a
-  // read replica that lags, however late Apple's attempt came.
-  deadline = clock.now() + ledgerTimeoutMs;
-  for (;;) {
-    let answer: { status: number; body: unknown };
-    try {
-      answer = await readHealth(notificationUuid);
-    } catch (error) {
-      answer = { status: 0, body: { error: describeError(error) } };
-    }
-    const body = answer.body as
-      | { found?: unknown; environment?: unknown; receivedAt?: unknown; processedAt?: unknown }
-      | null;
-    if (answer.status === 200 && body?.found === true) {
-      if (body.environment !== environment) {
-        return report(`the ledger recorded ${notificationUuid} as ${String(body.environment)}, not ${environment}`);
-      }
-      recorded = true;
-      receivedAt = typeof body.receivedAt === "string" ? body.receivedAt : null;
-      processedAt = typeof body.processedAt === "string" ? body.processedAt : null;
-      return report(null);
-    }
-    if (isConfigurationAnswer(answer.status, answer.body)) {
-      return report(`the health read answered HTTP ${answer.status} ${JSON.stringify(answer.body)}`);
-    }
-    if (!(await pause())) {
-      return report(`Apple delivered ${notificationUuid}, but it was not recorded in apple_notifications within ${Math.round(ledgerTimeoutMs / 1000)} s (last health answer HTTP ${answer.status})`);
-    }
-  }
+  const deliveryFailure = await waitForAppleDelivery(
+    client, token, state, clock, input.timeoutMs ?? 5 * 60_000, intervalMs,
+  );
+  if (deliveryFailure) return report(deliveryFailure);
+  if (!state.notificationUuid) return report("Apple's signed TEST payload carries no notification UUID");
+  return report(await waitForLedger(
+    readHealth, state.notificationUuid, environment, state, clock, input.ledgerTimeoutMs ?? 60_000, intervalMs,
+  ));
 }
 
 export async function checkServerApi(input: {
