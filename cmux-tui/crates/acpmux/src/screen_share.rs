@@ -283,8 +283,8 @@ const JOINED_MARK: &str = "joined-from-another-device";
 /// Records that this machine was set up from another of the person's devices.
 pub fn mark_joined(home: &Path) -> std::io::Result<()> {
     let folder = dir(home);
-    std::fs::create_dir_all(&folder)?;
-    std::fs::write(folder.join(JOINED_MARK), b"")
+    crate::home_fs::create_dir_all(&folder, 0o700)?;
+    crate::home_fs::write(folder.join(JOINED_MARK), b"")
 }
 
 /// Whether this machine's device asks the hub to turn its sharing on (`POST /v1/devices
@@ -306,11 +306,11 @@ pub fn share_by_join_here(home: &Path) -> bool {
 
 fn keep(home: &Path, status: &Status) -> std::io::Result<()> {
     let folder = dir(home);
-    std::fs::create_dir_all(&folder)?;
+    crate::home_fs::create_dir_all(&folder, 0o700)?;
     let text = serde_json::to_vec_pretty(status).map_err(std::io::Error::other)?;
     let temporary = folder.join(format!(".{STATUS_RECORD}.{}", std::process::id()));
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(temporary, folder.join(STATUS_RECORD))
+    crate::home_fs::write(&temporary, text)?;
+    crate::home_fs::rename(temporary, folder.join(STATUS_RECORD))
 }
 
 fn now_ms() -> u64 {
@@ -520,8 +520,9 @@ mod platform {
         let file_name = helper.file_name().ok_or("bad bundle name")?.to_owned();
         let name = file_name.to_string_lossy().trim_end_matches(".app").to_owned();
         let root = dir(home);
-        std::fs::create_dir_all(&root).map_err(|e| format!("{}: {e}", root.display()))?;
-        let _ = std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700));
+        crate::home_fs::create_dir_all(&root, 0o700)
+            .map_err(|e| format!("{}: {e}", root.display()))?;
+        let _ = crate::home_fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700));
         let slot = root.join(&id);
         let target = slot.join(&file_name);
         let installed =
@@ -533,8 +534,8 @@ mod platform {
             return Ok(installed);
         }
         let temporary = root.join(format!(".staging-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&temporary);
-        std::fs::create_dir_all(&temporary).map_err(|e| e.to_string())?;
+        let _ = crate::home_fs::remove_dir_all(&temporary);
+        crate::home_fs::create_dir_all(&temporary, 0o700).map_err(|e| e.to_string())?;
         let copy = temporary.join(&file_name);
         let copied = Command::new("/usr/bin/ditto")
             .args(["--norsrc", "--noqtn"])
@@ -553,25 +554,25 @@ mod platform {
             Err("cannot copy the helper out of the app".into())
         };
         if let Err(why) = checked {
-            let _ = std::fs::remove_dir_all(&temporary);
+            let _ = crate::home_fs::remove_dir_all(&temporary);
             return Err(why);
         }
         // A share running from the old copy keeps its open files; the next starts the new one.
         let old = root.join(format!(".old-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&old);
+        let _ = crate::home_fs::remove_dir_all(&old);
         if slot.exists() {
-            std::fs::rename(&slot, &old).map_err(|e| e.to_string())?;
+            crate::home_fs::rename(&slot, &old).map_err(|e| e.to_string())?;
         }
-        if let Err(e) = std::fs::rename(&temporary, &slot) {
-            let _ = std::fs::rename(&old, &slot);
+        if let Err(e) = crate::home_fs::rename(&temporary, &slot) {
+            let _ = crate::home_fs::rename(&old, &slot);
             return Err(e.to_string());
         }
-        let _ = std::fs::remove_dir_all(&old);
+        let _ = crate::home_fs::remove_dir_all(&old);
         let record = serde_json::to_vec_pretty(&installed).map_err(|e| e.to_string())?;
         let path = root.join(HELPER_RECORD);
         let temporary = root.join(format!(".{HELPER_RECORD}.{}", std::process::id()));
-        std::fs::write(&temporary, record).map_err(|e| e.to_string())?;
-        std::fs::rename(temporary, path).map_err(|e| e.to_string())?;
+        crate::home_fs::write(&temporary, record).map_err(|e| e.to_string())?;
+        crate::home_fs::rename(temporary, path).map_err(|e| e.to_string())?;
         Ok(installed)
     }
 
