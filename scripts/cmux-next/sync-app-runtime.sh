@@ -120,7 +120,12 @@ stage_store() {
       fi
       if [[ -f "$app/cmux-app.v2.json" ]]; then
         copy "$app/cmux-app.v2.json" "store/$name/cmux-app.v2.json"
-      elif grep -q '"manifestVersion": 2' "$app/cmux-app.json" 2>/dev/null; then
+      elif [[ -f "$app/cmux-app.json" ]] && python3 -I -c 'import json, sys
+try:
+    doc = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    sys.exit(1)
+sys.exit(0 if isinstance(doc, dict) and type(doc.get("manifestVersion")) is int and doc["manifestVersion"] == 2 else 1)' "$app/cmux-app.json"; then
         copy "$app/cmux-app.json" "store/$name/cmux-app.v2.json"
       else
         echo "sync-app-runtime: $app has a STORE marker but no manifest v2" >&2
