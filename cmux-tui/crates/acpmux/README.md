@@ -436,8 +436,12 @@ off) the chat gets one prompt telling the agent to check what finished and conti
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
-`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `transport` or
-`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way.
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
+`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
+turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
+words (a context past 250K tokens compacts first), the row's `rateLimitedUntil` says until when,
+and `acpmux retry` is refused (`retry.rate_limited`) until then; Stop ends the hold.
 `acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
