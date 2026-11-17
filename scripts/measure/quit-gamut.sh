@@ -20,18 +20,23 @@
 #                its own Sparkle and pre-warm, installs it on quit, and is reopened; then a second launch of the same
 #                build. Sparkle installs the feed's newest, so leave build= unset. Prints GAMUT-RATIO lines
 #                (first/second for first window, settled, prior chat front and prior chat live)
+#   pair=FROM,TO   with paths=sparkle-update: the update from nightly FROM to nightly TO, either of them gone from the
+#                feed (a before/after of a fix older than the feed's two builds). A local appcast offers both, each
+#                signed by the <dmg>.signature.json published beside its DMG, and the older build checks it instead of
+#                its own feed (updates.test_feed); FROM is installed, its Sparkle stages TO. Leave build= unset
 # Prints GAMUT-ROUND lines, one GAMUT {json} and the table; keeps gamut.json, gamut.md, app.log and videos in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/quit-gamut"
 rm -rf "$out" && mkdir -p "$out"
-build="" base="" headsha="" rounds=3 extra=()
+build="" base="" headsha="" rounds=3 pair="" extra=()
 for arg in "$@"; do
   case "$arg" in
     build=*) build="${arg#build=}" ;;
     base=*) base="${arg#base=}" ;;
     head=*) headsha="${arg#head=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
+    pair=*) pair="${arg#pair=}" ;;
     paths=*) extra+=(--paths "${arg#paths=}") ;;
     states=*) extra+=(--states "${arg#states=}") ;;
     many=*) extra+=(--many "${arg#many=}") ;;
@@ -102,10 +107,29 @@ PY
 }
 [[ -n "$headsha" ]] && ab
 [[ -z "$base" ]] || { echo "base= needs head=" >&2; exit 2; }
+if [[ -n "$pair" ]]; then
+  [[ "$pair" =~ ^([0-9]+),([0-9]+)$ && -z "$build" ]] || { echo "pair= takes FROM,TO nightly builds, without build=" >&2; exit 2; }
+  from="${BASH_REMATCH[1]}" to="${BASH_REMATCH[2]}"
+  (( from < to )) || { echo "pair=FROM,TO: FROM must be the older build" >&2; exit 2; }
+fi
 
 feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-quit-gamut/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" \
   || { echo "GAMUT feed download failed"; exit 3; }
+if [[ -n "$pair" ]]; then
+  sigs=()
+  for b in "$from" "$to"; do
+    url="https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-$b.dmg"
+    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-quit-gamut/1 -o "$out/$b.signature.json" \
+      "$url.signature.json" || { echo "GAMUT no signature published for nightly $b"; exit 3; }
+    sigs+=(--signature "$b=$out/$b.signature.json")
+  done
+  python3 scripts/ci/quit_gamut_check.py pair-feed --live "$out/feed.xml" "${sigs[@]}" --out "$out/pair-feed.xml" \
+    || { echo "GAMUT the pair feed could not be written"; exit 3; }
+  echo "GAMUT pair from=$from to=$to (a local feed)"
+  extra+=(--test-feed "$out/pair-feed.xml")
+  cp "$out/pair-feed.xml" "$out/feed.xml"
+fi
 picked="$(python3 scripts/ci/nightly_next_launch_smoke.py pick --feed "$out/feed.xml" ${build:+--build "$build"})" \
   || { echo "GAMUT no nightly build on the feed"; exit 3; }
 echo "$picked" | sed 's/^/GAMUT pick /'

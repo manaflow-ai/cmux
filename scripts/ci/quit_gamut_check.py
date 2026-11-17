@@ -70,14 +70,17 @@ from __future__ import annotations
 
 import argparse
 import errno
+import http.server
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -663,12 +666,20 @@ class Gamut:
                     # The round starts on the older build, so the reopen is a real version handoff.
                     if self.app.process.poll() is None:
                         try:
-                            quit_app(self.app, "scripted")
+                            why, _ = quit_app(self.app, "scripted")
+                            if why:
+                                log(f"before the update round: {why}")
                         except QuitFailed as error:
                             log(f"before the update round: {error}")
+                    if self.app.process.poll() is None:
+                        # A quit the app never answered (a hung older build): it must not hold the socket and the
+                        # bundle while the next round's copy starts, or every later round reads "never answered".
+                        smoke.stop_child(self.app.process)
+                        self.app.close_marks()
                     swap_bundle(self.app.bundle, previous)
                     if path == "sparkle-update":
-                        self.sparkle = self.sparkle or SparkleUpdate(Path(env["HOME"]), self.app.bundle)
+                        self.sparkle = self.sparkle or SparkleUpdate(Path(env["HOME"]), self.app.bundle,
+                                                                     self.args.test_feed, self.out)
                         self.sparkle.prepare()
                     self.app.start()
                     if not wait_for(self.app.answers, 60, 0.25):
@@ -699,6 +710,41 @@ class Gamut:
                     restart()
 
 
+NIGHTLY_DMG = "https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-{build}.dmg"
+FEED_ITEM = re.compile(r"<item>.*?</item>", re.S)
+
+
+def pair_feed(live: str, signed: dict[str, dict]) -> str:
+    """An appcast offering only SIGNED's builds (build -> its `<dmg>.signature.json`: edSignature, length), newest
+    first, each item a copy of LIVE's first item with that build's version, DMG and signature: a build the live feed
+    has dropped is still offered to the older build of a pair (quit-gamut.sh pair=FROM,TO). Sparkle checks each
+    DMG against the app's own key, so the signature published beside the DMG is all an item needs. The template's
+    deltas, notes and source commit are the template build's own and are left out."""
+    template = FEED_ITEM.search(live)
+    if not template:
+        raise ValueError("the live feed has no item to copy")
+    item = template.group(0)
+    old = re.search(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", item)
+    if not old:
+        raise ValueError("the live feed's first item has no sparkle:version")
+    item = re.sub(r"\s*<sparkle:deltas>.*?</sparkle:deltas>", "", item, flags=re.S)
+    item = re.sub(r"\s*<(cmux:sourceCommit|sparkle:releaseNotesLink|sparkle:fullReleaseNotesLink)\b.*?</\1>", "", item,
+                  flags=re.S)
+    item = re.sub(r"<description>.*?</description>", "<description>quit gamut pair feed</description>", item, flags=re.S)
+    items = []
+    for build in sorted(signed, key=int, reverse=True):
+        sig = signed[build]
+        if not str(build).isdigit() or not sig.get("edSignature") or not str(sig.get("length", "")).isdigit():
+            raise ValueError(f"build {build}: no signature or length")
+        one = item.replace(old.group(1), str(build))
+        enclosure = (f'<enclosure url="{NIGHTLY_DMG.format(build=build)}" length="{int(sig["length"])}" '
+                     f'type="application/octet-stream" sparkle:edSignature="{sig["edSignature"]}"/>')
+        one = re.sub(r"<enclosure\b[^>]*/>", lambda _m: enclosure, one, count=1, flags=re.S)
+        items.append(one)
+    last = list(FEED_ITEM.finditer(live))[-1]
+    return live[:template.start()] + "\n        ".join(items) + live[last.end():]
+
+
 def bundle_build(bundle: Path) -> str | None:
     try:
         with open(bundle / "Contents" / "Info.plist", "rb") as handle:
@@ -710,8 +756,12 @@ def bundle_build(bundle: Path) -> str | None:
 class SparkleUpdate:
     """The `sparkle-update` path's update: staged by the older build's own Sparkle, installed by Sparkle on quit."""
 
-    def __init__(self, home: Path, bundle: Path):
-        self.home, self.bundle = home, bundle
+    def __init__(self, home: Path, bundle: Path, test_feed: Path | None = None, out: Path | None = None):
+        self.home, self.bundle, self.out = home, bundle, out
+        # --test-feed: the appcast the older build reads instead of its baked feed (quit-gamut.sh pair=), served
+        # from loopback (updates.test_feed takes http only there) once the first round asks for it.
+        self.test_feed = test_feed
+        self.feed_url: str | None = None
         self.bundle_id, _ = smoke.bundle_info(bundle)
         self.settings = home / ".config" / "cmux" / "cmux-next.json"
         self.saved: str | None = None
@@ -744,9 +794,15 @@ class SparkleUpdate:
         sparkle = Path("Library/Caches") / self.bundle_id / "org.sparkle-project.Sparkle"
         account = Path(os.path.expanduser("~")) / sparkle
         account.mkdir(parents=True, exist_ok=True)
-        (self.home / sparkle).parent.mkdir(parents=True, exist_ok=True)
-        if not (self.home / sparkle).exists():
-            (self.home / sparkle).symlink_to(account, target_is_directory=True)
+        private = self.home / sparkle
+        private.parent.mkdir(parents=True, exist_ok=True)
+        # The gamut boots the newer build in this home before the first update round, and its Sparkle makes the
+        # folder for real: left as it is, the pre-warm scans an empty private folder ("no staged bundle", every
+        # round of the first fleet runs, 2026-11-17) while the installer stages under the account's.
+        if private.exists() and not private.is_symlink():
+            shutil.rmtree(private)
+        if not private.is_symlink():
+            private.symlink_to(account, target_is_directory=True)
         self.offsets = {log_path: log_path.stat().st_size if log_path.exists() else 0 for log_path in self.logs}
 
     def restore(self) -> None:
@@ -769,6 +825,12 @@ class SparkleUpdate:
     def stage(self, app: App) -> dict:
         """Asks the running older build for an update until Sparkle has staged one and its pre-warm has ended."""
         result: dict = {"from_build": self.from_build}
+        if self.test_feed is not None:
+            result["test_feed"] = self.serve_feed()
+            reply = l5.call(app.sock, "updates.test_feed", {"url": result["test_feed"]}, timeout=10)
+            if reply.get("error"):
+                result["failures"] = [f"updates.test_feed {result['test_feed']}: {reply['error']}"]
+                return result
         asked = time.monotonic()
         reply = l5.call(app.sock, "action.run", {"action": "palette.checkForUpdates"}, timeout=30)
         if reply.get("error"):
@@ -781,6 +843,7 @@ class SparkleUpdate:
             return status.get("phase") == "installing"
         if not wait_for(installing, STAGE_S, 2.0):
             result["failures"] = [f"no update staged in {STAGE_S:.0f} s: {json.dumps(status)[:300]}"]
+            result.update(self.stuck(app))
             return result
         result["stage_s"] = round(time.monotonic() - asked, 1)
         result["staged_version"] = status.get("detected_version")
@@ -790,6 +853,48 @@ class SparkleUpdate:
         result["prewarm_log"] = self.prewarm_lines()
         result["prewarm_done"] = bool(done)
         return result
+
+    def serve_feed(self) -> str:
+        """The --test-feed appcast at http://127.0.0.1:PORT/appcast.xml, from a server thread of this process."""
+        if self.feed_url is None:
+            body = self.test_feed.read_bytes()
+
+            class Feed(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):  # noqa: N802 (the stdlib's name)
+                    found = self.path.split("?")[0] == "/appcast.xml"
+                    self.send_response(200 if found else 404)
+                    self.send_header("Content-Type", "application/xml")
+                    self.send_header("Content-Length", str(len(body) if found else 0))
+                    self.end_headers()
+                    if found:
+                        self.wfile.write(body)
+
+                def log_message(self, *_args):
+                    pass
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Feed)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self.feed_url = f"http://127.0.0.1:{server.server_address[1]}/appcast.xml"
+        return self.feed_url
+
+    def stuck(self, app: App) -> dict:
+        """No update staged: whether the older build still runs, its updater log's last lines, and, while it runs,
+        a 3 s `sample` of it in the report (the macOS 27 minis' runs: updates.status timed out for 900 s)."""
+        found: dict = {"app_running": app.process is not None and app.process.poll() is None, "updater_log": []}
+        for log_path in self.logs:
+            try:
+                found["updater_log"] += log_path.read_text(errors="replace").splitlines()[-30:]
+            except OSError:
+                pass
+        if found["app_running"] and self.out is not None:
+            target = self.out / f"stuck-{app.process.pid}.sample.txt"
+            try:
+                subprocess.run(["sample", str(app.process.pid), "3", "-file", str(target)],
+                               capture_output=True, timeout=60)
+                found["sample"] = target.name if target.exists() else None
+            except (OSError, subprocess.SubprocessError) as error:
+                found["sample"] = f"none: {error}"
+        return found
 
     def installed(self, row: dict) -> str | None:
         """After the quit: waits for Sparkle's installer to replace the bundle; None, or why the round fails."""
@@ -853,10 +958,34 @@ def table(rows: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def pair_feed_main(argv: list[str]) -> int:
+    """`pair-feed --live FEED --signature BUILD=FILE ... --out FILE`: writes pair_feed's appcast."""
+    parser = argparse.ArgumentParser(prog="quit_gamut_check.py pair-feed")
+    parser.add_argument("--live", type=Path, required=True)
+    parser.add_argument("--signature", action="append", required=True, help="BUILD=FILE (a <dmg>.signature.json)")
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args(argv)
+    signed = {}
+    for entry in args.signature:
+        build, _, file = entry.partition("=")
+        signed[build] = json.loads(Path(file).read_text())
+    try:
+        args.out.write_text(pair_feed(args.live.read_text(), signed))
+    except (ValueError, OSError) as error:
+        log(f"pair-feed: {error}")
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["pair-feed"]:
+        return pair_feed_main(argv[1:])
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dmg", required=True)
     parser.add_argument("--update-dmg", help="the older build the update rounds start on (the newer one is --dmg)")
+    parser.add_argument("--test-feed", type=Path, help="sparkle-update: the appcast the older build checks instead of "
+                        "its baked feed (served from 127.0.0.1, set with updates.test_feed); quit-gamut.sh pair=")
     parser.add_argument("--paths", default="dock,cmdq,scripted,kill,term,update")
     parser.add_argument("--states", default=",".join(STATES))
     parser.add_argument("--many", type=int, default=32)
