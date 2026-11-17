@@ -20,7 +20,7 @@ import { ShareDialogHost } from "./share/ShareControl";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
-import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS, type CaptureMode } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
 import { chatOnThisMac, chatPlace, chatMachine as chatMachineOf } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
@@ -206,7 +206,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -552,7 +552,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
   cloudStartSaid,
@@ -563,6 +562,7 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  composerAgentLocal,
   cloudSendAfterCheck,
   heldPromptShown,
 } from "./cloudRun";
@@ -638,9 +638,9 @@ import {
   oneKeyPerMessageRun,
   withHeldFolds,
   withoutHeldCalls,
-  lastTurnWorkedKeys,
   rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -667,8 +667,8 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
-  hostSelfRetrying,
   lostRetryDelay,
+  hostSelfRetrying,
   jitteredDelay,
   quickRetry,
 } from "./hostRetry";
@@ -9371,6 +9371,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const files = Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [];
             // The Enter a held `/side` bound (Composer `onBindSideGesture`): its prompt spends it.
             const held = sendGestureParam(gesture);
+            // Files that would need uploading cannot go to a side chat: refused before the fork, so
+            // no side chat opens and they stay in the composer.
+            const tooLarge = files.length
+              ? client.sideRefusal(typeof prompt === "string" ? prompt.trim() : "", files)
+              : undefined;
+            if (tooLarge) throw new CmuxCommandRefused(tooLarge);
             // The side chat's prompt resolves when its turn ends, so nothing waits on it here.
             // acpmux's own refusal shows in the side chat; one the host made never reached it.
             const sidePromptRefused = (error: unknown) => {
