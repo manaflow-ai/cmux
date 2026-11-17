@@ -60,14 +60,32 @@ strip_executable() {
   strip_if_macho "$1" full
 }
 
-# cmux NEXT links its executable with -no_exported_symbols, so the strip below
-# removes every function name. Keep them in Resources/cmux-symbols.bin first:
-# hang records and exception traces name app frames through it.
-if [ -f "$APP_PATH/Contents/MacOS/cmux" ]; then
+# cmux NEXT's code is Contents/Frameworks/CmuxNextApp.framework behind a stub
+# Contents/MacOS/cmux (Packages/macOS/CmuxNext/Package.swift, CMUX-629); a live
+# code build links it into the executable. That image exports only the stub's
+# entry point (the static executable: nothing, -no_exported_symbols), so the
+# strip below removes every function name. Keep them in
+# Resources/cmux-symbols.bin first: hang records and exception traces name app
+# frames through it.
+APP_CODE="$APP_PATH/Contents/MacOS/cmux"
+for candidate in \
+  "$APP_PATH/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp" \
+  "$APP_PATH/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"; do
+  if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then
+    APP_CODE="$candidate"
+    break
+  fi
+done
+if [ -f "$APP_CODE" ]; then
   python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
-    "$APP_PATH/Contents/MacOS/cmux" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
+    "$APP_CODE" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
 fi
 strip_executable "$APP_PATH/Contents/MacOS/cmux"
+# The framework keeps its global symbols (-S -x): its one export, and the
+# undefined symbols dyld binds.
+if [ "$APP_CODE" != "$APP_PATH/Contents/MacOS/cmux" ]; then
+  strip_if_macho "$APP_CODE"
+fi
 # bin/cmux is the Rust cmux-tui binary, which ships no dSYM: keep its global
 # symbols (-S -x) so its crash reports still name functions.
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
