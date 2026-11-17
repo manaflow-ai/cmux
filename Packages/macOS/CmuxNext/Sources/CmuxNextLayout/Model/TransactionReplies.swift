@@ -1,8 +1,9 @@
-/// The ended values of each layout transaction the daemon has not answered yet. The app sends every ended value as its
-/// own command and settles the transaction at each reply (`WorkspaceContentController.sendGesture`), so a transaction
-/// of several values (a keyboard trade's two widths, an Option or Command drag's release, a split's sizing) settles only
-/// at the reply to its last one: settled earlier, a daemon snapshot taken between two of its commands' events dropped the
-/// values still on their way, and for a frame the screen showed them at their old sizes.
+/// The ended intents of each layout transaction the daemon has not answered yet. The app settles the transaction at
+/// each intent's reply (`WorkspaceContentController.sendGesture`). A change of several values that goes as one intent (a
+/// keyboard trade's two widths, an Option or Command drag's release: `EndedValues`) has one reply. A transaction whose
+/// values go as their own intents (a split's sizing, a dock's width) settles only at the reply to its last one: settled
+/// earlier, a daemon snapshot taken between two of its commands' events dropped the values still on their way, and for a
+/// frame the screen showed them at their old sizes.
 struct TransactionReplies {
     private var unanswered: [LayoutTransactionID: Int] = [:]
     /// The changes going out now (`EndedValues.send`), innermost last: one can be sent from inside another's intent

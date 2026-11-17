@@ -50,6 +50,13 @@ public final class MockLayoutSource {
             mutateLayouts { $0.settingRatio(ratio, for: split) }
         case let .setColumnWidth(column, _, width, _, _):
             mutateLayouts { $0.settingWidth(width, for: column) }
+        case let .setLayoutSizes(values, _):
+            for value in values {
+                switch value {
+                case let .ratio(split, ratio): mutateLayouts { $0.settingRatio(ratio, for: split) }
+                case let .width(column, _, width): mutateLayouts { $0.settingWidth(width, for: column) }
+                }
+            }
         case let .setColumnDock(column, _, dock, transaction):
             mutateLayouts { $0.settingDock(dock, for: column) }
             push()

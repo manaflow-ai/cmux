@@ -24,6 +24,11 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     /// Daemon `set-viewport-pane-width {pane, width, transaction}`; `anyPane`
     /// is a pane in the column for the pane-addressed command.
     case setColumnWidth(ColumnID, anyPane: PaneID, width: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase)
+    /// Daemon `set-layout-sizes {values, transaction}` (`layout-sizes-batch-v1`): the values a gesture ends
+    /// with when they are more than one (a key trade's two widths, a drag release's widths and ratios), as
+    /// one daemon commit, every value or none. A daemon without the capability gets each value's own
+    /// command under the transaction. One reply settles the transaction.
+    case setLayoutSizes([SizeValue], transaction: LayoutTransactionID)
     /// The column now aligned at the leading viewport edge after a scroll settled.
     case scrollTo(ScreenID, column: ColumnID)
     case dropTab(TabID, DropTarget)
@@ -46,4 +51,26 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     /// A divider or column-edge gesture ended with no release (its target
     /// went away mid-drag): nothing more of `transaction` will be sent.
     case cancelGesture(LayoutTransactionID)
+
+    /// The size values `self` asks the daemon to set, with their transaction: the one value of `setSplitRatio` or
+    /// `setColumnWidth`, the values of `setLayoutSizes`. Nil for every other intent.
+    public var sizes: (values: [SizeValue], transaction: LayoutTransactionID)? {
+        switch self {
+        case let .setSplitRatio(split, ratio, transaction, _):
+            return ([.ratio(split, ratio)], transaction)
+        case let .setColumnWidth(column, anyPane, width, transaction, _):
+            return ([.width(column, anyPane: anyPane, width)], transaction)
+        case let .setLayoutSizes(values, transaction):
+            return (values, transaction)
+        default:
+            return nil
+        }
+    }
+
+    /// One value of `setLayoutSizes`: what `setSplitRatio` or `setColumnWidth` names alone.
+    public nonisolated enum SizeValue: Hashable, Sendable {
+        case ratio(SplitID, Double)
+        /// `anyPane` is a pane in the column, as in `setColumnWidth`.
+        case width(ColumnID, anyPane: PaneID, Double)
+    }
 }

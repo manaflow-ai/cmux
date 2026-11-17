@@ -602,6 +602,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// files with no patch. The diff tab asks them every few seconds; a session host without the
     /// read gets no request for it (DiffPageProvider+Git.swift).
     case gitFingerprint = "git-fingerprint-v1"
+    /// `set-layout-sizes`: the values one resize gesture ends with (a key trade's two widths, a drag
+    /// release's widths and ratios) are one commit, every value or none. Without it each value goes
+    /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
+    case layoutSizesBatch = "layout-sizes-batch-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -652,7 +656,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint:
+             .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
             return .optional
         }
     }
@@ -701,21 +705,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
                                                                .sharedSizing, .agentSessionPresence]))
-
-    /// What a connection echoes in `set-client-info`.
-    ///
-    /// - Parameters:
-    ///   - advertised: The capabilities the connection advertises.
-    ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
-    ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
-    ///     (the App passes true from its composition root).
-    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
-                                             echoesPlacementShift: Bool = false) -> [String] {
-        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
-        let document = echoesPlacementShift && advertised.contains(Self.sidebarDoc.rawValue) ? [Self.placementShift.rawValue] : []
-        let shell = resolvesShellIntegration ? [Self.terminalFrontendShellIntegration.rawValue] : []
-        return advertised + shell + document
-    }
 
     private static func names(_ capabilities: [DaemonCapability]) -> [String] { capabilities.map(\.rawValue) }
     private static func names(in tier: Tier) -> [String] { names(allCases.filter { $0.tier == tier }) }
