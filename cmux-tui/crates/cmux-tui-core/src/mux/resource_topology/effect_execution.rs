@@ -991,6 +991,9 @@ impl Mux {
                 screen.active_pane = pane_id;
             }
             screen.zoomed_pane = None;
+            // `floating-panes-v1`: a floating pane whose column got a row, or that the auto layout put into a
+            // stack, is tiled.
+            screen.settle_floating_panes();
             screen.record_layout_change(before, vec![pane_id], None);
             if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
                 state.resource_indexes.splits.insert(public_id.clone(), split);
