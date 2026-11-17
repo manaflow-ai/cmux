@@ -90,9 +90,12 @@ pub(super) fn settle_new_pane(screen: &mut Screen, pane: PaneId, previous: PaneI
 }
 
 /// The state changed between the plan of a request and its act: another
-/// request made the quick terminal of the workspace, or brought it to the
-/// screen. The request then plans once more and shows the quick terminal that
-/// exists ([`Mux::quick_terminal_as`]). No client sees this value.
+/// request made the quick terminal of the workspace, brought it to a screen,
+/// or closed it. The request then plans once more, with `show`: it shows the
+/// quick terminal that exists, or makes one when the workspace has none
+/// ([`Mux::quick_terminal_as`]). No client sees this value: a second
+/// plan that is lost too is [`FloatPaneError::QuickTerminalChanged`]
+/// ([`lost_again`]).
 #[derive(Debug)]
 struct PlanLost;
 
@@ -104,6 +107,19 @@ impl fmt::Display for PlanLost {
 }
 
 impl std::error::Error for PlanLost {}
+
+/// Whether `error` is a plan that is not true any more ([`PlanLost`]).
+fn is_lost(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.is::<PlanLost>())
+}
+
+/// The error of the second act of a request. A request plans again one time
+/// only: when its second plan is lost too, other requests changed the quick
+/// terminal 2 times while it ran, and the client gets the error of the
+/// command for that. The request changed nothing.
+fn lost_again(error: anyhow::Error) -> anyhow::Error {
+    if is_lost(&error) { FloatPaneError::QuickTerminalChanged.into() } else { error }
+}
 
 /// Refuses the creation of a quick terminal ([`QUICK_TERMINAL_FRAME_FIELD`] in
 /// `fields`) as a split of `target`, when the workspace of `target` has a
@@ -202,17 +218,17 @@ impl Mux {
         match self.act_on_plan(actor, screen, plan, frame, spawn.clone(), size) {
             // Another request was first. Both wanted the quick terminal in
             // `screen`: this one shows it, and does not toggle it away.
-            Err(error) if error.chain().any(|cause| cause.is::<PlanLost>()) => {
+            Err(error) if is_lost(&error) => {
                 let plan = self.with_state(|state| planned_act(state, screen, QuickMode::Show))?;
-                self.act_on_plan(actor, screen, plan, frame, spawn, size)
+                self.act_on_plan(actor, screen, plan, frame, spawn, size).map_err(lost_again)
             }
             result => result,
         }
     }
 
     /// Does `plan`, the act that [`planned_act`] gave for `screen`. The state
-    /// can change after the plan: a make and a bring that are not true any
-    /// more fail with [`PlanLost`], and change nothing.
+    /// can change after the plan: a make, a bring and a show that are not
+    /// true any more fail with [`PlanLost`], and change nothing.
     fn act_on_plan(
         self: &Arc<Self>,
         actor: &Actor,
@@ -236,10 +252,17 @@ impl Mux {
                 Ok(Some(created.surface.id))
             }
             Plan::Show(pane) => {
-                anyhow::ensure!(
-                    self.focus_pane_as(actor, pane),
-                    "the quick terminal {pane} did not take the focus"
-                );
+                if !self.focus_pane_as(actor, pane) {
+                    // A pane that is not the quick terminal of the screen
+                    // any more closed or left after the plan.
+                    let holds = self.with_state(|state| {
+                        screen_of(state, screen)
+                            .and_then(Screen::quick_terminal)
+                            .is_some_and(|(quick, _)| quick == pane)
+                    });
+                    anyhow::ensure!(holds, PlanLost);
+                    anyhow::bail!("the quick terminal {pane} did not take the focus");
+                }
                 Ok(None)
             }
             Plan::Hide(holder) => self.hide_quick_terminal_as(actor, holder).map(|()| None),

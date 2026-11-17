@@ -147,3 +147,24 @@ fn a_show_of_a_quick_terminal_that_closed_is_a_lost_plan_and_the_next_plan_makes
     assert_eq!(mark, new.map(|pane| (pane, false)), "the new quick terminal shows");
     assert_eq!(Some(active), new, "the new quick terminal has the focus");
 }
+
+/// A request plans again one time. The error of its second act, when that plan is lost too, is the error of
+/// the command that says so: no client sees the value of a lost plan. Each other error stays as it is.
+#[test]
+fn a_second_lost_plan_is_the_error_of_the_command() {
+    let again = lost_again(anyhow::Error::new(PlanLost));
+    assert!(!is_lost(&again), "the client gets the value of a lost plan: {again:?}");
+    assert_eq!(
+        again.downcast_ref::<FloatPaneError>(),
+        Some(&FloatPaneError::QuickTerminalChanged),
+        "{again:?}"
+    );
+    assert_eq!(FloatPaneError::QuickTerminalChanged.code(), None, "the error has no code");
+
+    let other = lost_again(FloatPaneError::NoPlaceForQuickTerminal.into());
+    assert_eq!(
+        other.downcast_ref::<FloatPaneError>(),
+        Some(&FloatPaneError::NoPlaceForQuickTerminal),
+        "{other:?}"
+    );
+}

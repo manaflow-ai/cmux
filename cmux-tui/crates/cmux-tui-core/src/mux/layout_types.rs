@@ -148,6 +148,10 @@ pub enum FloatPaneError {
     /// `quick-terminal-v1`: no pane of the screen can float, so a new quick
     /// terminal has no place beside one.
     NoPlaceForQuickTerminal,
+    /// `quick-terminal-v1`: other requests changed the quick terminal of the
+    /// workspace 2 times while this request ran. The request changed nothing,
+    /// and the client can send it again.
+    QuickTerminalChanged,
     /// The screen is unknown.
     ScreenNotFound { screen: ScreenId },
     /// The durable commit failed; details are reported as a status event.
@@ -170,7 +174,7 @@ impl FloatPaneError {
             Self::FixedPane => Some(Self::FIXED_CODE),
             Self::InvalidArgument { .. } => Some(Self::INVALID_ARGUMENT_CODE),
             Self::NoPlaceForQuickTerminal => Some(Self::QUICK_NO_PLACE_CODE),
-            Self::ScreenNotFound { .. } | Self::CommitFailed => None,
+            Self::QuickTerminalChanged | Self::ScreenNotFound { .. } | Self::CommitFailed => None,
         }
     }
 }
@@ -196,6 +200,9 @@ impl fmt::Display for FloatPaneError {
             }
             Self::NoPlaceForQuickTerminal => formatter.write_str(
                 "no pane of the screen can float, so a quick terminal has no place on it",
+            ),
+            Self::QuickTerminalChanged => formatter.write_str(
+                "the quick terminal changed while the request ran: send the request again",
             ),
             Self::ScreenNotFound { screen } => write!(formatter, "unknown screen {screen}"),
             Self::CommitFailed => formatter.write_str("could not persist the floating pane"),
