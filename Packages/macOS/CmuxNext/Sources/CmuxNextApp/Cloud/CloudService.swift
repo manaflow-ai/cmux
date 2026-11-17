@@ -72,7 +72,8 @@ final class CloudService {
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth)
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0, team: self?.auth.teamID) }
+    @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
@@ -599,8 +600,8 @@ final class CloudService {
     private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
         guard !policyDisabled else { return nil }
         // The carrier: one `cmux carrier serve` for the session; the record's creator is a platform user id (`user_…`).
-        let serve = CloudCarrierDial.Connector(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(),
-                                               team: machine.team, stateDirectory: tuiState, streams: desktopStreams).map { CloudCarrierServe(connector: $0, paths: paths) }
+        let serve = spareReadiness.link(for: machine.id, team: machine.team) ?? CloudCarrierDial.Connector(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(),
+                                               team: machine.team, stateDirectory: tuiState, streams: desktopStreams).map { CloudCarrierServe(connector: $0, paths: paths) } // a claimed spare's link made ahead, if one waits
         let resolver = CloudCarrierResolver(serve: serve) { @MainActor [weak self, id = machine.id] in
             CloudCallerOwnership(creator: self?.machines.session(id)?.machine.createdBy, caller: self?.auth.platformUserID)
         }
