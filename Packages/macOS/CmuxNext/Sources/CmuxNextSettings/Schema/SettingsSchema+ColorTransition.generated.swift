@@ -55,7 +55,7 @@ nonisolated enum ColorTransitionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.colorTransition.enabled", "Animate Color Changes"),
-                help: SettingsText.keyed("settings.appearance.colorTransition.enabled.help", "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once."),
+                help: SettingsText.keyed("settings.appearance.colorTransition.enabled.help", "Old colors blend into new ones on workspace and theme changes."),
                 kind: .toggle,
                 default: .bool(ColorTransitionSetting.enabledDefault),
                 keywords: ["color", "theme", "transition", "animation", "fade", "blend", "workspace", "instant"]
@@ -75,7 +75,7 @@ nonisolated enum ColorTransitionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.colorTransition.curve", "Color Change Curve"),
-                help: SettingsText.keyed("settings.appearance.colorTransition.curve.help", "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values."),
+                help: SettingsText.keyed("settings.appearance.colorTransition.curve.help", "How a color change moves over its duration."),
                 kind: .choice([
                     SettingChoice(ColorTransitionCurveSetting.easeOut.rawValue, SettingsText.keyed("settings.choice.colorCurveEaseOut", "Ease Out")),
                     SettingChoice(ColorTransitionCurveSetting.easeInOut.rawValue, SettingsText.keyed("settings.choice.colorCurveEaseInOut", "Ease In and Out")),

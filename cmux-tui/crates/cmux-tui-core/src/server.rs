@@ -142,9 +142,10 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
     AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
 };
@@ -3162,6 +3163,10 @@ mod agent_session_attach_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_start_phone_tests.rs"]
 mod agent_session_start_phone_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_session_credentials_tests.rs"]
+mod agent_session_credentials_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/cloud_mobile_capability_tests.rs"]
