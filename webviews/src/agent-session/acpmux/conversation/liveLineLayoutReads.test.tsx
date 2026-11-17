@@ -6,7 +6,7 @@
 // that grows with what the transcript holds (bench/transcript-replay.bench.ts PAIRED=1 PROFILE=1: the
 // line's effect cost about 0.75 ms a token in a chat of 34,600 rows against 0.15 ms in a small chat;
 // Leo, 2026-11-12: "infinite everything feels like nothing"). Here 10 and 40 commits of the same words
-// read the line's layout the same number of times (none past the first), a commit with new words or a
+// read the line's layout the same number of times (none past the first two), a commit with new words or a
 // resized line reads it again, and a roll still cuts the old words at the width they were drawn at.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -95,8 +95,10 @@ const line = (now = 1_000, doing?: string) =>
 
 function readsOver(commits: number): number {
   act(() => root!.render(line()));
-  // The first commit of these words reads the line once; the watch's first report is the box it read.
+  // The first commit of these words reads the line, and so may the one after the watch's first report
+  // (the box as it was when watched).
   for (const each of observers) each();
+  act(() => root!.render(line()));
   const before = reads;
   for (let index = 0; index < commits; index += 1) act(() => root!.render(line()));
   return reads - before;
