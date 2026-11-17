@@ -71,6 +71,18 @@ pub(crate) struct Index {
     chunks: Vec<[u64; 5]>,
 }
 
+/// A chat id names one folder under `sessions/`: one plain path component, never `..`, a
+/// separator or an absolute path, so a warm or settle never reaches outside its chat
+/// (#43562 review F1).
+pub(crate) fn plain_chat_id(id: &str) -> Result<()> {
+    let mut parts = Path::new(id).components();
+    let plain =
+        matches!((parts.next(), parts.next()), (Some(std::path::Component::Normal(_)), None))
+            && !id.contains(['/', '\\', '\0']);
+    anyhow::ensure!(plain, "{id:?} is not a chat id");
+    Ok(())
+}
+
 pub(crate) fn idx_path(session: &Path, index: u32) -> PathBuf {
     session.join("events").join(format!("{index:06}{IDX_SUFFIX}"))
 }
@@ -294,10 +306,27 @@ impl ColdFile {
     }
 }
 
-/// One chunk's raw bytes, its frame's checksum and length checked.
+/// The most bytes one chunk's frame may name: a chunk holds about [`CHUNK_RAW`] raw bytes cut at a
+/// line end, and zstd never grows data by more than a small fraction.
+const CHUNK_MAX: u64 = 4 * CHUNK_RAW as u64 + 1024 * 1024;
+
+/// One chunk's raw bytes, its frame's checksum and length checked. A length the index names past
+/// [`CHUNK_MAX`] or past the archive's end is damage, never an allocation (#43562 review F4).
 fn decode_chunk(file: &mut File, chunk: &[u64; 5]) -> std::io::Result<Vec<u8>> {
     let [_, raw_len, comp_off, comp_len, _] = *chunk;
-    let mut comp = vec![0u8; usize::try_from(comp_len).unwrap_or(usize::MAX)];
+    let file_len = file.metadata()?.len();
+    if comp_len > CHUNK_MAX
+        || raw_len > CHUNK_MAX
+        || comp_off.checked_add(comp_len).is_none_or(|end| end > file_len)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "the index names {comp_len} bytes at {comp_off} ({raw_len} raw) in a {file_len}-byte archive"
+            ),
+        ));
+    }
+    let mut comp = vec![0u8; comp_len as usize];
     file.seek(SeekFrom::Start(comp_off))?;
     file.read_exact(&mut comp)?;
     let raw = zstd::stream::decode_all(comp.as_slice())?;
@@ -920,6 +949,7 @@ impl LocalStore {
     /// Finishes what a crash left of a move (module docs). Nothing for a chat with no
     /// `cold-segments/`. Refused once the store is sealed.
     pub(super) fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        plain_chat_id(id)?;
         let session = self.dir(id);
         let cold_dir = session.join(COLD_DIR);
         if !crate::home_fs::try_exists_nofollow(&cold_dir)? {
@@ -1044,6 +1074,7 @@ impl LocalStore {
     /// stays cold as it was and is named in [`ColdWarmed::left`]; the others go on. Refused once
     /// the store is sealed.
     pub(super) fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        plain_chat_id(id)?;
         let mut warmed = ColdWarmed::default();
         if self.is_cold(id) {
             warmed.archived_whole = true;

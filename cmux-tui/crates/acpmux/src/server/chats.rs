@@ -270,7 +270,17 @@ pub(super) async fn route(
         // The chats whose prompts or answers hold the words (`chats/search.rs`).
         "_acpmux/chats_search" => search::handle(hub, service, &params).await,
         "_acpmux/chats_warm" => {
-            let chat = params.get("chat").and_then(Value::as_str).map(str::to_owned);
+            // A `chat` that is there but not a string names no chat: refused, never every chat
+            // (#43562 review F2).
+            let chat = match params.get("chat") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(chat)) => Some(chat.clone()),
+                Some(other) => {
+                    return Err(RpcError::invalid_params(format!(
+                        "chat must be a chat id, not {other}"
+                    )));
+                }
+            };
             let hub = hub.clone();
             blocking(move || {
                 hub.warm_cold_segments(chat.as_deref())

@@ -281,8 +281,11 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
             } else {
                 print!("{}", warm_text(&warmed));
             }
-            let left = warmed.get("left").and_then(Value::as_array).is_some_and(|l| !l.is_empty());
-            if left {
+            // A chat skipped (busy, or compressed whole) stays compressed too (#43562 review F3).
+            let stays = |key: &str| {
+                warmed.get(key).and_then(Value::as_array).is_some_and(|l| !l.is_empty())
+            };
+            if stays("left") || stays("skipped") {
                 return Err(AppError::new(
                     Code::Runtime,
                     "warm_left_compressed",

@@ -257,6 +257,42 @@ fn a_damaged_archive_or_index_alone_is_a_clear_error_and_nothing_goes() {
     assert_eq!(all(&store), expected(1200));
 }
 
+/// An index whose chunk names a huge compressed length is damage read as an error, never an
+/// allocation of that length (#43562 review F4).
+#[test]
+fn an_index_naming_a_huge_chunk_is_a_clear_error() {
+    let (_home, sessions, store) = chat(1200);
+    move_all(&store);
+    let idx = idx_path(&sessions.join(ID), 2);
+    let saved = std::fs::read(&idx).unwrap();
+    let mut doc: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    doc["chunks"][0][3] = serde_json::json!(u64::MAX / 2);
+    std::fs::write(&idx, serde_json::to_vec(&doc).unwrap()).unwrap();
+    let error =
+        store.scan(ID, 0, &mut |_| true).expect_err("a chunk past the archive fails the read");
+    assert!(format!("{error:#}").contains("damaged"), "{error:#}");
+    std::fs::write(&idx, &saved).unwrap();
+    assert_eq!(all(&store), expected(1200));
+}
+
+/// A warm or settle of a name that is not one chat folder (`..`, a separator, an absolute
+/// path) is refused before it touches a file (#43562 review F1).
+#[test]
+fn a_warm_or_settle_outside_the_chat_tree_is_refused() {
+    let (home, sessions, store) = chat(1200);
+    move_all(&store);
+    let outside = home.path().join("other");
+    std::fs::create_dir_all(outside.join(COLD_DIR)).unwrap();
+    std::fs::write(outside.join(COLD_DIR).join("000001.zst"), b"not ours").unwrap();
+    for id in ["../other", "..", ".", "a/b", "/tmp", "", "a\\b"] {
+        assert!(store.warm_cold_segments(id).is_err(), "{id:?} warmed");
+        assert!(store.settle_cold_segments(id).is_err(), "{id:?} settled");
+    }
+    assert!(outside.join(COLD_DIR).join("000001.zst").exists(), "nothing outside sessions/ moved");
+    assert_eq!(all(&store), expected(1200));
+    let _ = sessions;
+}
+
 /// A page-back read that listed the segments before they went cold reads each one whole: the
 /// `.ndjson` a move removed under it is read from its archive.
 #[test]
