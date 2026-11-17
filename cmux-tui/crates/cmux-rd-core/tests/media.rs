@@ -216,14 +216,15 @@ fn nack_grace_does_not_request_the_unseen_tail_of_an_arriving_frame() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].indexes, vec![last as u16]);
 
-    // A gap proven by a later shard is requested promptly, while shards
-    // beyond that later shard are still allowed to arrive normally.
+    // A gap proven by a later shard is requested one grace after it is first
+    // seen, while shards beyond that later shard may still arrive normally.
     let mut r = Reassembler::new(200_000);
     for (i, now) in [(0, 0), (2, 6_000)] {
         let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
         assert!(r.push(&h, payload, now).is_empty());
     }
-    let requests = r.take_nacks(6_000);
+    assert!(r.take_nacks(10_999).is_empty());
+    let requests = r.take_nacks(11_000);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].indexes, vec![1]);
 }
