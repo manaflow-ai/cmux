@@ -1841,19 +1841,6 @@ mark {
   gap: var(--page-size-6);
 }
 
-.appearance-bar-confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--page-size-6);
-  padding-left: var(--page-size-6);
-}
-
-.appearance-bar-question {
-  font-size: var(--text-detail);
-  white-space: nowrap;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-
 /* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
 .chiefs-row {
   flex-direction: row;

@@ -17,13 +17,13 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The host clips the held page and lays it out once when the spring lands.
     func holdsContentInMotion(for pane: PaneID) -> Bool
     /// The pane's content goes: torn down now. Called in the update the pane left the layout, or, for a pane a
-    /// springing close retired (``retainContentView(_:for:retired:)``), when that motion lands; for a pane a zoom
-    /// covers, when the unzoomed layout no longer has it.
+    /// close retired (``retainContentView(_:for:retired:)``), once the close showed; for a pane a zoom keeps, when the
+    /// unzoomed layout no longer has it.
     func releaseContentView(_ view: NSView, for pane: PaneID)
-    /// `retired` true: a springing close took the pane out of the layout in this update, but its host is only hidden
-    /// until the motion lands (`LayoutViewContext.retire`): the provider stops counting it as shown now and keeps its
-    /// content for ``releaseContentView(_:for:)`` or its return. False: the layout took that host back (a close taken
-    /// back before it landed), as if made again. A zoom's covered panes stay in the layout model and get neither.
+    /// `retired` true: a close took the pane out of the layout in this update, but its host stays until the close
+    /// shows and is torn down after that (`LayoutViewContext.retire`): the provider stops counting it as shown now and
+    /// keeps its content for ``releaseContentView(_:for:)`` or its return. False: the layout took that host back (a close
+    /// taken back before its host went), as if made again. The panes a zoom leaves stay in the layout model and get neither.
     func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool)
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
@@ -68,11 +68,11 @@ final class LayoutViewContext {
     /// A pane's strip clip changed since the last overlay sync (`PaneHostView.setStripClip`): that sync tells the
     /// window once, with its divider lines, and its Chromium pages re-read their clips (`reportInteractiveRects`).
     var stripClipsChanged = false
-    /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
+    /// Screens whose terminals keep their grids until their panes land (`ScreenContentView.holdsGrids`: nothing sets it now).
     var gridHoldScreens: Set<ScreenID> = [] {
         didSet { if oldValue.isEmpty != gridHoldScreens.isEmpty { gridHoldDidChange(!gridHoldScreens.isEmpty) } }
     }
-    /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
+    /// The first such hold began (true) or the last one ended (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
     /// The right-click menu of a split's divider (``LayoutRootView/dividerMenu``).
     var dividerMenu: ((SplitID) -> NSMenu?)?
@@ -183,19 +183,23 @@ final class LayoutViewContext {
     /// Movement snaps: Reduce Motion, `ui.animationSpeed` "off" or a live resize of the layout's window (`Motion`).
     var reduceMotion: Bool { reduceMotionOverride ?? !Motion.panes.animatesMovement(in: window()) }
 
-    /// Pane layout changes spring (`ui.paneAnimations`, on by default; plans/cmux-next/motion.md rule 9).
-    /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
+    /// `ui.paneAnimations` (on by default; plans/cmux-next/motion.md rule 9): with it off, a ratio or width change that
+    /// is no explicit equalize, a released divider and a camera's reveal snap. A split, a close, a zoom and an unzoom
+    /// show in one frame with it on or off. A test that pins `reduceMotionOverride` pins this too.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout(in: window()) }
 
+    /// `pane`'s host: the one it has, the one a change kept for it, or a new one. A host that comes back hidden (a pane
+    /// a zoom covered) stays hidden: its screen shows it in the pass that places it
+    /// (`ScreenContentView.showSnapReturning`), never a frame earlier at the place it had.
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
-        // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
+        // A close is taken back before its host went (a refused close, a reopen), or an unzoom brings back a pane the
+        // zoom covered: the same host shows again.
         if let entry = retired.removeValue(forKey: pane) {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
-            entry.host.isHidden = false
-            entry.host.endClosingGround()
-            entry.host.chrome.isHidden = false
+            entry.host.leavingRank = nil
+            entry.host.chrome.isHidden = entry.host.isHidden
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
@@ -229,16 +233,18 @@ final class LayoutViewContext {
         provider?.releaseContentView(host.content, for: host.pane)
     }
 
-    /// Hosts of panes a springing close took out of the layout (`ScreenContentView.reconcile`), by the screen that
-    /// showed them: hidden in the close's own turn (a page window orders out with the hide, `CEFHostView.viewDidHide`),
-    /// torn down when that screen's motion lands (`releaseRetired`). The teardown (the host's layers leaving the
-    /// tree, the content released to the provider: its pane controller and a terminal's surface going) is work no
-    /// frame shows; done in the close's first frame it added to that frame's main turn and Core Animation commit,
+    /// Hosts of panes a close took out of the layout (`ScreenContentView.reconcile`), by the screen that showed them:
+    /// shown until the close shows, hidden in the pass that shows it (a page window orders out with the hide,
+    /// `CEFHostView.viewDidHide`), and torn down after that (`releaseRetired`). The teardown (the host's layers leaving
+    /// the tree, the content released to the provider: its pane controller and a terminal's surface going) is work no
+    /// frame shows; done in the frame that showed a close it added to that frame's main turn and Core Animation commit,
     /// which missed refreshes (RESIZE VIDEOS F1).
-    /// A zoom keeps the panes it covers the same way, until the screen unzooms (`Retirement.zoom`): they come back
-    /// with the unzoom as they were (RESIZE VIDEOS Z1: the landing tore down every other pane, 11 pane controllers in
+    /// A zoom keeps the panes it leaves the same way, until the screen unzooms (`Retirement.zoom`): they come back
+    /// with the unzoom as they were (RESIZE VIDEOS Z1: the zoom tore down every other pane, 11 pane controllers in
     /// one frame of 42 ms, and the unzoom made them all again in one frame of 48 ms).
-    private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID, until: Retirement)] = [:]
+    /// `shown`: a layout change took the pane out and has not shown yet (`ScreenContentView+SnapFrame`): the host shows
+    /// as it was until that change shows (``hideRetiredShown(of:)``), and is not torn down before.
+    private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID, until: Retirement, shown: Bool)] = [:]
     /// Work that waits for a closing pane to go (``afterClosing(_:id:_:)``), by pane and id.
     private var closingWork: [PaneID: [String: @MainActor () -> Void]] = [:]
     /// Runs work once the current main run-loop pass committed its frame (`AfterFrameCommit`); a test collects it and runs it.
@@ -246,53 +252,69 @@ final class LayoutViewContext {
 
     /// Until when a retired host is kept.
     enum Retirement {
-        /// A close: until its screen's motion lands.
+        /// A close: until the frame that shows the close is committed.
         case landing
         /// A zoom's covered pane: until its screen unzooms (it comes back then, or is torn down).
         case zoom
     }
 
-    /// Takes `pane`'s host out of the layout without tearing it down: hidden now (no hit, no focus, no AX, its ring
-    /// with it; a hidden terminal stops drawing), released at `until`. A pane with no host does nothing.
-    /// `showsGround` (FRAME OWNER S3c, a springing close off a canvas): the host stays shown with only
-    /// its own ground, its content hidden now as above, on the frame its screen collapses (`ClosingPanes`).
-    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing, showsGround: Bool = false) {
+    /// Takes `pane`'s host out of the layout without tearing it down; it is released at `until`. The layout change
+    /// that takes the pane out has not shown yet: the host and its ring stay as they show, at the stacking rank
+    /// `shownAtRank` and with no clicks, until it does (``hideRetiredShown(of:)`` hides them then: no hit, no focus, no
+    /// AX, and a hidden terminal stops drawing), so no frame shows the old layout without this pane. A pane with no
+    /// host does nothing.
+    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement, shownAtRank: Int) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
-        if showsGround { host.showClosingGround() } else { host.isHidden = true }
-        host.chrome.isHidden = true
-        retired[pane] = (host, screen, until)
+        host.leavingRank = shownAtRank
+        retired[pane] = (host, screen, until, true)
         // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
         // waits. A zoom's covered pane is still in the layout (its focus topology, theme, suspend): the provider keeps it.
         if until == .landing { provider?.retainContentView(host.content, for: pane, retired: true) }
     }
 
-    /// Tears down the hosts `screen` retired until `until` (a close's: its motion landed or it settles at once; a
-    /// zoom's: it unzoomed and they did not come back), or every one with nil (the screen went away).
+    /// Tears down the hosts `screen` retired until `until` (a close's: the frame that showed the close is committed;
+    /// a zoom's: it unzoomed and they did not come back), or every one with nil (the screen went away).
+    /// A host its change has not shown yet (`shown`) stays, except when the screen goes.
     func releaseRetired(of screen: ScreenID, until: Retirement? = .landing) {
-        guard retired.values.contains(where: { $0.screen == screen && (until == nil || $0.until == until) }) else { return }
-        for (pane, entry) in retired where entry.screen == screen && (until == nil || entry.until == until) {
+        func goes(_ entry: (host: PaneHostView, screen: ScreenID, until: Retirement, shown: Bool)) -> Bool {
+            entry.screen == screen && (until == nil || (entry.until == until && !entry.shown))
+        }
+        guard retired.values.contains(where: goes) else { return }
+        for (pane, entry) in retired where goes(entry) {
             retired[pane] = nil
             tearDown(entry.host)
             runClosingWork(of: pane)
         }
     }
 
-    /// Whether `pane` left the layout in a close that still springs: its host waits, hidden, for the landing.
+    /// The layout change that took them out shows in this turn: the hosts `screen` kept shown for it
+    /// (``retire(_:from:until:shownAtRank:)``) hide, their rings with them. Their teardown is work no frame
+    /// shows: it follows that frame's commit (``releaseRetired(of:until:)``). Returns whether any hid.
+    @discardableResult
+    func hideRetiredShown(of screen: ScreenID) -> Bool {
+        var hid = false
+        for (pane, entry) in retired where entry.screen == screen && entry.shown {
+            entry.host.leavingRank = nil
+            entry.host.isHidden = true
+            entry.host.chrome.isHidden = true
+            retired[pane]?.shown = false
+            hid = true
+        }
+        return hid
+    }
+
+    /// Whether `pane` left the layout in a close whose host has not gone yet: it waits for the close to show, or,
+    /// hidden, for the commit of the frame that showed it.
     func isClosing(_ pane: PaneID) -> Bool {
         if case .landing? = retired[pane]?.until { return true }
         return false
     }
 
-    /// The host of `pane` while a close on `screen` still springs it out (FRAME OWNER S3c); nil otherwise.
-    func closingHost(_ pane: PaneID, of screen: ScreenID) -> PaneHostView? {
-        guard let entry = retired[pane], entry.screen == screen, case .landing = entry.until else { return nil }
-        return entry.host
-    }
-
-    /// Holds `work` until closing `pane` goes (its motion lands, its screen goes) or comes back, then runs it after
-    /// that frame's commit; false (nothing held) when `pane` is not closing. A second `id` replaces the first.
-    /// The teardown of what a closing pane showed is work no frame shows (RESIZE VIDEOS F1): in the motion's frames
-    /// it missed refreshes, so it follows the motion, as Chrome keeps its UI thread to what the next frame shows.
+    /// Holds `work` until closing `pane` goes (the frame that showed its close is committed, or its screen goes) or
+    /// comes back, then runs it after that frame's commit; false (nothing held) when `pane` is not closing. A second
+    /// `id` replaces the first. The teardown of what a closing pane showed is work no frame shows (RESIZE VIDEOS F1):
+    /// in a frame of the close it missed refreshes, so it follows that frame, as Chrome keeps its UI thread to what the
+    /// next frame shows.
     func afterClosing(_ pane: PaneID, id: String, _ work: @escaping @MainActor () -> Void) -> Bool {
         guard isClosing(pane) else { return false }
         closingWork[pane, default: [:]][id] = work
@@ -313,7 +335,7 @@ extension LayoutViewContext {
     /// Puts `content` (the provider's next pane content) in a host made now and parks it hidden in `screen`, the screen
     /// view a new pane most likely shows in: a later ``host(for:)`` whose content is `content` adopts that host, and the
     /// screen's reconcile only unhides it (no move between superviews, no window walk). Nil drops the one parked.
-    /// A hidden host in a screen's subviews is a state the screen already has (a closing pane's retired host).
+    /// A hidden host in a screen's subviews is a state the screen already has (a closed pane's retired host).
     /// TERMINAL CREATE COST item 4: a New Column's new host and pane entering the window cost 2 ms of the key's turn.
     func parkSpare(_ content: NSView?, in screen: NSView?) {
         spareHost?.removeFromSuperview()
