@@ -67,42 +67,69 @@ impl FollowCamera {
 
 #[uniffi::export]
 impl FollowCamera {
-    /// A crop of `aspect` (width over height: the viewer's own shape, about
-    /// 9/16 on a portrait iPhone) over a screen of `source_w` x `source_h`
-    /// pixels, as large as the screen holds, centred. `reduce_motion`
+    /// A crop of `aspect` (width over height) over a screen of `source_w` x
+    /// `source_h` pixels: the largest rect of `aspect` the screen holds,
+    /// divided by `zoom` (at least 1), centred. The viewer picks both: a
+    /// portrait crop as wide as reads well (its height then the full screen,
+    /// shown letterboxed) or, zoomed further, its own shape. `reduce_motion`
     /// (the system's Reduce Motion) cuts to each new framing instead of
     /// panning.
     #[uniffi::constructor]
-    pub fn new(aspect: f64, source_w: f64, source_h: f64, reduce_motion: bool) -> Self {
-        let _ = (aspect, source_w, source_h, reduce_motion);
-        Self {
-            inner: Mutex::new(Inner { camera: Camera::new(Config::default(), 1.0, 1.0), source: (1.0, 1.0) }),
+    pub fn new(aspect: f64, zoom: f64, source_w: f64, source_h: f64, reduce_motion: bool) -> Self {
+        let mut config = Config::default();
+        if aspect.is_finite() && aspect > 0.0 {
+            config.aspect = aspect;
         }
+        if zoom.is_finite() && zoom >= 1.0 {
+            config.zoom = zoom;
+        }
+        if reduce_motion {
+            // Fast enough that the crop reaches any goal in one motion step: a cut.
+            config.max_speed = 1e6;
+            config.max_accel = 1e9;
+        }
+        let source = (source_w.max(1.0), source_h.max(1.0));
+        Self { inner: Mutex::new(Inner { camera: Camera::new(config, source.0, source.1), source }) }
     }
 
     /// One message of the `focus` channel (a JSON event), received at
-    /// `now_us` on the phone's clock.
+    /// `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
+    /// replaced by `now_us`. A message that is not an event is refused and
+    /// changes nothing.
     pub fn push_json(&self, line: String, now_us: u64) -> Result<(), CmuxMobileError> {
-        let _ = (line, now_us);
+        let event: Event = serde_json::from_str(&line)
+            .map_err(|error| CmuxMobileError::InvalidArgument { message: format!("focus event: {error}") })?;
+        let mut inner = self.inner();
+        if let Signal::Source { w, h } = event.signal {
+            if !(w > 0.0 && h > 0.0) {
+                return Err(CmuxMobileError::InvalidArgument { message: format!("focus source {w}x{h}") });
+            }
+            inner.source = (w, h);
+        }
+        inner.camera.push(Event { t_us: now_us, signal: event.signal });
         Ok(())
     }
 
     /// Moves time to `now_us` and returns the crop: once per display frame.
     pub fn advance(&self, now_us: u64) -> FollowRect {
-        let _ = now_us;
-        self.inner().camera.rect().into()
+        self.inner().camera.advance(now_us).into()
     }
 
     /// The person took the camera: hold `rect` (and its size).
     pub fn manual(&self, rect: FollowRect) {
-        let _ = rect;
+        self.inner().camera.manual(rect.into());
     }
 
     /// Hands the camera back: it pans from where the person left it.
-    pub fn resume(&self) {}
+    pub fn resume(&self) {
+        self.inner().camera.resume();
+    }
 
     pub fn mode(&self) -> FollowCameraMode {
-        FollowCameraMode::Follow
+        match self.inner().camera.mode() {
+            Mode::Follow => FollowCameraMode::Follow,
+            Mode::Manual => FollowCameraMode::Manual,
+        }
     }
 
     /// The shared screen's size (`x` and `y` are 0).
@@ -121,7 +148,7 @@ mod tests {
     const H: f64 = 1964.0;
 
     fn camera() -> FollowCamera {
-        FollowCamera::new(9.0 / 16.0, W, H, false)
+        FollowCamera::new(9.0 / 16.0, 1.0, W, H, false)
     }
 
     #[test]
@@ -206,7 +233,12 @@ mod tests {
             now += 16 * MS;
             rect = camera.advance(now);
         }
-        assert_eq!(rect.x, 0.0, "back on the focused window: {rect:?}");
+        // Centred on the focused window (x 0..600, the full height).
+        assert_eq!(
+            (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0),
+            (300.0, 982.0),
+            "back on the window: {rect:?}"
+        );
         assert_eq!((rect.w, rect.h), (held.w, held.h), "keeps the person's size");
     }
 
@@ -243,10 +275,40 @@ mod tests {
         assert!((rect.h - 1080.0).abs() < 1e-6, "{rect:?}");
     }
 
+    /// A portrait viewer's readable crop of a 1920x1080 screen: half its
+    /// width at full height (shown letterboxed), not the narrow 9:16 one.
+    /// Typing along a long line pans it sideways only.
+    #[test]
+    fn a_wide_full_height_crop_follows_a_long_line() {
+        let camera = FollowCamera::new(960.0 / 1080.0, 1.0, 1920.0, 1080.0, false);
+        let mut now = 0;
+        let start = camera.advance(now);
+        assert_eq!((start.w, start.h), (960.0, 1080.0), "{start:?}");
+        camera
+            .push_json(r#"{"t_us":0,"kind":"window","id":1,"x":0,"y":0,"w":1920,"h":1080}"#.into(), now)
+            .unwrap();
+        for column in 0..170 {
+            now += 60 * MS;
+            let x = 10.0 + f64::from(column) * 11.0;
+            camera
+                .push_json(format!(r#"{{"t_us":0,"kind":"caret","x":{x},"y":700,"w":2,"h":20}}"#), now)
+                .unwrap();
+            let rect = camera.advance(now);
+            assert_eq!((rect.y, rect.h), (0.0, 1080.0), "full height: {rect:?}");
+        }
+        for _ in 0..60 {
+            now += 16 * MS;
+            camera.advance(now);
+        }
+        let rect = camera.advance(now);
+        let caret = 10.0 + 169.0 * 11.0;
+        assert!(rect.x <= caret && caret <= rect.x + rect.w, "the caret at the line's end: {rect:?}");
+    }
+
     /// Reduce Motion: a move is a cut, on the next frame.
     #[test]
     fn reduce_motion_cuts_instead_of_panning() {
-        let camera = FollowCamera::new(9.0 / 16.0, W, H, true);
+        let camera = FollowCamera::new(9.0 / 16.0, 1.0, W, H, true);
         let mut now = 0;
         camera.advance(now);
         camera
