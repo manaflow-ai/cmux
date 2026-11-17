@@ -258,6 +258,7 @@ dependencies = [
 name = "cmux-launch-shell"
 version = "0.1.0"
 dependencies = [
+ "cmux-launch-record",
  "proptest",
 ]
 

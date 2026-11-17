@@ -214,6 +214,34 @@ fn is_component(s: &str) -> bool {
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'+'))
 }
 
+/// The launch record's windows, front first, as the plan reads them. A v1 record's carry no scale
+/// or key (`backing_scale` 0), so their image is stale and their frame stands.
+pub fn saved_windows(record: &cmux_launch_record::LaunchRecord) -> Vec<SavedWindow> {
+    let frame =
+        |f: cmux_launch_record::Frame| Frame { x: f.x, y: f.y, width: f.width, height: f.height };
+    record
+        .windows()
+        .map(|w| SavedWindow {
+            id: w.id.to_owned(),
+            frame: frame(w.frame),
+            background_rgba: w.background_rgba,
+            bar_rgba: w.bar_rgba,
+            backing_scale: w.backing_scale,
+            appearance: Appearance::from_u8(w.appearance),
+            appearance_follows_system: w.appearance_follows_system != 0,
+            screen_frame: frame(w.screen_frame),
+            fullscreen: w.fullscreen != 0,
+            image_key: w.image_key.to_owned(),
+        })
+        .collect()
+}
+
+/// An earlier run left its state in the app's support folder: every past build wrote
+/// `launch-times.jsonl` there. One stat, read only when there is no record.
+pub fn prior_state(support_dir: &Path) -> bool {
+    support_dir.join("launch-times.jsonl").exists()
+}
+
 /// A PNG's pixel size from its first 24 bytes (signature and IHDR); never reads the image.
 pub fn png_size(path: &Path) -> Option<(u32, u32)> {
     let mut head = [0u8; 24];
