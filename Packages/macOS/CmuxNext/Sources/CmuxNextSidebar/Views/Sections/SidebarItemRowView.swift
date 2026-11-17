@@ -511,6 +511,12 @@ class SidebarItemRowView: NSView {
         return glyphInkFrame
     }
 
+    /// The row's own mark in the row's coordinates (tests): its color dot, else its glyph's ink; nil for a text-only row.
+    var ownIconInkFrame: CGRect? {
+        if showsSwatchDot { return chip.frame }
+        return glyphInkFrame
+    }
+
     /// The drawn ink of the item's glyph in the row's coordinates; nil when no glyph draws (tests).
     var glyphInkFrame: CGRect? {
         guard !icon.isHidden, let image = icon.image, icon.frame.width > 0,
