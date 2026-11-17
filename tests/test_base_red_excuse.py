@@ -7451,6 +7451,64 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFailureText(unittest.TestCase):
+    """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
+    as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new
+    offender, tools/test_merge_hold.py, that main's did not: only the failing tests' names were compared. A failing
+    test is the same red on the base only when its failure text (normalised: numbers masked, file names kept) is."""
+    STEP = (".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step; "
+            "exclusions carry a reason)")
+    UNIT = "test_text_io_encoding.py"
+    FIXTURES = Path(__file__).resolve().parent / "fixtures/base_red_excuse_ws_check_failure_text"
+
+    def printed(self, name):
+        """The lines the fixture run log NAME (gh's job log, trimmed to the unit's group) printed inside its group."""
+        lines = excuse.lines_of((self.FIXTURES / name).read_text(encoding="utf-8"))
+        start = lines.index(f"##[group]{self.STEP} [{self.UNIT}]")
+        return lines[start + 1:lines.index("##[endgroup]", start)]
+
+    def judge(self, head, main):
+        gh = WsCheckGitHub()
+        gh.verdict(HEAD, 1, {self.STEP: {self.UNIT: head}})
+        gh.verdict(gh.TIP, 2, {self.STEP: {self.UNIT: main}})
+        return excuse.judge(gh.REPO, "main", HEAD, [], gh)
+
+    def test_a_head_whose_lint_test_lists_a_new_offender_is_refused(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(self.printed("head-16b96c09.log"), self.printed("main-d240eaab.log"))
+        said = str(caught.exception)
+        self.assertIn("1 failure(s) not on main", said)
+        # The test is red on main too; its failure text, naming the new offender, is what differs.
+        self.assertIn(f"not excused 'ws-check' test '{self.STEP} :: [{self.UNIT}] "
+                      "test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry (__main__.Ratchet."
+                      "test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry)': red on main", said)
+        self.assertIn("but failing another way there", said)
+        self.assertRegex(said, r"tools/test_merge_hold\.py: # text read\(s\)")
+
+    def test_the_same_failure_on_two_runs_is_still_excused(self):
+        main = self.printed("main-d240eaab.log")
+        self.assertIn("excused 'ws-check': every failure", self.judge(main, main)[0])
+        # Another run of it: other counts, source lines, times and checkout root, the same offenders.
+        moved = [line.replace("[253 chars]", "[260 chars]").replace("132 write_text()", "135 write_text()")
+                 .replace("line 195,", "line 201,").replace("in 5.795s", "in 7.012s")
+                 .replace("/home/runner/_work/cmuxterm-hq/cmuxterm-hq/", "/home/runner/_work/_temp/lw/")
+                 for line in main]
+        self.assertNotEqual(moved, main)
+        self.assertIn("excused 'ws-check': every failure", self.judge(moved, main)[0])
+
+    def test_a_failures_text_is_read_after_its_traceback(self):
+        section = ["test_x (__main__.A.test_x) ... FAIL", "=" * 70, "FAIL: test_x (__main__.A.test_x)", "-" * 70,
+                   "Traceback (most recent call last):", 'File "/w/tools/test_a.py", line 9, in test_x',
+                   "self.check()", 'File "/w/tools/a.py", line 3, in check', "raise ValueError(1)", "^^^^^^^^^^^^",
+                   'File "<string>", line 1, in <module>', "ValueError: tools/b.py is listed", "- 'tools/b.py'",
+                   "=" * 70, "ERROR: test_y (__main__.A.test_y)", "-" * 70, "Traceback (most recent call last):",
+                   'File "/w/tools/test_a.py", line 12, in test_y', "KeyError: 'k'", "-" * 70, "Ran 2 tests in 0.1s",
+                   "FAILED (failures=1, errors=1)"]
+        self.assertEqual(excuse.unittest_failures(section),
+                         [("test_x (__main__.A.test_x)", ["ValueError: tools/b.py is listed", "- 'tools/b.py'"]),
+                          ("test_y (__main__.A.test_y)", ["KeyError: 'k'"])])
+
+
 class WsCheckSquashTree(unittest.TestCase):
     """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
     to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""
@@ -15988,6 +16046,124 @@ class SetupOnlyStepsReadNothingUnlisted(unittest.TestCase):
         # A variable that holds another directory is not the root.
         self.assertEqual(self.reads('ZIG_WORK_ROOT="$(mktemp -d)"\ncat "$ZIG_WORK_ROOT/zig.tar"\n', "scripts/z.sh"),
                          set())
+
+
+# GitHub's ETag contract, as a `gh` on PATH: a 200 carries an ETag of the answer; a request whose If-None-Match names
+# the current one gets a 304 (free); FAKE_GH_REFUSE=1 refuses the conditional form (an agent host's shim at REST's low
+# water). It logs one JSON line per call: the route, the status, whether it was conditional.
+ETAG_GH = """#!/usr/bin/env python3
+import hashlib, json, os, subprocess, sys
+args = sys.argv[1:]
+include = "--include" in args
+inm = next((args[i + 1].split(":", 1)[1].strip() for i, a in enumerate(args[:-1])
+            if a == "-H" and args[i + 1].lower().startswith("if-none-match:")), None)
+jq = next((args[i + 1] for i, a in enumerate(args[:-1]) if a == "--jq"), None)
+route = next((a for a in args if a.startswith("repos/")), "")
+routes = json.load(open(os.environ["FAKE_GH_ROUTES"]))
+key = next((k for k in sorted(routes, key=len, reverse=True) if route.startswith(k)), None)
+status = 404 if key is None else 403 if (include and os.environ.get("FAKE_GH_REFUSE") == "1") else 200
+body = json.dumps(routes[key]) if key is not None else "{}"
+etag = 'W/"' + hashlib.sha256(body.encode()).hexdigest()[:16] + '"'
+if status == 200 and inm == etag:
+    status = 304
+with open(os.environ["FAKE_GH_CALLS"], "a") as log:
+    log.write(json.dumps({"route": route, "status": status, "conditional": include}) + "\\n")
+if include:
+    sys.stdout.write(f"HTTP/2.0 {status} X\\r\\nEtag: {etag}\\r\\n\\r\\n")
+if status != 200:
+    sys.stderr.write(f"gh: HTTP {status}\\n")
+    sys.exit(1)
+out = subprocess.run(["jq", "-c", jq], input=body, capture_output=True, text=True).stdout if jq else body
+print(out.strip())
+"""
+
+
+class ConditionalCiReads(unittest.TestCase):
+    """With BASE_RED_EXCUSE_ETAGS naming a folder (merge_hold names its own), a run's jobs, a run and a commit's check
+    runs are read conditionally: a second judgement of the same head pays no REST for what has not changed. 2026-11-17,
+    cosmic-gray, 2 h to 12:58Z: under merge_hold this script spent 673 REST, 402 of them a run's jobs, 133 of those the
+    exact page read again."""
+    JOBS = f"repos/{REPO}/actions/runs/42476982159/jobs?filter=all&per_page=100"
+
+    def setUp(self):
+        if shutil.which("jq") is None:
+            self.skipTest("jq is not on PATH")
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        tmp = Path(self.dir.name)
+        (tmp / "gh").write_text(ETAG_GH, encoding="utf-8")
+        (tmp / "gh").chmod(0o755)
+        self.routes, self.calls, self.etags = tmp / "routes.json", tmp / "calls.jsonl", tmp / "etags"
+        self.routes.write_text(json.dumps({
+            f"repos/{REPO}/actions/runs/42476982159/jobs": {"total_count": 1, "jobs": [
+                {"id": 1, "name": "build", "run_id": 42476982159, "run_attempt": 1, "status": "completed",
+                 "conclusion": "failure", "runner_name": "mini-3",
+                 "steps": [{"name": "Test", "status": "completed", "conclusion": "failure", "number": 3}]}]},
+            f"repos/{REPO}/commits/{HEAD}/check-runs": {"total_count": 0, "check_runs": []},
+            f"repos/{REPO}/pulls/5": {"number": 5}}), encoding="utf-8")
+        env = unittest.mock.patch.dict(os.environ, {
+            "PATH": f"{tmp}{os.pathsep}{os.environ.get('PATH', '')}", "FAKE_GH_ROUTES": str(self.routes),
+            "FAKE_GH_CALLS": str(self.calls), excuse.ETAGS_ENV: str(self.etags), "FAKE_GH_REFUSE": "0"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def calls_since(self) -> list[dict]:
+        rows = [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
+        self.calls.unlink(missing_ok=True)
+        return rows
+
+    def judge_reads(self):
+        """One judgement's reads (a JUDGEMENT_READS memo of its own), as judge() makes them."""
+        token = excuse.JUDGEMENT_READS.set({})
+        try:
+            github = excuse.GitHub()
+            return (github.json(self.JOBS, paginate=True),
+                    github.json(f"repos/{REPO}/commits/{HEAD}/check-runs?filter=all&per_page=100", paginate=True))
+        finally:
+            excuse.JUDGEMENT_READS.reset(token)
+
+    def test_a_second_judgement_pays_no_jobs_or_check_runs_read(self):
+        first = self.judge_reads()
+        rows = self.calls_since()
+        self.assertEqual([(r["status"], r["conditional"]) for r in rows], [(200, True), (200, True)])
+        self.assertEqual(first[0][0]["jobs"][0]["steps"][0]["name"], "Test")  # the projection still applies
+        self.assertNotIn("runner_name", first[0][0]["jobs"][0])
+        second = self.judge_reads()
+        rows = self.calls_since()
+        self.assertEqual(second, first)
+        self.assertEqual([r["status"] for r in rows], [304, 304])
+
+    def test_a_changed_answer_is_read_again(self):
+        self.judge_reads()
+        self.calls_since()
+        routes = json.loads(self.routes.read_text())
+        routes[f"repos/{REPO}/actions/runs/42476982159/jobs"]["jobs"][0]["conclusion"] = "success"
+        self.routes.write_text(json.dumps(routes))
+        jobs, _checks = self.judge_reads()
+        self.assertEqual(jobs[0]["jobs"][0]["conclusion"], "success")
+        self.assertEqual([r["status"] for r in self.calls_since()], [200, 304])
+
+    def test_a_refused_conditional_read_is_the_plain_read(self):
+        with unittest.mock.patch.dict(os.environ, {"FAKE_GH_REFUSE": "1"}):
+            jobs, _checks = self.judge_reads()
+        self.assertEqual(jobs[0]["jobs"][0]["name"], "build")
+        self.assertEqual([(r["status"], r["conditional"]) for r in self.calls_since()],
+                         [(403, True), (200, False), (403, True), (200, False)])
+
+    def test_with_no_folder_named_every_read_is_plain(self):
+        with unittest.mock.patch.dict(os.environ, {excuse.ETAGS_ENV: ""}):
+            self.judge_reads()
+        self.assertEqual({r["conditional"] for r in self.calls_since()}, {False})
+        self.assertFalse(self.etags.exists())
+
+    def test_only_ci_routes_are_conditional(self):
+        token = excuse.JUDGEMENT_READS.set({})
+        try:
+            self.assertEqual(excuse.GitHub().json(f"repos/{REPO}/pulls/5"), {"number": 5})
+        finally:
+            excuse.JUDGEMENT_READS.reset(token)
+        self.assertEqual([r["conditional"] for r in self.calls_since()], [False])
+
 
 if __name__ == "__main__":
     unittest.main()
