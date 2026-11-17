@@ -18,7 +18,7 @@ use cmux_rd_proto::{
     flags,
 };
 
-use crate::cc::OUTAGE_FREEZE_MAX_US;
+use crate::cc::{OUTAGE_FREEZE_MAX_US, outage_threshold_us};
 use crate::fec;
 use crate::link::ViewerLinkState;
 
@@ -45,6 +45,9 @@ struct Timing {
     deadline_us: u64,
     window_us: u64,
     retry_us: u64,
+    /// The D12 outage threshold ([`crate::cc::outage_threshold_us`]): no frame
+    /// is given up sooner than this after its first shard.
+    outage_us: u64,
     /// The link's time away so far, the current outage included: the
     /// give-up clock stands still for it.
     away_us: u64,
@@ -427,6 +430,7 @@ impl Reassembler {
             deadline_us: self.deadline_us,
             window_us: self.repair_window_us(),
             retry_us: self.retry_us(),
+            outage_us: outage_threshold_us(self.rtt_us()),
             away_us: self.link.away_total_us(),
         }
     }
@@ -579,7 +583,11 @@ impl Reassembler {
                 .flatten()
                 .max()
                 .unwrap_or(tail_nack);
+        // Never sooner than the outage threshold from the first shard: a hold
+        // shorter than it is not an outage, so the give-up pause never starts,
+        // and a frame given up inside it would be one its burst completes.
         from.saturating_add(t.window_us.saturating_mul(REPAIR_WINDOWS))
+            .max(p.first_seen_us.saturating_add(t.outage_us))
             .min(p.first_seen_us.saturating_add(t.deadline_us))
     }
 
