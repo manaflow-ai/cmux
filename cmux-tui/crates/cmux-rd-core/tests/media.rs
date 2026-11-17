@@ -338,7 +338,7 @@ fn the_retry_is_floored_on_a_short_path() {
         let shard = lose_first_shard(&mut p, &mut r, frame, at);
         repair(&mut r, &shard, at + 5_500);
     }
-    assert_eq!(r.retry_us(), cmux_rd_core::reassembly::NACK_RETRY_MIN_US);
+    assert_eq!(r.retry_us(), 5_000, "NACK_RETRY_MIN_US");
 }
 
 #[test]
