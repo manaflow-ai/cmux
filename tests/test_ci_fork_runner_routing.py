@@ -164,9 +164,11 @@ BOUNDED_SELECTOR_JOBS = {
     ("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-compile-attribution.yml", "analyze"),
     ("ci-guard-attribution.yml", "analyze"), ("ci-hosted-queue-rescue.yml", "rescue"),
     ("ci-macos.yml", "admission-placement"), ("ci-macos.yml", "late-placement"),
-    ("ci-queue-janitor.yml", "sweep"), ("ci.yml", "changes"), ("cmux-next-dev-daily-dispatch.yml", "dispatch"),
+    ("ci-main-full-suite.yml", "report"), ("ci-queue-janitor.yml", "sweep"), ("ci.yml", "changes"),
+    ("cmux-next-dev-daily-dispatch.yml", "dispatch"), ("cmux-tui-release-delivery.yml", "delivery"),
     ("dogfood-artifact-publish.yml", "capture-inputs"), ("dogfood-artifact-publish.yml", "capture-report"),
     ("iroh-release-gate.yml", "runner"), ("nightly-next-train.yml", "pick-train-runner"),
+    ("required-checks-drift.yml", "reconcile"),
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
