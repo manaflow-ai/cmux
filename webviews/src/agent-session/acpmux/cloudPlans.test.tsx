@@ -166,6 +166,8 @@ test("the pricing card offers the plans a refusal names: cmux NEXT's own by defa
   expect(html).toContain('data-plan="max"');
   expect(html).toContain("$50 / month");
   expect(html).not.toContain("next_pro");
+  // Both Pro plans cost $50: the classic one is told apart by its name.
+  expect(html).toMatch(/>Pro<\/span>/);
   expect(html).not.toContain("cmux NEXT");
   const next = cloudStartEnded(begun, "k", {
     ok: false,
