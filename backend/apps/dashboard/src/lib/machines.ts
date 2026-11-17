@@ -76,9 +76,17 @@ const RANK: Record<MachineStatus, number> = { running: 0, starting: 1, provision
 export const sortMachines = (rows: ReadonlyArray<MachineRow>): Array<MachineRow> =>
   [...rows].sort((a, b) => RANK[a.status] - RANK[b.status] || (b.createdAt ?? 0) - (a.createdAt ?? 0))
 
+/** The team's machines, and whether the list stopped before its last page (MAX_PAGES, or a repeated cursor). */
+export interface MachineList {
+  readonly rows: Array<MachineRow>
+  readonly incomplete: boolean
+}
+
 /** Every machine of the team: `cloud.machine.list` page by page, following `next_cursor`. */
-export const loadMachines = async (read: ReadOp): Promise<Array<MachineRow>> => {
+export const loadMachines = async (read: ReadOp): Promise<MachineList> => {
   const rows: Array<MachineRow> = []
+  const seenIds = new Set<string>()
+  const seenCursors = new Set<string>()
   let cursor: string | null = null
   for (let page = 0; page < MAX_PAGES; page++) {
     const r = await read("cloud.machine.list", cursor ? { limit: 100, cursor } : { limit: 100 })
@@ -87,13 +95,29 @@ export const loadMachines = async (read: ReadOp): Promise<Array<MachineRow>> => 
     const items = Array.isArray(value?.machines) ? value.machines : []
     for (const item of items) {
       const row = parseMachine(item)
-      if (row) rows.push(row)
+      if (row && !seenIds.has(row.id)) {
+        seenIds.add(row.id)
+        rows.push(row)
+      }
     }
     cursor = typeof value?.next_cursor === "string" && value.next_cursor ? value.next_cursor : null
-    if (!cursor) break
+    if (!cursor) return { rows: sortMachines(rows), incomplete: false }
+    // A cursor the server already gave would read the same page again: stop and say the list is partial.
+    if (seenCursors.has(cursor)) break
+    seenCursors.add(cursor)
   }
-  return sortMachines(rows)
+  return { rows: sortMachines(rows), incomplete: true }
 }
+
+/**
+ * The sentence key for a list that did not load. The API answers most refusals of a list read as
+ * auth.forbidden (a guest or billing role, Cloud off for the team), which is not about starting.
+ */
+export const listErrorCode = (code: string): string => (code === "auth.forbidden" ? "list.forbidden" : code)
+
+/** A start whose outcome is unknown, retried with the same idempotency key (the protocol's rule). */
+export const keepsKey = (outcome: StartOutcome | "unreachable"): boolean =>
+  outcome === "unreachable" || (!outcome.ok && outcome.code === "mutation.indeterminate")
 
 /** Only a paused machine can be started; the API answers cloud.machine.not_paused for any other. */
 export const canStart = (m: Pick<MachineRow, "status">): boolean => m.status === "paused"

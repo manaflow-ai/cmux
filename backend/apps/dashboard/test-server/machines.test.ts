@@ -7,7 +7,7 @@
  */
 import { expect, test } from "bun:test"
 import vectors from "../../../catalog/cloud-vectors.json"
-import { canStart, loadMachines, MachinesError, startMachine, type MachineRow } from "../src/lib/machines"
+import { canStart, keepsKey, listErrorCode, loadMachines, MachinesError, startMachine, type MachineRow } from "../src/lib/machines"
 import { machinesErrorText } from "../src/lib/machines-strings"
 
 interface Vector {
@@ -31,10 +31,11 @@ test("the list reads every page, following next_cursor, and shows the paused mac
   const first = vector("machine.list.first_page")
   const second = vector("machine.list.second_page")
   const sent: Array<[string, Record<string, unknown>]> = []
-  const rows = await loadMachines(async (op, params) => {
+  const { rows, incomplete } = await loadMachines(async (op, params) => {
     sent.push([op, params])
     return answer(params.cursor === second.params.cursor ? second : first)
   })
+  expect(incomplete).toBe(false)
   expect(sent).toEqual([
     ["cloud.machine.list", { limit: 100 }],
     ["cloud.machine.list", { limit: 100, cursor: "cur_page2" }]
@@ -55,7 +56,7 @@ test("a signed-out read is the API's auth.unauthenticated, so the page asks to s
 })
 
 const pausedRow = async (): Promise<MachineRow> => {
-  const rows = await loadMachines(async () => answer(vector("machine.list.default")))
+  const { rows } = await loadMachines(async () => answer(vector("machine.list.default")))
   return rows.find((r) => r.status === "paused")!
 }
 
@@ -87,7 +88,7 @@ test("a refused start keeps the API's code and the page explains it", async () =
 })
 
 test("only a paused machine offers Start, and Start never calls the API for any other", async () => {
-  const rows = await loadMachines(async () => answer(vector("machine.list.default")))
+  const { rows } = await loadMachines(async () => answer(vector("machine.list.default")))
   const running = rows.find((r) => r.status === "running")!
   let calls = 0
   const outcome = await startMachine(
@@ -125,4 +126,30 @@ test("every error code the start op declares has its own sentence in both langua
     expect(machinesErrorText("en", code)).not.toBe(generic)
     expect(machinesErrorText("ja", code)).not.toBe(machinesErrorText("ja", "unknown"))
   }
+})
+
+test("a cursor the server repeats ends the list once, without duplicate rows, and says it is partial", async () => {
+  const first = vector("machine.list.first_page")
+  let reads = 0
+  const { rows, incomplete } = await loadMachines(async () => {
+    reads += 1
+    return answer(first)
+  })
+  // The first page names cur_page2; reading it answers the first page again with the same cursor.
+  expect(reads).toBe(2)
+  expect(rows.map((r) => r.id).sort()).toEqual(["vm_m0000000000000000001", "vm_m0000000000000000002"])
+  expect(incomplete).toBe(true)
+})
+
+test("a list the API forbids is not explained as a refused start", () => {
+  expect(machinesErrorText("en", listErrorCode("auth.forbidden"))).toBe("You cannot see this team's Cloud machines.")
+  expect(listErrorCode("cloud.plan.required")).toBe("cloud.plan.required")
+  expect(machinesErrorText("en", "cloud.quota.vm_limit")).toContain("Delete one first")
+})
+
+test("only an unknown outcome keeps the idempotency key for the retry", () => {
+  expect(keepsKey("unreachable")).toBe(true)
+  expect(keepsKey({ ok: false, code: "mutation.indeterminate", status: 200 })).toBe(true)
+  expect(keepsKey({ ok: false, code: "cloud.quota.exceeded", status: 200 })).toBe(false)
+  expect(keepsKey({ ok: true })).toBe(false)
 })
