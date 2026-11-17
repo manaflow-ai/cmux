@@ -720,6 +720,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_drift.py
 
+      - name: Validate main's scheduled readers read as cmux-bot and name GitHub's refusal
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quota_reads_bot_token.py
+
       - name: Validate package test selection
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
@@ -950,6 +954,10 @@ jobs:
       - name: Validate runner label policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
+
+      - name: Validate side-lane runs-on reads the capability label array
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_side_lane_capability_labels.py
 
       - name: Validate that no job runs on a GitHub-hosted Mac
         if: ${{ matrix.group == 'ci' }}
@@ -1471,6 +1479,7 @@ jobs:
           python3 tests/test_nightly_next_canary_runs_installed_app.py
           python3 tests/test_nightly_next_canary_cadence.py
           python3 tests/test_nightly_next_canary_feed_origin.py
+          python3 tests/test_nightly_next_canary_harness_worktree.py
 
       - name: Validate the cmux NEXT DEV publisher cancels only superseded runs
         if: ${{ matrix.group == 'release-notary' }}
