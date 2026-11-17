@@ -1,6 +1,7 @@
 import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
+import { cloudSizeLocked, cloudSizeLockedMessage, type CloudSizeLocked } from "./cloudPlans";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
@@ -88,6 +89,9 @@ export type CloudStartProgress = {
   /// A folder too big to copy that is not a git repository (`cloud_folder_too_big`, the host's check before
   /// any machine): the card says why and offers the repositories inside it, another folder or none.
   tooBig?: CloudFolderTooBig;
+  /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
+  /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
+  sizeLocked?: CloudSizeLocked;
 };
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
@@ -249,6 +253,13 @@ export function cloudStartBegun(
     ...(signingIn ? { signingIn: true } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
   };
+}
+
+/// A Cloud send the page held back because the account has no Cloud plan (`cloudMachine.list` `plan.state` `none`):
+/// nothing went to the host, and the card shows the plans in the start's place (CloudStartView), as for the
+/// platform's own `cloud_plan_required`.
+export function cloudStartPlanHeld(key: string, task: string, cwd: string | undefined): CloudStartProgress {
+  return { ...cloudStartBegun(key, task, cwd), state: "failed", code: "cloud_plan_required", refusedHere: true };
 }
 
 /// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
@@ -531,6 +542,20 @@ export function cloudStartEnded(
     const { signingIn: _s, ask: _a, retryable: _r, ...rest } = current;
     return { ...rest, state: "failed", code: spend, message: translate(SPEND_WORDS[spend]) };
   }
+  // The folder needs a larger machine than the plan includes (the platform's size check before any machine): the
+  // size in plain words and the plan that includes it; Retry stays, for after an upgrade.
+  const locked = answer.code === "cloud_size_locked" ? cloudSizeLocked(answer.details) : undefined;
+  if (locked) {
+    const { signingIn: _s, ask: _a, planTeam: _p, stalled: _st, ...rest } = current;
+    return {
+      ...rest,
+      state: "failed",
+      code: answer.code,
+      message: cloudSizeLockedMessage(locked),
+      sizeLocked: locked,
+      retryable: true,
+    };
+  }
   // A folder too big to copy (the host's check before any machine): no step ran, no Retry, the folder's way on instead.
   if (answer.code === "cloud_folder_too_big") {
     const { signingIn: _s, ask: _a, retryable: _r, planTeam: _p, stalled: _st, ...rest } = current;
@@ -554,6 +579,7 @@ export function cloudStartEnded(
     planTeam: _planTeam,
     stalled: _stalled,
     cloudSetup: _cloudSetup,
+    sizeLocked: _sizeLocked,
     ...ended
   } = current;
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
@@ -613,6 +639,7 @@ const OWN_RECOVERY = new Set([
   "cloud_spend_cap",
   "cloud_member_budget",
   "cloud_folder_too_big",
+  "cloud_size_locked",
 ]);
 const FOLDER_REFUSALS = new Set([
   "cloud_folder_missing",

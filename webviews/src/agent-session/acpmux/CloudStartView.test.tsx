@@ -175,29 +175,28 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
   expect(html).not.toContain("data-signing-in");
 });
 
-test("a plan refusal offers Upgrade, Run on This Mac and Not Now; a start that failed on its way never Upgrade", () => {
+test("a plan refusal shows the pricing card: Pro and Max with Subscribe, Run on This Mac and Not Now", () => {
   const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
   const html = renderToStaticMarkup(
-    <CloudStartView
-      start={refusal}
-      onUpgrade={() => undefined}
-      onRunHere={() => undefined}
-      onDismiss={() => undefined}
-    />,
+    <CloudStartView start={refusal} onRunHere={() => undefined} onDismiss={() => undefined} />,
   );
-  expect(html).toContain('data-role="default">Upgrade</button>');
-  expect(html).toContain(">Run on This Mac</button>");
-  expect(html).toContain(">Not Now</button>");
-  // A refusal by policy keeps the checklist shut, so its actions stay in view in a short pane.
-  expect(html).toContain('aria-expanded="false"');
+  expect(html).toContain("Cloud needs a plan");
+  expect(html).toContain("$50 / month");
+  expect(html).toContain("Machines up to 8 vCPU and 16 GB memory");
+  expect(html).toContain("$200 / month");
+  expect(html).toContain("Machines up to 32 vCPU and 64 GB memory");
+  expect(html).toMatch(/data-action="subscribe" data-plan="pro"[^>]*data-role="default"[^>]*>Subscribe<\/button>/);
+  expect(html).toMatch(/data-action="subscribe" data-plan="max"[^>]*>Subscribe<\/button>/);
+  expect(html).not.toMatch(/data-plan="max"[^>]*data-role="default"/);
+  expect(html).toContain('data-action="run-here">Run on This Mac</button>');
+  expect(html).toContain('data-action="dismiss">Not Now</button>');
+  // Nothing started (the plan is checked before any machine): no startup card, no Upgrade of the classic plan.
+  expect(html).not.toContain("acpmux-cloud-start__card");
+  expect(html).not.toContain(">Upgrade</button>");
   const generic = renderToStaticMarkup(
-    <CloudStartView
-      start={{ ...refusal, code: "cloud_start_failed" }}
-      onUpgrade={() => undefined}
-      onRunHere={() => undefined}
-    />,
+    <CloudStartView start={{ ...refusal, code: "cloud_start_failed" }} onRunHere={() => undefined} />,
   );
-  expect(generic).not.toContain(">Upgrade</button>");
+  expect(generic).not.toContain('data-action="subscribe"');
   // Its way on is the start's own (cloudStartWayOn): Run on This Mac, filled where App passes no Retry.
   expect(generic).toContain('data-action="run-here" data-role="default">Run on This Mac</button>');
 });
@@ -212,30 +211,23 @@ test("a plan refusal in a team says so, names the team and switches to the perso
     planTeam: { team: "cmux", switchTo: { id: "team_0123456789abcdef0123", name: "Personal" } },
   };
   const html = renderToStaticMarkup(
-    <CloudStartView
-      start={refusal}
-      onSwitchTeam={() => undefined}
-      onUpgrade={() => undefined}
-      onRetry={() => undefined}
-    />,
+    <CloudStartView start={refusal} onSwitchTeam={() => undefined} onRetry={() => undefined} />,
   );
   expect(html).toContain("This team has no Cloud plan");
   expect(html).toContain("cmux is the team selected in the team menu.");
   expect(html).toContain('data-role="default" data-action="switch-team">Switch to Personal</button>');
-  expect(html).toContain('data-action="see-plans">See plans</button>');
+  // The plans stay beside the switch, which leads: no Subscribe is filled.
+  expect(html).toContain('data-action="subscribe" data-plan="pro"');
+  expect(html).not.toMatch(/data-action="subscribe"[^>]*data-role="default"/);
   expect(html).not.toContain("acpmux-cloud-start__retry");
   expect(html).not.toContain("acpmux-cloud-start__card");
   expect(html).not.toContain("Cloud machines need a Pro plan.");
   // With no own team known, See plans leads.
   const plans = renderToStaticMarkup(
-    <CloudStartView
-      start={{ ...refusal, planTeam: { team: "cmux" } }}
-      onSwitchTeam={() => undefined}
-      onUpgrade={() => undefined}
-    />,
+    <CloudStartView start={{ ...refusal, planTeam: { team: "cmux" } }} onSwitchTeam={() => undefined} />,
   );
   expect(plans).not.toContain("switch-team");
-  expect(plans).toContain('data-role="default" data-action="see-plans"');
+  expect(plans).toMatch(/data-action="subscribe" data-plan="pro"[^>]*data-role="default"/);
   // The click hands the team to the pane, which switches and sends again.
   const host = installDom();
   const picked: string[] = [];

@@ -9,6 +9,7 @@ import { useSyncExternalStore } from "react";
 import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
 import { activeTeamFromReply, type ActiveTeamTag } from "./TeamTag";
+import { cloudPlanFromReply, type CloudPlanView } from "./cloudPlans";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
 /// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
@@ -235,6 +236,17 @@ function publishTeam(next: ActiveTeamTag | undefined): void {
   for (const listener of listeners) listener();
 }
 
+/// The account's Cloud plan as the reply's `plan` says it (cloudPlans.ts): `unknown` until a reply names one, after
+/// a refused read, and for an older app's reply. Kept only in memory, from this page's own reply.
+const UNKNOWN_PLAN: CloudPlanView = { state: "unknown", id: null, maxSize: null };
+let cloudPlan: CloudPlanView = UNKNOWN_PLAN;
+
+function publishPlan(next: CloudPlanView): void {
+  if (next.state === cloudPlan.state && next.id === cloudPlan.id && next.maxSize === cloudPlan.maxSize) return;
+  cloudPlan = next;
+  for (const listener of listeners) listener();
+}
+
 function publishAccount(next: boolean | undefined): void {
   if (next === accountSignedIn) return;
   accountSignedIn = next;
@@ -255,6 +267,7 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
         publishAccount(signedIn);
         const answer = reply as { team?: unknown; teams?: unknown } | null | undefined;
         publishTeam(signedIn ? activeTeamFromReply(answer?.team, answer?.teams) : undefined);
+        publishPlan(signedIn ? cloudPlanFromReply(reply) : UNKNOWN_PLAN);
         publish(list);
       }
     })
@@ -264,6 +277,7 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
         keepSignedIn(undefined);
         publishAccount(undefined);
         publishTeam(undefined);
+        publishPlan(UNKNOWN_PLAN);
         publish([]);
       }
     })
@@ -381,6 +395,15 @@ export const currentCloudTeam = teamSnapshot;
 /// The team the signed-in account works in, once the app said; undefined before or signed out.
 export function useCloudTeam(): ActiveTeamTag | undefined {
   return useSyncExternalStore(subscribe, teamSnapshot, teamSnapshot);
+}
+
+const planSnapshot = () => cloudPlan;
+/// The plan as last read: a Send reads it at once (App `sendToCloud`), the pricing card's wait after a read.
+export const currentCloudPlan = planSnapshot;
+
+/// Tests: the plan as if the app's reply named it.
+export function setCloudPlanForTest(next: CloudPlanView = UNKNOWN_PLAN): void {
+  publishPlan(next);
 }
 
 /// Tests: the team as if the app's reply named it.
