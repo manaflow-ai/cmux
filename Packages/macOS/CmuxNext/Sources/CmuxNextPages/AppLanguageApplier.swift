@@ -18,17 +18,24 @@ public final class AppLanguageApplier {
     /// The code this applier last wrote. System removes `AppleLanguages` only while it still holds
     /// that write, so a per-app language picked in macOS System Settings stays the person's.
     static let appliedKey = "cmuxNext.appLanguage.applied"
+    /// The app's own `AppleLanguages` from before cmux's first write (a language picked in macOS
+    /// System Settings), which System puts back. It is kept in defaults, so it outlives relaunches.
+    static let previousKey = "cmuxNext.appLanguage.previous"
 
     private let defaults: UserDefaults
+    /// The name of `defaults`' own domain, read without the global domain's fallback.
+    private let domain: String?
     private let pages: @MainActor (String?) -> Void
     /// cmux's own string bundles' language (the app's one ``AppLanguage``).
     let language: AppLanguage
     private var observation: Task<Void, Never>?
 
-    /// `defaults` is the app's own domain (`.standard`); `pages` hands a code to the pages (tests
-    /// record it); `language` switches cmux's native text.
-    public init(defaults: UserDefaults, pages: (@MainActor (String?) -> Void)? = nil, language: AppLanguage = AppLanguage()) {
+    /// `defaults` is the app's own domain (`.standard`, named `domain`); `pages` hands a code to the
+    /// pages (tests record it); `language` switches cmux's native text.
+    public init(defaults: UserDefaults, domain: String? = Bundle.main.bundleIdentifier,
+                pages: (@MainActor (String?) -> Void)? = nil, language: AppLanguage = AppLanguage()) {
         self.defaults = defaults
+        self.domain = domain
         self.pages = pages ?? Self.pushToPages
         self.language = language
     }
@@ -52,16 +59,31 @@ public final class AppLanguageApplier {
         pages(code)
     }
 
-    /// `[code]` as the app's `AppleLanguages`; System removes cmux's own write.
+    /// `[code]` as the app's `AppleLanguages`; System takes back cmux's own write and puts back the
+    /// per-app language it replaced, if any.
     func writeDefaults(_ code: String?) {
+        let applied = defaults.string(forKey: Self.appliedKey)
         if let code {
+            if applied == nil {
+                if let own = ownLanguages { defaults.set(own, forKey: Self.previousKey) } else { defaults.removeObject(forKey: Self.previousKey) }
+            }
             defaults.set([code], forKey: Self.languagesKey)
             defaults.set(code, forKey: Self.appliedKey)
             return
         }
-        guard let applied = defaults.string(forKey: Self.appliedKey) else { return }
-        if defaults.stringArray(forKey: Self.languagesKey) == [applied] { defaults.removeObject(forKey: Self.languagesKey) }
+        guard let applied else { return }
+        // Changed in macOS System Settings since cmux's write: that choice stays.
+        if ownLanguages == [applied] {
+            if let previous = defaults.stringArray(forKey: Self.previousKey) { defaults.set(previous, forKey: Self.languagesKey) } else { defaults.removeObject(forKey: Self.languagesKey) }
+        }
         defaults.removeObject(forKey: Self.appliedKey)
+        defaults.removeObject(forKey: Self.previousKey)
+    }
+
+    /// The app domain's own `AppleLanguages` (`stringArray(forKey:)` falls back to the global one).
+    private var ownLanguages: [String]? {
+        guard let domain else { return defaults.stringArray(forKey: Self.languagesKey) }
+        return defaults.persistentDomain(forName: domain)?[Self.languagesKey] as? [String]
     }
 
     /// The code for every later document, and now to every live one.

@@ -4,7 +4,8 @@ import Foundation
 import Testing
 
 /// `app.language` applied: a code becomes the app's own `AppleLanguages` (what menus and `Bundle`
-/// read at the next launch) and goes to the pages; System removes cmux's write and only that. Every
+/// read at the next launch) and goes to the pages; System takes back cmux's write and only that, and
+/// puts back the per-app language it replaced. Every
 /// test writes a throwaway suite, never the real app domain.
 @MainActor
 struct AppLanguageApplierTests {
@@ -26,7 +27,7 @@ struct AppLanguageApplierTests {
         let suite = try Suite()
         defer { suite.remove() }
         var pushed: [String?] = []
-        let applier = AppLanguageApplier(defaults: suite.defaults) { pushed.append($0) }
+        let applier = AppLanguageApplier(defaults: suite.defaults, domain: suite.name) { pushed.append($0) }
         applier.apply("ja")
         #expect(suite.languages == ["ja"])
         #expect(pushed == ["ja"])
@@ -36,7 +37,7 @@ struct AppLanguageApplierTests {
         let suite = try Suite()
         defer { suite.remove() }
         var pushed: [String?] = []
-        let applier = AppLanguageApplier(defaults: suite.defaults) { pushed.append($0) }
+        let applier = AppLanguageApplier(defaults: suite.defaults, domain: suite.name) { pushed.append($0) }
         applier.apply("de")
         applier.apply(nil)
         #expect(suite.languages == nil)
@@ -49,14 +50,42 @@ struct AppLanguageApplierTests {
         defer { suite.remove() }
         // macOS System Settings > Language & Region > Applications set French for cmux.
         suite.defaults.set(["fr"], forKey: AppLanguageApplier.languagesKey)
-        AppLanguageApplier(defaults: suite.defaults) { _ in }.apply(nil)
+        AppLanguageApplier(defaults: suite.defaults, domain: suite.name) { _ in }.apply(nil)
         #expect(suite.languages == ["fr"])
+    }
+
+    @Test func systemPutsBackThePerAppLanguageCmuxReplaced() throws {
+        let suite = try Suite()
+        defer { suite.remove() }
+        // French picked in macOS System Settings, then two cmux picks, then System.
+        suite.defaults.set(["fr"], forKey: AppLanguageApplier.languagesKey)
+        let applier = AppLanguageApplier(defaults: suite.defaults, domain: suite.name) { _ in }
+        applier.apply("de")
+        applier.apply("ko")
+        #expect(suite.languages == ["ko"])
+        // A relaunch makes a new applier; what it replaced is in defaults, not in memory.
+        AppLanguageApplier(defaults: suite.defaults, domain: suite.name) { _ in }.apply(nil)
+        #expect(suite.languages == ["fr"])
+        #expect(suite.applied == nil)
+        #expect(suite.defaults.persistentDomain(forName: suite.name)?[AppLanguageApplier.previousKey] == nil)
+    }
+
+    @Test func systemKeepsAPerAppLanguagePickedAfterCmuxsWrite() throws {
+        let suite = try Suite()
+        defer { suite.remove() }
+        suite.defaults.set(["fr"], forKey: AppLanguageApplier.languagesKey)
+        let applier = AppLanguageApplier(defaults: suite.defaults, domain: suite.name) { _ in }
+        applier.apply("de")
+        // Spanish picked in macOS System Settings while cmux's German was on.
+        suite.defaults.set(["es"], forKey: AppLanguageApplier.languagesKey)
+        applier.apply(nil)
+        #expect(suite.languages == ["es"])
     }
 
     @Test func aNewCodeReplacesTheLastOne() throws {
         let suite = try Suite()
         defer { suite.remove() }
-        let applier = AppLanguageApplier(defaults: suite.defaults) { _ in }
+        let applier = AppLanguageApplier(defaults: suite.defaults, domain: suite.name) { _ in }
         applier.apply("ko")
         applier.apply("zh-Hans")
         #expect(suite.languages == ["zh-Hans"])
