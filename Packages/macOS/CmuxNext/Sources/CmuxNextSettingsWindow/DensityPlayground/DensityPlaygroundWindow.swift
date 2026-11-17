@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-import SwiftUI
 
 /// The Density Playground window (Command Palette "Density Playground"): ``DensityPlaygroundView`` over one
 /// ``DensityPlaygroundModel``, a floating panel beside the app so the sidebar and tabs stay in view while a slider
@@ -30,7 +29,7 @@ import SwiftUI
         SettingsTheme.shared.follow(scope)
         scope.adopt(window)
         window.makeKeyAndOrderFront(nil)
-        // The SwiftUI content takes the keys, so Tab reaches the name and the value fields from the keyboard.
+        // The content takes the keys, so Tab reaches the name and the value fields from the keyboard.
         if window.firstResponder === window { window.makeFirstResponder(window.initialFirstResponder) }
     }
 
@@ -52,7 +51,7 @@ import SwiftUI
         panel.identifier = NSUserInterfaceItemIdentifier("cmux.densityPlayground")
         panel.delegate = self
         SettingsTheme.shared.follow(scope)
-        let content = NSHostingView(rootView: DensityPlaygroundView(model: model))
+        let content = DensityPlaygroundView(model: model)
         panel.install(kind: .debugSettings, content: content, scope: scope, activeLook: activeLook)
         panel.initialFirstResponder = content
         // A group switch swaps the value fields: Tab follows the fields on screen, not the ones that left.
