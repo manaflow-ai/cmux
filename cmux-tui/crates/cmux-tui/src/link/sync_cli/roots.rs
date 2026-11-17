@@ -253,7 +253,7 @@ mod tests {
             (small_a.clone(), Some(4 * 1024 * 1024)),
             // The same blob twice (two paths, or a snapshot): named once.
             (small_b.clone(), Some(10)),
-            (large_known.clone(), Some(64 * 1024 * 1024)),
+            (large_known, Some(64 * 1024 * 1024)),
             // A large file this Mac never chunked: left out.
             (large_unknown, Some(5 * 1024 * 1024)),
             // A snapshot's file of unknown size: its own hash.
