@@ -39,8 +39,6 @@ struct AgentSideSessionPaneTests {
         transport.sessions.add("chat-1")
         let asked = { server.peers.first?.frames.filter { $0.contains("_acpmux/btw") } ?? [] }
 
-        #expect(await transport.send(connection: id, frames: [Self.btw(id: 1, session: "chat-1")]) == .gestureRequired)
-        transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.btw(id: 2, session: "other")]) != nil,
                 "a chat outside the pane's scope")
         transport.gestures.record()
@@ -50,7 +48,8 @@ struct AgentSideSessionPaneTests {
         #expect(await model.respond(to: Self.sideChat("side-1"))["ok"] as? Bool != true,
                 "a side session the pane never started opened")
 
-        transport.gestures.record()
+        // A `/btw` is a send: it goes with no key press or click behind it (Leo, 2026-11-17).
+        _ = transport.gestures.consume()
         #expect(await transport.send(connection: id, frames: [Self.btw(id: 4, session: "chat-1", extra: #","model":"haiku""#)]) == nil)
         _ = await inbox.frame(containing: #""id":4"#)
         let sent = try #require(asked().first)

@@ -102,11 +102,10 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
         }
     }
 
-    /// The reply to the page's upload: only for a chat the App uploads for (asked before the gesture
-    /// is used, so another chat's paste keeps its gesture), then only with a real gesture.
+    /// The reply to the page's upload: only for a chat the App uploads for. The page sends the
+    /// bytes, so an upload reads no file of this Mac: it needs no gesture.
     @MainActor static func respond(_ files: [AgentPaneUpload], in model: AgentPaneModel) async -> [String: Any] {
         guard let uploader = model.onUpload?() else { return AgentPaneModel.unsupported("chat.upload") }
-        guard model.transport.gestures.consumeUpload() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         return await uploader(files)
     }
 }

@@ -70,8 +70,7 @@ struct AgentPaneAttachExternalTests {
         let items = try #require((dropped["value"] as? [String: Any])?["items"] as? [[String: Any]])
         #expect(items.compactMap { $0["path"] as? String } == [image.path])
         #expect(model.droppedPaths.source(.external, names: ["Screenshot.png"])?.claimed == "com.apple.Preview")
-        // Its upload credit only: no grant for page script to spend.
-        #expect(model.transport.gestures.consumeUpload())
+        // No grant for page script to spend: an upload needs none.
         #expect(!model.transport.gestures.consume())
     }
 

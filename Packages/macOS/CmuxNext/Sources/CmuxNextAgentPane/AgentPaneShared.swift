@@ -10,24 +10,21 @@ public import CmuxNextDesign
 ///   judges whether a key or click is the person's from it, never by a system call per event.
 /// - `apps`: the app supervisor's client; each page gets its own ``AppsPanelsPageProvider`` over it (Session Info
 ///   app sections). Nil (tests): the page has no `cmux.apps.panels.*` ops.
-/// - `actAsMe`: the app's one "Computer use can act as me" grant (``AgentPaneActAsMe``); nil (tests) grants nothing.
 /// - `flickerLog`: the app run's flicker ring file (``AgentPageFlickerLog/forAppRun()``); nil (tests) writes none.
 /// - `focusLoss`: the app's focus log for a page's `focus-lost` events (``AgentPaneView/onPageFocusLost``); nil (tests) records none.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
     public let apps: AppsClient?
-    public let actAsMe: AgentPaneActAsMe?
     public let flickerLog: AgentPageFlickerLog?
     public let focusLoss: AgentPaneView.PageFocusLoss?
 
-    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log and no focus log.
+    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no flicker log and no focus log.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
-                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil) {
+                flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil) {
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
-        self.actAsMe = actAsMe
         self.flickerLog = flickerLog
         self.focusLoss = focusLoss
     }
@@ -39,8 +36,6 @@ extension AgentPaneView {
                              pageHost: Bool = false, shared: AgentPaneShared) {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
-        model.transport.gestures.actAsMe = shared.actAsMe
         onPageFocusLost = shared.focusLoss
-        showActAsMe(shared.actAsMe)
     }
 }

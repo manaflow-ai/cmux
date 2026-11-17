@@ -38,7 +38,7 @@ struct AgentPaneAgentReplyRelayTests {
         return (transport, id, inbox)
     }
 
-    @Test func aReplyGoesOutOnlyAsThePanesChatOnAGestureAndIsSentAsThatChat() async throws {
+    @Test func aReplyGoesOutOnlyAsThePanesChatAndIsSentAsThatChat() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
@@ -47,8 +47,6 @@ struct AgentPaneAgentReplyRelayTests {
         let (transport, id, inbox) = try await Self.open(server, sent: sent)
         let relayed = { server.peers.first?.frames.filter { $0.contains("_acpmux/app_reply") } ?? [] }
 
-        #expect(await transport.send(connection: id, frames: [Self.reply(id: 1, session: "s")]) == .gestureRequired)
-        transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.reply(id: 2, session: "other")]) != nil,
                 "a chat the pane does not show")
         for extra in [#","recipients":["acp:other"]"#, #","senderName":"Chief""#, #","credential":"c""#] {
@@ -59,7 +57,8 @@ struct AgentPaneAgentReplyRelayTests {
         #expect(relayed().isEmpty, "a refused reply reached acpmux: \(relayed())")
         #expect(sent.replies.isEmpty, "a refused reply was sent: \(sent.replies)")
 
-        transport.gestures.record()
+        // A reply is a send: it goes with no key press or click behind it (Leo, 2026-11-17).
+        _ = transport.gestures.consume()
         #expect(await transport.send(connection: id, frames: [Self.reply(id: 4, session: "s")]) == nil)
         let answer = await inbox.frame(containing: #""id":4"#)
         let object = try #require(try JSONSerialization.jsonObject(with: Data(answer.utf8)) as? [String: Any])

@@ -6,9 +6,8 @@ import Testing
 /// a new chat's first prompt waits for its harness to start (a New Tab ask, a harness switch, the
 /// composer's Enter in a new chat). The person's send gesture lives 30 s, and a harness that cannot
 /// reach its backend can take longer to answer `session/new`, so the prompt reached the relay with
-/// no gesture left and came back `transport.gesture_required`: "Not sent". The start that took the
-/// person's gesture now carries it to that chat's first prompt, as a start on another machine does,
-/// once and within the start credit's lifetime.
+/// no gesture left and came back `transport.gesture_required`: "Not sent". Leo, 2026-11-17: "go
+/// remove this". A send needs no gesture now, so the first prompt goes however long the start took.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneSlowStartPromptTests {
@@ -67,28 +66,25 @@ struct AgentPaneSlowStartPromptTests {
         _ = await pane.inbox.frame(containing: #""id":2"#)
         #expect(pane.server.peers.first?.frames.contains { $0.contains("session/prompt") } == true)
 
-        // One grant per gesture: a second prompt with no new gesture is refused.
-        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-2")]) == .gestureRequired)
+        // A second prompt with no new gesture goes too.
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-2")]) == nil)
     }
 
-    @Test func aStartWithoutTheGestureCarriesNothingAndTheCreditEnds() async throws {
+    /// A chat the page started by itself (an agent, a script, computer use) sends its first prompt, and
+    /// one sent long after its start goes too: no "Not sent" state.
+    @Test func aStartWithoutTheGestureStillSendsItsPrompts() async throws {
         let pane = try await Self.pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
 
-        // A start the page made by itself (no gesture of the person's) gives its prompt nothing.
         #expect(await Self.start(pane, id: 1) == nil)
-        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
-
-        // A start under the gesture whose prompt comes after the credit's lifetime is refused too.
-        pane.transport.gestures.record()
-        #expect(await Self.start(pane, id: 3) == nil)
-        pane.clock.now += AgentPaneTransport.startCreditLifetime + 1
-        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-2")]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-1")]) == nil)
+        pane.clock.now += 3600
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-2")]) == nil)
     }
 
-    /// A prompt acpmux held for the folder trust answer keeps the send's gesture as a ticket
-    /// (heldPrompt.ts reserves it at the refusal). The start already took that gesture, so its
-    /// credit becomes the ticket, which waits for the answer as long as a held prompt does.
+    /// A prompt acpmux held for the folder trust answer gets a ticket (heldPrompt.ts reserves it at the
+    /// refusal) and goes after the answer, however long it took. A send needs no gesture, so a second
+    /// ticket comes too.
     @Test func aPromptHeldForTrustAfterTheStartStillGetsItsTicket() async throws {
         let pane = try await Self.pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
@@ -102,7 +98,6 @@ struct AgentPaneSlowStartPromptTests {
         pane.clock.now += 300
         let frame = #"{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s-new","prompt":[{"type":"text","text":"Add a remove command"}],"_meta":{"acpmux":{"promptId":"p-1"},"cmuxGesture":"\#(ticket)"}}}"#
         #expect(await pane.transport.send(connection: pane.id, frames: [frame]) == nil)
-        // The credit went into the ticket: a second ticket needs a new gesture.
-        #expect(pane.transport.reserveGesture(intent) == nil)
+        #expect(pane.transport.reserveGesture(intent) != nil)
     }
 }

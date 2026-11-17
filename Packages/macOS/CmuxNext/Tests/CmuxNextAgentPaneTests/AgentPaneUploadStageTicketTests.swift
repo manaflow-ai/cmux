@@ -92,7 +92,8 @@ struct AgentPaneUploadStageTicketTests {
         #expect(ok(await call(model, "chat.upload.finish", ["token": "t-1"])))
         #expect(staged.requests.count == 3)
         #expect(await prompt(transport, id, ticket: ticket, frame: 2) == nil, "the prompt of a send's upload was refused")
-        #expect(await prompt(transport, id, ticket: ticket, frame: 3) == .gestureRequired, "one ticket sent two prompts")
+        // A spent ticket refuses nothing: a send needs no gesture.
+        #expect(await prompt(transport, id, ticket: ticket, frame: 3) == nil)
     }
 
     /// The finish of a Cloud or peer upload awaits the transfer, with no page chunk to report progress:
@@ -111,7 +112,7 @@ struct AgentPaneUploadStageTicketTests {
         #expect(await prompt(transport, id, ticket: ticket, frame: 2) == nil, "a long finish expired the send ticket")
     }
 
-    @Test func anUploadWithAnotherSendsTicketOrNoneIsRefused() async throws {
+    @Test func anUploadWithAnotherSendsTicketIsRefusedAndOneWithNoneGoes() async throws {
         let (server, model, _, staged) = try await pane()
         defer { server.stop() }
         let transport = model.transport
@@ -125,11 +126,9 @@ struct AgentPaneUploadStageTicketTests {
             let begun = await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2].merging(send) { $1 })
             #expect(!ok(begun), "an upload began on \(send)")
         }
-        // No ticket and no gesture left: refused as before. The Enter's own upload credit (one batch
-        // of files, ``AgentPaneUserGestures/consumeUpload()``) is not the ticket's; spend it first.
-        _ = transport.gestures.consumeUpload()
-        #expect(!ok(await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2])))
         #expect(staged.requests.isEmpty, "a refused upload reached the stager")
+        // No ticket and no gesture: an upload needs none.
+        #expect(ok(await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2])))
     }
 
     @Test func aCancelledUploadReleasesItsHold() async throws {

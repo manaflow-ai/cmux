@@ -222,8 +222,8 @@ pub struct Facts {
     /// `confirmHarnessEnable`); refused with [`Refusal::HarnessNotConfirmed`]
     /// when the user does not enable it.
     pub harness_enable: bool,
-    /// A `session/new` on this Mac (not a remote wire's): a send's gesture
-    /// goes on to its first prompt (Swift `startCredit`).
+    /// A `session/new` on this Mac (not a remote wire's): the host decides
+    /// it on its main actor (its start and replacements).
     pub starts_local_session: bool,
 }
 
@@ -238,6 +238,8 @@ impl Facts {
             && !self.foreign_source
             && !self.harness_enable
             && !self.starts_local_session
+            // A prompt needs no gesture, but the host journals it before it goes.
+            && self.method.as_deref() != Some("session/prompt")
     }
 
     /// The facts as JSON, in the layout of `tests/cases/check.json`'s

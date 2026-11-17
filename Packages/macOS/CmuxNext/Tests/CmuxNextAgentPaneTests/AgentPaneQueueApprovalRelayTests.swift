@@ -5,7 +5,8 @@ import Testing
 /// The owner's Approve and Decline of a guest's held prompt at the relay boundary (the page's
 /// frames into ``AgentPaneTransport``, out to acpmux; acpmux `hub/queue_approve.rs`): both reach
 /// acpmux only for a chat in the pane's scope and only in the shapes the pane sends. Approve names
-/// the `revision` the owner saw and runs a prompt, so it needs a gesture; Decline needs none.
+/// the `revision` the owner saw and runs a prompt. Neither needs a gesture: Approve is a send
+/// (Leo, 2026-11-17, on the "Not sent: it needs your own key press or click" gate: "go remove this").
 @Suite(.serialized)
 @MainActor
 struct AgentPaneQueueApprovalRelayTests {
@@ -36,7 +37,6 @@ struct AgentPaneQueueApprovalRelayTests {
                 "Decline names no revision")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
 
-        transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, method: approve, params: #"{"sessionId":"s","promptId":"p","turnId":"t-1","revision":2}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":4"#)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 5, method: decline, params: #"{"sessionId":"s","promptId":"q"}"#)]) == nil)
@@ -75,9 +75,9 @@ struct AgentPaneQueueApprovalRelayTests {
         #expect(!AcpmuxPaneMethods.needsGesture(Self.frame(id: 4, method: get, params: #"{"sessionId":"s","promptId":"p"}"#), options: AcpmuxPermissionOptions()))
     }
 
-    @Test func approveNeedsAGestureAndDeclineDoesNot() {
+    @Test func neitherApproveNorDeclineNeedsAGesture() {
         let options = AcpmuxPermissionOptions()
-        #expect(AcpmuxPaneMethods.needsGesture(
+        #expect(!AcpmuxPaneMethods.needsGesture(
             Self.frame(id: 1, method: "_acpmux/queue_approve", params: #"{"sessionId":"s","promptId":"p","revision":0}"#), options: options))
         #expect(!AcpmuxPaneMethods.needsGesture(
             Self.frame(id: 1, method: "_acpmux/queue_decline", params: #"{"sessionId":"s","promptId":"p"}"#), options: options))

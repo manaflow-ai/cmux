@@ -45,13 +45,14 @@ extension AgentPaneTransport {
         var handoffId: String?
         /// `_acpmux/harness_enable`: the native sheet decides it (``confirmHarnessEnable(_:)``).
         var harnessEnable = false
-        /// A `session/new` on this Mac: a send's gesture goes on to its first prompt (``startCredit``).
+        /// A `session/new` on this Mac: it waits for the main actor (its start and replacements).
         var startsLocalSession = false
 
-        /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
+        /// No main-actor state decides this frame: it is checked, encoded and sent in one step. A
+        /// prompt never is: it needs no gesture, but it is journaled before it goes (``promptRelay``).
         var free: Bool {
             ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil && !foreignSource
-                && !harnessEnable && !startsLocalSession
+                && !harnessEnable && !startsLocalSession && method != "session/prompt"
         }
     }
 
@@ -365,8 +366,6 @@ extension AgentPaneTransport {
         if socket.refusesPageFrame(method: facts.method) {
             return Self.refuse(.refuse(.methodRefused, method: facts.method, requestID: facts.pageID), socket: socket)
         }
-        // A gesture the folder check below uses: a new chat's start carries it to its first prompt.
-        var startGesture = false
         if facts.needsPathCheck, !remoteWire {
             var result = await checkPathsInScope(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
@@ -377,7 +376,6 @@ extension AgentPaneTransport {
             // (`workspace.useFolder`, cx-nn3e), and only that answer makes it a root.
             if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, refusal.outsidePath != nil,
                !facts.harnessEnable, !refusal.outsideIsHomeOrAbove, gestures.consume() {
-                startGesture = true
                 // The one gesture grants every typed folder the frame names, not only the first:
                 // a new chat's Add folder… can name several (cmux#34407).
                 guard let checked = await Self.grantTypedFolders(result, grant: { self.grant($0) }, recheck: {
@@ -393,7 +391,6 @@ extension AgentPaneTransport {
                     guard gestures.consume() else {
                         return Self.refuse(.refuse(.pathOutsideRoots, method: facts.method, requestID: facts.pageID), socket: socket)
                     }
-                    startGesture = true
                     addedRoots += gestureRootsUsed.filter { !addedRoots.contains($0) }
                 }
             case .failure(let refusal):
@@ -402,6 +399,8 @@ extension AgentPaneTransport {
             }
         }
         // The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.
+        // A frame that needs none (every send) goes whatever ticket it carries: the ticket is spent,
+        // never required (Leo, 2026-11-17: no more "Not sent: it needs your own key press or click").
         var ticketPick = false
         if !facts.isFirst {
             let granted: Bool
@@ -411,24 +410,18 @@ extension AgentPaneTransport {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
                     return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
                 }
-                // B2: only set_mode, set_config_option, a prompt held for the trust answer (its
-                // promptId) and a permission answer (its session, prompt and option) redeem a
-                // ticket, for their exact pick, into a session of this pane. A ticket is spent even
-                // when it does not match.
+                // B2: only set_mode, set_config_option, a prompt (its promptId) and a permission
+                // answer (its session, prompt and option) redeem a ticket, for their exact pick, into
+                // a session of this pane. A ticket is spent even when it does not match.
                 let questionCredit = facts.method == "_acpmux/permission_respond" ? takeQuestionKeyCredit(ticket, connection: id) : nil
                 redeemedQuestion = questionCredit.map { credit in
                     credit.intent.matches(facts.pick) && credit.target.sessionID == facts.sessionId &&
                     credit.target.permissionID == box.param("permissionId")
                 } ?? false
                 let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
-                granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
+                ticketPick = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true)
-                ticketPick = granted
-                // A prompt that goes with its own ticket spends the start's credit too, as one
-                // without a ticket does: the credit never grants a later prompt (#23031).
-                if granted, facts.method == "session/prompt" {
-                    _ = startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime)
-                }
+                granted = ticketPick || !facts.needsGesture
                 if redeemedQuestion, let credit = questionCredit {
                     guard let before = decisions.context(session: credit.target.sessionID, permission: credit.target.permissionID), before == credit.context,
                           await credit.redeem(), id == current, self.socket === socket,
@@ -437,47 +430,10 @@ extension AgentPaneTransport {
                         return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
                     }
                 }
-            } else if remoteWire, facts.method == "session/new" {
-                // A new chat on another machine starts only from the person's own send (cx-k21v);
-                // its first prompt goes with the same gesture, after the start. A prompt a
-                // person's action seeded starts it once through its seed ticket, and goes out
-                // with that ticket (gap 4); a CLI, MCP or script seed has none and is refused.
-                if gestures.consume() {
-                    granted = true
-                    startCredit.give(connection: id, at: gestures.uptime)
-                } else if remoteTrustCredit.take(connection: id, now: ProcessInfo.processInfo.systemUptime,
-                                                 lifetime: AgentPaneUserGestures.lifetime, dropOthers: true) == true {
-                    // The person's Trust click on that machine's folder question re-runs the start
-                    // it held (cx-1bhjj), as a held prompt goes after Trust on this Mac.
-                    granted = true
-                    startCredit.give(connection: id, at: gestures.uptime)
-                } else {
-                    granted = gestures.takeSeedStart()
-                }
             } else {
-                // The start's credit is spent by the first prompt, whatever grants it.
-                let credit = facts.method == "session/prompt"
-                    && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
-                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
-                // Computer use acting as the person (``AgentPaneActAsMe``, on only by the person's own grant)
-                // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
-                granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
-                    && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
-                    || gestures.consumePosted(for: facts.method)
-                // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
-                // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
-                // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
-                if facts.startsLocalSession, startGesture
-                    || pickCredit.take(connection: id, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == true
-                    || gestures.consume() {
-                    startCredit.give(connection: id, at: gestures.uptime)
-                }
-                if granted, facts.needsGesture, remoteWire, facts.method == "acp.trust.set" {
-                    remoteTrustCredit.give(connection: id, at: ProcessInfo.processInfo.systemUptime)
-                }
+                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume())
             }
             if !granted {
-                gestures.noteRefused(facts.method)
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
@@ -567,7 +523,7 @@ extension AgentPaneTransport {
             // The switch's queued prompt goes out: its pick tickets end, but each other prompt
             // keeps its own send proof for the rapid-send case.
             if facts.method == "session/prompt" {
-                gestures.clearTicketsKeepingPrompts(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+                gestures.clearTicketsKeepingPrompts(); gestures.dropSeedTicket()
             }
         }
         // Whether this answer carries this Mac's signed allow, by its page id (one request at a

@@ -6,7 +6,8 @@ import Testing
 @MainActor
 struct AgentPaneFixFromLinkGestureTests {
     final class Clock { var now: TimeInterval = 100 }
-    @Test func preparationNeedsNoGestureButLaunchRequiresItsExactTicketOnce() async throws {
+    /// Fix from a link is a send: it goes with no gesture, and with a spent ticket (Leo, 2026-11-17).
+    @Test func preparationAndLaunchNeedNoGesture() async throws {
         let pane = try await AgentPaneSlowStartPromptTests.pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
         let params: [String: Any] = ["url": "https://github.com/acme/widget/issues/12"]
@@ -18,7 +19,7 @@ struct AgentPaneFixFromLinkGestureTests {
             ]), as: UTF8.self)
         }
         #expect(await pane.transport.send(connection: pane.id, frames: [try frame("chat.fix_from_link.prepare", 1)]) == nil)
-        #expect(await pane.transport.send(connection: pane.id, frames: [try frame("chat.fix_from_link", 2)]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: pane.id, frames: [try frame("chat.fix_from_link", 2)]) == nil)
         let intent = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "chat.fix_from_link", "params": params]]))
         pane.transport.gestures.record()
         let ticket = try #require(pane.transport.reserveGesture(intent))
@@ -27,7 +28,7 @@ struct AgentPaneFixFromLinkGestureTests {
         pane.transport.gestures.record()
         #expect(pane.transport.gestures.consume())
         #expect(await pane.transport.send(connection: pane.id, frames: [try frame("chat.fix_from_link", 3, ticket)]) == nil)
-        #expect(await pane.transport.send(connection: pane.id, frames: [try frame("chat.fix_from_link", 4, ticket)]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: pane.id, frames: [try frame("chat.fix_from_link", 4, ticket)]) == nil)
     }
 
     @Test func launchSelectionsCannotBeSubstitutedAndTicketsExpire() throws {

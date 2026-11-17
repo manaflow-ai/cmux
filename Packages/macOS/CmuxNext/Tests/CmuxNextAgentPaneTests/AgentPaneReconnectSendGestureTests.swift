@@ -10,7 +10,8 @@ import CmuxNextCompat
 /// pane's connection is replaced meanwhile (a stalled stream reconnects, `recoverStall`; acpmux
 /// restarts; the page host's backlog closes it). The new connection dropped every ticket, and the
 /// Enter's live gesture was already in the ticket, so the prompt reached the relay with nothing of
-/// the person's left. A person's send ticket now outlives the connection it was taken on.
+/// the person's left. A person's send ticket now outlives the connection it was taken on, and since
+/// Leo's "go remove this" (2026-11-17) a send needs no gesture at all.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneReconnectSendGestureTests {
@@ -51,8 +52,8 @@ struct AgentPaneReconnectSendGestureTests {
         let sent = await pane.transport.send(connection: again, frames: [Self.prompt(id: 2, promptId: "p-1", ticket: ticket)])
         #expect(sent == nil, "the person's own Enter was refused after the pane reconnected")
         #expect(await pane.server.wait { peers in peers.dropFirst().contains { $0.frames.contains { $0.contains("session/prompt") } } })
-        // The ticket is single use, on any connection.
-        #expect(await pane.transport.send(connection: again, frames: [Self.prompt(id: 3, promptId: "p-1", ticket: ticket)]) == .gestureRequired)
+        // A spent ticket refuses nothing: a send needs none.
+        #expect(await pane.transport.send(connection: again, frames: [Self.prompt(id: 3, promptId: "p-1", ticket: ticket)]) == nil)
     }
 
     /// acpmux restarts (or the nightly relaunched it) right after the Enter: the daemon closes the
@@ -77,15 +78,15 @@ struct AgentPaneReconnectSendGestureTests {
                 "the person's own Enter was refused after acpmux restarted")
     }
 
-    /// Only the person's send tickets carry over: an agent's prompt with no gesture is still refused on
-    /// the new connection, and other picks (a mode) end with their connection as before.
-    @Test func onlyThePersonsSendTicketsOutliveTheConnection() async throws {
+    /// An agent's prompt with no gesture goes on the new connection; other picks (a mode) end with
+    /// their connection as before.
+    @Test func onlySendTicketsOutliveTheConnection() async throws {
         let pane = try await AgentPaneDelayedSendGestureTests.paneWithChat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
 
         pane.transport.close(connection: pane.id)
         let again = try await Self.reopen(pane)
-        #expect(await pane.transport.send(connection: again, frames: [Slow.prompt(id: 2, promptId: "p-agent")]) == .gestureRequired)
+        #expect(await pane.transport.send(connection: again, frames: [Slow.prompt(id: 2, promptId: "p-agent")]) == nil)
 
         pane.transport.gestures.record()
         let mode = try #require(AgentPaneGestureIntent(gestureParams: [

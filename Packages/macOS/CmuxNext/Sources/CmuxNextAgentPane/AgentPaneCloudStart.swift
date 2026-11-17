@@ -322,22 +322,15 @@ struct AgentPaneHandOff {
         if let refusal = model.sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let replacements = transport.replacements
         guard replacements.beginSandbox(replacingOpened: chat != nil) else { return notNow }
-        let authorized: Bool
         if let signInGrant {
             // No await from here to `body`'s `run`: the check and the start are one turn.
             guard model.takeCloudSignInGrant(signInGrant) else {
                 replacements.endSandbox()
                 return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
             }
-            authorized = true
         } else if let gestureTicket, let connection = transport.connection, let gestureParams {
-            authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams)
-        } else { // or the credit of the folder pick that spent the click (a too-big card's repository, #40957)
-            authorized = transport.gestures.consume() || transport.pickCredit.take(connection: transport.current, now: transport.gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == true
-        }
-        guard authorized else {
-            replacements.endSandbox()
-            return AgentPaneModel.transportFailure(.gestureRequired)
+            // A Cloud start is a send: it needs no gesture. Its ticket is only spent.
+            _ = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams)
         }
         return await body(replacements)
     }

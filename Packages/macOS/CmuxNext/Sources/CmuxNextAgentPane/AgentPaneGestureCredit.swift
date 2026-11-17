@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a frame that took the person's gesture leaves for one later frame on the same connection
-/// (``AgentPaneTransport/startCredit``, ``AgentPaneTransport/remoteTrustCredit``): the connection
+/// (``AgentPaneTransport/signInPageCredit``): the connection
 /// and the uptime it was given at. Spending it clears it.
 struct AgentPaneGestureCredit {
     private var held: (connection: Int, at: TimeInterval)?

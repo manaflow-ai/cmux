@@ -2,22 +2,16 @@ public import Foundation
 import CmuxNextCompat
 
 /// The host's record of the user's last real gesture in a pane (a key or mouse event in its web
-/// view, or a native action such as a permission shortcut). Each gesture gives three single-use
+/// view, or a native action such as a permission shortcut). Each gesture gives two single-use
 /// credits: one GRANT (a frame that grants something, ``AcpmuxPaneMethods/needsGesture(_:options:)``,
-/// ``consume()``), one SCOPE-ADD (one attach of a session that is not yet the pane's,
-/// ``consumeScope()``) and one UPLOAD (one batch of files the person pasted, dropped or chose,
-/// ``consumeUpload()``). Using one leaves the others. A gesture older than ``lifetime`` is gone (it
+/// ``consume()``) and one SCOPE-ADD (one attach of a session that is not yet the pane's,
+/// ``consumeScope()``). Using one leaves the other. Sending and uploading need none. A gesture older than ``lifetime`` is gone (it
 /// covers a prompt held while a harness starts). Page script cannot set it.
 @MainActor public final class AgentPaneUserGestures {
     public static let lifetime: TimeInterval = 30
     private var last: TimeInterval?
     /// The same gesture's scope-add credit.
     private var lastScope: TimeInterval?
-    /// The same gesture's upload credit: one Enter pays for its send and for the upload of a file
-    /// pasted just before, which begins only once the host answered where the paste's files are
-    /// (Leo, 2026-11-06: the send held for that file came back "Not sent: it needs your own key
-    /// press or click."). Only the person's own gesture gives it; posted input never does.
-    private var lastUpload: TimeInterval?
     private let now: @MainActor () -> TimeInterval
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -30,7 +24,6 @@ import CmuxNextCompat
         questionReturn = nil
         last = now()
         lastScope = last
-        lastUpload = last
         if click { lastClick = last }
     }
 
@@ -82,22 +75,10 @@ import CmuxNextCompat
         return now() - last <= Self.lifetime
     }
 
-    /// Uses the gesture for a prompt the person sent: true once per recorded gesture, however old.
-    /// Only a send with no key press or click of the person's left is refused, never one for its
-    /// age: on a loaded Mac the page's prompt reaches the host well past ``lifetime`` after the
-    /// person's Enter (Leo's own typed messages came back "Not sent" at load ~200, 2026-10-29).
-    public func consumeForSend() -> Bool {
-        guard last != nil else { return false }
-        last = nil
-        // Sending a queued prompt is another granting use of the gesture.
-        questionReturn = nil
-        return true
-    }
-
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
 
     /// The clock gestures are timed on (the system uptime; tests set it): a credit a gesture left
-    /// (``AgentPaneTransport/startCredit``) is timed on it too.
+    /// (``AgentPaneTransport/signInPageCredit``) is timed on it too.
     var uptime: TimeInterval { now() }
 
     /// Uses the gesture's scope-add credit (one attach of a session that is not yet the pane's):
@@ -106,21 +87,6 @@ import CmuxNextCompat
         guard let lastScope else { return false }
         self.lastScope = nil
         return now() - lastScope <= Self.lifetime
-    }
-
-    /// An upload credit alone, for files another app sent to the chat (``AgentPaneDroppedPaths/Kind/external``):
-    /// the person's act there (the service, Open With, a Dock drop) is the gesture, and it grants
-    /// nothing else.
-    public func recordUpload() {
-        lastUpload = now()
-    }
-
-    /// Uses the gesture's upload credit (one batch of the person's files, ``AgentPaneUpload``): true
-    /// once per recorded gesture within ``lifetime``; the grant and scope-add credits stay.
-    public func consumeUpload() -> Bool {
-        guard let lastUpload else { return false }
-        self.lastUpload = nil
-        return now() - lastUpload <= Self.lifetime
     }
 
     /// The record for logs and the DEBUG `debug.agent_pane gesture_state` verb: whether a gesture
@@ -133,49 +99,6 @@ import CmuxNextCompat
     public var debugDescription: String {
         let age = last.map { String(format: "%.3f", now() - $0) } ?? "none"
         return "gestureAvailable=\(isAvailable) scopeAvailable=\(debugState.scopeAvailable) gestureAge=\(age) tickets=\(tickets.count)"
-    }
-
-    // MARK: Computer use acting as the person (``AgentPaneActAsMe``)
-
-    /// The grant posted gestures are judged by: the app's one (``AgentPaneShared/actAsMe``); nil grants nothing.
-    public var actAsMe: AgentPaneActAsMe?
-    /// The last key press or click another process posted in the pane, who posted it, and whether the
-    /// grant was on then. A credit of its own: only ``consumePosted(for:)`` spends it, and only for a frame
-    /// the grant covers (Send, Retry, Approve), so it never stands in for the person's ``consume()``.
-    private var lastPosted: (at: TimeInterval, driver: AgentPaneActAsMe.Driver, granted: Bool, revocations: Int)?
-
-    /// Another process posted a key press or click in the pane (``AgentPaneView/judge(_:eventWindow:)``).
-    func recordPosted(driver: AgentPaneActAsMe.Driver) {
-        guard let actAsMe else { return }
-        lastPosted = (now(), driver, actAsMe.isOn, actAsMe.revocations)
-    }
-
-    /// Spends the posted gesture for a frame of `method`: true once per posted gesture made while the grant
-    /// was on and is still on, not turned off in between, within ``lifetime``, and only for a method it
-    /// covers. Each one is logged with its driver.
-    func consumePosted(for method: String?) -> Bool {
-        guard let method, let (holder, driver) = takePosted(for: method) else { return false }
-        actAsMe?.recordLetThrough(method: method, holder: holder, driver: driver)
-        return true
-    }
-
-    /// ``consumePosted(for:)`` without the log: the posted gesture's holder and driver, nil when it grants
-    /// nothing. A reserved ticket logs only when its frame redeems it (``redeem(_:connection:pick:sessionId:)``).
-    private func takePosted(for method: String?) -> (AgentPaneActAsMe.Holder, AgentPaneActAsMe.Driver)? {
-        guard let posted = lastPosted, posted.granted, posted.revocations == actAsMe?.revocations,
-              let method, let holder = actAsMe?.lets(method) else { return nil }
-        lastPosted = nil
-        guard now() - posted.at <= Self.lifetime else { return nil }
-        return (holder, posted.driver)
-    }
-
-    /// A frame of `method` was refused for want of a gesture: when another process's posted input was
-    /// behind a Send, Retry or Approve while the grant is off, the app's consent card asks the person
-    /// (``AgentPaneActAsMe/askOnce()``). The card only asks; nothing is granted here.
-    func noteRefused(_ method: String?) {
-        guard lastPosted != nil, let method, AgentPaneActAsMe.covers.contains(method), let actAsMe, !actAsMe.isOn else { return }
-        lastPosted = nil
-        actAsMe.askOnce()
     }
 
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
@@ -212,11 +135,6 @@ import CmuxNextCompat
         var finishing: Set<String> = []
         /// While `uploads` is not empty: when the ticket's clock stopped.
         var stoppedAt: TimeInterval?
-        /// A ticket another process's posted gesture paid for (``consumePosted(for:)``): the grant's
-        /// ``AgentPaneActAsMe/revocations`` then. Turning the grant off voids it; nil for the person's own.
-        var postedUnder: Int?
-        /// Who posted that gesture, under which holder: logged as a let-through when the ticket is redeemed.
-        var postedBy: (holder: AgentPaneActAsMe.Holder, driver: AgentPaneActAsMe.Driver)?
 
         /// Within its lifetime, not counting the time its uploads held it, and not one of them stalled.
         func isFresh(_ now: TimeInterval) -> Bool {
@@ -253,17 +171,10 @@ import CmuxNextCompat
         reserve(connection: connection, intent: intent, paid: false)
     }
 
-    /// ``reserve(connection:intent:)``; `paid`: the person's gesture was already taken for this
-    /// pick (a new chat's start credit, ``AgentPaneTransport/startCredit``). `personOnly`: a posted
-    /// gesture never pays for it, whatever the grant. Module-only.
-    func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool, personOnly: Bool = false) -> String? {
-        var postedUnder: Int?
-        var postedBy: (holder: AgentPaneActAsMe.Holder, driver: AgentPaneActAsMe.Driver)?
-        if !paid, !(intent.method == "session/prompt" ? consumeForSend() : consume()) {
-            guard !personOnly, let posted = takePosted(for: intent.method), let actAsMe else { return nil }
-            postedUnder = actAsMe.revocations
-            postedBy = posted
-        }
+    /// ``reserve(connection:intent:)``; `paid`: the pick needs no gesture (a send), so none is
+    /// taken for it. Module-only.
+    func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool) -> String? {
+        if !paid, !consume() { return nil }
         let at = now()
         dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
         if intent.method == "session/prompt" {
@@ -286,7 +197,7 @@ import CmuxNextCompat
         }
         let ticket = UUID().uuidString
         issued += 1
-        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at, order: issued, postedUnder: postedUnder, postedBy: postedBy)
+        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at, order: issued)
         lastTicket = ticket
         return ticket
     }
@@ -308,19 +219,8 @@ import CmuxNextCompat
         guard let held = tickets[ticket] else { return false }
         dropTickets { key, _ in key == ticket }
         let allowed = held.connection == connection && held.isFresh(now()) && held.intent.matches(pick) && held.uploads.isEmpty
-            && held.intent.sessionId.map { $0 == sessionId } != false && isGrantStanding(held)
-        if allowed, let by = held.postedBy {
-            actAsMe?.recordLetThrough(method: held.intent.method, holder: by.holder, driver: by.driver)
-        }
+            && held.intent.sessionId.map { $0 == sessionId } != false
         return allowed
-    }
-
-    /// A posted ticket (``Ticket/postedUnder``) stands only while the grant is on and was not turned off
-    /// since it was reserved; the person's own ticket always does.
-    private func isGrantStanding(_ held: Ticket) -> Bool {
-        guard let under = held.postedUnder else { return true }
-        guard let actAsMe else { return false }
-        return actAsMe.isOn && actAsMe.revocations == under
     }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
@@ -351,7 +251,7 @@ import CmuxNextCompat
 
     /// A send ticket the person's own gesture paid for, with no upload holding it.
     private static func isCarriedSend(_ ticket: Ticket) -> Bool {
-        ticket.intent.method == "session/prompt" && ticket.postedUnder == nil && ticket.uploads.isEmpty
+        ticket.intent.method == "session/prompt" && ticket.uploads.isEmpty
     }
 
     // MARK: A send ticket held by its uploads
@@ -419,7 +319,7 @@ import CmuxNextCompat
     /// were reserved: their uploads stop (``onUploadHoldsEnded``).
     private func dropEndedHolds() {
         let at = now()
-        dropTickets { !$1.isFresh(at) || !isGrantStanding($1) }
+        dropTickets { !$1.isFresh(at) }
     }
 
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
@@ -433,8 +333,6 @@ import CmuxNextCompat
         var ticket: String
         var promptId: String
         var at: TimeInterval
-        /// The one remote start it allows was used.
-        var started = false
     }
 
     private var seedTicket: SeedTicket?
@@ -448,15 +346,6 @@ import CmuxNextCompat
         lastSeed = (issued.promptId, issued.ticket)
         #endif
         return (issued.promptId, issued.ticket)
-    }
-
-    /// Uses the seed ticket's one start of a new chat on another machine: true once, while the
-    /// ticket is fresh and its prompt was not sent yet.
-    public func takeSeedStart() -> Bool {
-        guard var seed = seedTicket, !seed.started, now() - seed.at <= Self.heldPromptLifetime else { return false }
-        seed.started = true
-        seedTicket = seed
-        return true
     }
 
     /// Spends the seed ticket when `ticket` is it: true when it is fresh and `pick` is its prompt.
@@ -485,7 +374,7 @@ import CmuxNextCompat
     public func dropSeedTicket() { seedTicket = nil }
 
     /// Whether a seed ticket is outstanding, and whether its start was used (DEBUG `gesture_state`).
-    public var seedTicketState: (outstanding: Bool, started: Bool) { (seedTicket != nil, seedTicket?.started == true) }
+    public var seedTicketState: (outstanding: Bool, started: Bool) { (seedTicket != nil, false) }
 
     var ticketCount: Int { tickets.count }
     /// The last ticket issued (tests replay it).
