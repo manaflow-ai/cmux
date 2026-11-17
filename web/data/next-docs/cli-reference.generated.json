@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 880,
-    "mcp": 796
+    "verbs": 887,
+    "mcp": 803
   },
   "nouns": [
     {
@@ -1237,6 +1237,25 @@
       ]
     },
     {
+      "noun": "closed",
+      "verbs": [
+        {
+          "command": "cmux closed clear",
+          "title": "Clear Recently Closed…",
+          "id": "closed.clear",
+          "mcp": true,
+          "mcpTool": "app_closed_clear"
+        },
+        {
+          "command": "cmux closed delete",
+          "title": "Delete Recently Closed Item…",
+          "id": "closed.delete",
+          "mcp": true,
+          "mcpTool": "app_closed_delete"
+        }
+      ]
+    },
+    {
       "noun": "cloud",
       "verbs": [
         {
@@ -1941,6 +1960,18 @@
       ]
     },
     {
+      "noun": "errors",
+      "verbs": [
+        {
+          "command": "cmux errors clear",
+          "title": "Clear Error Journal",
+          "id": "errors.clear",
+          "mcp": true,
+          "mcpTool": "app_errors_clear"
+        }
+      ]
+    },
+    {
       "noun": "extension",
       "verbs": [
         {
@@ -2050,6 +2081,13 @@
           "id": "history.open",
           "mcp": true,
           "mcpTool": "app_history_open"
+        },
+        {
+          "command": "cmux history remove-site",
+          "title": "Remove Site from History…",
+          "id": "history.removeSite",
+          "mcp": true,
+          "mcpTool": "app_history_remove_site"
         },
         {
           "command": "cmux history reopen",
@@ -3293,6 +3331,18 @@
           "id": "remote.removeGroup",
           "mcp": true,
           "mcpTool": "app_remote_remove_group"
+        }
+      ]
+    },
+    {
+      "noun": "room",
+      "verbs": [
+        {
+          "command": "cmux room unpin",
+          "title": "Unpin Workspace from Space",
+          "id": "workspace.unpinFromSpace",
+          "mcp": true,
+          "mcpTool": "app_room_unpin"
         }
       ]
     },
@@ -5390,6 +5440,13 @@
           "mcpTool": "app_terminal_clear_theme"
         },
         {
+          "command": "cmux terminal fix-last-command",
+          "title": "Fix Last Command with Agent",
+          "id": "terminal.fixLastCommand",
+          "mcp": true,
+          "mcpTool": "app_terminal_fix_last_command"
+        },
+        {
           "command": "cmux terminal keep",
           "title": "Keep Terminal Running After Close",
           "id": "terminal.keep",
@@ -5423,6 +5480,13 @@
           "id": "terminal.runLastCommandAgain",
           "mcp": true,
           "mcpTool": "app_terminal_run_last_command_again"
+        },
+        {
+          "command": "cmux terminal send-last-output-to-chat",
+          "title": "Send Last Output to Chat",
+          "id": "terminal.sendLastOutputToChat",
+          "mcp": true,
+          "mcpTool": "app_terminal_send_last_output_to_chat"
         },
         {
           "command": "cmux terminal send-text",

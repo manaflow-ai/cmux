@@ -619,8 +619,12 @@ fn acpmux_says_it_runs(binary: &Path) -> bool {
 
 /// Whether a `daemon status` answer names `binary` as the running daemon's executable.
 pub(super) fn status_names(stdout: &str, binary: &Path) -> bool {
-    serde_json::from_str::<serde_json::Value>(stdout.trim())
-        .is_ok_and(|status| status["exe"].as_str().is_some_and(|exe| Path::new(exe) == binary))
+    serde_json::from_str::<serde_json::Value>(stdout.trim()).is_ok_and(|status| {
+        status
+            .get("exe")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|exe| Path::new(exe) == binary)
+    })
 }
 
 /// The staged build that passed [`check`]: its path and the inode hashed,
