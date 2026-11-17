@@ -140,6 +140,33 @@ struct DeviceHubStartupRecoveryTests {
         }
     }
 
+    /// Signed in, with the hub's first identity load not answering yet (a login Keychain held by a pending
+    /// SecurityAgent prompt answers no read until someone answers the prompt): the pages say they are loading,
+    /// never "sign in". Seen on a fleet Mac's NIGHTLY: signed in, its Screen Sharing page offered only Sign In.
+    @Test func aSignedInAccountWhoseHubIsStillStartingReadsAsLoading() async throws {
+        let pages = pages()
+        let (started, reportStart) = AsyncStream<Void>.makeStream()
+        var load: CheckedContinuation<DeviceHub, Never>?
+        let service = DeviceHubService(pages: pages, account: .init(awaitRestored: {}, userID: { "account" },
+            accessToken: { throw CancellationError() }), bundleIdentifier: "test.hub-recovery", loginKeychain: LoginKeychain(),
+            selectedBaseURL: URL(string: "https://hub.invalid"),
+            makeAppHub: { _, _, _, _, _ in
+                await withCheckedContinuation { load = $0; reportStart.yield() }
+            })
+        defer { service.willSignOut(); reportStart.finish() }
+        service.start(settings: settings())
+        var starts = started.makeAsyncIterator()
+        _ = await starts.next()
+        let home = MacScreenHomeView(host: pages.host, actions: .init(), devices: .init(pages: pages))
+        #expect(MacScreenHomeSnapshot(home: home).devices?.note == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        #expect(service.settingsModel.state.signIn == nil)
+        #expect(service.settingsModel.state.status.text == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        let hub = makeHub()
+        try #require(load).resume(returning: hub)
+        for await installed in ObservationStream({ pages.hub != nil }) where installed { break }
+        #expect(pages.hub === hub)
+    }
+
     @Observable @MainActor final class AccountState {
         var user = "old"
     }
