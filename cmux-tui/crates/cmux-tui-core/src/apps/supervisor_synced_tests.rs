@@ -324,9 +324,11 @@ fn granted_local_fixture() -> (Fixture, Arc<FakeCloud>) {
     (f, cloud)
 }
 
+/// Grants or revokes `storage:synced`, each change its own transaction.
 fn grant_synced(f: &Fixture, on: bool) {
-    f.set("grant-synced", LOCAL, Origin::User, |o| o.grant = Some((SYNCED_SCOPE.into(), on)))
-        .unwrap();
+    static N: AtomicU64 = AtomicU64::new(0);
+    let key = format!("grant-synced-{}", N.fetch_add(1, Ordering::SeqCst));
+    f.set(&key, LOCAL, Origin::User, |o| o.grant = Some((SYNCED_SCOPE.into(), on))).unwrap();
 }
 
 /// A write queued while the app had `storage:synced` never uploads once the
