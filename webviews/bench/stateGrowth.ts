@@ -560,6 +560,11 @@ async function measure(
   return growth;
 }
 
+/// The transcript's own log, which a scenario that streams records grows by design until the chat sheds its oldest
+/// (direct.ts `shedOlderHeld`): the held records, and the seqs of the records that wrote each activity and reply row
+/// (`OrderedRows` `writes`, one a held record at most), which leave with them.
+const heldLog = (path: string) => path === "events" || path.startsWith("rows.writes");
+
 /// Sessions churn: one is made, changes three times (it runs, says something, goes idle), another listed chat changes,
 /// and the new one closes for good. Nothing of it should stay.
 export async function sessionChurn(options: ScenarioOptions): Promise<Growth> {
@@ -652,7 +657,7 @@ export async function reconnectMidStream(options: ScenarioOptions): Promise<Grow
       daemon.push([say(chunk)]);
       await clock.advance(100);
     },
-    (path) => path === "events",
+    heldLog,
     weight,
   );
   // The scenario measures nothing unless each drop was followed by a fresh connection.
@@ -711,7 +716,7 @@ export async function toolOutputStream(options: ScenarioOptions): Promise<Growth
       daemon.push([output(index)]);
       await clock.advance(50);
     },
-    (path) => path === "events",
+    heldLog,
     weight,
   );
 }
