@@ -113,17 +113,17 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
         self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
-        # resolve and post are declared light jobs (.github/runners.json hosted_light_jobs): hosted
-        # Ubuntu on attempt 1, then the reconciled pool. On 2026-11-02 post sat on the pool's saturated
-        # 4 vCPU size behind hundreds of jobs for one status write.
+        # resolve and post take the 2 vCPU pool on every attempt. Not hosted Ubuntu: the org runs 20 hosted jobs
+        # at once and on 2026-11-17 they waited 93 s at p90 there (tests/test_ci_runner_set.py HostedBurstTests).
+        # Not the 4 vCPU pool: on 2026-11-02 post sat on its saturated size behind hundreds of jobs for one status write.
         light = {"resolve", "post"}
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for key in light:
             with self.subTest(light=key):
                 runner = runner_text(doc["jobs"][key])
-                self.assertIn(f"cmux-next-fast-gates.yml#{key}", declared)
-                self.assertTrue(runner.endswith(
-                    "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
+                self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
+                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"), runner)
+                self.assertNotIn("run_attempt == 1 && 'ubuntu-24.04'", runner)
                 self.assertNotIn("vars.LINUX_RUNNER", runner)
         # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
         # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.
