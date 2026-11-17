@@ -41,6 +41,34 @@ export const iceServers = async (env: Env, fetcher: typeof fetch = fetch): Promi
       console.log(JSON.stringify({ msg: "turn credentials error", error: String(e) }))
     }
   }
+  if (env.ENVIRONMENT === "test" && env.STACK_TEST_ICE_SERVERS) {
+    for (const s of testIceServers(env.STACK_TEST_ICE_SERVERS)) {
+      out.push(s)
+      if (s.urls.some((u) => u.startsWith("turn"))) turn = true
+    }
+  }
   if (!out.some((s) => s.urls.includes(STUN))) out.unshift({ urls: [STUN] })
   return { iceServers: out, ttl, turn }
+}
+
+/**
+ * ENVIRONMENT=test only: STACK_TEST_ICE_SERVERS, a JSON list of {urls, username?, credential?}, so an offline
+ * lab can hand out its own STUN/TURN beside the Cloudflare STUN entry. Bad JSON or entries are dropped.
+ */
+const testIceServers = (raw: string): Array<IceServer> => {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    console.log(JSON.stringify({ msg: "STACK_TEST_ICE_SERVERS is not JSON" }))
+    return []
+  }
+  const out: Array<IceServer> = []
+  for (const s of (Array.isArray(parsed) ? parsed : [parsed]) as Array<{ urls?: unknown; username?: unknown; credential?: unknown } | null>) {
+    if (!s || typeof s !== "object") continue
+    const urls = (Array.isArray(s.urls) ? s.urls : [s.urls]).filter((u): u is string => typeof u === "string" && /^(stun|turns?):/.test(u))
+    if (!urls.length) continue
+    out.push({ urls, ...(typeof s.username === "string" ? { username: s.username } : {}), ...(typeof s.credential === "string" ? { credential: s.credential } : {}) })
+  }
+  return out
 }
