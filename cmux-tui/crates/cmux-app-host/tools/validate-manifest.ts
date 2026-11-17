@@ -26,6 +26,36 @@ const HEX_COLOR = /"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?"/
 
 let cachedValidator: SchemaValidator | undefined
 const validator = () => (cachedValidator ??= new SchemaValidator(JSON.parse(readFileSync(schemaPath, "utf8"))))
+const schemaV2Path = join(here, "../schema/v2/cmux-app.schema.json")
+let cachedV2Validator: SchemaValidator | undefined
+const v2Validator = () => (cachedV2Validator ??= new SchemaValidator(JSON.parse(readFileSync(schemaV2Path, "utf8"))))
+
+/**
+ * Fields of the package's `cmux-app.v2.json` over their schema length cap (a description or title past
+ * 300 characters). The daemon refuses the whole package for one, so it is missing from the App Store;
+ * this names the field and its length. Only length caps: the other v2 rules are the Rust validator's.
+ */
+export function v2LengthErrors(dir: string): SchemaError[] {
+  const path = join(dir, "cmux-app.v2.json")
+  if (!existsSync(path)) return []
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(readFileSync(path, "utf8"))
+  } catch (e) {
+    return [{ path: "cmux-app.v2.json", code: "json.invalid", message: String((e as Error).message) }]
+  }
+  // The field's own text, at its JSON pointer, for its length.
+  const at = (pointer: string) =>
+    pointer.split("/").slice(1).reduce<unknown>((v, key) => (v as Record<string, unknown> | undefined)?.[key.replace(/~1/g, "/").replace(/~0/g, "~")], manifest)
+  return v2Validator()
+    .validate(manifest as never)
+    .filter((e) => e.code === "maxLength")
+    .map((e) => {
+      const text = at(e.path)
+      const length = typeof text === "string" ? ` (has ${[...text].length})` : ""
+      return { ...e, path: `cmux-app.v2.json${e.path}`, message: `${e.message}${length}` }
+    })
+}
 
 /** Scope names the host knows: every scope in generated/scopes.json plus the special scopes. */
 /** `none` marks ops every app may call (toast.show); a manifest cannot ask for it. */
@@ -142,6 +172,7 @@ export function validatePackage(dir: string, options: { generatedScopes?: Readon
     return { ok: false, errors: [{ path: "", code: "json.invalid", message: String((e as Error).message) }], warnings }
   }
   errors.push(...validator().validate(manifest))
+  errors.push(...v2LengthErrors(dir))
   if (errors.length) return { ok: false, errors, warnings, manifest }
 
   const id = manifest.id as string

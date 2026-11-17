@@ -21,6 +21,8 @@ final class ChromiumWindowGuard {
     private(set) var recent: [Blocked] = []
     private let recentLimit = 8
     private var observers: [any NSObjectProtocol] = []
+    /// A window became key (``AgentRenderKeyReturn`` gives back keys a parked agent page took).
+    var onBecameKey: ((NSWindow) -> Void)?
     private let logger: Logger
     /// True when `window` is a DevTools window cmux placed on purpose.
     private let isPlacedDevTools: (NSWindow) -> Bool
@@ -42,7 +44,11 @@ final class ChromiumWindowGuard {
                      NSWindow.didChangeOcclusionStateNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
-                MainActor.assumeIsolated { self?.check(window) } // main-proof: observer on queue: .main
+                let becameKey = note.name == NSWindow.didBecomeKeyNotification
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    self?.check(window)
+                    if becameKey { self?.onBecameKey?(window) }
+                }
             })
         }
         for window in NSApp.windows { check(window) }
