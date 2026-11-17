@@ -345,8 +345,14 @@ impl Drop for PendingGuard<'_> {
 /// Whether the chat still ends on `cut_turn`: no turn runs, nothing waits that the cut turn did
 /// not hold, and its last turn is that one.
 pub(super) fn still_cut(session: &Session, cut_turn: &str) -> bool {
+    still_cut_by(session, cut_turn, false)
+}
+
+/// [`still_cut`], where with `rate_held` what waits in the queue does not count: the account's
+/// rate limit held it there, and the continuation folds into it at the reset (`rate_hold.rs`).
+pub(super) fn still_cut_by(session: &Session, cut_turn: &str, rate_held: bool) -> bool {
     session.turn().is_none()
-        && session.queue().iter().all(|q| q.aside())
+        && (rate_held || session.queue().iter().all(|q| q.aside()))
         && session.meta().last_turn.as_ref().and_then(|t| t.get("turnId")).and_then(Value::as_str)
             == Some(cut_turn)
 }
@@ -1236,28 +1242,34 @@ impl Hub {
         }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
+        let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
+        // What the account's rate limit held queued behind it; it decides below (`rate_hold.rs`).
+        let rate = reason == "rate_limit" && Self::rate_held(session);
+        let skip = |why: &str| {
+            self.append_retry(session, "auto_resume_skipped", skipped(why));
+            if reason == "rate_limit" {
+                self.lift_rate_hold(session, why);
+            }
+        };
         if let Err(why) = self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
-            self.append_retry(session, "auto_resume_skipped", skipped(why));
+            skip(why);
             return;
         }
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
             self.clear_fired(session, cut_turn);
-            self.append_retry(session, "auto_resume_skipped", skipped("closed"));
+            skip("closed");
             return;
         }
-        if !still_cut(session, cut_turn) {
+        if !still_cut_by(session, cut_turn, rate) {
             self.clear_fired(session, cut_turn);
-            self.append_retry(session, "auto_resume_skipped", skipped("superseded"));
+            skip("superseded");
             return;
         }
         let held = self.held_by(session, root, cut_turn);
-        let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
         // At a rate limit's reset, what queued meanwhile goes in as the one next turn, carrying
-        // this continuation's words, instead of a turn of its own before it (`rate_hold.rs`).
-        if reason == "rate_limit"
-            && self.rate_hold_due(session, &held, continue_text(cut.error, reason))
-        {
+        // this continuation's words, instead of a turn of its own before it.
+        if rate && self.rate_hold_due(session, &held, continue_text(cut.error, reason)) {
             self.clear_fired(session, cut_turn);
             self.append_retry(session, "auto_resume_skipped", skipped("folded"));
             return;
