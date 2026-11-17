@@ -213,4 +213,4 @@ mod tests {
         );
     }
 }
-const _RELOAD_PROFILE_MARKER: u32 = 0;
+const _RELOAD_PROFILE_MARKER: u32 = 1;
