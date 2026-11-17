@@ -34,6 +34,14 @@ public final class GlassMenu {
     private var closed = false
     /// The menu holds itself while it is open (its owner may keep no reference); closing lets go.
     private var holdsSelf: GlassMenu?
+    /// The press that opened the menu, while it is held (the root only). AppKit sends a press's drags
+    /// and its release to the window the press began in, never to the menu's panels, so the menu
+    /// follows that press itself, as a native menu does: a release over a row runs it (Lawrence,
+    /// 2026-11-17: "mousedown mouseup interaction not working here"; Leo: "so he click and hold on the
+    /// context menu start and then it goes over and then release should go").
+    private var pressMonitor: Any?
+    /// The opening press went over one of the menu's panels before its release.
+    private var pressEnteredMenu = false
 
     public init(menu: NSMenu) {
         self.menu = menu
@@ -61,6 +69,9 @@ public final class GlassMenu {
     /// Whether the menu is on screen.
     public var isShown: Bool { host.isShown }
 
+    /// The submenu open beside this menu, if any.
+    var openChild: GlassMenu? { child }
+
     /// Opens the menu over `anchor` (a control in a window) in `anchor`'s theme: above it with its
     /// leading edges lined up (`preferred` .above, the sidebar's bottom-left), or below. Returns false
     /// when it cannot show (no window, no visible row).
@@ -76,8 +87,70 @@ public final class GlassMenu {
     @discardableResult
     public func show(at anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      scope: ThemeScope? = nil) -> Bool {
-        present(at: anchor, in: window, preferred: preferred, sideBySide: false, makeKey: true,
-             scope: scope ?? window.themeScope.fullStrength)
+        guard present(at: anchor, in: window, preferred: preferred, sideBySide: false, makeKey: true,
+                      scope: scope ?? window.themeScope.fullStrength) else { return false }
+        if NSEvent.pressedMouseButtons & 1 != 0 { followOpeningPress() }
+        return true
+    }
+
+    // MARK: The opening press
+
+    /// Follows the held press that opened the menu until its release (see ``pressMonitor``).
+    func followOpeningPress() {
+        guard pressMonitor == nil, !closed else { return }
+        pressEnteredMenu = false
+        pressMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            guard let self else { return event }
+            if event.type == .leftMouseUp {
+                self.pressReleased(at: NSEvent.mouseLocation)
+            } else {
+                self.pressMoved(to: NSEvent.mouseLocation)
+            }
+            // The window the press began in still gets the event: its control ends its own press look.
+            return event
+        }
+    }
+
+    private func stopFollowingPress() {
+        if let pressMonitor { NSEvent.removeMonitor(pressMonitor) }
+        pressMonitor = nil
+    }
+
+    /// The deepest open menu of the chain under `point` (screen), and its item row there, if any.
+    private func pressTarget(at point: CGPoint) -> (menu: GlassMenu, row: Int?)? {
+        var chain: [GlassMenu] = []
+        var menu: GlassMenu? = root
+        while let current = menu, !current.closed {
+            chain.append(current)
+            menu = current.child
+        }
+        guard let hit = chain.last(where: { $0.panel.isVisible && $0.panel.frame.contains(point) }) else { return nil }
+        return (hit, hit.list.index(atScreen: point))
+    }
+
+    /// The held press moved to `point` (screen): the row under it highlights and a submenu's row
+    /// opens it, as hover does (tracking areas may not report a drag that began in another window).
+    func pressMoved(to point: CGPoint) {
+        guard let target = pressTarget(at: point) else { return }
+        root.pressEnteredMenu = true
+        if let row = target.row, row != target.menu.list.highlightedIndex { target.menu.hovered(row) }
+    }
+
+    /// The opening press came up at `point` (screen). Over an enabled row it runs that row. Over a
+    /// submenu's row, a disabled row or a separator the menu stays. On the control the menu opened
+    /// from, or anywhere before the press went over the menu (a click), it stays. Anywhere else it closes.
+    func pressReleased(at point: CGPoint) {
+        let root = root
+        root.stopFollowingPress()
+        guard !root.closed else { return }
+        if let target = pressTarget(at: point) {
+            guard let row = target.row, let item = target.menu.list.row(at: row)?.item, item.isEnabled,
+                  item.submenu == nil else { return }
+            root.finish(runs: item)
+            return
+        }
+        if root.isOnAnchor(screenPoint: point) || !root.pressEnteredMenu { return }
+        root.finish(runs: nil)
     }
 
     private func present(at anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side, sideBySide: Bool,
@@ -170,6 +243,11 @@ public final class GlassMenu {
 
     private var root: GlassMenu { parentMenu?.root ?? self }
 
+    private func isOnAnchor(screenPoint point: CGPoint) -> Bool {
+        guard let anchor = root.anchorView, let window = anchor.window else { return false }
+        return anchor.bounds.contains(anchor.convert(window.convertPoint(fromScreen: point), from: nil))
+    }
+
     private func isOnAnchor(_ event: NSEvent) -> Bool {
         guard let anchor = root.anchorView, let window = anchor.window, event.window === window else { return false }
         return anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil))
@@ -192,6 +270,7 @@ public final class GlassMenu {
         if !alone, let parentMenu { return parentMenu.root.finish(runs: item) }
         guard !closed else { return }
         closed = true
+        stopFollowingPress()
         closeChild()
         host.hide()
         holdsSelf = nil
@@ -388,6 +467,16 @@ final class GlassMenuListView: NSView {
     }
 
     func row(at index: Int) -> GlassMenuRow? { rows.indices.contains(index) ? rows[index] : nil }
+
+    /// The highlighted row (pointer or keys), if any.
+    var highlightedIndex: Int? { highlighted }
+
+    /// The item row (not a separator) under `point` (screen), if any.
+    func index(atScreen point: CGPoint) -> Int? {
+        guard let window else { return nil }
+        let local = convert(window.convertPoint(fromScreen: point), from: nil)
+        return views.indices.first { rows[$0].item != nil && views[$0].frame.contains(local) }
+    }
     func view(at index: Int) -> NSView? { views.indices.contains(index) ? views[index] : nil }
 
     func highlight(_ index: Int?) {
