@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44037524783",
+  "recorded_at": "2026-11-17T07:26:15Z",
+  "reason": "cmux-tui 98e2c61e17c4 changes the image's cmux-tui (pinned 5d7bde5b2b72)",
+  "dry_run": false,
+  "cmux_tui": "98e2c61e17c424710629dabe9207a24db777b4a0",
+  "fixes": [
+    {
+      "sha": "98e2c61e17c424710629dabe9207a24db777b4a0",
+      "mergedAt": "2026-11-17T06:57:10Z",
+      "subject": "cmux-chat-index: scale stress harness; an unchanged transcript costs a stat, a Codex append its rollout (#45000)"
+    },
+    {
+      "sha": "5aa66b1c0956195111ee1cb62639dd8ea8b1eb6e",
+      "mergedAt": "2026-11-16T22:56:05-08:00",
+      "subject": "cmux-tui-core: Files tree stress harness; a folder listing and a filter keystroke look at what they show, not every path below (#45046)"
+    },
+    {
+      "sha": "484d617bf52ef2290d4f93b0734a13dbd2e9d9b3",
+      "mergedAt": "2026-11-16T22:51:35-08:00",
+      "subject": "setups: a whole cmux customization in one git repo, installed from its URL (#44887)"
+    },
+    {
+      "sha": "cf755508b354838d021979399328a842dbe94dab",
+      "mergedAt": "2026-11-16T22:43:51-08:00",
+      "subject": "acpmux: peer links open on the hub relay first, upgrade to direct in the background (#45098)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T07:26:15Z",
+    "snapshot_id": "sh-593ef4a1e33747aa9c9a81a39f9631af",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44037524783): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "211a28eab069234ea9477a0f61e6e4f8285c0808",
+    "image": "cloud-native-auto-98e2c61e-44037524783-1",
+    "revision": "ci-44037524783-1",
+    "at": "2026-11-17T07:26:15Z"
+  },
+  "rolled_back": false
+}
