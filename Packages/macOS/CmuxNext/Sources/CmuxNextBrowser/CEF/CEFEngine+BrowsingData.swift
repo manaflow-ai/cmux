@@ -4,9 +4,11 @@ extension CEFEngine {
     /// Clear Browsing Data (cx-d0d.23) in `profile`'s Chromium store:
     /// cookies created since `since` (nil: all time) and the HTTP cache,
     /// which Chromium clears whole for any range. One of `liveTabs` (the
-    /// profile's open tabs) clears the cache of a profile in use; a profile
-    /// Chromium has not opened in this process has its cache directories
-    /// deleted. A profile Chromium never stored has nothing to clear.
+    /// profile's open tabs) clears the HTTP cache of a profile in use; a
+    /// profile Chromium has not opened in this process has its cache
+    /// directories deleted, the service workers' Cache Storage with them.
+    /// A profile in use keeps its Cache Storage: Chromium owns the open
+    /// directory. A profile Chromium never stored has nothing to clear.
     /// Starts Chromium for cookies; throws when it cannot start.
     public func clearBrowsingData(_ profile: BrowserProfileID, cookies: Bool, cache: Bool, since: Date?,
                                   liveTabs: [CEFTab]) async throws {
@@ -26,8 +28,12 @@ extension CEFEngine {
         try await clearCookies(profile, since: since)
     }
 
-    /// Chromium's caches in a profile directory.
-    static let cacheDirectories = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache"]
+    /// Chromium's caches in a profile directory. `Service Worker/CacheStorage` holds the files the
+    /// sites' service workers fetched (the Cache API; WebKit's fetch cache is the same kind, and
+    /// `WebKitProfileStore.cacheTypes` clears it). The worker registrations beside it
+    /// (`Service Worker/Database`) are site data: they stay.
+    static let cacheDirectories = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache",
+                                   "Service Worker/CacheStorage"]
 
     /// Moves the caches aside here (before Chromium can open the profile)
     /// and deletes them off the main thread: they can hold many files.
