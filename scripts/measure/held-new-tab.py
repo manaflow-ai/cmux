@@ -92,7 +92,7 @@ when it is `valid`, and that needs the proof that the app ran the keys' actions 
 names its key by the key's time) against the key's number. It reads when an action STARTED, not when a key came.
 `in_key_order` is true when no action ran after the action of a later key; `acts_after_a_later_key` counts the ones
 that did, and `first` names the first. It is null (no proof) when a key that did something has no record of its
-action, when the app ran no action at all, or at a fault of the tool: the row is then INVALID.
+action, when no action that the app ran pairs with a key, or at a fault of the tool: the row is then INVALID.
 When `in_key_order` is false, the row's state follows from `key_calls.each_call_ended_with_its_reply_before_the_next_began`
 (the `one-key` form: each call of the take got a reply of the app and ended before the next call started; null in the
 `activate` form, where the app plays the keys and the tool makes no call for each key). A reply with `error` is no
@@ -197,7 +197,8 @@ count.
 SAMPLE. --sample-s SECONDS (off by default) adds ONE more `hold` take, after the wider recording, with the system's
 sampler (`/usr/bin/sample`) on the app's process: it starts after the take's last read before the keys, the first
 key waits for the sampler's first line (SAMPLE_START_S at most; `first_line_before_the_keys` says if it came), and
-the take waits for the sampler's end before its own reads. No other
+the take waits for the sampler's end before its own reads. A sampler that ended before the first key is an error of
+the sample, and a take that stops at a fault of the tool gives its sampler one kill. No other
 take has a sampler. The row has the scenario `hold-sample` and the round `sample`, so it is in no number of the
 rounds' rows. The sampler stops the app for each sample: each time of that row is below `not_for_a_person`, and
 `sample` has COUNTS only: the samples of the main thread, by class, and the frames with the most samples that are
@@ -265,8 +266,8 @@ SAMPLE_LIMIT = ("one more `hold` take after the rounds, with the system's sample
                 "the SAMPLE_TOP frames with the most samples. The tool's own calls of the control socket in that time "
                 "are in the counts. `app_was_done` false: the sampler's seconds ended before the app said that the "
                 "burst was done, so the sample has only the first part of the take. `first_line_before_the_keys` false: "
-                "the sampler said nothing in SAMPLE_START_S, so the tool does not know that it sampled at the first "
-                "key. The whole report: the file")
+                "the sampler said no line with words in SAMPLE_START_S, or it did not run after that line, or its exit "
+                "was not 0, so the tool does not know that it sampled at the first key. The whole report: the file")
 TAKE_KILL_S = 10.0  # the wait for a killed take's child to go
 ENGINE_LIMIT = ("the app's own word (`debug.cef`) at 2 times, not a read of each new tab's own view: `webkit_fallbacks` "
                 "is the app's count of pages that fell back since its launch, in each window and workspace, so `mixed` "
@@ -561,7 +562,8 @@ def closes_by_key(record):
 def input_order(runs, fates):
     """(The row `input_order` (the docstring, INPUT ORDER), the keys' numbers in the order in which the app ran
     their actions). `runs`: `key_runs`. A key that did something and has no record of its action's start leaves the
-    proof open (`in_key_order` is None), and so does a row where the app ran no action: nothing proves an order."""
+    proof open (`in_key_order` is None), and so does a row where no action that the app ran pairs with a key: nothing
+    proves an order."""
     acts = [index for _, index in sorted((run["perform"]["at_s"], index) for index, run in runs.items() if run.get("perform"))]
     none = [index for index, fate in enumerate(fates) if fate in BENCH.APPLIED_FATES and index not in acts]
     moved, newest, first = 0, -1, None
@@ -894,21 +896,38 @@ def bluetoothd_starts(start, end):
 
 
 def sampler_start(pid, seconds, path):
-    """The system's sampler on `pid` for `seconds`, its report to `path` (SAMPLE): (the child, its first line). The
-    first line is the signal that it samples: this call waits for it, SAMPLE_START_S at most (a sampler that keeps
-    its words to its end gives no such signal: the line is then None, and the keys start that long after the
-    sampler). With no child: (None, why)."""
+    """The system's sampler on `pid` for `seconds`, its report to `path` (SAMPLE): (the child, its first line, if it
+    still ran after that read). The first line is the signal that it samples: this call waits for it, SAMPLE_START_S
+    at most (a sampler that keeps its words to its end gives no such signal: the line is then None, and the keys
+    start that long after the sampler). The last value is the read of the sampler's exit directly before the keys:
+    False says that the sampler ended before the first key. With no child: (None, why, False)."""
     try:
         child = subprocess.Popen([SAMPLER, str(pid), str(seconds), "-file", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, errors="replace")
     except OSError as error:
-        return None, f"the sampler did not start: {error!r}"
-    return child, child.stdout.readline() if select.select([child.stdout], [], [], SAMPLE_START_S)[0] else None
+        return None, f"the sampler did not start: {error!r}", False
+    first = child.stdout.readline() if select.select([child.stdout], [], [], SAMPLE_START_S)[0] else None
+    return child, first, child.poll() is None
 
 
-def sampler_end(child, first, seconds, path, done):
+def sampler_stop(children):
+    """One kill for each sampler that a take left behind (the take stopped at a fault before the sampler's end): no
+    take that follows starts with a sampler on the app."""
+    for child in children:
+        if child.poll() is None:
+            child.kill()
+            try:
+                child.wait(timeout=TAKE_KILL_S)
+            except subprocess.TimeoutExpired:
+                pass  # the take's own fault still goes to its caller
+
+
+def sampler_end(child, first, ran, seconds, path, done):
     """The take's record of its sample, after the sampler's end (SAMPLE_END_S more than its seconds, then one kill):
-    what the sampler said, if its first line came before the keys, its exit, and `error` when there is no report.
+    what the sampler said, `first_line_before_the_keys`, its exit, and `error` when there is no report or when the
+    sampler ended before the first key (`ran` false: the last value of `sampler_start`). The word
+    `first_line_before_the_keys` is true only when a first line with words came in the wait, the sampler still ran
+    after that read, and its exit was 0 (the first line of a sampler that fails is its fault, not the signal).
     `done`: `app_was_done` (SAMPLE_LIMIT)."""
     if child is None:
         return {"error": first}
@@ -918,10 +937,12 @@ def sampler_end(child, first, seconds, path, done):
         child.kill()
         rest, code = "", None
     said = [line.strip()[:200] for line in [first or ""] + (rest or "").splitlines() if line.strip()][:6]
-    record = {"file": SAMPLE_FILE, "seconds": seconds, "sampler_said": said, "first_line_before_the_keys": first is not None,
-              "sampler_exit": code, "app_was_done": done}
+    record = {"file": SAMPLE_FILE, "seconds": seconds, "sampler_said": said,
+              "first_line_before_the_keys": bool((first or "").strip()) and ran and code == 0, "sampler_exit": code, "app_was_done": done}
     if code != 0 or not os.path.exists(path):
         record["error"] = f"no sample: the sampler's exit was {code}" + ("" if os.path.exists(path) else " and it wrote no file")
+    elif not ran:
+        record["error"] = "no sample of the keys: the sampler ended before the first key"
     return record
 
 
@@ -962,7 +983,17 @@ def sample_row(row, said, path):
 
 
 def take(opts):
-    """One row on the running app (the child of perf-signposts.py); writes scenario.json to --out."""
+    """One row on the running app (the child of perf-signposts.py); writes scenario.json to --out. A sampler of the
+    take that still runs when the take stops at a fault gets one kill (SAMPLE)."""
+    samplers = []
+    try:
+        return take_row(opts, samplers)
+    finally:
+        sampler_stop(samplers)
+
+
+def take_row(opts, samplers):
+    """`take`. `samplers`: the take's sampler is in it from its start to the take's record of its end."""
     rpc = STRESS.socket_rpc(opts.socket)
     builder = STRESS.Stress(rpc, log=lambda line: None)
     builder.measured = opts.workspace
@@ -1008,7 +1039,8 @@ def take(opts):
         rpc("debug.window_record", {"dir": opts.film, "seconds": min(12.0, opts.hold_ms / 1000 + 2)})
     if opts.sample_pid:  # the sample take (SAMPLE): the sampler samples before the first key
         sampled = time.monotonic()
-        sampler, said = sampler_start(opts.sample_pid, opts.sample_s, os.path.join(opts.out, SAMPLE_FILE))
+        sampler, said, sampling = sampler_start(opts.sample_pid, opts.sample_s, os.path.join(opts.out, SAMPLE_FILE))
+        samplers += [sampler] if sampler else []
     sent = post_keys(opts.keys, rpc, steps, opts.pane, opts.launch_form, word)
     if opts.launch_form == "activate":
         record["key_window"] = sent.get("key_window") or word
@@ -1036,8 +1068,9 @@ def take(opts):
     if not settled:
         record["invalid"].append(f"the app never said the burst was done within {opts.deadline:.0f} s more")
     if opts.sample_pid:  # the sampler ends before each read of the take that follows
-        record["sample"] = sampler_end(sampler, said, opts.sample_s, os.path.join(opts.out, SAMPLE_FILE),
+        record["sample"] = sampler_end(sampler, said, sampling, opts.sample_s, os.path.join(opts.out, SAMPLE_FILE),
                                        bool(settled) and time.monotonic() - sampled <= opts.sample_s)
+        del samplers[:]
     settled_ms = round((time.monotonic() - began) * 1000)
     why = refused(sent, opts.deadline)
     if why:
@@ -1576,7 +1609,7 @@ def run(opts, app, signposts, report, form):
                     none = proof.get("keys_with_no_act_record")
                     row.setdefault("invalid", []).append("no proof of the order of the keys: " + (proof.get("why") or (
                         f"{none} keys that did something have no record of when their action ran" if none else
-                        "the app ran no action of a key")))
+                        "no action that the app ran pairs with a key")))
             try:
                 row["order"], openers = order_row(record, row.get("press_fates"), known, no_openers, acts)
                 verdict = row["order"]["equal"]
