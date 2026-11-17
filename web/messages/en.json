@@ -977,7 +977,7 @@
           "next_max": "cmux NEXT Max"
         },
         "features": {
-          "includedUsage": "{amount} of Cloud usage included each month",
+          "includedMinutes": "{minutes, number} machine minutes included each month",
           "running": "Up to {count} machines running at once",
           "kept": "Up to {count} machines kept, running or paused",
           "snapshots": "Up to {count} saved snapshots",
@@ -987,7 +987,8 @@
         "subscribe": "Subscribe to {plan}",
         "upgrade": "Upgrade to {plan}",
         "comingSoon": "Coming soon",
-        "usageNote": "Included usage is counted at list rates and resets each month. Machines pause when it runs out; a paused machine costs only its disk."
+        "usageNote": "Included machine minutes reset each month and do not roll over. Machines pause when they run out; a paused machine costs only its disk.",
+        "machineMinuteNote": "A machine minute is one vCPU for one minute while a machine is awake: a 2 vCPU machine uses 2 a minute, an 8 vCPU machine 8. A paused machine uses none."
       }
     },
     "testflight": {

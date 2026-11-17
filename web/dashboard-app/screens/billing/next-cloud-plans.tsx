@@ -42,7 +42,7 @@ export function NextCloudPlans({ next, returnTo }: { readonly next: NextCloudBil
               <span className="text-xs text-muted">{t("perMonth")}</span>
             </p>
             <ul className="mt-3 space-y-1 text-xs text-muted">
-              <li>{t("features.includedUsage", { amount: `$${formatUsd(card.offer.includedUsageUsd)}` })}</li>
+              <li>{t("features.includedMinutes", { minutes: card.offer.includedMachineMinutes })}</li>
               <li>{t("features.running", { count: card.offer.maxRunningMachines })}</li>
               <li>{t("features.kept", { count: card.offer.maxKeptMachines })}</li>
               <li>{t("features.snapshots", { count: card.offer.maxSnapshots })}</li>
@@ -55,7 +55,8 @@ export function NextCloudPlans({ next, returnTo }: { readonly next: NextCloudBil
           </article>
         ))}
       </div>
-      <p className="mt-2 text-xs text-muted">{t("usageNote")}</p>
+      <p className="mt-2 text-xs text-muted">{t("machineMinuteNote")}</p>
+      <p className="mt-1 text-xs text-muted">{t("usageNote")}</p>
     </section>
   );
 }

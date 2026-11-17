@@ -115,7 +115,13 @@ export function nextPlanIdForSubscription(
 export type NextPlanOffer = {
   readonly id: NextPlanId;
   readonly priceUsdPerMonth: number;
-  /** Usage at list rates included each month; it resets monthly. */
+  /**
+   * Machine minutes included each month (resets monthly, no rollover). One
+   * machine minute is one vCPU for one minute while the machine is awake.
+   * This is what people are shown.
+   */
+  readonly includedMachineMinutes: number;
+  /** The same allowance at list rates with 2 GiB per vCPU, for code that meters dollars. */
   readonly includedUsageUsd: number;
   readonly maxRunningMachines: number;
   /** Machines kept, running plus paused. */
@@ -129,21 +135,23 @@ export type NextPlanOffer = {
 export const NEXT_PLAN_OFFERS: readonly NextPlanOffer[] = [
   {
     id: NEXT_PRO_PLAN_ID,
-    priceUsdPerMonth: 50,
-    includedUsageUsd: 30,
-    maxRunningMachines: 10,
-    maxKeptMachines: 50,
-    maxSnapshots: 50,
+    priceUsdPerMonth: 100,
+    includedMachineMinutes: 150_000,
+    includedUsageUsd: 185,
+    maxRunningMachines: 32,
+    maxKeptMachines: 100,
+    maxSnapshots: 100,
     largestMachine: { vcpus: 8, memoryGib: 16 },
     maxDiskGib: 128,
   },
   {
     id: NEXT_MAX_PLAN_ID,
     priceUsdPerMonth: 200,
-    includedUsageUsd: 125,
-    maxRunningMachines: 25,
-    maxKeptMachines: 200,
-    maxSnapshots: 200,
+    includedMachineMinutes: 300_000,
+    includedUsageUsd: 370,
+    maxRunningMachines: 64,
+    maxKeptMachines: 300,
+    maxSnapshots: 300,
     largestMachine: { vcpus: 32, memoryGib: 64 },
     maxDiskGib: 256,
   },

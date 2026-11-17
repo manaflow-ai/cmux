@@ -732,9 +732,13 @@ describe("cmux NEXT Cloud on Plan & billing", () => {
     expect(html).toContain("Current cmux NEXT plan: None");
     expect(html).toContain("cmux NEXT Pro");
     expect(html).toContain("cmux NEXT Max");
-    expect(html).toMatch(/data-next-plan="next_pro"[\s\S]*?\$50[\s\S]*?\$30 of Cloud usage included each month[\s\S]*?Up to 10 machines running at once[\s\S]*?Up to 50 machines kept, running or paused[\s\S]*?Up to 50 saved snapshots[\s\S]*?8 vCPU and 16 GiB RAM[\s\S]*?128 GiB per machine/);
-    expect(html).toMatch(/data-next-plan="next_max"[\s\S]*?\$200[\s\S]*?\$125 of Cloud usage included each month[\s\S]*?Up to 25 machines running at once[\s\S]*?Up to 200 machines kept[\s\S]*?Up to 200 saved snapshots[\s\S]*?32 vCPU and 64 GiB RAM[\s\S]*?256 GiB per machine/);
+    expect(html).toMatch(/data-next-plan="next_pro"[\s\S]*?\$100[\s\S]*?150,000 machine minutes included each month[\s\S]*?Up to 32 machines running at once[\s\S]*?Up to 100 machines kept, running or paused[\s\S]*?Up to 100 saved snapshots[\s\S]*?8 vCPU and 16 GiB RAM[\s\S]*?128 GiB per machine/);
+    expect(html).toMatch(/data-next-plan="next_max"[\s\S]*?\$200[\s\S]*?300,000 machine minutes included each month[\s\S]*?Up to 64 machines running at once[\s\S]*?Up to 300 machines kept[\s\S]*?Up to 300 saved snapshots[\s\S]*?32 vCPU and 64 GiB RAM[\s\S]*?256 GiB per machine/);
     expect(html.match(/<button[^>]*disabled[^>]*>Coming soon<\/button>/g)).toHaveLength(2);
+    expect(html).toContain("A machine minute is one vCPU for one minute while a machine is awake");
+    // People see machine minutes, not the dollar figure behind them.
+    expect(html).not.toContain("$185");
+    expect(html).not.toContain("$370");
     expect(html).not.toContain("plan=next_");
     // The classic picker is unchanged.
     expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);

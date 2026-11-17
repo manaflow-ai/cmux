@@ -79,10 +79,10 @@ export const MAX_PRICING_USD = {
  */
 export const NEXT_PRO_PRICING_USD = {
   month: {
-    billedAmount: 50,
-    monthlyEquivalent: 50,
+    billedAmount: 100,
+    monthlyEquivalent: 100,
     discountPercent: 0,
-    lookupKey: "cmux-next-pro-monthly-50",
+    lookupKey: "cmux-next-pro-monthly-100",
   },
 } as const satisfies MonthlyOnlyPlanPricing;
 

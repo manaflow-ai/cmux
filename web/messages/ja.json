@@ -977,7 +977,7 @@
           "next_max": "cmux NEXT Max"
         },
         "features": {
-          "includedUsage": "毎月 {amount} 分の Cloud 利用料を含む",
+          "includedMinutes": "毎月 {minutes, number} マシン分を含む",
           "running": "同時に最大 {count} 台のマシンを実行",
           "kept": "実行中と一時停止中を合わせて最大 {count} 台のマシンを保持",
           "snapshots": "最大 {count} 個のスナップショットを保存",
@@ -987,7 +987,8 @@
         "subscribe": "{plan} に登録",
         "upgrade": "{plan} にアップグレード",
         "comingSoon": "近日公開",
-        "usageNote": "含まれる利用料は定価で計算され、毎月リセットされます。使い切るとマシンは一時停止し、一時停止中のマシンはディスク分のみ課金されます。"
+        "usageNote": "含まれるマシン分は毎月リセットされ、繰り越されません。使い切るとマシンは一時停止し、一時停止中のマシンはディスク分のみ課金されます。",
+        "machineMinuteNote": "1 マシン分は、起動中のマシンの 1 vCPU を 1 分間使う量です。2 vCPU のマシンは 1 分に 2、8 vCPU のマシンは 8 を使います。一時停止中のマシンは使いません。"
       }
     },
     "testflight": {
