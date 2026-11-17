@@ -574,10 +574,16 @@ unsafe fn init(
     Ok(())
 }
 
-impl H264Encoder for OpenH264 {
-    fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
+impl OpenH264 {
+    /// One picture through the instance as it is (see [`H264Encoder::encode`]).
+    fn encode_now(
+        &mut self,
+        pic: &I420,
+        force_idr: bool,
+        pts: i64,
+        out: &mut Vec<u8>,
+    ) -> Res<bool> {
         out.clear();
-        self.pick_usage(pic);
         let vt = self.vtbl();
         let force = vt.ForceIntraFrame.ok_or("no ForceIntraFrame")?;
         let encode = vt.EncodeFrame.ok_or("no EncodeFrame")?;
@@ -624,6 +630,13 @@ impl H264Encoder for OpenH264 {
         self.motion.self_idr = self.screen && idr && !force_idr && !self.motion.fresh;
         self.motion.fresh = false;
         Ok(idr)
+    }
+}
+
+impl H264Encoder for OpenH264 {
+    fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
+        self.pick_usage(pic);
+        self.encode_now(pic, force_idr, pts, out)
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
@@ -902,6 +915,69 @@ impl crate::VideoDecoder for OpenH264Decoder {
 
     fn name(&self) -> String {
         "openh264 decoder".into()
+    }
+}
+
+#[cfg(all(test, feature = "openh264-source"))]
+mod keyframe_skip_tests {
+    use super::*;
+
+    /// A detailed 1280x720 picture (blocks of flat luma with fine stripes): a keyframe of it
+    /// costs far more than a frame interval of the start rate, as a real desktop does.
+    fn desktop(w: usize, h: usize) -> I420 {
+        let mut pic = I420::new(w, h);
+        let mut seed = 0x9e37_79b9u32;
+        for by in (0..h).step_by(8) {
+            for bx in (0..w).step_by(8) {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let base = 32 + (seed >> 24) as u8 % 192;
+                for y in by..(by + 8).min(h) {
+                    for x in bx..(bx + 8).min(w) {
+                        pic.y[y * w + x] = base.wrapping_add(((x ^ y) & 3) as u8 * 6);
+                    }
+                }
+            }
+        }
+        pic
+    }
+
+    /// The share's first keyframe must not starve the frames after it: a key press 16 ms
+    /// later has to code, not wait for OpenH264's skip buffer to drain (it used to skip
+    /// ~260 ms of frames after a start keyframe at 8 Mbit/s).
+    #[test]
+    fn frames_after_a_screen_keyframe_are_not_skipped() {
+        let (w, h) = (1280usize, 720usize);
+        let cfg = EncCfg {
+            width: w as u32,
+            height: h as u32,
+            fps: 60,
+            kbps: 8000,
+            threads: 1,
+            screen_content: true,
+        };
+        let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+        let mut pic = desktop(w, h);
+        let mut au = Vec::new();
+        let mut sizes = Vec::new();
+        for frame in 0..31i64 {
+            // A typed character: a small marker that changes every frame.
+            for y in 0..32 {
+                for x in 0..64 {
+                    pic.y[y * w + x] = if (frame as usize + x / 8) % 2 == 0 { 30 } else { 220 };
+                }
+            }
+            let coded = enc.encode(&pic, frame == 0, frame * 16_667, &mut au).expect("encode");
+            sizes.push(if coded && !au.is_empty() { au.len() } else { 0 });
+        }
+        let skipped = sizes[1..].iter().filter(|&&n| n == 0).count();
+        assert!(sizes[0] > 0, "no keyframe: {sizes:?}");
+        assert_eq!(
+            skipped,
+            0,
+            "frames skipped after the keyframe ({} KB): {sizes:?}",
+            sizes[0] / 1024
+        );
+        assert_eq!(enc.kbps(), 8000, "the rate goes back after the keyframe");
     }
 }
 
