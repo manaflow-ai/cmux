@@ -203,6 +203,14 @@ def trusted(call):
     """Runs `call`; a chat in a folder nobody trusted yet is refused with trust.pending until the
     person clicks Trust, so the probe clicks it as they do and runs `call` again."""
     reply = call()
+    # acpmux may instead hold the start for the answer (hub/trust_wait.rs): the call answers
+    # `pending` with no session while the "Trust <folder>?" card waits.
+    held = isinstance(reply, dict) and reply.get("pending") and not reply.get("sessionId")
+    if held:
+        clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
+            agent("click", text="Trust", timeout=10) or {"error": "none"}), 30)
+        note(f"trust (held start): {short(clicked, 160)}")
+        return reply
     if "trust.pending" not in json.dumps(reply):
         return reply
     clicked = wait(lambda: (lambda r: r if not r.get("error") else None)(
