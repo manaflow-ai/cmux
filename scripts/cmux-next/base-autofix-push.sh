@@ -421,21 +421,23 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   # The compile gate (CMUX_BASE_AUTOFIX_COMPILE_GATE, base-autofix-compile-gate.sh): a candidate whose
   # repair changes a Swift file lands that Swift only after the build fleet compiles the candidate.
   # 8f33d7030 pushed a namespace rewrite that did not compile, and every base compile stayed red. A
-  # verdict is kept per Swift patch (git patch-id), here and in CMUX_BASE_AUTOFIX_COMPILED across
-  # base-autofix-land.sh's rounds, so a retry onto a moved tip does not compile the same change again.
+  # verdict is kept per compiled tree: the candidate's Packages/ and ios/ trees (every Swift source,
+  # Package.swift and pin the compile reads), here and in CMUX_BASE_AUTOFIX_COMPILED across
+  # base-autofix-land.sh's rounds. A retry onto a tip that moved only outside them reuses the verdict;
+  # one that moved a Swift source or a package compiles again (review F1 of #45139).
   # Without a pass the Swift files are put back to the tip's, the rest lands, and the run fails.
   if [[ -n "${CMUX_BASE_AUTOFIX_COMPILE_GATE:-}" ]]; then
     swift_changed="$(git diff --name-only "$tip" HEAD -- '*.swift')"
     if [[ -n "$swift_changed" ]]; then
-      swift_patch="$(git diff "$tip" HEAD -- '*.swift' | git patch-id --stable | cut -d' ' -f1)"
-      verdict="$(grep -h " $swift_patch\$" ${CMUX_BASE_AUTOFIX_COMPILED:+"$CMUX_BASE_AUTOFIX_COMPILED"} <(printf '%s' "${compile_verdicts:-}") 2>/dev/null | tail -n 1 | cut -d' ' -f1)" || verdict=""
+      compiled_tree="$(printf '%s %s\n' "$(git rev-parse -q --verify HEAD:Packages || echo none)" "$(git rev-parse -q --verify HEAD:ios || echo none)" | git hash-object --stdin)"
+      verdict="$(grep -h " $compiled_tree\$" ${CMUX_BASE_AUTOFIX_COMPILED:+"$CMUX_BASE_AUTOFIX_COMPILED"} <(printf '%s' "${compile_verdicts:-}") 2>/dev/null | tail -n 1 | cut -d' ' -f1)" || verdict=""
       if [[ -z "$verdict" ]]; then
         gate=0
         "$CMUX_BASE_AUTOFIX_COMPILE_GATE" "$remote" "$(git rev-parse HEAD)" || gate=$?
         verdict=fail
         ((gate == 0)) && verdict=pass
-        compile_verdicts+="$verdict $swift_patch"$'\n'
-        [[ -z "${CMUX_BASE_AUTOFIX_COMPILED:-}" ]] || echo "$verdict $swift_patch" >> "$CMUX_BASE_AUTOFIX_COMPILED"
+        compile_verdicts+="$verdict $compiled_tree"$'\n'
+        [[ -z "${CMUX_BASE_AUTOFIX_COMPILED:-}" ]] || echo "$verdict $compiled_tree" >> "$CMUX_BASE_AUTOFIX_COMPILED"
       else
         echo "Compile gate: this Swift change already has a verdict in this run ($verdict)."
       fi

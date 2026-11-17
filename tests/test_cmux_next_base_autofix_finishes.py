@@ -51,6 +51,7 @@ APP = "first-party-apps/app/fragment.json"
 ACTION_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionTests.swift"
 # A file the namespace rewrite changes (base-autofix.sh 1f'), which the compile gate judges.
 NAMESPACE_SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Policy.swift"
+FFI_PIN = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 
 
 def git(cwd, *args):
@@ -129,7 +130,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
         files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SETTINGS_REF: "old", CLI_REF: "old", DOCS_GENERATOR: "g1", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
-                 "README.md": "r", "unlisted/output.txt": "old", NAMESPACE_SWIFT: "public enum Policy {}\n",
+                 "README.md": "r", "unlisted/output.txt": "old", NAMESPACE_SWIFT: "public enum Policy {}\n", FFI_PIN: "p1",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
             (seed / path).parent.mkdir(parents=True, exist_ok=True)
@@ -347,6 +348,21 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(landed[NAMESPACE_SWIFT], "public struct Policy {}")
         self.assertIn("attempt 2 of", out)
         self.assertEqual(len(calls), 1, out)
+
+    def test_a_swift_repair_compiled_on_one_tree_never_lands_on_a_tip_that_moved_a_package(self):
+        # Review F1 of #45139: the same Swift patch on a tip whose package inputs moved is a different program.
+        # The push holds it (base-autofix-land.sh remakes it on the tip, where the gate compiles that tree).
+        done, landed, out, calls = self.gated_push(
+            0, {NAMESPACE_SWIFT: "public struct Policy {}\n"}, moved={"README.md": "r2"}, move_again={FFI_PIN: "p2"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public enum Policy {}")
+        self.assertEqual(len(calls), 1, out)
+
+    def test_the_verdict_is_kept_per_packages_and_ios_tree(self):
+        push = PUSH_SCRIPT.read_text()
+        self.assertIn("HEAD:Packages", push)
+        self.assertIn("HEAD:ios", push)
+        self.assertNotIn("patch-id", push)
 
     def test_the_workflow_gives_the_push_its_compile_gate(self):
         job = DOC["jobs"]["autofix"]
