@@ -233,3 +233,26 @@ fn scale_bench() {
         );
     }
 }
+
+/// A drag start walks each group tree once, not once per row of it: the
+/// subtree walks it does stay within a few times the rows it answers for,
+/// whatever the group size (base: a drag in a sidebar of two 1,000-member
+/// groups walked about 4 million items, 2.5 ms p50 at 2,000 workspaces in
+/// groups of 100).
+#[test]
+fn a_drag_start_walks_each_group_tree_once() {
+    for group_size in [10, 100, 1000] {
+        let s = sidebar(2000, 2, group_size, 0);
+        let rows = s.rows();
+        let item = s.middle_item();
+        super::doc::SUBTREE_VISITS.with(|visits| visits.set(0));
+        let table = drag_begin(&s.doc, &rows, std::slice::from_ref(&item));
+        let visits = super::doc::SUBTREE_VISITS.with(std::cell::Cell::get);
+        assert_eq!(table.len(), rows.len());
+        assert!(
+            visits <= 3 * rows.len(),
+            "groups of {group_size}: {visits} subtree visits for {} rows",
+            rows.len()
+        );
+    }
+}
