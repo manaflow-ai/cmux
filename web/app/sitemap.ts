@@ -174,8 +174,6 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/privacy-policy", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
-    { path: "/cmux-cloud/dpa", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
-    { path: "/cmux-cloud/subprocessors", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
@@ -184,8 +182,6 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
   const englishOnly = new Set([
     "/terms-of-service",
     "/eula",
-    "/cmux-cloud/dpa",
-    "/cmux-cloud/subprocessors",
   ]);
 
   const entries: MetadataRoute.Sitemap = [];

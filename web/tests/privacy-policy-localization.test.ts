@@ -49,7 +49,7 @@ describe("privacy policy localization", () => {
       entry.url.endsWith("/privacy-policy"),
     );
     expect(policyEntries).toHaveLength(locales.length);
-    expect(policyEntries.every((entry) => entry.lastModified === "2026-07-10")).toBe(true);
+    expect(policyEntries.every((entry) => entry.lastModified === "2026-11-17")).toBe(true);
   });
 
   test("serves every localized policy route without an English redirect", () => {
