@@ -893,6 +893,16 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
     Ok(())
 }
 
+/// Whether a start on `conn` is the person's own here, which carries the person's start level to
+/// another machine (`hub/full_access_children.rs`): the unix socket or the app, by the proof
+/// the connection presented, and not held to the Web's rules (`remote_guard::control_of`).
+/// A proven caller session is told apart by `Hub::forward_start_policy` itself.
+pub(super) fn person_start(conn: &Conn, params: &Value) -> bool {
+    matches!(conn.auth, ConnAuth::LocalSocket | ConnAuth::LocalApp)
+        && super::remote_guard::control_of(conn.origin, conn.auth, params)
+            == crate::hub::Control::Local
+}
+
 /// `_meta.acpmux` for a start this daemon forwards to a peer: who creates it, as this daemon
 /// decides it (`hub/created_by.rs`); the peer takes it from this link only.
 fn created_by_stamp(hub: &Hub, conn: &Conn, params: &Value) -> Value {
@@ -1244,22 +1254,28 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RESOLVE => {
             let names_hosts = conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer;
-            if params.get("exactSessionId").and_then(Value::as_bool) == Some(true) {
-                hub.locate_exact(
-                    str_param(&params, "sessionId")
-                        .or_else(|| str_param(&params, "query"))
-                        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?,
-                    names_hosts,
-                )
+            let exact = params.get("exactSessionId").and_then(Value::as_bool) == Some(true);
+            let query = if exact {
+                str_param(&params, "sessionId")
+                    .or_else(|| str_param(&params, "query"))
+                    .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?
             } else {
-                hub.locate(
-                    str_param(&params, "query")
-                        .ok_or_else(|| RpcError::invalid_params("query is required"))?,
-                    params.get("bead").and_then(Value::as_bool) == Some(true),
-                    // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
-                    // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
-                    names_hosts,
-                )
+                str_param(&params, "query")
+                    .ok_or_else(|| RpcError::invalid_params("query is required"))?
+            };
+            let bead_only = params.get("bead").and_then(Value::as_bool) == Some(true);
+            // A peer request is always owner-only: it cannot ask this daemon to transit a
+            // selector to a third machine. Local callers stay on v1 until cut E removes the
+            // watched table; this additive cut must not change what a local reader sees.
+            if conn.origin == Origin::Peer {
+                let query = Hub::validate_owner_selector(query)?;
+                hub.locate_owner(query, bead_only, exact, names_hosts)
+            } else {
+                if exact {
+                    hub.locate_exact(query, names_hosts)
+                } else {
+                    hub.locate(query, bead_only, names_hosts)
+                }
             }
         }
         method::INITIALIZE => {
@@ -1586,17 +1602,22 @@ async fn dispatch_request_with_identity(
                 // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
                 let unattended =
                     hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
-                // A full-access starter's chat runs in full access there too.
-                hub.forward_starter_policy(conn.caller(), &mut p);
+                // A full-access starter's chat runs in full access there too, and the person's
+                // own start at the person's start level (`hub/full_access_children.rs`).
+                let carried = hub
+                    .forward_start_policy(person_start(conn, &params), conn.caller(), &mut p)
+                    .await;
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
-                // for the person's own clients here only (`vm_boundary::owner`).
-                if peer.vm_boundary()
-                    && crate::hub::vm_boundary::owner(
-                        conn.auth,
-                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                        &params,
-                    )
+                // for the person's own clients here only (`vm_boundary::owner`): a saved
+                // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
+                // (`hub/agent_vm.rs`).
+                if crate::hub::vm_boundary::owner(
+                    conn.auth,
+                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    &params,
+                ) && (peer.vm_boundary()
+                    || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
                 {
                     crate::hub::merge_mux_meta(
                         &mut p,
@@ -1606,7 +1627,22 @@ async fn dispatch_request_with_identity(
                 if let Some((name, digest)) = &unattended {
                     hub.unattended_preset_holds(name, digest).await?;
                 }
-                let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
+                // A peer that takes no full access from this machine still starts the person's
+                // own chat, asking, as before the start level was carried (`Carried::Person`).
+                let asking = (carried == crate::hub::full_access_children::Carried::Person)
+                    .then(|| crate::hub::full_access_children::without_carried_policy(&p));
+                let mut result = match super::remote_guard::hint::new_on(&peer, &params, p).await {
+                    Err(e)
+                        if asking.is_some()
+                            && e.data
+                                .as_ref()
+                                .is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
+                    {
+                        let asking = asking.unwrap_or_default();
+                        super::remote_guard::hint::new_on(&peer, &params, asking).await?
+                    }
+                    r => r?,
+                };
                 if let Some(approved) = &unattended {
                     let id = result.get("sessionId").and_then(Value::as_str);
                     hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
@@ -1787,11 +1823,12 @@ async fn dispatch_request_with_identity(
             if conn.origin.web_class() {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
-                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
-                    .await?;
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
                 // session the owner's peer daemon starts with no policy runs
-                // approve-all, as vmHost's did. Web clients still ask.
+                // approve-all, as vmHost's did. Web clients still ask. Before the
+                // mode settles, so a Codex chat there settles in full access
+                // (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a
+                // narrower policy needs.
                 let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
                     && crate::hub::vm_boundary_peer_approves(
@@ -1804,6 +1841,8 @@ async fn dispatch_request_with_identity(
                 {
                     heap(|| hub.grant_vm_host_approve_all(&s)).await;
                 }
+                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
+                    .await?;
             } else {
                 heap(|| hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting))
                     .await?;
@@ -2593,10 +2632,13 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
-        // Names every machine and its numbers: this machine's own clients only.
-        "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
-            "_acpmux/place answers on this machine's unix socket only",
-        )),
+        // Names every machine and its numbers: this machine's own clients only, its unix socket
+        // and the app's own pane (the composer's Auto row and busy chip), never the Web or a peer.
+        "_acpmux/place" if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
@@ -3554,6 +3596,10 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
+                &shutdown_reason(&params),
+                params.get("restart").and_then(Value::as_bool) == Some(true),
+            ));
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.

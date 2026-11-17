@@ -41,7 +41,7 @@ fn queued_agent_command(session: &Session, prompt_id: &str) -> bool {
             None => return false,
         }
     };
-    lists_command(session.meta().available_commands.as_ref(), &name)
+    lists_command(session.meta().available_commands.as_deref(), &name)
 }
 
 /// Whether an `available_commands_update` lists the command `name` (case aside).

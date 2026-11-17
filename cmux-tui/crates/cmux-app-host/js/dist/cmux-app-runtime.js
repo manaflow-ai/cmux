@@ -1527,7 +1527,7 @@
         body: null
       });
       if (r.status < 200 || r.status >= 300)
-        throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500);
+        throw publicFailure(r.status);
       return JSON.parse(r.body || "{}").items ?? [];
     };
     const byId = new Map;
@@ -1559,14 +1559,22 @@
   var PUBLIC_DETAIL_AGE_MS = 900000;
   var PUBLIC_ROWS = 5;
   var NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"]);
+  var SANDBOXED = "This extension runs sandboxed, with no network. To let it read GitHub, turn off Run sandboxed in the App Store: Installed, Permissions.";
+  function isSandboxed(e) {
+    return e instanceof CmuxError && e.code === "scope.missing" && /sandboxed/i.test(e.message);
+  }
+  function publicFailure(status) {
+    const limited = status === 403 || status === 429;
+    return new CmuxError("upstream.failed", limited ? "GitHub's public API limit for this network is used up; it resets within the hour. Sign in to GitHub (gh auth login) to read without it." : `GitHub answered ${status}`, { status, ...limited ? { limit: "public" } : {} }, limited || status >= 500);
+  }
   function githubGetter(call, signalName) {
     let viaGateway = true;
     let gatewayError = null;
-    const refused = () => {
+    const refused = (netError) => {
       if (gatewayError instanceof CmuxError && gatewayError.retryable)
         return gatewayError;
       const code = codeOf(gatewayError);
-      return new CmuxError(code === "scope.missing" ? "scope.missing" : "integration.unavailable", "Sign in to GitHub (gh auth login), or set a GitHub login for public repositories.", { signal: signalName, gateway: code }, code !== "scope.missing");
+      return new CmuxError(code === "scope.missing" ? "scope.missing" : "integration.unavailable", isSandboxed(gatewayError) || isSandboxed(netError) ? SANDBOXED : "Sign in to GitHub (gh auth login), or set a GitHub login for public repositories.", { signal: signalName, gateway: code, sandboxed: isSandboxed(gatewayError) || isSandboxed(netError) }, code !== "scope.missing");
     };
     const get = async (path) => {
       if (viaGateway) {
@@ -1596,7 +1604,7 @@
         });
       } catch (e) {
         if (e instanceof CmuxError && e.code === "scope.missing")
-          throw refused();
+          throw refused(e);
         throw e;
       }
       if (r.status === 304 && known?.etag) {
@@ -1604,7 +1612,7 @@
         return known.body;
       }
       if (r.status < 200 || r.status >= 300)
-        throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500);
+        throw publicFailure(r.status);
       const body = JSON.parse(r.body || "null");
       const etag = Object.entries(r.headers ?? {}).find(([k]) => k.toLowerCase() === "etag")?.[1];
       keep(path, etag ?? "", body, now);
@@ -1979,7 +1987,7 @@
         staleAfterSeconds: 60
       },
       "github.changes": {
-        docs: "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag).",
+        docs: "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live.",
         scopes: [
           "integration:github:read",
           "net:api.github.com"
@@ -2161,9 +2169,12 @@
             }
           ]
         },
-        push: [],
+        push: [
+          "github.changed"
+        ],
         pollFloorSeconds: 30,
-        staleAfterSeconds: 60
+        staleAfterSeconds: 60,
+        safetyPollSeconds: 900
       },
       "github.pulls": {
         docs: "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls.",

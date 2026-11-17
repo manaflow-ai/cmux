@@ -95,6 +95,8 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     @ObservationIgnored var memoryPressure: () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }
     /// The one automatic reload a memory end of the web content process owes (`WebKitTab+Delegates`).
     @ObservationIgnored var exitRecovery = BrowserExitRecovery()
+    /// Set by the hibernation planner while it holds the page frozen (`BrowserFreezeReporting`).
+    @ObservationIgnored public var onFrozenPageLost: (@MainActor () -> Void)?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -170,7 +172,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     public func reload() { startReload() }
 
     public func stop() {
-        webView.stopLoading()
+        if resumeIfSuspended() { webView.stopLoading() }
         // Whatever committed keeps the page area from now on, so WebKit draws
         // its background again even if no `didFail` follows the stop.
         pageDidFinish()
@@ -183,9 +185,9 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     public func setFocused(_ focused: Bool) {
         guard let window = webView.window else { return }
         if focused {
-            window.makeFirstResponder(webView)
+            FocusRoute(.system, "focus model: WebKit tab").moveKeyboard(in: window, to: webView)
         } else if (webView as? WebKitWebView)?.hasKeyboardFocus == true {
-            window.makeFirstResponder(nil)
+            FocusRoute(.system, "focus model: WebKit tab resigns").moveKeyboard(in: window, to: nil)
         }
     }
 
@@ -199,6 +201,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
 
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
+        guard !webView.cmuxIsSuspended else { throw BrowserTabError.frozen }
         let image = try await webView.takeSnapshot(configuration: nil)
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw BrowserTabError.snapshotUnavailable
@@ -212,7 +215,10 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
             // Every public WKWebView evaluation forces a user gesture; cmux's own scripts use the
             // gesture-free one (`WebKitGestureFreeEvaluation`).
             switch gesture {
-            case .agent: return BrowserJSValue(foundation: try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld))
+            case .agent:
+                // WebKit raises on a suspended page (`WKWebView.cmuxIsSuspended`); an agent's call thaws it first.
+                guard !webView.cmuxIsSuspended else { throw BrowserTabError.frozen }
+                return BrowserJSValue(foundation: try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld))
             case .cmux: return try await WebKitGestureFreeEvaluation(webView: webView).evaluate(script, in: world.contentWorld)
             }
         } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {
@@ -237,6 +243,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
             return try await WebKitGestureFreeEvaluation(webView: webView)
                 .callAsync(body, arguments: arguments.mapValues(\.foundationValue), in: world.contentWorld)
         }
+        guard !webView.cmuxIsSuspended else { throw BrowserTabError.frozen }
         let result = try await webView.callAsyncJavaScript(
             body,
             arguments: arguments.mapValues(\.foundationValue),
@@ -247,7 +254,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     }
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
-        guard !isClosed, !text.isEmpty else {
+        guard !isClosed, !text.isEmpty, !webView.cmuxIsSuspended else {
             clearFind()
             return .none
         }
@@ -274,7 +281,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
 
     public func setZoom(_ zoom: Double) {
         let clamped = BrowserZoom.clamp(zoom)
-        webView.pageZoom = clamped
+        if resumeIfSuspended() { webView.pageZoom = clamped } // a hidden tab of the site follows (`SiteZoomFollower`)
         apply(.zoomChanged(clamped))
     }
 
@@ -314,7 +321,9 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()
-        webView.stopLoading()
+        // A hidden tab closed while frozen: WebKit raises on a suspended page's stop. One whose process
+        // ended has nothing loading.
+        if resumeIfSuspended() { webView.stopLoading() }
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

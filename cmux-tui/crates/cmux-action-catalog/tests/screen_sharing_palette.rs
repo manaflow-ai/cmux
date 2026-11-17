@@ -19,6 +19,16 @@ fn screen_sharing_is_found_by_the_words_people_type() {
         assert!(action.keywords.contains(&"vnc"), "{id} lacks \"vnc\"");
     }
     assert!(palette::DAILY.contains(&"macScreen.open"));
+    // Built-in aliases: these whole queries rank Screen Sharing first, above the Chief row whose
+    // title starts with "Share Screen".
+    let aliases = palette::ALIASES
+        .iter()
+        .find(|(id, _)| *id == "macScreen.open")
+        .map(|(_, words)| *words)
+        .expect("macScreen.open aliases");
+    for word in ["screen share", "share screen", "remote desktop", "vnc"] {
+        assert!(aliases.contains(&word), "macScreen.open lacks the alias {word:?}");
+    }
 }
 
 #[test]

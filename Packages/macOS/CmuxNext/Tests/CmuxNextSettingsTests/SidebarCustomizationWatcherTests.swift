@@ -13,7 +13,7 @@ import Testing
         let file = directory.appending(path: "cmux-next.json")
         try Data(#"{}"#.utf8).write(to: file)
         let design = DesignSettings()
-        let settings = SettingsController(registry: .standard(), design: design, fileURL: file,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: design, fileURL: file,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         settings.start()
         defer { settings.stop() }
