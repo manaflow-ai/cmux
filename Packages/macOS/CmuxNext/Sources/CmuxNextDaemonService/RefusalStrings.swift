@@ -107,15 +107,20 @@ public nonisolated enum RefusalStrings {
     /// Why an action that needs the local daemon's `capability` is off. The
     /// bundled daemon is built from this tree and serves every capability in
     /// `DaemonCapability.required` and `optional` (check-daemon-capabilities.sh),
-    /// so a running daemon without one is an older build: restarting cmux
-    /// updates it. Any other capability has no daemon half in this build yet.
-    /// The id itself is never shown.
+    /// so a running daemon without one is an older build: a person's run restarts
+    /// it and runs again (``DaemonUpdateRetry``). Any other capability has no
+    /// daemon half in this build yet. The id itself is never shown.
     public static func needsDaemonCapability(_ capability: String) -> String {
-        DaemonCapability.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
+        DaemonCapability.isServedByBundledDaemon(capability) ? daemonOutdated : notInThisVersion
     }
-    /// The running local daemon is older than the app.
-    public static var restartToUpdateDaemon: String {
-        text("handlers.refusal.restartToUpdateDaemon", "cmux’s background service is out of date. Quit and reopen cmux to update it.")
+    /// The running local daemon is older than the app: what the CLI, scripts and the launch window
+    /// read. A person's run never shows it; it restarts the service and runs again.
+    public static var daemonOutdated: String {
+        text("handlers.refusal.daemonOutdated", "cmux’s background service is out of date. Restarting it updates it.")
+    }
+    /// The restart that would have updated the local daemon for a person's run did not bring a new one up.
+    public static var daemonUpdateFailed: String {
+        text("handlers.refusal.daemonUpdateFailed", "cmux couldn’t update its background service, so this didn’t run. Quit and reopen cmux to update it.")
     }
     /// A feature with no implementation in this build.
     static var notInThisVersion: String { text("handlers.refusal.notInThisVersion", "Not available in this version of cmux yet.") }
@@ -161,7 +166,7 @@ public nonisolated enum RefusalStrings {
         case .sessionRestoreTimedOut: return daemonRestoreTimedOut
         case .command(_, let message, _, _, _): return message
         case .endpointBlocked(let reason): return reason
-        case .unsupportedProtocol: return restartToUpdateDaemon
+        case .unsupportedProtocol: return daemonOutdated
         case .timedOut, .terminalStartTimedOut: return daemonTimedOut
         case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed: return daemonConnecting
         case .socketPathTooLong, .malformedResponse, .wrongApp, .binaryNotFound, .launchFailed, .invalidSessionName:
@@ -176,8 +181,10 @@ public nonisolated enum RefusalStrings {
     public static var machineIconNotRegistered: String {
         text("handlers.refusal.machineIconNotRegistered", "This machine isn't registered yet. Try again in a moment.")
     }
-    /// A Cloud machine's own cmux is older than this app.
-    static var updateCloudMachine: String { text("handlers.refusal.updateCloudMachineCmux", "Update cmux on this Cloud machine to use this.") }
+    /// Another machine's own cmux (a Cloud or SSH machine, named `machine`) is older than this app.
+    static func updateMachine(_ machine: String) -> String {
+        format("handlers.refusal.updateMachineCmux", "Update cmux on %@ to use this.", machine)
+    }
     /// A feature this build has no implementation of; `feature` names it for
     /// call sites and logs only and is never shown.
     public static func needsAppCapability(_ feature: String) -> String { notInThisVersion }
