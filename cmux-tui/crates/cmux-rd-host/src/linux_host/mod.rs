@@ -6,9 +6,10 @@
 //!       Signs in once with a cmux (Stack Auth) access token (without a token file, through
 //!       a browser sign-in link: stack_login.rs), registers this desktop as a
 //!       `linux` device, anchors it (it renews its own host session for 30 days with its
-//!       device key, no token) and turns sharing on. The person's own devices view and control
-//!       it with no prompt here (`--view-only` keeps control off); on Wayland it asks the portal
-//!       once, now (`grant`), so no viewer's session asks again.
+//!       device key, no token), downloads Cisco's OpenH264 (the encoder; never bundled) and
+//!       turns sharing on. The person's own devices view and control it with no prompt here
+//!       (`--view-only` keeps control off); on Wayland it asks the portal once, now (`grant`),
+//!       so no viewer's session asks again.
 //!       `--non-interactive` (the machine join, often over ssh): takes no account token and opens
 //!       no browser, finds the desktop through logind, waits a minute at most on the portal
 //!       dialog, sets up a virtual X display (started on demand) when there is no graphical
@@ -38,7 +39,8 @@
 //! captures through the Wayland portal without a RemoteDesktop grant: there it is served view
 //! only.
 
-mod consent;
+// Consent is shared with `cmux-rd windows-host` (src/screen_host/).
+use crate::screen_host::consent;
 mod machine;
 mod setup;
 pub(crate) mod stack_login;
@@ -339,12 +341,12 @@ fn enable(args: &Args) -> Res<()> {
     }
     let dir = identity::config_dir()?;
     identity::private_dir(&dir)?;
-    let device = sign_in_and_register(args, &dir)?;
+    let (device, encoder) = sign_in_and_register(args, &dir)?;
     let consent = enable_consent(args);
     consent.save(&dir)?;
     grant_capture_now(consent.full, &setup::detect_desktop(), None);
     println!(
-        "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
+        "This desktop is shared as \"{}\" ({}), {}. {encoder}. Start the host: systemctl --user enable --now cmux-screen-host.service",
         device.name,
         device.id,
         shares_line(&Ok(consent), host_applies_input())
@@ -399,9 +401,11 @@ fn set_up_for_join(args: &Args) -> Res<()> {
             return Ok(());
         }
     };
+    // The host this installs serves sessions at once, so its encoder is there first.
+    let encoder = openh264_line();
     setup::install_host(virtual_display)?;
     println!(
-        "This desktop is shared as \"{}\" ({}), {}; the host runs as {}.",
+        "This desktop is shared as \"{}\" ({}), {}; the host runs as {}. {encoder}.",
         device.name,
         device.id,
         shares_line(&Ok(consent), host_applies_input()),
@@ -411,8 +415,8 @@ fn set_up_for_join(args: &Args) -> Res<()> {
 }
 
 /// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
-/// it and turns sharing on; the device.
-fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
+/// it, installs the encoder and turns sharing on; the device and the encoder's line.
+fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, String)> {
     let token = stack_token(args)?;
     let hub_url = match (args.get("hub"), Account::load(dir)?) {
         (Some(url), _) => url.to_owned(),
@@ -438,10 +442,27 @@ fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
         Ok((hub, user_id))
     })?;
     let anchored_until = hub.anchor()?;
+    // The encoder before sharing turns on: a viewer must not reach a host that cannot encode.
+    let encoder = openh264_line();
     hub.set_shared(true)?;
     Account { hub: hub_url, user_id, anchored_until }.save(dir)?;
     machine::Joined::clear(dir)?;
-    Ok(hub.device)
+    Ok((hub.device, encoder))
+}
+
+/// Cisco's OpenH264 in the per-user data directory (downloaded from Cisco the first time), in
+/// one sentence. Without it every session ends with "openh264 is not installed".
+fn openh264_line() -> String {
+    #[cfg(feature = "openh264")]
+    return match crate::encoder::ensure_openh264() {
+        Ok(path) => format!("OpenH264 is at {}", path.display()),
+        Err(e) => format!(
+            "OpenH264 is not installed ({}): run cmux-rd openh264-install before a viewer connects",
+            printable(&e.to_string())
+        ),
+    };
+    #[cfg(not(feature = "openh264"))]
+    "This build has no OpenH264 download; pass --openh264-lib PATH to run".to_owned()
 }
 
 /// `grant [--control]`: the Wayland portal's grant, made now so no share asks.
@@ -1333,6 +1354,25 @@ mod tests {
             .join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// `enable` finds the encoder a session needs: an installed copy is used as it is, with no
+    /// download (the only test that reads `XDG_DATA_HOME`).
+    #[cfg(feature = "openh264")]
+    #[test]
+    fn enable_finds_an_installed_openh264() {
+        let platform = cmux_encode::openh264::Platform::current().unwrap();
+        let data = consent_dir("openh264");
+        let dir = cmux_encode::cisco::dir_from("linux", |key| {
+            (key == "XDG_DATA_HOME").then(|| data.clone().into_os_string())
+        })
+        .unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = cmux_encode::cisco::library_path(&dir, platform);
+        std::fs::write(&lib, b"stand-in").unwrap();
+        std::env::set_var("XDG_DATA_HOME", &data);
+        assert_eq!(openh264_line(), format!("OpenH264 is at {}", lib.display()));
+        std::fs::remove_dir_all(&data).unwrap();
     }
 
     #[test]
