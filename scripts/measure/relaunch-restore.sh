@@ -10,7 +10,11 @@
 #                optimization with the debug.* commands; config=Release or config=Debug), so a PR's base and head
 #                are measured by the same harness: one step at each commit, pinned to one worker (--target-worker).
 #   fronts=LIST  what each round leaves in front at the quit (the check's --fronts; default terminal,chat)
-# Prints L5-ROUND lines per relaunch and one L5 {json} verdict; keeps l5.json, report.json and app.log in report.tgz.
+#   daemon=cold  the acpmux daemon is stopped after each quit, so the relaunch starts one (default keep: it runs on)
+#   chats=N      N more workspaces with a chat each (the stress session; 58 makes 60 workspaces)
+# Prints L5-ROUND lines per relaunch, the phase table of the chat rounds (app marks and the daemon's own startup
+# phases, medians) between L5-PHASES-BEGIN and -END, and one L5 {json} verdict; keeps l5.json, report.json and
+# app.log in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/relaunch-restore"
@@ -22,6 +26,8 @@ for arg in "$@"; do
     rounds=*) extra+=(--rounds "${arg#rounds=}") ;;
     budget_ms=*) extra+=(--budget-ms "${arg#budget_ms=}") ;;
     fronts=*) extra+=(--fronts "${arg#fronts=}") ;;
+    daemon=keep|daemon=cold) extra+=(--daemon "${arg#daemon=}") ;;
+    chats=*) extra+=(--chats "${arg#chats=}") ;;
     config=bench|config=Release|config=Debug) config="${arg#config=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
