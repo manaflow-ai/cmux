@@ -8,6 +8,8 @@
 //! Foundation (module `mediafoundation`, Windows only).
 
 mod codec;
+/// The stream's colour: the hosts' matrix and range, its VUI tag, and the viewers' conversion.
+pub mod color;
 mod picture;
 
 #[cfg(any(feature = "openh264-source", feature = "openh264-runtime"))]

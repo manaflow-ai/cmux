@@ -797,6 +797,8 @@ mod bitrate_tests {
 pub struct OpenH264Decoder {
     api: OpenH264Api,
     dec: *mut ISVCDecoder,
+    /// The conversion the last SPS's VUI asks for (untagged until the first SPS).
+    color: crate::color::Yuv,
 }
 
 // SAFETY: the decoder instance is used from one thread at a time (owned by the viewer's loop).
@@ -810,7 +812,7 @@ impl OpenH264Decoder {
         if dec.is_null() {
             return Err("openh264 WelsCreateDecoder returned no decoder".into());
         }
-        let this = Self { api, dec };
+        let this = Self { api, dec, color: crate::color::UNTAGGED.yuv() };
         // SAFETY: a zeroed SDecodingParam is the library's "defaults" (its own tests do the same).
         let mut param: SDecodingParam = unsafe { std::mem::zeroed() };
         param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
@@ -856,6 +858,9 @@ impl Drop for OpenH264Decoder {
 
 impl crate::VideoDecoder for OpenH264Decoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
+        if let Some(vui) = crate::color::sps_vui(au) {
+            self.color = vui.yuv();
+        }
         let decode =
             self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
         let mut planes = [std::ptr::null_mut::<u8>(); 3];
@@ -902,6 +907,10 @@ impl crate::VideoDecoder for OpenH264Decoder {
 
     fn name(&self) -> String {
         "openh264 decoder".into()
+    }
+
+    fn color(&self) -> crate::color::Yuv {
+        self.color
     }
 }
 

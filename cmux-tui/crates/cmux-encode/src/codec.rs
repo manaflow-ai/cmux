@@ -81,6 +81,11 @@ pub trait VideoDecoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool>;
     fn codec(&self) -> Codec;
     fn name(&self) -> String;
+    /// How the pictures `decode` returns convert to RGB: what the stream's tag says
+    /// (H.264: the last SPS's VUI), else what the hosts send.
+    fn color(&self) -> crate::color::Yuv {
+        crate::color::Yuv::SCREEN
+    }
 }
 
 /// Annex-B NAL units of `au` (start codes 00 00 01 or 00 00 00 01).
