@@ -208,7 +208,7 @@ jobs:
             ${{ runner.temp }}/session/session.enc
             ${{ runner.temp }}/session/key.enc
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
   resolve:
     # The published DEV release is a moving tag. Resolve its zip once here, as a plain output (an asset
     # id and its sha256, no secret), so both proof jobs download and verify the same bytes.
