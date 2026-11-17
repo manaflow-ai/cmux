@@ -30,6 +30,23 @@ fn live_session_count_does_not_read_closed_session_metadata() {
     drop(held);
     worker.join().unwrap();
     assert_eq!(observed.unwrap(), 0);
+
+    let idle = hub.insert_test_session(
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "idle",
+            "name": "idle",
+            "harness": "codex",
+            "cwd": "/tmp",
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 2
+        }))
+        .unwrap(),
+    );
+    assert_eq!(hub.live_session_count(), 0);
+    hub.set_status(&idle, crate::store::SessionStatus::Ready);
+    assert_eq!(hub.live_session_count(), 1);
 }
 
 /// Reviews of #24797 at d703168 and 828f855: a reload applied the lending it read to

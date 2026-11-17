@@ -633,17 +633,7 @@ impl Hub {
     /// This host's sessions whose agent runs (ready, running or waiting on a
     /// permission); a peer's are not counted (`acpmux peer status`).
     pub fn live_session_count(&self) -> usize {
-        self.sessions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .filter(|s| {
-                matches!(
-                    s.status(),
-                    SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
-                )
-            })
-            .count()
+        self.agent_session_ids.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     pub fn peer_by_name(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
