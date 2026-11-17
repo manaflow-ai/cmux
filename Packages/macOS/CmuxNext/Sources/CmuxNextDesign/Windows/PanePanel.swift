@@ -84,13 +84,24 @@ public final class PanePanel: NSPanel, FocusRouting, UnderOverlayWindow {
     /// and no other app loses them. Not in a press of a pointer button: the press chose the window that has the
     /// keys, and the pane under it gets the focus by the press itself.
     public static func moveKeys(in window: NSWindow?, toPane pane: String?) {
-        if let press = NSApp?.currentEvent?.type, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(press) { return }
-        guard let window, let key = NSApp?.keyWindow else { return }
+        let inPress = isPress(NSApp?.currentEvent?.type)
+        guard let home = keyHome(in: window, toPane: pane, key: NSApp?.keyWindow, inPress: inPress) else { return }
+        FocusRoute(.system, "the window of the pane that has the focus").makeKey(home)
+    }
+
+    /// Whether an event of `type` is a press of a pointer button.
+    static func isPress(_ type: NSEvent.EventType?) -> Bool {
+        type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
+    }
+
+    /// The window that ``moveKeys(in:toPane:)`` gives the keys to, with `key` the window that has them now; nil
+    /// when the keys stay where they are.
+    static func keyHome(in window: NSWindow?, toPane pane: String?, key: NSWindow?, inPress: Bool) -> NSWindow? {
+        guard !inPress, let window, let key else { return nil }
         let panels = (window.childWindows ?? []).compactMap { $0 as? PanePanel }
-        guard key === window || panels.contains(where: { $0 === key }) else { return }
-        let panel: NSWindow? = pane.flatMap { pane in panels.first { $0.pane == pane } }
-        let home = panel ?? window
-        if home !== key { FocusRoute(.system, "the window of the pane that has the focus").makeKey(home) }
+        guard key === window || panels.contains(where: { $0 === key }) else { return nil }
+        let home: NSWindow = pane.flatMap { pane in panels.first { $0.pane == pane } } ?? window
+        return home === key ? nil : home
     }
 
     /// Whether `point` (window coordinates) is in the bar.
