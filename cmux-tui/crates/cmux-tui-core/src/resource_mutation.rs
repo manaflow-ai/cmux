@@ -205,16 +205,25 @@ impl ResourceMutationPlan {
             }
             return Ok(Some(before));
         }
-        let before_model = layout::project(state);
+        // The check covers the workspaces the plan and its reducer op name,
+        // not the session (https://github.com/manaflow-ai/cmux/issues/45007).
+        let scope = layout::operation_scope(state, self.layout_op.as_ref(), &self.patch);
+        let before_model = layout::project_scope(state, &scope, std::iter::empty());
         let model = self
             .layout_op
             .as_ref()
             .map(|kind| layout::model_result(operation, &before_model, kind))
             .transpose()?;
         let before = self.stage(state);
-        let result =
-            layout::validate_layout_transition(operation, &before_model, model.as_ref(), state)
-                .and_then(|()| docks_kept(operation, state));
+        let result = layout::validate_layout_transition(
+            operation,
+            &scope,
+            &before,
+            &before_model,
+            model.as_ref(),
+            state,
+        )
+        .and_then(|()| docks_kept(operation, state));
         if let Err(error) = result {
             *state = before;
             return Err(error);

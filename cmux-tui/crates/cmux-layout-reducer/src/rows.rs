@@ -110,19 +110,13 @@ pub(crate) struct At {
 
 impl LayoutState {
     pub(crate) fn locate(&self, pane: PaneId) -> Result<At, Reject> {
-        if !self.panes.contains_key(&pane) {
-            return Err(Reject::UnknownPane(pane));
-        }
-        for (workspace, w) in self.workspaces.iter().enumerate() {
-            for (screen, s) in w.screens.iter().enumerate() {
-                for (column, c) in s.columns.iter().enumerate() {
-                    if let Some(position) = c.panes.iter().position(|id| *id == pane) {
-                        return Ok(At { workspace, screen, column, position });
-                    }
-                }
-            }
-        }
-        Err(Reject::UnknownPane(pane))
+        let slot = self.require_pane(pane)?;
+        Ok(At {
+            workspace: slot.workspace,
+            screen: slot.screen,
+            column: slot.column,
+            position: slot.pane,
+        })
     }
 
     fn column_mut(&mut self, at: At) -> &mut Column {

@@ -329,14 +329,6 @@ impl Mux {
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
         validate_split_ratio(ratio)?;
-        let model = {
-            let state = self.state.lock().unwrap();
-            anyhow::ensure!(
-                state.panes.get(&pane).is_some_and(|candidate| candidate.tabs == [surface]),
-                "bad request: respawn applies only to a split of the pane's only tab"
-            );
-            layout_invariants::project(&state)
-        };
         // Ids the model has never used stand in for the pane and tab the
         // live commits create.
         let kind = LayoutOpKind::MoveTabToSplit {
@@ -348,6 +340,14 @@ impl Mux {
                 tab: u64::MAX - 1,
                 content: TabContent { runtime: u64::MAX, terminal: None, dead: false },
             }),
+        };
+        let model = {
+            let state = self.state.lock().unwrap();
+            anyhow::ensure!(
+                state.panes.get(&pane).is_some_and(|candidate| candidate.tabs == [surface]),
+                "bad request: respawn applies only to a split of the pane's only tab"
+            );
+            layout_invariants::project_for(&state, &kind)
         };
         layout_invariants::model_result("tab.drag", &model, &kind)?;
         let destination =

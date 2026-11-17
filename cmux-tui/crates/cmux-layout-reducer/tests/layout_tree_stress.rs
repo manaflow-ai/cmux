@@ -135,6 +135,7 @@ fn corpus(panes: usize, others: usize) -> Corpus {
         });
     }
     assert!(cmux_layout_reducer::check_state(&state).is_empty());
+    state.reindex();
     Corpus { state, panes: focused, column, rows: row_ids }
 }
 
@@ -414,9 +415,9 @@ fn reducer_command_work_does_not_grow_with_untouched_workspaces() {
     }
 }
 
-/// Until that lands, the bound that holds and must keep holding: a command's
-/// work is at most linear in the layout, a few allocations per pane, never
-/// quadratic (500 and 5000 panes cost the same per pane).
+/// `apply`, which copies the whole state for its result: its work is at most
+/// linear in the layout, a few allocations per pane, never quadratic (500
+/// and 5000 panes cost the same per pane).
 #[test]
 fn reducer_command_work_is_at_most_linear_in_the_layout() {
     let per_pane = |others: usize| {

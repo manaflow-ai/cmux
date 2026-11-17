@@ -55,6 +55,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 mod rows;
+mod scope;
 pub mod sidebar_section_customization;
 mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
@@ -85,19 +86,64 @@ impl TabContent {
 
 /// The layout document: workspaces, screens, columns, panes and tabs. It
 /// holds the arrangement only; the replay ledger is a separate [`Ledger`].
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// It also keeps an index of where each tab and pane is ([`Self::new`],
+/// [`Self::reindex`]), which [`apply_mut`] keeps for the workspaces it
+/// touches, so an op finds its tab and pane without walking the layout.
+/// The index holds hints that every lookup checks against the layout: a
+/// state changed through its fields stays correct, and its lookups walk the
+/// layout until it is indexed again. Equality and `Debug` ignore it.
+#[derive(Clone, Default)]
 pub struct LayoutState {
     pub workspaces: Vec<Workspace>,
     /// Every pane and its tabs in strip order.
     pub panes: BTreeMap<PaneId, Vec<TabId>>,
     /// Every tab and its content.
     pub tabs: BTreeMap<TabId, TabContent>,
+    index: LayoutIndex,
+}
+
+/// Where tabs and panes are: the pane of each tab and the workspace of each
+/// placed pane. Hints only; every lookup checks them against the layout.
+#[derive(Clone, Default)]
+struct LayoutIndex {
+    built: bool,
+    tab_pane: BTreeMap<TabId, PaneId>,
+    pane_workspace: BTreeMap<PaneId, WorkspaceId>,
+}
+
+impl PartialEq for LayoutState {
+    fn eq(&self, other: &Self) -> bool {
+        self.workspaces == other.workspaces && self.panes == other.panes && self.tabs == other.tabs
+    }
+}
+
+impl Eq for LayoutState {}
+
+impl fmt::Debug for LayoutState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LayoutState")
+            .field("workspaces", &self.workspaces)
+            .field("panes", &self.panes)
+            .field("tabs", &self.tabs)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Workspace {
     pub id: WorkspaceId,
     pub screens: Vec<Screen>,
+}
+
+impl Workspace {
+    /// Every pane the workspace's layout places, in layout order.
+    pub fn pane_ids(&self) -> impl Iterator<Item = PaneId> + '_ {
+        self.screens
+            .iter()
+            .flat_map(|screen| &screen.columns)
+            .flat_map(|column| column.panes.iter().copied())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -389,11 +435,17 @@ pub enum Violation {
     EmptyPane { pane: PaneId },
     /// R1/R2/R4: a column's rows do not partition its panes.
     RowLayout { column: ColumnId },
+    /// I1/I2: an op added or removed a pane or tab outside the workspaces,
+    /// panes and tabs it touches ([`apply_mut`]'s scoped check).
+    ChangedOutsideOp,
 }
 
 impl fmt::Display for Violation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ChangedOutsideOp => {
+                write!(f, "a pane or tab outside the op's workspaces appeared or went")
+            }
             Self::TabLost { tab } => write!(f, "tab {tab} was lost"),
             Self::TabAdded { tab } => write!(f, "tab {tab} appeared"),
             Self::TabContentChanged { tab } => write!(f, "tab {tab} changed its content"),
@@ -628,32 +680,78 @@ pub fn placement_mismatches(model: &LayoutState, live: &LayoutState) -> Vec<Plac
 
 /// Apply `op` to `state`, ignoring its key. The result never introduces a
 /// violation: an op whose result would is rejected with
-/// [`Reject::Invariant`].
+/// [`Reject::Invariant`]. It copies the whole state for its result; a caller
+/// that owns the state uses [`apply_mut`], whose work does not grow with the
+/// workspaces the op does not touch.
 pub fn apply(
     state: &LayoutState,
     op: &LayoutOp,
 ) -> Result<(LayoutState, Vec<LayoutEvent>), Reject> {
     let mut next = state.clone();
-    let mut events = Vec::new();
-    apply_kind(&mut next, &op.kind, &mut events)?;
-    let violations = introduced_violations_creating(
-        state,
-        &next,
-        &op.kind.closed_tabs(),
-        &op.kind.created_tabs(),
-    );
-    if !violations.is_empty() {
-        return Err(Reject::Invariant(violations.into_iter().collect()));
-    }
+    let events = apply_mut(&mut next, op)?;
     Ok((next, events))
 }
 
 /// [`apply`] in place: `state` becomes the result, or stays as it was on a
-/// rejection.
+/// rejection. Its work is that of the workspaces the op touches
+/// (https://github.com/manaflow-ai/cmux/issues/45007): it checks I1-I3 on
+/// those workspaces and on the panes and tabs the op names, and that the op
+/// added or removed no pane or tab outside them ([`scope`]). An unindexed
+/// state ([`LayoutState::reindex`]) is indexed first.
 pub fn apply_mut(state: &mut LayoutState, op: &LayoutOp) -> Result<Vec<LayoutEvent>, Reject> {
-    let (next, events) = apply(state, op)?;
-    *state = next;
-    Ok(events)
+    if !state.index.built {
+        state.reindex();
+    }
+    let closed = op.kind.closed_tabs();
+    let created = op.kind.created_tabs();
+    let mut events = Vec::new();
+    let Some(scope) = scope::Scope::of(state, &op.kind) else {
+        // An op on every tab (a runtime's exit): the whole state is its scope.
+        let before = state.clone();
+        let result = apply_kind(state, &op.kind, &mut events).and_then(|()| {
+            invariant_result(introduced_violations_creating(&before, state, &closed, &created))
+        });
+        if result.is_err() {
+            *state = before;
+        }
+        return result.map(|()| events);
+    };
+    #[cfg(test)]
+    let full_before = state.clone();
+    let before = scope.capture(state, &created);
+    let result = apply_kind(state, &op.kind, &mut events).and_then(|()| {
+        let violations = scope.introduced(&before, state, &closed, &created);
+        // The unit tests hold the scoped check to the whole-state one.
+        #[cfg(test)]
+        if check_state(&full_before).is_empty() {
+            let full = introduced_violations_creating(&full_before, state, &closed, &created);
+            assert_eq!(
+                violations.is_empty(),
+                full.is_empty(),
+                "the scoped check disagrees with the whole-state one on {op:?}: scoped \
+                 {violations:?}, whole {full:?}"
+            );
+        }
+        invariant_result(violations)
+    });
+    match result {
+        Ok(()) => {
+            scope.reindex(state, &before);
+            Ok(events)
+        }
+        Err(reject) => {
+            scope.restore(state, before);
+            Err(reject)
+        }
+    }
+}
+
+fn invariant_result(violations: BTreeSet<Violation>) -> Result<(), Reject> {
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(Reject::Invariant(violations.into_iter().collect()))
+    }
 }
 
 /// The keys of recently applied ops, oldest first, at most
@@ -710,18 +808,68 @@ struct Slot {
 }
 
 impl LayoutState {
+    /// A state of these workspaces, panes and tabs, indexed.
+    pub fn new(
+        workspaces: Vec<Workspace>,
+        panes: BTreeMap<PaneId, Vec<TabId>>,
+        tabs: BTreeMap<TabId, TabContent>,
+    ) -> Self {
+        let mut state = Self { workspaces, panes, tabs, index: LayoutIndex::default() };
+        state.reindex();
+        state
+    }
+
+    /// Index every tab's pane and every placed pane's workspace, in one walk
+    /// of the layout. [`apply_mut`] keeps the index for what it touches.
+    pub fn reindex(&mut self) {
+        let mut index = LayoutIndex { built: true, ..LayoutIndex::default() };
+        for workspace in &self.workspaces {
+            for pane in workspace.pane_ids() {
+                index.pane_workspace.insert(pane, workspace.id);
+                for tab in self.panes.get(&pane).into_iter().flatten() {
+                    index.tab_pane.insert(*tab, pane);
+                }
+            }
+        }
+        self.index = index;
+    }
+
     /// The pane that holds `tab`.
     pub fn pane_of(&self, tab: TabId) -> Option<PaneId> {
+        if let Some(pane) = self.index.tab_pane.get(&tab)
+            && self.panes.get(pane).is_some_and(|tabs| tabs.contains(&tab))
+        {
+            return Some(*pane);
+        }
         self.panes.iter().find(|(_, tabs)| tabs.contains(&tab)).map(|(pane, _)| *pane)
     }
 
+    /// The position of workspace `id` in the workspace list.
+    fn workspace_position(&self, id: WorkspaceId) -> Option<usize> {
+        self.workspaces.iter().position(|workspace| workspace.id == id)
+    }
+
+    /// The workspace whose layout places `pane`.
+    fn workspace_of_pane(&self, pane: PaneId) -> Option<WorkspaceId> {
+        self.slot(pane).map(|slot| self.workspaces[slot.workspace].id)
+    }
+
     fn slot(&self, pane: PaneId) -> Option<Slot> {
-        for (wi, workspace) in self.workspaces.iter().enumerate() {
-            for (si, screen) in workspace.screens.iter().enumerate() {
-                for (ci, column) in screen.columns.iter().enumerate() {
-                    if let Some(pi) = column.panes.iter().position(|id| *id == pane) {
-                        return Some(Slot { workspace: wi, screen: si, column: ci, pane: pi });
-                    }
+        if let Some(workspace) = self.index.pane_workspace.get(&pane)
+            && let Some(wi) = self.workspace_position(*workspace)
+            && let Some(slot) = self.slot_in(wi, pane)
+        {
+            return Some(slot);
+        }
+        (0..self.workspaces.len()).find_map(|wi| self.slot_in(wi, pane))
+    }
+
+    /// `pane`'s slot when workspace `wi` places it.
+    fn slot_in(&self, wi: usize, pane: PaneId) -> Option<Slot> {
+        for (si, screen) in self.workspaces[wi].screens.iter().enumerate() {
+            for (ci, column) in screen.columns.iter().enumerate() {
+                if let Some(pi) = column.panes.iter().position(|id| *id == pane) {
+                    return Some(Slot { workspace: wi, screen: si, column: ci, pane: pi });
                 }
             }
         }
