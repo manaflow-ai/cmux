@@ -125,8 +125,8 @@ struct CloudStartSession {
                     }
                     asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named))
                     do {
-                        // The account the agent asked in: a switch while the card was open refuses.
-                        let fields = try await start.run(request, asPerson, context, account: key.account, byPerson: true, askedBy: caller, revealing: false)
+                        // The account the agent asked in: a switch while the card was open refuses. `capCard`: the card's Start is the person's click, so its create may go direct.
+                        let fields = try await start.run(request, asPerson, context, account: key.account, byPerson: true, capCard: true, askedBy: caller, revealing: false)
                         // Nothing is shown on its own (the person is in the asking chat); the card
                         // links to the new chat, and Open Chat, the person's click, shows it.
                         guard case .string(let opened)? = fields["tab_id"] else {
