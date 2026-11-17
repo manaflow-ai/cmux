@@ -645,6 +645,30 @@ public final class DaemonTerminalSession: TerminalSession {
         return true
     }
 
+    /// The size a history fetch's attach claims in the setup's own write:
+    /// the live attach's, when it claimed one and the phone asks for nothing
+    /// else (no newer size, no size the Mac overruled). Nil: the attach
+    /// waits for identify, as a reattach does.
+    private var replacementAttachSize: (columns: Int, rows: Int)? {
+        guard claimsSize, tailReplay, overruled == nil, pendingSize == nil, let live = attachedWithSize,
+              let size = lastSize, size.columns == live.columns, size.rows == live.rows else { return nil }
+        return live
+    }
+
+    /// `attach-surface` for this surface at `size`, with the history the
+    /// next replay holds: the window far above the screen, or the newest
+    /// ``historyAllowance`` rows (nil: all of them).
+    private func historyAttachParams(size: (columns: Int, rows: Int)) -> sending [String: Any] {
+        var params: [String: Any] = ["surface": surface, "cols": size.columns, "rows": size.rows]
+        if windowReplay, let start = historyWindowStart {
+            params["replay_history_rows"] = Self.historyWindowRows
+            params["replay_history_start"] = start
+        } else if let rows = historyAllowance {
+            params["replay_history_rows"] = rows
+        }
+        return params
+    }
+
     private var historyRequestDescription: String {
         if let start = historyWindowStart { return "window \(start)+\(Self.historyWindowRows)" }
         return "allowance \(historyAllowance.map(String.init) ?? "all")"
@@ -678,6 +702,8 @@ public final class DaemonTerminalSession: TerminalSession {
         attaching = true
         awaitingReplay = false
         defer { attaching = false }
+        // A history fetch: the attach it replaces is live on this daemon.
+        let replacement = replacing != nil
         do {
             let client = try await open()
             guard handler != nil else { return }
@@ -686,8 +712,10 @@ public final class DaemonTerminalSession: TerminalSession {
             // A reattach (or a retry) first asks where the terminal is: a Mac
             // daemon that restarted numbers its surfaces again, and the old
             // number may now name another terminal (defect 2 of
-            // verify/transport-verify-20261019.md).
-            if let terminalID, everAttached || attachRetries > 0 {
+            // verify/transport-verify-20261019.md). A history fetch does not:
+            // the attach it replaces is still live on the same daemon, so the
+            // surface number is current (one round trip less per fetch).
+            if let terminalID, !replacement, everAttached || attachRetries > 0 {
                 let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
                 guard self.client === client else { return }
                 switch Self.resolved(reply) {
@@ -743,15 +771,31 @@ public final class DaemonTerminalSession: TerminalSession {
                     MainActor.assumeIsolated { self?.channelEnded(client) }
                 }
             }
+            // A fetch of older or newer rows replaces a live attach on this
+            // same daemon, at the size that attach claims: the attach goes in
+            // the setup's write (one round trip instead of two).
+            let quickSize = replacement ? replacementAttachSize : nil
             attachedWithSize = nil
             sizeClaimed = false
-            // One write: the client info (it opts into the size lease) and identify.
+            sizing.clear()
+            lastActivityNote = nil
+            // The mirror is not reset yet: a reattach that fails (a Mac host
+            // that just restarted answers "unknown surface" for a moment) keeps
+            // the last frame on screen under the reconnecting badge, instead
+            // of a blank screen with an error line (termqa D3). The replay's
+            // events wait in `heldEvents` until the attach is confirmed.
+            heldEvents = []
+            // One write: the client info (it opts into the size lease), identify
+            // and, replacing a live attach, the attach.
             var info: [String: Any] = clientInfo
             info["capabilities"] = Self.clientCapabilities
-            let setup = await client.requests(
-                [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
-            )
-            let identify = try? setup.last?.get()
+            var batch: [(cmd: String, params: [String: Any])] = [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
+            if let quickSize { batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize))) }
+            let setup = await client.requests(batch)
+            let identify = setup.dropFirst().first.flatMap { try? $0.get() }
+            let quickReply = setup.dropFirst(2).first.flatMap { try? $0.get() }.flatMap { Self.error(in: $0) == nil ? $0 : nil }
+            // What a refused quick attach sent first is not the replay.
+            if quickSize != nil, quickReply == nil { heldEvents = [] }
             // Hidden: attach without a size, so the attach claims none.
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
@@ -804,19 +848,16 @@ public final class DaemonTerminalSession: TerminalSession {
                 tailReplay = false
                 return try await send(historyRows: nil)
             }
-            sizing.clear()
-            lastActivityNote = nil
-            // The mirror is not reset yet: a reattach that fails (a Mac host
-            // that just restarted answers "unknown surface" for a moment) keeps
-            // the last frame on screen under the reconnecting badge, instead
-            // of a blank screen with an error line (termqa D3). The replay's
-            // events wait in `heldEvents` until the attach is confirmed.
-            heldEvents = []
             // With the size in the attach the Mac builds the replay at that size
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
-            if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
+            if let quickReply, let quickSize {
+                // A refused quick attach (a lane that refuses a field) takes the
+                // path below, which knows each refusal.
+                reply = quickReply
+                attachedWithSize = quickSize
+            } else if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
                overruled.asked.columns == size.columns, overruled.asked.rows == size.rows,
                overruled.mac.columns <= size.columns, overruled.mac.rows <= size.rows {
                 // The Mac kept its own size for this request last time, and it
