@@ -2884,7 +2884,7 @@ function TranscriptView({
         if (pendingMeasures.current.get(node) === measure) pendingMeasures.current.delete(node);
       };
     },
-    [reportDrawn, sessionId],
+    [reportDrawn, sessionId, tokenRows],
   );
   // All of a commit's reports land in one update, before the frame paints.
   /// Rows whose drawn height changed since the last placement, which places again from the first.
