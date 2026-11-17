@@ -66,6 +66,13 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
     # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
     "tests/test_ci_hosted_light_rescue.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It runs
+    # scripts/ci/swiftpm_prefetch_binary_artifacts.py against a fake cache and reads the owned-Mac workflows only as
+    # data (each SwiftPM step seeds first, #43932). Run it by hand when the seed or such a step changes. Exit: as below.
+    "tests/test_ci_swiftpm_prefetch_shared_cache.py",
+    # No new CI tests (CLAUDE.md): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
+    # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
+    "tests/test_ci_ios_bot_rerun_route.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
     # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
