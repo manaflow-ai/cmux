@@ -5,7 +5,7 @@
 // Installing a community item here answers `done` and fires `apps-changed`; in the app the host's
 // consent card comes first.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import type { CommunityDetail, CommunityElsewhere, CommunityRow } from "./community";
+import type { CommunityDetail, CommunityElsewhere } from "./community";
 import { AppsOps } from "./types";
 
 export interface CommunityMockData {
@@ -59,7 +59,7 @@ export class CommunityMockProvider implements PageClient {
 
   private list(params: Record<string, unknown>) {
     const query = typeof params.query === "string" ? params.query.toLowerCase() : "";
-    let rows: CommunityRow[] = this.data.items.filter(
+    let rows: CommunityDetail[] = this.data.items.filter(
       (row) =>
         (!params.kind || row.kind === params.kind) &&
         (!query ||
@@ -68,8 +68,8 @@ export class CommunityMockProvider implements PageClient {
           )),
     );
     const by =
-      <T>(key: (row: CommunityRow) => T, desc = true) =>
-      (a: CommunityRow, b: CommunityRow) => {
+      <T>(key: (row: CommunityDetail) => T, desc = true) =>
+      (a: CommunityDetail, b: CommunityDetail) => {
         const x = key(a);
         const y = key(b);
         return x === y ? 0 : x < y === desc ? 1 : -1;

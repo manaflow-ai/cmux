@@ -39,7 +39,7 @@
 }
 
 .apps-community-empty .apps-link {
-  margin-top: 6px;
+  margin-top: var(--ds-space-2);
 }
 
 .apps-community-readme {
@@ -64,7 +64,7 @@
 .apps-community-readme .gh-md h4,
 .apps-community-readme .gh-md h5,
 .apps-community-readme .gh-md h6 {
-  margin: 16px 0 6px;
+  margin: var(--ds-space-4) 0 var(--ds-space-1);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
@@ -119,5 +119,5 @@
 
 .apps-community-detail .apps-facts + .apps-link {
   display: inline-block;
-  margin-top: 10px;
+  margin-top: var(--ds-space-2);
 }
