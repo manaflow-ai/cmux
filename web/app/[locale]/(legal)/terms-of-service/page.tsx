@@ -301,7 +301,8 @@ export default async function TermsOfServicePage() {
         pricing page when the usage occurs. Usage is paid from credits that
         your team buys through our payment processor. Prices do
         not include taxes, and you are responsible for applicable taxes.
-        [OWNER DECISION: refunds] We can change prices with notice;
+        Credits are not refundable, except where the law requires a refund.
+        We can change prices with notice;
         a change applies to usage after it takes effect.
       </p>
       <p>
