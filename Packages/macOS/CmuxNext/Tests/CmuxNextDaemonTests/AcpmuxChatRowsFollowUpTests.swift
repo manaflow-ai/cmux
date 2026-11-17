@@ -75,4 +75,41 @@ struct AcpmuxChatRowsFollowUpTests {
         try await fed.feed(ChatWire.op(12), chunk: 1 << 20)
         #expect(await eventually { fed.receiver.rowIds == Array(1...12) }, "and the sub reads on: a hidden page's taken is acknowledged")
     }
+
+    /// The core's refusal of `rows.1`'s sub, as the recorded stream's `not_ready` (a kind-8 frame).
+    private static let refused = ChatWire.frame(8, "{\"code\":\"not_ready\",\"method\":\"sub\",\"sid\":\"rows.1\"}")
+
+    @Test("hidden, a chatError after an earlier call goes at once: the page waits on it (cmux#44964)")
+    func hiddenErrorAfterACallGoesAtOnce() async throws {
+        // A long pace: a batch can reach the page in time only by skipping the wait.
+        let fed = FedChatRowsHost(hiddenInterval: 600)
+        fed.host.setHidden(true)
+        #expect(await fed.host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
+        try await fed.feed(ChatWire.opening + ChatWire.window(cursor: 10, ids: 1...10), chunk: 1 << 20)
+        #expect(await eventually { fed.receiver.rowIds == Array(1...10) }, "the first window goes while hidden")
+        try await fed.feed(Self.refused, chunk: 1 << 20)
+        #expect(await eventually(2) { fed.receiver.kinds().filter { $0 == "chatError" }.count == 2 },
+                "the refusal reaches the hidden page within the interval")
+    }
+
+    @Test("shown then hidden again, a chatError goes at once: a deadline armed before the show does not hold it (cmux#44964)")
+    func hiddenAgainErrorGoesAtOnce() async throws {
+        let fed = FedChatRowsHost(hiddenInterval: 600)
+        fed.host.setHidden(true)
+        #expect(await fed.host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
+        try await fed.feed(ChatWire.opening + ChatWire.window(cursor: 10, ids: 1...10), chunk: 1 << 20)
+        #expect(await eventually { fed.receiver.rowIds == Array(1...10) })
+        // An op while hidden, within the pace: held, its deadline armed.
+        try await fed.feed(ChatWire.op(11), chunk: 1 << 20)
+        let driver = try #require(await fed.driver())
+        await driver.flushForTesting()
+        _ = await fed.host.snapshotForTesting()
+        #expect(fed.receiver.rowIds == Array(1...10), "hidden: the op is held")
+        fed.host.setHidden(false)
+        #expect(await eventually { fed.receiver.rowIds == Array(1...11) }, "shown: the held op goes")
+        fed.host.setHidden(true)
+        try await fed.feed(Self.refused, chunk: 1 << 20)
+        #expect(await eventually(2) { fed.receiver.kinds().filter { $0 == "chatError" }.count == 2 },
+                "hidden again, the refusal reaches the page within the interval")
+    }
 }
