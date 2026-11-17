@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import CmuxSettings
 import Foundation
 
 /// Parses the cmux-owned font settings that historically lived in config.ghostty,

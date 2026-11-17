@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminalCore
+import CmuxSettings
 import CmuxWorkspaces
 import SwiftUI
 
