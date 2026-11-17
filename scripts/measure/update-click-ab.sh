@@ -23,9 +23,12 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/update-click-ab" tools
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  # The harness and summary as of this commit, whatever the sides' trees hold.
+  OUT="$out"
+  # The harness, summary and phase runner as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py imports it from its parent folder
+    && cp scripts/cmux-next/tag_teardown.py "$tools/" \
+    && cp scripts/measure/bounded-phase.py "$tools/"  # run.py imports tag_teardown from its parent folder
+  TOOLS="$tools"
   local base="" head rounds=3 delay=3 stress=0 arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"
@@ -55,7 +58,9 @@ main() {
     for side in base head; do
       echo "UCA-ROUND $i $side"
       start_stress "$stress"
-      GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$tools/update-harness/run.py" \
+      # run.py bounds each of its own waits (--stage-timeout, --relaunch-timeout); the phase bounds the round.
+      GITHUB_WORKSPACE="$PWD" phase "round $i $side" "$ROUND_DEADLINE" "$ROUND_STALL" --grace 60 -- \
+        scripts/ci/frame-pacing/console-session.sh python3 -I "$tools/update-harness/run.py" \
         --app "$out/$side/cmux DEV ucab.app" --tag ucab --out "$out/run-$side-$i" --click-at-stage --click-delay "$delay" \
         2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
       [[ ${PIPESTATUS[0]} == 0 ]] || rc=1
@@ -66,6 +71,33 @@ main() {
   rm -rf "$out/base" "$out/head"
   tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
+}
+
+# Every step after the UCA host line runs as a phase (scripts/measure/bounded-phase.py): a deadline, a stall limit,
+# and a UCA-PROGRESS line every 2 min naming the phase and its newest build-log line. The controller stops a step
+# whose log is silent for 45 min (CMUX_CI_MEASURE_SILENT_MAX); the builds wrote only to files, so a cold build on a
+# plain M4 was stopped as "hung" right after the UCA host line with nothing to say where it was (2026-11-17, step
+# 7cb681720391). A phase that is really stuck now ends itself first, as UCA-STALL or UCA-TIMEOUT NAME with the
+# newest line it printed. Seconds: deadline, then stall (no output at all).
+SUBMODULE_DEADLINE=900 SUBMODULE_STALL=600
+GHOSTTYKIT_DEADLINE=1200 GHOSTTYKIT_STALL=600
+ACPMUX_DEADLINE=3600 ACPMUX_STALL=1200
+RELOAD_DEADLINE=5400 RELOAD_STALL=1200
+ROUND_DEADLINE=1500 ROUND_STALL=600
+OUT="" TOOLS=""
+# phase NAME DEADLINE STALL [bounded-phase.py options] -- COMMAND...
+phase() {
+  local name="$1" deadline="$2" stall="$3"
+  shift 3
+  python3 -I "$TOOLS/bounded-phase.py" --tag UCA --name "$name" --deadline "$deadline" --stall "$stall" "$@"
+}
+
+# On every exit (a failed build included) the logs go into report.tgz, so a failed step's artifact says why.
+finish() {
+  stop_stress
+  if [[ -n "$OUT" && -d "$OUT" && ! -f "$OUT/report.tgz" ]]; then
+    tar -czf "$OUT.tgz" -C "$OUT" --exclude ./base --exclude ./head --exclude ./tools . 2>/dev/null && mv "$OUT.tgz" "$OUT/report.tgz"
+  fi
 }
 
 # stress=K: K busy loops per core for the whole update (a Mac under a load like Leo's, about 150-200),
@@ -88,7 +120,7 @@ stop_stress() {
   for pid in ${STRESS_PIDS[@]+"${STRESS_PIDS[@]}"}; do wait "$pid" 2>/dev/null; done
   STRESS_PIDS=()
 }
-trap stop_stress EXIT
+trap finish EXIT
 
 fetch_checkout() {
   local sha="$1" depth=()
@@ -101,18 +133,25 @@ fetch_checkout() {
 # two commits change) and copies it to OUT/SIDE/.
 build_app() {
   local out="$1" side="$2" app started=$SECONDS
+  echo "UCA build $side starting at $(git rev-parse HEAD)"
   for sub in ghostty ghostty-next; do
-    git submodule update --init --depth 1 "$sub" >>"$out/build-$side.log" 2>&1 || { echo "UCA submodule $sub failed" >&2; return 3; }
+    phase "$side submodule $sub" "$SUBMODULE_DEADLINE" "$SUBMODULE_STALL" --log "$out/build-$side.log" -- \
+      git submodule update --init --depth 1 "$sub" || { echo "UCA submodule $sub failed" >&2; return 3; }
   done
   if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
     rm -rf GhosttyKit.xcframework
     if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
       export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
     fi
-    ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA GhosttyKit download failed" >&2; return 3; }
+    phase "$side GhosttyKit download" "$GHOSTTYKIT_DEADLINE" "$GHOSTTYKIT_STALL" --log "$out/build-$side.log" -- \
+      ./scripts/download-prebuilt-ghosttykit.sh || { echo "UCA GhosttyKit download failed" >&2; return 3; }
   fi
-  CMUX_FLEET_BUILD_TAG=ucab ./scripts/cmux-next/build-acpmux.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag ucab --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1
+  CMUX_FLEET_BUILD_TAG=ucab phase "$side acpmux build" "$ACPMUX_DEADLINE" "$ACPMUX_STALL" --log "$out/build-$side.log" -- \
+    ./scripts/cmux-next/build-acpmux.sh || { echo "UCA acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
+  # reload.sh prints its steps to the build log and keeps xcodebuild's output in its own log, so both are progress.
+  CMUX_DEV_BACKEND_MODE=local phase "$side app build" "$RELOAD_DEADLINE" "$RELOAD_STALL" --log "$out/build-$side.log" \
+    --follow /tmp/cmux-reload-ucab.log -- ./scripts/reload.sh --tag ucab --no-global-cli-links --config bench
+  cp /tmp/cmux-reload-ucab.log "$out/reload-$side.log" 2>/dev/null  # xcodebuild's output, for the report
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$side.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "UCA build $side failed: no app path" >&2
