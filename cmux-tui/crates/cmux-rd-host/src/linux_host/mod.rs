@@ -409,20 +409,59 @@ fn join_device(
     hub_url: &str,
     joined: Option<(std::path::PathBuf, machine::MachineCredential)>,
 ) -> Res<Option<Device>> {
-    // Signed in by an earlier `enable` and still anchored: the host renews by its device key.
-    // Else a joined machine signs itself in with its machine credential.
-    Ok(match (Account::load(dir)?, Device::load(dir)?, joined) {
-        (Some(account), Some(device), _) if account.anchored_until > now_ms() => Some(device),
-        (Some(_), Some(device), Some((home, _)))
-            if machine::Joined::load(dir)?.is_some_and(|j| j.acpmux_home == home) =>
-        {
-            Some(device)
+    let (account, device) = (Account::load(dir)?, Device::load(dir)?);
+    let Some((home, credential)) = joined else {
+        // Not joined: a person's own `enable`, while anchored, renews by its device key.
+        return Ok(match (account, device) {
+            (Some(account), Some(device)) if account.anchored_until > now_ms() => Some(device),
+            _ => None,
+        });
+    };
+    // Joined: the host is always the joiner's, since the hub is the only account boundary
+    // (hq docs/design/screen-share-under-100ms.md, D11). The hub says whose join this is,
+    // at every daemon start.
+    let same_join = machine::Joined::load(dir)?.is_some_and(|j| j.acpmux_home == home);
+    match (account, device) {
+        (Some(account), Some(device)) if same_join && account.hub == hub_url => {
+            let renewal = machine_renewal(credential.clone());
+            let hub = Hub::with_renewal(hub_url, device.clone(), None, renewal)?;
+            hub.session()?;
+            if hub.user_id().as_deref() == Some(account.user_id.as_str()) {
+                return Ok(Some(device));
+            }
+            // Joined again, to another account: that device was the old join's.
         }
-        (_, _, Some((home, credential))) => {
-            Some(sign_in_machine(dir, hub_url, &home, credential)?.0.device)
+        // A person's own sign-in, anchored or not: signed out here, not skipped.
+        (Some(account), Some(device)) if !same_join => sign_out_person(&account, device),
+        _ => {}
+    }
+    forget_sign_in(dir)?;
+    Ok(Some(sign_in_machine(dir, hub_url, &home, credential)?.0.device))
+}
+
+/// Signs a person's own sign-in out of this desktop at the hub (`POST /v1/devices/:id/sign-out`
+/// ends its sessions and drops its anchor). [`forget_sign_in`] deletes the device key next
+/// either way, so nothing here can renew as that account again.
+fn sign_out_person(account: &Account, device: Device) {
+    let path = format!("/v1/devices/{}/sign-out", device.id);
+    let signed_out = Hub::new(&account.hub, device, Some(account.user_id.clone()))
+        .and_then(|hub| hub.call("POST", &path, None));
+    if let Err(e) = signed_out {
+        eprintln!(
+            "cmux-rd linux-host: the hub did not sign this desktop's earlier account out ({e}); its device key is deleted, so this host no longer serves it"
+        );
+    }
+}
+
+/// Deletes this desktop's sign-in: its device key, account and join records.
+fn forget_sign_in(dir: &std::path::Path) -> Res<()> {
+    for file in ["device.json", "account.json", machine::JOINED_FILE] {
+        match std::fs::remove_file(dir.join(file)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
         }
-        _ => None,
-    })
+    }
+    Ok(())
 }
 
 /// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors

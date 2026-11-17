@@ -219,6 +219,32 @@ pub(crate) fn save_mark(folder: &Path, mark: &Value) -> cmux_hub_host::Res<()> {
     identity::write_private(&folder.join(MARK), mark.to_string().as_bytes())
 }
 
+/// `acpmux machine leave`: stops and disables the screen host the join set up
+/// (`systemctl --user disable --now`, blocking, 10 s at most), so it stops serving at once
+/// instead of at its next hub call. cmux-rd itself refuses to start again with the join's
+/// credential gone, and a join leaves no earlier person's sign-in for it to fall back to.
+/// Whether the unit is stopped; false also when this user has no user manager to ask.
+pub(crate) fn stop_host() -> bool {
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    let env = user_manager_env(
+        uid,
+        std::env::var_os("XDG_RUNTIME_DIR"),
+        std::env::var_os("DBUS_SESSION_BUS_ADDRESS"),
+        |p| p.exists(),
+    );
+    let spawned = cmux_process::Command::new("systemctl")
+        .args(["--user", "disable", "--now", HOST_UNIT])
+        .envs(env.iter().map(|(k, v)| (*k, v)))
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .spawn();
+    spawned.is_ok_and(|mut child| {
+        matches!(child.wait_timeout(Duration::from_secs(10)), Ok(Some(s)) if s.success())
+    })
+}
+
 /// Whether the host unit runs (`systemctl --user is-active`), asked with `env` (blocking, 10 s
 /// at most).
 fn host_active(env: &[(&'static str, OsString)]) -> bool {

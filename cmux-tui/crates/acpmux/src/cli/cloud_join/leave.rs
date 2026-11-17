@@ -250,6 +250,12 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         return Err(refusal);
     }
     let removed = remove_local(&home, copy).map_err(|_| store_error())?;
+    // The screen host the join set up stops now, not at its next hub call (share_host/linux.rs).
+    #[cfg(target_os = "linux")]
+    let screen_host_stopped =
+        tokio::task::spawn_blocking(crate::share_host::linux::stop_host).await.unwrap_or(false);
+    #[cfg(not(target_os = "linux"))]
+    let screen_host_stopped = false;
     let daemon = tokio::time::timeout(
         // timeout: a daemon that never answers is reported not running; the leave is done.
         std::time::Duration::from_secs(2),
@@ -266,6 +272,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         "hubRevoked": answer.revoked(),
         "removed": removed,
         "daemonRunning": running,
+        "screenHostStopped": screen_host_stopped,
     });
     let node_key_kept = !removed.contains(&"nodeKey")
         && std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(&home)).is_ok();
@@ -312,6 +319,9 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         );
         if running {
             println!("the daemon's mesh relay stops at its next hub call");
+        }
+        if screen_host_stopped {
+            println!("stopped the screen host (cmux-screen-host.service)");
         }
         if node_key_kept {
             println!("kept the node key: the cmux link serves it, or a running process holds it");
