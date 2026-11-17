@@ -54,7 +54,7 @@ STATEs:
   midturn    a chat whose turn streams "before-gate" and waits on a FIFO, in front
   queued     midturn plus a second message sent while the turn runs (queued in acpmux)
   tool       a turn with a plan step and a tool call in progress, waiting on a FIFO
-  long       a chat of --long-turns answered turns of about 1 KB each, in front
+  long       a chat of --long-turns answered turns of about 4 KB each, in front
   many       --many workspaces with a terminal each (made once), a midturn chat in another workspace, the newest
              terminal in front
 
@@ -287,8 +287,18 @@ def count(value) -> int:
 
 
 def send(app: App, chat: str, text: str) -> str | None:
-    sent = app.inst.cmux("agents", "chat", "send", chat, "--", text, timeout=30)
-    return sent.get("error") if isinstance(sent, dict) and sent.get("error") else None
+    """None, or why the send failed. The mailbox limits every sender, the person too (agent_message_policy.rs: 5
+    sends in 10 s, 20 a minute to one chat): a rate-limited send waits and goes again, for at most 75 s."""
+    deadline = time.monotonic() + 75
+    while True:
+        sent = app.inst.cmux("agents", "chat", "send", chat, "--", text, timeout=30)
+        error = sent.get("error") if isinstance(sent, dict) and sent.get("error") else None
+        reason = ((error or {}).get("details") or {}).get("reason") if isinstance(error, dict) else None
+        if reason != "rate_limited" and "rate_limited" not in str(error or ""):
+            return error
+        if time.monotonic() > deadline:
+            return error
+        time.sleep(2)
 
 
 def release(fifo: str) -> str | None:
@@ -325,8 +335,11 @@ class Gamut:
         (agents / "scripts" / "cmux-next").mkdir(parents=True)
         (agents / "cmux-tui" / "crates" / "acpmux" / "tests").mkdir(parents=True)
         shutil.copyfile(args.fake_agent, agents / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py")
-        self.fake = agents / "scripts" / "cmux-next" / "idle_cost_agent.py"
-        shutil.copyfile(HERE.parent / "cmux-next" / "idle_cost_agent.py", self.fake)
+        shutil.copyfile(HERE.parent / "cmux-next" / "idle_cost_agent.py",
+                        agents / "scripts" / "cmux-next" / "idle_cost_agent.py")
+        # quit_gamut_agent.py wraps it: it finds the fixture command in a delivery the mailbox framed.
+        self.fake = agents / "scripts" / "cmux-next" / "quit_gamut_agent.py"
+        shutil.copyfile(HERE / "quit_gamut_agent.py", self.fake)
         self.app: App | None = None
         self.many_made = False
         self.rounds: list[dict] = []
@@ -361,7 +374,7 @@ class Gamut:
         chat, pid = new_chat(app, ws, f"g{n}-{state}", str(self.work))
         case.update(chat=chat, agent_pid=pid)
         if state == "long":
-            filler = "x" * 1000
+            filler = "x" * 4000
             def quiet():
                 st = chat_state(app, chat)
                 return not st.get("running") and not count(st.get("queued"))
@@ -837,7 +850,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--paths", default="dock,cmdq,scripted,kill,term,update")
     parser.add_argument("--states", default=",".join(STATES))
     parser.add_argument("--many", type=int, default=32)
-    parser.add_argument("--long-turns", type=int, default=150)
+    parser.add_argument("--long-turns", type=int, default=40)  # the mailbox takes 20 a minute to one chat
     parser.add_argument("--video", default="")
     parser.add_argument("--fake-agent", default=str(l5.DEFAULT_FAKE_AGENT))
     parser.add_argument("--fresh-rounds", type=int, default=3, help="fresh-install: installs and first launches")
