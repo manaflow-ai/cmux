@@ -18,8 +18,7 @@ extension CmuxNextApp {
         // Cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session; then this build's own
         // space and, for a DEV build, its own settings and state files (BuildStatePaths).
-        let stripped = LaunchIdentity.stripInheritedEnvironment(settingsBuildDefaults: settingsBuildDefaults.childEnvironmentValue,
-                                                                environmentGuard: environmentGuard)
+        let stripped = LaunchIdentity.stripInheritedEnvironment(settingsBuildDefaults: .thisBuild, environmentGuard: environmentGuard)
         // The names only (never values), so a launch knob lost to another
         // cmux's terminal shows in the app's log.
         if !stripped.isEmpty {
@@ -31,13 +30,6 @@ extension CmuxNextApp {
         GhosttyRuntime.prepareProcessEnvironment(environmentGuard: environmentGuard)
         LaunchMarkSink.dropInheritedDescriptor(environmentGuard: environmentGuard)
         environmentGuard.freeze()
-    }
-
-    /// This build's settings defaults (`SettingsBuildDefaults`): the app's settings and, through
-    /// `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, the Rust settings owner behind `cmux settings` and MCP `settings_get`.
-    static var settingsBuildDefaults: SettingsBuildDefaults {
-        .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault,
-                 devBuild: BuildStatePaths.current.isolatesSharedState)
     }
 
 #if DEBUG

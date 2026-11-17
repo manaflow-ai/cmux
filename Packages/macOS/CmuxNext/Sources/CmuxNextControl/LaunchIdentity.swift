@@ -1,6 +1,7 @@
 import CMUXAuthCore
 public import CmuxNextCompat
 public import CmuxNextProcessEnvironment
+public import CmuxNextSettings
 public import Foundation
 
 /// Who this cmux-next is: bundle, tag, and control socket, derived only from
@@ -207,14 +208,14 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// `main`, before any thread starts and before the environment freeze
     /// (``ProcessEnvironmentGuard``). Returns the removed keys.
     ///
-    /// `settingsBuildDefaults` is this build's ``BuildStatePaths/settingsBuildDefaultsKey`` value
-    /// (`SettingsBuildDefaults.childEnvironmentValue`): set for the Rust settings owner, and nil unsets one
+    /// `settingsBuildDefaults` are this build's (`SettingsBuildDefaults.thisBuild`): their
+    /// ``BuildStatePaths/settingsBuildDefaultsKey`` value is set for the Rust settings owner; none unsets one
     /// inherited from another build.
     @discardableResult
     public static func stripInheritedEnvironment(
         bundle: Bundle = .main,
         statePaths: BuildStatePaths = .current,
-        settingsBuildDefaults: String? = nil,
+        settingsBuildDefaults: SettingsBuildDefaults = .none,
         environmentGuard: ProcessEnvironmentGuard = .process
     ) -> [String] {
         let bundled = bundledEnvironment(bundle)
@@ -223,8 +224,9 @@ public struct LaunchIdentity: Sendable, Equatable {
         // This build's own space replaces any inherited one, so every Rust child that inherits
         // this environment (the `cmux` CLI runs, `cmux link`, the Codex holder, acpmux) sends it.
         let space = childBuildSpace(BuildIdentity(bundle: bundle))
+        let defaults = settingsBuildDefaults.childEnvironmentValue
         // A build without settings defaults never passes on another build's.
-        let unset = settingsBuildDefaults == nil && process[BuildStatePaths.settingsBuildDefaultsKey] != nil
+        let unset = defaults == nil && process[BuildStatePaths.settingsBuildDefaultsKey] != nil
             ? keys + [BuildStatePaths.settingsBuildDefaultsKey] : keys
         environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
             for key in unset { unsetenv(key) }
@@ -233,7 +235,7 @@ public struct LaunchIdentity: Sendable, Equatable {
             // explicit override the launch passed (a harness's CMUX_NEXT_CONFIG_FILE) still wins.
             var values = statePaths.launchEnvironment(over: ProcessInfo.processInfo.environment)
             if let space { values[buildSpaceKey] = space }
-            if let settingsBuildDefaults { values[BuildStatePaths.settingsBuildDefaultsKey] = settingsBuildDefaults }
+            if let defaults { values[BuildStatePaths.settingsBuildDefaultsKey] = defaults }
             for (key, value) in values { setenv(key, value, 1) }
         }
         return keys.sorted()
