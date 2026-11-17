@@ -336,36 +336,48 @@ fn key_light(samples: &[Sample], width: usize, height: usize) -> KeyLight {
     let median = quantile(0.5);
 
     let reach = radius.saturating_mul(2);
-    let mut sum = (0.0, 0.0, 0.0, [0.0; 3]);
-    let mut bright = 0usize;
+    // Weight, the weighted x, y, x squared and y squared (pixel centers), and the weighted color.
+    let mut sum = (0.0, 0.0, 0.0, 0.0, 0.0, [0.0; 3]);
     for (i, s) in samples.iter().enumerate() {
         if s.weight <= 0.0 || s.luma < threshold {
             continue;
         }
-        bright += 1;
         let (x, y) = (i % width, i / width);
         if x.abs_diff(peak_x) > reach || y.abs_diff(peak_y) > reach {
             continue;
         }
         let w = (s.luma - threshold + 1e-4) * s.weight;
+        let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
         sum.0 += w;
-        sum.1 += w * (x as f64 + 0.5);
-        sum.2 += w * (y as f64 + 0.5);
-        for (acc, v) in sum.3.iter_mut().zip(s.rgb) {
+        sum.1 += w * px;
+        sum.2 += w * py;
+        sum.3 += w * px * px;
+        sum.4 += w * py * py;
+        for (acc, v) in sum.5.iter_mut().zip(s.rgb) {
             *acc += w * v;
         }
     }
-    let (cx, cy, color) = if sum.0 > 0.0 {
-        (sum.1 / sum.0 / width as f64, sum.2 / sum.0 / height as f64, sum.3.map(|v| v / sum.0))
+    let (cx, cy, color, rms) = if sum.0 > 0.0 {
+        let (mx, my) = (sum.1 / sum.0, sum.2 / sum.0);
+        // The bright region's RMS radius around its center, in pixels.
+        let variance = (sum.3 / sum.0 - mx * mx).max(0.0) + (sum.4 / sum.0 - my * my).max(0.0);
+        (mx / width as f64, my / height as f64, sum.5.map(|v| v / sum.0), variance.sqrt())
     } else {
         let peak_color = samples.get(peak).map_or([0.0; 3], |s| s.rgb);
-        ((peak_x as f64 + 0.5) / width as f64, (peak_y as f64 + 0.5) / height as f64, peak_color)
+        (
+            (peak_x as f64 + 0.5) / width as f64,
+            (peak_y as f64 + 0.5) / height as f64,
+            peak_color,
+            0.0,
+        )
     };
     // Contrast of the blurred peak over the median, as a Weber fraction squashed to 0..=1.
     let contrast = (peak_value - median).max(0.0) / (median + 0.05);
     let strength = (contrast / (contrast + 0.75)).clamp(0.0, 1.0);
-    let spread = (bright as f64 / samples.len() as f64 / (1.0 - KEY_QUANTILE)).clamp(0.0, 1.0)
-        * (1.0 - strength * 0.5);
+    // How far the bright region reaches: its RMS radius against a quarter of the picture's
+    // diagonal, so a sun a few pixels wide is narrow and a lit sky across the top is wide.
+    let diagonal = ((width * width + height * height) as f64).sqrt();
+    let spread = (rms / (0.25 * diagonal)).clamp(0.0, 1.0);
     KeyLight { color, x: cx, y: cy, strength, spread }
 }
 
@@ -582,6 +594,32 @@ mod tests {
         assert!((rim_y - RIM_LUMINANCE).abs() < 0.01, "rim at its luminance: {rim_y}");
         assert!(field.dominant_count >= 2);
         assert!(field.dominant_weight[0] > 0.8, "the sky covers most of it");
+    }
+
+    /// The spread is the bright region's own extent: a small sun is narrow, a lit band
+    /// of sky across the top is wide (before, every picture's spread came out near 1).
+    #[test]
+    fn a_sun_spreads_less_than_a_lit_sky() {
+        let sun = picture(64, 40, |x, y| {
+            let d = ((x as f64 - 50.0).powi(2) + (y as f64 - 8.0).powi(2)).sqrt();
+            if d < 3.0 { [255, 230, 190] } else { [12, 18, 40] }
+        });
+        let sky = picture(
+            64,
+            40,
+            |_, y| {
+                if y < 8 { [235 - 4 * y as u8, 225, 210] } else { [12, 18, 40] }
+            },
+        );
+        let sun = light_field(&sun, 64, 40, 256).unwrap();
+        let sky = light_field(&sky, 64, 40, 256).unwrap();
+        assert!(sun.key_spread < 0.2, "a small sun is narrow: {}", sun.key_spread);
+        assert!(
+            sky.key_spread > 2.0 * sun.key_spread,
+            "sky {} over sun {}",
+            sky.key_spread,
+            sun.key_spread
+        );
     }
 
     #[test]

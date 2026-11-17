@@ -244,7 +244,7 @@
    transition (appearance.colorTransition, off with motion off); the numbers move at once. Reduce
    Transparency and the lens keep their own looks. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-wallpaper-light]:not([data-reduce-transparency]) {
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) {
     --glass-surface: color-mix(
       in srgb-linear,
       var(--cmux-surface-solid, Canvas),

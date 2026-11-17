@@ -8,7 +8,7 @@
     "keyX": 0.78,
     "keyY": 0.2266,
     "keyStrength": 0.7037,
-    "keySpread": 0.6481,
+    "keySpread": 0.1792,
     "dominant": [
       { "color": [0.5194, 0.2383, 0.3902], "weight": 0.573 },
       { "color": [0.2964, 0.1359, 0.311], "weight": 0.2742 },
@@ -20,14 +20,14 @@
     "tint": [0.5069, 0.2796, 0.3778]
   },
   "aurora": {
-    "style": { "dx": -0.9723, "dy": -0.2339, "rimAlpha": 0.6819, "bloomAlpha": 0.3738, "tintShare": 0.1573 },
+    "style": { "dx": -0.9723, "dy": -0.2339, "rimAlpha": 0.6533, "bloomAlpha": 0.3738, "tintShare": 0.1573 },
     "ambient": [0.123, 0.2732, 0.2917],
     "ambientLuminance": 0.0514,
     "key": [0.2845, 0.7687, 0.5798],
     "keyX": 0.1054,
     "keyY": 0.3481,
     "keyStrength": 0.758,
-    "keySpread": 0.621,
+    "keySpread": 0.2424,
     "dominant": [
       { "color": [0.0649, 0.1633, 0.2285], "weight": 0.7609 },
       { "color": [0.2244, 0.2828, 0.3905], "weight": 0.1344 },
@@ -39,14 +39,14 @@
     "tint": [0.123, 0.2732, 0.2917]
   },
   "day": {
-    "style": { "dx": -0.872, "dy": 0.4894, "rimAlpha": 0.3843, "bloomAlpha": 0.1385, "tintShare": 0.0968 },
+    "style": { "dx": -0.872, "dy": 0.4894, "rimAlpha": 0.3838, "bloomAlpha": 0.1385, "tintShare": 0.0968 },
     "ambient": [0.8035, 0.8568, 0.9168],
     "ambientLuminance": 0.6929,
     "key": [0.9999, 1.0, 0.9967],
     "keyX": 0.1798,
     "keyY": 0.7875,
     "keyStrength": 0.3851,
-    "keySpread": 0.8074,
+    "keySpread": 0.2763,
     "dominant": [
       { "color": [0.6446, 0.7733, 0.921], "weight": 0.2836 },
       { "color": [0.8634, 0.8821, 0.8892], "weight": 0.2797 },
