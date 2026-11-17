@@ -28,7 +28,7 @@ pub(crate) struct WorkspaceCommitIntent {
     /// The whole desired registry; empty when `changed` holds the commit's rows instead.
     workspaces: Vec<RegistryWorkspace>,
     /// The rows of a commit that changes only some workspaces ([`ChangedWorkspaces`]).
-    changed: Option<ChangedWorkspaces>,
+    changed: Option<Box<ChangedWorkspaces>>,
     /// With `changed`, when the projection cross-check runs (debug builds,
     /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`): the whole-registry commit it stands for.
     whole_check: Option<Box<WholeRegistryCheck>>,
@@ -260,7 +260,7 @@ impl WorkspaceRegistry {
             event_kind: event_kind.to_string(),
             workspace_key: workspace_key.to_string(),
             workspaces: Vec::new(),
-            changed: Some(changed),
+            changed: Some(Box::new(changed)),
             whole_check,
             active_workspace: active_workspace.cloned(),
             result: result.clone(),

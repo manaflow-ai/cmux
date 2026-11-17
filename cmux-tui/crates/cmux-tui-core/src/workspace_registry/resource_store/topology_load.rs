@@ -123,38 +123,10 @@ impl WorkspaceRegistry {
         active: Option<&WorkspacePublicId>,
     ) -> anyhow::Result<Option<ResourceTopologySnapshot>> {
         let connection = self.connection.get();
-        let active_workspace = meta_value(&connection, "active_workspace_id")?
-            .map(WorkspacePublicId::parse)
-            .transpose()?;
-        if active_workspace.as_ref().is_some_and(|before| !changed.contains(&before)) {
+        let mut topology = self.scoped_topology_frame(&connection, changed.iter().copied())?;
+        if topology.active_workspace.as_ref().is_some_and(|before| !changed.contains(&before)) {
             return Ok(None);
         }
-        let mut statement = connection.prepare_cached(
-            "SELECT active_screen_id FROM resource_workspaces
-             WHERE public_id = ?1 AND deleted_revision IS NULL",
-        )?;
-        let mut active_screens = Vec::with_capacity(changed.len());
-        for workspace in changed {
-            let screen = statement
-                .query_row([workspace.as_str()], |row| row.get::<_, Option<String>>(0))
-                .optional()?;
-            if let Some(screen) = screen {
-                active_screens
-                    .push(((*workspace).clone(), screen.map(ScreenPublicId::parse).transpose()?));
-            }
-        }
-        drop(statement);
-        let mut topology = ResourceTopologySnapshot {
-            session_id: self.session_id.clone(),
-            generation: self.generation.clone(),
-            revision: current_resource_revision(&connection)?,
-            active_workspace,
-            active_screens,
-            screens: Vec::new(),
-            panes: Vec::new(),
-            tabs: Vec::new(),
-            browsers: Vec::new(),
-        };
         if topology.active_workspace.as_ref() != active {
             let focus_ends = [topology.active_workspace.as_ref(), active]
                 .into_iter()
@@ -194,16 +166,58 @@ impl WorkspaceRegistry {
         workspaces: &[WorkspacePublicId],
     ) -> anyhow::Result<ResourceTopologySnapshot> {
         let connection = self.connection.get();
-        let mut topology =
-            load_topology_frame(&connection, self.session_id.clone(), self.generation.clone())?;
-        let mut scope = topology.active_workspace.iter().cloned().collect::<Vec<_>>();
+        let active = meta_value(&connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?;
+        let mut scope = active.iter().cloned().collect::<Vec<_>>();
         for workspace in workspaces {
             if !scope.contains(workspace) {
                 scope.push(workspace.clone());
             }
         }
+        // The frame of the scope only: a focus reads the active screen of the two workspaces it
+        // changes, not of every workspace (that read was a select's only cost that grew).
+        let mut topology = self.scoped_topology_frame(&connection, scope.iter())?;
         load_subtrees(&connection, &mut topology, &scope)?;
         Ok(topology)
+    }
+
+    /// [`load_topology_frame`] with the active screens of `workspaces` only (each one that has a
+    /// live resource row), in the order given.
+    fn scoped_topology_frame<'a>(
+        &self,
+        connection: &Connection,
+        workspaces: impl IntoIterator<Item = &'a WorkspacePublicId>,
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        let active_workspace = meta_value(connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?;
+        let mut statement = connection.prepare_cached(
+            "SELECT active_screen_id FROM resource_workspaces
+             WHERE public_id = ?1 AND deleted_revision IS NULL",
+        )?;
+        let mut active_screens = Vec::new();
+        for workspace in workspaces {
+            let screen = statement
+                .query_row([workspace.as_str()], |row| row.get::<_, Option<String>>(0))
+                .optional()?;
+            if let Some(screen) = screen {
+                active_screens
+                    .push((workspace.clone(), screen.map(ScreenPublicId::parse).transpose()?));
+            }
+        }
+        drop(statement);
+        Ok(ResourceTopologySnapshot {
+            session_id: self.session_id.clone(),
+            generation: self.generation.clone(),
+            revision: current_resource_revision(connection)?,
+            active_workspace,
+            active_screens,
+            screens: Vec::new(),
+            panes: Vec::new(),
+            tabs: Vec::new(),
+            browsers: Vec::new(),
+        })
     }
 
     /// One terminal's durable record unless it is tombstoned, as
