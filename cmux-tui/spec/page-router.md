@@ -96,7 +96,7 @@ map each one to its owner, so the same v2 envelope works on every host:
 | namespace | owner | read | mutation |
 | --- | --- | --- | --- |
 | `agent_session` | `agent_session.trust` (the folder trust of a chat of this machine, `agent-session-trust` in commands.md; Unix socket only) | `agent_session.trust.get` | `agent_session.trust.set` (page `agent`: `gesture`) |
-| `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
+| `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.catalog.sections`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
 | `bookmarks` | `bookmarks.tree` (the bookmark tree of each browser profile in the home session, `bookmarks-v1`; `server/bookmarks_routed.rs`) | `bookmarks.list`, `bookmarks.search`, `bookmarks.rank`, `bookmarks.export` | `bookmarks.apply` (page `bookmarks`: `gesture`); `bookmarks.import_html`, `bookmarks.import_source` (the app only) |
 | `tasks` | `tasks.local` (the local Tasks owner, `cmux-tasks serve`, over its Unix socket; the daemon relays and keeps no copy) | `tasks.snapshot` | `tasks.create`, `tasks.update`, `tasks.move`, `tasks.archive`, `tasks.delegate` (page `tasks`: `gesture`) |
 | `feed` | `feed` (the daemon's feed client, `feed-client-v1`; plans/cmux-next/feed-page.md section 2) | `feed.view.read`, `feed.item.get`, `feed.items.list`, `feed.github.find_work`, `feed.reports.read` | `feed.intent`, `feed.github.refresh`, `feed.reports.reply` (page `feed`: `gesture`); `feed.post`, `feed.withdraw`, `feed.github.configure`, `feed.presence.set` (the verified app connection only, no page) |
@@ -122,6 +122,17 @@ scope}` revokes a scope: neither widens what an app may do, so the Apps page nee
 person's gesture. `apps.grant.set {app, scope, granted}` sets a scope and needs the native sheet (a
 host shows it for an allow; a page revokes with `apps.grant.revoke`). Opening an app is a host verb (the page runs the host action `app.open`), never a
 daemon operation.
+
+The store shelves (`apps/store_sections.rs`): `apps.catalog.sections {section?, cursor?, limit?}`
+answers `{sections: [{id, kind, title_key, apps, next_cursor?, category?}], revision}` over the
+store shelf. `kind` is `featured` (Cloud, then CodeRouter, then the rest by name), `recent` (newest
+version date first; an app with no dated version is left out) or `category` (one per category on
+the shelf, `id` `category:<name>`); `title_key` is an l10n key the view resolves (`apps.store.section.<id>`,
+`apps.store.category.<name>`). Each section carries its first `limit` apps (default 20, at most 200);
+`{section, cursor}` answers only that section's next page. `apps.catalog.get` also answers
+`versions: [{version, tag?, commit?, date_ms?}]`, newest first, and, when the package's
+`catalog/whats-new.json` describes its current version and names a change, `whats_new: {version,
+items: [{title, pr}]}`. `cmux-app-whats-new` (cmux-app-manifest) writes that file from git history.
 
 The Bookmarks page reads `bookmarks.list {browser_profile_id}` (`{bookmarks_revision,
 bookmarks}` in listing order) and `bookmarks.search {browser_profile_id, text, limit?}` (nodes whose title or

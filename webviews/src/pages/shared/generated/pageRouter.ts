@@ -24,6 +24,7 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
       "apps.logs"
@@ -141,6 +142,7 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
       "apps.logs"

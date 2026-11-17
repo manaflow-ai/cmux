@@ -58,6 +58,7 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
         "apps.grants.get",
         "apps.logs",
@@ -147,6 +148,7 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
         "apps.grants.get",
         "apps.logs",

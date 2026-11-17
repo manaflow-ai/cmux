@@ -8,7 +8,8 @@
 //!   `cmux/app-store` itself; first-party apps are `hide_only`. Each listing
 //!   names its shelf ([`Shelf`]): Discover shows the store shelf, the SDK
 //!   examples show only to developers, and `cmux ext dev` apps only under
-//!   Installed.
+//!   Installed. `catalog.get` also answers the versions and What's New, and
+//!   `catalog.sections` the store's shelves (apps/store_sections.rs).
 //! - `installed.list`: the installed apps with their state and grants.
 //! - `set`: every field (`enabled`, `hidden`, `sandboxed`) only from the
 //!   user, in both directions (D55 as amended, APPS-ENABLE-ORIGIN): agents
@@ -34,7 +35,7 @@ use super::mirror::{Origin, Record, SetOp, Source, Tier};
 use super::supervisor::{ApiError, Supervisor};
 
 /// The App Store never lists itself.
-const APP_STORE: &str = "cmux/app-store";
+pub(super) const APP_STORE: &str = "cmux/app-store";
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
 
@@ -173,6 +174,13 @@ pub(crate) struct AppDetail {
     /// Absent for an app with no `deploy` block.
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy: Option<DeployFacts>,
+    /// `[{version, tag?, commit?, date_ms?}]`, newest first
+    /// (apps/store_sections.rs).
+    versions: Vec<Value>,
+    /// `{version, items: [{title, pr}]}`; absent with no news for this
+    /// version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    whats_new: Option<Value>,
 }
 
 /// What a listing says about an app's server (`deploy`, deploy.rs): the
@@ -483,6 +491,9 @@ impl Supervisor {
         match op.strip_prefix("cmux.").unwrap_or(op) {
             "apps.catalog.list" => params(args).and_then(|p| to_value(self.catalog_list(p)?)),
             "apps.catalog.get" => params(args).and_then(|p| to_value(self.catalog_get(p)?)),
+            "apps.catalog.sections" => {
+                params(args).and_then(|p| to_value(self.catalog_sections(p)?))
+            }
             "apps.installed.list" => {
                 params::<InstalledListParams>(args).and_then(|_| to_value(self.installed_list()))
             }
@@ -569,14 +580,17 @@ impl Supervisor {
         let mut listing = listing(package, inner.mirror.apps.get(&p.app));
         annotate(&inner, &p.app, listing.install.as_mut());
         let package = package.clone();
-        // The catalog fragment is a file read: never under the supervisor lock.
+        // The catalog fragment and What's New are file reads: never under the supervisor lock.
         drop(inner);
+        let release = super::store_sections::release(&package);
         Ok(AppDetail {
             listing,
             screenshots: screenshots(&package.manifest),
             contributes: contributions(&package),
             scopes,
             deploy: deploy_facts(&package.manifest),
+            versions: release.versions,
+            whats_new: release.whats_new,
         })
     }
 

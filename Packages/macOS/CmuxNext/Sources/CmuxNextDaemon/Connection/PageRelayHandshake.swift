@@ -90,7 +90,7 @@ public struct PageOperations: Sendable, Equatable {
     public static let spec: [String: PageOperations] = [
         "agent": PageOperations(read: ["agent_session.trust.get"],
                               gesture: ["agent_session.trust.set"], confirm: []),
-        "apps": PageOperations(read: ["apps.asset.get", "apps.catalog.get", "apps.catalog.list", "apps.grants.get", "apps.installed.list", "apps.logs"],
+        "apps": PageOperations(read: ["apps.asset.get", "apps.catalog.get", "apps.catalog.list", "apps.catalog.sections", "apps.grants.get", "apps.installed.list", "apps.logs"],
                               gesture: ["apps.grant.revoke", "apps.hidden.set"], confirm: ["apps.grant.set", "apps.install", "apps.set", "apps.uninstall"]),
         "bookmarks": PageOperations(read: ["bookmarks.list", "bookmarks.search"],
                               gesture: ["bookmarks.apply"], confirm: []),
