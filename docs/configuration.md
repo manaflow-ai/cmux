@@ -281,7 +281,7 @@ Cmd-T and the + button always open the New Tab page. Change the template in **Se
 
 ## `tabs.newTabApp`
 
-An extension that draws the whole New Tab page, by its app id. The extension implements
+An extension that draws over the New Tab composer, by its app id. The extension implements
 `cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
 draws its own page, as above.
 

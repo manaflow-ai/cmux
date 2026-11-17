@@ -160,7 +160,7 @@ Settings > Apps, or `cmux ext remove local/my-prs`.
 | `sidebar` (default; `section` too) | a sidebar section | `cmux.section/1` |
 | `session-info` | a section in an agent chat's Session Info panel; its context is that chat's session | `cmux.session.info.section/1` |
 | `pane` | a view in a tab, opened from the command palette by its title | `cmux.pane/1` |
-| `newtab` | a whole New Tab page, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
+| `newtab` | a view over the New Tab composer, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
 | `command` | a command in the palette, `cmux NAME hello` in a terminal, and a tool for agents | `catalog.json` |
 | `menu` | refused until cmux has context-menu contributions (`cmux.context_menu/1`); the error says what to make meanwhile | |
 
