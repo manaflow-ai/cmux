@@ -1201,7 +1201,8 @@ async fn family_defaults_presets_and_the_target_grammar() {
         )
         .await
         .unwrap_err();
-    assert!(err.contains("start it with `--policy approve-all`"), "{err}");
+    // Refused at its first start, it names the one fix (the start's flag, or the chat's policy).
+    assert!(err.contains("approve-all`") && !err.contains("did not start"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }
