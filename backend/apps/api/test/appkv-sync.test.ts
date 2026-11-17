@@ -99,6 +99,21 @@ describe("synced app storage (appkv) through the Worker", { timeout: 60_000 }, (
     expect((await callRead(owner.installToken, "appkv.list", {})).body.value.rows).toEqual([expect.objectContaining({ key: "secret", value: owner.canary })])
   })
 
+  it("an install whose grant has no read class can write but neither read nor subscribe", async () => {
+    const t = await makeTenant("appkv-narrow", "mac")
+    expect(succeeded(await set(t.installToken, { app: "notes", key: "secret", value: t.canary }))).toBe(true)
+    const keyPair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", keyPair.publicKey)) as JsonWebKey
+    const reg = await callOp(t.session, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "cli", name: `${t.canary} narrow`, device_name: `${t.canary} narrow device`, platform: "macos", op_classes: ["mutate-own"] })
+    expect(succeeded(reg), reg.raw).toBe(true)
+    const narrow = (await mintInstallToken({ user: t.user, install: reg.body.value.id as string, keyPair }))!
+    expect((await callRead(narrow, "appkv.list", {})).code).toBe("auth.forbidden")
+    const sock = await openSocket(narrow, t.user)
+    expect(sock.frames.some((f) => f.t === "snapshot" && f.stream === `appkv:${t.user}`)).toBe(false)
+    expect(JSON.stringify(sock.frames)).not.toContain(t.canary)
+    sock.ws.close()
+  })
+
   it("a retry with the same idempotency key replays; limits answer app.limit", async () => {
     const t = await makeTenant("appkv-limits", "mac")
     const first = await set(t.installToken, { app: "a", key: "k", value: 1 }, "retry-key")

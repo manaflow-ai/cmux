@@ -84,8 +84,11 @@ export class UserDO extends OwnerDO<UserState> {
       // Rows are ordered by the revision of their last write: a snapshot carries the newest rows, `appkv.list` pages all.
       engine: { rowMode: { snapshotTable: appkv.TABLE_ITEM, snapshotTail: appkv.APPKV_SNAPSHOT_ROWS } },
       owns: (op) => op.startsWith("appkv."),
-      // As the inbox: the person only, never a chief token or a machine (Cloud VM) install.
-      maySubscribe: (_head, principal, entity) => appKvMaySubscribe(principal, entity, (install) => this.existing()?.currentState.installs[install]?.kind)
+      // As the inbox: the person only, never a chief token or a machine (Cloud VM) install. A snapshot
+      // hands over every row, so the subscriber also needs what `appkv.list` needs: an active install
+      // whose grant has the read class (an install narrowed to mutate-own may write, never read).
+      maySubscribe: (_head, principal, entity) =>
+        appKvMaySubscribe(principal, entity, (install) => this.existing()?.currentState.installs[install]?.kind) && this.appKvRefusal(principal, "appkv.list") === undefined
     }, (ws, a) => this.socketLive(ws, a))
   }
 
