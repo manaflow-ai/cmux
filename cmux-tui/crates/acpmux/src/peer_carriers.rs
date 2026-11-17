@@ -10,6 +10,8 @@
 //! - The configured `ws://`/`wss://` URL of a peer that is not ssh.
 //! - The hub relay (`peer_hub.rs`), with the `hub-carrier` feature: the daemon's hub carrier,
 //!   for a peer with a hub `daemonId`. Without the feature it carries no stream (`Via::streams`).
+//!   With it the peer is relay first (`peer_paths.rs`): the cold connect dials the relay and
+//!   the remembered path at once, and the link moves to a direct path after its probes.
 
 use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
 use crate::no_panic::LockExt;
@@ -89,6 +91,21 @@ pub(super) async fn race<T, F>(
 where
     F: Future<Output = Result<T, String>>,
 {
+    race_together(candidates, 1, stagger).await
+}
+
+/// [`race`] with the first `together` candidates dialed at once (relay first: the hub relay
+/// and the remembered path, `Paths::dial_together`), the rest staggered after them.
+#[allow(clippy::type_complexity)]
+pub(super) async fn race_together<T, F>(
+    candidates: Vec<(Via, F)>,
+    together: usize,
+    stagger: Duration,
+) -> Result<(Via, T, Vec<(Via, String)>), Vec<(Via, String)>>
+where
+    F: Future<Output = Result<T, String>>,
+{
+    let mut together = together.max(1);
     async fn tagged<T, F: Future<Output = Result<T, String>>>(
         via: Via,
         dial: F,
@@ -105,7 +122,8 @@ where
             match waiting.next() {
                 Some((via, dial)) => {
                     running.push(tagged(via, dial));
-                    next_at = Some(now + stagger);
+                    together = together.saturating_sub(1);
+                    next_at = Some(if together > 0 { now } else { now + stagger });
                 }
                 None if running.is_empty() => return Err(failed),
                 None => next_at = None,
@@ -427,17 +445,29 @@ impl Peer {
     }
 
     /// Dial this peer's paths (`dial_order`), each `STAGGER` after the one before it or at once
-    /// when it failed, and keep the first that opens; the others are marked failed.
+    /// when it failed, and keep the first that opens; the others are marked failed. Relay
+    /// first (`Paths::relay_first`), the hub relay and the path after it start together at
+    /// once. A token read over ssh, when one is needed, runs inside the dials that present
+    /// tokens, never before the race: a dial with its tokens configured or kept starts at once.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
-        let order = self.dial_order();
-        let ssh_tokens = self.direct_tokens(&order).await;
-        let dials: Vec<_> =
-            order.iter().map(|via| (*via, self.open_via(*via, ssh_tokens.clone()))).collect();
+        use futures_util::FutureExt;
+        let (order, together) = self.with_paths(|paths| {
+            let now = crate::store::now_ms();
+            (paths.dial_order(now), paths.dial_together(now))
+        });
+        let read = Box::pin(self.direct_tokens(&order)).shared();
+        let dials: Vec<_> = order
+            .iter()
+            .map(|via| {
+                let read = read.clone();
+                (*via, async move { self.open_via(*via, self.dial_tokens(*via, read).await).await })
+            })
+            .collect();
         let mut stopped = self.stop_changed.subscribe();
         let raced = tokio::select! {
             biased;
             _ = stopped.wait_for(|stopped| *stopped) => return Err("peer stopped".to_owned()),
-            raced = race(dials, STAGGER) => raced,
+            raced = race_together(dials, together, STAGGER) => raced,
         };
         let (via, opened, failed) = match raced {
             Ok(won) => won,
@@ -452,10 +482,33 @@ impl Peer {
             tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
             self.path_failed(*via);
         }
+        // The path that opened carries the link: alive before its first pong, so a probe of
+        // another path that answers first does not move the link at once.
+        self.with_paths(|paths| paths.opened(via, crate::store::now_ms()));
         if let Some(line) = backup_line(via, self.ssh_parts().is_some(), &failed) {
             tracing::info!(peer = %self.name, via = via.as_str(), carrier = via.carrier().as_str(), "{line}");
         }
         Ok((via, opened))
+    }
+
+    /// The tokens dial `via` of a cold connect starts with: none for a URL path (it presents
+    /// the configured ones); for the rest, the shared read's (`direct_tokens`), awaited only by
+    /// a dial that would present read tokens. A direct or hub dial with configured or kept
+    /// tokens does not wait on ssh.
+    async fn dial_tokens<F>(&self, via: Via, read: F) -> Option<(tokens::Tokens, bool)>
+    where
+        F: Future<Output = Option<(tokens::Tokens, bool)>>,
+    {
+        let configured = self.token.is_some() && self.peer_token.is_some();
+        match via {
+            Via::Url => None,
+            Via::Wireguard | Via::Link | Via::Hub if configured => None,
+            // What the read would answer at once (`connect_tokens`), without waiting on it.
+            Via::Wireguard | Via::Link | Via::Hub if self.read_tokens.get().is_some() => {
+                self.read_tokens.get().map(|kept| (kept, true))
+            }
+            _ => read.await,
+        }
     }
 
     /// The tokens a direct path presents, read over ssh first only when this peer has no
