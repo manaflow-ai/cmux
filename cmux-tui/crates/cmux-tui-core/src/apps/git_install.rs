@@ -81,6 +81,7 @@ fn merge(value: &mut Value, fields: serde_json::Map<String, Value>) {
 
 impl Supervisor {
     /// Replaces the network (tests use a local fixture).
+    #[cfg(test)]
     pub(crate) fn set_git_transport(&self, transport: Arc<dyn GitTransport>) {
         let _ = self.git.transport.set(transport);
     }
@@ -306,7 +307,8 @@ impl Supervisor {
             store::to_value(store::listing(&staged.package, inner.mirror.apps.get(id)))?;
         let mut scopes = Vec::new();
         for (field, optional) in [("scopes", false), ("optionalScopes", true)] {
-            for (scope, reason) in staged.package.manifest[field].as_object().into_iter().flatten()
+            for (scope, reason) in
+                staged.package.manifest.get(field).and_then(Value::as_object).into_iter().flatten()
             {
                 scopes.push(json!({
                     "scope": scope, "reason": store::text(reason), "risk": store::risk(scope), "optional": optional,

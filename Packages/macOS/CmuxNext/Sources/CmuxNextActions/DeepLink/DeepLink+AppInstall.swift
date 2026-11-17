@@ -13,7 +13,7 @@ nonisolated extension DeepLink {
     ///   (no repo, a repeated parameter, whitespace, more than 512 characters, an `@` in a repo
     ///   that also names a commit or ref).
     public static func appInstallAction(for url: URL, linkScheme: String) -> SettingsLinkAction? {
-        guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+        guard let scheme = url.scheme?.lowercased(), scheme == "cmux" || scheme == linkScheme.lowercased(),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.host?.lowercased() == "apps", components.path.lowercased() == "/install",
               components.user == nil, components.password == nil, components.port == nil,

@@ -159,8 +159,8 @@ pub(super) fn info_text(detail: &Value) -> String {
             source = format!("{source}/{path}");
         }
         let at = match detail["tag"].as_str() {
-            Some(tag) => format!("{tag} ({})", &commit[..7]),
-            None => commit[..7].to_string(),
+            Some(tag) => format!("{tag} ({})", commit.get(..7).unwrap_or(commit)),
+            None => commit.get(..7).unwrap_or(commit).to_string(),
         };
         out.push_str(&format!("source: {source} at {at}\n"));
         if detail["reviewed"] == false {
@@ -240,7 +240,7 @@ fn update(args: &[String], global: &GlobalArgs, app: &str) -> i32 {
             return 1;
         }
     };
-    let Some(reference) = detail["update_ref"].as_str() else {
+    let Some(reference) = detail.get("update_ref").and_then(Value::as_str) else {
         eprintln!("cmux: {app} is not installed from a git repository; nothing to update");
         return 1;
     };
@@ -249,12 +249,27 @@ fn update(args: &[String], global: &GlobalArgs, app: &str) -> i32 {
 
 /// `args` with `update <app>` replaced by `install <reference>`.
 fn install_args(args: &[String], reference: &str) -> Vec<String> {
-    let mut out = args.to_vec();
-    if let Some(verb) = out.windows(2).position(|w| w[0] == "apps" && w[1] == "update") {
-        out[verb + 1] = "install".into();
-        if let Some(app) = out[verb + 2..].iter().position(|w| !w.starts_with('-')) {
-            out[verb + 2 + app] = reference.to_string();
+    let mut out = Vec::with_capacity(args.len());
+    let mut words = args.iter().peekable();
+    let mut seen_apps = false;
+    while let Some(word) = words.next() {
+        if !seen_apps && word == "apps" && words.peek().is_some_and(|next| *next == "update") {
+            seen_apps = true;
+            out.push(word.clone());
+            words.next();
+            out.push("install".into());
+            // The first word after the verb that is not a flag is the app.
+            for rest in words.by_ref() {
+                if rest.starts_with('-') {
+                    out.push(rest.clone());
+                } else {
+                    out.push(reference.to_string());
+                    break;
+                }
+            }
+            continue;
         }
+        out.push(word.clone());
     }
     out
 }
@@ -265,8 +280,9 @@ fn answer(global: &GlobalArgs, op: &str, args: Value) -> Result<Value, String> {
     let socket = super::wire::resolve_socket_or_report(global)
         .map(|(socket, _)| socket)
         .map_err(|_| "no session daemon to ask".to_string())?;
-    let fetches = args["app"]
-        .as_str()
+    let fetches = args
+        .get("app")
+        .and_then(Value::as_str)
         .is_some_and(|app| app.split('/').next().is_some_and(|h| h.contains('.')));
     let timeout = Duration::from_secs(if fetches { 180 } else { 15 });
     let stream = UnixStream::connect(&socket).map_err(|error| {

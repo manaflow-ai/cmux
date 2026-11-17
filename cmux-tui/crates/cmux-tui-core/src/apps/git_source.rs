@@ -44,8 +44,6 @@ const MAX_ENTRIES: usize = 20_000;
 /// The index of installed git apps in the git directory.
 pub const INDEX: &str = "sources.json";
 
-/// Hosts with an archive endpoint; any other host is fetched with `git`.
-const ARCHIVE_HOSTS: &[&str] = &["github.com", "gitlab.com", "codeberg.org"];
 /// Publishers a repository may not claim unless it is manaflow-ai's.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
@@ -131,33 +129,30 @@ impl RepoRef {
         };
         let location = location.trim_end_matches('/');
         let segments: Vec<&str> = location.split('/').collect();
-        if segments.len() < 3 {
+        let [host, owner, repo, rest @ ..] = segments.as_slice() else {
             return bad("name the repository as HOST/OWNER/REPO");
-        }
-        let host = segments[0].to_ascii_lowercase();
+        };
+        let host = host.to_ascii_lowercase();
         if !host_ok(&host) {
             return bad("the host is not a public host name");
         }
-        let owner = segments[1].to_string();
-        let repo = segments[2].trim_end_matches(".git").to_string();
+        let owner = owner.to_string();
+        let repo = repo.trim_end_matches(".git").to_string();
         if !name_ok(&owner) || !name_ok(&repo) {
             return bad("the owner or repository name has characters a repository cannot have");
         }
-        let mut path: Vec<&str> = segments[3..].to_vec();
         // A repository page URL: `/tree/REF/PATH` (GitHub, Codeberg's `/src/branch/REF`
         // is not taken), GitLab's `/-/tree/REF/PATH`.
-        let tree_at = match path.as_slice() {
-            ["tree", _, ..] => Some(1),
-            ["-", "tree", _, ..] => Some(2),
-            _ => None,
-        };
-        if let Some(at) = tree_at {
-            if git_ref.is_some() {
-                return bad("name the ref once: either /tree/REF or @REF");
+        let path: &[&str] = match rest {
+            ["tree", tree_ref, path @ ..] | ["-", "tree", tree_ref, path @ ..] => {
+                if git_ref.is_some() {
+                    return bad("name the ref once: either /tree/REF or @REF");
+                }
+                git_ref = Some(tree_ref.to_string());
+                path
             }
-            git_ref = Some(path[at].to_string());
-            path = path[at + 1..].to_vec();
-        }
+            path => path,
+        };
         if path.iter().any(|segment| !name_ok(segment)) {
             return bad("the package path has an empty, hidden or unusual directory name");
         }
@@ -272,23 +267,25 @@ impl Refs {
     /// (`<sha>\t<ref>` lines) ref list.
     pub fn parse(body: &[u8]) -> Result<Self, String> {
         let mut raw: Vec<(String, String)> = Vec::new();
-        let smart = body.len() >= 4 && body[..4].iter().all(u8::is_ascii_hexdigit);
+        let smart = body.get(..4).is_some_and(|head| head.iter().all(u8::is_ascii_hexdigit));
         if smart {
-            let mut at = 0;
-            while at + 4 <= body.len() {
-                let len = std::str::from_utf8(&body[at..at + 4])
+            let mut rest = body;
+            while let Some((head, after)) = rest.split_at_checked(4) {
+                let len = std::str::from_utf8(head)
                     .ok()
                     .and_then(|hex| usize::from_str_radix(hex, 16).ok())
                     .ok_or("the ref list is not a git ref list")?;
                 if len == 0 {
-                    at += 4;
+                    rest = after;
                     continue;
                 }
-                if len < 4 || at + len > body.len() {
+                let Some((payload, next)) =
+                    len.checked_sub(4).and_then(|len| after.split_at_checked(len))
+                else {
                     return Err("the ref list is cut short".into());
-                }
-                let line = String::from_utf8_lossy(&body[at + 4..at + len]);
-                at += len;
+                };
+                rest = next;
+                let line = String::from_utf8_lossy(payload);
                 let line = line.split('\0').next().unwrap_or_default().trim_end();
                 if line.starts_with('#') {
                     continue;
@@ -448,14 +445,15 @@ pub fn github_release(
         return None;
     };
     let release: Value = serde_json::from_slice(&body).ok()?;
-    let tag = release["tag_name"].as_str()?.to_string();
-    let asset = release["assets"].as_array().into_iter().flatten().find_map(|asset| {
-        (asset["name"].as_str() == Some(RELEASE_ASSET)).then(|| Asset {
-            url: asset["browser_download_url"].as_str().unwrap_or_default().to_string(),
-            sha256: asset["digest"]
-                .as_str()
-                .and_then(|d| d.strip_prefix("sha256:"))
-                .map(str::to_ascii_lowercase),
+    let text =
+        |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
+    let tag = text(&release, "tag_name")?;
+    let assets = release.get("assets").and_then(Value::as_array);
+    let asset = assets.into_iter().flatten().find_map(|asset| {
+        (text(asset, "name").as_deref() == Some(RELEASE_ASSET)).then(|| Asset {
+            url: text(asset, "browser_download_url").unwrap_or_default(),
+            sha256: text(asset, "digest")
+                .and_then(|d| d.strip_prefix("sha256:").map(str::to_ascii_lowercase)),
         })
     });
     let asset = asset.filter(|a| a.url.starts_with("https://"));
@@ -570,7 +568,8 @@ pub(super) fn extract_with(
     max_total: u64,
 ) -> Result<String, String> {
     let mut tar = open(archive);
-    let prefix: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    let prefix: Vec<String> =
+        path.split('/').filter(|s| !s.is_empty()).map(str::to_string).collect();
     std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     let mut files: Vec<(String, String)> = Vec::new();
     let mut total = 0u64;
@@ -591,22 +590,20 @@ pub(super) fn extract_with(
         for component in name.components() {
             match component {
                 Component::Normal(part) => {
-                    parts.push(part.to_str().ok_or("an archive path is not UTF-8")?.to_string())
+                    parts.push(part.to_str().ok_or("an archive path is not UTF-8")?.to_string());
                 }
                 Component::CurDir => {}
                 _ => return Err(format!("the archive path {} leaves the archive", name.display())),
             }
         }
         // The archive's one top directory (`REPO-COMMIT/`).
-        let skip = usize::from(strip_top);
-        if parts.len() <= skip {
+        let Some(parts) = parts.get(usize::from(strip_top)..) else { continue };
+        let Some(inside) =
+            parts.strip_prefix(prefix.as_slice()).filter(|inside| !inside.is_empty())
+        else {
             continue;
-        }
-        let parts = &parts[skip..];
-        if parts.len() <= prefix.len() || parts[..prefix.len()] != prefix[..] {
-            continue;
-        }
-        let relative: PathBuf = parts[prefix.len()..].iter().collect();
+        };
+        let relative: PathBuf = inside.iter().collect();
         let target = dest.join(&relative);
         if kind.is_dir() {
             std::fs::create_dir_all(&target).map_err(|e| format!("{}: {e}", target.display()))?;
@@ -626,7 +623,7 @@ pub(super) fn extract_with(
         let mut body = Vec::with_capacity(size as usize);
         (&mut entry).take(size).read_to_end(&mut body).map_err(|e| e.to_string())?;
         std::fs::write(&target, &body).map_err(|e| format!("{}: {e}", target.display()))?;
-        let relative = parts[prefix.len()..].join("/");
+        let relative = inside.join("/");
         files.push((relative, hex(&Sha256::digest(&body))));
     }
     if files.is_empty() {
@@ -894,7 +891,7 @@ pub fn load_into(catalog: &mut Catalog, sources: &Sources) {
         };
         match catalog::package(&dir, DirKind::Git) {
             Ok(package) if package.id != id => {
-                catalog.rejected.push((dir, format!("{id}: the package's id is {}", package.id)))
+                catalog.rejected.push((dir, format!("{id}: the package's id is {}", package.id)));
             }
             Ok(_) if catalog.packages.contains_key(&id) => catalog
                 .rejected
@@ -1057,16 +1054,18 @@ pub fn reviewed(transport: &dyn GitTransport, reference: &RepoRef) -> bool {
     };
     let Ok(Value::Array(entries)) = serde_json::from_slice::<Value>(&body) else { return false };
     entries.iter().any(|entry| {
-        let Some(repo) = entry["repo"].as_str() else { return false };
+        let Some(repo) = entry.get("repo").and_then(Value::as_str) else { return false };
         let named = match repo.strip_prefix("https://") {
             Some(url) => url.trim_end_matches('/').trim_end_matches(".git").to_string(),
             None => format!("github.com/{repo}"),
         };
-        let path = entry["path"].as_str().unwrap_or_default().trim_matches('/');
+        let path = entry.get("path").and_then(Value::as_str).unwrap_or_default().trim_matches('/');
         named.eq_ignore_ascii_case(&format!(
             "{}/{}/{}",
             reference.host, reference.owner, reference.repo
         )) && path == reference.path
+            // A registry listing's `status`: only "reviewed" counts (absent: listed on main is approved).
+            && entry.get("status").and_then(Value::as_str).is_none_or(|status| status == "reviewed")
     })
 }
 
