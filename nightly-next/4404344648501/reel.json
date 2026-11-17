@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "build": "4404344648501",
+  "notes": "notes/4404344648501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 45226,
+      "title": "build: the Screen Sharing helper phase reads a missing Info.plist as empty, not as PlistBuddy's message",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45059,
+      "title": "tab-switch.sh: check credentials and submodule commits before building",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45164,
+      "title": "Palette ranker: a keystroke that extends the query scores only the rows the shorter query could still match",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45111,
+      "title": "cmux-tui: chat search scale benches at 1k/50k/500k; large messages are held to their bound and found",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45102,
+      "title": "cmux-encode: no frames drop after an OpenH264 keyframe (a share's first key presses wait 33 ms, not 233)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45250,
+      "title": "cloud-vm-dogfood lifecycle: run the CLI legs on the headless VM CLI built from this checkout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45267,
+      "title": "measure: quit-gamut stream state starts behind acpmux's lead mark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45286,
+      "title": "machine-join e2e (share): read the joined user's runtime dir as root; judge its manager by is-active",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45237,
+      "title": "bench: transcript and row renders per streamed event, and the stream frame's spans",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44288,
+      "title": "sidebar: a new window has the spaces of its space bar in the model at the order-in",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45144,
+      "title": "pre-push: a check's timeout scales with the host's load, like the gate's limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44127,
+      "title": "Agent chat: the live line's box and gap in a run have one source",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44127/hv-f6d20838b03b-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 45123,
+      "title": "Tier routing base red: the Screen Sharing helper reads cmux-rd-host's crates, not all of cmux-tui/crates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45243,
+      "title": "machine-join-e2e: start the joined user's user manager explicitly and wait for its own socket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40159,
+      "title": "Cloud multiplayer: shared chats, team sessions, no login on the machine, fast start",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}
