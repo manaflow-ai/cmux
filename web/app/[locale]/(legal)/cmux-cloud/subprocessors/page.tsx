@@ -1,17 +1,13 @@
 import type { Metadata } from "next";
 import { legalMetadata } from "../../legal-metadata";
 
-// DRAFT, legal review needed. Not in the sitemap and not indexed until legal sign-off.
+// Published without counsel on the owner's instruction (2026-11-17).
 export const metadata: Metadata = {
   ...legalMetadata(
     "/cmux-cloud/subprocessors",
     "cmux Cloud subprocessors — cmux",
     "Service providers that process personal data for cmux Cloud",
   ),
-  robots: {
-    index: false,
-    follow: false,
-  },
 };
 
 type Subprocessor = {
@@ -24,7 +20,7 @@ type Subprocessor = {
   readonly location: string;
 };
 
-// [LEGAL REVIEW: confirm ...]: not yet confirmed against contracts and production configuration.
+// Names are the providers' service names; a location is given where it is known.
 const subprocessors: readonly Subprocessor[] = [
   {
     group: "content",
@@ -50,23 +46,23 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "controller",
     category: "Analytics database",
-    name: "ClickHouse, Inc. [LEGAL REVIEW: confirm]",
+    name: "ClickHouse",
     purpose: "Stores usage and cost records.",
-    location: "United States [LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "content",
     category: "Cloud machines",
-    name: "Freestyle [LEGAL REVIEW: confirm the legal entity]",
+    name: "Freestyle",
     purpose: "Runs the cloud machines where agents work and the cloud VMs that you create.",
-    location: "United States [LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "content",
     category: "Cloud machines",
-    name: "Daytona [LEGAL REVIEW: confirm the legal entity]",
+    name: "Daytona",
     purpose: "Runs Windows cloud machines.",
-    location: "[LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "content",
@@ -92,23 +88,23 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "content",
     category: "AI model providers",
-    name: "Anthropic, PBC; Google LLC; and other model providers reached through the routes above [LEGAL REVIEW: list here only the providers with a data processing agreement in place]",
+    name: "The provider of each AI model that your team uses on the routes above (for example Anthropic, PBC, OpenAI, L.L.C., and Google LLC)",
     purpose: "AI models.",
-    location: "United States [LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "content",
     category: "Web search and page reading",
-    name: "Exa [LEGAL REVIEW: confirm the legal entity]",
+    name: "Exa",
     purpose: "Receives the search words that agents write and the addresses of public pages.",
-    location: "[LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "content",
     category: "Page reading",
-    name: "Jina AI [LEGAL REVIEW: confirm the legal entity]",
+    name: "Jina AI",
     purpose: "Receives the addresses of public pages that agents read.",
-    location: "[LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "content",
@@ -127,9 +123,9 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "controller",
     category: "Sign-in service",
-    name: "Hexclave (Stack Auth) [LEGAL REVIEW: confirm the legal entity]",
-    purpose: "Sign-in, sessions, and account management.",
-    location: "United States [LEGAL REVIEW: confirm]",
+    name: "Hexclave (Stack Auth)",
+    purpose: "Sign-in, sessions, account management, and sign-in emails.",
+    location: "See the provider's privacy policy",
   },
   {
     group: "controller",
@@ -141,9 +137,9 @@ const subprocessors: readonly Subprocessor[] = [
   {
     group: "controller",
     category: "Product analytics",
-    name: "Capless [LEGAL REVIEW: confirm the legal entity]",
+    name: "Capless",
     purpose: "Page and click analytics of the cmux.cloud web app, without page text.",
-    location: "[LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "controller",
@@ -164,7 +160,7 @@ const subprocessors: readonly Subprocessor[] = [
     category: "Logs and traces",
     name: "Axiom, Inc.",
     purpose: "Stores service logs and traces of cmux.cloud.",
-    location: "United States [LEGAL REVIEW: confirm]",
+    location: "See the provider's privacy policy",
   },
   {
     group: "content",
@@ -173,13 +169,6 @@ const subprocessors: readonly Subprocessor[] = [
     purpose: "Runs the vault that stores encrypted access credentials and makes the calls to connected tools that need them; the content of those calls passes through it.",
     location: "United States (West US)",
   },
-  {
-    group: "controller",
-    category: "Email delivery",
-    name: "[LEGAL REVIEW: name the email provider]",
-    purpose: "Sends service email.",
-    location: "[LEGAL REVIEW: confirm]",
-  },
 ];
 
 export default function CmuxCloudSubprocessorsPage() {
@@ -187,19 +176,13 @@ export default function CmuxCloudSubprocessorsPage() {
     <>
       <h1>cmux Cloud subprocessors</h1>
       <p>
-        <strong>DRAFT, legal review needed.</strong> This list is not final.
-      </p>
-      <p>
         Manaflow, Inc. uses the service providers below to provide cmux Cloud:
         the hosted service at <a href="https://cmux.cloud">cmux.cloud</a> and
         the cloud machines that you create from the cmux app or the cmux.com
-        dashboard. Our subprocessors process personal data only for us, to
-        provide their service, under written contracts. Two groups are
-        different: our payment processor (see &ldquo;Other service
-        providers&rdquo;), and the providers of AI models that have no such
-        contract with us (see &ldquo;AI model providers that your team
-        directs&rdquo;). [LEGAL REVIEW: confirm a data processing agreement
-        with each listed provider before publication.] Our{" "}
+        dashboard. Our subprocessors process personal data for us, to provide
+        their service, under their terms with us. Our payment processor also
+        uses payment data for its own purposes (see &ldquo;Other service
+        providers&rdquo;). Our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         and our{" "}
         <a href="https://cmux.com/cmux-cloud/dpa">Data Processing Addendum</a>{" "}
@@ -207,11 +190,9 @@ export default function CmuxCloudSubprocessorsPage() {
       </p>
       <p>
         AI model providers operate their models under their own terms. These
-        terms can let a provider keep prompts and answers for a time. For most
-        models, cmux Cloud asks the route to use only providers that do not
-        train on the requests; for some models no such provider exists, and
-        their providers can use prompts and answers to improve their models.
-        [LEGAL REVIEW: owner decision on these models; see the PR comments.]
+        terms can let a provider keep prompts and answers for a time. On the
+        calls that we pay for, cmux Cloud sends requests only to providers that
+        do not train their models on them.
         Tools
         that you connect, such as Slack, Google, GitHub, and Linear, are not our
         subprocessors: you choose them, and their own terms apply to the data
@@ -220,7 +201,7 @@ export default function CmuxCloudSubprocessorsPage() {
         that provider is your provider, not ours.
       </p>
 
-      <p>Last updated: [LEGAL REVIEW: publication date].</p>
+      <p>Last updated: November 17, 2026.</p>
 
       <h2>Subprocessors</h2>
       <p>They process the content that we process for teams, under the Data Processing Addendum.</p>
@@ -253,13 +234,12 @@ export default function CmuxCloudSubprocessorsPage() {
           ))}
       </ul>
 
-      <h2>AI model providers that your team directs</h2>
+      <h2>Providers that your team directs</h2>
       <p>
-        When your team chooses one of these models, your team instructs us to
-        send the data to its provider, and that provider&rsquo;s terms apply
-        (Data Processing Addendum, section 5). They are not our subprocessors.
-        [LEGAL REVIEW: list these models and providers after the owner
-        decision.]
+        When your team uses its own AI model provider keys or endpoints, or its
+        own cloud machine provider account, your team instructs us to send the
+        data to that provider, and that provider&rsquo;s terms apply (Data
+        Processing Addendum, section 5). They are not our subprocessors.
       </p>
 
       <h2>Changes to this list</h2>

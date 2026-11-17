@@ -1,28 +1,20 @@
 import type { Metadata } from "next";
 import { legalMetadata } from "../../legal-metadata";
 
-// DRAFT, legal review needed. Not in the sitemap and not indexed until legal sign-off.
+// Published without counsel on the owner's instruction (2026-11-17).
 export const metadata: Metadata = {
   ...legalMetadata(
     "/cmux-cloud/dpa",
     "cmux Cloud Data Processing Addendum — cmux",
     "Data Processing Addendum for teams that use cmux Cloud",
   ),
-  robots: {
-    index: false,
-    follow: false,
-  },
 };
 
 export default function CmuxCloudDpaPage() {
   return (
     <>
       <h1>cmux Cloud Data Processing Addendum</h1>
-      <p>Last updated: [LEGAL REVIEW: publication date].</p>
-      <p>
-        <strong>DRAFT, legal review needed.</strong> Items marked
-        &ldquo;[LEGAL REVIEW]&rdquo; are not decided.
-      </p>
+      <p>Last updated: November 17, 2026.</p>
       <p>
         This Data Processing Addendum (&ldquo;DPA&rdquo;) is part of the{" "}
         <a href="https://cmux.com/terms-of-service#cmux-cloud">Terms of Service</a>{" "}
@@ -30,8 +22,7 @@ export default function CmuxCloudDpaPage() {
         person that is the customer under the Terms (&ldquo;Customer&rdquo;). cmux Cloud means the hosted
         service at <a href="https://cmux.cloud">cmux.cloud</a> and the cloud
         machines that Customer creates from the cmux app or the cmux.com
-        dashboard. Customer accepts this DPA when it accepts the Terms. [LEGAL
-        REVIEW: how the acceptance is shown in the sign-up flow.] This DPA
+        dashboard. Customer accepts this DPA when it accepts the Terms. This DPA
         applies where data protection law requires a contract of this type, and
         for as long as Company processes Customer Personal Data. If this DPA and
         the Terms conflict about personal data, this DPA controls.
@@ -112,10 +103,8 @@ export default function CmuxCloudDpaPage() {
         subcontractors, US state privacy laws require, including
         confidentiality, security, assistance, breach notice, return or
         deletion, and help with audits, and Company stays fully
-        liable to Customer for each subprocessor&rsquo;s performance. [LEGAL
-        REVIEW: confirm before publication that a data processing agreement is
-        in place with each listed subprocessor.] Company
-        gives notice of a new subprocessor at least [LEGAL REVIEW: proposed 30]
+        liable to Customer for each subprocessor&rsquo;s performance. Company
+        gives notice of a new subprocessor at least 30
         days before it starts to process Customer Personal Data, by an update
         of the subprocessor page and an email to Customer&rsquo;s team
         administrators. Customer can object in writing in that time on reasonable data
@@ -124,13 +113,12 @@ export default function CmuxCloudDpaPage() {
       </p>
       <p>
         AI models and providers that Customer chooses. Customer chooses the AI
-        models that cmux Cloud uses for it. Where Customer chooses a model that
-        is run only by providers that do not offer terms that meet this
-        section, or uses its own provider keys, endpoints, or cloud machine
-        account, that provider is not Company&rsquo;s subprocessor: Customer
-        instructs Company to send Customer Personal Data to that provider, and
-        that provider&rsquo;s terms apply. [LEGAL REVIEW: owner decision on
-        models whose providers can train on prompts; see the PR comments.]
+        models that cmux Cloud uses for it. On the calls that Company pays for,
+        Company sends requests only to providers that do not train their
+        models on them. Where Customer uses its own provider keys, endpoints,
+        or cloud machine account, that provider is not Company&rsquo;s
+        subprocessor: Customer instructs Company to send Customer Personal
+        Data to that provider, and that provider&rsquo;s terms apply.
       </p>
 
       <h2>6. Assistance</h2>
@@ -147,8 +135,7 @@ export default function CmuxCloudDpaPage() {
 
       <h2>7. Personal data breaches</h2>
       <p>
-        Company tells Customer without undue delay, and no later than [LEGAL
-        REVIEW: proposed 72] hours, after it becomes aware of a personal data
+        Company tells Customer without undue delay, and no later than 72 hours, after it becomes aware of a personal data
         breach that affects Customer Personal Data. The notice describes the
         breach, the data and people affected, the likely consequences, and the
         measures taken, as far as this information is known.
@@ -160,8 +147,7 @@ export default function CmuxCloudDpaPage() {
         conversations, files, and memory in cmux Cloud and can ask for a copy of
         Customer Personal Data. This does not delete the model call records and
         the archive copy of agent conversations; Company deletes those within
-        30 days after Customer&rsquo;s written request to founders@cmux.com.
-        [LEGAL REVIEW: owner decision on a fixed limit for these records.] At
+        30 days after Customer&rsquo;s written request to founders@cmux.com. At
         Customer&rsquo;s choice, Company returns (gives a copy of) or deletes
         Customer Personal Data when the account ends. Until Company deletes the
         data from its live systems, Customer can ask for a copy. Company deletes
@@ -171,10 +157,10 @@ export default function CmuxCloudDpaPage() {
         within 35 days after that deletion. Copies in the logs, traces, and
         error reports of Company&rsquo;s log and error monitoring providers and
         in the logs of AI model providers expire after the periods listed in
-        the Privacy Policy [LEGAL REVIEW: confirm each period]; until then they
+        the Privacy Policy; until then they
         stay confidential and are not used for another purpose. This does not
         apply to data that the law requires Company to keep. Company keeps that data confidential
-        and does not use it for another purpose. [LEGAL REVIEW: the deletion on an admin&rsquo;s request is on prime-interface main (PR 296); the automatic deletion after the account ends is off until the owner turns it on; until then it is on request.]
+        and does not use it for another purpose.
       </p>
 
       <h2>9. Audits</h2>
@@ -195,12 +181,25 @@ export default function CmuxCloudDpaPage() {
       <h2>10. International transfers</h2>
       <p>
         Company and its subprocessors process Customer Personal Data in the
-        United States and in other countries. [LEGAL REVIEW: owner decision on
-        the transfer mechanism for data from the European Economic Area, the
-        United Kingdom, and Switzerland (Standard Contractual Clauses in this
-        DPA, the EU-US Data Privacy Framework, or no offer there yet). No
-        transfer mechanism is in place today. Do not publish this section
-        before that decision.]
+        United States and in other countries. Where Customer Personal Data that
+        is subject to the GDPR, the UK GDPR, or the Swiss Federal Act on Data
+        Protection is transferred to Company in a country without an adequacy
+        decision, the Standard Contractual Clauses of Commission Implementing
+        Decision (EU) 2021/914 are part of this DPA: Module Two where Customer
+        is a controller and Module Three where Customer is a processor.
+        Customer is the data exporter and Company is the data importer. Clause
+        7 does not apply. Clause 9(a) Option 2 applies, with the notice time of
+        Section 5. The optional text of Clause 11(a) does not apply. For
+        Clauses 17 and 18, the law and the courts are those of Ireland. Annex I
+        of the Clauses is the Annex of this DPA, Annex II is the Security annex,
+        and Annex III is the subprocessor page. For transfers subject to the UK
+        GDPR, the International Data Transfer Addendum to the EU Commission
+        Standard Contractual Clauses (version B1.0) issued by the UK
+        Information Commissioner is part of this DPA with the same details. For
+        transfers subject to the Swiss Federal Act on Data Protection,
+        references to the GDPR are read as references to that Act, and the
+        competent authority is the Swiss Federal Data Protection and
+        Information Commissioner.
       </p>
 
       <h2>11. US state privacy laws</h2>
@@ -272,10 +271,6 @@ export default function CmuxCloudDpaPage() {
         <li>Isolated cloud machines for agent work.</li>
         <li>Access controls for staff.</li>
         <li>Audit logs of actions, approvals, and policy decisions.</li>
-        <li>
-          [LEGAL REVIEW: add encryption at rest, staff multi-factor sign-in,
-          incident response, and backups only after each is confirmed true.]
-        </li>
       </ul>
     </>
   );

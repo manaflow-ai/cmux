@@ -14,14 +14,13 @@ export default async function TermsOfServicePage() {
   return (
     <>
       <h1>Terms of Service</h1>
-      <p>Last revised on: March 18, 2026 [LEGAL REVIEW: set the publication date]</p>
+      <p>Last revised on: November 17, 2026</p>
 
       <p>
         The website located at{" "}
         <a href="https://cmux.com">cmux.com</a> (the
         &ldquo;Site&rdquo;) and the cmux desktop application (the
-        &ldquo;Application&rdquo;) are copyrighted works belonging to Manaflow, Inc., a [LEGAL REVIEW:
-        state of incorporation] corporation, 18428 Vantage Pointe Dr, Rowland
+        &ldquo;Application&rdquo;) are copyrighted works belonging to Manaflow, Inc., 18428 Vantage Pointe Dr, Rowland
         Heights, CA 91748-5142, United States (&ldquo;Company&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;, and
         &ldquo;we&rdquo;). These Terms of Use (these &ldquo;Terms&rdquo;) set
         forth the legally binding terms and conditions that govern your use of
@@ -36,8 +35,7 @@ export default async function TermsOfServicePage() {
         use the Site or Application.
       </p>
       <p>
-        If you use cmux Cloud, Section 10 also applies to you. [LEGAL REVIEW:
-        how acceptance is shown at sign-up and at the Slack install step.]
+        If you use cmux Cloud, Section 10 also applies to you.
       </p>
 
       <h2>1. License</h2>
@@ -331,9 +329,7 @@ export default async function TermsOfServicePage() {
         must not hide, remove, or change the notices that the notetaker posts,
         and you must tell participants who cannot see them, such as people who
         join by phone. On Google Meet, Zoom, and Microsoft Teams, you must check
-        that the chat notice appeared. [LEGAL REVIEW: owner decision on
-        calendar-rule joins when no team member that the notetaker is there for
-        is in the meeting; in that case nobody can do this check.] On Webex the notetaker cannot post a
+        that the chat notice appeared. On Webex the notetaker cannot post a
         notice, so you must tell every participant before the recording starts
         that cmux is an AI notetaker from Manaflow that records the audio and
         makes a transcript and notes, that the audio is deleted within 24 hours
@@ -393,11 +389,8 @@ export default async function TermsOfServicePage() {
         cmux Cloud infringes your copyright, send a notice with the information
         that 17 U.S.C. &sect; 512(c)(3) requires to our copyright agent:
         Manaflow, Inc., Attn: Copyright Agent, 18428 Vantage Pointe Dr, Rowland
-        Heights, CA 91748-5142, United States, telephone [LEGAL REVIEW:
-        number],{" "}
-        <a href="mailto:founders@cmux.com">founders@cmux.com</a>. [LEGAL
-        REVIEW: register this agent with the US Copyright Office before
-        publication.] We tell the team that published the content, and that
+        Heights, CA 91748-5142, United States,{" "}
+        <a href="mailto:founders@cmux.com">founders@cmux.com</a>. We tell the team that published the content, and that
         team can send a counter-notice. We end the accounts of teams and users
         who infringe repeatedly.
       </p>
@@ -412,7 +405,7 @@ export default async function TermsOfServicePage() {
         buys through our payment processor or that we grant. Prices do
         not include taxes, and you are responsible for applicable taxes.
         Credits are not refundable, except where the law requires a refund.
-        We give at least [LEGAL REVIEW: proposed 30] days&rsquo; notice of a
+        We give at least 30 days&rsquo; notice of a
         price increase; a change applies to usage after it takes effect.
       </p>
       <p>
@@ -428,9 +421,7 @@ export default async function TermsOfServicePage() {
         <a href="mailto:founders@cmux.com">founders@cmux.com</a>. The
         cancellation takes effect at the end of the period that you paid for.
         We do not refund a period that started, except where the law requires a
-        refund. [LEGAL REVIEW: confirm the cancellation path and the refund
-        rule, the yearly reminder, and the price-change notice against the
-        checkout.]
+        refund.
       </p>
       <p>
         cmux Cloud has no spend limit unless a person on your team sets one.
@@ -459,8 +450,7 @@ export default async function TermsOfServicePage() {
         <a href="mailto:founders@cmux.com">founders@cmux.com</a> for a copy of
         Your Content. This does not delete the model call records and the
         archive copy of agent conversations; we delete those within 30 days
-        after your written request to founders@cmux.com. [LEGAL REVIEW: owner
-        decision on a fixed limit for these records.] Until we delete Your Content from our live systems, you can ask
+        after your written request to founders@cmux.com. Until we delete Your Content from our live systems, you can ask
         for a copy. We delete Your Content from our live systems when you ask
         (at once or 30 days after the request) and, once the automatic deletion
         after the account ends is on, 30 days after the account ends; backups that still hold it
@@ -468,7 +458,7 @@ export default async function TermsOfServicePage() {
         expire as our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         describes. This does not apply to data that the law requires us to
-        keep. [LEGAL REVIEW: the deletion on an admin&rsquo;s request is on prime-interface main (PR 296); the automatic deletion after the account ends is off until the owner turns it on; until then it is on request.]
+        keep.
       </p>
 
       <h3>Ending the account</h3>
@@ -487,16 +477,13 @@ export default async function TermsOfServicePage() {
         indemnity, &ldquo;Confidential information&rdquo;, &ldquo;Agents act on
         your behalf&rdquo;, &ldquo;AI output&rdquo;, &ldquo;Your content and
         connected tools&rdquo; (until deletion), &ldquo;Data export and deletion&rdquo;, and &ldquo;Law,
-        disputes, and changes for cmux Cloud&rdquo; continue. [LEGAL REVIEW: owner decision on unused credits when we
-        end an account without cause.]
+        disputes, and changes for cmux Cloud&rdquo; continue. If we end the account for a reason other than your breach of these Terms, we refund unused credits that you bought.
       </p>
 
       <h3>Law, disputes, and changes for cmux Cloud</h3>
       <p>
         For cmux Cloud, these Terms are governed by the laws of the State of
-        California, without its conflict of laws rules. [LEGAL REVIEW: confirm
-        the governing law, the arbitration seat, and the court for claims that
-        are not arbitrated.] Nothing in Section 8
+        California, without its conflict of laws rules. Nothing in Section 8
         stops a person from using their privacy rights, from making a complaint
         to a data protection authority or another government agency, or from
         asking a court for an injunction against misuse of personal data,
