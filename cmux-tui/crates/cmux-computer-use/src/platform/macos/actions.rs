@@ -1968,18 +1968,29 @@ fn web_keys_ready(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<Result<bool, (
 
 /// After keys typed into a WebKit page: once the field's value shows the
 /// text, the caret goes to where the typing began and back where it was
-/// ([`roles::settle_caret_writes`]), through the caret gate. WebKit offers an
-/// autocorrection for the last word typed some time after the keys (when its
-/// spell check returns) and accepts it at the next focus move into another
-/// field. Live, Safari on macOS 26.6: "Hello from wierd" read back exactly
-/// and the call said confirmed; the next call's caret write into the search
-/// box turned it into "Hello from weird" (9/10 fresh misspellings). A caret
-/// written back where it was dismissed nothing (it does not move the
-/// selection, and it came before the correction was offered); moving it off
-/// the typed text and back ends the typing context, and no correction is
-/// offered (8/8 kept). Nothing is written when the caret can't be read; the
-/// read-back after the settle still decides.
-fn settle_web_caret(d: &MacDesktop, t: &Target, el: &Ax, typed: &str) -> DResult<()> {
+/// ([`roles::settle_caret_writes`]), through the caret gate, the second
+/// write only once the first reads back. WebKit offers an autocorrection
+/// for the last word typed about 0.3 s after the keys (when its spell check
+/// returns) and accepts it at the next focus move into another field.
+/// Live, Safari on macOS 26.6 (U.S. layout, fresh misspellings): "Hello
+/// from wierd" read back exactly and the call said confirmed; the next
+/// call's caret write into the search box made it "Hello from weird". A
+/// caret written back where it was dismissed nothing; moving it off the
+/// typed text and back ends the typing context, which prevents most offers
+/// (10/12) but not one already on its way. So when the text can be
+/// corrected ([`roles::may_be_autocorrected`]) the field is watched for
+/// WebKit's correction bubble (small untitled windows of the app at the
+/// field, [`roles::is_correction_bubble`]) for [`OFFER_WAIT`]; a bubble is
+/// dismissed by the same caret move, and one that stays is reported
+/// ([`roles::Autocorrection::StillOffered`]). Nothing is written when the
+/// caret can't be read; the read-back after the settle still decides.
+fn settle_web_caret(
+    d: &MacDesktop,
+    t: &Target,
+    el: &Ax,
+    typed: &str,
+    before: &std::collections::HashSet<u32>,
+) -> DResult<roles::Autocorrection> {
     // Keys posted to a process are handled a moment later: the value must
     // show the typed text, or stop changing over three reads, before the
     // caret is read.
@@ -1994,16 +2005,77 @@ fn settle_web_caret(d: &MacDesktop, t: &Target, el: &Ax, typed: &str) -> DResult
         last = now;
         steady >= 3
     });
-    let Ok(Some(at)) = el.try_selected_range() else { return Ok(()) };
-    let writes =
-        roles::settle_caret_writes((at.location, at.length), typed.encode_utf16().count() as isize);
-    let _ = persons_caret_write(d, t, el, true, || {
+    let Ok(Some(at)) = el.try_selected_range() else {
+        return Ok(roles::Autocorrection::NoneOffered);
+    };
+    let typed_len = typed.encode_utf16().count() as isize;
+    if !caret_off_and_back(d, t, el, at, typed_len)? {
+        return Ok(roles::Autocorrection::NoneOffered);
+    }
+    if !roles::may_be_autocorrected(typed) {
+        return Ok(roles::Autocorrection::NoneOffered);
+    }
+    let Some(field) = el.frame() else { return Ok(roles::Autocorrection::NoneOffered) };
+    let bubble = || {
+        super::cgwindows::all().into_iter().any(|w| {
+            w.pid == t.window.pid
+                && roles::is_correction_bubble(
+                    &w.title,
+                    w.layer,
+                    w.on_screen,
+                    !before.contains(&w.id),
+                    &w.frame,
+                    &field,
+                )
+        })
+    };
+    if !(bubble() || super::menus::wait_for(OFFER_WAIT, bubble)) {
+        return Ok(roles::Autocorrection::NoneOffered);
+    }
+    // Offered: the caret off the typed text and back dismisses it.
+    let _ = caret_off_and_back(d, t, el, at, typed_len)?;
+    let gone = super::menus::wait_for(BUBBLE_GONE_WAIT, || !bubble());
+    Ok(roles::autocorrection(true, !gone))
+}
+
+/// The caret to where the typing began and back to `at`, the second write
+/// only once the first reads back (WebKit takes two writes in one moment
+/// as no move). Whether the writes were made.
+fn caret_off_and_back(
+    d: &MacDesktop,
+    t: &Target,
+    el: &Ax,
+    at: super::sys::CFRange,
+    typed_len: isize,
+) -> DResult<bool> {
+    let writes = roles::settle_caret_writes((at.location, at.length), typed_len);
+    let wrote = persons_caret_write(d, t, el, true, || {
         writes.iter().all(|&(location, length)| {
-            el.set_selected_range(super::sys::CFRange { location, length }).is_ok()
+            let range = super::sys::CFRange { location, length };
+            el.set_selected_range(range).is_ok()
+                && super::menus::wait_for(CARET_READ_WAIT, || {
+                    el.try_selected_range().ok().flatten() == Some(range)
+                })
         })
     })?;
-    Ok(())
+    Ok(matches!(wrote, CaretWrite::Wrote { value: true, .. }))
 }
+
+/// The windows of `pid` now (ids): the baseline a correction bubble is new
+/// against.
+fn app_window_ids(pid: i32) -> std::collections::HashSet<u32> {
+    super::cgwindows::all().into_iter().filter(|w| w.pid == pid).map(|w| w.id).collect()
+}
+
+/// How long the field is watched for WebKit's correction bubble after the
+/// keys (live: it appeared 0.25-0.45 s after the text showed).
+const OFFER_WAIT: std::time::Duration = std::time::Duration::from_millis(900);
+
+/// How long a dismissed correction bubble gets to go away.
+const BUBBLE_GONE_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// How long a caret write gets to read back before the next one.
+const CARET_READ_WAIT: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// How long typed keys get to show in a web field's value before its caret
 /// is written again.
@@ -2334,6 +2406,8 @@ pub(super) fn type_text(
     // Never into a primed app (another session's scope): each chunk is posted
     // under the lock entering a scope takes, so a scope can open between
     // chunks but no key lands inside one.
+    // A WebKit field's correction bubble is new against the app's windows now.
+    let windows_before = web_keys_into.as_ref().map(|_| app_window_ids(t.window.pid));
     if matches!(route, Route::Pid { .. }) {
         let chunks = roles::text_chunks(text, TYPE_CHUNK);
         let mut sent = 0usize;
@@ -2350,16 +2424,35 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
-        if let Some(el) = &web_keys_into {
-            settle_web_caret(d, &t, el, text)?;
-        }
-        return Ok(typed_outcome(route.name(), shows_text, d.keep_check(check)));
+        let corrected = match (&web_keys_into, &windows_before) {
+            (Some(el), Some(before)) => settle_web_caret(d, &t, el, text, before)?,
+            _ => roles::Autocorrection::NoneOffered,
+        };
+        return Ok(web_typed_outcome(route.name(), shows_text, || d.keep_check(check), corrected));
     }
     unprimed(route, |p| input::type_text(p, text))?;
-    if let Some(el) = &web_keys_into {
-        settle_web_caret(d, &t, el, text)?;
+    let corrected = match (&web_keys_into, &windows_before) {
+        (Some(el), Some(before)) => settle_web_caret(d, &t, el, text, before)?,
+        _ => roles::Autocorrection::NoneOffered,
+    };
+    Ok(web_typed_outcome(route.name(), shows_text, || d.keep_check(check), corrected))
+}
+
+/// [`typed_outcome`], and when WebKit still offers to correct the typed
+/// text, never confirmed: no read-back (it reads as typed now and may not
+/// stay), and the note says why.
+fn web_typed_outcome(
+    route: &str,
+    shows_text: bool,
+    keep: impl FnOnce() -> Option<Expect>,
+    corrected: roles::Autocorrection,
+) -> ActionOutcome {
+    if corrected != roles::Autocorrection::StillOffered {
+        return typed_outcome(route, shows_text, keep());
     }
-    Ok(typed_outcome(route.name(), shows_text, d.keep_check(check)))
+    let mut out = typed_outcome(route, shows_text, None);
+    out.note = roles::AUTOCORRECTION_PENDING.into();
+    out
 }
 
 /// Whether `el` is a text element whose value shows what is typed into it.

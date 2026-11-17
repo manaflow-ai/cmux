@@ -273,9 +273,7 @@ pub fn settle_caret_writes(at: (isize, isize), typed: isize) -> Vec<(isize, isiz
 /// word must end the text (live, Safari on macOS 26.6: text ending in a
 /// space or punctuation was never corrected later).
 pub fn may_be_autocorrected(text: &str) -> bool {
-    // Stub (red): never, as before.
-    let _ = text;
-    false
+    text.chars().last().is_some_and(char::is_alphabetic)
 }
 
 /// Whether a window of the app is WebKit's autocorrection bubble for the
@@ -292,10 +290,29 @@ pub fn is_correction_bubble(
     frame: &Rect,
     field: &Rect,
 ) -> bool {
-    // Stub (red): never, as before.
-    let _ = (title, layer, on_screen, new, frame, field);
-    false
+    // Within this many points of the field (the bubble sits on the word).
+    const NEAR: f64 = 80.0;
+    let near = Rect {
+        x: field.x - NEAR,
+        y: field.y - NEAR,
+        width: field.width + 2.0 * NEAR,
+        height: field.height + 2.0 * NEAR,
+    };
+    title.is_empty()
+        && layer == 0
+        && on_screen
+        && new
+        && frame.width >= 2.0
+        && frame.height >= 2.0
+        && frame.width <= BUBBLE_MAX.0
+        && frame.height <= BUBBLE_MAX.1
+        && frame.intersects(&near)
 }
+
+/// The largest a correction bubble window is (width, height in points): the
+/// bubble grows with the suggested word, and a long suggestion is still far
+/// smaller than this.
+pub const BUBBLE_MAX: (f64, f64) = (400.0, 80.0);
 
 /// What the settle found about WebKit's autocorrection of the typed text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -311,9 +328,11 @@ pub enum Autocorrection {
 /// [`Autocorrection`] from whether a bubble was seen and whether it was
 /// still there after the dismissal.
 pub fn autocorrection(seen: bool, still_there: bool) -> Autocorrection {
-    // Stub (red): never offered, as before.
-    let _ = (seen, still_there);
-    Autocorrection::NoneOffered
+    match (seen, still_there) {
+        (false, _) => Autocorrection::NoneOffered,
+        (true, false) => Autocorrection::Dismissed,
+        (true, true) => Autocorrection::StillOffered,
+    }
 }
 
 /// The note when WebKit still offers to correct the typed text.
