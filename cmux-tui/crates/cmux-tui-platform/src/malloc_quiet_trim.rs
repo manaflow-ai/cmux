@@ -160,7 +160,7 @@ mod tests {
         let _ = std::thread::Builder::new().name("quiet-trim-test".into()).spawn(move || {
             run(t, Duration::from_millis(50), move || {
                 counted.fetch_add(1, Ordering::SeqCst);
-            })
+            });
         });
         // Idle from the start: no trim.
         std::thread::sleep(Duration::from_millis(200));
@@ -186,7 +186,7 @@ mod tests {
         let _ = std::thread::Builder::new().name("quiet-trim-test".into()).spawn(move || {
             run(t, Duration::from_millis(100), move || {
                 counted.fetch_add(1, Ordering::SeqCst);
-            })
+            });
         });
         // Busy for 600 ms, a note every 20 ms: still no trim at the end.
         for _ in 0..30 {
