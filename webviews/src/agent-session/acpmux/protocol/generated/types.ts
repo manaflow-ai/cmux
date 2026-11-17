@@ -1284,11 +1284,12 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
- * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
- * is compacted, then continued at once).
+ * capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
+ * limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
+ * the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
+ * context window (`context`: it is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
+export type RetryReason = "capacity" | "rate_limit" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
@@ -1573,6 +1574,12 @@ export type SessionDetail = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -1895,6 +1902,12 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
