@@ -12,6 +12,7 @@ thread_local! {
     static FRAME_ROWS: Cell<u64> = const { Cell::new(0) };
     static PATCH_CHANGES: Cell<u64> = const { Cell::new(0) };
     static PUBLIC_DELTAS: Cell<u64> = const { Cell::new(0) };
+    static REGISTRY_ROWS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The walks this thread ran so far.
@@ -33,6 +34,11 @@ pub(crate) struct WalkCounts {
     pub(crate) patch_changes: u64,
     /// Public deltas (JSON values) in the projections that a projection commit prepared.
     pub(crate) public_deltas: u64,
+    /// Workspace rows that workspace registry commits copied, read or compared: the desired
+    /// registry, the journal fold values, the stored rows and the public upserts. A commit
+    /// that runs on the journal writer counts there and hands the count back with its
+    /// receipt ([`registry_rows_into_receipt`]).
+    pub(crate) registry_rows: u64,
 }
 
 fn add(counter: &'static std::thread::LocalKey<Cell<u64>>, items: usize) {
@@ -64,6 +70,26 @@ pub(crate) fn projection_prepared(patch_changes: usize, public_deltas: usize) {
     add(&PUBLIC_DELTAS, public_deltas);
 }
 
+pub(crate) fn registry_rows_visited(rows: usize) {
+    add(&REGISTRY_ROWS, rows);
+}
+
+/// This thread's registry row count now.
+pub(crate) fn registry_rows() -> u64 {
+    REGISTRY_ROWS.with(Cell::get)
+}
+
+/// Takes the rows counted on this thread since `before` back out of its count, for a receipt
+/// that carries them to the thread that waits for it (which adds them back with
+/// [`registry_rows_visited`]).
+pub(crate) fn registry_rows_into_receipt(before: u64) -> u64 {
+    REGISTRY_ROWS.with(|count| {
+        let since = count.get().saturating_sub(before);
+        count.set(before);
+        since
+    })
+}
+
 #[cfg(unix)]
 pub(crate) fn walk_counts_for_test() -> WalkCounts {
     WalkCounts {
@@ -74,5 +100,6 @@ pub(crate) fn walk_counts_for_test() -> WalkCounts {
         frame_rows: FRAME_ROWS.with(Cell::get),
         patch_changes: PATCH_CHANGES.with(Cell::get),
         public_deltas: PUBLIC_DELTAS.with(Cell::get),
+        registry_rows: REGISTRY_ROWS.with(Cell::get),
     }
 }

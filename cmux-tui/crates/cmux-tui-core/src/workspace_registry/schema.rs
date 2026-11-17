@@ -843,6 +843,8 @@ pub(super) fn normalized_workspace_resource_deltas(
     active_workspace: Option<&str>,
     before: &ResourceTopologySnapshot,
 ) -> anyhow::Result<Value> {
+    #[cfg(test)]
+    crate::walk_counters::registry_rows_visited(workspaces.len());
     let mut deltas = workspaces
         .iter()
         .enumerate()

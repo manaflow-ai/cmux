@@ -59,6 +59,10 @@ pub(crate) struct WorkspaceCommitReceipt {
     /// The resource revision the commit installed (`project_resource`, not
     /// replayed).
     pub(crate) resource_revision: Option<u64>,
+    /// Workspace rows the commit copied, read or compared where it ran (`walk_counters`),
+    /// added to the count of the thread that takes the receipt.
+    #[cfg(test)]
+    pub(crate) registry_rows: u64,
 }
 
 impl WorkspaceRegistry {
@@ -82,6 +86,10 @@ impl WorkspaceRegistry {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         let stated_workspaces = if project_resource { self.stated_workspaces() } else { None };
+        #[cfg(test)]
+        crate::walk_counters::registry_rows_visited(
+            workspaces.len() + stated_workspaces.as_ref().map_or(0, |(_, stated)| stated.len()),
+        );
         Ok(WorkspaceCommitIntent {
             mutation: mutation.clone(),
             fingerprint: canonical_json(fingerprint)?,
@@ -186,6 +194,22 @@ impl WorkspaceCommitIntent {
         tx: &Transaction<'_>,
         extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<WorkspaceCommitReceipt> {
+        #[cfg(test)]
+        let before = crate::walk_counters::registry_rows();
+        #[allow(unused_mut)]
+        let mut receipt = self.apply_counted(tx, extra)?;
+        #[cfg(test)]
+        {
+            receipt.registry_rows = crate::walk_counters::registry_rows_into_receipt(before);
+        }
+        Ok(receipt)
+    }
+
+    fn apply_counted(
+        &self,
+        tx: &Transaction<'_>,
+        extra: Option<RegistryTransactionWrite<'_>>,
+    ) -> anyhow::Result<WorkspaceCommitReceipt> {
         let mutation = &self.mutation;
         let fingerprint: &str = &self.fingerprint;
         let expected_generation = self.expected_generation.as_deref();
@@ -226,6 +250,8 @@ impl WorkspaceCommitIntent {
                     replayed: true,
                 },
                 resource_revision: None,
+                #[cfg(test)]
+                registry_rows: 0,
             });
         }
 
@@ -436,6 +462,8 @@ impl WorkspaceCommitIntent {
         Ok(WorkspaceCommitReceipt {
             commit: RegistryCommit { revision, result: result.clone(), replayed: false },
             resource_revision,
+            #[cfg(test)]
+            registry_rows: 0,
         })
     }
 }

@@ -150,6 +150,8 @@ fn live_rows(transaction: &Transaction<'_>) -> anyhow::Result<HashMap<String, St
             ))
         })?
         .collect::<Result<HashMap<String, StoredRow>, _>>()?;
+    #[cfg(test)]
+    crate::walk_counters::registry_rows_visited(rows.len());
     Ok(rows)
 }
 

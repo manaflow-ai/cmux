@@ -168,7 +168,11 @@ impl RegistryReceipt {
 
     pub(crate) fn into_workspace(self) -> anyhow::Result<WorkspaceCommitReceipt> {
         match self {
-            Self::Workspace(receipt) => Ok(receipt),
+            Self::Workspace(receipt) => {
+                #[cfg(test)]
+                crate::walk_counters::registry_rows_visited(receipt.registry_rows as usize);
+                Ok(receipt)
+            }
             _ => anyhow::bail!("registry receipt is not a workspace registry commit"),
         }
     }

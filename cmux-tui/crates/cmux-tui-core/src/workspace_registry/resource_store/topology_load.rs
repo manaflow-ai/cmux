@@ -367,6 +367,8 @@ pub(crate) fn load_topology_frame(
             })
             .collect::<anyhow::Result<Vec<_>>>()?
     };
+    #[cfg(test)]
+    crate::walk_counters::registry_rows_visited(active_screens.len());
     Ok(ResourceTopologySnapshot {
         session_id,
         generation,
