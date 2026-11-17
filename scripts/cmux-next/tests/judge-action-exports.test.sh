@@ -206,6 +206,22 @@ grep -q 'came from the cache' "$tmp/out.txt" || fail "(k) no cache notice from t
 GITHUB_ACTIONS= CMUX_ACTION_EXPORTS_R2_URL="file://$tmp/bucket" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
   || fail "(k) failed outside CI: $(cat "$tmp/out.txt")"
 [[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(k) read the bucket outside CI"
+# --publish: the base autofix's exports made at a commit (a directory holding those that differ from a
+# fallback commit) become that commit's key, and a judge on that base reads them: no build.
+rm -rf "$cache"
+repo 's/^a$/A/' no 's/^e$/E/' yes
+made="$tmp/made" && rm -rf "$made" && mkdir -p "$made/${out%/*}"
+git show "HEAD^1:$src" | sed 's/^/action: /' > "$made/$out"
+CMUX_ACTION_EXPORTS_CACHE="$cache" bash "$script" --publish HEAD^1 "$made" HEAD^1 > "$tmp/out.txt" 2>&1 \
+  || fail "(k) --publish failed: $(cat "$tmp/out.txt")"
+[[ -f "$cache/$base_key/.complete" ]] || fail "(k) --publish kept nothing under the base's key: $(cat "$tmp/out.txt")"
+cmp -s "$cache/$base_key/plans/cmux-next/actions.md" <(git show HEAD^1:plans/cmux-next/actions.md) \
+  || fail "(k) --publish did not take an unregenerated export from the fallback commit"
+: > "$tmp/builds"
+CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
+  || fail "(k) failed from a --publish entry: $(cat "$tmp/out.txt")"
+[[ ! -s "$tmp/builds" ]] || fail "(k) built with a --publish entry for the base"
+grep -q 'base drift' "$tmp/out.txt" || fail "(k) no base drift warning from a --publish entry"
 # A base whose regenerate fails keeps nothing.
 rm -rf "$cache"
 repo 's/^a$/A/' no 's/^e$/E/' no

@@ -46,6 +46,7 @@
 #   CMUX_ACTION_EXPORTS_BUILD   rebuilds the package and its tests (default: swift build --build-tests)
 # Usage: scripts/cmux-next/judge-action-exports.sh [package-root]
 #        scripts/cmux-next/judge-action-exports.sh --inputs-key REV
+#        scripts/cmux-next/judge-action-exports.sh --publish REV DIR FALLBACK (the base autofix)
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(git rev-parse --show-toplevel)"
@@ -101,6 +102,23 @@ cache_has() {
   [[ -f "$cache/$1/.complete" ]] || r2 restore "$1"
   [[ -f "$cache/$1/.complete" ]]
 }
+# --publish REV DIR FALLBACK: the base autofix's action-exports job regenerated REV's exports into DIR, which
+# holds each one that differs from FALLBACK's committed file (base-autofix-action-exports.sh): keep them under
+# REV's key, for the pull requests on REV.
+if [[ "${1:-}" == --publish ]]; then
+  rev="${2:?--publish REV DIR FALLBACK}" dir="${3:?--publish REV DIR FALLBACK}" fallback="${4:?--publish REV DIR FALLBACK}"
+  key="$(inputs_key "$rev")" || { echo "::warning::no commit $rev here: nothing kept"; exit 0; }
+  mkdir -p "$temp/made"
+  for file in "${EXPORTS[@]}"; do
+    mkdir -p "$temp/made/${file%/*}"
+    if [[ -f "$dir/$file" ]]; then cp "$dir/$file" "$temp/made/$file"
+    elif git -C "$root" cat-file -e "$fallback:$file" 2>/dev/null; then git -C "$root" show "$fallback:$file" > "$temp/made/$file"
+    else rm -f "$temp/made/$file"; fi
+  done
+  cache_put "$key" "$temp/made"
+  echo "kept the fresh action exports of ${rev:0:12} (inputs key ${key:0:12})"
+  exit 0
+fi
 head_key="$(inputs_key HEAD || true)"
 output "head_key=$head_key"
 

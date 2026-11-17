@@ -463,6 +463,20 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # A pull request on the commit they were made at reads them from R2 instead of building that
+      # commit to judge its stale exports (scripts/cmux-next/judge-action-exports.sh, cmux-next.yml
+      # note-389). They hold the exports that differ from the run's commit; the rest are its own.
+      - name: Keep the fresh action exports for pull requests on that commit
+        if: steps.actions.outcome == 'success' && steps.actions.outputs.made_at != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          MADE_AT: ${{ steps.actions.outputs.made_at }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: scripts/cmux-next/judge-action-exports.sh --publish "$MADE_AT" "$RUNNER_TEMP/action-exports" "$GITHUB_SHA"
+
       # The settings exports, into the same artifact. A push that
       # moves their inputs meanwhile would hold them at the push (base-autofix-push.sh), and one
       # nearly always does in a half-hour run, so they are made again on the newest tip (this
