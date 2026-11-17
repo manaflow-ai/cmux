@@ -59,6 +59,9 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("auto-resume-nightly-notarization.yml", "verify-stapled"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "generate-deltas"): SIGNING,
     ("cmux-next-cua-helper-dev-sign.yml", "sign"): SIGNING + " (its unsigned build takes an owned Mac first)",
+    ("ios-app-store.yml", "archive"):
+        "archives the App Store build on the capability map's iOS Mac (macos_26_ios); ios_runner_pool.py has no "
+        "archive lane yet, a follow-up",
     ("ios-app-store.yml", "upload-and-validate"): SIGNING,
     ("ios-appstore-upload.yml", "upload"): SIGNING,
     ("ios-screenshots.yml", "app-store-upload"): SIGNING,
