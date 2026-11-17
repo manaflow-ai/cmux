@@ -20,6 +20,7 @@ struct FakeCloud {
     sent: Mutex<Vec<PendingOp>>,
     revision: AtomicU64,
     subscribes: AtomicU64,
+    unsubscribes: AtomicU64,
     listed: Mutex<Vec<AppKvRow>>,
 }
 
@@ -38,6 +39,10 @@ impl AppKvCloud for FakeCloud {
 
     fn subscribe(&self) {
         self.subscribes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn unsubscribe(&self) {
+        self.unsubscribes.fetch_add(1, Ordering::SeqCst);
     }
 
     fn resync(&self) {}
@@ -166,7 +171,7 @@ fn another_devices_rows_reach_only_the_synced_app_with_its_keys() {
 }
 
 #[test]
-fn uninstall_clears_the_synced_replica_and_its_queued_writes() {
+fn uninstall_clears_the_synced_replica_its_queued_writes_and_the_stream() {
     // A first-party app is only ever hidden; a local one can be removed.
     const LOCAL: &str = "local/todo";
     let root = temp_dir();
@@ -189,6 +194,7 @@ fn uninstall_clears_the_synced_replica_and_its_queued_writes() {
     let storage = f.supervisor.storage();
     assert!(!storage.as_ref().unwrap().has_replica(LOCAL));
     assert!(storage.as_ref().unwrap().pending(10).is_empty());
+    assert_eq!(cloud.unsubscribes.load(Ordering::SeqCst), 1, "no app syncs: the stream goes");
 }
 
 fn upserted(write: AppKvWrite) -> AppKvRow {

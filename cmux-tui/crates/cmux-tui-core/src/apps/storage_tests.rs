@@ -71,7 +71,10 @@ impl Cloud {
             }
             None => {
                 self.rows.remove(&at);
-                self.log.push(AppKvWrite::Delete { row_key: row_key(&op.app, &op.key) });
+                self.log.push(AppKvWrite::Delete {
+                    row_key: row_key(&op.app, &op.key),
+                    revision: Some(self.revision),
+                });
             }
         }
         self.revision
@@ -284,6 +287,34 @@ fn a_row_the_cloud_ordered_after_a_pending_write_applies_after_its_ack() {
     mac.storage.acked(&newer, Some(revision));
     mac.read_stream(&cloud);
     assert_eq!(mac.get("d"), json!(2), "our write came after the delete");
+}
+
+/// A delete names only its row key and the head revision it committed at.
+/// Heard while this device's write of a key it never had a row for is
+/// pending (its echo not heard), it still finds the key, and its revision
+/// alone orders it against ours at the ack.
+#[test]
+fn a_delete_heard_before_a_pending_writes_echo_is_ordered_by_its_revision() {
+    let delete = |key: &str, revision: u64| AppKvWrite::Delete {
+        row_key: row_key(APP, key),
+        revision: Some(revision),
+    };
+    let mac = Device::new();
+    // Committed after ours (ours is 5, the delete 6): the delete wins.
+    mac.set("later", json!("mac"));
+    let mine = mac.storage.pending(1).remove(0);
+    mac.storage.apply_writes(&[delete("later", 6)], synced).unwrap();
+    assert_eq!(mac.get("later"), json!("mac"), "pending until the ack");
+    let changed = mac.storage.acked(&mine, Some(5));
+    assert_eq!(changed.get(APP).map(|k| k.contains("later")), Some(true));
+    assert_eq!(mac.get("later"), Value::Null);
+    assert!(mac.storage.pending(10).is_empty());
+    // Committed before ours (the delete 7, ours 8): our write stays.
+    mac.set("earlier", json!("mac"));
+    let mine = mac.storage.pending(1).remove(0);
+    mac.storage.apply_writes(&[delete("earlier", 7)], synced).unwrap();
+    assert!(mac.storage.acked(&mine, Some(8)).is_empty());
+    assert_eq!(mac.get("earlier"), json!("mac"));
 }
 
 #[test]

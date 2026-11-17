@@ -557,9 +557,12 @@ pub struct AppKvRow {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppKvWrite {
     Upsert(AppKvRow),
-    /// The row is gone (a delete removes the row).
+    /// The row is gone (a delete removes the row). `revision` is the head
+    /// revision the delete committed at (the event's `effects.state`), which
+    /// orders it against a local write still waiting for its answer.
     Delete {
         row_key: String,
+        revision: Option<u64>,
     },
 }
 
@@ -593,16 +596,19 @@ pub(crate) fn appkv_snapshot_rows(frame: &Value) -> Option<Vec<AppKvRow>> {
 /// An `appkv` snapshot's head: `(revision, complete)`. The owner sends only
 /// its newest rows (by revision); the head's `apps[*].keys` count every row,
 /// so a snapshot with fewer rows than that is a part and `appkv.list` pages
-/// the rest.
+/// the rest. A head whose counts cannot be read (no `apps`, an app without a
+/// numeric `keys`) is a part too: a complete snapshot removes absent rows.
 pub(crate) fn appkv_snapshot_head(frame: &Value, rows: usize) -> (u64, bool) {
     let state = frame.get("state");
     let revision = state.and_then(|s| s.get("revision")).and_then(Value::as_u64).unwrap_or(0);
-    let keys: u64 = state
-        .and_then(|s| s.get("apps"))
-        .and_then(Value::as_object)
-        .map(|apps| apps.values().filter_map(|app| app.get("keys")?.as_u64()).sum())
-        .unwrap_or(0);
-    (revision, keys <= rows as u64)
+    let apps: Option<Vec<&Value>> = match state.and_then(|s| s.get("apps")) {
+        Some(Value::Object(apps)) => Some(apps.values().collect()),
+        Some(Value::Array(apps)) => Some(apps.iter().collect()),
+        _ => None,
+    };
+    let keys: Option<u64> =
+        apps.and_then(|apps| apps.iter().map(|app| app.get("keys")?.as_u64()).sum());
+    (revision, keys.is_some_and(|keys| keys <= rows as u64))
 }
 
 /// One `appkv.list` page: its rows, the `after_revision` of the next page
@@ -628,7 +634,9 @@ pub fn appkv_list_page(value: &Value) -> Result<(Vec<AppKvRow>, Option<u64>, u64
 
 /// The row writes of an `appkv` event frame, in order; `None` without effects.
 pub(crate) fn appkv_writes(frame: &Value) -> Option<Vec<AppKvWrite>> {
-    let writes = frame.get("effects")?.get("writes")?.as_array()?;
+    let effects = frame.get("effects")?;
+    let writes = effects.get("writes")?.as_array()?;
+    let revision = effects.pointer("/state/revision").and_then(Value::as_u64);
     Some(
         writes
             .iter()
@@ -636,7 +644,7 @@ pub(crate) fn appkv_writes(frame: &Value) -> Option<Vec<AppKvWrite>> {
                 let row_key = write.get("key").and_then(Value::as_str)?;
                 match write.get("op").and_then(Value::as_str)? {
                     "upsert" => appkv_row(row_key, write.get("row")?).map(AppKvWrite::Upsert),
-                    "delete" => Some(AppKvWrite::Delete { row_key: row_key.to_string() }),
+                    "delete" => Some(AppKvWrite::Delete { row_key: row_key.to_string(), revision }),
                     _ => None,
                 }
             })
@@ -687,12 +695,12 @@ mod appkv_tests {
         assert_eq!(rows.len(), 1, "a malformed row is skipped");
         assert_eq!((rows[0].row_key.as_str(), rows[0].revision), ("r1", 7));
         assert_eq!(appkv_snapshot_rows(&json!({"t":"snapshot","seq":1})), None);
-        let event = json!({"t":"event","effects":{"state":{},"writes":[
+        let event = json!({"t":"event","effects":{"state":{"revision":4},"writes":[
             {"op":"upsert","table":"kv","key":"r1","row":{"app":"a","key":"k","value":1,"revision":2}},
             {"op":"delete","table":"kv","key":"r9"}]}});
         let writes = appkv_writes(&event).expect("writes");
         assert!(matches!(&writes[0], AppKvWrite::Upsert(row) if row.value == json!(1)));
-        assert_eq!(writes[1], AppKvWrite::Delete { row_key: "r9".into() });
+        assert_eq!(writes[1], AppKvWrite::Delete { row_key: "r9".into(), revision: Some(4) });
         assert_eq!(appkv_writes(&json!({"t":"event"})), None);
         let set = appkv_op_body("a", "k", Some(&json!([1])), "key1").unwrap();
         assert_eq!(
@@ -706,6 +714,15 @@ mod appkv_tests {
         let head = json!({"state":{"revision":12,"apps":{"cmux/todo":{"bytes":9,"keys":2}}}});
         assert_eq!(appkv_snapshot_head(&head, 1), (12, false));
         assert_eq!(appkv_snapshot_head(&head, 2), (12, true));
+        // Counts it cannot read never make a part look whole.
+        let listed = json!({"state":{"revision":12,"apps":[{"app":"cmux/todo","keys":2}]}});
+        assert_eq!(appkv_snapshot_head(&listed, 1), (12, false));
+        assert_eq!(appkv_snapshot_head(&listed, 2), (12, true));
+        for state in [json!({"revision":12}), json!({"revision":12,"apps":{"a":{"bytes":1}}})] {
+            assert_eq!(appkv_snapshot_head(&json!({ "state": state }), 1), (12, false));
+        }
+        let empty = json!({"state":{"revision":0,"apps":{}}});
+        assert_eq!(appkv_snapshot_head(&empty, 0), (0, true));
         let page = json!({"rows":[{"app":"a","key":"k","value":1,"revision":3}],
                           "next_after_revision":3,"revision":12});
         let (rows, next, revision) = appkv_list_page(&page).unwrap();

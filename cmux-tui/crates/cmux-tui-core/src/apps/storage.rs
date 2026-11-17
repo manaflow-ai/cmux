@@ -269,6 +269,13 @@ impl Storage {
             params![app, key, value, mint_key()],
         )
         .map_err(failed)?;
+        // The stream names a delete by row key alone: one heard before this
+        // key's first row must still find it.
+        tx.execute(
+            "INSERT OR REPLACE INTO appkv_rows (row_key, app, key) VALUES (?1, ?2, ?3)",
+            params![row_key(app, key), app, key],
+        )
+        .map_err(failed)?;
         tx.commit().map_err(failed)
     }
 
@@ -457,13 +464,23 @@ impl Storage {
         Ok(())
     }
 
-    /// The stream removed `(app, key)`.
-    fn remove_row(&self, app: &str, key: &str, changed: &mut Changed) -> Result<(), StorageError> {
+    /// The stream removed `(app, key)` (at `revision`, when the event named its head).
+    fn remove_row(
+        &self,
+        app: &str,
+        key: &str,
+        revision: Option<u64>,
+        changed: &mut Changed,
+    ) -> Result<(), StorageError> {
         let table = self.ensure_replica(app)?;
         match self.local(&table, key) {
             Some(local) if local.dirty => {
-                // Ordered after the last row the stream showed for the key.
-                let seen = local.seen_revision.unwrap_or(local.revision);
+                // The delete's own revision orders it against ours at the ack.
+                // Without one: after the last row the stream showed for the key
+                // (the stream is in commit order, so a delete heard before our
+                // write's echo was committed before it).
+                let seen =
+                    revision.map(|r| r as i64).or(local.seen_revision).unwrap_or(local.revision);
                 self.db
                     .execute(
                         &format!("UPDATE {table} SET seen_revision = ?2, seen_value = NULL, seen_deleted = 1 WHERE key = ?1"),
@@ -494,7 +511,7 @@ impl Storage {
             match write {
                 AppKvWrite::Upsert(row) if synced(&row.app) => self.apply_row(row, &mut changed)?,
                 AppKvWrite::Upsert(_) => {}
-                AppKvWrite::Delete { row_key } => {
+                AppKvWrite::Delete { row_key, revision } => {
                     let named: Option<(String, String)> = self
                         .db
                         .query_row(
@@ -509,7 +526,7 @@ impl Storage {
                         .db
                         .execute("DELETE FROM appkv_rows WHERE row_key = ?1", params![row_key]);
                     if synced(&app) {
-                        self.remove_row(&app, &key, &mut changed)?;
+                        self.remove_row(&app, &key, *revision, &mut changed)?;
                     }
                 }
             }

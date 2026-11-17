@@ -56,6 +56,8 @@ pub(crate) trait AppKvCloud: Send + Sync {
     fn send(&self, op: &PendingOp) -> Result<Option<u64>, SendError>;
     /// Subscribes to `appkv:<user>` (idempotent).
     fn subscribe(&self);
+    /// Ends that subscription (no app syncs here any more).
+    fn unsubscribe(&self);
     /// Asks the stream for a snapshot (an app started syncing here).
     fn resync(&self);
     /// One `appkv.list` page after `after_revision`: its rows, the next
@@ -93,6 +95,8 @@ pub(crate) struct SyncState {
     cloud: OnceLock<Arc<dyn AppKvCloud>>,
     signal: Arc<Signal>,
     started: AtomicBool,
+    /// The daemon holds the `appkv:<user>` subscription.
+    subscribed: AtomicBool,
     /// A snapshot held only the newest rows: page `appkv.list` before the
     /// next send.
     needs_list: AtomicBool,
@@ -101,6 +105,11 @@ pub(crate) struct SyncState {
 impl SyncState {
     fn poke(&self) {
         self.signal.poke();
+    }
+
+    fn subscribe(&self, cloud: &dyn AppKvCloud) {
+        self.subscribed.store(true, Ordering::SeqCst);
+        cloud.subscribe();
     }
 }
 
@@ -144,16 +153,20 @@ impl Supervisor {
     }
 
     /// After a change to the installed apps: the stream is subscribed while
-    /// any app syncs, and an app syncing here for the first time asks for a
-    /// snapshot (the rows other devices wrote before).
+    /// any app syncs (and dropped when the last one goes), and an app syncing
+    /// here for the first time asks for a snapshot (the rows other devices
+    /// wrote before).
     pub(super) fn appkv_refresh_locked(&self, inner: &Inner) {
         let Some(cloud) = self.synced.cloud.get() else { return };
         let synced: Vec<&String> =
             inner.mirror.apps.keys().filter(|app| Self::synced_locked(inner, app)).collect();
         if synced.is_empty() {
+            if self.synced.subscribed.swap(false, Ordering::SeqCst) {
+                cloud.unsubscribe();
+            }
             return;
         }
-        cloud.subscribe();
+        self.synced.subscribe(cloud.as_ref());
         let fresh = self
             .storage()
             .as_ref()
@@ -167,7 +180,7 @@ impl Supervisor {
     /// A synced write was made here: send it.
     pub(super) fn appkv_wrote(&self) {
         if let Some(cloud) = self.synced.cloud.get() {
-            cloud.subscribe();
+            self.synced.subscribe(cloud.as_ref());
         }
         self.synced.poke();
     }
@@ -182,8 +195,8 @@ impl Supervisor {
             return;
         }
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let storage = self.storage();
-        let Some(storage) = storage.as_ref() else { return };
+        let guard = self.storage();
+        let Some(storage) = guard.as_ref() else { return };
         let mut changed = Changed::new();
         if let Some(account) = event.account() {
             match storage.account() {
@@ -221,7 +234,7 @@ impl Supervisor {
             }
             Err(error) => eprintln!("cmux-tui: synced app storage: {}", error.message),
         }
-        drop(storage);
+        drop(guard);
         Self::publish_storage_changed_locked(&inner, &changed);
         if matches!(event, CloudEvent::AppKvReset { .. }) {
             self.synced.poke();
@@ -404,6 +417,10 @@ impl AppKvCloud for MuxCloud {
         self.with(|service| {
             let _ = service.subscribe(APPKV_CLIENT, Target::AppKv);
         });
+    }
+
+    fn unsubscribe(&self) {
+        self.with(|service| service.unsubscribe(APPKV_CLIENT, &Target::AppKv));
     }
 
     fn resync(&self) {
