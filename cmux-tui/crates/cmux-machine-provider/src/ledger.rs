@@ -96,7 +96,7 @@ impl Ledger {
         })?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
-        let whole = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+        let whole = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i.saturating_add(1));
         if whole < bytes.len() {
             file.set_len(whole as u64)?;
         }
@@ -107,7 +107,7 @@ impl Ledger {
             entries: HashMap::new(),
             generations: HashMap::new(),
         };
-        for line in bytes[..whole].split(|&b| b == b'\n') {
+        for line in bytes.get(..whole).unwrap_or_default().split(|&b| b == b'\n') {
             let Ok(line) = serde_json::from_slice::<Line>(line) else { continue };
             ledger.absorb(line);
         }
@@ -220,7 +220,12 @@ impl Ledger {
             project: provider.project().to_owned(),
             location: provider.location().to_owned(),
             machine: machine.to_owned(),
-            generation: self.generations.get(&generation_key).copied().unwrap_or(0) + 1,
+            generation: self
+                .generations
+                .get(&generation_key)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(1),
             op,
             key: key.clone(),
             state,
@@ -228,7 +233,7 @@ impl Ledger {
             reconciled,
             at_unix_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
+                .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
                 .unwrap_or(0),
         }
     }

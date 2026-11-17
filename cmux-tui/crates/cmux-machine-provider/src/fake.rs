@@ -48,7 +48,7 @@ impl MachineProvider for FakeProvider {
     }
 
     fn machine_for(&self, key: &IdempotencyKey) -> String {
-        format!("cmux-{}", &key.digest("machine")[..16])
+        format!("cmux-{}", key.digest_prefix("machine", 16))
     }
 
     fn apply(
@@ -73,7 +73,7 @@ impl MachineProvider for FakeProvider {
             (Op::Start, Some(_)) => (MachineState::Running, None),
             (Op::Stop, Some(_)) => (MachineState::Stopped, None),
             (Op::Snapshot, Some(state)) => {
-                let name = format!("{machine}-{}", &key.digest("snapshot")[..12]);
+                let name = format!("{machine}-{}", key.digest_prefix("snapshot", 12));
                 self.snapshots.borrow_mut().insert(name.clone());
                 (state, Some(name))
             }
@@ -83,7 +83,7 @@ impl MachineProvider for FakeProvider {
         } else {
             machines.insert(machine, state);
         }
-        self.applied.set(self.applied.get() + 1);
+        self.applied.set(self.applied.get().saturating_add(1));
         if self.lose_next_answer.replace(false) {
             return Err(ProviderError::Indeterminate("reply lost (fault)".into()));
         }

@@ -23,8 +23,8 @@ fn status(run: &Run, step: Step) -> Status {
 
 #[test]
 fn fill_refuses_a_placeholder_with_no_value() {
-    let v = values(&[("machine", "big-red")]);
-    assert_eq!(fill("ssh {machine} true", &v).unwrap(), "ssh big-red true");
+    let v = values(&[("machine", "box-a")]);
+    assert_eq!(fill("ssh {machine} true", &v).unwrap(), "ssh box-a true");
     assert!(fill("ssh {host} true", &v).unwrap_err().contains("--set host="));
     assert!(fill("echo {machine", &v).is_err());
 }
@@ -106,7 +106,7 @@ fn a_cloud_journey_maps_onto_the_six_steps() {
             {"step": "delete", "status": "pass", "ms": 700, "detail": ""}
         ]
     });
-    let run = import_journey("freestyle:staging", &journey).unwrap();
+    let run = import_journey("cmux Cloud", &journey).unwrap();
     let ms = |step| run.steps.iter().find(|s| s.step == step).unwrap().ms;
     assert_eq!(status(&run, Step::Attach), Status::Pass);
     assert_eq!(ms(Step::Attach), 1001);
@@ -122,7 +122,7 @@ fn a_cloud_journey_maps_onto_the_six_steps() {
 fn a_journey_missing_a_step_says_which() {
     let journey =
         serde_json::json!({"steps": [{"step": "create machine", "status": "pass", "ms": 1}]});
-    let run = import_journey("freestyle:staging", &journey).unwrap();
+    let run = import_journey("cmux Cloud", &journey).unwrap();
     assert_eq!(status(&run, Step::Attach), Status::Skipped);
     assert!(run.steps[0].detail.contains("running (status)"));
 }

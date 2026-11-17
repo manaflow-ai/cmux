@@ -249,7 +249,7 @@ impl GcpProvider {
 
 /// The machine a `create` with `key` makes.
 pub fn machine_name(key: &IdempotencyKey) -> String {
-    format!("cmux-{}", &key.digest("machine")[..16])
+    format!("cmux-{}", key.digest_prefix("machine", 16))
 }
 
 /// The Compute Engine `instances.insert` body for `spec` (the setup sheet's
@@ -394,7 +394,7 @@ impl MachineProvider for GcpProvider {
                 Ok((state, None))
             }
             Op::Snapshot => {
-                let name = format!("cmux-snap-{}", &key.digest("snapshot")[..16]);
+                let name = format!("cmux-snap-{}", key.digest_prefix("snapshot", 16));
                 let label = key_label(key);
                 let body = json!({
                     "name": name,
@@ -471,21 +471,34 @@ fn state_of(instance: Option<&Value>) -> MachineState {
 pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 63
-        && name.as_bytes()[0].is_ascii_lowercase()
+        && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
         && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 fn key_label(key: &IdempotencyKey) -> String {
-    key.digest("label")[..32].to_owned()
+    key.digest_prefix("label", 32)
 }
 
 /// A UUID (the form Compute Engine's `requestId` takes) derived from the key
 /// and op, so a retried call carries the same request id.
 pub fn request_id(key: &IdempotencyKey, op: Op) -> String {
     let op = serde_json::to_string(&op).unwrap_or_default();
-    let mut hex: Vec<u8> = key.digest(&format!("request:{op}"))[..32].bytes().collect();
-    hex[12] = b'4';
-    hex[16] = b"89ab"[usize::from(hex[16] % 4)];
-    let hex = String::from_utf8(hex).unwrap_or_default();
-    format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
+    // Version 4 at digit 12, variant 8, 9, a or b at digit 16.
+    let hex: String = key
+        .digest_prefix(&format!("request:{op}"), 32)
+        .chars()
+        .enumerate()
+        .map(|(i, c)| match i {
+            12 => '4',
+            16 => match u32::from(c) & 3 {
+                0 => '8',
+                1 => '9',
+                2 => 'a',
+                _ => 'b',
+            },
+            _ => c,
+        })
+        .collect();
+    let part = |from: usize, to: usize| hex.get(from..to).unwrap_or_default();
+    format!("{}-{}-{}-{}-{}", part(0, 8), part(8, 12), part(12, 16), part(16, 20), part(20, 32))
 }

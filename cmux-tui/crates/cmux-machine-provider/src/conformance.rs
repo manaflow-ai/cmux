@@ -94,7 +94,7 @@ fn default_timeout() -> u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
-    /// `own:huge-blue`, `freestyle:staging`.
+    /// `own machine`, `cmux Cloud`.
     pub provider: String,
     #[serde(default)]
     pub about: String,
@@ -114,16 +114,15 @@ impl Profile {
 pub fn fill(template: &str, values: &BTreeMap<String, String>) -> Result<String, String> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
-    while let Some(open) = rest.find('{') {
-        out.push_str(&rest[..open]);
-        let after = &rest[open + 1..];
-        let close = after.find('}').ok_or_else(|| format!("unclosed {{ in {template:?}"))?;
-        let name = &after[..close];
+    while let Some((before, after)) = rest.split_once('{') {
+        out.push_str(before);
+        let (name, tail) =
+            after.split_once('}').ok_or_else(|| format!("unclosed {{ in {template:?}"))?;
         let value = values
             .get(name)
             .ok_or_else(|| format!("no value for {{{name}}}: pass --set {name}=..."))?;
         out.push_str(value);
-        rest = &after[close + 1..];
+        rest = tail;
     }
     out.push_str(rest);
     Ok(out)
@@ -191,7 +190,7 @@ fn run_step(
         Err(e) => return fail(0, format!("sh: {e}")),
     };
     let waited = child.wait_timeout(Duration::from_secs(spec.timeout_s));
-    let ms = started.elapsed().as_millis() as u64;
+    let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let output = std::fs::read_to_string(&log).unwrap_or_default();
     let tail = last_line(&output);
     match waited {
@@ -267,7 +266,7 @@ pub fn import_journey(provider: &str, journey: &Value) -> Result<Run, String> {
             .filter_map(|r| r.get("detail").and_then(Value::as_str))
             .collect::<Vec<_>>()
             .join("; ");
-        steps.push(StepResult { step, status, ms: ms.round() as u64, detail });
+        steps.push(StepResult { step, status, ms: whole_ms(ms), detail });
     }
     Ok(Run { provider: provider.to_owned(), iteration: 1, steps })
 }
@@ -331,4 +330,14 @@ pub fn green(runs: &[Run]) -> bool {
 
 fn status_of(row: &Value) -> &str {
     row.get("status").and_then(Value::as_str).unwrap_or("")
+}
+
+/// A journey time in whole milliseconds; a negative or non-finite one is 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "rounded and clamped to u64's range first, so the cast only drops the zero fraction"
+)]
+fn whole_ms(ms: f64) -> u64 {
+    if ms.is_finite() { ms.round().clamp(0.0, u64::MAX as f64) as u64 } else { 0 }
 }

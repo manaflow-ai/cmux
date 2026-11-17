@@ -41,6 +41,11 @@ impl IdempotencyKey {
         hash.update(self.0.as_bytes());
         hex::encode(hash.finalize())
     }
+
+    /// The first `len` hex digits of [`Self::digest`] (64 at most).
+    pub fn digest_prefix(&self, salt: &str, len: usize) -> String {
+        self.digest(salt).chars().take(len).collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
