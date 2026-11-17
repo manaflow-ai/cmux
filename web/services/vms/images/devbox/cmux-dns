@@ -1,0 +1,469 @@
+#!/usr/bin/env python3
+"""Keep name resolution working when the platform resolver fails.
+
+A Freestyle machine with any TLS rule (every cmux machine has them) gets
+`nameserver 10.32.0.28`, the platform's forwarding resolver, and the platform
+answers every port-53 packet the guest sends, whatever address it names. That
+resolver intermittently answers SERVFAIL, or nothing, for every name at once,
+on every machine at the same moment (cmux issue 26640), and a changed
+resolv.conf does not route around it. Freestyle also rewrites resolv.conf on
+every TLS rule change and on resume.
+
+`serve` is a stub on 127.0.0.2:53 that asks the platform's resolvers first, so
+names the platform steers to its edge keep resolving to the edge. When they
+fail it answers from the last good platform answer for the question (at most
+a day old, and only since the platform last wrote resolv.conf), then over
+DNS-over-HTTPS to resolvers addressed by IP on 443 when TLS steering is
+inactive. While steering is active, a cache miss fails closed: the guest
+cannot distinguish steered names from public ones. It never turns a platform
+failure into NXDOMAIN.
+
+`guard` (run by cmux-dns-guard.path whenever resolv.conf changes) points
+resolv.conf at the stub and keeps the platform's resolvers after it, so a
+stopped stub costs one refused packet, not resolution.
+"""
+import collections
+import concurrent.futures
+import http.client
+import os
+import socket
+import socketserver
+import ssl
+import struct
+import sys
+import tempfile
+import threading
+import time
+
+LISTEN = "127.0.0.2"
+RESOLV_CONF = "/etc/resolv.conf"
+TLS_DNS_SERVERS = "/run/freestyle/tls-dns-servers"
+MARKER = "# cmux-dns"
+UPSTREAM_PREFIX = "# cmux-dns upstream "
+# Freestyle's base resolvers (/etc/systemd/resolved.conf.d/60-freestyle-vms.conf).
+DEFAULT_UPSTREAMS = ["2606:4700:4700::1111", "2001:4860:4860::8888", "8.8.8.8", "8.8.4.4"]
+DOH_ENDPOINTS = [("1.1.1.1", "/dns-query"), ("8.8.8.8", "/dns-query")]
+# One query's whole budget stays under resolv.conf's timeout for the stub, so
+# libc never gives up on a question the stub is still answering. Two platform
+# tries leave DoH at least 1.5 s however many resolvers the platform lists.
+QUERY_BUDGET = 3.5
+UPSTREAM_TRIES = 2
+UPSTREAM_TIMEOUT = 1.0
+DOH_TIMEOUT = 1.5
+RESOLV_OPTIONS = "timeout:4 attempts:1"
+CACHE_ENTRIES = 8192
+STALE_MAX_AGE = 24 * 3600
+UDP_ANSWER_LIMIT = 1232
+SERVFAIL, REFUSED = 2, 5
+OPT = 41
+
+
+def question_end(message):
+    """Offset just past the single question, or None for anything but one well-formed query."""
+    if len(message) < 12 or message[2] & 0x80 or struct.unpack("!H", message[4:6])[0] != 1:
+        return None
+    offset = 12
+    while True:
+        if offset >= len(message):
+            return None
+        length = message[offset]
+        if length == 0:
+            offset += 1
+            break
+        if length & 0xC0:
+            return None
+        offset += 1 + length
+    return offset + 4 if offset + 4 <= len(message) else None
+
+
+def question_key(message):
+    """The question as wire bytes (length-prefixed labels, lowercased), type and class."""
+    end = question_end(message)
+    return None if end is None else message[12:end - 4].lower() + message[end - 4:end]
+
+
+def udp_limit(query):
+    """The largest UDP reply the client accepts: 512, or its EDNS size up to 1232."""
+    end = question_end(query)
+    if end is None or struct.unpack("!H", query[10:12])[0] == 0:
+        return 512
+    # The OPT record a stub resolver sends: root name, type 41, class = UDP size.
+    if query[end:end + 3] == b"\x00\x00\x29" and len(query) >= end + 5:
+        return max(512, min(struct.unpack("!H", query[end + 3:end + 5])[0], UDP_ANSWER_LIMIT))
+    return 512
+
+
+def rcode(message):
+    return message[3] & 0x0F if len(message) >= 12 else SERVFAIL
+
+
+def with_id(message, query):
+    return query[:2] + message[2:]
+
+
+def failure(query):
+    """SERVFAIL for a well-formed `query`: its header and question, with QR and RA set."""
+    end = question_end(query)
+    flags = (query[2] & 0x79) | 0x80, 0x80 | SERVFAIL
+    return query[:2] + bytes(flags) + b"\x00\x01\x00\x00\x00\x00\x00\x00" + query[12:end]
+
+
+def truncated(message, query):
+    """A reply too large for the client's UDP limit: its header with TC set, no records."""
+    head = failure(query)
+    return head[:2] + bytes([message[2] | 0x02, message[3]]) + head[4:]
+
+
+def usable(message):
+    return message is not None and len(message) >= 12 and rcode(message) not in (SERVFAIL, REFUSED)
+
+
+def found(message):
+    """NOERROR: the name exists, with or without records of the asked type."""
+    return usable(message) and rcode(message) == 0
+
+
+def answers(message, query):
+    """`message` replies to `query`'s question (resolvers echo it; anything else is discarded)."""
+    end = question_end(query)
+    return (end is not None and message is not None and len(message) >= end
+            and message[12:end - 4].lower() + message[end - 4:end] == question_key(query))
+
+
+def read_resolv_conf(path=RESOLV_CONF):
+    try:
+        with open(path) as stream:
+            return stream.read()
+    except OSError:
+        return ""
+
+
+def nameservers(text):
+    found_servers = []
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0] == "nameserver":
+            found_servers.append(fields[1])
+    return found_servers
+
+
+def upstreams_from(text):
+    """The platform's resolvers: the guard's record of them, else the file's own servers."""
+    for line in text.splitlines():
+        if line.startswith(UPSTREAM_PREFIX):
+            servers = line[len(UPSTREAM_PREFIX):].split()
+            if servers:
+                return servers
+    servers = [server for server in nameservers(text) if server != LISTEN]
+    return servers or list(DEFAULT_UPSTREAMS)
+
+
+def guarded(text):
+    """resolv.conf pointing at the stub, or None when `text` needs no change."""
+    if text.startswith(MARKER + "\n"):
+        return None
+    servers = [server for server in nameservers(text) if server != LISTEN]
+    if not servers:
+        return None
+    kept = [line for line in text.splitlines() if line.split()[:1] in (["search"], ["domain"])]
+    options = [
+        option
+        for line in text.splitlines() if line.split()[:1] == ["options"]
+        for option in line.split()[1:] if not option.startswith(("timeout:", "attempts:"))
+    ]
+    # libc reads at most three nameservers: the stub plus two upstreams, IPv4
+    # first because every machine routes IPv4 and not every one routes IPv6.
+    fallback = sorted(servers, key=lambda server: ":" in server)[:2]
+    lines = [
+        MARKER,
+        "# The platform's resolvers follow the stub; cmux-dns rewrites this file",
+        "# whenever the platform does (see /usr/local/bin/cmux-dns).",
+        UPSTREAM_PREFIX + " ".join(servers),
+        *kept,
+        f"nameserver {LISTEN}",
+        *[f"nameserver {server}" for server in fallback],
+        " ".join(["options", RESOLV_OPTIONS, *options]),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def guard(path=RESOLV_CONF):
+    for _ in range(5):
+        text = read_resolv_conf(path)
+        updated = guarded(text)
+        if updated is None:
+            return False
+        directory = os.path.dirname(path) or "."
+        fd, temporary = tempfile.mkstemp(prefix=".resolv.conf.cmux-", dir=directory)
+        try:
+            with os.fdopen(fd, "w") as stream:
+                stream.write(updated)
+                os.fchmod(stream.fileno(), 0o644)
+            # The platform may have written again since the read: guard that
+            # version instead of replacing it with a copy of the old one.
+            if read_resolv_conf(path) != text:
+                continue
+            os.replace(temporary, path)
+            return True
+        finally:
+            if os.path.lexists(temporary):
+                os.unlink(temporary)
+    return False
+
+
+def resolv_conf_source(path=RESOLV_CONF):
+    """The platform's resolvers and a generation that changes whenever resolv.conf is written."""
+    try:
+        status = os.stat(path)
+        generation = (status.st_ino, status.st_mtime_ns)
+    except OSError:
+        generation = None
+    return generation, upstreams_from(read_resolv_conf(path))
+
+
+def platform_steering(path=TLS_DNS_SERVERS):
+    """The provider publishes resolver IPs here while TLS steering is active.
+
+    It does not publish the steered names. Public answers could bypass TLS
+    routing (including credential injection), so an unreadable marker also
+    fails closed. An absent or empty marker means steering is inactive.
+    """
+    try:
+        with open(path) as stream:
+            return bool(stream.read().strip())
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
+_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=64)
+
+
+def bounded(function, timeout, *args):
+    """`function(*args)`, or None once `timeout` passes (the call may finish later, unseen)."""
+    future = _POOL.submit(function, *args)
+    try:
+        return future.result(timeout=max(timeout, 0.001))
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        return None
+
+
+class Resolver:
+    """Platform first, then the last good platform answer, then DNS-over-HTTPS."""
+
+    def __init__(self, upstreams=None, doh=None, clock=time.monotonic, exchange=None, doh_exchange=None, source=None, steering=platform_steering):
+        if source is None:
+            source = (lambda: (None, upstreams())) if upstreams else resolv_conf_source
+        self._source = source
+        self._steering = steering
+        self._doh = DOH_ENDPOINTS if doh is None else doh
+        self._clock = clock
+        self._exchange = exchange or exchange_dns
+        self._doh_exchange = doh_exchange or exchange_doh
+        self._cache = collections.OrderedDict()
+        self._cache_for = None
+        self._lock = threading.Lock()
+
+    def _cached(self, generation, key, answer=None):
+        with self._lock:
+            # Every platform write (a TLS rule, a resume, a clone's first boot)
+            # starts over: a steered name may now answer differently.
+            if self._cache_for != generation:
+                self._cache.clear()
+                self._cache_for = generation
+            now = self._clock()
+            if answer is not None:
+                self._cache[key] = (now, answer)
+                self._cache.move_to_end(key)
+                while len(self._cache) > CACHE_ENTRIES:
+                    self._cache.popitem(last=False)
+                return answer
+            hit = self._cache.get(key)
+            if hit is None or now - hit[0] > STALE_MAX_AGE:
+                return None
+            self._cache.move_to_end(key)
+            return hit[1]
+
+    def _current(self, generation):
+        stamp, servers = self._source()
+        return generation == (stamp, tuple(servers))
+
+    def resolve(self, query, tcp=False):
+        key = question_key(query)
+        if key is None:
+            return None
+        deadline = self._clock() + QUERY_BUDGET
+        stamp, servers = self._source()
+        generation = (stamp, tuple(servers))
+        # Match libc's fallback order: not every machine routes IPv6.
+        ordered = sorted(servers, key=lambda server: ":" in server)
+        attempts = (ordered * UPSTREAM_TRIES)[:UPSTREAM_TRIES]
+        for server in attempts:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                break
+            timeout = min(UPSTREAM_TIMEOUT, remaining)
+            reply = bounded(self._exchange, timeout, server, query, timeout, tcp)
+            if usable(reply) and answers(reply, query):
+                if not self._current(generation):
+                    return failure(query)
+                if reply[2] & 0x02 == 0:
+                    self._cached(generation, key, reply)
+                return reply
+        stale = self._cached(generation, key)
+        if stale is not None:
+            return with_id(stale, query) if self._current(generation) else failure(query)
+        # The provider exports resolver IPs, but no guest-readable name set.
+        # Conservatively preserve every possible TLS route on a cold miss.
+        if self._steering():
+            return failure(query)
+        for host, path in self._doh:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                break
+            timeout = min(DOH_TIMEOUT, remaining)
+            reply = bounded(self._doh_exchange, timeout, host, path, query, timeout)
+            # Never NXDOMAIN: public resolvers do not know the names only the
+            # platform answers, and an outage must not look like a missing name.
+            if found(reply) and answers(reply, query):
+                # A TLS rule may have arrived while this public lookup ran.
+                if self._steering() or not self._current(generation):
+                    return failure(query)
+                return with_id(reply, query)
+        return failure(query)
+
+
+def exchange_dns(server, query, timeout, tcp):
+    family = socket.AF_INET6 if ":" in server else socket.AF_INET
+    try:
+        if tcp:
+            with socket.socket(family, socket.SOCK_STREAM) as stream:
+                stream.settimeout(timeout)
+                stream.connect((server, 53))
+                stream.sendall(struct.pack("!H", len(query)) + query)
+                return read_framed(stream)
+        with socket.socket(family, socket.SOCK_DGRAM) as datagram:
+            datagram.settimeout(timeout)
+            datagram.connect((server, 53))
+            datagram.send(query)
+            end = time.monotonic() + timeout
+            while True:
+                reply = datagram.recv(65535)
+                if reply[:2] == query[:2]:
+                    return reply
+                datagram.settimeout(max(end - time.monotonic(), 0.001))
+    except OSError:
+        return None
+
+
+_TLS = ssl.create_default_context()
+
+
+def exchange_doh(host, path, query, timeout):
+    """RFC 8484 POST; the certificate must cover the IP address itself."""
+    connection = http.client.HTTPSConnection(host, 443, timeout=timeout, context=_TLS)
+    try:
+        connection.request("POST", path, body=b"\x00\x00" + query[2:], headers={
+            "Content-Type": "application/dns-message",
+            "Accept": "application/dns-message",
+        })
+        response = connection.getresponse()
+        body = response.read(65536)
+        return body if response.status == 200 else None
+    except (OSError, http.client.HTTPException):
+        return None
+    finally:
+        connection.close()
+
+
+def read_exact(stream, count):
+    data = b""
+    while len(data) < count:
+        chunk = stream.recv(count - len(data))
+        if not chunk:
+            raise ConnectionError("short read")
+        data += chunk
+    return data
+
+
+def read_framed(stream):
+    return read_exact(stream, struct.unpack("!H", read_exact(stream, 2))[0])
+
+
+def serve(resolver, host=LISTEN, port=53):
+    class Datagram(socketserver.BaseRequestHandler):
+        def handle(self):
+            query, sock = self.request
+            reply = resolver.resolve(query)
+            if reply is None:
+                return
+            if len(reply) > udp_limit(query):
+                reply = truncated(reply, query)
+            sock.sendto(reply, self.client_address)
+
+    class Stream(socketserver.BaseRequestHandler):
+        def handle(self):
+            self.request.settimeout(10)
+            try:
+                while True:
+                    query = read_framed(self.request)
+                    reply = resolver.resolve(query, tcp=True)
+                    if reply is None:
+                        return
+                    self.request.sendall(struct.pack("!H", len(reply)) + reply)
+            except (OSError, ConnectionError):
+                return
+
+    class UDPServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
+        daemon_threads = True
+
+    class TCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+        daemon_threads = True
+        allow_reuse_address = True
+
+    udp = UDPServer((host, port), Datagram)
+    tcp = TCPServer((host, port), Stream)
+    threading.Thread(target=tcp.serve_forever, daemon=True).start()
+    return udp, tcp
+
+
+def probe(name="github.com"):
+    """Exit 0 when the stub itself (not libc's fallback) answers NOERROR for `name`."""
+    labels = b"".join(bytes([len(part)]) + part.encode() for part in name.split("."))
+    query = struct.pack("!HHHHHH", os.getpid() & 0xFFFF, 0x0100, 1, 0, 0, 0) + labels + b"\x00\x00\x01\x00\x01"
+    reply = exchange_dns(LISTEN, query, QUERY_BUDGET + 0.5, False)
+    return 0 if found(reply) and answers(reply, query) else 1
+
+
+def notify_ready():
+    """Tell systemd both DNS listeners are bound before it starts dependents."""
+    path = os.environ.get("NOTIFY_SOCKET")
+    if not path:
+        return
+    if path.startswith("@"):
+        path = "\0" + path[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as notify:
+        notify.connect(path)
+        notify.send(b"READY=1")
+
+
+def main(argv):
+    command = argv[1] if len(argv) > 1 else ""
+    if command == "guard":
+        print("resolv.conf points at cmux-dns" if guard() or read_resolv_conf().startswith(MARKER + "\n") else "resolv.conf unchanged")
+        return 0
+    if command == "serve":
+        udp, _ = serve(Resolver())
+        notify_ready()
+        udp.serve_forever()
+        return 0
+    if command == "probe":
+        return probe(*argv[2:3])
+    print("usage: cmux-dns serve|guard|probe [name]", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

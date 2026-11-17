@@ -10,8 +10,9 @@
  * - `none`: only the hosts cmux itself needs.
  *
  * Ranges become provider firewall rules (IP layer). Domains become provider
- * TLS egress rules: the provider steers the exact name to its edge through the
- * guest's `/etc/hosts`, so a domain works with no IP-layer grant and no DNS.
+ * TLS egress rules: the provider's forwarding resolver answers the exact name
+ * with its edge address, so a domain works with no IP-layer grant and no open
+ * DNS (allowDns).
  * Domains are exact names on HTTPS/443 only; wildcards are not steerable yet.
  *
  * The policy is data owned by the control plane. The driver reconciles the
