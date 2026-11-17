@@ -54,12 +54,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     // A setup repo's verbs speak to the person too (a consent card), so
     // they keep the output the caller asked for.
     if command_args.get(1).is_some_and(|verb| repo::VERBS.contains(&verb.as_str())) {
-        return Some(repo::run(&global, &command_args[1..]));
+        return Some(repo::run(&global, command_args.get(1..).unwrap_or_default()));
     }
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
-    Some(run(&global, &command_args[1..]))
+    Some(run(&global, command_args.get(1..).unwrap_or_default()))
 }
 
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
