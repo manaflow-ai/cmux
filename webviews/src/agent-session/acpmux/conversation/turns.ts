@@ -1192,8 +1192,9 @@ function shapedTurn(
       ...held,
       ...line,
     ];
-    // What was still going when the person sent into the running turn draws after the prompt.
-    if (live) shaped = afterSends(shaped, clockOffset);
+    // What was still going when the person sent into the running turn draws after the prompt, and
+    // stays there once the turn ends: an opened "Worked for" keeps the order the live turn drew.
+    shaped = afterSends(shaped, clockOffset);
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
