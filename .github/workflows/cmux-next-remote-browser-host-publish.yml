@@ -334,14 +334,16 @@ jobs:
 
       # github.token cannot create a ref to a commit that changes a workflow file (HTTP 403 "Resource not
       # accessible by integration"), and a CEF pin branch's merges of feat-cmux-next do: runs 42541124658,
-      # 43590942942 and 43683204232 all failed here. nightly-tag-permission-probe.yml shows this app's
-      # token with workflows: write creates such a tag.
+      # 43590942942 and 43683204232 all failed here. The manaflow-glaeda-route App is not granted
+      # workflows write either (run 43773051580: HTTP 422 "The permissions requested are not granted to
+      # this installation"), so the tag is pushed with the cmux-bot App, whose installation has contents
+      # and workflows write here (cmuxterm-hq fleet-reconciler-glaeda-signing-hooks.yml mints both).
       - name: Mint the source tag token
         id: tag-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write

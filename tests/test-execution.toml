@@ -703,6 +703,10 @@ path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_dispatch_targets_on_main.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
@@ -1669,6 +1673,10 @@ path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_ui_nightly.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_update_release_tag.py"
 lane = "linux-guard"
 
@@ -2236,6 +2244,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_cargo_workspace.py"
 lane = "linux-guard"
 
 [[test]]

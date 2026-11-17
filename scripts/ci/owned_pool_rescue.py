@@ -156,6 +156,12 @@ owned job stalled past a bound, queued with no runner or held by a runner
 with no step progress, and moves it to Blacksmith when nothing is lost and
 Blacksmith has room (STALL_MOVE, stall_scan(), stall_move()).
 
+One bound overrides those soft holds (OWNED_WAIT_BOUND_SECONDS, 45 minutes; Leo, 2026-11-16: "no required check
+waits past a bound on any owned label; past it, it moves to Blacksmith"): a job of a pull request's run that has
+waited that long for a runner moves to Blacksmith though the label has no free slot, is stalled, or has a deeper
+queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, a re-run that would
+stay on the owned labels, and vars.CI_BLACKSMITH_MACOS off still keep it.
+
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
 (with 1 job). An E2E run is a workflow_dispatch, not a pull request, so there
@@ -428,6 +434,7 @@ from __future__ import annotations
 import argparse
 import base64
 import dataclasses
+import gzip
 import datetime as dt
 import http.client
 import io
@@ -3108,6 +3115,11 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             # finished run. A ci.yml attempt-1 full re-run never gets here (repicks(), above).
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
             return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
+        past = past_wait_bound(target, looked, now(), seen)
+        if past:
+            log(f"moving past the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min): {past}"
+                + (f", though the re-run takes {held}" if held else ""))
+            break
         if held and now() >= deadline:
             if nightly_moves(target):
                 # NIGHTLY_HOLD_SECONDS: a held nightly job is moved at the watch limit, never left queued.
@@ -3149,6 +3161,40 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
                                 deadline=deadline, floor_seconds=floor, seen=seen, sign_seen=sign_seen,
                                 sign_text=sign_text)
     return outcome, reason, held
+
+
+# Leo, 2026-11-16: "no required check waits past a bound on any owned label; past it, it moves to Blacksmith." The
+# bound is the longest owned queue any picker ever plans (pr_runner_pool's MAX_QUEUE_ROUNDS rounds of
+# QUEUE_ROUND_SECONDS, 45 minutes), which is also the stall move's STALL_QUEUE_SECONDS (40 minutes, a p90 swift-test)
+# plus one stall scan's period (STALL_SCAN_TICKS minutes): no plan expected a wait past it, and a job past it has had
+# the stall move's soft holds for a whole scan. Past it, the soft holds stop holding a job of a run that gates a pull
+# request's checks: no free Blacksmith slot, a stalled Blacksmith label, and a Blacksmith queue deeper than the owned
+# one (hold_for_destination(), stall_scan()). The hard limits stay: a running sibling (the cancel would kill it), a
+# delivery run (nightly, DEV, promote; is_delivery_target()), a re-run that would not leave the owned labels, and the
+# per-scan move cap. On 2026-11-16 glaeda-side-std-xcode-26.6 had 5-8 of its 53 runners online, 46-52 jobs queued and
+# its oldest 2.5 h (cmuxterm-hq#12087), while those holds kept pull request checks there.
+OWNED_WAIT_BOUND_SECONDS = MAX_QUEUE_ROUNDS * QUEUE_ROUND_SECONDS
+
+
+def owned_wait(job: Mapping[str, Any], now: dt.datetime, first_seen: dt.datetime | None = None) -> float:
+    """How long an owned job has waited for a runner to start it: queued with no runner, or held in its runner's
+    setup (glaeda's capacity wait), from the later of its creation and when the watch first saw it; 0 otherwise."""
+    if not job_pool(job) or not (waiting_for_runner(job) or in_setup(job)):
+        return 0.0
+    return queued_seconds(job, now, first_seen)
+
+
+def past_wait_bound(target: "Target", jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
+                    first_seen: Mapping[Any, dt.datetime] | None = None) -> str:
+    """The owned jobs of `target` waiting past OWNED_WAIT_BOUND_SECONDS, named for the log, or "" when none is or the
+    bound does not apply: a delivery run, or a run whose bot re-run of failed jobs stays on the owned labels
+    (bot_rerun_leaves_owned(); a cmux-next attempt the stall scan moves instead, stall_scan())."""
+    if is_delivery_target(target) or not bot_rerun_leaves_owned(target.path, target.attempt):
+        return ""
+    seen = first_seen or {}
+    waits = [(str(job.get("name") or job.get("id")), owned_wait(job, now, seen.get(job.get("id")))) for job in jobs]
+    return ", ".join(f"{name} waited {int(waited // 60)} min"
+                     for name, waited in sorted(waits) if waited >= OWNED_WAIT_BOUND_SECONDS)
 
 
 def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
@@ -5400,6 +5446,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
                          stall_destination=stall_destinations_from_env(env), side_label=rerun_side_label(env),
+                         owned_route=owned_route_from_env(env),
                          stall_pull=stall_pull_only(env.get("STALL_BLACKSMITH_MACOS")))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
@@ -6020,13 +6067,54 @@ STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
 # 43738810586 attempt 3 (cmux-bot's, refusals only) queued its generated files on the saturated
 # glaeda-side-std-xcode-26.6 from 18:14Z with the stall move off (STALL_SWITCH_OFF), though its attempt 4 would
 # have taken Blacksmith; nothing else moves a bot's last owned attempt at an open head (cmuxterm-hq#11566).
+# A dispatch that gates a pull request (same_tree_pull_dispatch()) moves under `pr-rescue` too once its head's
+# cmux-next.yml sends a bot's re-run of it off the minis (PULL_DISPATCH_RESCUE_CLAUSE).
 STALL_SWITCH_VALUES = frozenset({"on", "pr-rescue"})
+
+# The text of cmux-next.yml's owned fallback under `pr-rescue` (feat-cmux-next, cmuxterm-hq#12109) that sends a bot's
+# re-run (attempt 2 and later) of a dispatch gating a pull request (default run name `cmux-next · <sha>`, a pull
+# request's same-tree run or a dispatch on its branch) off the side lane, as a pull_request run's re-run. A re-run
+# reads the workflow at the run's head, so a dispatch whose head lacks it would rejoin the side lane at the back of
+# its queue: the stall move leaves those (stall_scan()). cmux#44529's scheme compile (run 43879624016, job
+# 133341854319) queued on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16 while the scan skipped every
+# dispatch under `pr-rescue`.
+PULL_DISPATCH_RESCUE_CLAUSE = (
+    "(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && "
+    "(github.event_name != 'workflow_dispatch' || "
+    "!contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || "
+    "inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || "
+    "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
+    "inputs.no_reuse == true))"
+)
 
 
 def stall_pull_only(switch: str | None) -> bool:
-    """Whether the stall move may move pull_request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which a
-    same-tree dispatch's re-run still takes CI_SIDE_LANE_RUNNER (its event is not pull_request)."""
+    """Whether the stall move may move pull request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which
+    cmux-next.yml sends only a pull_request run's re-run off the side lane, and, where the run's head carries
+    PULL_DISPATCH_RESCUE_CLAUSE, a bot's re-run of a dispatch gating a pull request (stall_moves_dispatch()). Every
+    other dispatch's re-run still takes CI_SIDE_LANE_RUNNER."""
     return (switch or "").strip() == "pr-rescue"
+
+
+def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[str], None]) -> bool:
+    """Whether the stall move under `pr-rescue` (stall_pull_only()) may move a cmux-next.yml run that is not a
+    pull_request run: a dispatch gating one pull request (same_tree_pull_dispatch()) whose head's cmux-next.yml
+    carries PULL_DISPATCH_RESCUE_CLAUSE, so the bot's re-run leaves the side lane. One read of the workflow at the
+    run's head; a failed read leaves the run to the next scan."""
+    if not same_tree_pull_dispatch(run):
+        return False
+    head = str(run.get("head_sha") or "")
+    try:
+        text = client.workflow_file(CMUX_NEXT_WORKFLOW_PATH, head)
+    except READ_ERRORS as error:
+        log(f"[run {run.get('id')}] {STALL_MOVE}: could not read {CMUX_NEXT_WORKFLOW_PATH} at {head[:12]} ({error}); "
+            "next scan")
+        return False
+    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or ""):
+        log(f"[run {run.get('id')}] {STALL_MOVE} leaves it: its head {head[:12]}'s {CMUX_NEXT_WORKFLOW_PATH} sends a "
+            "bot's re-run of this dispatch to the side lane under pr-rescue")
+        return False
+    return True
 
 
 def stall_destinations(runner: str | None, pools: str | None, switch: str | None = "on") -> tuple[str, ...] | None:
@@ -6083,6 +6171,7 @@ class Stall:
     label: str
     seconds: float
     step: str = ""
+    runner: str = ""  # the runner holding a `step` stall's job (owned_stall_move() flags it)
 
     def __str__(self) -> str:
         minutes = int(self.seconds // 60)
@@ -6142,7 +6231,8 @@ def owned_stalls(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> list[St
             step = current_step(job)
             idle = 0.0 if last is None else (now - last).total_seconds()
             if last is not None and idle >= step_stall_seconds(step):
-                found.append(Stall(name, job_key(job), label, idle, step or "its runner's setup"))
+                found.append(Stall(name, job_key(job), label, idle, step or "its runner's setup",
+                                   str(job.get("runner_name") or "")))
     return found
 
 
@@ -6307,6 +6397,241 @@ def stall_move(api: GitHub, target: Target, stalls: Sequence[Stall], *, now: Cal
                f"after {STALL_PASS_LOOK_SECONDS} s, passed through to Blacksmith")
 
 
+# The owned stall move. While vars.CI_BLACKSMITH_MACOS is not `on` the stall move has no Blacksmith destination
+# (STALL_SWITCH_OFF, PR #43744), so on 2026-11-15 nothing moved a job a wedged mini held (a runner that took it and
+# makes no step progress) or one queued on a full owned label while another owned label had idle runners. The stall
+# scan then re-routes such a run to another owned mini instead (stall_scan() with `owned`, owned_stall_move()):
+# - its destination is the owned label the bot's re-run of failed jobs takes (rerun_side_label(): cmux-next.yml's Mac
+#   fallbacks read `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER`). It must be the same runner class
+#   and Xcode as every label the stalled jobs leave (owned_compatible()); a job queued on that label itself stays, as
+#   its re-run would rejoin the back of the queue it waits in;
+# - that label has an idle runner for every owned job the move sends, counting the jobs this sweeper moved within
+#   STALL_ROOM_WINDOW_SECONDS (owned_room()): the fleet gates' count of listening runners on it in the janitor's
+#   snapshot (`gates.labels`, queue_janitor.fleet_gates(), at most OWNED_GATES_FRESH_SECONDS old), less every runner
+#   the registration roster (vars.CI_RUNNER_STATE, cmuxterm-hq build-fleet/mini-ops/RUNNER-STATE.md; registrations
+#   change rarely, so the sweeper's copy from its start serves) puts on it on a held host or on a wedged runner's
+#   host. Holds are read at move time from the build controller's GET /v1/workers, as cmuxterm-hq's next-dogfood
+#   runner gate does (hq#11406): a controller pool hold or capture lease, a fleet registry reservation, or a reserved
+#   or invalid reservation marker (worker_holds()). glaeda's listener gate stops only for a mini's own marker and host
+#   lock, so a held mini's runners still listen and the gates count them idle. An unreadable answer, a stale gate
+#   reading or no roster moves nothing. A wedged runner holds its job, so the gates never count it listening;
+# - the destination is no deeper a queue than a label a queued job leaves (deeper_queue());
+# - no nightly, DEV or promote build (stall_target(), is_delivery_target());
+# - at most OWNED_MOVES_PER_SWEEP moves a sweeper, and one a run: a run an owned move re-ran is never moved again, so
+#   each job moves at most once.
+# GitHub has no per-runner exclusion within a label, and glaeda takes no remote repair request: glaeda-idle-repair runs
+# on each mini every minute and repairs it once the host is idle (glaeda docs/FLEET_OPERATIONS.md). The move's cancel
+# ends the job the wedged runner held, and the move flags the runner and its host in a warning annotation
+# (OWNED_RUNNER_WEDGED) for the fleet's repair view.
+OWNED_STALL_MOVE = "owned stall move"
+OWNED_MOVES_PER_SWEEP = 3
+OWNED_RUNNER_WEDGED = "Owned runner wedged"
+# queue_janitor.FLEET_GATES_STALE_S: an older reading shows no runner listening.
+OWNED_GATES_FRESH_SECONDS = 300
+# An owned label: glaeda-<lane...>-<class>-xcode-<version>. The class and the Xcode decide what a job can run on.
+OWNED_LABEL = re.compile(r"glaeda-(?:[a-z0-9]+-)*?(std|light|xl)-(xcode-[0-9]+(?:\.[0-9]+)*)")
+# The build controller next-dogfood's runner gate reads (hq#11406), when vars.CI_FLEET_CONTROLLER is unset.
+FLEET_CONTROLLER = "http://100.89.225.106:18765"
+FLEET_CONTROLLER_TIMEOUT_SECONDS = 20
+RUNNER_STATE_SCHEMA = "runner-state/v1"
+RUNNER_STATE_MAX_ENCODED = 48 * 1024
+RUNNER_STATE_MAX_DECODED = 2 * 1024 * 1024
+OWNED_SWITCH_OFF = ("vars.CI_BLACKSMITH_MACOS is not on: a stalled run is re-routed to another owned mini instead "
+                    f"({OWNED_STALL_MOVE})")
+
+
+@dataclasses.dataclass(frozen=True)
+class OwnedRoute:
+    """Where the owned stall move sends a run: `label`, the owned label a bot re-run takes (rerun_side_label());
+    `roster`, each owned label's registered runners per host (runner_roster()), or None when unread; `holds`, which
+    reads the build controller's holds (worker_holds()) at move time, None when unreadable."""
+
+    label: str
+    roster: Mapping[str, Mapping[str, int]] | None
+    holds: Callable[[], Mapping[str, str] | None]
+
+
+def fleet_host(name: Any) -> str:
+    """A host as the build controller names its worker (hq#11406's gate): lowercase, with no `.local`, `-perf` or
+    `-bench`."""
+    host = str(name or "").strip().lower()
+    host = host[: -len(".local")] if host.endswith(".local") else host
+    for suffix in ("-perf", "-bench"):
+        if host.endswith(suffix) and len(host) > len(suffix):
+            host = host[: -len(suffix)]
+    return host
+
+
+def runner_host(runner: Any) -> str:
+    """The mini an owned runner runs on: its name before `-glaeda` (and a `-N` of a second runner), as fleet_host()."""
+    return fleet_host(re.sub(r"-glaeda(?:-[0-9]+)?$", "", str(runner or "").strip()))
+
+
+def worker_holds(answer: Any) -> dict[str, str] | None:
+    """Each held host (fleet_host()) and why, from the build controller's GET /v1/workers answer (a list of worker
+    rows, or a map of them), or None when it names no worker. Held: a controller pool hold or capture lease (`pool`,
+    `pool_reservation`), a fleet registry reservation, or a reservation marker that reads reserved or invalid."""
+    rows = list(answer.values()) if isinstance(answer, Mapping) else answer
+    if not isinstance(rows, list) or not rows:
+        return None
+    held: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        why = []
+        lease = row.get("pool_reservation") if isinstance(row.get("pool_reservation"), Mapping) else {}
+        pool = row.get("pool") or lease.get("pool")
+        if pool:
+            why.append(f"held for pool {pool}" + (f" over {lease['owner_pool']}" if lease.get("owner_pool") else ""))
+        registry = row.get("registry_reservation")
+        if isinstance(registry, Mapping):
+            why.append(f"reserved for {registry.get('owner') or 'its owner'} (fleet registry)")
+        marker = row.get("reservation")
+        if isinstance(marker, Mapping) and marker.get("state") in ("reserved", "invalid"):
+            why.append(f"its reservation marker reads {marker.get('state')}")
+        if why:
+            held[fleet_host(row.get("name"))] = "; ".join(why)
+    return held
+
+
+def read_worker_holds(controller: str) -> dict[str, str] | None:
+    """worker_holds() of the build controller's GET /v1/workers, or None when it cannot be read (the rescue's runner
+    is off the tailnet, or the controller is down): then nothing moves."""
+    try:
+        with urllib.request.urlopen(controller.rstrip("/") + "/v1/workers",
+                                    timeout=FLEET_CONTROLLER_TIMEOUT_SECONDS) as answer:
+            return worker_holds(json.load(answer))
+    except Exception:  # noqa: BLE001 - an unread answer holds every host
+        return None
+
+
+def runner_roster(raw: str | None) -> dict[str, dict[str, int]] | None:
+    """Each owned label's registered runners per host (runner_host()), from vars.CI_RUNNER_STATE (gzip, base64,
+    runner-state/v1), or None when it is missing or out of shape. Only registrations are read, never status."""
+    if not raw or len(raw) > RUNNER_STATE_MAX_ENCODED:
+        return None
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(base64.b64decode(raw, validate=True))) as source:
+            body = source.read(RUNNER_STATE_MAX_DECODED + 1)
+        state = json.loads(body) if len(body) <= RUNNER_STATE_MAX_DECODED else None
+    except Exception:  # noqa: BLE001 - an unreadable roster moves nothing
+        return None
+    if not isinstance(state, Mapping) or state.get("schema") != RUNNER_STATE_SCHEMA or state.get("complete") is not True:
+        return None
+    rows = list(state.get("repository_runners") or [])
+    groups = state.get("runner_groups")
+    for group in (groups.values() if isinstance(groups, Mapping) else ()):
+        rows += list(group or [])
+    found: dict[str, dict[str, int]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        host = runner_host(row.get("name"))
+        for label in row.get("labels") or ():
+            name = label.get("name") if isinstance(label, Mapping) else label
+            if isinstance(name, str) and name.startswith("glaeda-"):
+                found.setdefault(name, {})[host] = found.get(name, {}).get(host, 0) + 1
+    return found or None
+
+
+def owned_route_from_env(env: Mapping[str, str]) -> OwnedRoute | None:
+    """The owned stall move's route from ci-owned-pool-rescue.yml's SIDE_LANE_RUNNER, STALL_BLACKSMITH_MACOS
+    (rerun_side_label()), STALL_RUNNER_STATE (vars.CI_RUNNER_STATE) and STALL_FLEET_CONTROLLER
+    (vars.CI_FLEET_CONTROLLER), or None while the switch is `on` and the stall move takes Blacksmith."""
+    label = rerun_side_label(env)
+    if not label:
+        return None
+    controller = (env.get("STALL_FLEET_CONTROLLER") or "").strip() or FLEET_CONTROLLER
+    return OwnedRoute(label, runner_roster(env.get("STALL_RUNNER_STATE")), lambda: read_worker_holds(controller))
+
+
+def owned_compatible(source: str, destination: str) -> str:
+    """Why `destination` cannot take a job from `source`, or "": both owned labels of one runner class and Xcode."""
+    here, there = OWNED_LABEL.fullmatch(source), OWNED_LABEL.fullmatch(destination)
+    if here is None or there is None:
+        return f"{destination} and {source} are not both owned labels of a known class and Xcode"
+    if here.groups() != there.groups():
+        return (f"{destination} ({there.group(1)}, {there.group(2)}) is not {source}'s class and Xcode "
+                f"({here.group(1)}, {here.group(2)})")
+    return ""
+
+
+def owned_room(snapshot: Mapping[str, Any] | None, now: dt.datetime, label: str, wanted: int, recent: int,
+               roster: Mapping[str, Mapping[str, int]] | None, holds: Mapping[str, str] | None,
+               wedged: Iterable[str]) -> str:
+    """Why `label` has no idle runner for each of `wanted` more jobs (and `recent` this sweeper moved there lately),
+    or "": the fleet gates' fresh count of runners listening on it, less every runner `roster` registers on it on a
+    host `holds` names or a `wedged` runner's host."""
+    gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    row = labels.get(label) if isinstance(labels, Mapping) else None
+    if not isinstance(row, Mapping):
+        return f"the fleet gates' reading in the janitor's snapshot does not list {label}"
+    as_of = parse_time(row.get("as_of") or gates.get("as_of"))
+    if as_of is None or (now - as_of).total_seconds() > OWNED_GATES_FRESH_SECONDS:
+        return f"the fleet gates' reading of {label} is stale, so its idle runners are unknown"
+    listening = row.get("listening")
+    if not isinstance(listening, int) or isinstance(listening, bool):
+        return f"the fleet gates' count of {label}'s idle runners is unreadable"
+    if roster is None:
+        return "the runner roster (vars.CI_RUNNER_STATE) is unreadable, so a held host's runners cannot be told apart"
+    if holds is None:
+        return "the build controller's holds (/v1/workers) could not be read"
+    registered = roster.get(label) or {}
+    out = {host: why for host, why in holds.items() if registered.get(host)}
+    out.update({host: "a wedged runner's host" for host in wedged if host and registered.get(host)})
+    taken = sum(registered[host] for host in out)
+    if listening - taken < wanted + recent:
+        hosts = f", {taken} of them maybe on held or wedged hosts ({', '.join(sorted(out))})" if out else ""
+        moved = f", and {recent} more moved there in the last {STALL_ROOM_WINDOW_SECONDS // 60} min" if recent else ""
+        return f"{label} has {listening} idle runner(s){hosts}{moved}; {wanted} more would not fit"
+    return ""
+
+
+def owned_verdict(route: OwnedRoute, stalls: Sequence[Stall], snapshot: Mapping[str, Any] | None,
+                  now: dt.datetime, wanted: int, recent: int) -> str:
+    """Why the owned stall move may not send `stalls`' run to `route`'s label now, or "" (see OWNED_STALL_MOVE)."""
+    for stall in stalls:
+        why = owned_compatible(stall.label, route.label)
+        if why:
+            return why
+    queued = {stall.label for stall in stalls if not stall.step}
+    if route.label in queued:
+        return f"its re-run would rejoin {route.label}, the queue it waits in"
+    wedged = {runner_host(stall.runner) for stall in stalls if stall.step and stall.runner}
+    room = owned_room(snapshot, now, route.label, wanted, recent, route.roster, route.holds(), wedged)
+    if room:
+        return room
+    return deeper_queue(snapshot, queued, route.label) if queued else ""
+
+
+def owned_stall_move(api: GitHub, target: Target, stalls: Sequence[Stall], label: str, *,
+                     now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
+                     deadline: dt.datetime | None = None) -> str:
+    """Re-route `target`'s stalled owned jobs to `label`, another owned mini (see OWNED_STALL_MOVE): cancel the run and
+    re-run its failed and cancelled jobs once, then flag each wedged runner (OWNED_RUNNER_WEDGED). Returns what
+    happened."""
+    why = "; ".join(str(stall) for stall in stalls)
+    started = target.attempt_started_at
+
+    def check(jobs: Sequence[Mapping[str, Any]], at: dt.datetime) -> str:
+        found, blocked = stall_verdict(jobs, at, started)
+        return blocked or ("" if found else "no owned job is stalled any more")
+    result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline,
+                    stall=f"{why}; its re-run takes {label}, an owned label with idle runners", stall_check=check,
+                    stall_where=f"attempt {target.attempt + 1} takes {label}")
+    if result.startswith("re-ran"):
+        for stall in stalls:
+            if stall.step and stall.runner:
+                line = (f"{stall.runner} (host {runner_host(stall.runner)}) held {stall.name} of run {target.run_id} "
+                        f"attempt {target.attempt} with no step progress in {int(stall.seconds // 60)} min "
+                        f"({stall.step}) on `{stall.label}`; the {OWNED_STALL_MOVE} cancelled it and re-ran it on "
+                        f"{label}. glaeda-idle-repair repairs the host once it is idle")
+                log(f"{OWNED_RUNNER_WEDGED}: {line}")
+                print(f"::warning title={OWNED_RUNNER_WEDGED}::{line}", flush=True)
+    return result
+
+
 # The events of the cmux-next.yml runs the stall scan reads (GitHub.next_pull_runs()).
 STALL_EVENTS = frozenset({"pull_request", "workflow_dispatch"})
 # A cmux-next.yml dispatch's default run name (its run-name's last branch): `cmux-next · <github.sha>`. The tip
@@ -6362,32 +6687,45 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
 def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime], log: Callable[[str], None],
                moved: set[tuple[int, int]], moves: list[tuple[dt.datetime, int]],
                start: Callable[..., None],
-               destination: tuple[str, ...] | None = (STALL_DESTINATION,), pull_only: bool = False) -> int:
+               destination: tuple[str, ...] | None = (STALL_DESTINATION,),
+               owned: OwnedRoute | None = None, pull_only: bool = False) -> int:
     """One scan of the unfinished cmux-next pull request runs for a stall (see STALL_MOVE). Starts at most
     STALL_MOVES_PER_SCAN moves through `start`, never two for one attempt of a run nor more than STALL_MOVES_PER_RUN
     for one run (`moved`: the run id and attempt each move started on), none past
     STALL_MOVES_PER_SWEEP, and none at all without Blacksmith `destination` labels (stall_destinations()), each of
     which must have room for every job the move sends (a job may take either)
-    (`moves`: when each move started and how many owned jobs it sends). Returns how many it started. Raises
-    READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run. `pull_only`
-    (stall_pull_only()) leaves every run but a pull_request one: its re-run would rejoin the owned side label."""
-    if len(moves) >= STALL_MOVES_PER_SWEEP or destination is None:
+    (`moves`: when each move started and how many owned jobs it sends). Without `destination` (vars.CI_BLACKSMITH_MACOS
+    off) and with an `owned` route, it is the owned stall move instead (see OWNED_STALL_MOVE): `start` gets the owned
+    label as its fourth argument, at most OWNED_MOVES_PER_SWEEP moves start, and a run moves at most once. Returns how
+    many it started. Raises READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run.
+    `pull_only` (stall_pull_only()) leaves every run but a pull_request one and a dispatch gating one whose head
+    sends the bot's re-run off the side label (stall_moves_dispatch(), read once a run has stalled): any other's
+    re-run would rejoin the owned side label."""
+    in_owned = destination is None and owned is not None
+    cap = OWNED_MOVES_PER_SWEEP if in_owned else STALL_MOVES_PER_SWEEP
+    # Past its cap a sweeper still moves a run waiting past OWNED_WAIT_BOUND_SECONDS (one a scan at most).
+    capped = len(moves) >= cap
+    if capped and in_owned or destination is None and not in_owned:
         return 0
+    name = OWNED_STALL_MOVE if in_owned else STALL_MOVE
     started = 0
     snapshot: Mapping[str, Any] | None = None
     snapshot_read = False
     for run in client.next_pull_runs(SWEEP_LISTING):
         run_id = int(run.get("id") or 0)
         attempt = int(run.get("run_attempt") or 0)
-        if not run_id or (run_id, attempt) in moved or \
-                sum(1 for moved_id, _ in moved if moved_id == run_id) >= STALL_MOVES_PER_RUN:
+        runs_moved = sum(1 for moved_id, _ in moved if moved_id == run_id)
+        if not run_id or (run_id, attempt) in moved or runs_moved >= (1 if in_owned else STALL_MOVES_PER_RUN):
             continue
         at = now()
         began = parse_time(run.get("run_started_at") or run.get("created_at"))
         if began is None or (at - began).total_seconds() < STALL_MIN_AGE_SECONDS:
             continue
         target = stall_target(run, repository)
-        if isinstance(target, str) or pull_only and run.get("event") != "pull_request":
+        if isinstance(target, str) or in_owned and is_delivery_target(target):
+            continue
+        dispatch = run.get("event") != "pull_request"
+        if pull_only and dispatch and not same_tree_pull_dispatch(run):
             continue
         try:
             jobs = client.jobs(run_id, target.attempt)
@@ -6402,6 +6740,19 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         what = "; ".join(str(stall) for stall in stalls)
         if blocked:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {blocked}")
+            continue
+        if pull_only and dispatch and not stall_moves_dispatch(client, run, log):
+            continue
+        # OWNED_WAIT_BOUND_SECONDS: the stalled jobs that have waited past the bound for a runner to start them. Only
+        # toward Blacksmith: the owned stall move's re-run stays on the owned labels.
+        stalled = {stall.job_id for stall in stalls}
+        past = "" if in_owned else ", ".join(
+            f"{job.get('name') or job.get('id')} waited {int(waited // 60)} min"
+            for job, waited in ((job, owned_wait(job, at)) for job in jobs if job_key(job) in stalled)
+            if waited >= OWNED_WAIT_BOUND_SECONDS)
+        if capped and not past:
+            log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but this sweeper made its {cap} moves; only a job past "
+                f"the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min) moves now")
             continue
         try:
             newer = client.newer_head_runs(target.path, run_id, target.head_sha)
@@ -6433,18 +6784,28 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         recent = sum(count for when, count in moves
                      if (at - when).total_seconds() < STALL_ROOM_WINDOW_SECONDS)
         wanted = max(1, moved_jobs(jobs))
-        full = next((why for why in (stall_room(snapshot, at, wanted, recent, label) for label in destination)
-                     if why), "") or next((why for why in (deeper_queue(snapshot, {stall.label for stall in stalls},
-                                                                        label) for label in destination) if why), "")
-        if full:
-            log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {full}")
+        if owned is not None and destination is None:
+            full = owned_verdict(owned, stalls, snapshot, at, wanted, recent)
+        else:
+            full = next((why for why in (stall_room(snapshot, at, wanted, recent, label) for label in destination)
+                         if why), "") or next((why for why in (deeper_queue(
+                             snapshot, {stall.label for stall in stalls}, label) for label in destination) if why), "")
+        if full and past:
+            log(f"[run {run_id}] {name}: {past}, past the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min), "
+                f"so it moves though {full}")
+        elif full:
+            log(f"[run {run_id}] {name} waits: {what}, but {full}")
             continue
         moved.add((run_id, target.attempt))
         moves.append((at, wanted))
-        log(f"[run {run_id}] {STALL_MOVE}: {what}; moving {wanted} owned job(s) of attempt {target.attempt}")
-        start(target, stalls)
+        log(f"[run {run_id}] {name}: {what}; moving {wanted} owned job(s) of attempt {target.attempt}"
+            + (f" to {owned.label}" if owned is not None and destination is None else ""))
+        if owned is not None and destination is None:
+            start(target, stalls, (), owned.label)
+        else:
+            start(target, stalls)
         started += 1
-        if started >= STALL_MOVES_PER_SCAN or len(moves) >= STALL_MOVES_PER_SWEEP:
+        if started >= STALL_MOVES_PER_SCAN or in_owned and len(moves) >= cap:
             break
     return started
 
@@ -6630,7 +6991,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           side_seconds: int | None = None, running_code: Mapping[str, str] | None = None,
           light_rescue: Callable[[], None] | None = None,
           stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,),
-          side_label: str = "", stall_pull: bool = False) -> dict[str, int]:
+          side_label: str = "", owned_route: OwnedRoute | None = None,
+          stall_pull: bool = False) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -6739,12 +7101,14 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         watching[run_id] = thread
         return True
 
-    def move(target: Target, stalls: list[Stall], newer: Sequence[int] = ()) -> None:
+    def move(target: Target, stalls: list[Stall], newer: Sequence[int] = (), label: str = "") -> None:
         def say(text: str) -> None:
             log(f"[run {target.run_id}] {text}")
         try:
             # Its waits are the rescue's own (`wait`, not the handover's): a started move always gets its re-run.
             outcome = superseded_pull_cancel(client, target, newer, wait, say) if newer else \
+                owned_stall_move(client, target, stalls, label, now=now, sleep=wait, log=say,
+                                 deadline=latest) if label else \
                 stall_move(client, target, stalls, now=now, sleep=wait, log=say, deadline=latest,
                            stopped=stopping.is_set)
         except QuotaSpent as error:
@@ -6762,8 +7126,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             key = f"{STALL_MOVE}: {outcome.split(':')[0]}"
             outcomes[key] = outcomes.get(key, 0) + 1
 
-    def start_move(target: Target, stalls: list[Stall], newer: Sequence[int] = ()) -> None:
-        thread = threading.Thread(target=move, args=(target, stalls, newer), name=f"stall-{target.run_id}",
+    def start_move(target: Target, stalls: list[Stall], newer: Sequence[int] = (), label: str = "") -> None:
+        thread = threading.Thread(target=move, args=(target, stalls, newer, label), name=f"stall-{target.run_id}",
                                   daemon=True)
         thread.start()
         threads.append(thread)
@@ -6883,8 +7247,11 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 try:
                     if stall_destination is None and looks == 1:
                         log(f"{STALL_MOVE}: {STALL_SWITCH_OFF}")
+                        if owned_route is not None:
+                            log(f"{STALL_MOVE}: {OWNED_SWITCH_OFF}")
                     stall_scan(client, repository, now=now, log=log, moved=stall_moved, moves=stall_moves,
-                               start=start_move, destination=stall_destination, pull_only=stall_pull)
+                               start=start_move, destination=stall_destination, owned=owned_route,
+                               pull_only=stall_pull)
                 except READ_ERRORS as error:
                     log(f"could not list cmux-next pull request runs for the stall scan ({error}); next scan")
         ticks += 1

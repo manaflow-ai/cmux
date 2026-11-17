@@ -402,6 +402,21 @@ jobs:
             --store "${{ runner.temp }}/fast-checks-cache/swiftpm-artifacts" \
             --command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"
 
+      # `cargo test -p CRATE` from a workspace that excludes CRATE (run 43881963559: cmux-rd-host from cmux-tui)
+      # makes Linux cargo 1.95 panic, "did not find features for (PackageId ...) within activated_features", instead
+      # of naming the mistake. The Run fast checks step runs this check first and refuses such a request (exit 2,
+      # with a receipt) naming the crate's own directory and the command to run there. It comes from this
+      # workflow's own commit, never from the source snapshot.
+      - name: Check out the cargo workspace check
+        if: contains(inputs.command, 'cargo')
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .fast-checks-cargo-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/cargo_package_workspace_check.py
+          sparse-checkout-cone-mode: false
+
       # FAST_CHECKS_OUT is an empty directory the command may write files to (screenshots,
       # reports, logs); whatever is there when it ends, passed or not, is uploaded as the
       # fast-checks-output artifact below. Names starting with a dot are left out (the
@@ -459,6 +474,18 @@ jobs:
               print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
               pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
               raise SystemExit(0)
+          # cargo -p CRATE from a workspace that excludes CRATE: refused with the next step before it runs.
+          cargo_check = pathlib.Path(os.environ.get('GITHUB_WORKSPACE', '/nonexistent'), '.fast-checks-cargo-tools', 'scripts', 'ci', 'cargo_package_workspace_check.py')
+          if cargo_check.is_file():
+              refused = subprocess.run(['python3', str(cargo_check), '--command', command_text,
+                                        '--directory', os.environ['FAST_CHECKS_DIRECTORY'], '--root', str(root)]).returncode
+              if refused:
+                  result = dict(source_sha=actual, source_tree=tree, head_after=actual, command_started_at=time.time(),
+                      command_seconds=0, exit_code=refused, refused='cargo-package-workspace',
+                      run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
+                  print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+                  pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+                  raise SystemExit(refused)
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(

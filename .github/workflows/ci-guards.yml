@@ -212,6 +212,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
 
+      - name: Validate fast checks refuse cargo -p of a crate outside its workspace
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_cargo_workspace.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
@@ -765,6 +769,10 @@ jobs:
       - name: Validate the scheduled main full-suite run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
+
+      - name: Validate the nightly run of every iOS UI test
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ios_ui_nightly.py
 
       - name: Validate main full-suite failure attribution
         if: ${{ matrix.group == 'ci' }}
