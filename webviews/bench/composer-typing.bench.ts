@@ -181,7 +181,11 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index).
     for (const key of "warm") await page.keyboard.press(key);
     await page.waitForTimeout(500);
-    for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    // One letter stays in the prompt, so the measured keys are typing into a draft that already
+    // has words: the empty-to-typed step (Send takes Stop's slot, a suggestion goes) is a change of
+    // the UI and costs its own render, once, and it is not what a key costs. Measuring it inside
+    // the window hid the per-key cost behind 1/60 of a transition.
+    for (let i = 0; i < 3; i += 1) await page.keyboard.press("Backspace");
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
@@ -348,6 +352,19 @@ try {
         `${String(row.mode)} ${String(row.rows)} rows: ${String(row.busiest)}; native posts ${String(row.nativePosts)}`,
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
+    // A typed character must reach the screen with no render of the composer at all: ProseMirror's
+    // own DOM write paints it, and what the composer draws from the draft reads it through a
+    // selector that renders only on a real change (webviews/src/agent-session/acpmux/composer/
+    // draftStore.ts). A draft that already has words changes none of them, so every one of these
+    // keys must cost 0 composer renders; before the draft left React state each cost 1.
+    const rendered = table.filter((row) => Number(row.composer ?? 0) > 0);
+    if (rendered.length > 0) {
+      for (const row of rendered)
+        console.error(
+          `COMPOSER-TYPING FAIL ${String(row.mode)} ${String(row.rows)} rows: ${String(row.composer)} composer renders per key, expected 0 (busiest: ${String(row.busiest)})`,
+        );
+      process.exitCode = 1;
+    }
   }
 } finally {
   for (const release of releases.reverse()) await release();
