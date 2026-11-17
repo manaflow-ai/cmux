@@ -13,6 +13,7 @@ import {
   rowsMoved,
 } from "./frameBudget";
 import { motionMode } from "../../../ui/motion/motionMode";
+import { noteKeptPrefix } from "./prefixFlatMap";
 
 const FRAME = 1000 / 60;
 
@@ -152,6 +153,43 @@ test("fresh row objects that change no row are no work; a row that comes, goes o
   expect(rowsMoved(rows, rebuilt.slice(1))).toBe(true);
   expect(rowsMoved(rows, [rebuilt[0]!, { ...rebuilt[1]!, version: 4 }])).toBe(true);
   expect(rowsMoved(rows, [rebuilt[1]!, rebuilt[0]!])).toBe(true);
+});
+
+// A streamed token is a commit that changes the last row of the chat: whether its rows moved reads the
+// rows it changed, not every row before them (CMUX-571, a god chat of 35,000 rows; Leo, 2026-11-12:
+// "infinite everything feels like nothing"). The rows' maker says how many leading rows a snapshot kept
+// (prefixFlatMap.ts `noteKeptPrefix`); a pair it said nothing of is walked once (`keptPrefix` keeps it).
+test("a streamed token's commit in a long chat reads the rows it changed, not every row", () => {
+  const COUNT = 35_000;
+  const base = Array.from({ length: COUNT }, (_, at) => ({ id: `r${at}`, version: 1 }));
+  let reads = 0;
+  const counted = <T extends object>(rows: T[]): T[] =>
+    new Proxy(rows, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+  const token = () => {
+    const next = base.slice();
+    next[COUNT - 1] = { ...next[COUNT - 1]!, version: 2 };
+    return next;
+  };
+  const before = counted(base);
+  const after = counted(token());
+  noteKeptPrefix(after, before, COUNT - 1);
+  reads = 0;
+  expect(rowsMoved(before, after)).toBe(true);
+  const told = reads;
+  // A reconcile's fresh objects for the same rows: nothing moved, and only the rows past the kept prefix are read.
+  const rebuilt = counted(base.map((row, at) => (at < COUNT - 2 ? row : { ...row })));
+  noteKeptPrefix(rebuilt, before, COUNT - 2);
+  reads = 0;
+  expect(rowsMoved(before, rebuilt)).toBe(false);
+  const reconcile = reads;
+  console.log(`PER-UPDATE rowsMoved reads ${JSON.stringify({ rows: COUNT, token: told, reconcile })}`);
+  expect(told).toBeLessThan(10);
+  expect(reconcile).toBeLessThan(10);
 });
 
 // A chat at rest after a commit asks for no frames (Leo, 2026-11-12: "infinite everything feels like nothing"):
