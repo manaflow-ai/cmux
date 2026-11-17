@@ -124,14 +124,24 @@ test("a slow acknowledgement shows one pending state, in the time slot, and no a
   );
 });
 
-test("a steer on its way into the running turn says it is queued behind it, never Not sent", async () => {
-  const container = await render(prompt({ state: "sending", sentAt: Date.now() - 5_000, queued: true }));
-  expect(container.querySelector(".cv-user__pending-state")?.getAttribute("aria-label")).toBe(
-    translate("prompt.delivery.queued"),
-  );
-  expect(translate("prompt.delivery.queued")).toBe("Queued, sends when the current turn ends");
-  expect(said(container).notSentYet).toBe(false);
-});
+// Leo, 2026-11-17: "Queued, sends when the turn ends it's not really useful to see ever"; "i also
+// dont like seeing the flicker flash of the Queued blah blah". A prompt held behind the running turn
+// (a steer, or one acpmux queues) looks sent: its age and its buttons, no pending words, ever.
+for (const [name, delivery, extra] of [
+  ["a queued prompt", { queued: true }, {}],
+  ["a waiting steer", {}, { steer: "waiting" }],
+] as const)
+  test(`${name} behind the running turn looks sent: its age, no Queued words`, async () => {
+    const container = await render(
+      prompt({ state: "sending", sentAt: Date.now() - 5_000, ...delivery }, extra as Partial<AcpmuxRow>),
+    );
+    const state = said(container);
+    expect(state.pending).toBe(0);
+    expect(state.age).toBe(1);
+    expect(container.querySelector(".cv-user__actions--pending")).toBeNull();
+    expect(container.textContent).not.toContain("Queued");
+    expect(state.notSentYet).toBe(false);
+  });
 
 test("a send held while the agent service reconnects says so at once, in the same slot", async () => {
   const container = await render(prompt({ state: "sending", sentAt: Date.now(), waitingForHost: true }));

@@ -44,7 +44,7 @@ const row: AcpmuxRow = {
 };
 const PENDING_SENT_AT = Date.now() - 10_000;
 const PENDING_TEXT =
-  "A steer long enough to be wider than its queued note, so the note starts where this text starts and the next line wraps under it.";
+  "A prompt long enough to be wider than its pending note, so the note grows left of Copy, which stays at the bubble's right edge.";
 const item: AcpmuxActivity = {
   kind: "tool",
   text: "",
@@ -154,10 +154,8 @@ function App() {
                 ...row,
                 id: "glyph-pending-prompt",
                 text: PENDING_TEXT,
-                steer: "waiting",
                 delivery: {
                   state: "sending",
-                  queued: true,
                   promptId: "glyph-pending",
                   sessionId: "glyph-session",
                   sentAt: PENDING_SENT_AT,
