@@ -880,6 +880,32 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         time.sleep(0.5)  # the next host binds the same port
 
 
+def warmup_diag(scratch: Path, host_log: Path, frames: list, presses: list) -> dict:
+    """Diagnostic: the testapp's paints and the host's trace lines from 0.3 s before the key
+    session's first frame to 3 s after it, all CLOCK_MONOTONIC µs."""
+    if not frames:
+        return {}
+    s0 = frames[0][0]
+    lo, hi = s0 - 300_000, s0 + 3_000_000
+    paints = []
+    try:
+        for line in (scratch / "testapp-paint.log").read_text(errors="replace").splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and lo <= int(parts[-1]) <= hi:
+                paints.append([parts[0], *(int(p) - s0 for p in parts[1:])])
+    except (OSError, ValueError) as error:
+        paints.append(repr(error))
+    trace = []
+    for line in host_log.read_text(errors="replace").splitlines():
+        head = line.split(" ", 1)
+        if len(head) == 2 and head[0].isdigit() and lo <= int(head[0]) <= hi:
+            trace.append(f"{int(head[0]) - s0} {head[1][:90]}")
+    return {"s0_us": s0, "load": os.getloadavg(), "ncpu": os.cpu_count(),
+            "frames": [[f[0] - s0, (f[1] or s0) - s0, f[2] - s0, f[4], f[5]] for f in frames[:24]],
+            "presses": [[p["sent_us"] - s0, p.get("to_release"), p["total"]] for p in presses[:10]],
+            "paints": paints[:400], "trace": trace[:400]}
+
+
 def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int,
                samples: int) -> dict:
     """LO_PROFILES: host and viewer in the host namespace over its own `lo` (netem there delays each
@@ -901,7 +927,8 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", "127.0.0.1",
                                        "--display", display, "--port", str(PORT), "--profile", "baseline",
                                        "--token-fd", "3", *LIB_ARGS, *HOST_ARGS],
-                         env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
+                         env={"CMUX_RD_TIMING_LOG": str(timing), "CMUX_RD_TRACE": "1"}, token=token,
+                         stdout=log, stderr=log)
     driver = HoldDriver(rig, holds, period, loss)
     try:
         if not wait_for(host_log, "listening", host, 20):
@@ -936,6 +963,7 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
             row["key_holds_us"] = key_holds
             row["key_presses"] = press_rows((key or {}).get("sample_times"), key_text, key_holds)
             row["key_frames"] = key_frames(key_text)
+            row["diag"] = warmup_diag(scratch, host_log, row["key_frames"], row["key_presses"])
         data = timing.read_bytes()
         row["idr_passive"] = count_idrs(data[:mid].decode(errors="replace"))
         row["gate_wait"] = gate_wait(data[:mid].decode(errors="replace"))
@@ -985,7 +1013,8 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
         display = f":{170 + os.getpid() % 50}"
         procs.append(rig.spawn(rig.host_ns, ["Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"]))
         time.sleep(1.5)
-        procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload", "motion"]))
+        procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload", "motion"],
+                               env={"CMUX_RD_TESTAPP_LOG": str(scratch / "testapp-paint.log")}))
         time.sleep(1.5)
         for profile in profiles:
             try:
