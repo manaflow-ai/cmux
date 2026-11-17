@@ -347,6 +347,12 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         base = h.app_commit(the_app, repo)
     else:
         base = git(repo, "merge-base", head, base_tip(repo))
+        parent = git(repo, "rev-parse", "--verify", "-q", f"{head}^1", check=False) if base == head else ""
+        if parent and on_first_parent_line(repo, head, parent):
+            # A merged PR's commit, planned with no app (the workflow's merged half): its merge base is itself, so
+            # head..head was empty and every landed PR planned as "nothing in the app changes" (cmux#44971's
+            # Rust, 2026-11-17). Its change is its own first-parent diff.
+            base = parent
     fork = git(repo, "merge-base", base, head, check=False)
     if not SHA.fullmatch(fork):
         raise Usage(f"{head[:12]} shares no history with {base[:12]}")
