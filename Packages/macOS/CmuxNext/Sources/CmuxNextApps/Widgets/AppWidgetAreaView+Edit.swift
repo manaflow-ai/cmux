@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// A tile lifted in edit mode: the order the area shows while it moves, and where the pointer
@@ -96,11 +96,12 @@ extension AppWidgetAreaView {
     }
 }
 
-/// A menu item that runs a closure (it is its own target, so the menu keeps it alive).
-final class AppWidgetMenuItem: NSMenuItem {
-    private let run: () -> Void
+/// A menu item that runs a closure (it is its own target, so the menu keeps it alive; AppKit calls
+/// menu actions on the main thread).
+nonisolated final class AppWidgetMenuItem: NSMenuItem {
+    private let run: @MainActor @Sendable () -> Void
 
-    init(title: String, _ run: @escaping () -> Void) {
+    init(title: String, _ run: @escaping @MainActor @Sendable () -> Void) {
         self.run = run
         super.init(title: title, action: #selector(fire), keyEquivalent: "")
         target = self
@@ -109,5 +110,8 @@ final class AppWidgetMenuItem: NSMenuItem {
     @available(*, unavailable)
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    @objc private func fire() { run() }
+    @objc private func fire() {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { run() } // main-proof: guarded by Thread.isMainThread above
+    }
 }
