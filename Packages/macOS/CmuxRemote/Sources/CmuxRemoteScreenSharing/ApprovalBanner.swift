@@ -143,6 +143,7 @@ final class ApprovalPanel: NSPanel {
 /// with AppKit alone because this worker links no cmux design module. Keep the numbers in step with
 /// `CmuxDialogMetrics`: a 16 pt padding, buttons 26 pt tall rounding 8 pt, the card rounding 24 pt (concentric: the
 /// button's corner plus the padding), 4 pt between buttons, 12 pt above them.
+@MainActor
 enum ApprovalLook {
     static let padding: CGFloat = 16
     static let spacing: CGFloat = 8
