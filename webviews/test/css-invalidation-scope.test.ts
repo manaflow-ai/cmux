@@ -127,6 +127,14 @@ test("no selector restyles a whole subtree on a :has(), sibling or inline-style 
 test("the detector catches each kind", () => {
   expect(findings("x.css", ".a:has(.b) > :last-child")).toHaveLength(1);
   expect(findings("x.css", ".a:has(.b) button")).toHaveLength(1);
+  // The composer's capped-draft rule before #45693 (a fling frame restyled the whole page,
+  // test/transcript-row-restyle.test.ts), and the same with any element after the `:has()`.
+  expect(
+    findings("x.css", ".box[data-grid]:has(.field:is([data-fade-top], [data-fade-bottom])) .inner > :not(.actions)"),
+  ).toHaveLength(1);
+  expect(findings("x.css", ".box:has(.field[data-fade-top]) .inner > *")).toHaveLength(1);
+  expect(findings("x.css", ".box[data-grid]:has(.field:is([data-fade-top], [data-fade-bottom]))")).toEqual([]);
+  expect(findings("x.css", ".box:has(.field[data-fade-top]) .inner > .actions")).toEqual([]);
   expect(findings("x.css", ".md > * + *")).toHaveLength(1);
   expect(findings("x.css", ".c > :not(.d) ~ :not(.d)")).toHaveLength(1);
   expect(findings("x.css", '.ol[style*="--x"] > li')).toHaveLength(1);
