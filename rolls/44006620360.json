@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44006620360",
+  "recorded_at": "2026-11-17T03:05:54Z",
+  "reason": "cmux-tui 1b1cd8045c95 changes the image's cmux-tui (pinned d5be932e7dc1)",
+  "dry_run": false,
+  "cmux_tui": "1b1cd8045c9559c320eb78b21d6979b953b63122",
+  "fixes": [
+    {
+      "sha": "1b1cd8045c9559c320eb78b21d6979b953b63122",
+      "mergedAt": "2026-11-16T18:44:51-08:00",
+      "subject": "cmux-rd linux-host: enable downloads Cisco's OpenH264, so a new Linux desktop's first session can encode (#44503)"
+    },
+    {
+      "sha": "28891655535c8b8534d3bee1ee9ac56d28d295da",
+      "mergedAt": "2026-11-16T18:38:52-08:00",
+      "subject": "perf(launch): launch-times records prior_chat_painted_ms and prior_chat_live_ms (CMUX-119) (#44892)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T03:05:54Z",
+    "snapshot_id": "sh-fe1afafd1b424368b56daf8a5796ed92",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44006620360): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "593d06f9a5e336235dafa996d7d572fc9e2c169c",
+    "image": "cloud-native-auto-1b1cd804-44006620360-1",
+    "revision": "ci-44006620360-1",
+    "at": "2026-11-17T03:05:54Z"
+  },
+  "rolled_back": false
+}
