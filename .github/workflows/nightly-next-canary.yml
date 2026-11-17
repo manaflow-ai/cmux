@@ -253,9 +253,20 @@ jobs:
           echo "::error title=nightly-next canary::the feed's DMG for build $BUILD failed its Gatekeeper, ticket or build-number check"
 
       # Also when a check failed after the attach (the app output is then unset).
-      - name: Detach the DMG
+      # LaunchServices keeps a record of every app bundle the job copied or ran after RUNNER_TEMP
+      # is emptied, so a later lookup of the app by name or bundle id on this Mac could pick
+      # the dead copy: "The application "cmux NIGHTLY" can't be opened." (cmux12s, 2026-11-16).
+      # The job takes back its own records, by path, nested apps included, before the copies go.
+      - name: Detach the DMG and unregister the app copies
         if: always() && steps.app.outcome != 'skipped'
         run: |
+          lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+          for root in "$RUNNER_TEMP/canary-app" "$RUNNER_TEMP/canary-mount"; do
+            [ -d "$root" ] || continue
+            find "$root" -type d -name '*.app' -print0 2>/dev/null \
+              | while IFS= read -r -d '' bundle; do "$lsregister" -u "$bundle" >/dev/null 2>&1 || true; done
+          done
+          rm -rf "$RUNNER_TEMP/canary-app"
           if [ -d "$RUNNER_TEMP/canary-mount" ]; then
             hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
           fi

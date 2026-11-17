@@ -1252,6 +1252,10 @@ path = "tests/test_nightly_next_canary_cadence.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_canary_unregisters_its_copies.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_canary_feed_origin.py"
 lane = "linux-guard"
 
