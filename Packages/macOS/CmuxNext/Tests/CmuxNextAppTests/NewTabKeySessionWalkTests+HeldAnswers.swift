@@ -1,4 +1,6 @@
+import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextCompat
 @testable import CmuxNextDaemon
 import Foundation
 import Observation
@@ -6,6 +8,7 @@ import Testing
 
 /// The row of the suite for a hold of the New Tab key while the daemon's answers wait (decision of 2026-11-17): a
 /// print of what the keys and the answers write in the pane's tab list and map in its strip, for 3 sizes of the hold.
+/// Also the 2 reports of the places feed's work: in a hold with a view for each page, and in its pass over its list.
 extension NewTabKeySessionWalkTests {
     /// The daemon's side of each creation: it waits here until the test answers it or refuses it.
     @MainActor final class HeldAnswers {
@@ -232,5 +235,98 @@ extension NewTabKeySessionWalkTests {
                 + "(a Debug build, no daemon, no page)")
             #expect(made == keys, "the model: \(keys) New Tab keys added \(made) tabs")
         }
+    }
+
+    /// The times at which the kept rows' feed published its rows, by the test's own clock.
+    @MainActor final class Publications {
+        var times: [ContinuousClock.Instant] = []
+    }
+
+    /// The cost of the kept rows' feed for one title change while no New Tab page is open (decision of 2026-11-17),
+    /// as one print with no bound: (1) the workspaces that the feed's tasks visit (the app's own work counter); (2)
+    /// the time from the change to the feed's next publication of its rows; (3) the time of a copy of the feed's pass.
+    ///
+    /// For (2) the test starts the app's holder itself, with the list and the rows of the app's wiring and with its
+    /// own `changed`, which takes the time of each publication. No page is open, so the app's `changed` has no work
+    /// here. The time has the window's own work for the change in it. The change is in the workspace before the
+    /// shown one, so the feed's compares go almost to the end of its list.
+    ///
+    /// For (3): the time of (2) has the hops between the app's tasks in it, so the test also runs a copy of the feed's
+    /// pass alone (``copyOfTheFeedsPass(_:)``).
+    ///
+    /// This row has no red first: it is a report.
+    @Test func aCopyOfTheFeedsPassAndTheFeedsNextPublicationReportTheirTimesForOneTitleChange() async throws {
+        let work = ObservationWork()
+        try await Self.withPane(feed: false) { start in
+            let services = start.services
+            let published = Publications()
+            try #require(services.newTabPlaces.rows == nil, "setup: a feed of the kept rows ran before the test's own")
+            ObservationWork.$current.withValue(work) {
+                services.newTabPlaces.follow(
+                    list: { [weak services] in services?.machines.allWorkspaces.map(\.0) },
+                    rows: { [weak services] workspace in
+                        services.map { $0.newTabPlaces.mapped(workspace, machine: $0.machines.daemon(holding: workspace)?.machineID) }
+                    },
+                    changed: { published.times.append(ContinuousClock.now) })
+            }
+            await LargeSessionWindowFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
+            let keptCount = services.newTabPlaces.rows?.count ?? -1
+            try #require(keptCount == start.workspaces, "setup: the feed kept the rows of \(keptCount) workspaces, want \(start.workspaces)")
+            let before = published.times.count
+            let terminals = SessionFixtureSize.real.places { $0.isTerminal }
+            let place = try #require(terminals.last(where: { $0.workspace < SessionFixtureSize.real.workspaces }),
+                                     "setup: the session has no terminal before the shown workspace")
+            let surface = LargeSessionWindowFixture.surface(workspace: place.workspace, index: place.index)
+            let store = services.machines.local.store
+            work.reset()
+            let began = ContinuousClock.now
+            store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "kept row", text: "kept row", activity: nil))
+            let applied = String(format: "%.3f", Self.milliseconds(since: began))
+            await LargeSessionWindowFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
+            let after = published.times.dropFirst(before)
+            let first = try #require(after.first, "setup: the feed published nothing after the title change and the drain")
+            let waited = first - began
+            let hops = String(format: "%.3f", Double(waited.components.attoseconds) / 1e15 + Double(waited.components.seconds) * 1e3)
+            let (listed, maps) = (work.byStep["ObservedItems.list"] ?? 0, work.byStep["ObservedItems.map"] ?? 0)
+            let kept = services.newTabPlaces.rows ?? []
+            let at = kept.firstIndex(where: { rows in rows.tabs.contains(where: { $0.title == "kept row" }) })
+            let position = try #require(at, "setup: the kept rows do not have the changed title after the drain")
+            let copy = Self.copyOfTheFeedsPass(services)
+            var report: String = "new tab key, \(start.workspaces) workspaces, no New Tab page open, a title change of one tab in "
+            report += "workspace \(position + 1) of \(kept.count): the feed's tasks visited \(listed) workspaces in passes over the "
+            report += "list and \(maps) in maps, and the feed published \(after.count) times; the store took the change in "
+            report += "\(applied) ms and the feed's first publication came \(hops) ms after the change began (a Debug build, with "
+            report += "the window's own work for the change); a copy of the feed's pass over \(copy.count) workspaces, 5 times, took "
+            report += "\(copy.times) ms (both lists of the copy were equal each time: \(copy.equal); that is the worst case, each "
+            report += "compare goes to the end)"
+            print(report)
+            #expect(copy.count == start.workspaces, "the copy of the feed's pass had \(copy.count) workspaces, want \(start.workspaces)")
+        }
+    }
+
+    /// A copy of the feed's pass over its list after one change, 5 times, each with its time by the test's own
+    /// clock: the feed's steps on the same list with each workspace watched (the items of every workspace, 2 compares
+    /// of the whole list, the compare of the folders). Limit: both lists of the copy are equal, so each compare goes
+    /// to the end (the worst case); the feed's own compares stop at the workspace that changed.
+    static func copyOfTheFeedsPass(_ services: AppServices) -> (count: Int, times: String, equal: Bool) {
+        let holder = services.newTabPlaces
+        let models = services.machines.allWorkspaces.map(\.0)
+        let copy = ObservedItems<WorkspaceModel, NewTabPlaces.Rows>(item: { holder.mapped($0, machine: nil) }, same: { $0 == $1 },
+                                                                    changedItem: { _ in })
+        defer { copy.cancelAll() }
+        let first = copy.items(for: models, id: { "\(ObjectIdentifier($0))" })
+        var times: [String] = []
+        var equal = true
+        for _ in 0..<5 {
+            let began = ContinuousClock.now
+            let again = copy.items(for: models, id: { "\(ObjectIdentifier($0))" })
+            let differs = again != first || first != again
+            let folders = zip(first, again).contains(where: { $0.folders != $1.folders })
+            times.append(String(format: "%.3f", Self.milliseconds(since: began)))
+            equal = equal && !differs && !folders
+        }
+        return (first.count, times.joined(separator: ", "), equal)
     }
 }
