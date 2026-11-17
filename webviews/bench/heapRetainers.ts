@@ -7,7 +7,14 @@
 /// <reference types="bun" />
 import type { Snapshot } from "./heapProbe";
 
-export type Retainers = { total: number; byClass: Map<string, { count: number; self: number }>; lines: string[] };
+export type Retainers = {
+  total: number;
+  byClass: Map<string, { count: number; self: number }>;
+  /// Self size by where it is held: the shortest path from the roots up to the first collection on it (an array's
+  /// element, a Map's or Set's table), so a record in `client.events` is counted as `...client.events[]`.
+  byPlace: Map<string, { count: number; self: number }>;
+  lines: string[];
+};
 
 export function retainers(s: Snapshot, { minBytes = 512 * 1024, depth = 14 } = {}): Retainers {
   const { nodes, edges, strings, nf, ef, nodeTypes, edgeTypes } = s;
@@ -148,7 +155,60 @@ export function retainers(s: Snapshot, { minBytes = 512 * 1024, depth = 14 } = {
     byClass.set(key, row);
     total += selfOf(v);
   }
-  return { total, byClass, lines };
+  // Shortest paths from the root (breadth first, weak edges left out), and each node's place on it.
+  const synthetic = nodeTypes.indexOf("synthetic");
+  const placeOf = new Int32Array(n).fill(-1);
+  const prefix: (string | undefined)[] = new Array(n);
+  const placeNames: string[] = [];
+  const placeIds = new Map<string, number>();
+  const placeId = (name: string) => {
+    let id = placeIds.get(name);
+    if (id === undefined) {
+      id = placeNames.length;
+      placeNames.push(name);
+      placeIds.set(name, id);
+    }
+    return id;
+  };
+  const queue = new Int32Array(n);
+  const reached = new Uint8Array(n);
+  let head = 0;
+  let tail = 0;
+  queue[tail++] = 0;
+  reached[0] = 1;
+  prefix[0] = "";
+  while (head < tail) {
+    const v = queue[head++]!;
+    for (let e = firstEdge[v]!; e < firstEdge[v + 1]!; e += ef) {
+      if (edges[e] === weak) continue;
+      const w = target(e);
+      if (reached[w]) continue;
+      reached[w] = 1;
+      queue[tail++] = w;
+      if (placeOf[v] >= 0) {
+        placeOf[w] = placeOf[v]!;
+        continue;
+      }
+      if (nodes[v * nf] === synthetic) {
+        prefix[w] = nodes[w * nf] === synthetic ? "" : label(w).slice(0, 50);
+        continue;
+      }
+      const at = prefix[v] ?? "";
+      if (elementLike.has(edges[e]!) || at.split(".").length > 10) placeOf[w] = placeId(`${at}[]`);
+      else prefix[w] = `${at}.${edgeName(e).slice(0, 30)}`;
+    }
+    prefix[v] = undefined;
+  }
+  const byPlace = new Map<string, { count: number; self: number }>();
+  for (let v = 0; v < n; v++) {
+    if (!reached[v]) continue;
+    const key = placeOf[v]! >= 0 ? placeNames[placeOf[v]!]! : "(own)";
+    const row = byPlace.get(key) ?? { count: 0, self: 0 };
+    row.count += 1;
+    row.self += selfOf(v);
+    byPlace.set(key, row);
+  }
+  return { total, byClass, byPlace, lines };
 }
 
 /// The dominator tree, and self size by class against `base` (another launch's snapshot) when there is one.
@@ -163,6 +223,17 @@ export function printRetainers(label: string, s: Snapshot, base?: Retainers): Re
   rows.sort((a, b) => b.dSelf - a.dSelf);
   console.log(`heap-retainers ${label}: self size by class${base ? " over the base launch" : ""} (MB, count):`);
   for (const row of rows.slice(0, 30))
+    console.log(
+      `  ${(row.dSelf / 1048576).toFixed(2).padStart(8)} MB ${String(row.dCount).padStart(9)}  ${row.key}` +
+        (base ? `  (of ${(row.self / 1048576).toFixed(2)} MB, ${row.count})` : ""),
+    );
+  const places = [...r.byPlace].map(([key, v]) => {
+    const b = base?.byPlace.get(key);
+    return { key, ...v, dCount: v.count - (b?.count ?? 0), dSelf: v.self - (b?.self ?? 0) };
+  });
+  places.sort((a, b) => b.dSelf - a.dSelf);
+  console.log(`heap-retainers ${label}: self size by place${base ? " over the base launch" : ""} (MB, count):`);
+  for (const row of places.slice(0, 40))
     console.log(
       `  ${(row.dSelf / 1048576).toFixed(2).padStart(8)} MB ${String(row.dCount).padStart(9)}  ${row.key}` +
         (base ? `  (of ${(row.self / 1048576).toFixed(2)} MB, ${row.count})` : ""),
