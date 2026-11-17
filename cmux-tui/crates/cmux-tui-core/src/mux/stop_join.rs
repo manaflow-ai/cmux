@@ -28,9 +28,16 @@ use super::Mux;
 /// How long one join of a stop waits for its thread's end.
 pub(crate) const STOP_JOIN_WAIT: Duration = Duration::from_secs(2);
 
-/// How often a bounded join looks at its thread: a thread's handle has no
-/// join with a bound, and a look is one atomic read.
+/// The longest time between two looks of a bounded wait at its thread: a
+/// thread's handle has no join with a bound, and a look is one atomic read.
 const LOOK_EVERY: Duration = Duration::from_millis(2);
+
+/// The time from the first look of a bounded join to its second look. The
+/// time between two looks doubles from here up to [`LOOK_EVERY`], so a
+/// thread that ends a short time after the first look does not keep its
+/// stop for the whole of [`LOOK_EVERY`]. A join with no bound returns at the
+/// thread's end.
+const SECOND_LOOK_AFTER: Duration = Duration::from_micros(50);
 
 /// A thread that a bounded join left alive.
 struct Left {
@@ -50,6 +57,7 @@ fn list() -> MutexGuard<'static, Vec<Left>> {
 
 /// Wait until `deadline` for `thread`'s end. True when the thread ended.
 pub(crate) fn ended_by<T>(thread: &JoinHandle<T>, deadline: Instant) -> bool {
+    let mut look_after = SECOND_LOOK_AFTER;
     loop {
         if thread.is_finished() {
             return true;
@@ -57,7 +65,8 @@ pub(crate) fn ended_by<T>(thread: &JoinHandle<T>, deadline: Instant) -> bool {
         if Instant::now() >= deadline {
             return false;
         }
-        std::thread::sleep(LOOK_EVERY);
+        std::thread::sleep(look_after);
+        look_after = look_after.saturating_mul(2).min(LOOK_EVERY);
     }
 }
 
