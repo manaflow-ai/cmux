@@ -376,6 +376,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPhoneAccess",
                 "CmuxNextPopups",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextQuit",
                 "CmuxNextRemote",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextRemoteFetch",
@@ -1246,6 +1247,26 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The quit's domain (architecture-refactor-DESIGN.md section 4, "CmuxNextQuit (new, domain)"): the quit
+        // rules' App side (QuitPolicy) and the background ready copy (app.backgroundReady, off by default),
+        // whose decisions are cmux-background-ready's over the app FFI (CCmuxAppFFI). ui while it orders
+        // windows (Design) and reads the updater's flow (Updater).
+        .target(
+            name: "CmuxNextQuit",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextActions",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
+                "CmuxNextUpdater",
+                "CmuxNextWakeups",
+            ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
@@ -2675,6 +2696,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextQuit",
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextRemoteViewSessions",

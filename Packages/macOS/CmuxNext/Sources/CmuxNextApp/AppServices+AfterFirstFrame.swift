@@ -55,7 +55,7 @@ extension AppServices {
     func startLaterTabWarmups() {
         AgentPaneView.startWarmup()
         DebugTimings.markLaunch("launch.agent_page_warmup")
-        if !crashRecovery.recovery.isSafeRestart { startChromiumWarmup() }
+        if !crashRecovery.recovery.isSafeRestart, !backgroundReady.chromiumWarmupDeferred { startChromiumWarmup() }  // a hidden start warms at its show
         newTabSpares.start()
         pageHostPool.start(
             isMainWindow: { [weak self] window in

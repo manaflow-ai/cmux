@@ -29,6 +29,8 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
     /// What keeps the Mac awake now, nil while nothing does: `KeepAwakeService` sets it each time its
     /// hold starts, ends or changes why, and the menu's Keeping Mac awake line reads it on open.
     public var keepingAwake: MenuBarMenuState.KeepingAwake?
+    /// `app.backgroundReady` is on: the menu offers Quit Completely after Quit (the App sets it as the setting changes).
+    public var offersQuitCompletely = false
 
     /// - Parameters:
     ///   - registry: Runs every row.
@@ -151,6 +153,6 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
                                 showsGlobalKey: host.menuBarShowsGlobalKey,
                                 computerUse: host.menuBarComputerUseAvailable ? .init(session: computerUseSession) : nil,
                                 unread: .init(host.menuBarUnread), running: .init(host.menuBarRunning),
-                                keepingAwake: keepingAwake)
+                                keepingAwake: keepingAwake, quitCompletely: offersQuitCompletely)
     }
 }
