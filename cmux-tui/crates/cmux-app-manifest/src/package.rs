@@ -157,11 +157,24 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
     out
 }
 
+/// `dir/rel` resolved through symlinks, only when it stays under `dir`
+/// resolved the same way: an extension cannot point its catalog at a file
+/// outside its own folder (the check `Package::read` made before the
+/// fragment was kept here).
+fn inside(dir: &Path, rel: &str) -> Option<std::path::PathBuf> {
+    let root = dir.canonicalize().ok()?;
+    let path = dir.join(rel).canonicalize().ok()?;
+    path.starts_with(&root).then_some(path)
+}
+
 /// The catalog fragment, parsed, and its issues.
 fn catalog_file(dir: &Path, m: &Value) -> (Option<Value>, Vec<Issue>) {
     let Some(rel) = m["catalog"].as_str() else { return (None, Vec::new()) };
-    let parsed = read_limited(&dir.join(rel), CATALOG_LIMIT)
-        .ok_or_else(|| format!("{rel} cannot be read"))
+    let parsed = inside(dir, rel)
+        .ok_or_else(|| format!("{rel} is not a file inside the package"))
+        .and_then(|path| {
+            read_limited(&path, CATALOG_LIMIT).ok_or_else(|| format!("{rel} cannot be read"))
+        })
         .and_then(|raw| {
             if raw.len() as u64 > CATALOG_LIMIT {
                 return Err(format!("{rel} is larger than {} KiB", CATALOG_LIMIT >> 10));
