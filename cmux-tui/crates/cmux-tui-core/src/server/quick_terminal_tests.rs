@@ -524,7 +524,7 @@ fn a_public_pane_split_can_not_carry_the_frame_of_a_quick_terminal() {
     let error = crate::resource_router::handle_resource_message(&wire.mux, &request)
         .expect_err("a public split with the frame of a quick terminal was taken");
     assert_eq!(error.code, "validation.invalid", "{error:?}");
-    assert!(format!("{error:?}").contains("quick_terminal_frame"), "{error:?}");
+    assert_eq!(error.message, "request contains unknown parameters", "{error:?}");
     assert_eq!(wire.panes().len(), panes.len(), "no new pane");
     assert!(wire.floating().is_empty());
     assert_eq!(wire.mark(), Value::Null);
