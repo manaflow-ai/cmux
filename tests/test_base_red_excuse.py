@@ -2998,7 +2998,9 @@ class WebShardBaseVerdict(unittest.TestCase):
                 gh = self.red_web_status(WebShardBaseGitHub())
                 text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks))
                 self.assertIn(f"excused '{WEB_SHARD}'", text)
-                self.assertNotIn(f"'{WEB_STATUS}'", text)
+                # Named by its own line, after the shard it rolls up (run_rollup_line, hq#12466).
+                self.assertIn(f"excused '{WEB_STATUS}': its jobs are excused (run 10 job 5: a rollup of the failed "
+                              f"jobs under its needs, each judged above: '{WEB_SHARD}'", text)
 
     def test_a_red_web_status_with_one_shard_not_red_on_the_base_blocks(self):
         other = WEB_SHARD.replace("(1/4)", "(2/4)")
