@@ -86,7 +86,7 @@ function SceneSymbols({ set = "weather" }: { set?: SymbolSet }) {
       style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fill, minmax(116px, 1fr))",
-        gap: 10,
+        gap: 12,
         padding: 12,
       }}
     >
@@ -95,13 +95,15 @@ function SceneSymbols({ set = "weather" }: { set?: SymbolSet }) {
           key={name}
           data-symbol={name}
           data-icon-name={appSceneIcon(name)}
-          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}
+          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}
         >
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <SceneSymbol symbol={name} size={16} />
             <SceneSymbol symbol={name} size={28} />
           </div>
-          <span style={{ fontSize: 10, opacity: 0.7, textAlign: "center", wordBreak: "break-all" }}>{name}</span>
+          <span style={{ fontSize: "var(--text-caption)", opacity: 0.7, textAlign: "center", wordBreak: "break-all" }}>
+            {name}
+          </span>
         </div>
       ))}
     </div>
