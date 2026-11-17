@@ -22,7 +22,13 @@ const run = (id: string, at: number): AcpmuxRow =>
     at,
     kind: "activity",
     toolCount: 1,
-    items: [{ id: `${id}-call`, tool: { title: "ls", kind: "execute", status: "completed", command: "ls" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "ls",
+        tool: { id: `${id}-call`, title: "ls", kind: "execute", status: "completed", command: "ls" },
+      },
+    ],
   }) as AcpmuxRow;
 
 /// A wake the agent answered with one command and no words: a hidden prompt, or another agent's message.

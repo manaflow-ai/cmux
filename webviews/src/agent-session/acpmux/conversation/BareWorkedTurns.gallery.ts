@@ -58,7 +58,10 @@ const openWorked: Play = async (ctx) => {
     [...ctx.document.querySelectorAll<HTMLElement>(".cv-worked")].find((line) => line.textContent?.includes("3m 22s"));
   if (joined()?.getAttribute("aria-expanded") !== "false") return;
   await ctx.click({ text: /Worked for 3m 22s/ });
-  await ctx.waitFor(() => joined()?.getAttribute("aria-expanded") === "true", { capMs: 10_000 });
+  // Opened, the line becomes its first turn's own; the last wake's own line opens with it.
+  await ctx.waitFor(() => !joined() && Boolean(ctx.document.body.textContent?.includes("gh pr checks 44890")), {
+    capMs: 10_000,
+  });
 };
 
 const variant = (note: string, family: string, play?: Play): AgentPaneVariant => ({
