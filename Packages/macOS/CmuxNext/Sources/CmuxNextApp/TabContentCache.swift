@@ -416,6 +416,7 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
         pageRequests.routeOmnibarOpens(of: entry.state, page: page)
+        pageRequests.followSiteEngines(of: entry.state, page: page)
         mount(entry, as: key)
         return entry
     }
