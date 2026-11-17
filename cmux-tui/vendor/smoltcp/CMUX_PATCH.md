@@ -64,13 +64,17 @@ out-of-order segment past its fourth hole.
 
 CUBIC tells random loss from congestion. Before a fast retransmit or a SACK
 episode cuts, the socket asks `Controller::loss_is_congestion`. CUBIC answers
-no when the smoothed RTT is within min RTT / β of the smallest RTT sample (no
-standing queue) and losses are sparse: the average loss interval (RFC 5348's
+no when three things hold. No queue: neither the smoothed RTT nor the newest
+sample is past min RTT / β (one segment is timed per round trip and srtt moves
+1/8 a sample, so a queue slow start built shows in the newest sample about
+eight round trips before srtt). Sparse: the average loss interval (RFC 5348's
 loss event rate, smoothed 3/4 old, 1/4 new) is at least 50 segments, the 2%
-loss BBRv2 tolerates; the first loss has no history and is judged by the RTT
-alone. A random loss is resent and cuts nothing. A shallow-buffer bottleneck
-that drops without delaying pulls the average under 50 within about ten
-losses and is cut as usual. RTOs still cut. Every cut, an RTO's included, has
+loss BBRv2 tolerates. Late: the loss came more than two flights after the
+last one; a random loss arrives after some number of segments whatever the
+window, while a bottleneck left uncut drops again within a flight and slow
+start's first loss comes about one flight in. That last test is what catches
+a shallow buffer, whose queue is too short to show in the RTT. A random loss
+is resent and cuts nothing. RTOs still cut. Every cut, an RTO's included, has
 a floor (Westwood+, Mascolo et al. 2001; Linux `tcp_westwood`): ssthresh is
 `max(β × flight, rate × min RTT)`, capped at the window, where `rate` is the
 delivery rate (bytes ACKed per smoothed round trip, smoothed 7/8 old, 1/8
@@ -84,7 +88,11 @@ to 41 frames a second are on time, the head-of-line floor of one ordered
 stream (with congestion control off it measured 41.9). `path_changed()`
 forgets the minimum RTT, so the old route's round trip is no floor for the
 new one. The detectors are `random_loss_keeps_the_delivered_window`,
-`queue_loss_still_cuts` and `sparse_random_loss_is_not_congestion`.
+`queue_loss_still_cuts`, `slow_start_overshoot_cuts_before_srtt_catches_up`,
+`loss_within_two_flights_is_congestion` and
+`sparse_random_loss_is_not_congestion`, and the bottleneck rows of the PR that
+added them (cmux#45105): without the newest sample and the two-flight test,
+bulk on a 20 Mbit/s, 50 ms bottleneck fell from 4 to 10 Mbit/s to under 1.2.
 
 `Socket::path_changed()` is for a tunnel whose route under the connection
 changed (cmux-wg calls it when its multipath underlay leaves the path that
