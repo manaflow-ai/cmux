@@ -107,6 +107,11 @@ frames_main() {
   # The pixels come from CuaDriver, the recorder the fleet grants Screen Recording to (a binary compiled here never holds
   # that grant); the marker and the decoder below need none.
   [ -x /Applications/CuaDriver.app/Contents/MacOS/cua-driver ] || { echo "TSW no CuaDriver on this Mac: cannot record"; exit 3; }
+  # Before the build, as the console user the harness records as: a Mac whose CuaDriver cannot start or has no Screen
+  # Recording grant exits 3 in seconds, not after an hour-long build on an exclusive display worker (2026-11-16:
+  # three display Macs built every pull request's app, then died in cua-driver's `initialize`).
+  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" \
+    preflight || exit 3
   swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
   [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
   local app_args=() label=""
@@ -125,12 +130,14 @@ frames_main() {
   else
     local src="$root"
     if [[ "$build" != head && "$build" != "$(git rev-parse HEAD)" ]]; then
-      # The warm checkout has no origin: the commit comes from the explicit URL.
+      # The warm checkout has no origin: the commit comes from the explicit URL. Never into submodules: a warm
+      # checkout whose ghostty an earlier build populated made git fetch ghostty's new pointer too, which GitHub
+      # refuses ("upload-pack: not our ref"), so every step on two display Macs exited 3 (2026-11-16).
       git cat-file -e "$build^{commit}" 2>/dev/null \
-        || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$build" \
+        || git -c submodule.recurse=false fetch --quiet --no-recurse-submodules https://github.com/manaflow-ai/cmux.git "$build" \
         || { echo "TSW cannot fetch $build" >&2; exit 3; }
       src="$tmp/src"
-      git worktree add --quiet --detach "$src" "$build" || exit 3
+      git -c submodule.recurse=false worktree add --quiet --detach "$src" "$build" || exit 3
     fi
     label="$(git -C "$src" rev-parse HEAD)"
     local configuration=(--release)

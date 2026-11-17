@@ -49,6 +49,7 @@ use crate::{Customize, Error, validate};
 pub mod code;
 pub mod keys;
 pub mod overlay;
+mod put;
 pub mod recover;
 mod text;
 
@@ -121,8 +122,7 @@ impl Entry {
             }
     }
 
-    /// The layer folder this entry serves while it is on and on top, when it
-    /// has a web part.
+    /// The layer folder this entry serves while it is on and on top, when it has a web part.
     fn web_layer(&self) -> Option<&CodeLayer> {
         self.code.as_ref().filter(|code| code.has_web())
     }
