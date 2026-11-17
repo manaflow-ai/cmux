@@ -1,5 +1,5 @@
-//! Measured, held wire-rate policy. Random loss buys parity within the budget;
-//! only a standing queue reduces the wire rate.
+//! Measured, held wire-rate policy. Only a standing queue reduces the wire rate;
+//! parity and recovery policy are owned by their respective transport lanes.
 
 use crate::profile::ULTRA_MAX_KBPS;
 
@@ -29,7 +29,6 @@ pub(super) struct UltraState {
     pub config: UltraConfig,
     pub capacity_bps: Option<u64>,
     pub wire_bps: u64,
-    pub loss: f64,
     base_delay_us: Option<i64>,
     last_delay_us: Option<i64>,
     last_send_us: Option<u64>,
@@ -46,16 +45,6 @@ impl UltraState {
             let usable = (u128::from(capacity) * 4 / 5) as u64;
             usable.min(self.config.max_wire_bps).min(path_ceiling).max(1)
         })
-    }
-
-    pub fn fec_ratio(&self) -> f64 {
-        // A full loss report can request two parity bytes per source byte. The
-        // packetizer still enforces the maximum total shards in a FEC block.
-        (2.0 * self.loss).clamp(0.1, 2.0)
-    }
-
-    pub fn media_bps(&self) -> u64 {
-        (self.wire_bps as f64 / (1.0 + self.fec_ratio())) as u64
     }
 
     pub fn reset_path(&mut self) {

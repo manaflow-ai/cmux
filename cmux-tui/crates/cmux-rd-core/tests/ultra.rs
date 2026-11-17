@@ -21,14 +21,13 @@ fn standard_remains_default_and_does_not_adopt_probe_capacity() {
     assert_eq!(cc.profile(), EncodeProfile::Standard);
     cc.on_probe_capacity(cc.probe_generation(), 1_000_000_000);
     assert_eq!(cc.target_bps(), CcConfig::default().start_bps);
-    assert_eq!(cc.ultra_fec_ratio(), None);
 }
 
 #[test]
 fn ultra_uses_measured_capacity_and_configurable_wire_ceiling() {
     let mut cc = ultra();
     assert_eq!(cc.wire_budget_bps(), 150_000_000);
-    assert!(cc.target_bps() < cc.wire_budget_bps(), "parity fits inside wire budget");
+    assert!(cc.target_bps() <= cc.wire_budget_bps());
     cc.configure_ultra(UltraConfig { max_wire_bps: 120_000_000, ..UltraConfig::default() });
     cc.on_probe_capacity(cc.probe_generation(), 100_000_000);
     assert_eq!(cc.wire_budget_bps(), 80_000_000);
@@ -36,20 +35,6 @@ fn ultra_uses_measured_capacity_and_configurable_wire_ceiling() {
     assert_eq!(cc.wire_budget_bps(), 120_000_000);
     cc.on_probe_capacity(cc.probe_generation(), 0);
     assert_eq!(cc.wire_budget_bps(), 120_000_000, "invalid probe is ignored");
-}
-
-#[test]
-fn ultra_loss_buys_parity_without_cutting_or_exceeding_wire_rate() {
-    let mut cc = ultra();
-    for (i, loss) in [0.0, 0.02, 0.2, 0.5, 1.0].into_iter().enumerate() {
-        feedback(&mut cc, i as u16, i as u64 * 50_000, 20_000, loss);
-        assert_eq!(cc.wire_budget_bps(), 150_000_000);
-        let ratio = cc.ultra_fec_ratio().unwrap();
-        assert!((ratio - (loss * 2.0).max(0.1)).abs() < 1e-9);
-        assert!(cc.target_bps() as f64 * (1.0 + ratio) <= cc.wire_budget_bps() as f64);
-    }
-    cc.on_feedback(&[], f64::NAN, 1_000_000);
-    assert_eq!(cc.ultra_fec_ratio(), Some(2.0), "invalid loss cannot erase evidence");
 }
 
 #[test]

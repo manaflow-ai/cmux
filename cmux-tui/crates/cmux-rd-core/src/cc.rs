@@ -399,15 +399,10 @@ impl CongestionController {
         true
     }
 
-    /// Total departure budget, including FEC, repairs and probes. Standard
-    /// retains its existing pacer policy; ultra uses this as a strict ceiling.
+    /// Total departure budget for the strict Ultra pacer. Repairs and probes
+    /// are charged by the pacer; parity is owned by the FEC lane.
     pub fn wire_budget_bps(&self) -> u64 {
         if self.profile == EncodeProfile::Ultra { self.ultra.wire_bps } else { self.target_bps }
-    }
-
-    /// Ultra parity/source byte ratio. Standard's existing loss policy owns FEC.
-    pub fn ultra_fec_ratio(&self) -> Option<f64> {
-        (self.profile == EncodeProfile::Ultra).then(|| self.ultra.fec_ratio())
     }
 
     fn ultra_path_ceiling(&self) -> u64 {
@@ -600,9 +595,6 @@ impl CongestionController {
             }
         }
         if self.profile == EncodeProfile::Ultra {
-            if loss.is_finite() {
-                self.ultra.loss = loss.clamp(0.0, 1.0);
-            }
             if has_samples {
                 self.update_ultra(now_us);
             }
@@ -729,7 +721,7 @@ impl CongestionController {
                 .held_wire_bps(self.ultra_path_ceiling())
                 .unwrap_or_else(|| self.ultra_path_ceiling());
             self.ultra.wire_bps = self.ultra.wire_bps.clamp(1, ceiling);
-            self.target_bps = self.ultra.media_bps().max(1);
+            self.target_bps = self.ultra.wire_bps.max(1);
             return;
         }
         let max = if self.path == PathKind::DoRelay {
