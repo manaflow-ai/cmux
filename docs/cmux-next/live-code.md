@@ -212,3 +212,11 @@ it when it starts watching); without it the rebind of the app's symbol pointers 
 
 What it costs and saves, measured by `scripts/measure/ios-live-code.py` (an edit saved to the
 edit's color in the simulator's screenshot) on a fleet Mac:
+
+| Edit saved -> visible (6 edits, iPhone 17 Pro, iOS 26.5) | p50 | min | max |
+|---|---|---|---|
+| `ios-sim.sh patch` (patch.py compiles the file; load and repoint 40-62 ms) | 1.9 s | 1.5 s | 2.2 s |
+| warm incremental xcodebuild + `simctl install` + relaunch | 15.9 s | 13.1 s | 23.2 s |
+
+The live code build itself takes about 2.5 minutes from an empty DerivedData (both passes, `-jobs 6`).
+The app it makes is 190 MB and exports 79,324 interposable symbols.
