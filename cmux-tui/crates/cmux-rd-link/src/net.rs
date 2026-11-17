@@ -22,13 +22,16 @@
 use crate::endpoint::{Endpoint, EndpointEvent, MAX_PATHS, Route};
 use crate::turn::{TurnClient, TurnEvent, TurnReceive};
 use crate::{KeyPair, LinkError, Role};
+use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
+use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Instant;
 
@@ -165,20 +168,143 @@ enum Command {
     RemoteCandidate(Candidate),
     StunLater(Later<SocketAddr>),
     TurnLater(Later<TurnServer>),
-    Datagram(Vec<u8>),
     Control(Vec<u8>),
+    Datagram(Vec<u8>),
     NetworkChange,
     Close,
 }
 
+/// A complete encoded media frame waiting for the link thread.
+struct MediaFrame {
+    datagrams: Vec<Vec<u8>>,
+    /// Protected frames (keyframe, recovery or repair) must never be evicted.
+    droppable: bool,
+}
+
+/// The link queue keeps at most one frame being drained plus one waiting. A
+/// new droppable frame replaces the waiting frame, so media never waits behind
+/// an unbounded burst while control traffic continues to use the lossless
+/// command channel. Protected frames may exceed this bound until they drain.
+const MAX_WAITING_MEDIA_FRAMES: usize = 1;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NetStats {
+    pub departure_overflows: u64,
+    pub queue_frames: usize,
+    pub queue_datagrams: usize,
+    pub dropped_frames: u64,
+    pub dropped_datagrams: u64,
+    pub dropped_replaced_frames: u64,
+    pub dropped_replaced_datagrams: u64,
+    pub dropped_evicted_for_protected_frames: u64,
+    pub dropped_evicted_for_protected_datagrams: u64,
+    pub dropped_rejected_protected_frames: u64,
+    pub dropped_rejected_protected_datagrams: u64,
+}
+
+#[derive(Clone, Copy)]
+enum DropReason {
+    Replaced,
+    EvictedForProtected,
+    RejectedProtected,
+}
+
+#[derive(Default)]
+struct MediaQueue {
+    // A droppable frame can only be the sole pending frame. Protected arrivals
+    // evict it, and droppable arrivals cannot join a protected backlog.
+    frames: VecDeque<MediaFrame>,
+    queued_datagrams: usize,
+    dropped_frames: u64,
+    dropped_datagrams: u64,
+    dropped_replaced_frames: u64,
+    dropped_replaced_datagrams: u64,
+    dropped_evicted_for_protected_frames: u64,
+    dropped_evicted_for_protected_datagrams: u64,
+    dropped_rejected_protected_frames: u64,
+    dropped_rejected_protected_datagrams: u64,
+}
+
+impl MediaQueue {
+    fn push(&mut self, datagrams: MediaFrame) {
+        if datagrams.datagrams.is_empty() {
+            return;
+        }
+        if datagrams.droppable {
+            if self.frames.front().is_some_and(|frame| frame.droppable) {
+                if let Some(old) = self.pop() {
+                    self.record_drop(old, DropReason::Replaced);
+                }
+            } else if self.frames.len() >= MAX_WAITING_MEDIA_FRAMES {
+                // Protected frames are never evicted. The newest droppable
+                // frame is rejected until one of them leaves the queue.
+                self.record_drop(datagrams, DropReason::RejectedProtected);
+                return;
+            }
+        } else if self.frames.front().is_some_and(|frame| frame.droppable) {
+            if let Some(old) = self.pop() {
+                self.record_drop(old, DropReason::EvictedForProtected);
+            }
+        }
+        self.queued_datagrams += datagrams.datagrams.len();
+        self.frames.push_back(datagrams);
+    }
+
+    fn pop(&mut self) -> Option<MediaFrame> {
+        let frame = self.frames.pop_front()?;
+        self.queued_datagrams -= frame.datagrams.len();
+        Some(frame)
+    }
+
+    fn stats(&self) -> NetStats {
+        NetStats {
+            departure_overflows: 0,
+            queue_frames: self.frames.len(),
+            queue_datagrams: self.queued_datagrams,
+            dropped_frames: self.dropped_frames,
+            dropped_datagrams: self.dropped_datagrams,
+            dropped_replaced_frames: self.dropped_replaced_frames,
+            dropped_replaced_datagrams: self.dropped_replaced_datagrams,
+            dropped_evicted_for_protected_frames: self.dropped_evicted_for_protected_frames,
+            dropped_evicted_for_protected_datagrams: self.dropped_evicted_for_protected_datagrams,
+            dropped_rejected_protected_frames: self.dropped_rejected_protected_frames,
+            dropped_rejected_protected_datagrams: self.dropped_rejected_protected_datagrams,
+        }
+    }
+
+    fn record_drop(&mut self, frame: MediaFrame, reason: DropReason) {
+        let datagrams = u64::try_from(frame.datagrams.len()).unwrap_or(u64::MAX);
+        self.dropped_frames = self.dropped_frames.saturating_add(1);
+        self.dropped_datagrams = self.dropped_datagrams.saturating_add(datagrams);
+        let (frames, packets) = match reason {
+            DropReason::Replaced => {
+                (&mut self.dropped_replaced_frames, &mut self.dropped_replaced_datagrams)
+            }
+            DropReason::EvictedForProtected => (
+                &mut self.dropped_evicted_for_protected_frames,
+                &mut self.dropped_evicted_for_protected_datagrams,
+            ),
+            DropReason::RejectedProtected => (
+                &mut self.dropped_rejected_protected_frames,
+                &mut self.dropped_rejected_protected_datagrams,
+            ),
+        };
+        *frames = frames.saturating_add(1);
+        *packets = packets.saturating_add(datagrams);
+    }
+}
+
 /// A running driver. Dropping it closes the link and stops the thread.
 pub struct Net {
+    departures: mpsc::Receiver<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
     command_wake: Pipe,
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
+    media_queue: Arc<Mutex<MediaQueue>>,
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -341,12 +467,19 @@ impl Net {
         endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let (departure_tx, departure_rx) = mpsc::sync_channel(MAX_DEPARTURE_RECEIPTS);
+        let departure_overflows = Arc::new(AtomicU64::new(0));
+        let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
+            departures: departure_tx,
+            departure_overflows: Arc::clone(&departure_overflows),
+            departure_wake: false,
             socket,
             endpoint,
             commands: command_rx,
+            media_queue: Arc::clone(&media_queue),
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
@@ -396,12 +529,15 @@ impl Net {
             .spawn(move || driver.run())
             .map_err(|e| LinkError::Io(e.to_string()))?;
         Ok(Self {
+            departures: departure_rx,
+            departure_overflows,
             commands: command_tx,
             events: event_rx,
             command_wake,
             event_wake,
             thread: Some(thread),
             local_addr,
+            media_queue,
         })
     }
 
@@ -449,6 +585,32 @@ impl Net {
     /// One rd datagram, sealed and sent on the current path (best effort).
     pub fn send_datagram(&self, datagram: Vec<u8>) {
         self.command(Command::Datagram(datagram));
+    }
+
+    /// Queues one complete encoded frame. If a frame is already pending, it
+    /// is evicted as a whole so no stale fragments survive into the next one.
+    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>, droppable: bool) {
+        if let Ok(mut queue) = self.media_queue.lock() {
+            queue.push(MediaFrame { datagrams, droppable });
+        }
+        self.command_wake.wake();
+    }
+
+    /// Drain at most one bounded batch, without waiting for the driver.
+    pub fn drain_departures(&self, out: &mut Vec<DatagramDeparture>) {
+        out.extend(self.departures.try_iter().take(MAX_DEPARTURE_RECEIPTS));
+    }
+
+    pub fn departure_overflows(&self) -> u64 {
+        self.departure_overflows.load(Ordering::Relaxed)
+    }
+
+    /// A snapshot of the bounded media queue and its drop counters.
+    pub fn stats(&self) -> NetStats {
+        let mut stats =
+            self.media_queue.lock().map_or_else(|_| NetStats::default(), |queue| queue.stats());
+        stats.departure_overflows = self.departure_overflows();
+        stats
     }
 
     /// One control record (ordered, reliable).
@@ -508,9 +670,13 @@ struct StunQuery {
 }
 
 struct Driver {
+    departures: mpsc::SyncSender<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
+    departure_wake: bool,
     socket: UdpSocket,
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
+    media_queue: Arc<Mutex<MediaQueue>>,
     command_fd: RawFd,
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
@@ -533,6 +699,18 @@ struct Driver {
 }
 
 impl Driver {
+    fn drain_media(&mut self, now: u64) -> Result<(), LinkError> {
+        if !self.endpoint.link().is_established() {
+            return Ok(());
+        }
+        let frame = self.media_queue.lock().ok().and_then(|mut queue| queue.pop());
+        let Some(frame) = frame else { return Ok(()) };
+        for datagram in frame.datagrams {
+            self.send_media_datagram(&datagram, now)?;
+        }
+        Ok(())
+    }
+
     fn emit(&self, event: NetEvent) {
         if let NetEvent::Candidate(c) = &event {
             let mut gathered = self.gathered.get();
@@ -548,23 +726,47 @@ impl Driver {
         }
     }
 
-    fn send(&mut self, route: Route, packet: &[u8], now: u64) {
-        match route {
-            Route::Udp(addr) => {
-                let _ = self.socket.send_to(packet, addr);
-            }
-            Route::Relay { relay, peer } => {
-                let Some(r) = self.relays.get_mut(usize::from(relay)) else { return };
-                if let Some(wrapped) = r.client.send(peer, packet, now) {
-                    let _ = self.socket.send_to(&wrapped, r.server);
+    fn send_media_datagram(&mut self, datagram: &[u8], now: u64) -> Result<(), LinkError> {
+        // Preserve identity before sealing; never infer departure from enqueue.
+        let header = DatagramHeader::decode(datagram).ok().map(|(header, _)| header);
+        for transmit in self.endpoint.send_datagram(datagram)? {
+            if let Some((departed_us, wire_bytes)) =
+                self.send(transmit.route, &transmit.packet, now)
+            {
+                if let Some(header) = header.filter(|header| {
+                    matches!(
+                        header.kind,
+                        cmux_rd_proto::DatagramKind::Video
+                            | cmux_rd_proto::DatagramKind::Fec
+                            | cmux_rd_proto::DatagramKind::UpMedia
+                    )
+                }) {
+                    let receipt = DatagramDeparture { header, departed_us, wire_bytes };
+                    if self.departures.try_send(receipt).is_ok() {
+                        self.departure_wake = true;
+                    } else {
+                        self.departure_overflows.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn send(&mut self, route: Route, packet: &[u8], now: u64) -> Option<(u64, usize)> {
+        match route {
+            Route::Udp(addr) => send_to_observed(&self.socket, packet, addr),
+            Route::Relay { relay, peer } => {
+                let r = self.relays.get_mut(usize::from(relay))?;
+                let wrapped = r.client.send(peer, packet, now)?;
+                send_to_observed(&self.socket, &wrapped, r.server)
             }
         }
     }
 
     fn flush(&mut self, now: u64) -> Result<(), LinkError> {
         for t in self.endpoint.poll_transmit(now)? {
-            self.send(t.route, &t.packet, now);
+            let _ = self.send(t.route, &t.packet, now);
         }
         for event in self.endpoint.take_events() {
             self.emit(NetEvent::Endpoint(event));
@@ -734,6 +936,11 @@ impl Driver {
     }
 
     fn deadline_ms(&self, now: u64) -> i32 {
+        if self.endpoint.link().is_established()
+            && self.media_queue.lock().is_ok_and(|queue| !queue.frames.is_empty())
+        {
+            return 0;
+        }
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
         let later =
             (self.stun_later.is_some() || self.turn_later.is_some()).then_some(now + LATER_POLL_US);
@@ -803,14 +1010,13 @@ impl Driver {
                         self.stun_later = (!self.relay_only).then_some(later);
                     }
                     Command::TurnLater(later) => self.turn_later = Some(later),
-                    Command::Datagram(d) => {
+                    Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::Datagram(datagram) => {
+                        // Input, cursor and repair traffic never replaces queued video.
                         if self.endpoint.link().is_established() {
-                            for t in self.endpoint.send_datagram(&d)? {
-                                self.send(t.route, &t.packet, now);
-                            }
+                            self.send_media_datagram(&datagram, now)?;
                         }
                     }
-                    Command::Control(r) => self.endpoint.send_control(r, now)?,
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
@@ -818,7 +1024,7 @@ impl Driver {
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
-                                self.send(t.route, &t.packet, now);
+                                let _ = self.send(t.route, &t.packet, now);
                             }
                         }
                         for r in &mut self.relays {
@@ -872,13 +1078,45 @@ impl Driver {
                     Err(_) => break,
                 }
             }
+            self.flush(now)?;
+            self.drain_media(now)?;
+            if std::mem::take(&mut self.departure_wake) {
+                // One wake per driver turn, not a syscall per media datagram.
+                // SAFETY: one byte to the nonblocking event pipe owned by Net.
+                unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+            }
         }
     }
+}
+
+/// Sample the protocol clock only after the complete payload is accepted.
+fn send_to_observed(socket: &UdpSocket, packet: &[u8], addr: SocketAddr) -> Option<(u64, usize)> {
+    let sent = socket.send_to(packet, addr).ok()?;
+    if sent != packet.len() {
+        return None;
+    }
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: the kernel writes a valid, live timespec; this is the host's clock domain.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
+        return None;
+    }
+    Some((ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000, sent))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn departure_failed_socket_send_has_no_success_timestamp() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert!(send_to_observed(&socket, &[0; 65_536], peer.local_addr().unwrap()).is_none());
+        let (departed, bytes) =
+            send_to_observed(&socket, b"ok", peer.local_addr().unwrap()).unwrap();
+        assert!(departed > 0);
+        assert_eq!(bytes, 2);
+    }
 
     fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
         // SAFETY: the descriptor is open for the borrow of `socket`, and the
@@ -927,5 +1165,73 @@ mod tests {
             [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
         assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
         assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
+    }
+
+    #[test]
+    fn newest_frame_replaces_oldest_as_a_whole() {
+        let mut queue = MediaQueue::default();
+        queue.push(MediaFrame {
+            datagrams: vec![b"old-a".to_vec(), b"old-b".to_vec(), b"old-c".to_vec()],
+            droppable: true,
+        });
+        queue.push(MediaFrame {
+            datagrams: vec![b"new-a".to_vec(), b"new-b".to_vec()],
+            droppable: true,
+        });
+
+        assert_eq!(queue.stats().dropped_frames, 1);
+        assert_eq!(queue.stats().dropped_datagrams, 3);
+        assert_eq!(queue.stats().dropped_replaced_frames, 1);
+        assert_eq!(queue.stats().dropped_replaced_datagrams, 3);
+        assert_eq!(queue.stats().queue_frames, 1);
+        assert_eq!(queue.stats().queue_datagrams, 2);
+        assert_eq!(
+            queue.pop().map(|frame| frame.datagrams),
+            Some(vec![b"new-a".to_vec(), b"new-b".to_vec()])
+        );
+        assert!(queue.pop().is_none(), "old frame fragments must not survive");
+        assert_eq!(queue.stats().queue_datagrams, 0);
+    }
+
+    #[test]
+    fn empty_frame_does_not_consume_capacity_or_count_as_drop() {
+        let mut queue = MediaQueue::default();
+        queue.push(MediaFrame { datagrams: Vec::new(), droppable: true });
+        assert_eq!(queue.stats(), NetStats::default());
+    }
+
+    #[test]
+    fn protected_frames_survive_a_new_protected_frame() {
+        let mut queue = MediaQueue::default();
+        queue.push(MediaFrame { datagrams: vec![b"delta".to_vec()], droppable: true });
+        queue.push(MediaFrame { datagrams: vec![b"key".to_vec()], droppable: false });
+        queue.push(MediaFrame { datagrams: vec![b"recovery".to_vec()], droppable: false });
+
+        assert_eq!(queue.stats().dropped_datagrams, 1);
+        assert_eq!(queue.stats().dropped_evicted_for_protected_frames, 1);
+        assert_eq!(queue.stats().dropped_evicted_for_protected_datagrams, 1);
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"key".to_vec()]));
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"recovery".to_vec()]));
+    }
+
+    #[test]
+    fn droppable_frame_is_rejected_behind_two_protected_frames() {
+        let mut queue = MediaQueue::default();
+        queue.push(MediaFrame { datagrams: vec![b"key".to_vec()], droppable: false });
+        queue.push(MediaFrame { datagrams: vec![b"recovery".to_vec()], droppable: false });
+        queue.push(MediaFrame {
+            datagrams: vec![b"delta".to_vec(), b"fec".to_vec()],
+            droppable: true,
+        });
+
+        let stats = queue.stats();
+        assert_eq!(stats.queue_frames, 2);
+        assert_eq!(stats.queue_datagrams, 2);
+        assert_eq!(stats.dropped_rejected_protected_frames, 1);
+        assert_eq!(stats.dropped_rejected_protected_datagrams, 2);
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"key".to_vec()]));
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"recovery".to_vec()]));
+        assert!(queue.pop().is_none());
+        assert_eq!(queue.stats().queue_datagrams, 0);
     }
 }

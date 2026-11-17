@@ -109,14 +109,27 @@ pub enum DatagramOut {
 
 impl DatagramOut {
     pub fn send<S: Write + AsRawFd>(&self, stream: &mut S, datagram: &[u8]) -> io::Result<()> {
+        self.send_observed(stream, datagram).map(|_| ())
+    }
+
+    /// Bytes accepted by the socket, or None for best-effort buffer loss.
+    pub fn send_observed<S: Write + AsRawFd>(
+        &self,
+        stream: &mut S,
+        datagram: &[u8],
+    ) -> io::Result<Option<usize>> {
         match self {
             DatagramOut::Udp { sock, peer } => match sock.send_to(datagram, peer) {
-                Ok(_) => Ok(()),
-                // A full socket buffer drops the datagram, like loss on the path.
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
+                Ok(n) if n == datagram.len() => Ok(Some(n)),
+                Ok(_) => Ok(None),
+                // Preserve best-effort loss without inventing a successful departure.
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
                 Err(e) => Err(e),
             },
-            DatagramOut::Stream => write_frame(stream, FRAME_DATAGRAM, datagram),
+            DatagramOut::Stream => {
+                write_frame(stream, FRAME_DATAGRAM, datagram)?;
+                Ok(Some(datagram.len() + 5))
+            }
         }
     }
 }

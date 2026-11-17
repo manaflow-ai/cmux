@@ -19,6 +19,7 @@ use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_proto::{flags, DatagramHeader};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -96,6 +97,31 @@ pub struct MediaSession {
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
 fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
+}
+
+fn carrier_send_queue_busy(carrier: &dyn Carrier) -> bool {
+    carrier
+        .media_queue_stats()
+        .is_some_and(|stats| stats.queue_frames != 0 || stats.queue_datagrams != 0)
+}
+
+fn frame_is_droppable(datagrams: &[Vec<u8>]) -> bool {
+    datagrams.first().and_then(|datagram| DatagramHeader::decode(datagram).ok()).is_none_or(
+        |(header, _)| header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0,
+    )
+}
+
+fn send_output_datagrams(
+    carrier: &mut dyn Carrier,
+    datagrams: &[Vec<u8>],
+    mut on_departure: impl FnMut(&[u8], u64),
+) {
+    let departed_us = now_us();
+    for datagram in datagrams {
+        if carrier.send_datagram(datagram).is_ok() {
+            on_departure(datagram, departed_us);
+        }
+    }
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -341,7 +367,11 @@ impl MediaSession {
             };
             let timeout = wake
                 .map_or(timeout, |d| timeout.min(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)));
-            let timeout = Some(timeout.max(1_000_000));
+            let timeout = Some(
+                timeout
+                    .min(carrier_send_queue_busy(carrier).then_some(1_000_000).unwrap_or(u64::MAX))
+                    .max(1_000_000),
+            );
             let mut fds = carrier.fds();
             fds.push(self.desktop.fd());
             fds.push(self.encoder.fd());
@@ -475,6 +505,16 @@ impl MediaSession {
     /// Hands the engine the frame the encode thread finished, if there is one, and sends its
     /// datagrams.
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
+        // Keep one encoded frame at the send boundary.  A link carrier reports
+        // frames/datagrams still pending in its bounded queue; the pacer is the
+        // equivalent queue for paced carriers.  Leave the encoder result in
+        // its one-slot completion channel until that queue drains instead of
+        // turning queue pressure into an acknowledgement-shaped backlog.
+        if self.pacer.as_ref().is_some_and(|pacer| !pacer.is_empty())
+            || carrier_send_queue_busy(carrier)
+        {
+            return Ok(());
+        }
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
         // Logged after the send, with the send time (`sent_us`).
@@ -506,9 +546,8 @@ impl MediaSession {
             _ => None,
         };
         let Some(pacer) = self.pacer.as_mut() else {
-            for datagram in &out.datagrams {
-                carrier.send_datagram(datagram)?;
-            }
+            let droppable = frame_is_droppable(&out.datagrams);
+            carrier.send_datagram_frame(out.datagrams, droppable)?;
             if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
                 timing.frame_sent(line, now_us());
             }
@@ -560,9 +599,11 @@ impl MediaSession {
         session: SessionId,
         viewer: &Principal,
     ) {
-        for datagram in &out.datagrams {
-            let _ = carrier.send_datagram(datagram);
-        }
+        // Every output path, including tail probes and repair output, must tell
+        // the controller when the carrier accepted the datagram.
+        send_output_datagrams(carrier, &out.datagrams, |datagram, departed_us| {
+            self.engine.datagram_sent(datagram, departed_us);
+        });
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
             let _ = self.desktop.release_all();
@@ -644,6 +685,7 @@ impl MediaSession {
         let mut sorted: Vec<f64> = self.encode_ms.iter().copied().collect();
         sorted.sort_by(f64::total_cmp);
         let encode_ms_p50 = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
+        let queue = carrier.media_queue_stats();
         let stats = Control::Stats {
             kbps: self.encoder.kbps(),
             frames: stats.frames,
@@ -651,6 +693,20 @@ impl MediaSession {
             cpu_pct,
             encode_ms_p50,
             loss_pct: stats.loss * 100.0,
+            queue_frames: queue.map(|stats| stats.queue_frames),
+            queue_datagrams: queue.map(|stats| stats.queue_datagrams),
+            queue_dropped_frames: queue.map(|stats| stats.dropped_frames),
+            queue_dropped_datagrams: queue.map(|stats| stats.dropped_datagrams),
+            queue_dropped_replaced_frames: queue.map(|stats| stats.dropped_replaced_frames),
+            queue_dropped_replaced_datagrams: queue.map(|stats| stats.dropped_replaced_datagrams),
+            queue_dropped_evicted_for_protected_frames: queue
+                .map(|stats| stats.dropped_evicted_for_protected_frames),
+            queue_dropped_evicted_for_protected_datagrams: queue
+                .map(|stats| stats.dropped_evicted_for_protected_datagrams),
+            queue_dropped_rejected_protected_frames: queue
+                .map(|stats| stats.dropped_rejected_protected_frames),
+            queue_dropped_rejected_protected_datagrams: queue
+                .map(|stats| stats.dropped_rejected_protected_datagrams),
         };
         let _ = carrier.send_control(&stats);
     }
@@ -670,7 +726,7 @@ mod tests {
 #[cfg(test)]
 mod encode_off_loop_tests {
     use super::*;
-    use crate::carrier::{Carrier, Incoming};
+    use crate::carrier::{Carrier, Incoming, MediaQueueStats};
     use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
     use cmux_rd_core::session::StartRequest;
     use cmux_rd_proto::{DatagramHeader, DatagramKind, InputEvent, InputPacket};
@@ -751,6 +807,7 @@ mod encode_off_loop_tests {
         seen: Arc<Seen>,
         release: Option<mpsc::Sender<()>>,
         sent_input: bool,
+        queue_stats: Option<MediaQueueStats>,
         /// Always readable, so the loop keeps reading.
         ready: (UnixStream, UnixStream),
     }
@@ -793,6 +850,16 @@ mod encode_off_loop_tests {
         }
         fn send_datagram(&mut self, _datagram: &[u8]) -> std::io::Result<()> {
             Ok(())
+        }
+        fn send_datagram_frame(
+            &mut self,
+            _datagrams: Vec<Vec<u8>>,
+            _droppable: bool,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+            self.queue_stats
         }
         fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
             Ok(())
@@ -841,8 +908,13 @@ mod encode_off_loop_tests {
         let ready = UnixStream::pair().expect("socket pair");
         use std::io::Write;
         (&ready.0).write_all(&[1]).expect("make the carrier readable");
-        let mut carrier =
-            FakeCarrier { seen: seen.clone(), release: Some(release_tx), sent_input: false, ready };
+        let mut carrier = FakeCarrier {
+            seen: seen.clone(),
+            release: Some(release_tx),
+            sent_input: false,
+            queue_stats: None,
+            ready,
+        };
         let viewer = Principal {
             user: "owner".into(),
             install: "test".into(),
@@ -874,5 +946,52 @@ mod encode_off_loop_tests {
             seen.injected_before_encode_returned.load(SeqCst),
             "the key press waited for the encode to finish"
         );
+    }
+
+    #[test]
+    fn a_pending_send_queue_blocks_the_next_encoded_frame() {
+        let seen = Arc::new(Seen::default());
+        let ready = UnixStream::pair().expect("socket pair");
+        let carrier = FakeCarrier {
+            seen,
+            release: None,
+            sent_input: false,
+            queue_stats: Some(MediaQueueStats {
+                queue_frames: 1,
+                queue_datagrams: 4,
+                ..MediaQueueStats::default()
+            }),
+            ready,
+        };
+        assert!(carrier_send_queue_busy(&carrier));
+    }
+
+    #[test]
+    fn output_datagrams_stamp_after_the_carrier_accepts_them() {
+        let seen = Arc::new(Seen::default());
+        let ready = UnixStream::pair().expect("socket pair");
+        let mut carrier =
+            FakeCarrier { seen, release: None, sent_input: false, queue_stats: None, ready };
+        let datagram = DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::Video,
+            stream: 0,
+            frame: 7,
+            index: 0,
+            count: 1,
+            fec_count: 0,
+            transport_seq: 19,
+        }
+        .encode()
+        .to_vec();
+        let before = now_us();
+        let mut stamps = Vec::new();
+        send_output_datagrams(&mut carrier, std::slice::from_ref(&datagram), |sent, departed| {
+            stamps.push((sent.to_vec(), departed));
+        });
+        let after = now_us();
+        assert_eq!(stamps.len(), 1);
+        assert_eq!(stamps[0].0, datagram);
+        assert!((before..=after).contains(&stamps[0].1));
     }
 }

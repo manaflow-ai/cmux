@@ -51,9 +51,11 @@ fn a_session_runs_over_real_udp_sockets() {
     assert!(wait(&host, &mut at_host, |e| e.contains(&hello)));
     assert!(wait(&viewer, &mut at_viewer, established));
 
-    for i in 0..20u8 {
-        host.send_datagram(vec![i; 1000]);
-    }
+    host.send_datagram_frame((0..20u8).map(|i| vec![i; 1000]).collect(), true);
+    host.send_control(b"control-after-frame".to_vec());
+    let control =
+        NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"control-after-frame".to_vec())));
+    assert!(wait(&viewer, &mut at_viewer, |e| e.contains(&control)));
     let datagrams = |e: &[NetEvent]| {
         e.iter().filter(|e| matches!(e, NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) if d.len() == 1000)).count() >= 18
     };
@@ -62,6 +64,43 @@ fn a_session_runs_over_real_udp_sockets() {
     drop(host);
     assert!(wait(&viewer, &mut at_viewer, |e| e
         .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)))));
+}
+
+#[test]
+fn queued_frames_replace_whole_frames_without_dropping_control_or_input() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    // No route exists yet, so the driver cannot race the replacement.
+    host.send_datagram_frame(vec![b"old-a".to_vec(), b"old-b".to_vec()], true);
+    host.send_control(b"control".to_vec());
+    host.send_datagram_frame(vec![b"new-a".to_vec(), b"new-b".to_vec()], true);
+    assert_eq!(host.stats().dropped_frames, 1);
+    assert_eq!(host.stats().dropped_datagrams, 2);
+    assert_eq!(host.stats().queue_frames, 1);
+    // These commands are queued only after the handshake below; they must
+    // not evict media while preserving the legacy pre-handshake semantics.
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    let mut at_host = Vec::new();
+    assert!(wait(&host, &mut at_host, |events| events
+        .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)))));
+    host.send_datagram(b"input".to_vec());
+    host.send_datagram(b"repair".to_vec());
+    let mut received = Vec::new();
+    let control = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"control".to_vec())));
+    let packets = [b"input".to_vec(), b"repair".to_vec(), b"new-a".to_vec(), b"new-b".to_vec()];
+    assert!(wait(&viewer, &mut received, |events| {
+        events.contains(&control)
+            && packets.iter().all(|data| {
+                events.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(
+                    data.clone(),
+                ))))
+            })
+    }));
+    assert!(!received.iter().any(|event| matches!(event,
+        NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(data)))
+        if data.starts_with(b"old-"))));
 }
 
 #[test]
@@ -91,4 +130,109 @@ fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate()
     let late =
         NetEvent::Candidate(Candidate { kind: CandidateKind::ServerReflexive, addr: reflexive });
     assert!(wait(&net, &mut seen, |e| e.contains(&late)), "the late STUN server is queried");
+}
+
+fn receipt_datagram(frame: u32, index: u16, seq: u16) -> Vec<u8> {
+    cmux_rd_proto::DatagramHeader {
+        flags: 0,
+        kind: cmux_rd_proto::DatagramKind::Video,
+        stream: 7,
+        frame,
+        index,
+        count: 2,
+        fec_count: 0,
+        transport_seq: seq,
+    }
+    .encode()
+    .to_vec()
+}
+
+fn monotonic_us() -> u64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: a valid timespec for the same protocol clock as the host ledger.
+    assert_eq!(unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) }, 0);
+    ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000
+}
+
+#[test]
+fn departure_receipts_follow_successful_sends_not_enqueue_or_replaced_frames() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    host.send_datagram_frame(vec![receipt_datagram(1, 0, 100)], true);
+    host.send_datagram_frame(vec![receipt_datagram(2, 0, 101), receipt_datagram(2, 1, 102)], true);
+    let mut receipts = Vec::new();
+    host.drain_departures(&mut receipts);
+    assert!(receipts.is_empty(), "an enqueued frame has not departed");
+    assert_eq!(host.stats().dropped_frames, 1);
+    let before = monotonic_us();
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    host.send_control(b"control-still-flows".to_vec());
+    let mut received = Vec::new();
+    assert!(wait(&viewer, &mut received, |events| events.contains(&NetEvent::Endpoint(
+        EndpointEvent::Link(Event::Datagram(receipt_datagram(2, 1, 102)))
+    ))));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while receipts.len() < 2 && Instant::now() < deadline {
+        host.drain_departures(&mut receipts);
+        if receipts.len() < 2 {
+            let mut fd = libc::pollfd { fd: host.event_fd(), events: libc::POLLIN, revents: 0 };
+            // SAFETY: one valid pollfd.
+            unsafe { libc::poll(&mut fd, 1, 100) };
+            host.events();
+        }
+    }
+    let after = monotonic_us();
+    assert_eq!(receipts.len(), 2, "both successfully sent shards have receipts");
+    for (i, receipt) in receipts.iter().enumerate() {
+        assert_eq!(receipt.header.frame, 2);
+        assert_eq!(receipt.header.stream, 7);
+        assert_eq!(receipt.header.index, i as u16);
+        assert_eq!(receipt.header.transport_seq, 101 + i as u16);
+        assert!(
+            (before..=after).contains(&receipt.departed_us),
+            "host protocol clock, not driver epoch"
+        );
+        assert!(receipt.wire_bytes > cmux_rd_proto::HEADER_LEN, "includes link encryption");
+    }
+    assert_eq!(host.departure_overflows(), 0);
+    assert!(wait(&viewer, &mut received, |events| events.contains(&NetEvent::Endpoint(
+        EndpointEvent::Link(Event::Control(b"control-still-flows".to_vec()))
+    ))));
+}
+
+#[test]
+fn departure_receipts_overflow_is_bounded_without_stalling_media_or_control() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    let mut events = Vec::new();
+    assert!(wait(&host, &mut events, |e| e
+        .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)))));
+    let limit = cmux_rd_proto::MAX_DEPARTURE_RECEIPTS;
+    host.send_datagram_frame(
+        (0..limit + 2).map(|i| receipt_datagram(3, 0, i as u16)).collect(),
+        false,
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while host.departure_overflows() < 2 && Instant::now() < deadline {
+        let mut fd = libc::pollfd { fd: host.event_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd; wake is coalesced after the driver's send batch.
+        unsafe { libc::poll(&mut fd, 1, 100) };
+        host.events();
+    }
+    assert_eq!(host.departure_overflows(), 2);
+    assert_eq!(host.stats().departure_overflows, 2);
+    let mut receipts = Vec::new();
+    host.drain_departures(&mut receipts);
+    assert_eq!(receipts.len(), limit);
+    assert_eq!(host.stats().dropped_frames, 0, "receipt overflow is not media loss");
+    host.send_control(b"control-after-overflow".to_vec());
+    let mut received = Vec::new();
+    assert!(wait(&viewer, &mut received, |e| e.contains(&NetEvent::Endpoint(
+        EndpointEvent::Link(Event::Control(b"control-after-overflow".to_vec()))
+    ))));
 }

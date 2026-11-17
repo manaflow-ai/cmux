@@ -578,7 +578,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "cc",
  "cmux-codecs",
@@ -603,6 +603,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",
