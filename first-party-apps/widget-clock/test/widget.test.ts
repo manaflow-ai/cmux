@@ -16,7 +16,8 @@ describe("clock widget", () => {
     const { ops, host } = await renderScene(source, { size: "small" })
     expect(texts(ops)).toEqual(["MONDAY", "Nov 16", "9:41", "AM"])
     const time = ops.find((op) => op.props?.text === "9:41")!
-    expect(time.props).toMatchObject({ font: 50, weight: "heavy" })
+    // As big as "9:41" and its AM fit the small tile.
+    expect(time.props).toMatchObject({ font: 39, weight: "heavy" })
     expect(host.logs.filter(([level]) => level === "error")).toEqual([])
   })
 

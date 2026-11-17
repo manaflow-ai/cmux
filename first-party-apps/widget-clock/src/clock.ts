@@ -229,5 +229,30 @@ export function timeStyle(settings: Settings): TimeStyle {
   return { font, design, weight, color, opacity: !hex && named === "glass" ? 0.55 : 1 }
 }
 
+/**
+ * The width the small tile gives the time: the New Tab tile is 148 points (a DEV build in a 1440 x 900
+ * window), less the widget's 16-point inset on each side. The sandbox cannot measure text, so the time
+ * is sized from upper bounds of each glyph's advance at the heaviest weight, in ems: SF Pro, SF Pro
+ * Rounded and New York digits 0.68 and their colon 0.32, every SF Mono glyph 0.62, a capital 0.8.
+ */
+export const SMALL_TIME_WIDTH = 148 - 2 * 16
+/** AM/PM beside the time: its point size and the gap before it. */
+export const PERIOD_FONT = 13
+export const PERIOD_GAP = 3
+
+/** The time's width in ems at most (a mono design has every glyph one width). */
+export function timeEms(time: string, monospaced: boolean): number {
+  return [...time].reduce((sum, ch) => sum + (monospaced ? 0.62 : ch === ":" ? 0.32 : 0.68), 0)
+}
+
+/**
+ * The time's point size: `largest`, or smaller so the time and its AM/PM fit `width` (the Lock
+ * Screen's clock fills its width the same way). "9:41 AM" stays big; "10:58 PM" shrinks to fit.
+ */
+export function fitTimeFont(time: string, period: string, monospaced: boolean, largest: number, width: number): number {
+  const periodWidth = period ? PERIOD_GAP + period.length * 0.8 * PERIOD_FONT : 0
+  return Math.min(largest, Math.floor((width - periodWidth) / timeEms(time, monospaced)))
+}
+
 /** Whether the date shows over the time (on unless turned off). */
 export const showsDate = (settings: Settings) => settings.date !== false

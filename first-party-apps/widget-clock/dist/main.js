@@ -2490,6 +2490,16 @@
     const design = font === "rounded" ? "rounded" : font === "serif" ? "serif" : font === "mono" ? "monospaced" : "default";
     return { font, design, weight, color, opacity: !hex && named === "glass" ? 0.55 : 1 };
   }
+  var SMALL_TIME_WIDTH = 148 - 2 * 16;
+  var PERIOD_FONT = 13;
+  var PERIOD_GAP = 3;
+  function timeEms(time, monospaced) {
+    return [...time].reduce((sum, ch) => sum + (monospaced ? 0.62 : ch === ":" ? 0.32 : 0.68), 0);
+  }
+  function fitTimeFont(time, period, monospaced, largest, width) {
+    const periodWidth = period ? PERIOD_GAP + period.length * 0.8 * PERIOD_FONT : 0;
+    return Math.min(largest, Math.floor((width - periodWidth) / timeEms(time, monospaced)));
+  }
   var showsDate = (settings) => settings.date !== false;
   var TIME_FONT = { small: 50, medium: 56, large: 64 };
   var MONO_TIME_FONT = { small: 40, medium: 46, large: 56 };
@@ -2502,10 +2512,12 @@
     return untrack(style).design === "monospaced" ? view.monospaced() : view;
   }
   function bigTime(time, period, hasPeriod, size, style) {
-    const digits = BigNumber(time).font(() => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size]).weight(() => style().weight).color(() => style().color).opacity(() => style().opacity).lineLimit(1).fixedSize("horizontal");
-    return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
+    const largest = () => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size];
+    const font = () => size === "small" ? fitTimeFont(time(), hasPeriod() ? period() : "", style().design === "monospaced", largest(), SMALL_TIME_WIDTH) : largest();
+    const digits = BigNumber(time).font(font).weight(() => style().weight).color(() => style().color).opacity(() => style().opacity).lineLimit(1).fixedSize("horizontal");
+    return HStack({ spacing: PERIOD_GAP, alignment: "lastTextBaseline" }, [
       withDesign(digits, style),
-      () => hasPeriod() ? Text(period).font("headline").weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null
+      () => hasPeriod() ? Text(period).font(PERIOD_FONT).weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null
     ]);
   }
   function cityRow(c, hasPeriod, style) {
@@ -2589,7 +2601,7 @@
     if (settings().face === "analog") {
       if (size === "small") {
         return VStack({ spacing: 6, alignment: "center" }, [
-          dialFace(112, () => handAngles(here())),
+          dialFace(88, () => handAngles(here())),
           Text(() => `${shortWeekday(here())} ${here().getUTCDate()}`).font("caption").weight("semibold").secondary()
         ]);
       }

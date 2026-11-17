@@ -15,13 +15,17 @@ import {
   CITY_COUNT,
   cities,
   dateLine,
+  fitTimeFont,
   handAngles,
   homeName,
   homeOffset,
+  PERIOD_FONT,
+  PERIOD_GAP,
   shortDate,
   shortWeekday,
   showsDate,
   sizeOf,
+  SMALL_TIME_WIDTH,
   timeParts,
   timeStyle,
   twelveHour,
@@ -68,18 +72,25 @@ function withDesign(view: View, style: () => TimeStyle): View {
   return untrack(style).design === "monospaced" ? view.monospaced() : view
 }
 
-/** The time with its AM/PM beside it, small, on the baseline (the Lock Screen drops it; a widget keeps it). */
+/**
+ * The time with its AM/PM beside it, small, on the baseline (the Lock Screen drops it; a widget keeps it).
+ * In the small tile the digits are sized to its width, so the widest time ("10:58 PM") fits at every
+ * font and weight; medium and large have the room for their fixed size.
+ */
 function bigTime(time: () => string, period: () => string, hasPeriod: () => boolean, size: Size, style: () => TimeStyle): View {
+  const largest = () => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size]
+  const font = () =>
+    size === "small" ? fitTimeFont(time(), hasPeriod() ? period() : "", style().design === "monospaced", largest(), SMALL_TIME_WIDTH) : largest()
   const digits = BigNumber(time)
-    .font(() => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size])
+    .font(font)
     .weight(() => style().weight)
     .color(() => style().color)
     .opacity(() => style().opacity)
     .lineLimit(1)
     .fixedSize("horizontal")
-  return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
+  return HStack({ spacing: PERIOD_GAP, alignment: "lastTextBaseline" }, [
     withDesign(digits, style),
-    () => (hasPeriod() ? Text(period).font("headline").weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null)
+    () => (hasPeriod() ? Text(period).font(PERIOD_FONT).weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null)
   ])
 }
 
@@ -188,7 +199,8 @@ function clockView(context: WidgetContext): View {
   if (settings().face === "analog") {
     if (size === "small") {
       return VStack({ spacing: 6, alignment: "center" }, [
-        dialFace(112, () => handAngles(here())),
+        // 88 points: the dial and the day under it fit the 116 points inside the 148-point tile.
+        dialFace(88, () => handAngles(here())),
         Text(() => `${shortWeekday(here())} ${here().getUTCDate()}`).font("caption").weight("semibold").secondary()
       ])
     }

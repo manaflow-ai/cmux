@@ -2,8 +2,8 @@
 // The store app first-party-apps/widget-clock (cmux/clock, a cmux.widget/1) in each size and face,
 // drawn by the web scene renderer from the ops its render export sends at 9:41 AM on Monday,
 // November 16 (ClockWidget.scenes.json, written by its preview/build.ts from the packed app). The tile
-// is a stand-in for the widget host's card: Apple's macOS widget sizes (small 170, medium 364 x 170,
-// large 364 x 382) and a 22 pt corner; the widget insets its own content. Light and dark use the gallery theme switch.
+// is a stand-in for the widget host's card: the New Tab host's small tile (148, as a DEV build draws it),
+// Apple's macOS medium and large (364 x 170, 364 x 382) and a 22 pt corner; the widget insets its own content. Light and dark use the gallery theme switch.
 import { useState } from "react";
 import scenes from "./ClockWidget.scenes.json";
 import { componentEntry } from "../../gallery/format";
@@ -89,6 +89,18 @@ export default componentEntry<Props>({
     "serif-orange-no-date": {
       note: "Look settings: serif, regular, a #FF9500 color the person typed, the date off. Serif and rounded draw once the scene renderer has fontDesign.",
       props: { variant: "serif-orange-no-date" },
+    },
+    "small-12h-widest": {
+      note: "The widest 12-hour time, 10:58 PM, in the small tile: the digits are sized to the tile so the time and its PM fit (they clipped the PM at 50 pt, cmux#44962).",
+      props: { variant: "small-12h-widest" },
+    },
+    "small-mono-12h-widest": {
+      note: "10:58 PM, monospaced and heavy (the widest font) in the small tile: the time and its PM fit.",
+      props: { variant: "small-mono-12h-widest" },
+    },
+    "small-24h-widest": {
+      note: "22:58 on a 24-hour clock in the small tile: no PM, so the digits take the whole width.",
+      props: { variant: "small-24h-widest" },
     },
     "all-sizes": {
       note: "Every size side by side, as the widget gallery offers them.",
