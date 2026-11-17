@@ -200,6 +200,8 @@ def summarize_passive(report: dict | None) -> dict:
         "first_frame_ms": _num(report.get("first_frame_ms")),
         "ended": report.get("ended"),
         "stage_ledger": ledger_of(report),
+        "diag": report.get("diag"),
+        "host_stats_last": stats,
     }
 
 
