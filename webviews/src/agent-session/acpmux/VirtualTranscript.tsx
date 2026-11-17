@@ -1,5 +1,6 @@
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
+  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -12,6 +13,7 @@ import React, {
   useInsertionEffect,
 } from "react";
 import { flushSync } from "react-dom";
+import { inAdoptPass } from "./newtab/adoptPass";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
@@ -4373,10 +4375,22 @@ function TranscriptView({
   const history = renderFollowing
     ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
     : undefined;
-  const scrolledRanges = mergeRowRanges([
-    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
-    ...(history ? [history] : []),
-  ]);
+  // A spare page taking a chat (newtab/adoptPass.ts) draws only the rows in view in the adopt
+  // event's own task, the one before the chat's first frame: the warm rows and the history above
+  // mount in a transition right after (`mountRest`, below), built between frames. Mounting them in
+  // that task was most of its transcript render (first-load-after-restart MODE=reopen-spare). A
+  // followed view is anchored at its end, so the rows that mount above it move no row in view.
+  const adoptPass = inAdoptPass() && rows.length > 0;
+  const scrolledRanges = adoptPass
+    ? mergeRowRanges(ahead)
+    : mergeRowRanges([
+        ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+        ...(history ? [history] : []),
+      ]);
+  const [, mountRest] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    if (adoptPass) startTransition(mountRest);
+  }, [adoptPass]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
   // pages in above it. At most two, so this reads two rows. Only when rows came in at both ends at once
   // is it looked for by id; the effect below then keeps where it was found (or drops a row that is

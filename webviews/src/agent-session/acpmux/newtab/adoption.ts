@@ -9,6 +9,7 @@ import { newTabHost, type NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { keepHandedTail } from "../tailCache";
+import { runAdoptPass } from "./adoptPass";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 /// The host's open tabs and workspaces changed while the page shows (AgentPaneView.refreshNewTabPlaces).
@@ -93,7 +94,8 @@ export function useSessionAdoption(onAdopt: (adoption: SessionAdoption) => void)
   useEffect(() => {
     const handle = (event: Event) => {
       const adoption = sessionAdoption((event as CustomEvent).detail);
-      if (adoption) flushSync(() => onAdopt(adoption));
+      // Marked, so the transcript mounts only the rows in view in this pass (adoptPass.ts).
+      if (adoption) runAdoptPass(() => flushSync(() => onAdopt(adoption)));
     };
     window.addEventListener(SESSION_ADOPT_EVENT, handle);
     return () => window.removeEventListener(SESSION_ADOPT_EVENT, handle);
