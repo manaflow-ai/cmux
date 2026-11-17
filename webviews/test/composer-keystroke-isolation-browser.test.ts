@@ -10,7 +10,8 @@
 // React DevTools hook installed before the page's code sees each commit, walks the fibers that
 // rendered in it (mounted, or did work this commit), and names each one outside the composer's
 // subtree (ComposerFrame and what it renders, portals included). A Chromium trace over the same keys
-// names every layout's root: one outside the composer's form means a key reflowed the pane.
+// names every element a key marked as needing layout: one outside the composer's form means a key
+// reflowed the pane.
 //
 // Two windows on a 1,500-row chat built as it ships (production React, React Compiler on; unminified
 // so the report names components):
@@ -198,27 +199,37 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
     return Object.fromEntries([...counts.entries()].sort((a, b) => b[1] - a[1]));
   };
 
-  /// Layout roots of every layout in the window, by whether each lies in the composer's form.
-  async function layoutRoots(page: Page, run: () => Promise<unknown>) {
+  /// Every element marked as needing layout in the window (Chromium's LayoutInvalidationTracking: one
+  /// event per element whose layout a change dirtied, with the reason), by whether it lies in the
+  /// composer's form. A layout's root is the document whatever it lays out, so roots cannot say what
+  /// a key reflowed; the elements it dirtied can.
+  async function layoutDirtied(page: Page, run: () => Promise<unknown>) {
     const cdp = await page.context().newCDPSession(page);
-    await browser.startTracing(page, { categories: ["devtools.timeline", "disabled-by-default-devtools.timeline"] });
+    await browser.startTracing(page, {
+      categories: [
+        "devtools.timeline",
+        "disabled-by-default-devtools.timeline",
+        "disabled-by-default-devtools.timeline.invalidationTracking",
+      ],
+    });
     await run();
     const raw = JSON.parse((await browser.stopTracing()).toString()) as {
       traceEvents: { name: string; ph: string; args?: any }[];
     };
     const ids: number[] = [];
+    const reasons = new Map<number, string>();
     let layouts = 0;
     let dirtyObjects = 0;
     for (const event of raw.traceEvents) {
-      if (event.name !== "Layout") continue;
-      if (event.ph === "B" || event.ph === "X") {
+      if (event.name === "Layout" && (event.ph === "B" || event.ph === "X")) {
         layouts += 1;
         dirtyObjects += Number(event.args?.beginData?.dirtyObjects ?? 0);
       }
-      const end = event.args?.endData;
-      if (!end) continue;
-      for (const root of end.layoutRoots ?? []) if (typeof root?.nodeId === "number") ids.push(root.nodeId);
-      if (typeof end.rootNode === "number") ids.push(end.rootNode);
+      if (event.name !== "LayoutInvalidationTracking") continue;
+      const data = event.args?.data ?? {};
+      if (typeof data.nodeId !== "number") continue;
+      ids.push(data.nodeId);
+      reasons.set(data.nodeId, String(data.reason ?? ""));
     }
     await cdp.send("DOM.getDocument", { depth: 0 });
     const where = new Map<string, number>();
@@ -245,17 +256,17 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
         // A node gone by now (a row shed): outside, named as unresolved.
       }
       if (!inside) outside += 1;
-      const key = `${inside ? "in" : "out"}:${label}`;
+      const key = `${inside ? "in" : "out"}:${label} (${reasons.get(backendNodeId) ?? ""})`;
       where.set(key, (where.get(key) ?? 0) + 1);
     }
     await cdp.detach();
-    return { layouts, dirtyObjects, roots: ids.length, outside, where: Object.fromEntries(where) };
+    return { layouts, dirtyObjects, dirtied: ids.length, outside, where: Object.fromEntries(where) };
   }
 
   test("idle: a key commits nothing outside the composer and lays out nothing outside it", async () => {
     const page = await openChat();
     let commits: Commit[] = [];
-    const layout = await layoutRoots(page, async () => {
+    const layout = await layoutDirtied(page, async () => {
       commits = await typeKeys(page);
     });
     await page.close();
@@ -271,8 +282,8 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
     // The hook saw the composer draw the keys: the watch works on this React.
     expect(inside).toBeGreaterThanOrEqual(KEYS);
     expect(report.outside).toEqual({});
-    expect({ layoutRootsOutsideComposer: layout.outside, where: layout.where }).toEqual({
-      layoutRootsOutsideComposer: 0,
+    expect({ layoutDirtiedOutsideComposer: layout.outside, where: layout.where }).toEqual({
+      layoutDirtiedOutsideComposer: 0,
       where: Object.fromEntries(Object.entries(layout.where).filter(([key]) => key.startsWith("in:"))),
     });
   });
@@ -285,8 +296,8 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
         () => document.querySelector("form.acpmux-composer")?.getBoundingClientRect().height ?? 0,
       )) as number;
     const before = await box();
-    let layout: Awaited<ReturnType<typeof layoutRoots>> | undefined;
-    layout = await layoutRoots(page, async () => {
+    let layout: Awaited<ReturnType<typeof layoutDirtied>> | undefined;
+    layout = await layoutDirtied(page, async () => {
       for (let line = 0; line < 3; line += 1) {
         await page.keyboard.press("x");
         await page.keyboard.press("Shift+Enter");
