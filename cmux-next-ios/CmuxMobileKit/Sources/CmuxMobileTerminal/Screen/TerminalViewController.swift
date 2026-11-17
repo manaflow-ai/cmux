@@ -2167,6 +2167,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 probe.readScreen = { [weak self] in self?.surface.screenRows()?.rows }
                 probe.readGeometry = { [weak self] in self?.benchGeometry() }
                 probe.pan = { [weak self] toEnd in self?.benchPan(toEnd: toEnd) }
+                probe.hideScrollEdgeEffects = { [weak self] in
+                    self?.scrollView.topEdgeEffect.isHidden = true
+                    self?.scrollView.bottomEdgeEffect.isHidden = true
+                }
             }
         }
         devProbe?.presented()

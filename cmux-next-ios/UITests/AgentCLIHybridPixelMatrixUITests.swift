@@ -197,7 +197,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
         }
         app.launchEnvironment["CMUX_HYBRID_BENCH_SESSION_LZFSE"] = packed
         app.launchArguments += [
-            "-CmuxMobileHybridBench",
+            "-CmuxMobileHybridBench", "-CmuxMobileHybridBenchNoEdgeBlur",
             "-CmuxMobileHybridBenchMode", mode, "-CmuxMobileHybridBenchStillMs", String(atMs),
             "-CmuxMobileHybridBenchPan", panEnd ? "end" : "start",
         ]

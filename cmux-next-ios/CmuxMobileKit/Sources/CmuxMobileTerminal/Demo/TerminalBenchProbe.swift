@@ -69,6 +69,9 @@ public final class TerminalBenchProbe: @unchecked Sendable {
     nonisolated(unsafe) public var readGeometry: (@MainActor () -> Geometry?)?
     /// Pans a grid wider than the phone to its first column (false) or its last (true).
     nonisolated(unsafe) public var pan: (@MainActor (_ toEnd: Bool) -> Void)?
+    /// Hides the page's scroll edge effects (the blur under the navigation bar): what scrolled
+    /// above the grid then never shows through over its first row.
+    nonisolated(unsafe) public var hideScrollEdgeEffects: (@MainActor () -> Void)?
 
     /// Times the drain: from `since` until Ghostty has processed session byte
     /// `end`, read back as ``Snapshot/drainMs``. Already there: zero.

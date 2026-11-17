@@ -157,6 +157,16 @@ final class AgentCLIHybridBench {
             let (daemon, attachMs) = (daemon, session.attachMs)
             await Task.detached { await daemon.play(until: stillMs, from: 0, attachMs: attachMs, fast: true) }.value
             _ = await settledScreen(clock)
+            // A Mac grid change that came within a claim's wait is held that long
+            // (`TerminalReclaimHold`): the still is the screen once it shows.
+            try? await clock.sleep(for: TerminalReclaimHold.reclaimWait + .milliseconds(200))
+            _ = await settledScreen(clock)
+            // `-CmuxMobileHybridBenchNoEdgeBlur`: the bar's blur shows nothing that scrolled
+            // above the grid over its first row (lean frames carry no scrollback).
+            if CommandLine.arguments.contains("-CmuxMobileHybridBenchNoEdgeBlur") {
+                probe.hideScrollEdgeEffects?()
+                _ = await settledScreen(clock)
+            }
             // `-CmuxMobileHybridBenchPan end`: a grid wider than the phone shows its last column.
             if UserDefaults.standard.string(forKey: "CmuxMobileHybridBenchPan") == "end" {
                 probe.pan?(true)
