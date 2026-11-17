@@ -124,6 +124,8 @@ struct ForkApi {
   void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
   int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
+  // API version 25: cmux's own Safe Storage keychain item (cmux_shim_set_keychain_item).
+  int (*set_keychain_item)(const char*, const char*) = nullptr;
 };
 
 struct Host {

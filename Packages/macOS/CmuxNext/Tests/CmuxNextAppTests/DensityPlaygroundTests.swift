@@ -244,6 +244,20 @@ struct DensityPlaygroundTests {
         #expect(f.saves.isEmpty)
     }
 
+    /// A policy that manages the density keys: a change still applies live, nothing is written, and the window says so.
+    @Test func aManagedDensitySaysItWillNotSave() throws {
+        let f = Self.fixture(active: DensityPreset.cozy.tokens, managed: true)
+        #expect(f.model.savesBlocked)
+        f.model.set(try #require(DensityTokenCatalog.entry("sidebarRowGap")), to: 5)
+        #expect(f.design.densityTokens.tokens["sidebarRowGap"] == 5, "it still applies live")
+        f.model.flush()
+        f.model.duplicate(name: "Another")
+        #expect(f.saves.isEmpty, "nothing is written while a policy manages the keys")
+        #expect(!f.model.hasUnsavedChanges, "no Saving… that never ends")
+        #expect(f.model.statusNotice == DensityPlaygroundStrings.managedNotice)
+        #expect(Self.fixture(active: DensityPreset.cozy.tokens).model.statusNotice == nil)
+    }
+
     /// Export writes what Import (and the Settings density card) reads; importing again adds a copy, never a replacement.
     @Test func exportedJSONImportsAsANewDensity() throws {
         let f = Self.fixture(active: DensityPreset.cozy.tokens)
@@ -313,11 +327,11 @@ struct DensityPlaygroundTests {
 
     final class Recorder { var saves: [(customs: [DensityTokens], active: DensityTokens)] = [] }
 
-    static func fixture(active: DensityTokens) -> Fixture {
+    static func fixture(active: DensityTokens, managed: Bool = false) -> Fixture {
         let design = DesignSettings()
         design.densityTokens = active
         let recorder = Recorder()
-        let model = DensityPlaygroundModel(entries: entries, design: design) { customs, active in
+        let model = DensityPlaygroundModel(entries: entries, design: design, isManaged: { managed }) { customs, active in
             recorder.saves.append((customs, active))
         }
         return Fixture(model: model, design: design, recorder: recorder)
