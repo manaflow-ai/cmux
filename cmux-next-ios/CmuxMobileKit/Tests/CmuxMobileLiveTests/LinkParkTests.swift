@@ -11,27 +11,61 @@ private final class ParkingLink: ParkableMacLink, @unchecked Sendable {
     let continuation: AsyncStream<LinkState>.Continuation
     let connectedPath: LinkPathKind? = .direct
     let accepts: Bool
+    /// The first probe waits for `releaseProbe()`, as a ping waits for its
+    /// pong: the FFI call ignores cancellation.
+    let holdsFirstProbe: Bool
     private let lock = NSLock()
     private var parks = 0
     private var resumes = 0
     private var probes = 0
+    private var probing = 0
+    private var parkedMidProbe = false
+    private var released = false
+    private var gate: CheckedContinuation<Void, Never>?
     private var closed = false
     var parkCount: Int { lock.withLock { parks } }
     var resumeCount: Int { lock.withLock { resumes } }
     var probeCount: Int { lock.withLock { probes } }
+    /// A park was asked for while a probe's ping was still unanswered.
+    var parkedWhileProbing: Bool { lock.withLock { parkedMidProbe } }
     var isClosed: Bool { lock.withLock { closed } }
 
-    init(accepts: Bool) {
+    init(accepts: Bool, holdsFirstProbe: Bool = false) {
         self.accepts = accepts
+        self.holdsFirstProbe = holdsFirstProbe
         (states, continuation) = AsyncStream.makeStream()
         continuation.yield(.connected(.wireGuard, .direct, rttMillis: nil))
+    }
+
+    func releaseProbe() {
+        let waiting = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { gate = nil }
+            return gate
+        }
+        waiting?.resume()
     }
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         throw LinkError(code: "unknown_service", message: service)
     }
     func ping() async throws -> UInt32 { 1 }
     func probe(timeout: Duration) async throws -> UInt32? {
-        lock.withLock { probes += 1 }
+        let holds = lock.withLock { () -> Bool in
+            probes += 1
+            probing += 1
+            return holdsFirstProbe && probes == 1
+        }
+        if holds {
+            await withCheckedContinuation { (waiting: CheckedContinuation<Void, Never>) in
+                let now = lock.withLock { () -> Bool in
+                    if released { return true }
+                    gate = waiting
+                    return false
+                }
+                if now { waiting.resume() }
+            }
+        }
+        lock.withLock { probing -= 1 }
         return 1
     }
     func close() async {
@@ -39,7 +73,10 @@ private final class ParkingLink: ParkableMacLink, @unchecked Sendable {
         continuation.finish()
     }
     func park(hold: Duration, timeout: Duration) async -> Bool {
-        lock.withLock { parks += 1 }
+        lock.withLock {
+            parks += 1
+            if probing > 0 { parkedMidProbe = true }
+        }
         return accepts
     }
     func resumeParked() -> Bool {
@@ -53,7 +90,9 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
     var dials: Int { lock.withLock { count } }
-    init(accepts: Bool) { first = ParkingLink(accepts: accepts) }
+    init(accepts: Bool, holdsFirstProbe: Bool = false) {
+        first = ParkingLink(accepts: accepts, holdsFirstProbe: holdsFirstProbe)
+    }
     func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let number = lock.withLock { count += 1; return count }
         return number == 1 ? first : ParkingLink(accepts: first.accepts)
@@ -105,6 +144,36 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         #expect(controller.dialGeneration == generation)
         #expect(controller.phase.isConnected)
         #expect(!controller.isParked)
+    }
+
+    /// A probe whose ping is still unanswered when the app leaves finishes
+    /// before the park is asked for: a ping the Mac reads after it parked
+    /// ends the park, and the Mac then keepalives a suspended phone. Nothing
+    /// new probes the link meanwhile.
+    @Test func aProbeInFlightFinishesBeforeThePark() async throws {
+        let dialer = ParkingDialer(accepts: true, holdsFirstProbe: true)
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        try await eventually { dialer.first.probeCount == 1 && controller.phase.isConnected }
+
+        controller.send(.background)
+        // Give a park that does not wait for the probe the time to go out.
+        await settle(within: .seconds(2)) { dialer.first.parkCount > 0 }
+        dialer.first.releaseProbe()
+        try await eventually { controller.isParked }
+        #expect(!dialer.first.parkedWhileProbing, "the park went out while a probe was in flight")
+        #expect(dialer.first.parkCount == 1)
+        #expect(dialer.first.probeCount == 1, "a probe started while the park was being asked for")
+    }
+
+    /// Waits until `condition` holds or `within` passes, whichever is first;
+    /// it asserts nothing.
+    private func settle(within: Duration, _ condition: () -> Bool) async {
+        let deadline = ContinuousClock.now + within
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
     }
 
     /// An older Mac refuses the park: the link closes on silence there, so
