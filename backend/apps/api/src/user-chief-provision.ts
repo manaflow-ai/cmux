@@ -3,14 +3,21 @@ import { DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defa
 import { personalTeamIdFor, type UserState } from "./domains/user.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import type { SubmitResult } from "./owner-do.ts"
+import { isDevSpace } from "./build-space.ts"
+import type { BuildSpace } from "./env.ts"
 
-/** Trusted RPC on the existing platform service binding; no HTTP route or user credential reaches it. */
+/** Trusted RPC on the existing platform service binding; no HTTP route or user credential reaches it.
+ * `space` is the caller's dev build space (cmux-platform#1465): the RPC carries no header, so it is an argument. */
 export interface DefaultMachinePlatform {
-  ensureDefaultMachine(user: string): Promise<
+  ensureDefaultMachine(user: string, space?: string): Promise<
     | { ok: true; value: { workspace: string; team: string; connectionMachine: string; machine: { id: string; provider: string; creator: string; visibility: string; kind: string } } }
     | { ok: false; code: string; message: string; retryable: boolean }
   >
 }
+
+/** `platform` asked from `space`: a dev space names itself, nightly sends the user only (as before). */
+export const platformInSpace = (platform: DefaultMachinePlatform | undefined, space: BuildSpace | undefined): DefaultMachinePlatform | undefined =>
+  platform && isDevSpace(space) ? { ensureDefaultMachine: (user) => platform.ensureDefaultMachine(user, space) } : platform
 
 export const provisioningFailure = (code: string, retryable = true): Error & { retryable: boolean } =>
   Object.assign(new Error(code), { retryable })

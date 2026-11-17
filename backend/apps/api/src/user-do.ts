@@ -26,7 +26,7 @@ import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
 import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
-import { deliverSignupChief, rebindDefaultChief, type DefaultMachinePlatform, type RebindReply } from "./user-chief-provision.ts"
+import { deliverSignupChief, platformInSpace, rebindDefaultChief, type DefaultMachinePlatform, type RebindReply } from "./user-chief-provision.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
@@ -55,7 +55,8 @@ export class UserDO extends OwnerDO<UserState> {
   /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
   protected homePushSender = apnsHomePushSender(this.env)
   /** Signup's server-only service binding (replaced inside the object in integration tests). */
-  protected signupPlatform = () => this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined
+  /** The platform's default machine, asked in this object's build space (`platformInSpace`). */
+  protected signupPlatform = () => platformInSpace(this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined, this.env.BUILD_SPACE)
 
   constructor(ctx: DurableObjectState, raw: RawEnv) {
     const env = envForObject(ctx, raw)
