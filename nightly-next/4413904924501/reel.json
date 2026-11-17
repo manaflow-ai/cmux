@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4413904924501",
+  "notes": "notes/4413904924501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44999,
+      "title": "perf(launch): mark the bare launch: window_usable, first_shell_live, launch-ready state=bare",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45592,
+      "title": "cmux NEXT: the density playground's unique-name loop carries its main-actor-ok bound",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44496,
+      "title": "cmux-rd synthetic: text and noise scenes, per-second target vs encoder output, fps accounting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45272,
+      "title": "fix(cmux-next): a launch snapshot the daemon does not recognize lands on Home (hq#12660)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45583,
+      "title": "acpmux: a Cloud machine's model route applies only where its host resolves (carries #45368)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
