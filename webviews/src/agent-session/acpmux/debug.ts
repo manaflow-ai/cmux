@@ -511,7 +511,11 @@ export function createAcpmuxDebug(
       const automationHost = host.automation;
       if (!automationHost) return NO_AUTOMATION;
       const { loadSeed } = await import("./loadDebug");
-      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns, options);
+      return loadSeed(
+        { selectSession: automationHost.selectSession, rowCount: host.rowCount, rowIds: host.rowIds },
+        turns,
+        options,
+      );
     },
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");

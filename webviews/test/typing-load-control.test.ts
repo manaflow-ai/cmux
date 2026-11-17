@@ -28,9 +28,15 @@ test("light fixture includes the summary in the model row count used by the 100k
     () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
   );
   try {
-    await client.select(MockAcpmuxSocket.live!.seedLoadSession(4, true));
+    const session = MockAcpmuxSocket.live!.seedLoadSession(4, true);
+    await client.select(session);
     expect(rows).toHaveLength(12);
     expect(rows.filter((row) => row.kind === "turnSummary")).toHaveLength(4);
+    // L3's full-chat receipt counts the log the client pages from the way the reducer makes rows of it.
+    const log = MockAcpmuxSocket.live!.loadSessionLog(session);
+    expect(log.rows).toBe(rows.length);
+    expect(log.records).toBe(16);
+    expect(rows.map((row) => (row as { id?: string }).id)).toContain(`user-${log.last_prompt_seq}`);
   } finally {
     client.close();
   }

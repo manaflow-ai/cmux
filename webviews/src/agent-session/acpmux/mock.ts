@@ -445,6 +445,25 @@ export class MockAcpmuxSocket {
     return id;
   }
 
+  /// What a seeded session's whole log holds, counted in the log the client pages from (not the client's held
+  /// window): its records, and the rows they make, a prompt, a reply and a turnSummary per light turn
+  /// (loadFixture.ts `lightTurn`). `last_prompt_seq` names the newest prompt row (`user-${seq}`, direct.ts).
+  loadSessionLog(target: string): { records: number; rows: number; last_prompt_seq: number | null } {
+    let records = 0;
+    let rows = 0;
+    let lastPrompt: number | null = null;
+    for (const event of this.events) {
+      if (event.sessionId !== target) continue;
+      records += 1;
+      if (event.dir === "mux" && event.kind === "user_message") {
+        rows += 1;
+        lastPrompt = event.seq;
+      } else if (event.kind === "agent_message_chunk" || (event.dir === "mux" && event.kind === "turn_result"))
+        rows += 1;
+    }
+    return { records, rows, last_prompt_seq: lastPrompt };
+  }
+
   /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without
   /// delivery: `_acpmux/events {subagent}` reads them as acpmux's log would (`debug.agent_pane
   /// seed_rows` `subagent-report`, whose capped report card's Show more reads that subagent's reply).

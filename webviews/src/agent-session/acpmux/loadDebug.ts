@@ -40,7 +40,7 @@ function afterRender(): Promise<number> {
 }
 
 export async function loadSeed(
-  host: { selectSession(sessionId: string): void; rowCount(): number },
+  host: { selectSession(sessionId: string): void; rowCount(): number; rowIds?(): string[] },
   turns: number,
   options: { light?: boolean } = {},
 ): Promise<Record<string, unknown>> {
@@ -81,10 +81,19 @@ export async function loadSeed(
     shown = view.key;
   }
   const rows = host.rowCount();
+  // The full chat, counted in the daemon's log the transcript pages from: `rows` is only the client's held window
+  // (a large fixture's attach is paged), so it can never say all of a 100k-row chat is there. `window_at_latest`:
+  // the held window holds the log's newest prompt row, so the client is on this whole log, at its end.
+  const log = mock.loadSessionLog(session);
+  const windowAtLatest =
+    log.last_prompt_seq !== null && (host.rowIds?.() ?? []).includes(`user-${log.last_prompt_seq}`);
   return {
     session,
     turns,
     logical_rows: turns * 3,
+    model_rows: log.rows,
+    model_records: log.records,
+    window_at_latest: windowAtLatest,
     rows,
     seed_ms: round2(seeded - started),
     first_content_ms: firstContent === undefined ? null : round2(firstContent),

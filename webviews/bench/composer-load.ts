@@ -27,6 +27,9 @@ export async function seedComposer(surface: Surface, turns: number) {
   return {
     rows: Number(receipt.rows),
     logicalRows: Number(receipt.logical_rows ?? receipt.rows),
+    // The whole chat in the log the transcript pages from, and whether the held window is at its end (loadDebug.ts).
+    modelRows: Number(receipt.model_rows),
+    windowAtLatest: receipt.window_at_latest === true,
     seedReady: receipt.seed_ready === true,
     seedTimedOut: receipt.seed_timed_out === true,
     seedDeadlineMs: Number(receipt.seed_deadline_ms ?? 25_000),
@@ -54,6 +57,8 @@ export async function runComposerLoad(
   const requestedRows = mode === "L3" ? 100000 : length;
   const seed = await seedComposer(page, Math.ceil(requestedRows / 3));
   const rows = seed.rows;
+  // L3's receipt, taken before any key: the transcript's model holds every row and the client sits at its end.
+  const fullChat = seed.modelRows >= requestedRows && seed.windowAtLatest && seed.seedReady;
   const backgrounds: Frame[] = [];
   if (mode === "L2") {
     await page.evaluate((port) => {
@@ -154,6 +159,7 @@ export async function runComposerLoad(
       };
     };
   });
+  const clocksBefore = await readClocks(page, loads);
   const expected = Array.from({ length: keys }, (_, i) => "abcdefghijklmnopqrstuvwxyz"[i % 26]).join("");
   const late: number[] = [];
   const started = performance.now();
@@ -189,6 +195,7 @@ export async function runComposerLoad(
     frame: number;
     paint_epoch_ms: number;
   }[];
+  const clocksAfter = await readClocks(page, loads);
   const frames = new Map<number, number>();
   for (const sample of samples) frames.set(sample.frame_timestamp_ms, (frames.get(sample.frame_timestamp_ms) ?? 0) + 1);
   const errors: string[] = [];
@@ -201,16 +208,14 @@ export async function runComposerLoad(
   if (mode === "L3" && seed.logicalRows < 100000) errors.push("fixture requested fewer than 100000 logical rows");
   if (mode === "L3" && (!seed.seedReady || rows === 0))
     errors.push("fixture did not reach stable nonempty row readiness before deadline");
+  // `rows` is the client's held window (a paged attach); only the model's count says the whole chat is there.
+  if (mode === "L3" && !fullChat) errors.push("model does not hold all 100000 rows with the held window at its end");
   if ((quantile(late, 0.95) ?? Infinity) > gap) errors.push("driver missed input cadence");
-  if (
-    !Number.isFinite(result.typing.epoch_clock_error_ms) ||
-    Math.abs(result.typing.epoch_clock_error_ms) >= 2 ||
-    loadRates.some((r) => !Number.isFinite(r.epoch_clock_error_ms) || Math.abs(r.epoch_clock_error_ms) >= 2)
-  )
-    errors.push("cross-document epoch clocks do not match wall time within 2ms");
+  if (!clocksAgree(clocksBefore, clocksAfter)) errors.push("cross-document clocks do not agree within 2ms");
+  const lastPaint = (samples.at(-1)?.paint_epoch_ms ?? Infinity) - clocksAfter.page_origin_ms;
   if (
     loadRates.some(
-      (r) =>
+      (r, i) =>
         !r.running ||
         r.error ||
         !Number.isFinite(r.chunks_per_second) ||
@@ -218,7 +223,7 @@ export async function runComposerLoad(
         r.tool_lines_per_second < lines * 0.9 ||
         r.maxGapMs > 250 ||
         r.maxScheduleOffsetMs > 250 ||
-        r.started_epoch_ms + r.elapsedMs < (samples.at(-1)?.paint_epoch_ms ?? Infinity) - 250,
+        streamEndOnPageClock(r, clocksAfter.surfaces[i]) < lastPaint - 250,
     )
   )
     errors.push("requested stream rate or continuity not sustained");
@@ -241,6 +246,10 @@ export async function runComposerLoad(
     seed_ready: seed.seedReady,
     seed_timed_out: seed.seedTimedOut,
     seed_deadline_ms: seed.seedDeadlineMs,
+    model_rows: seed.modelRows,
+    window_at_latest: seed.windowAtLatest,
+    full_chat_before_keys: fullChat,
+    load_clock_offsets_ms: clocksAfter.surfaces.map((clock) => clock.offset_ms),
     keys: samples.length,
     valid: errors.length === 0,
     acceptance_eligible: errors.length === 0 && keys >= 200,
@@ -272,4 +281,61 @@ export async function runComposerLoad(
     renders: result.renders,
     samples,
   };
+}
+
+/// Each load document's clock against the focused page's, read in one task in the page. An epoch time
+/// (`performance.timeOrigin + now`) is not one clock across documents: each document pins its timeOrigin to the wall
+/// clock once, when it is created, so two documents' epochs can disagree by the wall clock's steps and its 1 ms
+/// grain, and neither matches `Date.now()` exactly. `performance.now()` in same-origin documents of one renderer
+/// runs on one monotonic clock, so `offset_ms` (the document's now minus the page's) is constant; `read_ms` bounds it.
+export type SurfaceClock = { offset_ms: number; origin_ms: number; read_ms: number };
+export type LoadClocks = { page_origin_ms: number; surfaces: SurfaceClock[] };
+
+async function readClocks(page: Page, loads: Surface[]): Promise<LoadClocks> {
+  const names = loads.map((surface) => (surface === page ? null : (surface as Frame).name()));
+  return page.evaluate((names) => {
+    const surfaces = names.map((name) => {
+      const other =
+        name === null
+          ? window
+          : document.querySelector<HTMLIFrameElement>(`iframe[name="${CSS.escape(name)}"]`)?.contentWindow;
+      if (!other) return { offset_ms: Number.NaN, origin_ms: Number.NaN, read_ms: Number.NaN };
+      const before = performance.now();
+      const theirs = other.performance.now();
+      const after = performance.now();
+      return {
+        offset_ms: theirs - (before + after) / 2,
+        origin_ms: other.performance.timeOrigin,
+        read_ms: after - before,
+      };
+    });
+    return { page_origin_ms: performance.timeOrigin, surfaces };
+  }, names);
+}
+
+/// The clocks are one clock: every offset read within 2 ms, the same before the keys and after them.
+export function clocksAgree(before: LoadClocks, after: LoadClocks): boolean {
+  return (
+    Number.isFinite(after.page_origin_ms) &&
+    before.surfaces.length === after.surfaces.length &&
+    before.surfaces.every((b, i) => {
+      const a = after.surfaces[i]!;
+      return (
+        [b.offset_ms, a.offset_ms, b.read_ms, a.read_ms, a.origin_ms].every(Number.isFinite) &&
+        b.read_ms < 2 &&
+        a.read_ms < 2 &&
+        Math.abs(a.offset_ms - b.offset_ms) < 2
+      );
+    })
+  );
+}
+
+/// When a load's stream last made progress, on the focused page's `performance.now()` clock: its start in its own
+/// document's clock (its epoch less that document's own timeOrigin), plus its elapsed time, less the offset.
+export function streamEndOnPageClock(
+  receipt: { started_epoch_ms: number; elapsedMs: number },
+  clock: SurfaceClock | undefined,
+): number {
+  if (!clock) return Number.NaN;
+  return receipt.started_epoch_ms - clock.origin_ms + receipt.elapsedMs - clock.offset_ms;
 }
