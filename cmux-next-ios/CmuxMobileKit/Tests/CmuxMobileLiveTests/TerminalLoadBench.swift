@@ -290,10 +290,11 @@ struct TerminalLoadBench {
         let bytes: Int
         let wide: Int
         let replays: Int
+        let attaches: Int
     }
 
     static func mark(_ mac: Mac, _ page: Page) -> Mark {
-        Mark(bytes: mac.bytes, wide: page.wideFrames, replays: mac.vtStates)
+        Mark(bytes: mac.bytes, wide: page.wideFrames, replays: mac.vtStates, attaches: mac.attaches)
     }
 
     /// Waits for `replays` more replays delivered and the page's surface to
@@ -371,20 +372,35 @@ struct TerminalLoadBench {
         return await settle(rig.mac, rig.page, from: mark) { rig.daemon.isAttached }
     }
 
-    /// Scrolling back to line 1: each step's fetch, parsed, before the next.
+    /// Scrolling back to line 1, as the page asks its session for older rows
+    /// (a projecting session re-wraps the rows it holds first, then fetches
+    /// the Mac's): each step parsed before the next, until the Mac has no
+    /// older row left and the session has nothing more to show.
     static func scrollback(_ rig: Rig, limit: Double) async -> Sample {
         let start = mark(rig.mac, rig.page)
         var steps = 0
-        while rig.daemon.historyRowsOmitted > 0, CFAbsoluteTimeGetCurrent() - start.wall < limit {
+        var idleSince: CFAbsoluteTime?
+        while CFAbsoluteTimeGetCurrent() - start.wall < limit {
             let step = mark(rig.mac, rig.page)
-            guard rig.daemon.loadOlderHistory() else {
-                // A fetch can wait for the last one's old attach to close.
+            let activity = rig.page.lastActivity
+            guard rig.session.loadOlderHistory() else {
+                // Nothing more (or a fetch waits for the last one's old attach to close).
+                if rig.daemon.historyRowsOmitted == 0, CFAbsoluteTimeGetCurrent() - (idleSince ?? step.wall) > 0.6 { break }
+                if idleSince == nil { idleSince = step.wall }
                 try? await Task.sleep(for: .milliseconds(5))
-                if CFAbsoluteTimeGetCurrent() - step.wall > 5 { break }
                 continue
             }
+            idleSince = nil
+            // Output during the call: the session re-wrapped rows it holds; else a Mac fetch
+            // goes out (an attach reaches the daemon), or nothing did (a throttled call).
+            let local = rig.page.lastActivity != activity
+            if !local {
+                let sent = CFAbsoluteTimeGetCurrent() + 0.5
+                while rig.mac.attaches == step.attaches, CFAbsoluteTimeGetCurrent() < sent { try? await Task.sleep(for: .milliseconds(2)) }
+                if rig.mac.attaches == step.attaches { continue }
+            }
             steps += 1
-            _ = await settle(rig.mac, rig.page, from: step, limit: limit)
+            _ = await settle(rig.mac, rig.page, from: step, replays: local ? 0 : 1, limit: limit)
         }
         var sample = Sample(ms: (rig.page.lastParsed - start.wall) * 1000, bytes: rig.mac.bytes - start.bytes,
                             mainMs: mainThreadCPU() - start.cpu, wide: rig.page.wideFrames - start.wide)
@@ -427,7 +443,7 @@ struct TerminalLoadBench {
 
     static func describe(_ sample: Sample) -> String {
         let reached = sample.reached ? "" : " (NOT reached)"
-        return String(format: "%.0f ms, %d bytes, main %.0f ms, wide frames %d, steps %d", sample.ms, sample.bytes, sample.mainMs, sample.wide, sample.steps) + reached
+        return String(format: "%.0f ms, %ld bytes, main %.0f ms, wide frames %ld, steps %ld", sample.ms, sample.bytes, sample.mainMs, sample.wide, sample.steps) + reached
     }
 
     @Test func loadingATerminalTab() async throws {
