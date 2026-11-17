@@ -48,9 +48,12 @@ import Testing
             defer { window.closeAfterTest() }
             let fills = Self.rowFills(card)
             try #require(fills.count == 3, "\(density): the card shows \(fills.count) tab rows")
+            // Each edge lands on a whole device pixel: on a 1x screen (a fleet display worker) a fractional density's
+            // two edges can each round a point the other way.
+            let allowed = window.backingScaleFactor >= 2 ? 0.5 : 2 / max(window.backingScaleFactor, 1) + 0.01
             for fill in fills {
                 let left = fill.minX, right = card.bounds.width - fill.maxX
-                #expect(abs(left - right) <= 0.5, "\(density), \(scrollers == .legacy ? "legacy" : "overlay") scrollers: a row's fill is \(left) pt from the card's left, \(right) pt from its right")
+                #expect(abs(left - right) <= allowed, "\(density), \(scrollers == .legacy ? "legacy" : "overlay") scrollers: a row's fill is \(left) pt from the card's left, \(right) pt from its right")
             }
         }
     }
@@ -111,7 +114,9 @@ import Testing
             #expect(abs((row.layer?.cornerRadius ?? 0) - radius) <= 0.01,
                     "\(density): a tab row's corners are \(row.layer?.cornerRadius ?? 0) pt, a sidebar row's \(radius) pt")
             let gap = try #require(Self.rowFills(card).first).minX
-            #expect(abs((card.layer?.cornerRadius ?? 0) - (radius + gap)) <= 0.01,
+            // The row's edge lands on a whole device pixel; the corner is exact (one pixel on a 1x screen).
+            let pixel = window.backingScaleFactor >= 2 ? 0.01 : 1 / max(window.backingScaleFactor, 1) + 0.01
+            #expect(abs((card.layer?.cornerRadius ?? 0) - (radius + gap)) <= pixel,
                     "\(density): the card's corners are \(card.layer?.cornerRadius ?? 0) pt, concentric is \(radius + gap) pt")
         }
     }
