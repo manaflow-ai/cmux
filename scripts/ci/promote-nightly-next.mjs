@@ -73,33 +73,142 @@ export const G3_G4_SKIPPED = 'skipped: no approval needed';
 const BOT_LOGINS = new Set(['web-flow', 'github-actions[bot]', 'GitHub']);
 const MAX_ACTIVITY_PAGES = 20;
 
-// GitHub's Actions installation shares its hourly core budget across jobs.
-// Wait briefly for the server's reset once per decision, without probing an
-// empty bucket. The read client is normally the quota-isolated glaeda-route
-// App token (nightly.yml), while the GITHUB_TOKEN remains the fallback when
-// that token cannot be minted. A long reset is surfaced after three minutes
-// instead of holding the promotion until a later hourly window. Never retry a
-// write or a permission failure.
+// One installation's hourly core budget is shared by every job that mints its
+// token. The promote job reads with the release App's own pool first and moves
+// to a spare token (another App's pool) at once when a read is refused
+// (budgetRequest). When the last token is refused too, wait briefly for the
+// server's reset once per decision, without probing an empty bucket. A long
+// reset is surfaced after three minutes instead of holding the promotion until
+// a later hourly window. Never retry a write or a permission failure.
 export const QUOTA_RESET_WAIT_MS = 3 * 60 * 1000;
-export function quotaResetRetry({
-  core, now = () => Date.now(), sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+
+// One bounded wait per hook for a spent pool's reset (x-ratelimit-reset),
+// then one retry of `request`; otherwise `error` is thrown again.
+function quotaResetWait({
+  core, now = () => Date.now(), sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), maxWaitMs = QUOTA_RESET_WAIT_MS,
 } = {}) {
   let waited = false;
-  return async (request, options) => {
+  return async (request, options, error) => {
+    const headers = error.response?.headers || {};
+    const reset = Number(headers['x-ratelimit-reset']);
+    const delay = Math.max(1000, reset * 1000 - now() + 1000);
+    if (waited || options.method !== 'GET' || error.status !== 403 ||
+        String(headers['x-ratelimit-remaining']) !== '0' || !Number.isFinite(reset) || reset <= 0 ||
+        delay > maxWaitMs) throw error;
+    waited = true;
+    core?.warning?.(`Installation quota exhausted on every read token; waiting ${Math.ceil(delay / 1000)}s until ${new Date(reset * 1000).toISOString()} before one read retry.`);
+    await sleep(delay);
+    return request(options);
+  };
+}
+
+export function quotaResetRetry(options = {}) {
+  const wait = quotaResetWait(options);
+  return async (request, requestOptions) => {
     try {
-      return await request(options);
+      return await request(requestOptions);
     } catch (error) {
-      const headers = error.response?.headers || {};
-      const reset = Number(headers['x-ratelimit-reset']);
-      const delay = Math.max(1000, reset * 1000 - now() + 1000);
-      if (waited || options.method !== 'GET' || error.status !== 403 ||
-          String(headers['x-ratelimit-remaining']) !== '0' || !Number.isFinite(reset) || reset <= 0 ||
-          delay > QUOTA_RESET_WAIT_MS) throw error;
-      waited = true;
-      core?.warning?.(`Actions installation quota exhausted; waiting ${Math.ceil(delay / 1000)}s until ${new Date(reset * 1000).toISOString()} before one read retry.`);
-      await sleep(delay);
-      return request(options);
+      return wait(request, requestOptions, error);
     }
+  };
+}
+
+// Every token the promote job reads with, primary first: the release App's own
+// installation pool (GH_TOKEN_PRIMARY), then the spares, each another pool
+// (GH_TOKEN_SPARE: the cmux-bot App; GH_TOKEN_SPARE_ROUTE: the glaeda-route
+// App; GH_TOKEN_FALLBACK: github.token, which every workflow in the repository
+// shares). Empty (a failed mint) and repeated tokens are dropped. nightly.yml's
+// `github-token:` is the same chain's head, so `github` is tokens[0]'s client.
+export const READ_TOKEN_CHAIN = ['GH_TOKEN_PRIMARY', 'GH_TOKEN_SPARE', 'GH_TOKEN_SPARE_ROUTE', 'GH_TOKEN_FALLBACK'];
+export function readTokens(env = {}) {
+  return [...new Set(READ_TOKEN_CHAIN.map((name) => String(env[name] || '').trim()).filter(Boolean))];
+}
+
+// Why a token's request was refused, or null. 'rate limit': its installation
+// pool (or GitHub's secondary limit) is spent, which another installation's
+// token does not share. 'unreachable': a read this token's App may not make
+// (the release App holds Contents and Workflows only; this repository is
+// public, so most reads need no permission, and any it refuses go to the
+// spare). A refused request did nothing on GitHub's side, so sending it again
+// is safe.
+export function refusal(error, options = {}) {
+  const status = error?.status;
+  const headers = error?.response?.headers || {};
+  const message = `${error?.message || ''} ${error?.response?.data?.message || ''}`;
+  if (status === 429) return 'rate limit';
+  if (status === 403 && (String(headers['x-ratelimit-remaining']) === '0' || /rate limit|abuse detection/i.test(message))) {
+    return 'rate limit';
+  }
+  if (status === 403 && (options.method || 'GET') === 'GET' && /not accessible by integration/i.test(message)) {
+    return 'unreachable';
+  }
+  return null;
+}
+
+// A GET whose answer cannot change while one decision is made: refs, compares,
+// commits, trees, contents at a commit, a commit's pull requests, annotations.
+// Never an /actions/ read (admittedTrain polls those until a run shows up).
+const UNKEYED = new Set(['method', 'url', 'baseUrl', 'headers', 'request', 'mediaType']);
+function memoKey(options) {
+  if ((options.method || 'GET') !== 'GET' || /\/actions\/|\/rate_limit/.test(String(options.url))) return null;
+  const params = Object.keys(options).filter((key) => !UNKEYED.has(key)).sort().map((key) => [key, options[key]]);
+  return JSON.stringify([options.url, options.mediaType?.format || '', params]);
+}
+
+// The hook's options carry its own client's request hook (Octokit's
+// request.hook) and may carry an authorization header: a spare's client gets
+// neither, so the call goes out through the spare's own auth.
+function forward(client, options) {
+  const { request: { hook, ...request } = {}, headers: { authorization, ...headers } = {}, ...rest } = options;
+  return client.request({ ...rest, headers, request });
+}
+
+// The promote job's request hook (github.hook.wrap('request', ...)), so no read
+// runs on one token alone (cmux#44171's gh_budget_wait.sh GH_TOKEN_SPARE, for
+// Octokit). The first refusal for the rate limit (or a read the token cannot
+// make) sends the call again at once on the next spare's client, which then
+// takes every later call (a spent pool stays spent until its reset). When the
+// last token is refused too, one bounded wait (quotaResetWait) applies.
+// `memo` answers a repeated snapshot GET (memoKey) from the first answer:
+// decideNewest decides each candidate through decide(), whose ranges overlap,
+// and every decide() read the same refs, compares and commits again. A failed
+// read is not kept, so retrying() still sends it again.
+export function budgetRequest({ core, spares = [], memo = true, now, sleep, maxWaitMs } = {}) {
+  const wait = quotaResetWait({ core, now, sleep, maxWaitMs });
+  let active = 0; // 0: the hook's own client (the primary token); n: spares[n - 1]
+  const cache = new Map();
+  const send = async (request, options) => {
+    for (;;) {
+      const at = active;
+      const go = at === 0 ? request : (o) => forward(spares[at - 1], o);
+      try {
+        return await go(options);
+      } catch (error) {
+        const why = refusal(error, options);
+        if (!why) throw error;
+        if (at < spares.length) {
+          if (active === at) {
+            active = at + 1;
+            core?.notice?.(`${options.method || 'GET'} ${options.url} was refused on read token ${at + 1} of ${spares.length + 1} (${why}); it and every later call go out on token ${at + 2} now.`);
+          }
+          continue;
+        }
+        if (why !== 'rate limit') throw error;
+        return wait(go, options, error);
+      }
+    }
+  };
+  return async (request, options) => {
+    const key = memo ? memoKey(options) : null;
+    if (!key) return send(request, options);
+    if (!cache.has(key)) {
+      const pending = send(request, options);
+      cache.set(key, pending);
+      pending.catch(() => {
+        if (cache.get(key) === pending) cache.delete(key);
+      });
+    }
+    return cache.get(key);
   };
 }
 

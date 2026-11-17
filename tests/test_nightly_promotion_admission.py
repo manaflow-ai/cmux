@@ -1424,9 +1424,13 @@ for (const options of [{status: 401}, {remaining: '1'}, {remaining: undefined, r
     assert out["capped"]["calls"] == 1 and out["capped"]["failed"] and not out["capped"]["waits"], out
 
 
-def test_promotion_decision_uses_the_quota_isolated_read_token_when_available() -> None:
+def test_promotion_decision_reads_with_its_own_pool_and_spares() -> None:
+    # The full chain is pinned in tests/test_nightly_promote_token_pools.py.
+    assert "Mint the release App read token for the decision" in WORKFLOW
+    assert "Mint the cmux-bot spare read token" in WORKFLOW
     assert "Mint the quota-isolated read token" in WORKFLOW
-    assert "github-token: ${{ steps.read-token.outputs.token || github.token }}" in WORKFLOW
+    assert ("github-token: ${{ steps.release-read-token.outputs.token || steps.spare-token.outputs.token"
+            " || steps.read-token.outputs.token || github.token }}") in WORKFLOW
     assert "permission-actions: read" in WORKFLOW
     assert "permission-contents: read" in WORKFLOW
 

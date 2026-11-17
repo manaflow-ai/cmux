@@ -529,9 +529,49 @@ jobs:
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
 
-      # Reads in the promotion decision use the quota-isolated route App when
-      # available. The release App below still owns the protected branch move;
-      # this token has read-only permissions and cannot publish anything.
+      # No promote read runs on one token alone (tests/test_nightly_promote_token_pools.py).
+      # Each token below is its own installation pool, primary first; a read refused for the
+      # rate limit goes out again at once on the next one (promote-nightly-next.mjs
+      # budgetRequest), and only the last one refused waits (bounded) for a reset. The
+      # primary is the release App's own pool: it shares it only with the release path
+      # (nightly publish, the train, notarization resume, dev-daily's release job), not
+      # with the PR checks that spend the glaeda-route pool or the reconcilers that spend
+      # cmux-bot's (a spent shared pool stopped a promotion on 2026-11-17, 01:24Z). This
+      # token is Contents read only: this repository is public, so the guard's run, job,
+      # annotation and pull request reads need no other permission, and a read it is
+      # refused goes to the spare. The write token below is minted separately.
+      - name: Mint the release App read token for the decision
+        id: release-read-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+
+      # The spare: the cmux-bot App's pool (cmux#44171's GH_TOKEN_SPARE).
+      - name: Mint the cmux-bot spare read token
+        id: spare-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-checks: read
+          permission-contents: read
+          permission-pull-requests: read
+
+      # The second spare: the quota-isolated route App, read-only. The release
+      # App below still owns the protected branch move; this token cannot
+      # publish anything. github.token is the last token in the chain.
       - name: Mint the quota-isolated read token
         id: read-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
@@ -559,12 +599,18 @@ jobs:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
+          GH_TOKEN_PRIMARY: ${{ steps.release-read-token.outputs.token }}
+          GH_TOKEN_SPARE: ${{ steps.spare-token.outputs.token }}
+          GH_TOKEN_SPARE_ROUTE: ${{ steps.read-token.outputs.token }}
+          GH_TOKEN_FALLBACK: ${{ github.token }}
         with:
-          github-token: ${{ steps.read-token.outputs.token || github.token }}
+          github-token: ${{ steps.release-read-token.outputs.token || steps.spare-token.outputs.token || steps.read-token.outputs.token || github.token }}
           script: |
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
-            github.hook.wrap('request', guard.quotaResetRetry({ core }));
+            // `github` is the chain's first token; a refused read moves to the next at once.
+            const spares = guard.readTokens(process.env).slice(1).map((token) => getOctokit(token));
+            github.hook.wrap('request', guard.budgetRequest({ core, spares }));
             const { owner, repo } = context.repo;
             // The dispatch already has its maximum of inputs, so a dry run is
             // the "dry-run:" prefix on the SHA, and the 30-minute tick's
@@ -613,10 +659,20 @@ jobs:
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           DECISION: ${{ steps.decide.outputs.decision }}
+          GH_TOKEN_PRIMARY: ${{ steps.release-read-token.outputs.token }}
+          GH_TOKEN_SPARE: ${{ steps.spare-token.outputs.token }}
+          GH_TOKEN_SPARE_ROUTE: ${{ steps.read-token.outputs.token }}
+          GH_TOKEN_FALLBACK: ${{ github.token }}
         with:
+          # The compare-and-swap read goes through the same token chain (never memoized: it
+          # must see nightly-next now). The write is the release App's alone: only it may
+          # move the protected branch, and its pool is the one the reads above spare.
+          github-token: ${{ steps.release-read-token.outputs.token || steps.spare-token.outputs.token || steps.read-token.outputs.token || github.token }}
           script: |
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
+            const spares = guard.readTokens(process.env).slice(1).map((token) => getOctokit(token));
+            github.hook.wrap('request', guard.budgetRequest({ core, spares, memo: false }));
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
