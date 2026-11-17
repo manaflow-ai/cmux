@@ -467,6 +467,8 @@ struct SackScan {
     lost_bytes: usize,
     /// A hole is lost by the duplicate threshold, not only by early retransmit.
     congestion: bool,
+    /// cmux patch: bytes in holes lost by the duplicate threshold, resent or not.
+    lost_hole_bytes: usize,
 }
 
 impl Timer {
@@ -715,6 +717,8 @@ pub struct Socket<'a> {
     sack_high_rxt: TcpSeqNumber,
     /// cmux patch: this recovery episode already cut the congestion window.
     sack_window_cut: bool,
+    /// cmux patch: the most bytes this recovery episode had lost at once.
+    sack_episode_lost: usize,
     /// cmux patch: the largest segment our own path takes (the interface MTU
     /// less headers), learned at the handshake. SACK recovery counts and
     /// admits repairs in min(this, remote MSS), the segments actually sent.
@@ -827,6 +831,7 @@ impl<'a> Socket<'a> {
             sack_recovery_point: None,
             sack_high_rxt: TcpSeqNumber::default(),
             sack_window_cut: false,
+            sack_episode_lost: 0,
             local_mss: usize::MAX,
             path_change_retransmit: false,
             repaired_below: None,
@@ -1272,7 +1277,12 @@ impl<'a> Socket<'a> {
     /// cmux patch: walk the holes between the cumulative ACK and the SACKed
     /// ranges, lowest first.
     fn sack_scan(&self) -> SackScan {
-        let mut scan = SackScan { next_retransmit: None, lost_bytes: 0, congestion: false };
+        let mut scan = SackScan {
+            next_retransmit: None,
+            lost_bytes: 0,
+            congestion: false,
+            lost_hole_bytes: 0,
+        };
         let ranges = self.sack_scoreboard.ranges();
         let high_rxt = if self.sack_recovery_point.is_some() {
             self.sack_high_rxt.max(self.local_seq_no)
@@ -1293,6 +1303,9 @@ impl<'a> Socket<'a> {
                     break;
                 };
                 scan.congestion |= congestion;
+                if congestion {
+                    scan.lost_hole_bytes += start - hole_start;
+                }
                 let from = hole_start.max(high_rxt);
                 if from < start {
                     scan.lost_bytes += start - from;
@@ -1368,6 +1381,12 @@ impl<'a> Socket<'a> {
         {
             net_debug!("SACK recovery done at {}", self.local_seq_no);
             self.sack_recovery_point = None;
+            // cmux patch: how many segments the episode lost tells a burst
+            // (a queue overflowing) from one random loss.
+            let lost = core::mem::take(&mut self.sack_episode_lost);
+            if lost > 0 {
+                self.congestion_controller.inner_mut().on_recovery_end(lost);
+            }
         }
         // Outside recovery nothing was resent yet. (Compared only within a
         // recovery: sequence numbers are ordered only within half the space,
@@ -1381,6 +1400,10 @@ impl<'a> Socket<'a> {
             self.sack_recovery_point = Some(self.remote_last_seq);
             self.sack_high_rxt = self.local_seq_no;
             self.sack_window_cut = false;
+            self.sack_episode_lost = 0;
+        }
+        if self.sack_recovery_point.is_some() {
+            self.sack_episode_lost = self.sack_episode_lost.max(scan.lost_hole_bytes);
         }
         // One window cut for the whole episode, however many holes it has,
         // and only once the duplicate threshold shows a loss.
@@ -1548,6 +1571,7 @@ impl<'a> Socket<'a> {
         self.sack_recovery_point = None;
         self.sack_high_rxt = TcpSeqNumber::default();
         self.sack_window_cut = false;
+        self.sack_episode_lost = 0;
         self.local_mss = usize::MAX;
         self.path_change_retransmit = false;
         self.repaired_below = None;

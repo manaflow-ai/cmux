@@ -58,6 +58,9 @@ pub struct Cubic {
     // segments between loss events (`None` before the first).
     delivered_since_loss: usize,
     loss_interval: Option<f64>,
+    // cmux patch: the average segments a SACK episode lost (1 before any),
+    // smoothed 3/4 old, 1/4 new.
+    lost_per_event: f64,
 }
 
 impl Cubic {
@@ -85,6 +88,7 @@ impl Cubic {
             rtt_us: 0.0,
             delivered_since_loss: 0,
             loss_interval: None,
+            lost_per_event: 1.0,
         };
         cubic.recompute_k();
         cubic
@@ -244,17 +248,17 @@ impl Controller for Cubic {
         self.cwnd = (self.cwnd + increment).min(self.rwnd).max(self.mss);
     }
 
-    // cmux patch: a loss is the link's, not a queue's, when three things hold.
-    // No queue: neither the smoothed RTT nor the newest sample has grown past
-    // min RTT / β (the window a β cut would leave still covers the path).
-    // Sparse: the average loss interval (RFC 5348's loss event rate, smoothed
-    // 3/4 old, 1/4 new) is at least RANDOM_LOSS_SEGMENTS, the 2% loss BBRv2
-    // tolerates. Late: this loss came more than two flights after the last.
-    // A random loss arrives after some number of segments whatever the window
-    // is; a bottleneck left uncut drops again within about a flight, and slow
-    // start's first loss comes about one flight in. That last test is what
-    // catches a shallow buffer, whose queue is too short to show in the RTT.
-    fn loss_is_congestion(&mut self, _now: Instant, in_flight: usize) -> bool {
+    // cmux patch: a loss is the link's, not a queue's, when, out of slow start,
+    // two things hold. No queue: neither the smoothed RTT nor the newest sample
+    // has grown past min RTT / β (the window a β cut would leave still covers
+    // the path). Sparse: segments delivered per segment lost are at least
+    // RANDOM_LOSS_SEGMENTS, the 2% loss BBRv2 tolerates: the average loss
+    // interval (RFC 5348's loss event rate, smoothed 3/4 old, 1/4 new) over
+    // the average segments a SACK episode lost (`on_recovery_end`). Random
+    // loss takes about one segment an event; a shallow buffer, whose queue
+    // is too short to show in the RTT, drops a run of them. A loss in slow
+    // start always ends it, and an RTO resets the history (`on_rto`).
+    fn loss_is_congestion(&mut self, _now: Instant, _in_flight: usize) -> bool {
         let interval = self.delivered_since_loss as f64 / self.mss as f64;
         self.delivered_since_loss = 0;
         let average = match self.loss_interval {
@@ -262,10 +266,17 @@ impl Controller for Cubic {
             Some(average) => (3.0 * average + interval) / 4.0,
         };
         self.loss_interval = Some(average);
-        let sparse = average >= RANDOM_LOSS_SEGMENTS as f64;
-        let late = interval > 2.0 * in_flight as f64 / self.mss as f64;
+        if self.cwnd < self.ssthresh {
+            return true;
+        }
+        let sparse = average / self.lost_per_event >= RANDOM_LOSS_SEGMENTS as f64;
         let unqueued = self.min_rtt_us.is_some_and(|min_rtt| self.rtt_us * BETA_CUBIC <= min_rtt);
-        !(sparse && late && unqueued)
+        !(sparse && unqueued)
+    }
+
+    fn on_recovery_end(&mut self, lost: usize) {
+        let segments = (lost as f64 / self.mss as f64).max(1.0);
+        self.lost_per_event = (3.0 * self.lost_per_event + segments) / 4.0;
     }
 
     fn on_dup_ack(&mut self, _now: Instant, len: usize, _in_flight: usize) {
@@ -326,6 +337,10 @@ impl Controller for Cubic {
         }
         self.initial = false;
         self.delivered_since_loss = 0;
+        // cmux patch: a timeout says the losses before it were congestion,
+        // whatever they were judged: the next few losses cut until the average
+        // loss interval is back above RANDOM_LOSS_SEGMENTS.
+        self.loss_interval = Some(0.0);
 
         self.cwnd = self.mss;
         self.cwnd_prior = in_flight;
@@ -442,7 +457,8 @@ mod test {
     }
 
     // cmux patch: a connection that delivered `per_rtt` bytes every 100 ms
-    // round trip for a second, one MSS per ACK, with RTT samples `rtts`.
+    // round trip for a second, one MSS per ACK, with RTT samples `rtts`, in
+    // congestion avoidance with a window twice that: an app-limited stream.
     fn delivering(per_rtt: usize, rtts: &[u32]) -> (Cubic, Instant) {
         let mut rtt = RttEstimator::default();
         for sample in rtts {
@@ -451,6 +467,8 @@ mod test {
         let mut cubic = Cubic::new();
         cubic.set_mss(MSS);
         cubic.set_remote_window(usize::MAX);
+        cubic.cwnd = 2 * per_rtt;
+        cubic.ssthresh = 2 * per_rtt;
         let acks = per_rtt / MSS;
         let mut now = Instant::from_millis(0);
         for _ in 0..10 * acks {
@@ -499,18 +517,57 @@ mod test {
         assert!(cubic.loss_is_congestion(now, per_rtt));
     }
 
-    // cmux patch: a shallow buffer queues too little to show in the RTT, but
-    // left uncut it drops again within a flight: congestion.
+    // cmux patch: a loss in slow start ends it, queue or not: left doubling,
+    // slow start overshoots a buffer too shallow to show in the RTT.
     #[test]
-    fn loss_within_two_flights_is_congestion() {
+    fn slow_start_loss_is_congestion() {
+        let per_rtt = 32 * MSS;
+        let (mut cubic, now) = delivering(per_rtt, &[100, 100, 100]);
+        cubic.ssthresh = usize::MAX;
+        assert!(cubic.loss_is_congestion(now, per_rtt));
+    }
+
+    // cmux patch: an RTO says the losses before it were congestion: the next
+    // losses cut even on a path that shows no queue.
+    #[test]
+    fn rto_resets_the_loss_history() {
         let per_rtt = 32 * MSS;
         let (mut cubic, now) = delivering(per_rtt, &[100, 100, 100]);
         assert!(!cubic.loss_is_congestion(now, per_rtt));
+        cubic.on_rto(now, per_rtt);
+        cubic.cwnd = cubic.ssthresh;
         let mut rtt = RttEstimator::default();
         rtt.sample(100);
-        for _ in 0..per_rtt / MSS {
-            cubic.on_ack(now, MSS, per_rtt, &rtt);
+        for _ in 0..100 {
+            cubic.on_ack(now, MSS, per_rtt / 2, &rtt);
         }
+        // On a path with no queue, only the reset history cuts.
+        assert!(cubic.loss_is_congestion(now, per_rtt / 2));
+    }
+
+    // cmux patch: a shallow buffer queues too little to show in the RTT, but
+    // drops a run of segments at once: after such episodes, losses as far
+    // apart as random ones are congestion.
+    #[test]
+    fn burst_losses_are_congestion() {
+        let per_rtt = 32 * MSS;
+        let (mut cubic, now) = delivering(per_rtt, &[100, 100, 100]);
+        assert!(!cubic.loss_is_congestion(now, per_rtt));
+        cubic.on_recovery_end(MSS);
+        let mut rtt = RttEstimator::default();
+        rtt.sample(100);
+        let deliver = |cubic: &mut Cubic| {
+            for _ in 0..100 {
+                cubic.on_ack(now, MSS, per_rtt, &rtt);
+            }
+        };
+        // One segment an episode, every 100 segments: random.
+        deliver(&mut cubic);
+        assert!(!cubic.loss_is_congestion(now, per_rtt));
+        // Ten segments an episode, as far apart: 1 in 10 lost, congestion.
+        cubic.on_recovery_end(10 * MSS);
+        cubic.on_recovery_end(10 * MSS);
+        deliver(&mut cubic);
         assert!(cubic.loss_is_congestion(now, per_rtt));
     }
 

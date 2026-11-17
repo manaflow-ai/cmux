@@ -44,6 +44,10 @@ pub(super) trait Controller {
         true
     }
 
+    /// cmux patch: called when a SACK recovery episode ends, with the most
+    /// bytes it had lost at once.
+    fn on_recovery_end(&mut self, lost: usize) {}
+
     fn pre_transmit(&mut self, now: Instant) {}
 
     fn post_transmit(&mut self, now: Instant, len: usize) {}
