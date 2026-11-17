@@ -183,17 +183,13 @@ mod tests {
     /// ("What every coder should know about gamma").
     #[test]
     fn a_preview_picture_averages_light_not_srgb_codes() {
+        // 2x down to the first try's 1200 px edge.
         for checker in [true, false] {
-            for n in [2400] {
-                let deadline = Instant::now() + std::time::Duration::from_secs(60);
-                let picture = to_jpeg(&black_and_white_png(n, checker), deadline).unwrap();
-                assert_eq!(picture.width, 1200);
-                let mean = middle_mean(&picture.jpeg);
-                assert!(
-                    (185.0..=191.0).contains(&mean),
-                    "checker {checker} {n}: {mean}"
-                );
-            }
+            let deadline = Instant::now() + std::time::Duration::from_secs(60);
+            let picture = to_jpeg(&black_and_white_png(2400, checker), deadline).unwrap();
+            assert_eq!(picture.width, 1200);
+            let mean = middle_mean(&picture.jpeg);
+            assert!((185.0..=191.0).contains(&mean), "checker {checker}: {mean}");
         }
     }
 }

@@ -192,7 +192,7 @@ impl Downscaler {
         for sum in &self.current {
             let weight = sum[3];
             for channel in &sum[..3] {
-                let linear = if weight == 0 { 0 } else { (channel + weight / 2) / weight };
+                let linear = (channel + weight / 2).checked_div(weight).unwrap_or(0);
                 self.out.push(to_srgb(linear.min(65535) as u16));
             }
             if self.alpha {
