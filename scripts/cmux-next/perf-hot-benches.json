@@ -190,6 +190,11 @@
       "what": "one keystroke in the New Tab field: screenRows ranks the open tabs, workspaces, visited pages, palette actions, chats and agent starts for the typed text (webviews newtab/screenModel.ts, launchRows.ts), over lists folded once per host update (omnibar.ts foldedTexts)",
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
+    },
+    "live-wallpaper-frame": {
+      "what": "one live wallpaper frame on the main thread (CmuxNextDesign BackdropLiveView tick and drawFrame, LiveWallpaperFrame.packed): ask the Rust scheduler, step the pointer, pack the 144-byte Frame uniform and hand it to the render queue; no wait, no drawable on main",
+      "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each for a picture, each live wallpaper, idle, occluded, minimized and Low Power)",
+      "owner": "design"
     }
   }
 }

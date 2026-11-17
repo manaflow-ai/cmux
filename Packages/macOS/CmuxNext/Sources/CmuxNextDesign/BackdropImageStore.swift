@@ -27,6 +27,9 @@ public final class BackdropImageStore {
     /// The desktop picture: the Desktop Wallpaper art reloads when it changes, and its color leans
     /// the glass tint (``WallpaperTint``). Inert until started.
     public let desktop: DesktopWallpaperWatch
+    /// The live wallpapers' programs, render queue and stills (``BackdropLiveView``), shared by every
+    /// window that draws from this store.
+    public nonisolated let livePrograms = LiveWallpaperPrograms()
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 

@@ -195,6 +195,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
+- Design: `com.cmuxterm.next.live-wallpaper.render` (every live wallpaper's frames, LiveWallpaperRenderer,
+  user-initiated, serial: `nextDrawable`, which may wait for the compositor to hand a drawable back, the
+  encode and the commit block this queue, never main; at most one frame per view in flight, a tick that
+  finds its last frame still on the GPU draws nothing, so no back-pressure; held wallpapers queue nothing)
 - Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
   serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
   20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the
