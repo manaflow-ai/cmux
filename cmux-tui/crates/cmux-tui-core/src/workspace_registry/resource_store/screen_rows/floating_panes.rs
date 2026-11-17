@@ -121,8 +121,8 @@ fn record(row: &rusqlite::Row<'_>, pane: usize) -> rusqlite::Result<Option<Recor
         };
         *value = stored;
     }
-    let quick = row.get_ref(pane + 5)?.as_i64().unwrap_or(-1);
-    let from = row.get_ref(pane + 6)?.as_str().ok().map(str::to_owned);
+    let quick = row.get_ref(pane.saturating_add(5))?.as_i64().unwrap_or(-1);
+    let from = row.get_ref(pane.saturating_add(6))?.as_str().ok().map(str::to_owned);
     Ok(Some((id.to_owned(), frame, quick, from)))
 }
 

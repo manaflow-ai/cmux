@@ -296,6 +296,8 @@ pub(super) fn restore_resource_state(
         "active-screen metadata does not exactly cover the live workspaces"
     );
     for workspace in &mut workspaces {
+        // `quick-terminal-v1`: a workspace has one quick terminal, also in a store that has 2 marks.
+        workspace.settle_quick_terminals();
         workspace.active_screen = match active_screens[&workspace.public_id].as_ref() {
             Some(active) => {
                 workspace.screens.iter().position(|screen| &screen.public_id == active).ok_or_else(

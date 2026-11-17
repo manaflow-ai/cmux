@@ -140,24 +140,29 @@ pub(super) fn quick_terminal(
     let spawn = placement_spawn_options(None, None, None, None, frontend_shell(mux, client))?;
     let surface = mux.quick_terminal_as(&actor, screen, mode, frame, spawn, None)?;
     // The answer says the state after the act, so it is true when another
-    // request changed the screen between the two.
-    let (mark, focused) = mux
+    // request changed the screen between the two. The quick terminal is the
+    // one of the workspace: `screen` is the screen that holds it, else the
+    // screen of the request.
+    let (held, focused) = mux
         .with_state(|state| {
-            state
+            let workspace = state
                 .workspaces
                 .iter()
-                .flat_map(|workspace| &workspace.screens)
-                .find(|item| item.id == screen)
-                .map(|found| (found.quick_terminal(), found.active_pane))
+                .find(|workspace| workspace.screens.iter().any(|item| item.id == screen))?;
+            let shown = workspace.screens.iter().find(|item| item.id == screen)?;
+            let held = workspace
+                .quick_terminal()
+                .and_then(|(at, pane, mark)| Some((workspace.screens.get(at)?.id, pane, mark)));
+            Some((held, shown.active_pane))
         })
         .ok_or(FloatPaneError::ScreenNotFound { screen })?;
     let mut data = json!({
-        "screen": screen,
+        "screen": held.map_or(screen, |(holder, _, _)| holder),
         "created": surface.is_some(),
-        "hidden": mark.is_some_and(|(_, mark)| mark.hidden),
+        "hidden": held.is_some_and(|(_, _, mark)| mark.hidden),
         "focused": focused,
     });
-    if let Some((pane, _)) = mark {
+    if let Some((_, pane, _)) = held {
         data.insert("pane", json!(pane));
     }
     if let Some(surface) = surface {

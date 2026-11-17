@@ -1,9 +1,10 @@
 //! The quick terminal (`quick-terminal-v1`): the `quick-terminal` request.
 //!
-//! The quick terminal of a screen is the floating pane that has the mark
-//! (model/floating_panes.rs). The rule of the request is the layout reducer's
-//! (`quick_act`): it makes the quick terminal, shows it with the focus, or
-//! hides it. Each act is one commit of the store:
+//! The quick terminal of a workspace is the floating pane that has the mark
+//! (model/floating_panes.rs): one for a workspace, a pane of one of its
+//! screens. A request names the screen that the client shows. The rule of the
+//! request is the layout reducer's (`quick_act`): it makes the quick terminal,
+//! shows it with the focus, or hides it. Each act is one commit of the store:
 //!
 //! - The make is a pane creation (`pane.split`) with one more field, the
 //!   frame. The effect that adds the pane floats it and marks it before the
@@ -14,10 +15,15 @@
 //! - The hide keeps the pane, its terminal and its entry of the list. The
 //!   focus goes to the pane of the mark, else to the pane that a close of the
 //!   quick terminal would give it to.
+//! - The bring is for a quick terminal in another screen of the workspace:
+//!   the pane moves to the screen of the request by the plan of `pane.move`
+//!   (it keeps its id, its tabs and its terminal), floats there at its frame
+//!   with the mark, shows and has the focus.
 
 use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, QuickAct, QuickMode, quick_act};
 
 use super::focus_plan::expand_focus_stacks;
+use super::pane_move::{Destination, move_pane_in_state};
 use super::*;
 use crate::model::Screen;
 use crate::mux::tree_edit::{close_focus_successor, close_sibling};
@@ -31,6 +37,11 @@ const QUICK_TERMINAL_FRAME_FIELD: &str = "quick_terminal_frame";
 /// operation: the command is reachable only through the JSON-lines
 /// `quick-terminal`.
 const HIDE_OPERATION: &str = "pane.quick-terminal-hide";
+
+/// Internal journal operation name of a bring. It is not a public resource
+/// operation: the command is reachable only through the JSON-lines
+/// `quick-terminal`.
+const BRING_OPERATION: &str = "pane.quick-terminal-bring";
 
 /// Where a new quick terminal stands with no frame in the request: the bottom
 /// right of the screen.
@@ -49,15 +60,18 @@ fn frame_field(fields: &Value) -> Option<FloatFrame> {
     Some(frame.clamped())
 }
 
-/// The floating panes of `screen` after the creation of `pane` by `fields`.
-/// A creation that has [`QUICK_TERMINAL_FRAME_FIELD`] floats the new pane at
-/// that frame and marks it, with `previous` as the pane that gets the focus
-/// back at a hide; a screen that has a quick terminal, and a pane that never
-/// floats, keep the pane tiled. Then the list follows the new layout: a
-/// floating pane whose column got a row, or that the auto layout put into a
-/// stack, is tiled.
-pub(super) fn settle_new_pane(screen: &mut Screen, pane: PaneId, previous: PaneId, fields: &Value) {
-    if let Some(frame) = frame_field(fields)
+/// Floats `pane` of `screen` at `frame` and marks it as the quick terminal,
+/// with `previous` as the pane that gets the focus back at a hide. No frame, a
+/// screen that has a quick terminal, and a pane that never floats, keep the
+/// pane tiled. Then the list follows the layout: a floating pane whose column
+/// got a row, or that the auto layout put into a stack, is tiled.
+fn settle_quick_pane(
+    screen: &mut Screen,
+    pane: PaneId,
+    previous: PaneId,
+    frame: Option<FloatFrame>,
+) {
+    if let Some(frame) = frame
         && screen.quick_terminal().is_none()
         && !screen.pane_never_floats(pane)
         && screen.place_floating_pane(pane, FloatMode::On, Some(frame)).is_ok()
@@ -67,40 +81,75 @@ pub(super) fn settle_new_pane(screen: &mut Screen, pane: PaneId, previous: PaneI
     screen.settle_floating_panes();
 }
 
+/// The floating panes of `screen` after the creation of `pane` by `fields`.
+/// A creation that has [`QUICK_TERMINAL_FRAME_FIELD`] makes the new pane the
+/// quick terminal at that frame ([`settle_quick_pane`]).
+pub(super) fn settle_new_pane(screen: &mut Screen, pane: PaneId, previous: PaneId, fields: &Value) {
+    settle_quick_pane(screen, pane, previous, frame_field(fields));
+}
+
 /// The screen `screen` of `state`.
 fn screen_of(state: &State, screen: ScreenId) -> Option<&Screen> {
     state.workspaces.iter().flat_map(|workspace| &workspace.screens).find(|item| item.id == screen)
 }
 
-/// What a request does, and the pane that it does it to: the quick terminal
-/// for a show, and the pane that a make splits.
-fn planned_act(
-    state: &State,
-    screen: ScreenId,
-    mode: QuickMode,
-) -> Result<(QuickAct, Option<PaneId>), FloatPaneError> {
-    let screen = screen_of(state, screen).ok_or(FloatPaneError::ScreenNotFound { screen })?;
-    let act = quick_act(&screen.floating_panes(), mode, &screen.active_pane);
-    let pane = match act {
+/// The pane of `screen` that the pane of the quick terminal splits: the new
+/// leaf is in that pane's column, so it can float where that pane can. The
+/// pane that has the focus comes first.
+fn split_target(screen: &Screen) -> Option<PaneId> {
+    std::iter::once(screen.active_pane)
+        .chain(screen.root.pane_ids_vec())
+        .find(|pane| !screen.pane_never_floats(*pane))
+}
+
+/// What a request does.
+enum Plan {
+    /// Make the quick terminal as a split of this pane.
+    Make(PaneId),
+    /// Give this pane, the quick terminal, the focus: it shows.
+    Show(PaneId),
+    /// Hide the quick terminal of this screen.
+    Hide(ScreenId),
+    /// Bring this pane, the quick terminal of another screen of the
+    /// workspace, to the screen of the request.
+    Bring(PaneId),
+    Nothing,
+}
+
+/// What a request for `screen` does. A workspace has one quick terminal: when
+/// another screen of the workspace holds it, a toggle and a show bring it to
+/// `screen`, and a hide hides it where it is.
+fn planned_act(state: &State, screen: ScreenId, mode: QuickMode) -> Result<Plan, FloatPaneError> {
+    let found = state.workspaces.iter().find_map(|workspace| {
+        let at = workspace.screens.iter().position(|item| item.id == screen)?;
+        Some((workspace, at, workspace.screens.get(at)?))
+    });
+    let (workspace, at, shown) = found.ok_or(FloatPaneError::ScreenNotFound { screen })?;
+    if let Some((holder, pane, mark)) = workspace.quick_terminal()
+        && holder != at
+    {
+        return Ok(match (mode, workspace.screens.get(holder)) {
+            (QuickMode::Hide, Some(other)) if !mark.hidden => Plan::Hide(other.id),
+            (QuickMode::Hide, _) => Plan::Nothing,
+            (QuickMode::Toggle | QuickMode::Show, _) => Plan::Bring(pane),
+        });
+    }
+    Ok(match quick_act(&shown.floating_panes(), mode, &shown.active_pane) {
         QuickAct::Make => {
-            // The new pane is a split of its target, in the target's column:
-            // it can float where the target can. The pane that has the focus
-            // comes first.
-            let target = std::iter::once(screen.active_pane)
-                .chain(screen.root.pane_ids_vec())
-                .find(|pane| !screen.pane_never_floats(*pane));
-            Some(target.ok_or(FloatPaneError::NoPlaceForQuickTerminal)?)
+            Plan::Make(split_target(shown).ok_or(FloatPaneError::NoPlaceForQuickTerminal)?)
         }
-        QuickAct::Show => screen.quick_terminal().map(|(pane, _)| pane),
-        QuickAct::Hide | QuickAct::Nothing => None,
-    };
-    Ok((act, pane))
+        QuickAct::Show => {
+            shown.quick_terminal().map_or(Plan::Nothing, |(pane, _)| Plan::Show(pane))
+        }
+        QuickAct::Hide => Plan::Hide(screen),
+        QuickAct::Nothing => Plan::Nothing,
+    })
 }
 
 impl Mux {
-    /// `quick-terminal`: make the quick terminal of `screen`, show it with
-    /// the focus, or hide it, by `mode` and the state of the screen
-    /// (`quick_act`). `frame`, `spawn` and `size` are for a make only: where
+    /// `quick-terminal`: make the quick terminal of the workspace of
+    /// `screen`, show it in `screen` with the focus, or hide it, by `mode` and
+    /// the state ([`planned_act`]). `frame`, `spawn` and `size` are for a make only: where
     /// the new pane floats, what its terminal runs, and the expected content
     /// size. Returns the surface of a quick terminal that the request made.
     pub(crate) fn quick_terminal_as(
@@ -113,7 +162,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<SurfaceId>> {
         match self.with_state(|state| planned_act(state, screen, mode))? {
-            (QuickAct::Make, Some(target)) => {
+            Plan::Make(target) => {
                 let frame = frame.unwrap_or(NEW_FRAME);
                 let fields = Map::from_iter([
                     ("direction".into(), Value::String("right".into())),
@@ -125,16 +174,106 @@ impl Mux {
                 let created = self.split_with_fields_as(actor, target, fields, spawn, size)?;
                 Ok(Some(created.surface.id))
             }
-            (QuickAct::Show, Some(pane)) => {
+            Plan::Show(pane) => {
                 anyhow::ensure!(
                     self.focus_pane_as(actor, pane),
                     "the quick terminal {pane} did not take the focus"
                 );
                 Ok(None)
             }
-            (QuickAct::Hide, _) => self.hide_quick_terminal_as(actor, screen).map(|()| None),
-            (QuickAct::Make | QuickAct::Show | QuickAct::Nothing, _) => Ok(None),
+            Plan::Hide(holder) => self.hide_quick_terminal_as(actor, holder).map(|()| None),
+            Plan::Bring(pane) => self.bring_quick_terminal_as(actor, pane, screen).map(|()| None),
+            Plan::Nothing => Ok(None),
         }
+    }
+
+    /// Brings the quick terminal `pane` from another screen of the workspace
+    /// to `screen` in one commit: the move of the pane (the plan of
+    /// `pane.move`), its frame and its mark in the list of `screen`, and the
+    /// focus. The screen that the pane leaves gives its focus as a close of
+    /// the pane does. A screen where the pane can not float refuses, and
+    /// nothing moves.
+    fn bring_quick_terminal_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: PaneId,
+        screen: ScreenId,
+    ) -> anyhow::Result<()> {
+        let fingerprint = serde_json::json!({"operation": BRING_OPERATION, "screen": screen});
+        let mut left = None;
+        let commit = self.commit_resource_mutation_plan(
+            &WorkspaceMutation::local("cmux-tui-quick-terminal", actor.clone()),
+            BRING_OPERATION,
+            &fingerprint,
+            None,
+            None,
+            |state, registry| {
+                // The move takes the entry of the pane out of the list of the
+                // screen that it leaves: the frame is read before the move.
+                let (source, frame) = state
+                    .workspaces
+                    .iter()
+                    .flat_map(|workspace| &workspace.screens)
+                    .find_map(|item| {
+                        let (quick, _) = item.quick_terminal()?;
+                        let list = item.floating_panes();
+                        let entry = list.iter().find(|entry| entry.pane == quick)?;
+                        (quick == pane && item.id != screen).then_some((item.id, entry.frame))
+                    })
+                    .context("the quick terminal is not in another screen")?;
+                let target =
+                    screen_of(state, screen).ok_or(FloatPaneError::ScreenNotFound { screen })?;
+                let screen_id = target.public_id.as_str().to_string();
+                let previous = target.active_pane;
+                let beside = split_target(target).ok_or(FloatPaneError::NoPlaceForQuickTerminal)?;
+                let destination =
+                    Destination::Split { pane: beside, dir: SplitDir::Right, before: false };
+                let mut projected = state.clone();
+                let moved = move_pane_in_state(self, &mut projected, pane, destination, None)?;
+                let workspace = projected
+                    .workspaces
+                    .iter_mut()
+                    .find(|workspace| workspace.screens.iter().any(|item| item.id == screen))
+                    .ok_or(FloatPaneError::ScreenNotFound { screen })?;
+                let workspace_id = workspace.id;
+                let target = workspace
+                    .screens
+                    .iter_mut()
+                    .find(|item| item.id == screen)
+                    .ok_or(FloatPaneError::ScreenNotFound { screen })?;
+                settle_quick_pane(target, pane, previous, Some(frame));
+                anyhow::ensure!(
+                    target.quick_terminal().is_some_and(|(quick, _)| quick == pane),
+                    FloatPaneError::NoPlaceForQuickTerminal
+                );
+                moved.update_session_paths(self, workspace_id, screen);
+                apply_focus_path(self, &mut projected, pane);
+                let projection = self.changed_state_projection_locked(
+                    registry,
+                    state,
+                    &mut projected,
+                    serde_json::json!({"screen": screen_id}),
+                )?;
+                left = Some(source);
+                Ok(ResourceMutationPlan::replacing(
+                    projection.patch,
+                    projection.result,
+                    projection.changes,
+                    projected,
+                )
+                .projected(projection.restates_all)
+                .restating(projection.restated))
+            },
+        )?;
+        if !commit.replayed {
+            let screens: Vec<ScreenId> = left.into_iter().chain([screen]).collect();
+            self.emit_screen_changed_for_transaction(&screens, None);
+            self.emit(MuxEvent::TreeChanged);
+            for screen in screens {
+                self.emit_layout_changed(screen, None);
+            }
+        }
+        Ok(())
     }
 
     /// Hides the quick terminal of `screen` in one commit: the list, the mark

@@ -16,7 +16,7 @@ use cmux_layout_reducer::floating_panes::{
     self as rules, FloatFrame, FloatMode, FloatRefusal, Floating, Quick,
 };
 
-use super::{LayoutColumn, Node, Screen, ScreenLayoutSnapshot};
+use super::{LayoutColumn, Node, Screen, ScreenLayoutSnapshot, Workspace};
 use crate::PaneId;
 
 /// Whether `pane` never floats in a layout of `root` and `columns`: a member of a stack, and a pane of a docked
@@ -143,6 +143,13 @@ impl Screen {
             rules::marked(&self.root.pane_ids_vec(), &self.floating, &pane, from.as_ref());
     }
 
+    /// Ends the mark of the quick terminal: its pane stays a floating pane, and it shows.
+    pub(crate) fn unmark_quick_terminal(&mut self) {
+        for entry in &mut self.floating {
+            entry.quick = None;
+        }
+    }
+
     /// Hides the quick terminal. When it has the focus, the focus goes to the pane of its mark, else to
     /// `fallback`; with neither, nothing changes. False when the screen has no quick terminal that shows.
     pub(crate) fn hide_quick_terminal(&mut self, fallback: Option<PaneId>) -> bool {
@@ -209,6 +216,26 @@ impl Screen {
         let changed = next != self.floating;
         self.floating = next;
         changed
+    }
+}
+
+impl Workspace {
+    /// The quick terminal of the workspace (`quick-terminal-v1`): the index of the screen that holds it, its
+    /// pane and its mark. A workspace has one quick terminal, in the first of its screens that has a mark.
+    pub(crate) fn quick_terminal(&self) -> Option<(usize, PaneId, Quick<PaneId>)> {
+        self.screens.iter().enumerate().find_map(|(index, screen)| {
+            let (pane, mark) = screen.quick_terminal()?;
+            Some((index, pane, mark))
+        })
+    }
+
+    /// One quick terminal for the workspace: the first screen that has a mark keeps it, and the quick terminal
+    /// of each later screen becomes a plain floating pane. The load of a store ends here.
+    pub(crate) fn settle_quick_terminals(&mut self) {
+        let marked = self.screens.iter_mut().filter(|screen| screen.quick_terminal().is_some());
+        for screen in marked.skip(1) {
+            screen.unmark_quick_terminal();
+        }
     }
 }
 
