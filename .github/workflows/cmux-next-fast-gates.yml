@@ -60,11 +60,13 @@ env:
 
 jobs:
   # Secretless placement bootstrap: it reads the fresh runner-state publication and
-  # fails open to the existing hosted/Blacksmith route when state is stale.
+  # fails open to the Blacksmith route when state is stale. It places only resolve and post, and the
+  # gates job itself reads the Blacksmith Linux pool, so it takes the 2 vCPU pool too rather than a
+  # GitHub-hosted slot (93 s p90 queue on 2026-11-17; see resolve's runs-on).
   portable-placement:
     name: portable light placement
     if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -114,10 +116,12 @@ jobs:
     # before overflow, and emits move receipts for queued-only rescue. Never
     # default directly to a fleet label that may have no registered workers.
     # An explicit rerun replaces the queued run in this PR-only concurrency group.
-    # A declared light job (.github/runners.json hosted_light_jobs): hosted Ubuntu on attempt 1, the
-    # reconciled Linux pool on a re-run (it holds no secret). On 2026-11-02 this queued on RUNNER_POOLS.linux's
-    # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' resolve ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' resolve ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A few seconds of work on the fast gate's critical path: the 2 vCPU pool on every attempt (its writer moves
+    # it to 4 vCPU when 2 vCPU starts nothing). Not GitHub-hosted Ubuntu: the org runs at most 20 hosted jobs at
+    # once, a pull request push asked for up to 19 light ones, and on 2026-11-17 this job waited 93 s at p90 there
+    # (181 s over 24 h) while blacksmith-2vcpu-ubuntu-2404 started 8,592 jobs in 4 s at p90. Not 4 vCPU either: on
+    # 2026-11-02 RUNNER_POOLS.linux's blacksmith-4vcpu-ubuntu-2404 held it behind hundreds of jobs.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' resolve ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' resolve ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -410,10 +414,12 @@ jobs:
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet, portable-placement]
     if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
-    # A declared light job (.github/runners.json hosted_light_jobs): hosted Ubuntu on attempt 1, the
-    # reconciled Linux pool on a re-run (it holds no secret). On 2026-11-02 this queued on RUNNER_POOLS.linux's
-    # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' post ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' post ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A few seconds of work on the fast gate's critical path: the 2 vCPU pool on every attempt (its writer moves
+    # it to 4 vCPU when 2 vCPU starts nothing). Not GitHub-hosted Ubuntu: the org runs at most 20 hosted jobs at
+    # once, a pull request push asked for up to 19 light ones, and on 2026-11-17 this job waited 93 s at p90 there
+    # (181 s over 24 h) while blacksmith-2vcpu-ubuntu-2404 started 8,592 jobs in 4 s at p90. Not 4 vCPU either: on
+    # 2026-11-02 RUNNER_POOLS.linux's blacksmith-4vcpu-ubuntu-2404 held it behind hundreds of jobs.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' post ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' post ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 5
     permissions:
       statuses: write

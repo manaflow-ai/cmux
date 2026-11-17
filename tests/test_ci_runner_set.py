@@ -201,5 +201,74 @@ class RunnerSetTests(unittest.TestCase):
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", runs_on)
 
 
+# The most jobs one pull request push can start on GitHub-hosted Ubuntu: every job of a pull request workflow, or of a
+# workflow it calls, whose runs-on can name an `ubuntu-*` hosted label past the outside-manaflow-ai and fork branches.
+# The org runs at most 20 hosted jobs at once, so a push that asks for 19 fills the pool by itself and the next push's
+# light jobs wait: on 2026-11-17 (19 here) hosted jobs waited 92 s at p90 over 2 h and 181 s over 24 h while
+# blacksmith-2vcpu-ubuntu-2404 started jobs in 4-5 s, and NOW paged fast gates' resolve, placement and post over their
+# 60 s queue budget for 9 hours. Lower it when a job moves off hosted; never raise it. A light job whose workflow does
+# its real work on Blacksmith reads a pool instead (.github/runners.json hosted_light_jobs $comment).
+HOSTED_PER_PUSH_MAX = 14
+_OUTSIDE = re.compile(r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && 'ubuntu-24\.04' \|\| ")
+_FORK = re.compile(r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+                   r" != github\.repository && '[^']*' \|\| ")
+_HOSTED = re.compile(r"'ubuntu-(?:latest|[0-9.]+(?:-arm)?)'|^ubuntu-")
+
+
+def hosted_jobs_per_push() -> list[str]:
+    docs = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) or {} for p in WORKFLOWS.glob("*.yml")}
+
+    def triggers(doc: dict) -> set[str]:
+        on = doc.get(True, doc.get("on")) or {}
+        return {on} if isinstance(on, str) else set(on)
+
+    reached: set[str] = set()
+    stack = [name for name, doc in docs.items() if triggers(doc) & {"pull_request", "pull_request_target"}]
+    while stack:
+        name = stack.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        for job in (docs[name].get("jobs") or {}).values():
+            called = re.fullmatch(r"\./\.github/workflows/([^@]+)", str(job.get("uses", "")))
+            if called and called.group(1) in docs:
+                stack.append(called.group(1))
+    hosted = []
+    for name in sorted(reached):
+        for key, job in (docs[name].get("jobs") or {}).items():
+            route = _FORK.sub("", _OUTSIDE.sub("", str(job.get("runs-on", ""))))
+            if _HOSTED.search(route):
+                hosted.append(f"{name}#{key}")
+    return hosted
+
+
+class HostedBurstTests(unittest.TestCase):
+    def test_one_push_asks_for_fewer_hosted_jobs_than_the_org_runs_at_once(self) -> None:
+        hosted = hosted_jobs_per_push()
+        self.assertLessEqual(len(hosted), HOSTED_PER_PUSH_MAX,
+                             f"{len(hosted)} jobs a pull request push can start on GitHub-hosted Ubuntu (at most "
+                             f"{HOSTED_PER_PUSH_MAX}; the org runs 20 at once). Route the new one to a RUNNER_POOLS "
+                             f"pool: {hosted}")
+
+    def test_fast_gates_light_jobs_never_wait_for_a_hosted_slot(self) -> None:
+        hosted = hosted_jobs_per_push()
+        for key in ("portable-placement", "resolve", "post"):
+            with self.subTest(job=key):
+                self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", hosted)
+                route = runs_on_text(yaml.safe_load((WORKFLOWS / "cmux-next-fast-gates.yml").read_text())["jobs"][key],
+                                     f"cmux-next-fast-gates.yml#{key}")
+                # A pool, so its writer moves a stalled member on: the job never waits on a label nothing serves.
+                self.assertTrue(route.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"), route)
+
+    def test_the_count_sees_a_hosted_attempt_one_route(self) -> None:
+        route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
+                 " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404'"
+                 " || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+        self.assertTrue(_HOSTED.search(_FORK.sub("", _OUTSIDE.sub("", route))))
+        pooled = route.replace("github.run_attempt == 1 && 'ubuntu-24.04' || ", "")
+        self.assertFalse(_HOSTED.search(_FORK.sub("", _OUTSIDE.sub("", pooled))))
+        self.assertTrue(_HOSTED.search("ubuntu-latest"))
+
+
 if __name__ == "__main__":
     unittest.main()

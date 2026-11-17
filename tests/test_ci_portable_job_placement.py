@@ -847,7 +847,13 @@ class Wiring(unittest.TestCase):
                 if workflow == "web-validation.yml":
                     self.assertIn("github.event_name != 'merge_group'", placement_if)
                 route = "\n".join(routes(placement_job, "portable-placement"))
-                self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
+                # Fast gates' bootstrap places only resolve and post, and its gates job reads the Blacksmith pool
+                # anyway, so it takes the 2 vCPU pool on every attempt rather than queueing for one of the org's
+                # 20 hosted slots (tests/test_ci_runner_set.py HostedBurstTests). The others start on hosted Ubuntu.
+                if workflow == "cmux-next-fast-gates.yml":
+                    self.assertNotIn("'ubuntu-24.04' || fromJSON", route)
+                else:
+                    self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
                 self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)
