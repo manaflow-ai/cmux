@@ -1,0 +1,21 @@
+set -u
+cd webviews
+bun install --frozen-lockfile >/dev/null 2>&1
+A=src/agent-session/acpmux
+echo "=== lint"; bunx vp lint $A/conversation/liveLinePulse.ts $A/conversation/Thinking.tsx $A/rows/ThinkingRow.tsx $A/virtualTranscriptModel.ts $A/VirtualTranscript.tsx test/live-line-stream-renders-browser.test.ts 2>&1 | tail -2
+echo "=== tests fix"
+CMUX_BROWSER_TESTS=1 bun test test/live-line-stream-renders-browser.test.ts $A/conversation/Thinking.test.tsx test/transcript-live-line-step-time.test.tsx test/transcript-live-line-true-state.test.tsx test/transcript-live-line-state.test.tsx test/transcript-live-line-call-done.test.tsx test/transcript-codex-live-line.test.tsx $A/conversation/followGlide.test.ts > /tmp/a.log 2>&1
+grep -E "live line under|\(fail\)|^ *[0-9]+ (pass|fail)|Expected|Received" /tmp/a.log | head -20
+rsync -a --exclude node_modules --exclude .base ./ ../webviews-base/
+ln -s "$PWD/node_modules" ../webviews-base/node_modules
+cp .base/Thinking.tsx.txt ../webviews-base/$A/conversation/Thinking.tsx
+cp .base/ThinkingRow.tsx.txt ../webviews-base/$A/rows/ThinkingRow.tsx
+cp .base/virtualTranscriptModel.ts.txt ../webviews-base/$A/virtualTranscriptModel.ts
+cp .base/VirtualTranscript.tsx.txt ../webviews-base/$A/VirtualTranscript.tsx
+rm ../webviews-base/$A/conversation/liveLinePulse.ts
+echo "=== test base"; (cd ../webviews-base && CMUX_BROWSER_TESTS=1 bun test test/live-line-stream-renders-browser.test.ts 2>&1 | grep -E "live line under|\(fail\)|^ *[0-9]+ (pass|fail)|Expected|Received" | head)
+echo "=== heavy diag (change)"
+cp .diag/virtualTranscriptModel.ts.txt $A/virtualTranscriptModel.ts
+sed -i 's|^    await page.close();$|    console.log("LINEDIFFS " + JSON.stringify(await page.evaluate(() => (window as any).__lineDiffs)));\n    await page.close();|' bench/zz-heavy.bench.ts
+grep -c LINEDIFFS bench/zz-heavy.bench.ts
+bun bench/zz-heavy.bench.ts --lengths 1500 --keys 60 --stream 60 --tool-lines 2000 2>&1 | grep -E "LINEDIFFS|COMPOSER-TYPING" | cut -c1-700

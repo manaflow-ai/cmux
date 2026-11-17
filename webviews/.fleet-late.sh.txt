@@ -1,0 +1,9 @@
+set -u
+cd webviews
+T=src/agent-session/acpmux/conversation/Thinking.test.tsx
+echo "=== lint"; npx vp lint src/agent-session/acpmux/conversation/Thinking.tsx $T 2>&1 | tail -3
+echo "=== fix"; bun test $T test/live-line-stream-renders-browser.test.ts test/transcript-live-line-step-time.test.tsx test/transcript-live-line-true-state.test.tsx test/transcript-live-line-state.test.tsx test/transcript-live-line-call-done.test.tsx test/transcript-codex-live-line.test.tsx 2>&1 | grep -E "^\(fail\)|pass$| pass| fail|error:" | tail -15
+cp src/agent-session/acpmux/conversation/Thinking.tsx /tmp/T.fix
+cp .base/Thinking.head.tsx.txt src/agent-session/acpmux/conversation/Thinking.tsx
+echo "=== before review fix"; bun test $T 2>&1 | grep -E "^\(fail\)|Expected|Received| pass| fail" | tail -10
+cp /tmp/T.fix src/agent-session/acpmux/conversation/Thinking.tsx

@@ -1,0 +1,6 @@
+set -u
+cd webviews
+bun install --frozen-lockfile >/dev/null 2>&1
+cp .diag/virtualTranscriptModel.ts.txt src/agent-session/acpmux/virtualTranscriptModel.ts
+cp .diag/test.txt test/live-line-diag-browser.test.ts
+CMUX_BROWSER_TESTS=1 bun test test/live-line-diag-browser.test.ts 2>&1 | grep -E "LINEDIFFS|live line under|pass|fail" | head

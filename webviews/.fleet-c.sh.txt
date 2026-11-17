@@ -1,0 +1,6 @@
+set -u
+cd webviews
+bun install --frozen-lockfile >/dev/null 2>&1
+cp .diag/VirtualTranscript2.tsx.txt src/agent-session/acpmux/VirtualTranscript.tsx
+cp .diag/zz-heavy.tv.txt bench/zz-tv.bench.ts
+bun bench/zz-tv.bench.ts --lengths 1500 --keys 60 --stream 60 --tool-lines 2000 2>&1 | grep -E "REFDIFFS|TVDIFFS|COMPOSER-TYPING|rows:" | cut -c1-3000 | tee ${FAST_CHECKS_OUT:-/tmp}/c.txt

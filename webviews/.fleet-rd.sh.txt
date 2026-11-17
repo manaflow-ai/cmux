@@ -1,0 +1,12 @@
+set -u
+(cd webviews && bun install --frozen-lockfile >/dev/null 2>&1)
+python3 scripts/ci/react_doctor_gate.py --project webviews --out-dir /tmp/rd 2>&1 | tail -40
+echo "gate exit=${PIPESTATUS[0]}"
+f=$(ls /tmp/rd/*.json 2>/dev/null | head -1); [ -n "$f" ] && python3 -c "
+import json,sys
+d=json.load(open('$f'))
+items=d if isinstance(d,list) else d.get('diagnostics') or d.get('issues') or []
+hits=[i for i in items if any(k in json.dumps(i) for k in ('Thinking.tsx','liveLinePulse','VirtualTranscript.tsx','ThinkingRow','virtualTranscriptModel'))]
+print('hits in changed files:',len(hits))
+for i in hits[:20]: print(json.dumps(i)[:300])
+"
