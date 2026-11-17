@@ -497,6 +497,8 @@ declare function untrack<T>(fn: () => T): T
 type Bindable<T> = T | (() => T)
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this
+  /** The system font's design at the same type-scale size (heavy and rounded is the Lock Screen's time). */
+  fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
   strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
   transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
@@ -505,7 +507,14 @@ interface CmuxView {
   background(v: Bindable<string | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
   fill(v: Bindable<string | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
-  rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
+  rotation(degrees: Bindable<number>): this
+  /** SwiftUI's name for \`rotation\`: clockwise degrees about the node's center; animates only under \`.animation(...)\`. */
+  rotationEffect(degrees: Bindable<number>): this
+  /** Moves the drawing by \`{x, y}\` points, not the layout; a rotation turns the moved drawing about the node's center (a clock hand). */
+  offset(v: Bindable<{ x?: number; y?: number }>): this
+  /** In a ZStack: the node's center at \`{x, y}\` points, or with \`unit: "fraction"\` 0...1 of the stack (SwiftUI's \`.position\`); a placed child does not size the stack. */
+  position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
+  cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
 }
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
@@ -515,7 +524,12 @@ declare function HStack(propsOrChildren?: Record<string, unknown> | CmuxChildren
 declare function ZStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function LazyVStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function Group(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
-declare function Text(text: Bindable<string | number | null | undefined>): CmuxView
+type CmuxDateTextStyle = "time" | "timer" | "relative" | "date" | "offset"
+/** A Text the host formats and ticks itself, like SwiftUI's \`Text(date, style:)\` (no render or scene batch per tick).
+ * \`date\` is Unix ms; \`time\` "9:41 AM", \`date\` "November 16, 2026", \`timer\` "4:05", \`relative\` "2 hr, 23 min",
+ * \`offset\` "+2 hours". The page's locale and time zone; \`timeZone\` (IANA) overrides the zone. */
+interface CmuxDateText { date: Bindable<number>; style?: Bindable<CmuxDateTextStyle>; timeZone?: Bindable<string> }
+declare function Text(text: Bindable<string | number | null | undefined> | CmuxDateText): CmuxView
 declare function Icon(name: Bindable<string>): CmuxView
 declare function Image(source: Bindable<string> | { systemName: Bindable<string> }): CmuxView
 declare function Button(label: Bindable<string> | CmuxView, action?: () => unknown): CmuxView
@@ -526,6 +540,8 @@ declare function Circle(props?: Record<string, unknown>): CmuxView
 declare function Capsule(props?: Record<string, unknown>): CmuxView
 declare function Rectangle(props?: Record<string, unknown>): CmuxView
 declare function RoundedRectangle(props?: Record<string, unknown>): CmuxView
+/** A stroke along its width: \`strokeWidth\` thick (1 by default) in \`stroke\` (the separator ink by default). */
+declare function Line(props?: Record<string, unknown>): CmuxView
 declare function ProgressView(value?: Bindable<number | null>): CmuxView
 declare function TextField(value: Bindable<string>, options?: { placeholder?: string; autofocus?: boolean; onSubmit?: (t: string) => unknown; onEdit?: (t: string) => unknown; onCancel?: () => unknown }): CmuxView
 declare function Row(props: { title: Bindable<string>; subtitle?: Bindable<string | null>; symbol?: Bindable<string | null>; badge?: Bindable<string | number | null>; unread?: Bindable<boolean>; selected?: Bindable<boolean>; tint?: Bindable<string | null>; accessory?: Bindable<string | null> }): CmuxView

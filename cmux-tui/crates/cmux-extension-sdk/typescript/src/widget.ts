@@ -5,7 +5,7 @@
 // wiggle); a widget draws only what is inside. The helpers are plain views built on the scene
 // DSL: use them, mix them with VStack and Text, or ignore them.
 
-import { ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type View } from "./index.ts"
+import { Circle, ForEach, HStack, Icon, Line, ProgressView, Spacer, Text, VStack, ZStack, type View } from "./index.ts"
 
 /** A widget's size, as Apple's widget families: small is a 1x1 tile, medium 2x1, large 2x2. */
 export type WidgetSize = "small" | "medium" | "large"
@@ -163,4 +163,103 @@ export function WidgetEmpty(title: string, options: { message?: string; symbol?:
     Text(title).font(WIDGET_TYPE.body).weight("semibold"),
     options.message ? Caption(options.message) : null,
   ])
+}
+
+/** One event on a ``Timeline``: `start` and `end` in hours of the day (9.5 is 9:30). */
+export type TimelineEvent = { id: string; title: string; start: number; end: number; tint?: string }
+
+/** Lanes for overlapping events: each event takes the first lane free at its start, and every event
+ * in one overlapping run shares that run's lane count (Apple's day view splits the width the same way). */
+export function timelineLanes(events: readonly TimelineEvent[]): Map<string, { lane: number; lanes: number }> {
+  const sorted = [...events].sort((a, b) => a.start - b.start || b.end - a.end)
+  const out = new Map<string, { lane: number; lanes: number }>()
+  let run: TimelineEvent[] = []
+  let runEnd = -Infinity
+  let lanes: number[] = []
+  const close = () => {
+    const count = Math.max(1, lanes.length)
+    for (const event of run) out.set(event.id, { lane: out.get(event.id)!.lane, lanes: count })
+    run = []
+    lanes = []
+  }
+  for (const event of sorted) {
+    if (event.start >= runEnd) {
+      close()
+      runEnd = -Infinity
+    }
+    let lane = lanes.findIndex((end) => end <= event.start)
+    if (lane < 0) lane = lanes.push(event.end) - 1
+    else lanes[lane] = event.end
+    out.set(event.id, { lane, lanes: 0 })
+    run.push(event)
+    runEnd = Math.max(runEnd, event.end)
+  }
+  close()
+  return out
+}
+
+/**
+ * A day's hour grid, as Apple's large Calendar widget draws it: an hour label and a hairline per
+ * hour from `startHour` to `endHour`, each event a tinted block at its time (overlapping events
+ * share the width), and the now line across the grid. Built on a ZStack whose children are
+ * placed with `.position`, so the host draws it with no layout of its own. `width` is the grid's
+ * width in points (the tile's content width); `now()` (Unix ms, `ctx.now`) moves the now line.
+ */
+export function Timeline(options: {
+  startHour: number
+  endHour: number
+  events: () => readonly TimelineEvent[]
+  now?: () => number
+  width: number
+  hourHeight?: number
+  labelWidth?: number
+  label?: (hour: number) => string
+}): View {
+  const hourHeight = options.hourHeight ?? 32
+  const labelWidth = options.labelWidth ?? 34
+  const gridWidth = Math.max(0, options.width - labelWidth)
+  const label = options.label ?? ((hour: number) => `${hour % 12 || 12} ${hour % 24 < 12 ? "AM" : "PM"}`)
+  const hours: number[] = []
+  for (let hour = options.startHour; hour <= options.endHour; hour++) hours.push(hour)
+  const y = (hour: number) => (hour - options.startHour) * hourHeight
+  const grid = VStack(
+    { spacing: 0 },
+    hours.map((hour) =>
+      HStack({ spacing: 4, alignment: "top" }, [
+        Text(label(hour)).font(WIDGET_TYPE.footnote).color("tertiary").lineLimit(1).frame({ width: labelWidth - 4 }).offset({ y: -6 }),
+        Line({ stroke: "separator" }),
+      ]).frame({ height: hour === options.endHour ? 1 : hourHeight })
+    )
+  )
+  const events = ForEach({ items: () => options.events(), key: (event) => event.id }, (event) => {
+    const place = () => timelineLanes(options.events()).get(event().id) ?? { lane: 0, lanes: 1 }
+    const laneWidth = () => gridWidth / place().lanes
+    const height = () => Math.max(12, (event().end - event().start) * hourHeight - 2)
+    return VStack({ alignment: "leading" }, [
+      Text(() => event().title).font(WIDGET_TYPE.footnote).weight("semibold").lineLimit(1).color(() => event().tint ?? "accent"),
+    ])
+      .padding({ top: 2, leading: 4, trailing: 4 })
+      .frame(() => ({ width: laneWidth() - 2, height: height() }))
+      .background("selected")
+      .cornerRadius(4)
+      .position(() => ({ x: labelWidth + laneWidth() * (place().lane + 0.5), y: y(event().start) + height() / 2 }))
+  })
+  const children: View[] = [grid, events]
+  if (options.now) {
+    const nowHour = () => {
+      const date = new Date(options.now!())
+      return date.getHours() + date.getMinutes() / 60
+    }
+    const shown = () => nowHour() >= options.startHour && nowHour() <= options.endHour
+    children.push(
+      Line({ stroke: "danger", strokeWidth: 1.5 })
+        .frame({ width: gridWidth })
+        .opacity(() => (shown() ? 1 : 0))
+        .position(() => ({ x: labelWidth + gridWidth / 2, y: y(nowHour()) })),
+      Circle({ fill: "danger", size: 6 })
+        .opacity(() => (shown() ? 1 : 0))
+        .position(() => ({ x: labelWidth, y: y(nowHour()) }))
+    )
+  }
+  return ZStack(children).frame({ maxWidth: "infinity" })
 }

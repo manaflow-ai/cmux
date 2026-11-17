@@ -1,0 +1,33 @@
+/* Gallery stand-in for the widget host's tile, at Apple's widget sizes; the shipped tile is the cmux.widget/1 host's frame. */
+.gallery-scene-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+}
+.gallery-scene-clock-row {
+  display: flex;
+  gap: 24px;
+}
+.gallery-scene-clock-tile {
+  box-sizing: border-box;
+  display: flex;
+  width: 170px;
+  height: 170px;
+  border-radius: var(--surface-card-radius, 16px);
+  background: var(--agent-control);
+  color: var(--agent-text);
+  overflow: hidden;
+}
+.gallery-scene-clock-tile[data-size="medium"] {
+  width: 364px;
+}
+.gallery-scene-clock-tile[data-size="large"] {
+  width: 364px;
+  height: 382px;
+}
+.gallery-scene-clock-tile > * {
+  flex: 1;
+  min-width: 0;
+}

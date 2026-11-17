@@ -25,6 +25,8 @@ final class AppSceneNativeView: NSView {
     private let failure: AppFailureNSView
     /// Under a kept view whose app's last save did not load.
     private let reloadMarker = AppSceneReloadMarkerView()
+    /// The clock this scene's host-ticking Texts (`date`) tick on: one deadline per second for the mount.
+    let clock = AppSceneClock()
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
     private var drawnReloadFailure: String?
@@ -178,7 +180,7 @@ final class AppSceneNativeView: NSView {
         case .slider: AppSceneSliderNSView(id: id, node: node)
         case .textField: AppSceneTextFieldNSView(id: id, node: node)
         case .progressView: AppSceneProgressNSView(id: id, node: node)
-        case .circle, .capsule, .rectangle, .roundedRectangle: AppSceneShapeNSView(id: id, node: node)
+        case .circle, .capsule, .rectangle, .roundedRectangle, .line: AppSceneShapeNSView(id: id, node: node)
         case .zStack: AppSceneZStackNSView(id: id, node: node)
         case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack: AppSceneStackNSView(id: id, node: node)
         }
