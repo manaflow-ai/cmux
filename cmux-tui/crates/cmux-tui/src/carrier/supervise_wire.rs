@@ -76,6 +76,9 @@ pub(crate) fn error_json(error: &LinkError) -> Value {
         LinkError::Failed { code, message } => {
             json!({"kind": "failed", "code": code, "message": message})
         }
+        LinkError::HelperRefused { code, message } => {
+            json!({"kind": "helper_refused", "code": code, "message": message})
+        }
         LinkError::Unsupported => json!({"kind": "unsupported"}),
     }
 }
@@ -95,6 +98,9 @@ pub(crate) fn error_of(value: &Value) -> Option<LinkError> {
         "invalid_answer" => LinkError::InvalidAnswer(text("detail")),
         "not_up" => LinkError::NotUp { state: text("state") },
         "failed" => LinkError::Failed { code: text("code"), message: text("message") },
+        "helper_refused" => {
+            LinkError::HelperRefused { code: text("code"), message: text("message") }
+        }
         "unsupported" => LinkError::Unsupported,
         _ => return None,
     })

@@ -4,18 +4,19 @@
 // sign-in prompt, and the console says the method is missing from the allowlist, once per method,
 // so a missing entry never fails silently again. acpmux's own errors still reach the caller.
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import type { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
 import { RequestBudget } from "../src/agent-session/acpmux/requestBudget";
 import { UNKNOWN_AUTH } from "../src/agent-session/acpmux/sessionAuth";
+import { directClientStub } from "./support/directClientStub";
 
 function clientRefusing(error: AcpmuxRpcError): AcpmuxDirectClient {
-  const client = Object.create(AcpmuxDirectClient.prototype) as AcpmuxDirectClient;
-  (client as unknown as { features: Set<string> }).features = new Set(["sessionAuth"]);
-  (client as unknown as { request: () => Promise<unknown> }).request = async () => {
-    throw error;
-  };
-  return client;
+  return directClientStub({
+    features: new Set(["sessionAuth"]),
+    request: async () => {
+      throw error;
+    },
+  });
 }
 
 const hostRefusal = () =>
@@ -45,10 +46,9 @@ test("acpmux's own failure of the check still reaches the caller", async () => {
 
 test("a request the host refuses as not allowlisted is said in the console, once per method", async () => {
   const warn = spyOn(console, "warn").mockImplementation(() => {});
-  const client = Object.create(AcpmuxDirectClient.prototype) as AcpmuxDirectClient;
   const sent: string[] = [];
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
-  Object.assign(client as unknown as Record<string, unknown>, {
+  const client = directClientStub({
     socket: { readyState: WebSocket.OPEN, send: (text: string) => sent.push(text) },
     nextRequest: 1,
     pending,

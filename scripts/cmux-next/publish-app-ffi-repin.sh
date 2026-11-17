@@ -236,12 +236,18 @@ held_pr() {
   # (2026-11-16) had about 200 check runs and the cmux-next checks job red on base reds, so every publish moved it
   # (6f1d36c1, fe47e481, a30893db, c5a8aa57) and no head finished its CI. A failed base read counts every failure.
   # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses an unbounded paginating call.
+  # A cancelled check run is not a failure of the head. This script's own PR edit (the title and body below) starts a
+  # pull_request `edited` run, and a workflow whose group cancels in progress (cmux-next-size-budget.yml) cancels the
+  # head's run with it: on 2026-11-17 #45149's head df6ee657 had its size budget checks cancelled at 08:01Z, a minute
+  # after its push, and at 08:53Z re-pin run 44042861860 moved it for "8 failed check(s) of its own" while its Mac jobs
+  # had been queued 47 minutes. The move cancelled those, the CI started over, and feat-cmux-next stayed red on "Check
+  # the app FFI pin". A head whose cancelled check never runs again is still moved once it is older than the hold.
   failed_names() {
     local runs
     runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
       python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
     jq -r '.[] | select(.conclusion as $c
-      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
   }
   local head_failed base_failed="" staged_on
   head_failed="$(failed_names "$previous")" || return 2
