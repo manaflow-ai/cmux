@@ -333,7 +333,7 @@ fn status_of(row: &Value) -> &str {
 }
 
 /// A journey time in whole milliseconds; a negative or non-finite one is 0.
-#[expect(
+#[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "rounded and clamped to u64's range first, so the cast only drops the zero fraction"
