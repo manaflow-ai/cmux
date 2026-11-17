@@ -457,4 +457,20 @@ mod tests {
         assert_eq!(Delta::decode(&bytes), Some(delta));
         assert_eq!(Delta::decode(&bytes[..bytes.len() - 1]), None);
     }
+
+    /// A varint past 64 bits is not a delta: its high bits are not dropped to read a smaller
+    /// value (#44052 F2).
+    #[test]
+    fn a_varint_past_64_bits_is_not_a_delta() {
+        // seq, then at_ms 0, shift 0 and no spans.
+        let with_seq = |seq: &[u8]| [seq, &[0, 0, 0]].concat();
+        let max = [[0xff; 9].as_slice(), &[0x01]].concat();
+        assert_eq!(Delta::decode(&with_seq(&max)).map(|delta| delta.seq), Some(u64::MAX));
+        // Bit 64 set: the shift used to drop it and read seq 0.
+        let bit_64 = [[0x80; 9].as_slice(), &[0x02]].concat();
+        assert_eq!(Delta::decode(&with_seq(&bit_64)), None);
+        // An eleventh byte.
+        let eleven = [[0x80; 10].as_slice(), &[0x00]].concat();
+        assert_eq!(Delta::decode(&with_seq(&eleven)), None);
+    }
 }

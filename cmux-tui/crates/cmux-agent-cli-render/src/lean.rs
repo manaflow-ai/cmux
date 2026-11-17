@@ -459,4 +459,14 @@ mod tests {
             encoder.encode("s1", 20, 4, &frame(11, Some(10), vec![]), Cursor::default()).unwrap();
         assert_eq!(decoder.decode(&after).unwrap().frame.frame, 11);
     }
+
+    /// A varint past 64 bits reads as nothing, not as the smaller value its low bits make
+    /// (#44052 F2).
+    #[test]
+    fn a_varint_past_64_bits_reads_as_nothing() {
+        let read = |bytes: &[u8]| Reader { bytes, pos: 0 }.varint();
+        assert_eq!(read(&[[0xff; 9].as_slice(), &[0x01]].concat()), Some(u64::MAX));
+        assert_eq!(read(&[[0x80; 9].as_slice(), &[0x02]].concat()), None, "bit 64");
+        assert_eq!(read(&[[0x80; 10].as_slice(), &[0x00]].concat()), None, "an eleventh byte");
+    }
 }
