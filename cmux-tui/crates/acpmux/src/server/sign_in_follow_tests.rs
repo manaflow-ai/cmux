@@ -40,7 +40,7 @@ impl Port for Fake {
         self.calls.lock().unwrap().push(format!("enroll:{user}"));
         let unavailable = self
             .unavailable
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_ok();
         Box::pin(async move {
             if unavailable { EnrollOutcome::Unavailable } else { EnrollOutcome::AlreadyJoined }

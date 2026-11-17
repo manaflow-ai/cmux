@@ -97,7 +97,7 @@ impl RekeyTarget {
     pub(super) fn drops_reply(&self) -> bool {
         use std::sync::atomic::Ordering;
         self.drop_replies
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
             .is_ok()
     }
 
