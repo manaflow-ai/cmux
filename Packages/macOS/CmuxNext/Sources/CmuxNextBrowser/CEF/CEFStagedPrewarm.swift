@@ -116,20 +116,42 @@ public struct CEFStagedPrewarm: Sendable {
         let size = CEFPaneHost.hiddenTabViewport
         let view = NSView(frame: NSRect(origin: .zero, size: size))
         let outcome: Outcome = withExtendedLifetime(view) {
+            // Pending from the create call until OnAfterCreated: the create is asynchronous, and until that callback
+            // both counts below read 0 (see ``readyToShutDown(liveBrowsers:windows:pendingCreates:)``).
+            session.createStarted()
             let started = shim.createWindow(1, Unmanaged.passUnretained(view).toOpaque(), Int32(size.width), Int32(size.height),
                                             "about:blank", nil)
-            guard started == 1 else { return .browserRefused }
+            guard started == 1 else { session.createEnded(); return .browserRefused }
             spin(for: timeout) { session.loaded }
             return session.loaded ? .loaded : .timedOut
         }
         shim.closeAll()
         pump.pumpNow()
-        spin(for: closeTimeout) { shim.liveBrowserCount() == 0 }
-        // Past the close deadline CefShutdown would wait on the open page: the helpers end with this process instead.
-        guard shim.liveBrowserCount() == 0 else { return outcome }
+        // The app's quit order (CEFShutdownSequence): every browser closed, then every Chromium window gone. With only
+        // the browser count waited for, CefShutdown ran under the page's window and read freed memory on the main
+        // thread (EXC_BAD_ACCESS at 0xefefefefefeff007, PartitionAlloc's freed-memory byte: "cmux exit 11 2195 ms" in
+        // Leo's NIGHTLY update log, 2026-11-16, staged build 4394855427901).
+        let settled = {
+            Self.readyToShutDown(liveBrowsers: Int(shim.liveBrowserCount()), windows: Int(shim.windowCount()),
+                                 pendingCreates: session.pendingCreates)
+        }
+        spin(for: closeTimeout, until: settled)
+        // Past the close deadline CefShutdown would wait on the open page or crash under its window: the helpers end
+        // with this process instead (the caller ends it with `_exit`: no static destructors under Chromium's threads).
+        guard settled() else { return outcome }
         pump.stop()
         shim.shutdown()
         return outcome
+    }
+
+    /// Whether `CefShutdown` may run: no browser still being made, every browser closed and every Chromium window
+    /// gone, the order the app's own quit keeps (`CEFShutdownSequence`, whose live count holds the pending creates
+    /// too). A create that never reaches OnAfterCreated stays pending: the close deadline then skips CefShutdown.
+    /// `windows` is -1 when the fork API has no window count (stock CEF): that wait is skipped.
+    nonisolated static func readyToShutDown(liveBrowsers: Int, windows: Int, pendingCreates: Int) -> Bool {
+        var sequence = CEFShutdownSequence(liveBrowsers: liveBrowsers + pendingCreates, windows: windows)
+        sequence.begin()
+        return sequence.phase == .readyToShutdown
     }
 
     /// Runs the main run loop (the pump's timer, Chromium's main-thread work) until `done` or `limit`.
@@ -148,18 +170,33 @@ final class CEFPrewarmSession {
     var pump: CEFMessagePump?
     /// The page's main-frame load ended or failed.
     var loaded = false
+    /// Browsers asked for whose OnAfterCreated has not come yet.
+    private(set) var pendingCreates = 0
     private var parentWatch: (any DispatchSourceProcess)?
+
+    /// A create call is about to start: pending until its OnAfterCreated (``event``) or ``createEnded()``.
+    func createStarted() { pendingCreates += 1 }
+    /// A create reached OnAfterCreated, or its call was refused.
+    func createEnded() { pendingCreates = max(0, pendingCreates - 1) }
 
     /// Ends this process the moment the app that started it ends (a quit, or the relaunch into the update): a
     /// pre-warm still alive then would be a second copy of the bundle as the updated one starts.
     func endWithParent() {
         let parent = getppid()
         guard parent > 1 else { _exit(0) }  // already orphaned: the running app is gone
-        let source = DispatchSource.makeProcessSource(identifier: parent, eventMask: .exit, queue: .global(qos: .userInitiated))
-        source.setEventHandler { _exit(0) }
-        source.resume()
-        parentWatch = source
+        parentWatch = Self.watchExit(of: parent) { _exit(0) }
         if getppid() != parent { _exit(0) }  // the parent ended before the watch was armed
+    }
+
+    /// Runs `end` on a background queue when process `pid` exits; the returned source must be kept for the watch to last.
+    /// Nonisolated: in this main-actor module the handler would otherwise be a main-actor closure, and the runtime's
+    /// isolation check trapped on the background queue as the parent ended (NIGHTLY 4401252575901, 2026-11-16).
+    nonisolated static func watchExit(of pid: pid_t, then end: @escaping @Sendable () -> Void) -> any DispatchSourceProcess {
+        // A process source: the only exit signal for a process this one did not start (the pre-warm's main thread is Chromium's).
+        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
+        source.setEventHandler { end() }
+        source.resume()
+        return source
     }
 
     /// `OnScheduleMessagePumpWork` from any thread: to the session's pump on the main run loop.
@@ -180,13 +217,16 @@ final class CEFPrewarmSession {
         }
     }
 
-    /// The page's main-frame load end or error ends the wait (main thread, cmux_cef_shim.h).
+    /// OnAfterCreated ends the page's pending create; its main-frame load end or error ends the wait (main thread,
+    /// cmux_cef_shim.h).
     static let event: CEFShimLibrary.EventFn = { context, kind, _, _, _, _, _, _ in
-        guard let context, kind == 9 || kind == 10 else { return }  // CMUX_SHIM_LOAD_END, CMUX_SHIM_LOAD_ERROR
+        // CMUX_SHIM_AFTER_CREATED, CMUX_SHIM_LOAD_END, CMUX_SHIM_LOAD_ERROR
+        guard let context, kind == 2 || kind == 9 || kind == 10 else { return }
         let address = UInt(bitPattern: context)
         MainActor.assumeIsolated { // main-proof: the shim sends events on the main thread only (cmux_cef_shim.h, Threading)
             guard let pointer = UnsafeMutableRawPointer(bitPattern: address) else { return }
-            Unmanaged<CEFPrewarmSession>.fromOpaque(pointer).takeUnretainedValue().loaded = true
+            let session = Unmanaged<CEFPrewarmSession>.fromOpaque(pointer).takeUnretainedValue()
+            if kind == 2 { session.createEnded() } else { session.loaded = true }
         }
     }
 

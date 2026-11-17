@@ -241,7 +241,7 @@ nonisolated enum GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.navigation.historyScope", "Back and Forward"),
-                help: SettingsText.keyed("settings.navigation.historyScope.help", "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."),
+                help: SettingsText.keyed("settings.navigation.historyScope.help", "What Go Back and Go Forward walk."),
                 kind: .choice([
                     SettingChoice("workspace", SettingsText.keyed("settings.navigation.historyScope.workspace", "Workspace")),
                     SettingChoice("window", SettingsText.keyed("settings.navigation.historyScope.window", "Window")),
@@ -255,7 +255,7 @@ nonisolated enum GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
-                help: SettingsText.keyed("settings.navigation.historySteps.help", "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                help: SettingsText.keyed("settings.navigation.historySteps.help", "Everything also steps through tabs and panes inside a workspace."),
                 summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
                 kind: .choice([
                     SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
@@ -279,7 +279,7 @@ nonisolated enum GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
-                help: SettingsText.keyed("settings.history.closed.maxGroups.help", "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
+                help: SettingsText.keyed("settings.history.closed.maxGroups.help", "Older closed tabs, workspaces and windows are deleted. 0 keeps them all."),
                 kind: .number(SettingNumber(ClosedHistoryRetentionSetting.maxGroupsRange, step: 1, unit: .count)),
                 default: .number(ClosedHistoryRetentionSetting.maxGroupsDefault),
                 keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
@@ -320,7 +320,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
-                help: SettingsText.keyed("settings.window.titlebarButtons.help", "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
+                help: SettingsText.keyed("settings.window.titlebarButtons.help", "With the sidebar hidden, On Hover shows its buttons only over the top row."),
                 kind: .choice([
                     SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
@@ -344,7 +344,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
-                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help", "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
+                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help", "⌃⌥⌘Space starts an agent while another app is in front."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyDefault),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
@@ -354,7 +354,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
-                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help", "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."),
+                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help", "cmux stays in the menu bar until a window opens."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault),
                 keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
@@ -364,7 +364,6 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
-                help: SettingsText.keyed("settings.app.showMenuBarIcon.help", "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.showMenuBarIconDefault),
                 keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
