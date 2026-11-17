@@ -114,6 +114,24 @@ struct BrowserPageScrollHoldTests {
         #expect(zip(all, all.dropFirst()).allSatisfy { $1 >= $0 - 1 }, "speed never drops while held: \(all)")
     }
 
+    /// A fast key repeat (30 ms, the person's) moved a held key 60px per repeat, 2000px/s: the
+    /// hold keeps that pace, without the jumps; the default repeat (90 ms) gets 1200px/s.
+    @Test func aFastKeyRepeatKeepsItsPace() {
+        #expect(BrowserPageScroll.topSpeed(keyRepeatInterval: 0.03) == 2000)
+        #expect(BrowserPageScroll.topSpeed(keyRepeatInterval: 0.09) == 1200)
+        #expect(BrowserPageScroll.topSpeed(keyRepeatInterval: 0.015) == 2400)
+        let page = Page()
+        page.key("keydown", "j")
+        page.run(BrowserPageScroll.down.script(topSpeed: 2000))
+        let fast = page.frames(until: 800).filter { $0.at >= 520 }.map(\.delta)
+        #expect(fast.allSatisfy { abs($0 - 2000.0 / 60) <= 1 }, "2000px/s once at speed: \(fast)")
+        let atRelease = page.scrollTop
+        page.key("keyup", "j")
+        let after = page.frames(until: 1000)
+        #expect(after.filter { $0.delta != 0 }.count <= 3 && page.pendingFrames == 0, "\(after)")
+        #expect(page.scrollTop - atRelease <= 51)
+    }
+
     @Test func keyUpStopsWithinThreeFrames() {
         let page = Page()
         _ = Self.holdJ(page, until: 1000)
@@ -148,6 +166,43 @@ struct BrowserPageScrollHoldTests {
         page.key("keyup", "k")
         _ = page.frames(until: 400)
         #expect(page.pendingFrames == 0)
+    }
+
+    /// The host ends a held scroll whose key-up the page never saw (it went up before the start
+    /// script ran, or in another window); a release for another key leaves it running.
+    @Test func theHostsReleaseEndsOnlyItsOwnKeysScroll() {
+        let page = Page()
+        page.run(BrowserPageScroll.down.script)
+        _ = page.frames(until: 300)
+        page.run(BrowserPageScroll.release("k"))
+        let still = page.frames(until: 400)
+        #expect(still.allSatisfy { $0.delta > 0 }, "k's release leaves j's scroll running: \(still)")
+        page.run(BrowserPageScroll.release("j"))
+        _ = page.frames(until: 600)
+        #expect(page.pendingFrames == 0, "j's release ends it")
+    }
+
+    /// The palette's Scroll Down (no key held) is one 60px step, eased.
+    @Test func aStartReleasedAtOnceIsOneStep() {
+        let page = Page()
+        page.run(BrowserPageScroll.down.script)
+        page.run(BrowserPageScroll.release("j"))
+        let frames = page.frames(until: 400)
+        #expect(page.scrollTop == 60, "one step: \(page.scrollTop)")
+        let moving = frames.map(\.delta).filter { $0 != 0 }
+        #expect(moving.count >= 6 && zip(moving, moving.dropFirst()).allSatisfy { $1 <= $0 }, "an ease-out, not a jump: \(moving)")
+        #expect(page.pendingFrames == 0)
+    }
+
+    /// The wheel or a click hands the page back to the person at once.
+    @Test func theWheelStopsAHeldScroll() {
+        let page = Page()
+        page.key("keydown", "j")
+        page.run(BrowserPageScroll.down.script)
+        _ = page.frames(until: 100)
+        page.context.evaluateScript("__dispatch('wheel', {})")
+        let after = page.frames(until: 200)
+        #expect(after.allSatisfy { $0.delta == 0 } && page.pendingFrames == 0, "\(after)")
     }
 
     @Test func reduceMotionKeepsInstantSteps() {
