@@ -21,8 +21,9 @@ fn rehydrated(hub: &Arc<Hub>, fid: &str) -> bool {
         .any(|e| e.dir == "mux" && e.kind == "resumed" && e.msg["level"] == "rehydrate")
 }
 
-/// A new Codex chat in `c` with its "hold" turn running; returns its id.
-async fn holding_chat(c: &mut TestClient, first: Option<&str>) -> String {
+/// A new Codex chat in `c` with its `hold` turn running ("hold" or "hold-unstored"); returns its
+/// id.
+async fn holding_chat(c: &mut TestClient, first: Option<&str>, hold: &str) -> String {
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     if let Some(text) = first {
@@ -37,7 +38,7 @@ async fn holding_chat(c: &mut TestClient, first: Option<&str>) -> String {
     }
     c.send(
         method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hold"}]}),
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": hold}]}),
     )
     .await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "holding").await;
@@ -55,7 +56,7 @@ async fn a_working_codex_chat_whose_rollout_codex_compressed_forks_its_own_threa
     let codex = root.join("codex");
     std::fs::create_dir_all(&codex).unwrap();
     let (hub, mut c) = codex_setup(&codex).await;
-    let id = holding_chat(&mut c, Some("first")).await;
+    let id = holding_chat(&mut c, Some("first"), "hold").await;
     let parent_thread = hub.resolve(&id).unwrap().meta().agent_session_id.unwrap();
 
     // Codex's compression: the rollout becomes `.jsonl.zst` and the plain file goes.
@@ -93,8 +94,9 @@ async fn a_working_codex_chat_whose_rollout_codex_compressed_forks_its_own_threa
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A chat forked in its first turn, before Codex stored any of it: acpmux's transcript is the
-/// whole chat, so the fork starts from it and carries no "cannot fork mid-turn" note.
+/// A chat forked in the first moments of its first turn, before Codex wrote any of it (the
+/// issue's second case): acpmux's transcript is the whole chat, so the fork starts from it and
+/// carries no "cannot fork mid-turn" note. Before, it said Codex cannot fork mid-turn.
 #[tokio::test]
 async fn a_codex_chat_forked_in_its_first_turn_carries_no_mid_turn_note() {
     let root =
@@ -102,7 +104,7 @@ async fn a_codex_chat_forked_in_its_first_turn_carries_no_mid_turn_note() {
     let codex = root.join("codex");
     std::fs::create_dir_all(&codex).unwrap();
     let (hub, mut c) = codex_setup(&codex).await;
-    let id = holding_chat(&mut c, None).await;
+    let id = holding_chat(&mut c, None, "hold-unstored").await;
     let f = c
         .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
         .await
