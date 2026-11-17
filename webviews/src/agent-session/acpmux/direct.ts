@@ -11391,6 +11391,11 @@ export class AcpmuxDirectClient {
     this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
   }
 
+  /// The agent a sessionless chat's first send starts (the pane's host config), when it names one.
+  get startHarness(): string | undefined {
+    return this.host.harness;
+  }
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -11403,7 +11408,12 @@ export class AcpmuxDirectClient {
         this.create(this.host.harness, this.host.peer ? this.host.cwd : undefined, this.host.peer));
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
-      if (!sessionId) throw new Error(translate("error.notOpen"));
+      // `superseded`: another chat was selected (or the page closed) while the start was out, so it
+      // is no failure of this chat's; App.tsx says nothing in the chat now shown.
+      if (!sessionId)
+        throw Object.assign(new Error(translate("error.notOpen")), {
+          superseded: this.closed || generation !== this.selectionGeneration,
+        });
       // The newest pick for this chat, one made while the start was pending included. It goes to the
       // session this start made, never the selected one: another chat picked while the ticket is
       // pending must not take a held Bypass permissions.
@@ -13250,7 +13260,33 @@ export class AcpmuxDirectClient {
   }
   /// `adopting`: the spare page's open of its tab's chat (`adoptSession`). A chat its list lacks that
   /// fails to attach keeps the tail it drew on screen, for `adoptSession` to say why under it or drop.
-  async select(sessionId: string, adopting = false): Promise<string | undefined> {
+  /// Shows and attaches `sessionId`: the chat once its attach is in, undefined when a selection of
+  /// another chat won. A newer selection of this same chat (its store sub fell and opened it again as
+  /// v1, `chatRows.fell`; a pick of it again) decides for this one too: its outcome is this one's,
+  /// never undefined while that open attached the chat (issue 44964: a New Tab's first send read the
+  /// superseded open as "cmux did not start a session" with the chat on screen).
+  select(sessionId: string, adopting = false): Promise<string | undefined> {
+    const opening = this.selectOnce(sessionId, adopting);
+    const mine: { sessionId: string; result: Promise<string | undefined> } = { sessionId, result: opening };
+    const sameChatAfter = () => {
+      const newer = this.latestSelect;
+      return newer !== mine && newer?.sessionId === sessionId ? newer.result : undefined;
+    };
+    mine.result = opening.then(
+      (selected) => selected ?? sameChatAfter(),
+      (error: unknown) => {
+        const after = sameChatAfter();
+        if (after) return after;
+        throw error;
+      },
+    );
+    this.latestSelect = mine;
+    return mine.result;
+  }
+  /// The newest `select`, read by an older one of the same chat whose generation it moved.
+  private latestSelect?: { sessionId: string; result: Promise<string | undefined> };
+
+  private async selectOnce(sessionId: string, adopting: boolean): Promise<string | undefined> {
     this.pendingPeerTrust = undefined;
     this.refusedPeerTrust = undefined;
     const previousSessionId = this.selectedSessionId;
@@ -13474,13 +13510,23 @@ export class AcpmuxDirectClient {
     current: () => boolean = () => true,
     failed?: (error: unknown) => void,
     declined?: () => void,
+    fenced = true,
   ): Promise<any> {
     const generation = this.selectionGeneration;
     const trustCancellation = this.trustCancellation;
     try {
       const result = await this.request("session/new", params);
-      // A canceled start owns neither the next Trust question nor one-shot startup defaults.
-      if (generation !== this.selectionGeneration || trustCancellation !== this.trustCancellation) return undefined;
+      // A canceled start owns neither the next Trust question nor one-shot startup defaults. One
+      // whose caller owns its cancellation (`fenced` false: a harness switch's start, which a
+      // selection of the same chat moves on, issue 44964) is fenced on Trust only. A session
+      // dropped here is discarded, never left running with no tab.
+      if ((fenced && generation !== this.selectionGeneration) || trustCancellation !== this.trustCancellation) {
+        // Only a start this request made fresh is ours to end. An adopt resumes the person's own
+        // conversation, which acpmux may already have bound to another pane: never killed here.
+        const adopting = Boolean((params._meta as { acpmux?: { adopt?: unknown } } | undefined)?.acpmux?.adopt);
+        if (result?.sessionId && !this.closed && !adopting) this.discard(String(result.sessionId));
+        return undefined;
+      }
       return result;
     } catch (error) {
       const ownsRefusal =
@@ -13565,6 +13611,10 @@ export class AcpmuxDirectClient {
   ): Promise<string | undefined> {
     this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
+    // The one-shot startup picks a successful start consumes (startSession): a start the person
+    // left gives them back, so the pane's next new chat still starts on them (issue 44964).
+    const picks = { cwd: this.host.cwd, harness: this.host.harness, model: this.host.model, peer: this.host.peer };
+    const folders = this.newChatFolders;
     const started = (async () => {
       // The New Tab request still owns its draft, attachments and machine. Trust resumes this
       // same promise, so its sender runs once and never targets an unmounted chat composer.
@@ -13615,7 +13665,17 @@ export class AcpmuxDirectClient {
             );
       // A user who opened another chat while session/new was out owns that selection.
       if (this.closed || generation !== this.selectionGeneration) {
-        if (sessionId && !this.closed) this.discard(sessionId);
+        if (sessionId && !this.closed) {
+          this.discard(sessionId);
+          this.host = {
+            ...this.host,
+            cwd: this.host.cwd ?? picks.cwd,
+            harness: this.host.harness ?? picks.harness,
+            model: this.host.model ?? picks.model,
+            peer: this.host.peer ?? picks.peer,
+          };
+          this.newChatFolders ??= folders;
+        }
         return undefined;
       }
       if (sessionId) this.startedChat = { sessionId, visit: generation };
@@ -13668,6 +13728,8 @@ export class AcpmuxDirectClient {
         this.emit();
       },
       declined,
+      // A local start's caller fences it (`create`, HarnessSwitch); a peer start is fenced below.
+      Boolean(pending.peer),
     );
     // A deferred local harness switch intentionally leaves the displayed chat at first Send;
     // HarnessSwitch owns that start's cancellation. Only peer starts use this route fence.
