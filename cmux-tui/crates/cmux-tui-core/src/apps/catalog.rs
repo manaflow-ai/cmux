@@ -498,7 +498,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         && super::store_trust::verify(
             dir,
             &id,
-            manifest["version"].as_str().unwrap_or_default(),
+            manifest.get("version").and_then(Value::as_str).unwrap_or_default(),
             &super::store_trust::trusted_keys(),
         )
         .is_ok()
