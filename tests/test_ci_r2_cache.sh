@@ -190,6 +190,43 @@ echo "PASS: a corrupt archive is a miss and leaves no partial directory"
 if output_of restore "$WORK/dst" 'bad/key' >/dev/null; then fail "a key with a slash must be rejected"; fi
 echo "PASS: keys outside [A-Za-z0-9._-] are rejected"
 
+# nightly.yml saves the Mac build's caches from a Linux job (save-nightly-app-caches), so the
+# namespace comes from the build job (CI_CACHE_R2_PLATFORM), not from the runner the save runs on.
+CI_CACHE_R2_PLATFORM=macOS-ARM64 output_of save "$WORK/src" handed-one >/dev/null
+ls "$WORK/store/bucket/v1/macOS-ARM64/objects/" | grep -q '^handed-one\.tar\.' \
+  || fail "CI_CACHE_R2_PLATFORM must name the namespace a save writes"
+[[ "$(cat "$WORK/store/bucket/v1/macOS-ARM64/latest/handed-")" == "handed-one" ]] || fail "the pointer must be in that namespace"
+ls "$NS/objects/" | grep -q '^handed-one' && fail "the runner's own namespace must not get the save"
+rm -rf "$WORK/dst"
+out="$(CI_CACHE_R2_PLATFORM=macOS-ARM64 output_of restore "$WORK/dst" handed-one)"
+grep -q '^cache-hit=true$' <<<"$out" && diff -r "$WORK/src" "$WORK/dst" >/dev/null || fail "a restore must read that namespace too"
+CI_CACHE_R2_PLATFORM='macOS/ARM64' output_of save "$WORK/src" handed-two >/dev/null && fail "a platform outside [A-Za-z0-9._-] must be refused"
+echo "PASS: CI_CACHE_R2_PLATFORM names the namespace for a save made on another runner"
+
+# scripts/ci/handoff-archive.sh carries a directory between jobs of one run through one artifact.
+# upload-artifact zips files with mode 644 and follows symlinks, so a cache that went through it
+# directly would come back changed; the archive keeps modes, symlinks and empty directories.
+HANDOFF="$ROOT_DIR/scripts/ci/handoff-archive.sh"
+mkdir -p "$WORK/hand/src/nested/empty" "$WORK/hand/src/sub"
+printf 'run\n' > "$WORK/hand/src/sub/tool"; chmod 755 "$WORK/hand/src/sub/tool"
+printf 'data\n' > "$WORK/hand/src/nested/data"; chmod 600 "$WORK/hand/src/nested/data"
+ln -s ../nested/data "$WORK/hand/src/sub/link"
+bash "$HANDOFF" pack "$WORK/hand/src" "$WORK/hand/artifact" >/dev/null || fail "handoff pack failed"
+[[ "$(ls "$WORK/hand/artifact")" == "handoff.tar.zst" || "$(ls "$WORK/hand/artifact")" == "handoff.tar.gz" ]] \
+  || fail "pack must write exactly one archive, got: $(ls "$WORK/hand/artifact")"
+mkdir -p "$WORK/hand/out/stale"
+bash "$HANDOFF" unpack "$WORK/hand/artifact" "$WORK/hand/out" >/dev/null || fail "handoff unpack failed"
+diff -r --no-dereference "$WORK/hand/src" "$WORK/hand/out" >/dev/null || fail "unpacked contents differ"
+[[ ! -e "$WORK/hand/out/stale" ]] || fail "unpack must replace the directory, not merge into it"
+[[ -L "$WORK/hand/out/sub/link" && "$(readlink "$WORK/hand/out/sub/link")" == "../nested/data" ]] || fail "a symlink must stay a symlink"
+[[ -x "$WORK/hand/out/sub/tool" ]] || fail "an executable must stay executable"
+[[ -d "$WORK/hand/out/nested/empty" ]] || fail "an empty directory must survive"
+echo "not an archive" > "$WORK/hand/artifact/handoff.tar.zst"; rm -f "$WORK/hand/artifact/handoff.tar.gz"
+bash "$HANDOFF" unpack "$WORK/hand/artifact" "$WORK/hand/bad" >/dev/null 2>&1 && fail "a corrupt archive must fail the unpack"
+[[ ! -e "$WORK/hand/bad" ]] || fail "a failed unpack must leave no partial directory"
+bash "$HANDOFF" pack "$WORK/hand/missing" "$WORK/hand/none" >/dev/null 2>&1 && fail "packing a missing directory must fail"
+echo "PASS: handoff-archive.sh carries a directory through an artifact with modes, symlinks and empty directories"
+
 unset AWS_SECRET_ACCESS_KEY
 output_of save "$WORK/src" family-tool-four >/dev/null || fail "a save without credentials must not fail the job"
 ls "$NS/objects/" | grep -q '^family-tool-four' && fail "a save without credentials must upload nothing"
