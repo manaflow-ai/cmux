@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextFocus
 import CmuxNextFocusUI
 @testable import CmuxNextPages
 import CmuxNextSettings
@@ -145,6 +146,84 @@ extension LetterBetweenTwoNewTabKeysTests {
             #expect(after == ["parked": 1, "typed": 1, "dropped_old": 0, "dropped_page_gone": 0, "dropped_refused": 0, "dropped_returns": 0],
                     "parked_typing is \(after.sorted { $0.key < $1.key }), want 1 parked and 1 typed")
             #expect(scene.old.keys == 0, "the view that had the keyboard before the first New Tab key got \(scene.old.keys) keys, want 0")
+        }
+    }
+
+    /// New Tab key, a letter, New Tab key. The page of the first new tab does not report, and the park's clock passes
+    /// the limit of 2 s. The person goes back to the first new tab, and the first key there is a Return. The parked
+    /// letter is too old to be typed, so no text waits for that page: the key router passes the Return on, as it did
+    /// before the park was there. It does not hold the Return behind a text that never comes.
+    @Test func aReturnInATabWhoseParkedLetterWaitedTheLimitIsPassedOn() async throws {
+        try await Self.aKeyInATabWhoseParkedLetterWaitedTheLimit("\r", code: 36, name: "Return")
+    }
+
+    /// The same with a Delete as the first key in the first new tab: the key router passes it on. It does not take
+    /// the Delete for a text that no longer waits.
+    @Test func aDeleteInATabWhoseParkedLetterWaitedTheLimitIsPassedOn() async throws {
+        try await Self.aKeyInATabWhoseParkedLetterWaitedTheLimit("\u{7F}", code: 51, name: "Delete")
+    }
+
+    private static func aKeyInATabWhoseParkedLetterWaitedTheLimit(_ characters: String, code: UInt16, name: String) async throws {
+        try await Self.withScene { scene in
+            let clock = ParkClock()
+            scene.router.parkedTyping.now = { clock.now }
+            let first = Typed()
+            let tab1 = try scene.newTab()
+            let page1 = try await scene.pageAfterOneFrame(of: tab1, into: first)
+            try scene.held("a", code: 0)
+            let tab2 = try scene.newTab()
+            let atTheKey = Self.parkedTyping(scene.services)
+            _ = try await scene.pageAfterOneFrame(of: tab2, into: Typed())
+
+            // The page of the first new tab does not report. The limit passes on the park's clock. The row does not
+            // read `debug.focus` from here to the key: that read drops a text that is too old.
+            clock.now += .seconds(2)
+            // The person goes back to the first new tab: the pane shows its page again.
+            let tab = try #require(scene.pane.orderedIDs.first { $0.rawValue == tab1 }, "setup: the first new tab is not in the strip")
+            scene.pane.select(tab)
+            await Self.frame(scene.services)
+            await LargeSessionWindowFixture.drainMain()
+            let shows = scene.pane.currentTabKey == tab1 && scene.pane.currentContent?.inputReadiness === page1
+            let canQueue = scene.controller.focus.state.resolved.mayQueueTyping
+            try #require(atTheKey["parked"] == 1,
+                         "setup: the second New Tab key parked \(atTheKey["parked"] ?? -1) texts, want 1: the row has no parked letter")
+            try #require(shows && canQueue && !page1.isReady,
+                         """
+                         setup: the row needs the page of the first new tab as the pane's page again, with a field that is not \
+                         ready and a focus that can queue typing (the pane shows that page: \(shows), the focus can queue typing: \
+                         \(canQueue), the field is ready: \(page1.isReady))
+                         """)
+            try #require(!scene.router.creationInputCoordinator.isHolding(in: scene.window),
+                         "setup: the window's creation hold has keys before the \(name) key")
+
+            // The first key in the first new tab.
+            let key = try scene.keys.press(characters, code: code, command: false)
+            let heldBehindText = scene.router.typeAheadTail.holds(String(describing: ObjectIdentifier(page1)))
+            let decided = scene.router.decided.contains(key.event)
+            let afterTheKey = Self.parkedTyping(scene.services)
+
+            // A late report of the page.
+            page1.receive(true)
+            await LargeSessionWindowFixture.drainMain()
+            let got = first.edits
+            let ranAgain = scene.givenOn.keys.filter { $0.code == code }.count
+            print("""
+                LetterBetweenTwoNewTabKeysTests: a parked letter that waited the limit, then a \(name) key in its tab: the key \
+                router took the key: \(key.took) (it decided the key: \(decided); it held the key behind a text of the page: \
+                \(heldBehindText)); after the page's late report the key ran again \(ranAgain) times and the app typed \(got) \
+                into the page; parked_typing after the second New Tab key: \(atTheKey.sorted { $0.key < $1.key }), after the \
+                \(name) key: \(afterTheKey.sorted { $0.key < $1.key }); the hold's log ends: \(scene.holdLog)
+                """)
+            try await scene.stillReads(page1, into: first)
+            #expect(!key.took,
+                    """
+                    the key router took the \(name) key in a tab whose parked letter waited the limit, want the key passed on: \
+                    no text waits for that page. The router held the key behind a text of the page: \(heldBehindText); after \
+                    the page's late report the key ran again \(ranAgain) times.
+                    """)
+            #expect(got.isEmpty, "the app typed \(got) into the page of the first new tab after the limit, want nothing")
+            #expect(afterTheKey == ["parked": 1, "typed": 0, "dropped_old": 1, "dropped_page_gone": 0, "dropped_refused": 0, "dropped_returns": 0],
+                    "parked_typing after the \(name) key is \(afterTheKey.sorted { $0.key < $1.key }), want 1 parked and 1 dropped by its age")
         }
     }
 }
