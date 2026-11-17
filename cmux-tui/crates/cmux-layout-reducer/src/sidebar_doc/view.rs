@@ -85,6 +85,20 @@ pub struct Row {
     pub archived: bool,
 }
 
+thread_local! {
+    static ROWS_BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Rows built on this thread since the last call (it resets the count): the
+/// work count the scale tests hold to the rows a change touches.
+pub fn take_rows_built() -> usize {
+    ROWS_BUILT.with(|built| built.replace(0))
+}
+
+fn count_row() {
+    ROWS_BUILT.with(|built| built.set(built.get() + 1));
+}
+
 struct Context<'a> {
     live: HashMap<(&'a str, &'a str), &'a LiveWorkspace>,
     needle: Option<String>,
@@ -139,6 +153,7 @@ impl Context<'_> {
 }
 
 fn item_row(item: &Item, depth: u8, dimmed: bool, collapsed: bool, archived: bool) -> Row {
+    count_row();
     Row {
         key: item.id.clone(),
         kind: item.body.kind_name().into(),
@@ -303,6 +318,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
                     continue;
                 }
                 let reference = WorkspaceRef::new(&live.session_id, &live.workspace_id);
+                count_row();
                 body.insert(
                     at,
                     Row {
@@ -325,6 +341,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             && (section.kind.machine().is_none() || machine_count > 1)
             && (context.needle.is_none() || !body.is_empty());
         if header {
+            count_row();
             rows.push(Row {
                 key: section.id.clone(),
                 kind: "section".into(),
