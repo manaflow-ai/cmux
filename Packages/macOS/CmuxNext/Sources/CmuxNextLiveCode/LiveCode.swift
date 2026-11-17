@@ -15,7 +15,7 @@ extension LiveFolder {
     /// The person's live folder, where `cmux live-code` looks by default.
     static var standard: LiveFolder {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches")
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent("Library/Caches", isDirectory: true)
         return LiveFolder(url: caches.appendingPathComponent("cmux-next/live-code", isDirectory: true))
     }
 }
@@ -107,4 +107,3 @@ public final class LiveCode {
         for subview in view.subviews { invalidate(subview) }
     }
 }
-
