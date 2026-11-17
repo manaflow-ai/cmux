@@ -15,16 +15,12 @@ public import AppKit
 public final class OverlayPlane: NSView {
     /// The view whose bounds the plane mirrors (the layout root).
     public private(set) weak var home: NSView?
-    /// The dim over the other panes while a pane zooms: it follows the home's overlay syncs (`PaneZoomDimView`).
-    private var zoomDim: LayoutOverlaySyncObservation?
-
     init(home: NSView) {
         self.home = home
         super.init(frame: home.bounds)
         wantsLayer = true
         layer?.masksToBounds = true
         setAccessibilityElement(false)
-        zoomDim = (home as? LayoutRootView).map { PaneZoomDimView.follow($0, in: self) }
     }
 
     @available(*, unavailable)

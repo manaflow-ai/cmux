@@ -83,11 +83,26 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             "const POLL: Duration = Duration::from_secs(3);\n"
             "const RETRY_STOP_BUDGET: Duration = Duration::from_secs(1);\n"
             "const ANSWER_WAIT: Duration = Duration::from_secs(2);\n"
+            "const NOT_STARTED_PAUSE: Duration = Duration::from_millis(500);\n"
+            "const WAIT_EVERY: Duration = Duration::from_secs(2);\n"
+            "const PAUSE_TIMEOUT: Duration = Duration::from_secs(2);\n"
         )
         self.assertEqual(
             [hit["line"] for hit in guard.scan_source(rust, "cmux-tui/crates/acpmux/src/hub/start.rs")],
-            [5, 6],
+            [5, 6, 9],
         )
+
+    def test_a_rust_file_in_a_tests_folder_is_test_code(self) -> None:
+        # `#[cfg(test)] mod outbound_queue_tests;` keeps its cases in a folder of files (#44571's flood_bulk.rs).
+        rust = "const READ_BUDGET: Duration = Duration::from_millis(200);\n"
+        for rel in (
+            "cmux-tui/crates/acpmux/src/server/outbound_queue_tests/flood_bulk.rs",
+            "cmux-tui/crates/cmux-tui/src/cli/mcp/tests/keys.rs",
+            "cmux-tui/crates/acpmux/src/hub/start_tests.rs",
+        ):
+            self.assertEqual(guard.scan_source(rust, rel), [], rel)
+        self.assertEqual(len(guard.scan_source(rust, "cmux-tui/crates/acpmux/src/server/outbound_queue.rs")), 1)
+        self.assertEqual(len(guard.scan_source(rust, "cmux-tui/crates/acpmux/src/contests/x.rs")), 1)
 
     def test_other_language_patterns_and_test_module_exclusion(self) -> None:
         swift = "request.timeoutInterval = 2\nsetsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value)\n"

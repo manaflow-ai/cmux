@@ -239,7 +239,7 @@ nonisolated enum BrowserAppSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.workspaceIcons", "Workspace Icons"),
-                help: SettingsText.keyed("settings.sidebar.workspaceIcons.help", "An icon for each workspace title. \"*\" sets the icon of every other workspace; an empty icon hides it."),
+                help: SettingsText.keyed("settings.sidebar.workspaceIcons.help", "An icon per workspace title. \"*\" sets the rest; an empty icon hides it."),
                 kind: .stringMap,
                 default: BrowserAppSettingsSchema.workspaceIconsDefault,
                 keywords: ["workspace", "icon", "glyph", "emoji", "rail"]
