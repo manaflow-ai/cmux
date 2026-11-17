@@ -747,13 +747,23 @@ try {
         version: 3,
       });
     const steady = rounds.at(-1)!.steady;
-    if (steady)
+    if (steady) {
       console.log(
         `  left alone for ${STEADY_MS / 1000} s: ${steady.wakeups} wakeups (${steady.timeouts} timeouts, ` +
           `${steady.intervals} intervals, ${steady.frames} frames, ${steady.idleCallbacks} idle callbacks, ` +
           `${steady.animations} animations), ${steady.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
           (steady.sources.length ? `; ${steady.sources.slice(0, 24).join("; ")}` : ""),
       );
+      // Goal idle-wakeups' row (NOW `idle_chat_rest_wakeups_per_s`, count / 10): a chat left alone wakes nothing.
+      perfRow({
+        name: `chat_switch.${key}.rest_wakeups`,
+        p50: steady.wakeups,
+        p95: steady.wakeups,
+        unit: "count",
+        target: 0,
+        floor: 0.5,
+      });
+    }
   }
   // Growth per switch (bench/growth.ts): one page switches A, B, A, B... and, once warm, samples the GC'd heap, DOM
   // nodes and listeners every SAMPLE_EVERY of CHURN switches. Back where it started, a switch must leave nothing
