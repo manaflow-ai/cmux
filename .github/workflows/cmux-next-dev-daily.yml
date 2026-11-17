@@ -154,7 +154,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "error: source run id '$SOURCE_RUN_ID' is not a number" >&2; exit 1; }
-          if [[ -n "$PR_HEAD_SHA" ]]; then
+          if [[ -n "${PR_HEAD_SHA:-}" ]]; then
             [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "error: pr_head_sha '$PR_HEAD_SHA' is not a 40-hex commit" >&2; exit 1; }
             built="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
               select(.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"
@@ -1102,7 +1102,7 @@ jobs:
           cd "$TIP_WORK_DIR"
           (cd signed-handoff && shasum -a 256 -c "$APP_ARCHIVE_NAME.sha256")
           [[ "$TIP_BUILD" =~ ^[0-9]+$ ]] || { echo "tip build '$TIP_BUILD' is not a number" >&2; exit 1; }
-          if [[ -n "$PR_HEAD_SHA" ]]; then
+          if [[ -n "${PR_HEAD_SHA:-}" ]]; then
             echo "Candidate $PR_HEAD_SHA: a DMG for this run's artifact only; the feed is not read"
             echo "fresh=true" >> "$GITHUB_OUTPUT"
             exit 0
