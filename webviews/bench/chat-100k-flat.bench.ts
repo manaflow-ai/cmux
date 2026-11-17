@@ -687,6 +687,12 @@ try {
       }
       // WAKES=1 in a launch of many chats: what each page draws while idle (a hidden one and the shown one traced),
       // and every page's running animations, so work a hidden or off-screen page still does is named.
+      if (stopWindowsTrace) {
+        fs.mkdirSync(TRACE!, { recursive: true });
+        console.log(`  ${name}: browser-wide trace of the idle windows`);
+        console.log(await stopWindowsTrace(path.join(TRACE!, `${name}-windows.json.gz`)));
+        await windowsCdp!.detach();
+      }
       if (WAKES && count > 1) {
         for (const [index, { page }] of pages.entries()) {
           const running = await runningAnimations(page);
@@ -704,12 +710,6 @@ try {
           const traced = await paintWindow(page, cdp, IDLE_S, sources);
           console.log(describePaintWindow(`${name} page ${index} idle`, traced));
         }
-      }
-      if (stopWindowsTrace) {
-        fs.mkdirSync(TRACE!, { recursive: true });
-        console.log(`  ${name}: browser-wide trace of the idle windows`);
-        console.log(await stopWindowsTrace(path.join(TRACE!, `${name}-windows.json.gz`)));
-        await windowsCdp!.detach();
       }
       if (TRACE) {
         // TRACE=DIR: what each page's frames come from (the rAF sites the init script saw, through the build's maps),
