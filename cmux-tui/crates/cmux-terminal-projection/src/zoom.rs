@@ -203,14 +203,15 @@ mod tests {
     fn a_double_tap_toggles_about_the_tapped_point() {
         let g = mac();
         let fitted = g.initial();
-        // Tap column 60, row 10 at fit width.
+        // Tap column 60, row 1 at fit width (row 1 so the vertical pan is inside the 24 pt the
+        // readable grid overhangs the page).
         let s = fitted.scale;
-        let (fx, fy) = (60.0 * 7.2 * s, 10.0 * 15.6 * s);
+        let (fx, fy) = (60.0 * 7.2 * s, 1.0 * 15.6 * s);
         let readable = g.toggle(fitted, fx, fy);
         assert!(close(readable.scale, 1.0));
         // The tapped cell is still under the finger.
         assert!(close(readable.pan_x + fx, 60.0 * 7.2));
-        assert!(close(readable.pan_y + fy, 10.0 * 15.6));
+        assert!(close(readable.pan_y + fy, 1.0 * 15.6));
         let back = g.toggle(readable, fx, fy);
         assert!(close(back.scale, g.fit_width_scale()));
         assert_eq!(
