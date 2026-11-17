@@ -74,6 +74,11 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
+    /// Diagnostics: datagrams (and bytes) resent in answer to viewer feedback
+    /// (NACKs), and resent by the tail probe.
+    diag_resent: u64,
+    diag_resent_bytes: u64,
+    diag_probe_resent: u64,
     encode_ms: VecDeque<f64>,
     next_stats_ns: u64,
     stats_every_ns: u64,
@@ -260,6 +265,9 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
+            diag_resent: 0,
+            diag_resent_bytes: 0,
+            diag_probe_resent: 0,
             encode_ms: VecDeque::new(),
             next_stats_ns: now_ns(),
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
@@ -416,6 +424,7 @@ impl MediaSession {
                 }
             }
             let out = self.engine.tick(may_inject, now_us());
+            self.diag_probe_resent += out.datagrams.len() as u64;
             self.apply(carrier, out, table, session, viewer);
             // Acks, NACKs and arrivals for the viewer's upstream senders.
             while let Some(datagram) = self.engine.upstream_feedback(now_us()) {
@@ -589,6 +598,12 @@ impl MediaSession {
             timing.recv_us = Some(now);
         }
         let out = self.engine.on_datagram(datagram, may_inject, now);
+        if cmux_rd_proto::DatagramHeader::decode(datagram)
+            .is_ok_and(|(h, _)| h.kind == cmux_rd_proto::DatagramKind::Feedback && h.stream == 0)
+        {
+            self.diag_resent += out.datagrams.len() as u64;
+            self.diag_resent_bytes += out.datagrams.iter().map(|d| d.len() as u64).sum::<u64>();
+        }
         self.apply(carrier, out, table, session, viewer);
         if let Some(timing) = self.timing.as_mut() {
             timing.recv_us = None;
@@ -651,6 +666,9 @@ impl MediaSession {
             cpu_pct,
             encode_ms_p50,
             loss_pct: stats.loss * 100.0,
+            resent: self.diag_resent,
+            resent_bytes: self.diag_resent_bytes,
+            probe_resent: self.diag_probe_resent,
         };
         let _ = carrier.send_control(&stats);
     }

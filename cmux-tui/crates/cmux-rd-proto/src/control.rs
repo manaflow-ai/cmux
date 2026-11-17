@@ -147,6 +147,13 @@ pub enum Control {
         cpu_pct: f64,
         encode_ms_p50: f64,
         loss_pct: f64,
+        /// Diagnostics: datagrams and bytes resent for viewer NACKs, and by the tail probe.
+        #[serde(default)]
+        resent: u64,
+        #[serde(default)]
+        resent_bytes: u64,
+        #[serde(default)]
+        probe_resent: u64,
     },
 }
 
