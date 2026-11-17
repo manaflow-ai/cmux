@@ -205,6 +205,31 @@ describe("structured data and metadata", () => {
   });
 });
 
+describe("author links by host", () => {
+  test("only a GitHub owner links to a /u author page; another host links to the owner's own profile", () => {
+    expect(refs.authorPath(pomodoro)).toBe("/u/octo-dev");
+    expect(refs.authorPath(gitlab)).toBeNull();
+    expect(refs.authorHref(gitlab)).toEqual({ href: "https://gitlab.com/nora", external: true });
+    expect((listingJsonLd(gitlab).author as { url: string }).url).toBe("https://gitlab.com/nora");
+    expect((listingJsonLd(pomodoro).author as { url: string }).url).toBe("https://cmux.com/u/octo-dev");
+  });
+
+  test("a non-GitHub owner gets no author page in the sitemap", () => {
+    const urls = extensionSitemapEntries([gitlab], []).map((entry) => entry.url);
+    expect(urls.filter((url) => url.includes("/u/"))).toEqual([]);
+  });
+
+  test("an author page never shows a same-named owner's listings from another host", async () => {
+    const saved = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ items: [pomodoroListing, { ...gitlabListing, owner: "octo-dev" }] })) as unknown as typeof fetch;
+    try {
+      expect((await registry.loadAuthorListings("octo-dev"))!.map((l) => l.host)).toEqual(["github.com"]);
+    } finally {
+      globalThis.fetch = saved;
+    }
+  });
+});
+
 describe("sitemap", () => {
   test("lists the index pages, every listing page and every author once", () => {
     const urls = extensionSitemapEntries([pomodoro, gitlab, registry.parseListing(themeListing)!], [setup]).map((entry) => entry.url);
