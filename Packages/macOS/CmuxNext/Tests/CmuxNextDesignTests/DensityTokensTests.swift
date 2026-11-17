@@ -82,7 +82,7 @@ import Testing
             let omnibarHeight = try #require(tokens.tokens["omnibarHeight"])
             let omnibarFont = try #require(tokens.tokens["omnibarFontSize"])
             #expect(omnibarHeight == half(29 * omnibarT))
-            #expect(abs(omnibarFont / ((10 / 0.9 - 0.14) / 0.70459) - omnibarT) < 0.0001) // Helium's 10 px capitals at Compact
+            #expect(abs(omnibarFont / ((10 - 0.31) / 0.70459 / 0.9) - omnibarT) < 0.0001) // Helium's 10 px capitals at Compact
             for key in ["tabIconTitleGap", "sidebarIconGap", "omnibarTextGap"] {
                 let value = try #require(tokens.tokens[key])
                 let base = try #require(DensityPreset.referenceTokens.tokens[key])

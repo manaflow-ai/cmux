@@ -88,9 +88,11 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         "omnibarCornerRadius": 8, "omnibarPopupCornerRadius": 12, "omnibarPopupRowCornerRadius": 8,
         // Helium's toolbar at Compact (its reference, Lucas 2026-11-16): the reload glyph draws 14 px tall, the omnibar's
         // search glyph 12 px and its text's capitals 10 px; Default is those over Compact's 0.9. The glyphs' ink fills
-        // about 0.617 (toolbar) and 0.697 (search) of their boxes, measured in HeliumToolbarSizeTests.
+        // about 0.617 (toolbar) and 0.697 (search) of their boxes, measured in HeliumToolbarSizeTests. macOS font smoothing
+        // grows the capitals about 0.31 pt, so the font's own are that much under 10: the H then fills exactly 20 rows at 2x,
+        // with no lit row above it (Lucas 2026-11-17: at 0.14 a 21st row lit 39% and the H read taller than 10).
         "toolbarGlyphSize": 14 / 0.9 / 0.617,
-        "omnibarHeight": 29, "omnibarFontSize": (10 / 0.9 - 0.14) / 0.70459, "omnibarLineBoxBaseline": 1,
+        "omnibarHeight": 29, "omnibarFontSize": (10 - 0.31) / 0.70459 / 0.9, "omnibarLineBoxBaseline": 1,
         "omnibarButtonSpacing": 3, "omnibarEdgeInset": 2, "omnibarFieldTrailingGap": 5,
         "omnibarTrailingPadding": 8,
         "omnibarTrailingIconSize": 18, "omnibarIconViewSize": 25, "omnibarIconSize": 12 / 0.9 / 0.697,

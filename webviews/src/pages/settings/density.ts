@@ -58,7 +58,7 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarPopupRowCornerRadius: 8,
   toolbarGlyphSize: 14 / 0.9 / 0.617,
   omnibarHeight: 29,
-  omnibarFontSize: (10 / 0.9 - 0.14) / 0.70459,
+  omnibarFontSize: (10 - 0.31) / 0.70459 / 0.9,
   omnibarLineBoxBaseline: 1,
   omnibarButtonSpacing: 3,
   omnibarEdgeInset: 2,

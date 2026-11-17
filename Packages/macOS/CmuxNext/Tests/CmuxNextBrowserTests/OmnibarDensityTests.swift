@@ -44,7 +44,7 @@ import Testing
                              (metrics.toolbarIconSize, CGFloat(14 / 0.9 / 0.617)), (metrics.trailingIconSize, 18)] as [(CGFloat, CGFloat)] {
             #expect(size == (base * t * 2).rounded() / 2, "\(preset)")
         }
-        #expect(abs(metrics.fontSize - CGFloat((10 / 0.9 - 0.14) / 0.70459) * t) < 0.000_001)
+        #expect(abs(metrics.fontSize - CGFloat((10 - 0.31) / 0.70459 / 0.9) * t) < 0.000_001)
     }
 
     /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws.
