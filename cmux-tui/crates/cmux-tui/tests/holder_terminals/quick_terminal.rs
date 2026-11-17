@@ -76,7 +76,17 @@ fn a_hidden_quick_terminal_keeps_its_shell_and_its_history_through_a_daemon_cras
     let shell = shell_pid(&daemon.socket, surface);
     let before = flood_lines(&daemon.socket, surface);
     assert!(before.len() >= 100, "the fixture: the flood is in the history: {before:?}");
-    let counted: Vec<String> = (0..before.len()).map(|line| format!("quick-line-{line}")).collect();
+    // The shell does not echo, so the first line of the flood can be on the row of the prompt: the rows that
+    // are a line of the flood and nothing more start at a later line, and go on with no gap.
+    let start: usize = before
+        .first()
+        .and_then(|row| row.strip_prefix("quick-line-"))
+        .and_then(|line| line.parse().ok())
+        .unwrap_or_else(|| {
+            panic!("the fixture: the first row is no line of the flood: {before:?}")
+        });
+    let counted: Vec<String> =
+        (start..start + before.len()).map(|line| format!("quick-line-{line}")).collect();
     assert_eq!(before, counted, "the fixture: each line of the flood once, in its order");
 
     daemon.sigkill();
