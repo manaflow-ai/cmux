@@ -83,7 +83,7 @@ case "$cmd" in
     install_host
     read -r base patch < <(send_patch)
     t0=$(python3 -c 'import time; print(time.time())')
-    host_sh "$cmd" "$owner" "$base" "$patch"
+    host_sh "$cmd" "$owner" "$base" "$patch" || exit $?
     python3 -c 'import sys,time; print("ios-live: %s end to end (send + apply): %.1f s" % (sys.argv[1], time.time()-float(sys.argv[2])))' "$cmd" "$t0" ;;
   undo|relaunch) install_host; host_sh "$cmd" "$owner" "$@" ;;
   tap) install_host; host_sh tap "$owner" "${1:?x}" "${2:?y}" ;;

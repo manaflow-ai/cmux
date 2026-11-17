@@ -245,6 +245,8 @@ rebuild() {
   cat "$root/state.json"
 }
 
+abs() { case "$1" in /*) echo "$1" ;; *) echo "$HOME/$1" ;; esac; }
+
 cmd="${1:-status}"; shift || true
 case "$cmd" in
   lease) lease "$@" ;;
@@ -253,10 +255,10 @@ case "$cmd" in
     owner="${1:?up OWNER [REF]}"; lease holds "$owner"; rebuild "$owner" up "${2:-origin/$branch}" ;;
 
   swap)  # swap OWNER BASE PATCH: the app at BASE plus PATCH (git diff --binary), rebuilt warm
-    owner="${1:?}"; base="${2:?}"; patch="${3:?}"; lease holds "$owner"; rebuild "$owner" swap "$base" "$patch" ;;
+    owner="${1:?}"; base="${2:?}"; patch="$(abs "${3:?}")"; lease holds "$owner"; rebuild "$owner" swap "$base" "$patch" ;;
 
   swift)  # swift OWNER BASE PATCH: apply the patch's Swift files live (no build, no relaunch)
-    owner="${1:?}"; ref="${2:?}"; patch="${3:?}"; lease holds "$owner"
+    owner="${1:?}"; ref="${2:?}"; patch="$(abs "${3:?}")"; lease holds "$owner"
     has_live_code && [[ "$(state_get build_kind)" == live-code ]] || die "the running app is not a live code build: use swap"
     live_base="$(state_get base)"
     want="$(git -C "$src" rev-parse -q --verify "$ref^{commit}" 2>/dev/null || true)"
