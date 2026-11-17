@@ -63,10 +63,12 @@ export function cmuxTuiBinaryPath(home: string): string {
 /**
  * Shell that sets CMUX_TUI_USER, CMUX_TUI_HOME, CMUX_TUI_BIN and
  * CMUX_TUI_LAYOUT to the layout this machine can actually serve. The work user
- * is used only when it can do the job it promises: it exists, its home is
- * writable by it, and it really has passwordless sudo. Anything else (a legacy
- * image, a broken sudoers) is the root layout — a degraded but working machine
- * beats a crash-looping daemon or a session trapped unprivileged.
+ * needs to exist and be able to write its home. It should also have passwordless
+ * sudo, but a machine whose owner requires a sudo password keeps the work user
+ * when the only daemon binary is in its home: root has nothing to run there, and
+ * that sudo policy is the owner's choice. Anything else (a legacy image, a broken
+ * sudoers with a root install) is the root layout. A crash-looping daemon is the
+ * one outcome this must never choose.
  *
  * Install, pin check, daemon launch and every driver-side `cmux-tui` call run
  * this same selector, so they can never disagree about where the binary and
@@ -78,7 +80,8 @@ export function cmuxTuiLayoutSelector(): string {
   return (
     `if id -u ${user} >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && ` +
     `setpriv --reuid=${user} --regid=${user} --init-groups test -w ${home} 2>/dev/null && ` +
-    `setpriv --reuid=${user} --regid=${user} --init-groups sudo -n true >/dev/null 2>&1; then ` +
+    `{ setpriv --reuid=${user} --regid=${user} --init-groups sudo -n true >/dev/null 2>&1 || ` +
+    `{ [ -x ${cmuxTuiBinaryPath(home)} ] && [ ! -x ${CMUX_TUI_LEGACY_BINARY_PATH} ]; }; }; then ` +
     `CMUX_TUI_USER=${user}; CMUX_TUI_HOME=${home}; CMUX_TUI_LAYOUT=user; ` +
     `else CMUX_TUI_USER=root; CMUX_TUI_HOME=${CMUX_TUI_LEGACY_HOME}; CMUX_TUI_LAYOUT=root; fi; ` +
     `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`

@@ -10,7 +10,8 @@
  * come up by itself after resume, bound to this machine's instance id, with
  * the binary at the current files.cmux.com pin. A second machine from the same
  * snapshot must hold a different daemon identity (the snapshot is a memory
- * image; see cmux-devbox-boot). Both sandboxes are deleted.
+ * image; see cmux-devbox-boot). The second machine must also keep its daemon
+ * when the work user's sudo needs a password. Both sandboxes are deleted.
  *
  * Usage:
  *   FREESTYLE_API_KEY=... bun scripts/verify-devbox-image.ts freestyle <snapshot-id>
@@ -45,6 +46,7 @@ import {
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
+  devboxSudoPasswordKeepsDaemonCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
   devboxAgentPins,
   devboxBubblewrapCheckCommand,
@@ -468,6 +470,7 @@ if (provider === "freestyle") {
     console.log(`  $ idle-wakeup check\n    exit=${idle.exitCode}\n    ${idle.output.trim().split("\n").join("\n    ")}`);
     const idleOk = idle.exitCode === 0;
     let cloneIdentityOk = true;
+    let sudoPasswordOk = false;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
     const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall, ...throwawayVmOptions() });
@@ -514,6 +517,11 @@ if (provider === "freestyle") {
       const bootShared = field(idA.output, "boot") === field(idB.output, "boot");
       console.log(`machine-id ${machineIdShared ? "SHARED or unreadable" : "differs"} across machines (${machineA.slice(0, 8)}… vs ${machineB.slice(0, 8)}…); boot_id ${bootShared ? "shared" : "differs"}`);
       if (strictCloneIdentity && machineIdShared) cloneIdentityOk = false;
+      // Last on this machine, because it changes the machine's sudo policy and
+      // stops its daemon. The first machine stays clean for the checks below.
+      const sudoPassword = await exec2(devboxSudoPasswordKeepsDaemonCommand(), 300_000);
+      console.log(`  $ sudo-password daemon check\n    exit=${sudoPassword.exitCode}\n    ${sudoPassword.output.trim().split("\n").join("\n    ")}`);
+      sudoPasswordOk = sudoPassword.exitCode === 0;
     } finally {
       await second.vm.delete();
       console.log(`deleted ${second.vmId}`);
@@ -536,9 +544,10 @@ if (provider === "freestyle") {
       ...(desktop
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
-    ], exec) && idleOk && cloneIdentityOk;
+    ], exec) && idleOk && cloneIdentityOk && sudoPasswordOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
+    if (!sudoPasswordOk) console.log("[freestyle] sudo-password daemon check FAILED");
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);

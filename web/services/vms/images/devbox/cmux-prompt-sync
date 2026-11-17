@@ -80,13 +80,22 @@ def tui_layout():
     try:
         import pwd
         pwd.getpwnam(user)
-        if not os.access(home, os.W_OK) or subprocess.run(
-            ["setpriv", "--reuid=cmux", "--regid=cmux", "--init-groups", "sudo", "-n", "true"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-            check=False,
-        ).returncode != 0:
+        try:
+            passwordless_sudo = subprocess.run(
+                ["setpriv", "--reuid=cmux", "--regid=cmux", "--init-groups", "sudo", "-n", "true"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+                check=False,
+            ).returncode == 0
+        except subprocess.TimeoutExpired:
+            passwordless_sudo = False
+        # Same rule as cmuxTuiLayoutSelector(): a sudo password policy keeps the
+        # work user when root has no daemon binary to run.
+        only_work_install = os.access(f"{home}/.cmux/bin/cmux-tui", os.X_OK) and not os.access(
+            "/root/.cmux/bin/cmux-tui", os.X_OK
+        )
+        if not os.access(home, os.W_OK) or not (passwordless_sudo or only_work_install):
             raise OSError("cmux work user is not usable")
     except (KeyError, OSError, subprocess.SubprocessError):
         user = "root"

@@ -19,7 +19,7 @@ import { Buffer } from "node:buffer";
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRunCommand, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
+import { CMUX_TUI_LAYOUT_MARKER_PATH, CMUX_TUI_LEGACY_BINARY_PATH, CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRunCommand, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
@@ -806,6 +806,36 @@ export function devboxWaitForDaemonCommand(timeoutSeconds = 120): string {
     `if [ "$cmux_ready" = 1 ]; then echo daemon-ready; else ` +
     `echo "cmux-tui daemon not ready after ${timeoutSeconds}s" >&2; exit 1; fi`
   );
+}
+
+/**
+ * Run as root on a throwaway machine: requires a sudo password for the work user,
+ * as a machine's owner may, then stops only the daemon. The supervisor must bring
+ * it back as the work user. A root install does not exist on this image, so
+ * falling back to root would leave the machine with no terminals.
+ */
+export function devboxSudoPasswordKeepsDaemonCommand(): string {
+  const running = "pgrep -f 'cmux-tui server [s]tart' | head -1";
+  return [
+    "set -e",
+    `test ! -x ${CMUX_TUI_LEGACY_BINARY_PATH}`,
+    `printf '%s\\n' '${DEVBOX_WORK_USER} ALL=(ALL) PASSWD:ALL' > /etc/sudoers.d/zz-verify-sudo-password`,
+    "chmod 0440 /etc/sudoers.d/zz-verify-sudo-password",
+    "visudo -c >/dev/null",
+    // Not `! setpriv ...`: bash ignores set -e for a `!` command, so that line can never fail.
+    `sudo_refusal=$(setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups sudo -n true 2>&1 || true)`,
+    `case "$sudo_refusal" in *"password is required"*) ;; *) echo "sudo did not require a password: $sudo_refusal" >&2; exit 1 ;; esac`,
+    `previous=$(${running})`,
+    'test -n "$previous"',
+    'kill -TERM "$previous"',
+    `restarted=0; for i in $(seq 1 180); do current=$(${running} || true); if [ -n "$current" ] && [ "$current" != "$previous" ]; then restarted=1; break; fi; sleep 0.5; done`,
+    'if [ "$restarted" != 1 ]; then echo "daemon did not restart under a sudo password" >&2; exit 1; fi',
+    devboxWaitForDaemonCommand(),
+    `[ "$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH})" = user ]`,
+    `[ "$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u)" = ${DEVBOX_WORK_USER} ]`,
+    `${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null`,
+    "echo sudo-password-keeps-daemon",
+  ].join("\n");
 }
 
 /** Options for {@link devboxIdleWakeupCheckCommand}. `procRoot` and `pause` exist for tests. */
