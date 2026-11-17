@@ -142,6 +142,26 @@ struct AgentPaneUnsentPromptTests {
         #expect(resent.first.flatMap(Self.mux)?["resend"] as? Bool == true)
     }
 
+    /// A Send needs no gesture but still spends the person's: the Enter that sent "hi" never
+    /// pays for the agent's next gated frame (a mode change) as its turn starts.
+    @Test func aSendSpendsThePersonsGestureThoughItNeedsNone() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let run = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        let mode = { (id: Int) in
+            #"{"jsonrpc":"2.0","id":\#(id),"method":"session/set_mode","params":{"sessionId":"s-1","modeId":"default"}}"#
+        }
+        run.transport.gestures.record()
+        #expect(await run.transport.send(connection: run.id, frames: [mode(3)]) == nil, "a fresh gesture pays for a mode")
+        run.transport.gestures.record()
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 4, promptId: "p-4")]) == nil)
+        #expect(await run.transport.send(connection: run.id, frames: [mode(5)]) == .gestureRequired,
+                "the Send's gesture paid for a mode")
+    }
+
     /// An app relaunch while the daemon is still holding a compose keeps the prompt in the host
     /// journal. The replacement pane receives it once, without making the person retype it.
     @Test func anAppRelaunchMidComposeKeepsThePromptAndRecovers() async throws {
