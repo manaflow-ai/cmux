@@ -98,4 +98,38 @@ describe("clock widget", () => {
     // An unknown zone name: the runtime's clock, and "Here".
     expect(texts((await renderScene(source, { size: "medium", timeZone: "Nowhere/City", settings: { face: "analog" } })).ops)[0]).toBe("Here")
   })
+
+  // The small tile on New Tab is 148 points wide (a DEV build in a 1440 x 900 window, cmux#44962),
+  // 116 inside the widget's 16-point inset. Upper bounds of a glyph's advance, in ems, at the heaviest
+  // weight: SF Pro, SF Pro Rounded and New York digits 0.68 and their colon 0.32, any SF Mono glyph
+  // 0.62, a capital 0.8.
+  const SMALL_WIDTH = 148 - 2 * 16
+  const advance = (text: string, size: number, mono: boolean, caps = false) =>
+    [...text].reduce((sum, ch) => sum + size * (caps ? 0.8 : mono ? 0.62 : ch === ":" ? 0.32 : 0.68), 0)
+  /** 10:58 PM in Los Angeles: the widest 12-hour time (and 22:58 the widest 24-hour one). */
+  const LATEST = Date.UTC(2026, 10, 17, 6, 58)
+
+  test("small: the widest time and its AM/PM fit the tile at every font, weight and hour cycle", async () => {
+    for (const font of ["rounded", "system", "serif", "mono", "condensed"])
+      for (const weight of ["thin", "regular", "heavy"])
+        for (const hourCycle of ["12h", "24h"]) {
+          const { ops } = await renderScene(source, { size: "small", at: LATEST, settings: { font, weight, hourCycle } })
+          const time = ops.find((op) => op.props?.text === (hourCycle === "12h" ? "10:58" : "22:58"))!
+          const size = time.props?.font as number
+          expect(typeof size).toBe("number")
+          let width = advance(String(time.props?.text), size, font === "mono")
+          const period = ops.find((op) => op.props?.text === "PM")
+          if (hourCycle === "12h") {
+            // A text style (headline) is up to 17 points (iOS); a number is its size.
+            const periodSize = typeof period?.props?.font === "number" ? period.props.font : 17
+            width += 3 + advance("PM", periodSize, false, true)
+          } else expect(period).toBeUndefined()
+          expect({ font, weight, hourCycle, fits: width <= SMALL_WIDTH, width }).toMatchObject({ font, weight, hourCycle, fits: true })
+        }
+  })
+
+  test("small: a short time stays big (the Lock Screen look)", async () => {
+    const { ops } = await renderScene(source, { size: "small" })
+    expect(ops.find((op) => op.props?.text === "9:41")!.props?.font as number).toBeGreaterThanOrEqual(38)
+  })
 })

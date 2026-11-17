@@ -12,12 +12,14 @@ export interface Render {
   surface?: "widget" | "section"
   /** The person's IANA zone in the widget context (default Los Angeles, the fixtures' zone). */
   timeZone?: string
+  /** The instant to draw (default AT, 9:41 AM). */
+  at?: number
 }
 
 export async function renderScene(source: string, render: Render): Promise<{ ops: Op[]; host: FakeHost }> {
   const host = new FakeHost("", { app: { id: "cmux/clock", version: "1.0.0", locale: "en-US" }, apiVersion: "1.0.0", settings: {} })
   // Pin the clock before the app's script runs, so nothing reads the real time.
-  host.eval(`Date.now = () => ${AT}`)
+  host.eval(`Date.now = () => ${render.at ?? AT}`)
   host.eval(source)
   const widget = (render.surface ?? "widget") === "widget"
   host.mount("w", "renderClock", {
