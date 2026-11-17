@@ -251,6 +251,8 @@ struct Fake {
     called: Vec<(String, Value)>,
     /// [`Runner::until`].
     until: Option<Instant>,
+    /// Each copy estimate asked: how many steps had run then, and the folder.
+    estimated: Vec<(usize, String)>,
 }
 
 impl Fake {
@@ -266,6 +268,7 @@ impl Fake {
             pushes: VecDeque::new(),
             called: Vec::new(),
             until: None,
+            estimated: Vec::new(),
         }
     }
 }
@@ -319,6 +322,10 @@ impl Runner for Fake {
         ));
         self.clock += Duration::from_millis(400);
         self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
+    }
+    fn estimate(&mut self, folder: &str) -> Value {
+        self.estimated.push((self.ran.len(), folder.to_owned()));
+        json!({"mode": "first_pass", "files": 3, "bytes": 30, "seconds": 1})
     }
 }
 
@@ -2752,6 +2759,58 @@ fn from_folder_goes_to_start_session_as_its_own_argument() {
             shell_quote(&folder)
         )
     );
+}
+
+/// The folder's copy is estimated and decided before any machine is made or taken for it, on every
+/// machine a start can name (Leo's 2026-11-10 start at ~/Projects began a 20 GB copy after a machine
+/// was already leased): right after the sign-in check, before `cloud new-machine` and `cloud
+/// start-session`, and the answer carries it.
+#[test]
+fn a_folder_start_estimates_its_copy_before_any_machine() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let cwd = || exec_out("@@cwd\n[]\n");
+    for (words, answers, lease) in [
+        (vec![], vec![signed_in(), started(), cwd()], "start-session"),
+        (vec!["--name", "dev"], vec![signed_in(), started(), cwd()], "start-session"),
+        (vec!["--target", "machine:vm-1"], vec![signed_in(), started(), cwd()], "start-session"),
+        (
+            vec!["--environment", "env_1"],
+            vec![signed_in(), made(), started(), cwd()],
+            "new-machine",
+        ),
+    ] {
+        let mut fake = Fake::new(answers);
+        let mut asked = vec!["--from-folder", folder.as_str()];
+        asked.extend(words.iter().copied());
+        let Outcome::Done(answer) = run(&mut fake, &request(&asked)) else {
+            panic!("{words:?}: {:?}", fake.ran)
+        };
+        assert_eq!(fake.estimated, vec![(1, folder.clone())], "{words:?}: {:?}", fake.ran);
+        assert_eq!(fake.ran[0], strings(&["cloud", "list-machines", "--json"]), "{words:?}");
+        assert_eq!(fake.ran[1][1], lease, "{words:?}: the first step after the estimate");
+        assert_eq!(answer["estimate"]["mode"], "first_pass", "{words:?}: {answer}");
+    }
+    // No folder: nothing to estimate, and the answer says nothing of one.
+    let mut fake = Fake::new(vec![signed_in(), started(), cwd()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&[])) else { panic!("{:?}", fake.ran) };
+    assert!(fake.estimated.is_empty());
+    assert!(answer.get("estimate").is_none(), "{answer}");
+}
+
+/// A start signed out stops before the estimate: nothing is listed for a start that cannot run.
+#[test]
+fn a_signed_out_folder_start_lists_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--from-folder", folder.as_str()]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.signed_out");
+    assert!(fake.estimated.is_empty());
 }
 
 #[test]
