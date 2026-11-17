@@ -237,6 +237,11 @@ public final class MacScreenDevicesSettings {
                 return State(available: true, status: .init(text: message, tone: "danger"), signIn: nil,
                              error: message, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
             }
+            if box.restoring || box.connecting {
+                // The saved sign-in is still restoring, or signed in with the hub still starting: not signed out.
+                return State(available: true, status: .init(text: L.t("macScreen.home.devicesLoading", "Loading your devices…"), tone: "neutral"),
+                             signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
+            }
             let signIn = canSignIn() ? L.t("devices.signIn", "Sign In to Your Devices") : nil
             let text = signIn == nil ? L.t("devices.status.signedOut", "Sign in to cmux to see your devices.")
                 : L.t("devices.status.removed", "This Mac left your devices.")
@@ -516,7 +521,10 @@ public final class MacScreenDevicesSettings {
             case "remove":
                 guard let id = run.id else { return RunResult(error: "id") }
                 let isMe = id == hub.identity.id
-                try await hub.removeDevice(id)
+                // Another Mac lists once for all its records (its builds, renewals): Remove takes them all.
+                for record in isMe ? [id] : hub.recordIDs(of: id) {
+                    try await hub.removeDevice(record)
+                }
                 if isMe { thisDeviceRemoved() }
             case "setAccess":
                 guard let id = run.id, let scope = run.scope.flatMap(MacScreenAccess.init(value:)) else {

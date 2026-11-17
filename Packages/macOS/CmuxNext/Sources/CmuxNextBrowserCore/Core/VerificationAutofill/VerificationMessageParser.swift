@@ -6,6 +6,7 @@ package import Foundation
 ///
 /// A code is a number of 4 to 8 digits (`123456`, `123 456`, `123-456`) or
 /// 6 to 8 capital letters and digits with at least one of each (`K7QX2M`),
+/// or two groups of three capitals or digits (`Q7K-2PL`, `KPD-XMF`),
 /// on a line with a code word ("code", "verification", "OTP", "PIN", ...) or
 /// right after one. Years, prices, order numbers (`#123`), parts of links
 /// and phone-number groups are not codes.
@@ -46,7 +47,7 @@ public nonisolated struct VerificationMessageParser: Sendable {
     /// A code word, in English and the most common other languages. Words
     /// that put a number next to "code" without it being one are excluded.
     private static let codeWord = try? NSRegularExpression(
-        pattern: #"(code|c[oó]digo|verif|vérif|bestätigung|one-time|\botp\b|passcode|\bpin\b|\b2fa\b|コード|認証|验证码|驗證碼|인증|код)"#,
+        pattern: #"(code|c[oó]digo|codice|\bkod|verif|vérif|bestätigung|one-time|one time password|\botp\b|passcode|\bpin\b|\b2fa\b|xác minh|\bmã\b|コード|認証|验证码|驗證碼|인증|код)"#,
         options: [.caseInsensitive]
     )
     private static let notACodeWord = try? NSRegularExpression(
@@ -66,11 +67,15 @@ public nonisolated struct VerificationMessageParser: Sendable {
     /// A candidate code: not glued to letters, digits, `#`, `$`, link or
     /// decimal punctuation, and not one group of a longer digit run.
     private static let candidate = try? NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9#$€£¥=/._?&@:+-])(?<![0-9] )([0-9]{3}[ -][0-9]{3}|[0-9]{4,8}|(?=[A-Z0-9]*[0-9])(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8})(?![A-Za-z0-9_/=%+-]|[.,][0-9]| [0-9])"#
+        pattern: #"(?<![A-Za-z0-9#$€£¥=/._?&@:+-])(?<![0-9] )([0-9]{3}[ -][0-9]{3}|[0-9]{4,8}|(?=[A-Z0-9]*[0-9])(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}|[A-Z0-9]{3}-[A-Z0-9]{3})(?![A-Za-z0-9_/=%+-]|[.,][0-9]| [0-9])"#
     )
 
-    private static func codes(in line: String) -> [String] {
+    /// Google's `G-123456`: the prefix names the sender, the digits are the code.
+    private static let senderPrefix = try? NSRegularExpression(pattern: #"(?<![A-Za-z0-9])G-(?=[0-9]{4,8}(?![0-9]))"#)
+
+    private static func codes(in rawLine: String) -> [String] {
         guard let candidate else { return [] }
+        let line = senderPrefix?.stringByReplacingMatches(in: rawLine, range: NSRange(rawLine.startIndex..., in: rawLine), withTemplate: "") ?? rawLine
         return candidate.matches(in: line, range: NSRange(line.startIndex..., in: line)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: line) else { return nil }
             let code = String(line[range].filter { $0 != " " && $0 != "-" })
