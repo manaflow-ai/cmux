@@ -1,6 +1,6 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S]
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET]]
 //
 // Opens APP through LaunchServices (NSWorkspace.openApplication: a new instance, activated, as a Dock click does)
 // with a home under HOME_ROOT, and prints one `LR-RUN <json>` line. Times are ms from the app's process start
@@ -14,15 +14,22 @@
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
 // the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
 // session=stress3's seed launch) ends the run then. Exit 0: a window showed; 1: none in 30 s.
+// SOCKET is the app's control socket (default HOME_ROOT/app.sock). A socket path must fit sun_path (104 bytes with
+// its NUL); a fleet worker's checkout is deep enough that HOME_ROOT/app.sock does not, so launch-ready.sh passes a
+// short one under /tmp.
 import AppKit
 import Darwin
 
 let args = CommandLine.arguments
 guard args.count >= 4 else {
-    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S]\n".utf8)); exit(2)
+    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET]]\n".utf8)); exit(2)
 }
 let appURL = URL(fileURLWithPath: args[1]), homeRoot = URL(fileURLWithPath: args[2]), label = args[3]
 let settle = args.count > 4 ? Double(args[4]) ?? 6 : 6
+let socketPath = args.count > 5 ? args[5] : homeRoot.appendingPathComponent("app.sock").path
+guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app could bind no socket there
+    FileHandle.standardError.write(Data("launch-ready: socket path \(socketPath.utf8.count) bytes, over 103: \(socketPath)\n".utf8)); exit(2)
+}
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
     try? FileManager.default.createDirectory(at: home.appendingPathComponent(sub), withIntermediateDirectories: true)
@@ -65,7 +72,7 @@ markSource.resume()
 var environment: [String: String] = [
     "HOME": home.path, "CFFIXED_USER_HOME": home.path, "TMPDIR": tmp.path + "/",
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8", "SHELL": "/bin/zsh",
-    "CMUX_NEXT_SOCKET_PATH": homeRoot.appendingPathComponent("app.sock").path, "CMUX_NEXT_SOCKET_MODE": "allowAll",
+    "CMUX_NEXT_SOCKET_PATH": socketPath, "CMUX_NEXT_SOCKET_MODE": "allowAll",
     "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
 ]
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }

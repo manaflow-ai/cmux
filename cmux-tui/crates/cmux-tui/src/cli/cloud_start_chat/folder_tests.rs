@@ -14,6 +14,9 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "x", "--timeout", "soon"],
         vec!["--prompt", "x", "--bogus"],
         vec!["--prompt"],
+        // A Cloud machine's agents use its model route: no login flag to pass one.
+        vec!["--prompt", "x", "--login", "pass"],
+        vec!["--prompt", "x", "--login", "none"],
         vec!["--prompt", "x", "--login", "github"],
         vec!["--prompt", "x", "--login", ""],
         vec!["--prompt", "x", "--login"],
