@@ -1333,6 +1333,13 @@ class ReattachViewResult:
 
 
 @dataclass(frozen=True)
+class RemoteHostAppPermissions:
+    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppPermissions'
+    accessibility: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_recording: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RemoteHostAppResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppResult'
     host_pid: int
@@ -4665,6 +4672,7 @@ class RemoteHostCallRequest:
 @dataclass(frozen=True)
 class RemoteHostConfigRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-config/request'
+    app_permissions: Union[RemoteHostAppPermissions, None, MissingType] = field(default=MISSING)
     computer_use: Union[bool, None, MissingType] = field(default=MISSING)
     headless: Union[bool, None, MissingType] = field(default=MISSING)
     screen_sharing: Union[bool, None, MissingType] = field(default=MISSING)
@@ -6771,6 +6779,7 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
+    'RemoteHostAppPermissions',
     'RemoteHostAppResult',
     'RenderCursor',
     'RenderGraphicImage',
