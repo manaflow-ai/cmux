@@ -1005,6 +1005,28 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   asks nothing for 10 minutes whatever key it brings (`rate_limited`). hostd
   asks nothing until the app sent its approved list, so an approved phone is
   never asked again after a hostd restart.
+- **What the phone sends before its own check.** To save round trips on a
+  reconnect, the phone opens `acpmux` right behind `auth` and sends acpmux's
+  `initialize` (protocol version, client name) and the first page's watch
+  (`enabled`, a row limit) before it has checked the Mac's proof. Neither
+  carries a secret, a session id or content. A real Mac holds both until
+  `auth` passes; the phone applies no reply and no notification until its own
+  check of the Mac passed, and closes the channel when it fails, so a Mac that
+  cannot prove its pinned key learns only that a cmux phone asked for its
+  chat list (ask-48f698fc26). Until then the phone keeps at most 256
+  notifications, 8 MiB of them in all, from that channel (`AcpmuxConnection`
+  `held`). One rule bounds every message while its frames arrive, plain or
+  compressed (`MessageJoiner` `budget`): it may grow to at most what is left of
+  the 8 MiB, a compressed one judged by its header before it is inflated. The
+  one exception is decided from the message's first bytes (`{"id":N` or
+  `{"jsonrpc":"2.0","id":N` in the first 64 bytes of text, with at most 4 KiB
+  of compressed bytes inflated to read them): an answer to one of the phone's
+  own two requests still waiting may be 64 MiB as on any connection, once per
+  request, so an older Mac that ignores the row limit still delivers its whole
+  list. A Mac that sends more is cut off while it sends (the channel closes;
+  nothing is dropped quietly), so one that never passes the check holds at most
+  8 MiB of notifications and two answers of 64 MiB, what an honest Mac's
+  answers may take, in the phone's memory while it waits.
 - **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
   "Pairing"): when the backend first saw that device id. The phone sets the
   `name` it shows, so a spoofed "Aziz's iPhone" from a device registered

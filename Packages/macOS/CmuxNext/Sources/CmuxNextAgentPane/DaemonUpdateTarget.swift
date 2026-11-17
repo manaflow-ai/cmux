@@ -73,6 +73,17 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     case unsupported(reason: String)
     case failed(reason: String)
 
+    /// Whether the update may have changed what the target runs (and restarted its daemon), so waiting for its
+    /// new link or capability can help: false for an answer that left it as it was (on the build already, kept,
+    /// held, no binary, cannot update in place, handled elsewhere). Busy, unreachable and failed answers may
+    /// have changed it (an update another run started, or one that ended where nobody could read it).
+    public nonisolated var mayHaveChangedTarget: Bool {
+        switch self {
+        case .updated, .busy, .unreachable, .rolledBack, .failed: true
+        case .current, .kept, .needsBinary, .handledElsewhere, .held, .unsupported: false
+        }
+    }
+
     /// Why a target kept its own build (``DaemonUpdateOutcome/kept(_:)``).
     public enum Kept: Sendable, Equatable {
         /// It runs a newer build than the app's (acpmux `current`, reason `newerInstalled` or `newer`).
