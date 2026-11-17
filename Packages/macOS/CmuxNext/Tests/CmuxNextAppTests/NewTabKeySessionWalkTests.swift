@@ -296,6 +296,10 @@ struct NewTabKeySessionWalkTests {
     ///
     /// The sign that the feed ran is a condition of the setup: after the title change, the tab rows of a page are not
     /// the rows of before. Without the sign, a feed that did not run in the drain reads as `no map`.
+    ///
+    /// A print names each workspace that the title change mapped by its id, whose it is (the changed tab's, the keys'
+    /// pane's, another), its maps, and whether its kept rows differ from before the change, and the signs of a frame's
+    /// work in the same drain (the pane's shown content, the pages with a view). The print is no condition.
     @Test func aChangeWithThreeOpenPagesMapsOneWorkspaceAtMostAfterIt() async throws {
         try await Self.withPane { start in
             let tabs = start.services.agentTabs
@@ -325,19 +329,39 @@ struct NewTabKeySessionWalkTests {
                     "after a New Tab key the main actor mapped \(afterKey.count) workspaces in \(keyMaps) maps, want its own at most")
 
             // A title change of one terminal of another workspace, with the sign that the feed ran.
+            let store = start.services.machines.local.store
+            let own = store.workspace(containing: start.pane.pane.handle)?.id
             let terminals = SessionFixtureSize.real.places { $0.isTerminal }
             let place = try #require(terminals.first, "setup: the session has no terminal")
             let surface = LargeSessionWindowFixture.surface(workspace: place.workspace, index: place.index)
+            let holder = store.tab(surface: surface).flatMap { store.pane(holding: $0) }.flatMap { store.workspace(containing: $0.handle) }
+            let changed = holder?.id
             let pages = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }
             let before = pages.map { $0.model.newTab?.omnibar.tabs ?? [] }
-            let store = start.services.machines.local.store
+            let keptBefore = start.services.newTabPlaces.rows ?? []
+            let shownBefore = start.pane.selectedContentIsAlive
             store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "feed row", text: "feed row", activity: nil))
             await LargeSessionWindowFixture.drainMain()
             let afterTitle = start.visits.takeByWorkspace()
             let titleMaps = afterTitle.values.reduce(0, +)
             let after = pages.map { $0.model.newTab?.omnibar.tabs ?? [] }
+            let keptAfter = start.services.newTabPlaces.rows ?? []
+            // Each mapped workspace by its id: whose it is, and whether its kept rows differ from before the change.
+            let named = afterTitle.keys.sorted().map { id -> String in
+                var whose = "another"
+                if id == own { whose = "the keys' pane's" }
+                if id == changed { whose = "the changed tab's" }
+                let (was, now) = (keptBefore.first(where: { $0.id == id }), keptAfter.first(where: { $0.id == id }))
+                return "\(id) (\(whose); \(afterTitle[id] ?? 0) maps; its kept rows changed: \(was != now), "
+                    + "tab rows \(was?.tabs.count ?? -1) then \(now?.tabs.count ?? -1))"
+            }
+            let viewsAfter = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }.count
             print("new tab key, \(start.workspaces) workspaces, \(pages.count) open New Tab pages: a title change of one tab mapped "
                 + "\(afterTitle.count) different workspaces in \(titleMaps) maps; the tab rows of a page changed: \(after != before)")
+            print("new tab key, \(start.workspaces) workspaces, \(pages.count) open New Tab pages: the title change's maps by workspace: "
+                + "\(named); the changed tab's workspace is \(changed ?? "none"), the keys' pane's is \(own ?? "none"). The keys' pane "
+                + "showed its selected tab's content before the change: \(shownBefore), after it: \(start.pane.selectedContentIsAlive); "
+                + "New Tab pages with a view before: \(pages.count), after: \(viewsAfter)")
             try #require(after != before, "setup: no New Tab page got the changed row in the drain, so the feed did not run")
             #expect(afterTitle.count <= 1,
                     "a title change of one tab mapped \(afterTitle.count) workspaces in \(titleMaps) maps, want the tab's own at most")
