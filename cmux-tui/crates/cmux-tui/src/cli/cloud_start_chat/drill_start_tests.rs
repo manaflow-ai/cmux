@@ -77,3 +77,21 @@ fn a_drill_mints_its_credential_for_the_team_its_machine_is_in() {
         .collect();
     assert_eq!(minted, vec![&json!({"team": MACHINE_TEAM})], "{:?}", fake.called);
 }
+
+/// [`fault::machine_team_in`]: only the named machine's row, its team trimmed; none without a row or a team.
+#[test]
+fn the_machines_team_is_read_from_its_own_row_only() {
+    let listed = json!({"machines": [
+        {"id": "vm-a", "team": " team_aaaaaaaaaaaaaaaaaaaa "},
+        {"id": "VM-B"},
+        {"id": "vm-c", "team": ""},
+    ]});
+    assert_eq!(
+        fault::machine_team_in(&listed, "vm-a").as_deref(),
+        Some("team_aaaaaaaaaaaaaaaaaaaa")
+    );
+    assert_eq!(fault::machine_team_in(&listed, "vm-b"), None);
+    assert_eq!(fault::machine_team_in(&listed, "vm-c"), None);
+    assert_eq!(fault::machine_team_in(&listed, "vm-z"), None);
+    assert_eq!(fault::machine_team_in(&json!({}), "vm-a"), None);
+}
