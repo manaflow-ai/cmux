@@ -1612,6 +1612,105 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.watch("pr-rescue", [[]]), (m.WAIT, []))
 
 
+class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
+    """2026-11-17: vars.CI_BLACKSMITH_MACOS was unset (off) and the Blacksmith macOS labels had 0 of 267 runners
+    online, yet a rescued FFI build's runs-on fell back to blacksmith-6vcpu-macos-26 whatever the placement saw. The
+    rescue takes Blacksmith macOS only when the switch allows it and the rescued run's placement (dead- and
+    stall-aware, next_macos_cascade) found a live slot; otherwise it takes another owned pool than the one the build
+    sat on, never Blacksmith."""
+
+    SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    FFI_POOL = "glaeda-promote-trusted-light-xcode-26.6"
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
+    BLACKSMITH = re.compile(r"blacksmith-\d+vcpu-macos-")
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.rescue_module = load_module("app_ffi_rescue", ROOT / "scripts/ci/app_ffi_rescue.py")
+
+    def runner(self, rescue: str, pool: str, switch: str, twelve: bool = False, six: bool = False) -> str:
+        """The rescued run's build label; the placement read Blacksmith live (twelve/six) or dead (neither)."""
+        return evaluate(workflow_jobs.single_runs_on(self.workflow["jobs"]["build"]), {
+            "github": {"repository_owner": "manaflow-ai", "event_name": "workflow_dispatch", "run_attempt": 1},
+            "inputs": {"rescue": rescue, "rescue_pool": pool},
+            "needs": {"placement": {"outputs": {"placed_attempt": "1",
+                                                "blacksmith_12_jobs": " app-ffi-build " if twelve else "",
+                                                "blacksmith_6_jobs": " app-ffi-build " if six else ""}}},
+            "vars": {"CI_SIDE_LANE_RUNNER": self.SIDE, "CI_BLACKSMITH_MACOS": switch,
+                     "CI_FFI_RELEASE_POOL": self.FFI_POOL, "CI_NEXT_PROMOTE_POOL": self.PROMOTE,
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+
+    def test_a_dead_blacksmith_label_sends_the_rescued_build_to_the_other_owned_pool(self):
+        for switch in ("on", "pr-rescue"):
+            with self.subTest(switch=switch):
+                label = self.runner("blacksmith", "promote", switch)
+                self.assertIsNone(self.BLACKSMITH.match(label), label)
+                self.assertEqual(label, self.PROMOTE)
+                # A live slot the placement found is still taken.
+                self.assertEqual(self.runner("blacksmith", "promote", switch, six=True), self.SMALL)
+                self.assertEqual(self.runner("blacksmith", "promote", switch, twelve=True), self.LARGE)
+
+    def test_a_switch_off_rescue_takes_the_other_owned_pool(self):
+        for switch in ("", "off"):
+            for pool, label in (("promote", self.PROMOTE), ("ffi-pool", self.FFI_POOL), ("side", self.SIDE)):
+                with self.subTest(switch=switch, pool=pool):
+                    self.assertEqual(self.runner("owned", pool, switch), label)
+
+    def watch(self, switch: str, stuck_on: str) -> tuple[str, list]:
+        m = self.rescue_module
+        calls, clock = [], [0.0]
+
+        def api(method, path, token, body=None):
+            calls.append((method, path, body))
+            return {"jobs": [{"name": m.BUILD_JOB, "status": "queued", "labels": [stuck_on]}]} \
+                if method == "GET" else None
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1",
+               "GH_TOKEN": "t", "GITHUB_REF_NAME": "feat-cmux-next", "CI_BLACKSMITH_MACOS": switch,
+               "CI_FFI_RELEASE_POOL": self.FFI_POOL, "CI_NEXT_PROMOTE_POOL": self.PROMOTE,
+               "CI_SIDE_LANE_RUNNER": self.SIDE}
+        verdict = m.watch(env, api=api, clock=lambda: clock[0], sleep=sleep, out=lambda line: None)
+        return verdict, [c for c in calls if c[0] == "POST"]
+
+    def test_switch_off_dispatches_an_owned_rescue_never_blacksmith(self):
+        m = self.rescue_module
+        for switch in ("", "off"):
+            with self.subTest(switch=switch):
+                verdict, posts = self.watch(switch, self.FFI_POOL)
+                self.assertEqual(verdict, m.RESCUE)
+                self.assertEqual(posts[0][2], {"ref": "feat-cmux-next",
+                                               "inputs": {"rescue": "owned", "rescue_pool": "promote"}})
+                self.assertEqual(posts[1], ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None))
+        # The pool the build sat on is never the rescue's pool.
+        self.assertEqual(self.watch("", self.PROMOTE)[1][0][2]["inputs"], {"rescue": "owned", "rescue_pool": "ffi-pool"})
+
+    def test_switch_on_names_the_owned_pool_its_rescued_run_falls_back_to(self):
+        m = self.rescue_module
+        verdict, posts = self.watch("pr-rescue", self.FFI_POOL)
+        self.assertEqual(verdict, m.RESCUE)
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote"})
+
+    def rescue_runs(self, switch: str, rescue: str = "") -> bool:
+        job = self.workflow["jobs"]["rescue"]
+        return bool(evaluate(str(job["if"]).strip()[3:-2].replace("!cancelled()", "true"), {
+            "github": {"ref": "refs/heads/feat-cmux-next", "repository_owner": "manaflow-ai"},
+            "inputs": {"rescue": rescue}, "vars": {"CI_BLACKSMITH_MACOS": switch}}))
+
+    def test_the_watch_runs_with_the_switch_off_and_never_in_a_rescued_run(self):
+        for switch in ("", "off", "on", "pr-rescue"):
+            self.assertTrue(self.rescue_runs(switch), switch)
+            for rescue in ("blacksmith", "owned"):
+                self.assertFalse(self.rescue_runs(switch, rescue), (switch, rescue))
+        rescue = self.workflow["jobs"]["rescue"]
+        env = next(step for step in rescue["steps"] if "app_ffi_rescue.py" in str(step.get("run")))["env"]
+        for name in ("CI_FFI_RELEASE_POOL", "CI_NEXT_PROMOTE_POOL", "CI_SIDE_LANE_RUNNER"):
+            self.assertEqual(env.get(name), f"${{{{ vars.{name} }}}}", name)
+
+
 STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")
 
 
