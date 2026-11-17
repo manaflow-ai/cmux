@@ -15,8 +15,12 @@
 //! once per person.
 //!
 //! Anything that goes wrong before the machine wrote a file (no store, an
-//! older machine, the store unreachable or refusing) leaves the push to the
-//! direct copy over the link, as before; the caller does that.
+//! older machine, the store off with 404 `sync.not_found`, unreachable,
+//! refusing the credential, answering 5xx, or full with 507
+//! `sync.quota_exceeded`, which is never retried: [`QuotaExceeded`]) leaves
+//! the push to the direct copy over the link, as before; the caller does
+//! that. A start never fails because the store is down. After a push through
+//! the store, the folder's GC root is registered ([`super::roots`]).
 //!
 //! From Mutagen: content addressed by digest and verified on arrival before
 //! it is renamed into place (its staging), the writing side pulling what it
@@ -38,7 +42,7 @@ use super::local::{LocalFile, Source};
 use super::remote::Remote;
 
 /// Files up to this size are one blob.
-const WHOLE_FILE_MAX: u64 = 4 * 1024 * 1024;
+pub(super) const WHOLE_FILE_MAX: u64 = 4 * 1024 * 1024;
 /// Content-defined chunk bounds (FastCDC with normalized chunking).
 const CHUNK_MIN: usize = 512 * 1024;
 const CHUNK_AVG: usize = 2 * 1024 * 1024;
@@ -244,6 +248,27 @@ impl std::fmt::Display for Superseded {
 
 impl std::error::Error for Superseded {}
 
+/// The store refused a new blob: the person's stored bytes would pass their limit (HTTP 507
+/// `sync.quota_exceeded`). Retrying cannot help, so the push gives up on the store at once and
+/// copies over the link.
+#[derive(Debug)]
+pub(super) struct QuotaExceeded {
+    pub used: Option<u64>,
+    pub limit: Option<u64>,
+}
+
+impl std::fmt::Display for QuotaExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the Cloud store is full")?;
+        if let (Some(used), Some(limit)) = (self.used, self.limit) {
+            write!(f, " ({used} of {limit} bytes used)")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for QuotaExceeded {}
+
 /// The gear table of the rolling hash: fixed, so the same bytes always cut
 /// at the same places on every Mac.
 fn gear() -> &'static [u64; 256] {
@@ -377,8 +402,18 @@ pub(super) fn send(
     // Every piece of every file, and the plan that names them.
     let mut plan_files = Vec::with_capacity(pending.len());
     let mut wanted: BTreeMap<String, (usize, Piece)> = BTreeMap::new();
+    // The chunks of each large file, kept here ([`super::roots`]) once the machine wrote it: its
+    // write checked them against the file's SHA-256.
+    let mut chunked: Vec<(&str, &str, Vec<String>)> = Vec::new();
     for (index, file) in pending.iter().enumerate() {
         let pieces = pieces_of(file)?;
+        if file.size > WHOLE_FILE_MAX {
+            chunked.push((
+                file.target.as_str(),
+                file.sha256.as_str(),
+                pieces.iter().map(|piece| piece.sha256.clone()).collect(),
+            ));
+        }
         let mut entry = json!({
             "path": file.target,
             "permissions": file.file.permissions,
@@ -500,7 +535,40 @@ pub(super) fn send(
         sent.written.insert(path, revision);
     })
     .context("cannot read what the machine's fetch wrote")?;
+    for (target, sha256, chunks) in chunked {
+        if sent.written.contains_key(target) {
+            super::roots::remember_chunks(sha256, &chunks);
+        }
+    }
     Ok(sent)
+}
+
+/// Registers `tree` (a tree blob, [`super::roots::tree`]) as the GC root of the folder pair
+/// `pair`: uploads it when the store lacks it, then `POST /v1/sync/roots`. Gives up after
+/// `budget`, whatever is still in flight.
+pub(super) fn register_root(pair: &str, tree: Vec<u8>, budget: Duration) -> anyhow::Result<()> {
+    let config = configured().ok_or_else(|| anyhow!("no store"))?;
+    let client = Client::new(config)?;
+    let sha = hex(&Sha256::digest(&tree));
+    let register = async {
+        let missing = client.json("/v1/sync/blobs/missing", json!({ "sha256": [&sha] })).await?;
+        let lacks = missing
+            .get("missing")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow!("the store's missing answer is unreadable"))?
+            .iter()
+            .any(|hash| hash.as_str() == Some(sha.as_str()));
+        if lacks {
+            client.put_async(&sha, tree).await?;
+        }
+        client.json("/v1/sync/roots", json!({ "pair": pair, "tree": sha })).await?;
+        anyhow::Ok(())
+    };
+    client.runtime.block_on(async {
+        tokio::time::timeout(budget, register).await.unwrap_or_else(|_| {
+            Err(anyhow!("the store did not register the root within {} s", budget.as_secs()))
+        })
+    })
 }
 
 /// The store, as one signed-in person.
@@ -519,6 +587,9 @@ impl Client {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+            // A store that cannot be reached leaves the copy to the link soon, not after the
+            // whole request's time.
+            .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(120))
             .build()?;
         Ok(Self {
@@ -593,6 +664,16 @@ impl Client {
                 .await;
             match sent {
                 Ok(response) if response.status().is_success() => return Ok(()),
+                // Full: no retry, and the push copies over the link.
+                Ok(response) if response.status() == reqwest::StatusCode::INSUFFICIENT_STORAGE => {
+                    let body: Value = response.json().await.unwrap_or(Value::Null);
+                    let number = |name: &str| body.get(name).and_then(Value::as_u64);
+                    return Err(QuotaExceeded {
+                        used: number("usedBytes"),
+                        limit: number("limitBytes"),
+                    }
+                    .into());
+                }
                 Ok(response) if response.status().is_server_error() => {
                     last = anyhow!("the store answered {}", response.status().as_u16());
                 }
