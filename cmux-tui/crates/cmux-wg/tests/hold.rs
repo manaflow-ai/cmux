@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use cmux_wg::testing::config_pair;
 use cmux_wg::testing::sim::{LinkProfile, SimNet};
-use cmux_wg::{SocketPath, WgNet, WgStream};
+use cmux_wg::{
+    Multipath, MultipathControl, PathKind, ProbeConfig, SelectorConfig, SocketPath, WgNet, WgStream,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const PHONE: &str = "192.0.2.100:51820";
@@ -30,18 +32,48 @@ struct Pair {
     mac: WgNet,
     dialed: WgStream,
     accepted: WgStream,
+    /// The path selectors of a `probed_pair`, kept alive with the tunnels.
+    _controls: Vec<MultipathControl>,
 }
 
 /// A phone and a Mac with one exchanged connection; both send WireGuard
 /// keepalives every 10 s, as a phone link's tunnel does.
 async fn pair() -> Pair {
     let sim = SimNet::new();
+    let phone_path = SocketPath::new(sim.bind(addr(PHONE)).unwrap(), Some(addr(MAC)));
+    let mac_path = SocketPath::new(sim.bind(addr(MAC)).unwrap(), None);
+    connected(sim, phone_path, mac_path, Vec::new()).await
+}
+
+/// `pair`, with each side on a path selector that probes its path as a phone
+/// link's does (`ProbeConfig::default()`: the current path every 5 s while
+/// the session is active).
+async fn probed_pair() -> Pair {
+    let sim = SimNet::new();
+    let mut controls = Vec::new();
+    let mut probed = |local: &str, remote: &str| {
+        let (underlay, control) =
+            Multipath::with_probes(SelectorConfig::default(), ProbeConfig::default());
+        let socket = sim.bind(addr(local)).unwrap();
+        control.add_path(PathKind::DirectLan, SocketPath::new(socket, Some(addr(remote))));
+        controls.push(control);
+        underlay
+    };
+    let phone_path = probed(PHONE, MAC);
+    let mac_path = probed(MAC, PHONE);
+    connected(sim, phone_path, mac_path, controls).await
+}
+
+async fn connected(
+    sim: SimNet,
+    phone_path: impl cmux_wg::Underlay,
+    mac_path: impl cmux_wg::Underlay,
+    controls: Vec<MultipathControl>,
+) -> Pair {
     sim.set_link(addr(PHONE), addr(MAC), link(false));
     let mut configs = config_pair(addr(MAC));
     configs.client.persistent_keepalive = Some(10);
     configs.server.persistent_keepalive = Some(10);
-    let phone_path = SocketPath::new(sim.bind(addr(PHONE)).unwrap(), Some(addr(MAC)));
-    let mac_path = SocketPath::new(sim.bind(addr(MAC)).unwrap(), None);
     let phone = WgNet::start_with_underlay(configs.client, phone_path).unwrap();
     let mac = WgNet::start_with_underlay(configs.server, mac_path).unwrap();
     let mut listener = mac.listen(PORT).await.unwrap();
@@ -50,7 +82,7 @@ async fn pair() -> Pair {
     dialed.write_all(b"hi").await.unwrap();
     let mut hi = [0u8; 2];
     accepted.read_exact(&mut hi).await.unwrap();
-    Pair { sim, phone, mac, dialed, accepted }
+    Pair { sim, phone, mac, dialed, accepted, _controls: controls }
 }
 
 /// Whether the connection still carries a round trip.
@@ -121,26 +153,59 @@ async fn a_held_connection_ends_after_its_hold() {
 }
 
 /// The cost bound: a Mac holding a suspended phone's tunnel sends it nothing
-/// at all, no TCP keepalive probe and no WireGuard keepalive. Unheld, the same
-/// silence draws both (about 13 datagrams in the first 35 s on the 10 s and
-/// 15 s periods).
-#[tokio::test(start_paused = true)]
-async fn a_held_tunnel_sends_its_silent_peer_nothing() {
-    let pair = pair().await;
+/// at all: no TCP keepalive probe, no WireGuard keepalive and no path probe.
+/// Unheld, the same silence draws them (on the 5 s, 10 s and 15 s periods).
+/// The counts are printed for the PR's cost table (`--nocapture`).
+async fn held_tunnel_sends_its_silent_peer_nothing(pair: Pair, what: &str) {
     // Let the exchange's own tail (ACKs, a passive keepalive) settle first.
     tokio::time::sleep(Duration::from_secs(1)).await;
     pair.mac.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
     pair.sim.set_link(addr(PHONE), addr(MAC), link(true));
-    let before = pair.sim.sent_from(addr(MAC));
+    let sent = |sim: &SimNet| (sim.sent_from(addr(MAC)), sim.sent_bytes_from(addr(MAC)));
+    let before = sent(&pair.sim);
     tokio::time::sleep(Duration::from_secs(5 * 60)).await;
-    let held = pair.sim.sent_from(addr(MAC)) - before;
+    let after = sent(&pair.sim);
+    let (held, held_bytes) = (after.0 - before.0, after.1 - before.1);
+    println!("{what}: held 5 min: {held} datagrams, {held_bytes} bytes");
     assert_eq!(held, 0, "a held Mac sent its suspended phone {held} datagrams in 5 minutes");
 
     pair.mac.hold(None).await.unwrap();
-    let before = pair.sim.sent_from(addr(MAC));
+    let before = sent(&pair.sim);
     tokio::time::sleep(Duration::from_secs(35)).await;
-    let unheld = pair.sim.sent_from(addr(MAC)) - before;
+    let after = sent(&pair.sim);
+    let (unheld, unheld_bytes) = (after.0 - before.0, after.1 - before.1);
+    println!("{what}: released, next 35 s: {unheld} datagrams, {unheld_bytes} bytes");
     assert!(unheld > 0, "an unheld Mac sent nothing in 35 s: the comparison proves nothing");
+    pair.phone.shutdown().await;
+    pair.mac.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_held_tunnel_sends_its_silent_peer_nothing() {
+    held_tunnel_sends_its_silent_peer_nothing(pair().await, "one socket").await;
+}
+
+/// As a phone link runs: each side on a path selector probing its path every
+/// 5 s while the session is active. The park itself is traffic, so the probe
+/// schedule is still active when the hold starts.
+#[tokio::test(start_paused = true)]
+async fn a_held_tunnel_with_path_probes_sends_its_silent_peer_nothing() {
+    held_tunnel_sends_its_silent_peer_nothing(probed_pair().await, "path probes").await;
+}
+
+/// The same silence with no hold, measured the same way: what a suspended
+/// phone's tunnel costs today in its first 35 s.
+#[tokio::test(start_paused = true)]
+async fn an_unheld_tunnel_with_path_probes_sends_its_silent_peer_datagrams() {
+    let pair = probed_pair().await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(true));
+    let (datagrams, bytes) = (pair.sim.sent_from(addr(MAC)), pair.sim.sent_bytes_from(addr(MAC)));
+    tokio::time::sleep(Duration::from_secs(35)).await;
+    let datagrams = pair.sim.sent_from(addr(MAC)) - datagrams;
+    let bytes = pair.sim.sent_bytes_from(addr(MAC)) - bytes;
+    println!("path probes: unheld, first 35 s of silence: {datagrams} datagrams, {bytes} bytes");
+    assert!(datagrams > 0, "an unheld Mac sent nothing in 35 s");
     pair.phone.shutdown().await;
     pair.mac.shutdown().await;
 }
