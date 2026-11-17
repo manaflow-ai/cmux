@@ -255,9 +255,27 @@ async fn picks(app: &mut Client, id: &str) -> (Value, Value, Value) {
     (info["modes"]["currentModeId"].clone(), info["model"].clone(), info["effort"].clone())
 }
 
+/// The agent's text in the chat past its first `skip` records, as the daemon the chat runs on
+/// logged it (what any pane that opens the chat shows).
+fn logged_text(owner: &Arc<Hub>, raw: &str, skip: usize) -> String {
+    owner
+        .events(raw, 0, 100_000)
+        .unwrap_or_default()
+        .iter()
+        .skip(skip)
+        .filter(|e| e.kind == "agent_message_chunk")
+        .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+        .collect()
+}
+
 /// One prompt, to its end: the agent's text, and whether an approval reached the app (which
 /// the person then allows).
 async fn turn(app: &mut Client, host: &Host, id: &str, text: &str, seen: &mut Seen) -> String {
+    let (peer, raw) = match host {
+        Host::Local => (None, id),
+        Host::Peer { remote } => (Some(remote), id.rsplit('/').next().unwrap()),
+    };
+    let skip = peer.map_or(0, |o| o.events(raw, 0, 100_000).unwrap_or_default().len());
     let rid = app
         .send(
             "session/prompt",
@@ -273,7 +291,12 @@ async fn turn(app: &mut Client, host: &Host, id: &str, text: &str, seen: &mut Se
             } else if v["result"]["stopReason"] != "end_turn" {
                 seen.problems.push(format!("{text:?} ended {}", v["result"]));
             }
-            return said;
+            // A peer chat's text is read where it runs: its relayed updates may reach this
+            // connection after the turn's answer.
+            return match peer {
+                Some(o) => logged_text(o, raw, skip),
+                None => said,
+            };
         }
         let p = &v["params"];
         match v["method"].as_str() {
@@ -343,13 +366,11 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
     let mut seen = Seen::default();
     // A remote chain's Claude Code runs only inside the platform sandbox (`hub/remote_sandbox.rs`):
     // on Linux that is bwrap, which the cmux-tui Linux test job installs and requires.
+    // Its sandbox keeper is the acpmux binary itself, which an in-process test does not have, so
+    // that chain runs where the binary does (`remote_sandbox_linux.rs`); macOS runs it here.
     #[cfg(target_os = "linux")]
-    if remote
-        && harness == "claude"
-        && let Err(error) = Hub::linux_sandbox_probe_for_tests()
-    {
-        assert!(std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_none(), "{error}");
-        seen.skipped = Some(format!("no remote sandbox here ({error})"));
+    if remote && harness == "claude" {
+        seen.skipped = Some("Linux remote Claude runs in remote_sandbox_linux.rs".into());
         return seen;
     }
     let (here, host, cwd) = if remote {
@@ -407,11 +428,19 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
             seen.problems.push("the existing chat's message got no reply".into());
         }
     }
-    if age == Age::Switched {
+    if age == Age::Switched && !remote {
         let full = full_access_mode(harness);
         let r = app.call("session/set_mode", json!({"sessionId": id, "modeId": full})).await;
         if let Some(e) = r.get("error") {
             seen.problems.push(format!("the switch to {full} was refused: {e}"));
+        }
+    }
+    if age == Age::Switched && remote {
+        // A peer chat runs its harness's ask mode (it is remote-origin); Full access there is the
+        // approve-all policy, which the peer takes only with its person's proof over a challenge
+        // it issued (`hub/person/policy_grant.rs`), as the app sends it.
+        if let Err(e) = raise_peer_policy(&mut app, &id, "approve-all").await {
+            seen.problems.push(e);
         }
     }
     let before = picks(&mut app, &id).await;
@@ -436,16 +465,51 @@ async fn cell(harness: &str, level: Level, age: Age, remote: bool) -> Seen {
     if !seen.probe.contains("perm-probe ran npm test") {
         seen.problems.push(format!("the probe turn did not run its command: {:?}", seen.probe));
     }
-    if !expect_ask && level != Level::ApproveAll && !seen.probe.contains("unasked") {
-        seen.problems.push(format!("the harness asked under full access: {:?}", seen.probe));
-    }
-    let full = full_access_mode(harness);
     let full_now = age == Age::Switched || matches!(level, Level::Default | Level::FullAccess);
-    if full_now && seen.mode != full {
-        seen.problems.push(format!("the chat runs {}, expected {full}", seen.mode));
+    if remote {
+        // Remote-origin: the harness asks, and the peer daemon answers under full access.
+        if (full_now || level == Level::ApproveAll) && !seen.auto {
+            seen.problems.push("the peer did not answer the approval under full access".into());
+        }
+    } else {
+        if !expect_ask && level != Level::ApproveAll && !seen.probe.contains("unasked") {
+            seen.problems.push(format!("the harness asked under full access: {:?}", seen.probe));
+        }
+        let full = full_access_mode(harness);
+        if full_now && seen.mode != full {
+            seen.problems.push(format!("the chat runs {}, expected {full}", seen.mode));
+        }
     }
     let _ = std::fs::remove_dir_all(&dir);
     seen
+}
+
+/// The app's policy pick on a peer chat: the peer refuses it with a challenge, and the app sends
+/// it again with the peer person's proof over that challenge.
+async fn raise_peer_policy(app: &mut Client, id: &str, policy: &str) -> Result<(), String> {
+    use acpmux::hub::person::policy_grant::{CHALLENGE_FIELD, NONCE_FIELD, PROOF_FIELD};
+    let ask = json!({"sessionId": id, "policy": policy});
+    let r = app.call(method::MUX_SET_POLICY, ask.clone()).await;
+    if r.get("error").is_none() {
+        return Ok(());
+    }
+    let challenge = &r["error"]["data"][CHALLENGE_FIELD];
+    let (Some(nonce), Some(instance), Some(session)) = (
+        challenge["nonce"].as_str(),
+        challenge["personInstance"].as_str(),
+        challenge["sessionId"].as_str(),
+    ) else {
+        return Err(format!("the switch to {policy} was refused with no challenge: {r}"));
+    };
+    let proof =
+        acpmux::hub::person::policy_proof(PEER_KEY, instance, session, policy, nonce).unwrap();
+    let mut proved = ask;
+    proved["_meta"] = json!({"acpmux": {NONCE_FIELD: nonce, PROOF_FIELD: proof}});
+    let r = app.call(method::MUX_SET_POLICY, proved).await;
+    match r.get("error") {
+        Some(e) => Err(format!("the proved switch to {policy} was refused: {e}")),
+        None => Ok(()),
+    }
 }
 
 /// The peer's WebSocket listener with a peer token (`server/peer_auth.rs`).

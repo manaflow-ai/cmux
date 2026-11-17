@@ -31,7 +31,7 @@ after the prompt's own.
 Approvals as Codex runs them (tests/permission_matrix.rs), with FAKE_CODEX_APPROVALS=1: each
 thread keeps the `approvalPolicy` that `thread/start`, `thread/resume`, `turn/start` or
 `thread/settings/update` last named; `thread/resume` and `thread/settings/update` are answered
-(not refused as unknown), and each `thread/start` makes a thread of its own (fake-thread-N). A
+(not refused as unknown), and each `thread/start` makes a thread of its own (fake-thread-PID-N). A
 "perm-probe" turn runs `npm test`: under "never" it runs unasked, under any other policy it
 sends `item/commandExecution/requestApproval` and ends the turn with the decision it gets.
 """
@@ -207,8 +207,10 @@ for line in sys.stdin:
     elif method == "thread/start":
         thread = {"id": "fake-thread-1", "cwd": message.get("params", {}).get("cwd"), "turns": []}
         if APPROVALS:
+            # Unique across app-server processes too: a restarted one resumes the old thread and
+            # starts new ones (prompt suggestions) beside it.
             threads_made += 1
-            thread["id"] = "fake-thread-%d" % threads_made
+            thread["id"] = "fake-thread-%d-%d" % (os.getpid(), threads_made)
             keep_policy(dict(message.get("params") or {}, threadId=thread["id"]))
         model = "gpt-6.1-sol"
         if os.environ.get("FAKE_CODEX_CATALOG"):
