@@ -166,12 +166,17 @@ impl Swap for ExeSwap {
                 Err(format!("{} exited {status}", restart.join(" ")))
             };
         }
-        // Its own session, so this daemon's stop does not end it.
+        // Its own session, so this daemon's stop does not end it. Its output goes to `daemon.log`,
+        // as a daemon `spawn_detached` starts does: with /dev/null here the NIGHTLY's successor ran
+        // a morning with no log at all (2026-11-17).
+        let log = crate::config::private_state_append(&crate::config::home().join("daemon.log"))
+            .map_err(|e| format!("daemon.log: {e:#}"))?;
+        let log_err = log.try_clone().map_err(|e| format!("daemon.log: {e}"))?;
         let mut child = cmux_process::Command::new(&self.installed)
             .args(handover_args(&self.args))
             .stdin(cmux_process::Stdio::null())
-            .stdout(cmux_process::Stdio::null())
-            .stderr(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::from(log))
+            .stderr(cmux_process::Stdio::from(log_err))
             .new_session()
             .spawn()
             .map_err(|e| format!("{}: {e}", self.installed.display()))?;

@@ -331,6 +331,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Record the held home before any startup write, and start its watcher immediately. The
     // watcher marks a replacement before the later startup and shutdown paths can write there.
     crate::config::hold_home();
+    // A start that gave it no output (stdout and stderr on /dev/null) writes `daemon.log` anyway,
+    // then the cap below holds for it too (`log_cap.rs`).
+    #[cfg(unix)]
+    match log_cap::adopt_discarded_output(
+        &home().join("daemon.log"),
+        &[libc::STDOUT_FILENO, libc::STDERR_FILENO],
+    ) {
+        Ok(true) => tracing::warn!(
+            "this daemon was started with its output discarded: it writes daemon.log"
+        ),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("daemon.log could not take this daemon's discarded output: {e:#}"),
+    }
     // Its output file stays bounded: past the cap, this run starts a new one (`log_cap.rs`).
     #[cfg(unix)]
     match log_cap::rotate_at_start(&home().join("daemon.log"), log_cap::CAP) {
