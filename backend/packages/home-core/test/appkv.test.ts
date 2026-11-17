@@ -113,4 +113,29 @@ describe("appkv domain (storage:synced)", () => {
     expect(h.run(mac, "appkv.set", { app: "one-too-many", key: "k", value: 1 }, "x")).toMatchObject({ ok: false, code: "app.limit" })
     expect(h.run(mac, "appkv.set", { app: "app0", key: "k2", value: 1 }, "y").ok).toBe(true)
   })
+
+  it("app ids that name Object.prototype members (__proto__, toString, constructor) are counted and limited like any other", () => {
+    const big = "x".repeat(APPKV_MAX_VALUE_BYTES - 2)
+    const perKey = 1 + APPKV_MAX_VALUE_BYTES
+    for (const app of ["__proto__", "toString", "constructor", "hasOwnProperty"]) {
+      const h = host()
+      expect(h.run(mac, "appkv.set", { app, key: "a", value: 1 }, "first").ok).toBe(true)
+      // Usage is the app's own entry, a number, not a prototype member or NaN.
+      expect(Object.hasOwn(h.state.apps, app)).toBe(true)
+      expect(h.state.apps[app]).toEqual({ keys: 1, bytes: "a".length + "1".length })
+      expect(Object.getPrototypeOf(h.state.apps)).toBe(Object.prototype)
+      // The 4 MiB per-app limit holds for it.
+      let i = 0
+      while (h.state.apps[app]!.bytes + perKey + 1 <= APPKV_MAX_APP_BYTES) expect(h.run(mac, "appkv.set", { app, key: String(i), value: big }, `fill${i++}`).ok).toBe(true)
+      expect(h.run(mac, "appkv.set", { app, key: "one-more", value: big }, "full")).toMatchObject({ ok: false, code: "app.limit" })
+      // A delete of its last key removes the entry.
+      for (const row of rows(h)) h.run(mac, "appkv.delete", { app, key: row.key }, `del-${row.key}`)
+      expect(h.state.apps).toEqual({})
+    }
+    // It counts toward the app limit, too.
+    const h = host()
+    expect(h.run(mac, "appkv.set", { app: "__proto__", key: "k", value: 0 }, "p").ok).toBe(true)
+    for (let i = 1; i < APPKV_MAX_APPS; i++) expect(h.run(mac, "appkv.set", { app: `app${i}`, key: "k", value: i }, `a${i}`).ok).toBe(true)
+    expect(h.run(mac, "appkv.set", { app: "one-too-many", key: "k", value: 1 }, "x")).toMatchObject({ ok: false, code: "app.limit" })
+  })
 })

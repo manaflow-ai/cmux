@@ -71,10 +71,18 @@ const serialized = (value: unknown): string | undefined => {
   }
 }
 
+/**
+ * `app`'s usage, read as an own property only: an app id is any string, so `__proto__`,
+ * `toString` or `constructor` must not resolve to Object.prototype's members (which would make
+ * the usage NaN and skip the per-app and app-count limits).
+ */
+const usageOf = (head: AppKvHead, app: string): AppKvUsage | undefined => (Object.hasOwn(head.apps, app) ? head.apps[app] : undefined)
+
 const withUsage = (head: AppKvHead, app: string, usage: AppKvUsage): AppKvHead => {
-  const apps = { ...head.apps }
+  const apps: Record<string, AppKvUsage> = { ...head.apps }
   if (usage.keys === 0) delete apps[app]
-  else apps[app] = usage
+  // Defined, not assigned: `apps["__proto__"] = usage` would set the prototype, not an entry.
+  else Object.defineProperty(apps, app, { value: usage, enumerable: true, writable: true, configurable: true })
   return { revision: head.revision + 1, apps }
 }
 
@@ -97,7 +105,7 @@ export const makeAppKvDomain = (gate: (principal: Principal, op: string) => Reje
     const { app, key } = p
     const rowKey = appKvRowKey(app, key)
     const current = rowsOf(ctx).get<AppKvRow>(TABLE_ITEM, rowKey)?.row
-    const usage = head.apps[app] ?? { bytes: 0, keys: 0 }
+    const usage = usageOf(head, app) ?? { bytes: 0, keys: 0 }
     const before = current ? utf8Bytes(key) + utf8Bytes(serialized(current.value) ?? "null") : 0
 
     if (op === "appkv.delete") {
@@ -114,7 +122,7 @@ export const makeAppKvDomain = (gate: (principal: Principal, op: string) => Reje
     // Stored as parsed JSON, so the row holds exactly what the text says (no undefined fields).
     const value = JSON.parse(text) as unknown
     if (current && serialized(current.value) === text) return { ok: true, state: head, value: current, changed: false }
-    if (!current && head.apps[app] === undefined && Object.keys(head.apps).length >= APPKV_MAX_APPS) return refuse("app.limit", `synced storage holds at most ${APPKV_MAX_APPS} apps`)
+    if (!current && usageOf(head, app) === undefined && Object.keys(head.apps).length >= APPKV_MAX_APPS) return refuse("app.limit", `synced storage holds at most ${APPKV_MAX_APPS} apps`)
     const after = utf8Bytes(key) + utf8Bytes(text)
     const bytes = usage.bytes - before + after
     if (bytes > APPKV_MAX_APP_BYTES) return refuse("app.limit", "the app's synced storage is full (4 MiB)")
