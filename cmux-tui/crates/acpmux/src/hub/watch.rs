@@ -180,8 +180,9 @@ enum Queue {
     /// Taken out of the queue: `absorbed` when the running turn took it (its attachment follows).
     Removed { text: String, absorbed: bool },
     /// Taken into the running turn; `source` is the uuid it was sent with, `human` whether the
-    /// person typed it (`origin.kind`; no origin reads as typed).
-    Absorbed { text: String, source: Option<String>, human: bool },
+    /// person typed it (`origin.kind`; no origin reads as typed), `person` whether its origin
+    /// says so (`human`).
+    Absorbed { text: String, source: Option<String>, human: bool, person: bool },
 }
 
 fn queue_line(record: &Value) -> Option<Queue> {
@@ -208,9 +209,10 @@ fn queue_line(record: &Value) -> Option<Queue> {
                 return None;
             }
             let source = a.get("source_uuid").and_then(Value::as_str).map(str::to_owned);
-            let human =
-                a.pointer("/origin/kind").and_then(Value::as_str).is_none_or(|k| k == "human");
-            Some(Queue::Absorbed { text: text(a.get("prompt"))?, source, human })
+            let kind = a.pointer("/origin/kind").and_then(Value::as_str);
+            let human = kind.is_none_or(|k| k == "human");
+            let person = kind == Some("human");
+            Some(Queue::Absorbed { text: text(a.get("prompt"))?, source, human, person })
         }
         _ => None,
     }
@@ -472,11 +474,13 @@ impl Hub {
             {
                 match queue {
                     Queue::Enqueued(text) => {
+                        // Claude Code's own queue lines (a task notification) are no one's prompt.
+                        if !crate::adopt_replay::queued_by_person(&text) {
+                            continue;
+                        }
                         // It may be a chat send's own queue line: it shows when it runs, by its
                         // attachment or its line, under the right id (`may_be_delivery`).
-                        // Claude Code's own queue lines (a task notification) are no one's prompt.
                         if !super::bridge::may_be_delivery(&session.id, &text)
-                            && crate::adopt_replay::queued_by_person(&text)
                             && watching.queued.len() < MAX_QUEUED
                         {
                             if let Some(turn) = open.take() {
@@ -484,6 +488,12 @@ impl Hub {
                             }
                             *open = Some(self.begin_watched_turn(session, &text, at, None));
                             watching.queued.push(text);
+                        } else {
+                            // Shown when the turn takes it in, if no delivery claims it.
+                            if watching.unshown.len() >= MAX_QUEUED {
+                                watching.unshown.remove(0);
+                            }
+                            watching.unshown.push(text);
                         }
                     }
                     // Taken back (edited, cancelled): it will not run as queued.
@@ -502,7 +512,7 @@ impl Hub {
                         }
                     }
                     Queue::Removed { absorbed: true, .. } => {}
-                    Queue::Absorbed { text, source, human } => {
+                    Queue::Absorbed { text, source, human, person } => {
                         let bridged = source
                             .as_deref()
                             .and_then(|uuid| super::bridge::delivered(&session.id, uuid))
@@ -515,15 +525,23 @@ impl Hub {
                             .is_none()
                             .then(|| watching.queued.iter().position(|q| *q == text))
                             .flatten();
+                        // Typed and not shown yet: its enqueue was past the cap or may have been a
+                        // delivery's (`unshown`), or before the watch (its origin says `human`).
+                        // Anything else (an inbox message, another session's, a coordinator's)
+                        // is no prompt of the person's and shows as on base: not at all.
+                        let held = (bridged.is_none() && typed.is_none())
+                            .then(|| watching.unshown.iter().position(|q| *q == text))
+                            .flatten();
+                        if let Some(i) = held {
+                            watching.unshown.remove(i);
+                        }
                         if let Some(i) = typed {
                             // Shown when it was typed.
                             watching.queued.remove(i);
-                        } else {
+                        } else if bridged.is_some() || held.is_some() || person {
                             if let Some(turn) = open.take() {
                                 self.end_watched_turn(session, &turn, at);
                             }
-                            // A delivery under its id; else typed and not shown yet (its enqueue
-                            // was before the watch, past the cap, or may have been a delivery's).
                             let prompt = match bridged {
                                 Some((uuid, prompt_id, sent)) => {
                                     claims.push(super::bridge::Claim::Shown(uuid));
@@ -552,6 +570,9 @@ impl Hub {
                 match step {
                     Step::Prompt(text) => {
                         // A prompt the terminal queued runs now: it shows already, as typed.
+                        if let Some(i) = watching.unshown.iter().position(|q| *q == text) {
+                            watching.unshown.remove(i);
+                        }
                         if let Some(i) = watching.queued.iter().position(|q| *q == text) {
                             watching.queued.remove(i);
                             continue;
