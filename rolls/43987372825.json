@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43987372825",
+  "recorded_at": "2026-11-17T00:35:00Z",
+  "reason": "cmux-tui 07cf11a48f16 changes the image's cmux-tui (pinned 2c70cdb725af)",
+  "dry_run": false,
+  "cmux_tui": "07cf11a48f16885adf070e6dd67de76e58df4c09",
+  "fixes": [
+    {
+      "sha": "07cf11a48f16885adf070e6dd67de76e58df4c09",
+      "mergedAt": "2026-11-17T00:04:13Z",
+      "subject": "acpmux share host: the daemon serves a screen share with no cmux app running (#44837)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T00:35:00Z",
+    "snapshot_id": "sh-617e85dbe77b485088b0f814ca1a6fbe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43987372825): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9d31b487d81f615fca57f5af0d7380b93f8c71b6",
+    "image": "cloud-native-auto-07cf11a4-43987372825-1",
+    "revision": "ci-43987372825-1",
+    "at": "2026-11-17T00:35:00Z"
+  },
+  "rolled_back": false
+}
