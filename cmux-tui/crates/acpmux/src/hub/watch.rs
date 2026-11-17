@@ -501,14 +501,7 @@ impl Hub {
                             super::bridge::taken_back(&session.id, &text);
                         }
                     }
-                    // Taken into the turn: its attachment has shown it. One still waiting here
-                    // (an attachment this watch does not read) leaves too, or every turn end after
-                    // it would read as the end of the turn before it.
-                    Queue::Removed { text, absorbed: true } => {
-                        if let Some(i) = watching.queued.iter().position(|q| *q == text) {
-                            watching.queued.remove(i);
-                        }
-                    }
+                    Queue::Removed { absorbed: true, .. } => {}
                     Queue::Absorbed { text, source, human } => {
                         let bridged = source
                             .as_deref()
