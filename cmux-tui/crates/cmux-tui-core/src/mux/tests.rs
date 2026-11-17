@@ -42,7 +42,7 @@ mod disk_usage_read_cost;
 mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
-mod floating_panes;
+pub(crate) mod floating_panes;
 mod history_agent_fold;
 #[cfg(unix)]
 mod holder_late_start;

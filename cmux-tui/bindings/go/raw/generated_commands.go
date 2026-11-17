@@ -13805,6 +13805,257 @@ func (value *FeedLocalReadRequest) UnmarshalJSON(data []byte) error {
 
 type FeedLocalReadResult = JSONValue
 
+// FloatPaneRequest is the exact float-pane wire payload.
+type FloatPaneRequest struct {
+	H           Presence[float64] `json:"-"`
+	Mode        Presence[string]  `json:"-"`
+	Pane        ID                `json:"pane"`
+	Transaction Presence[uint64]  `json:"-"`
+	W           Presence[float64] `json:"-"`
+	X           Presence[float64] `json:"-"`
+	Y           Presence[float64] `json:"-"`
+}
+
+func (value FloatPaneRequest) MarshalJSON() ([]byte, error) {
+	type wire FloatPaneRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.H.IsAbsent() {
+		delete(object, "h")
+	} else if value.H.IsNull() {
+		object["h"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.H.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneRequest.H: %w", err)
+		}
+		object["h"] = encodedField
+	}
+	if value.Mode.IsAbsent() {
+		delete(object, "mode")
+	} else if value.Mode.IsNull() {
+		object["mode"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Mode.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneRequest.Mode: %w", err)
+		}
+		object["mode"] = encodedField
+	}
+	if value.Transaction.IsAbsent() {
+		delete(object, "transaction")
+	} else if value.Transaction.IsNull() {
+		object["transaction"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Transaction.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneRequest.Transaction: %w", err)
+		}
+		object["transaction"] = encodedField
+	}
+	if value.W.IsAbsent() {
+		delete(object, "w")
+	} else if value.W.IsNull() {
+		object["w"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.W.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneRequest.W: %w", err)
+		}
+		object["w"] = encodedField
+	}
+	if value.X.IsAbsent() {
+		delete(object, "x")
+	} else if value.X.IsNull() {
+		object["x"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.X.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneRequest.X: %w", err)
+		}
+		object["x"] = encodedField
+	}
+	if value.Y.IsAbsent() {
+		delete(object, "y")
+	} else if value.Y.IsNull() {
+		object["y"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Y.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneRequest.Y: %w", err)
+		}
+		object["y"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *FloatPaneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FloatPaneRequest: expected object")
+	}
+	var fields struct {
+		H           Presence[float64] `json:"h"`
+		Mode        Presence[string]  `json:"mode"`
+		Pane        *ID               `json:"pane"`
+		Transaction Presence[uint64]  `json:"transaction"`
+		W           Presence[float64] `json:"w"`
+		X           Presence[float64] `json:"x"`
+		Y           Presence[float64] `json:"y"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FloatPaneRequest: %w", err)
+	}
+	type wire FloatPaneRequest
+	var decoded wire
+	decoded.H = fields.H
+	decoded.Mode = fields.Mode
+	if fields.Pane == nil {
+		return fmt.Errorf("decode FloatPaneRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	decoded.Transaction = fields.Transaction
+	decoded.W = fields.W
+	decoded.X = fields.X
+	decoded.Y = fields.Y
+	*value = FloatPaneRequest(decoded)
+	return nil
+}
+
+type FloatPaneResult = JSONValue
+
+type FloatPaneOptions struct {
+	H           Presence[float64] `json:"-"`
+	Mode        Presence[string]  `json:"-"`
+	Transaction Presence[uint64]  `json:"-"`
+	W           Presence[float64] `json:"-"`
+	X           Presence[float64] `json:"-"`
+	Y           Presence[float64] `json:"-"`
+}
+
+func (value FloatPaneOptions) MarshalJSON() ([]byte, error) {
+	type wire FloatPaneOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.H.IsAbsent() {
+		delete(object, "h")
+	} else if value.H.IsNull() {
+		object["h"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.H.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneOptions.H: %w", err)
+		}
+		object["h"] = encodedField
+	}
+	if value.Mode.IsAbsent() {
+		delete(object, "mode")
+	} else if value.Mode.IsNull() {
+		object["mode"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Mode.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneOptions.Mode: %w", err)
+		}
+		object["mode"] = encodedField
+	}
+	if value.Transaction.IsAbsent() {
+		delete(object, "transaction")
+	} else if value.Transaction.IsNull() {
+		object["transaction"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Transaction.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneOptions.Transaction: %w", err)
+		}
+		object["transaction"] = encodedField
+	}
+	if value.W.IsAbsent() {
+		delete(object, "w")
+	} else if value.W.IsNull() {
+		object["w"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.W.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneOptions.W: %w", err)
+		}
+		object["w"] = encodedField
+	}
+	if value.X.IsAbsent() {
+		delete(object, "x")
+	} else if value.X.IsNull() {
+		object["x"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.X.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneOptions.X: %w", err)
+		}
+		object["x"] = encodedField
+	}
+	if value.Y.IsAbsent() {
+		delete(object, "y")
+	} else if value.Y.IsNull() {
+		object["y"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Y.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FloatPaneOptions.Y: %w", err)
+		}
+		object["y"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *FloatPaneOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FloatPaneOptions: expected object")
+	}
+	var fields struct {
+		H           Presence[float64] `json:"h"`
+		Mode        Presence[string]  `json:"mode"`
+		Transaction Presence[uint64]  `json:"transaction"`
+		W           Presence[float64] `json:"w"`
+		X           Presence[float64] `json:"x"`
+		Y           Presence[float64] `json:"y"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FloatPaneOptions: %w", err)
+	}
+	type wire FloatPaneOptions
+	var decoded wire
+	decoded.H = fields.H
+	decoded.Mode = fields.Mode
+	decoded.Transaction = fields.Transaction
+	decoded.W = fields.W
+	decoded.X = fields.X
+	decoded.Y = fields.Y
+	*value = FloatPaneOptions(decoded)
+	return nil
+}
+
 // FocusDirectionRequest is the exact focus-direction wire payload.
 type FocusDirectionRequest struct {
 	Dir  PaneDirection `json:"dir"`
@@ -37382,6 +37633,18 @@ func (c *Client) FeedLocalRead(ctx context.Context, request FeedLocalReadRequest
 		return result, err
 	}
 	err = c.requestGenerated(ctx, commandMetadata["feed-local-read"], "feed-local-read", params, &result)
+	return result, err
+}
+
+// FloatPane sends float-pane. Protocol v12; authority control.
+func (c *Client) FloatPane(ctx context.Context, pane ID, options FloatPaneOptions) (FloatPaneResult, error) {
+	var result FloatPaneResult
+	params, err := mergeCommandParams(map[string]any{"pane": pane}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode float-pane parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["float-pane"], "float-pane", params, &result)
 	return result, err
 }
 

@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8"
+	SDKIRSHA256        = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362"
 )
 
 type Authority string
@@ -178,6 +178,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"feed-local-handoff-done":            {Name: "feed-local-handoff-done", GoMethod: "FeedLocalHandoffDone", Authority: AuthorityLocalAdmin, Since: 12, Capability: "feed-local-owner-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"feed-local-list":                    {Name: "feed-local-list", GoMethod: "FeedLocalList", Authority: AuthorityControl, Since: 12, Capability: "feed-local-owner-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"feed-local-read":                    {Name: "feed-local-read", GoMethod: "FeedLocalRead", Authority: AuthorityControl, Since: 12, Capability: "feed-local-owner-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
+	"float-pane":                         {Name: "float-pane", GoMethod: "FloatPane", Authority: AuthorityControl, Since: 12, Capability: "floating-panes-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"focus-direction":                    {Name: "focus-direction", GoMethod: "FocusDirection", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"focus-pane":                         {Name: "focus-pane", GoMethod: "FocusPane", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"forget-session":                     {Name: "forget-session", GoMethod: "ForgetSession", Authority: AuthorityControl, Since: 12, Capability: "profiles-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
@@ -510,7 +511,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 303)
+	result := make([]CommandMetadata, 0, 304)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -627,6 +628,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["feed-local-handoff-done"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["feed-local-list"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["feed-local-read"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["float-pane"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["focus-direction"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["focus-pane"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["forget-session"]))

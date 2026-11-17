@@ -1844,6 +1844,27 @@ pub type FeedLocalReadResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FloatPaneRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub h: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mode: Optional<String>,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub w: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub x: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub y: Optional<f64>,
+}
+
+#[rustfmt::skip]
+pub type FloatPaneResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FocusDirectionRequest {
     pub dir: T::PaneDirection,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4978,6 +4999,10 @@ impl CmuxClient {
 
     pub fn feed_local_read(&mut self, request: FeedLocalReadRequest) -> Result<FeedLocalReadResult> {
         self.execute(&FEED_LOCAL_READ_METADATA, &request)
+    }
+
+    pub fn float_pane(&mut self, request: FloatPaneRequest) -> Result<FloatPaneResult> {
+        self.execute(&FLOAT_PANE_METADATA, &request)
     }
 
     pub fn focus_direction(&mut self, request: FocusDirectionRequest) -> Result<T::FocusDirectionResult> {

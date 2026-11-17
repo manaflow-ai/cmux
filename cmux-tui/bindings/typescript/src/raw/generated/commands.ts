@@ -1280,6 +1280,19 @@ export interface FeedLocalReadRequest extends CmuxRequestBase {
 }
 export type FeedLocalReadResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface FloatPaneRequest extends CmuxRequestBase {
+  cmd: "float-pane";
+  "h"?: (number) | null;
+  "mode"?: (string) | null;
+  "pane": T.Id;
+  "transaction"?: (bigint) | null;
+  "w"?: (number) | null;
+  "x"?: (number) | null;
+  "y"?: (number) | null;
+}
+export type FloatPaneResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
   cmd: "focus-direction";
@@ -3185,6 +3198,7 @@ export type CmuxRequest =
   | FeedLocalHandoffDoneRequest
   | FeedLocalListRequest
   | FeedLocalReadRequest
+  | FloatPaneRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -4301,6 +4315,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "float-pane": {
+    request: FloatPaneRequest;
+    result: FloatPaneResult;
+    authority: "control";
+    since: 12;
+    capability: "floating-panes-v1";
     stream: null;
   };
   "focus-direction": {

@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8" as const;
+export const SDK_IR_SHA256 = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1439,6 +1439,18 @@ export const COMMAND_METADATA = {
     "constraints": [
       "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
       "See spec/commands.md for the result object."
+    ]
+  },
+  "float-pane": {
+    "authority": "control",
+    "since": 12,
+    "capability": "floating-panes-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "mode is \"toggle\", \"on\" or \"off\" (default \"toggle\"). x, y, w and h are the frame as fractions of the screen's pane area: all four or none.",
+      "A screen keeps at least one tiled pane. A pane of a stack, of a docked column or of a column with rows does not float.",
+      "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
     ]
   },
   "focus-direction": {
@@ -22341,6 +22353,80 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "float-pane": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "h": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "mode": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "w": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "x": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "y": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
           }
         }
       },
