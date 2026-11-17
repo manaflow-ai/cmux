@@ -11,6 +11,12 @@ real key waits in the event queue) into:
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
   omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
+  chat       the agent chat's composer, the webview a prompt is typed into: key to the frame that paints
+             the character, from the page's own per-key samples (`page_paint_ms`, debug.agent_pane
+             typing_stats), because the probe's `contents_ms` is the terminal's layer-contents mark and
+             nothing marks it for a Chromium page. Measured in one app on one host beside the terminal, so
+             the pair is readable (Leo, 2026-11-17: "man the difference typing on terminal vs gui is def
+             noticeable rn ... slow and sad comparatively on the latter")
 
 each in two phases:
 
@@ -26,6 +32,7 @@ frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
+  typing-frame-bench.py --app APP --tag TAG --out DIR --surfaces terminal,chat   # the terminal/GUI pair
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
@@ -41,7 +48,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
-parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
+parser.add_argument("--surfaces", default="dock,terminal,home,omnibar,chat")
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
@@ -213,6 +220,46 @@ def make_load(surface_ws):
     note(f"load: {opts.busy} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
 
 
+def chat_stream(pane):
+    """A reply streaming into one named pane (the typed chat's own), as `chat_streams` does for the load panes."""
+    if not pane:
+        return None
+
+    replies = LOAD.setdefault("stream_replies", [])
+
+    def step(_):
+        reply = rpc("debug.agent_pane", {"action": "stream", "pane": pane, "rows": 40, "seconds": 3, "chunk_ms": 30},
+                    timeout=10)
+        if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
+            replies.append(json.dumps(reply)[:200])
+    return Streamer(step, 3.0)
+
+
+def chat_key_route(pane):
+    """The `debug.key` route whose key the chat's composer actually gets, proven before the measure.
+
+    A key sent to the shell window is taken by the key router before AppKit's dispatch (`debug.key` reports
+    `handled_by: "app"`), so it reaches neither the typing probe (which opens its sample in
+    `CmuxApplication.sendEvent`) nor the page's own keydown listener: #45273's fleet run typed 80 keys with
+    0 probe rows and `typing_stats` keys 0, in every round and both phases. A key addressed to the pane's own
+    Chromium page window (`target: "page"`), as a real key is when the composer holds the keyboard, goes
+    through that window's dispatch into the page. Tries that first, keeps whichever route the page saw, and
+    returns None when neither did, so the surface measures nothing rather than report a wrong number.
+    """
+    for params in ({"target": "page", "pane": pane}, {}):
+        rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=20)
+        reply = rpc("debug.key", dict(params, key="x"), timeout=10)
+        time.sleep(0.3)  # the page's keydown listener and its frame
+        stats = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=20) or {}
+        note(f"chat: route {json.dumps(params)}: the page saw {stats.get('keys')} key(s); "
+             f"debug.key {json.dumps(reply)[:220]}")
+        rpc("debug.key", dict(params, key="delete"))
+        if stats.get("keys"):
+            return params
+    note("chat: no debug.key route reached the composer; nothing measured")
+    return None
+
+
 def chat_streams():
     panes = [p for p in LOAD["chat_panes"] if p]
     if not panes:
@@ -277,19 +324,29 @@ def type_keys(count, params, column):
     keys = "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
     trips = []
+    # What the app did with each key (`debug.key` reports it): "responder" or "page" went on to AppKit's
+    # dispatch, which is where the typing probe opens its sample; "app" means the key router consumed the
+    # key before that, so no probe row and no key in the surface (the chat's nulls, `surface_chat`).
+    verdicts = {}
     for index in range(count):
         t0 = time.perf_counter()
         reply = rpc("debug.key", dict(params, key=keys[index % len(keys)], timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"key {index}: {reply.get('error')}")
+        if isinstance(reply, dict):
+            verdict = f"{reply.get('handled_by')}/{reply.get('action')}@{reply.get('window_kind')}"
+            if reply.get("error"):
+                verdict = f"error:{json.dumps(reply.get('error'))[:80]}"
+                note(f"key {index}: {reply.get('error')}")
+        else:
+            verdict = f"no reply ({type(reply).__name__})"
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
     time.sleep(0.5)  # the last frame lands
     rows = [r for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)]
-    return rows, trips
+    return rows, trips, verdicts
 
 
 GENERIC = ("start", "main", "NSApplicationMain", "_DPSNextEvent", "_DPSBlockUntilNextEventMatchingListInMode", "ReceiveNextEventCommon",
@@ -341,7 +398,23 @@ def digest_sample(text):
     return {"samples": total, "busy_pct": pct_of(total - idle), "top": top(inclusive, 60), "ours": top(ours, 40), "leaves": top(leaf, 25)}
 
 
-def measure(surface, phase, params, column, pid, streams=()):
+# Not a probe column: a webview surface's key-to-frame comes from the page's own per-key samples
+# (`debug.agent_pane typing_stats`, webviews perf.ts `AcpmuxPerf`), because the probe's `contents_ms` is
+# the terminal's layer-contents mark and nothing marks it for a Chromium page (TypingLatencyProbe).
+PAGE_PAINT = "page_paint_ms"
+
+
+def page_key_to_frame(page):
+    """`pct`-shaped key-to-frame from the page's typing samples: each key's own event time to after the
+    frame that paints it (perf.ts `TypingSample.paint`). The page summarizes, so there is no p99 or mean."""
+    paint = (page or {}).get("to_paint") or {}
+    if not (page or {}).get("keys") or paint.get("p95_ms") is None:
+        return None
+    return {"n": page["keys"], "p50": paint.get("p50_ms"), "p95": paint.get("p95_ms"), "p99": None,
+            "max": paint.get("max_ms"), "mean": None, "from": PAGE_PAINT}
+
+
+def measure(surface, phase, params, column, pid, streams=(), page_stats=None, probe_column=None):
     rpc("debug.hangs", {"clear": True})
     rpc("debug.timings", {"clear": True})
     rows_before = len(probe_rows())
@@ -359,13 +432,16 @@ def measure(surface, phase, params, column, pid, streams=()):
     # debug.view_churn (which views ask for display or layout while the keys are typed) exists only in a probe
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
-    rows, trips = type_keys(opts.samples, params, column)
+    # `column` is what key-to-frame reads; `probe_column` is the probe row's own last mark, which a
+    # page surface closes at its commit (`probe: "commit"`) because no terminal echo follows its key.
+    rows, trips, verdicts = type_keys(opts.samples, params, probe_column or column)
     churn = rpc("debug.view_churn", {"action": "stop", "limit": 15}, timeout=20)
     for s in streams:
         s.stop()
     frames = rpc("debug.frames", {"action": "stop"}, timeout=20)
     timings = rpc("debug.timings", timeout=20) or {}
     publishes = [p.get("ms") for p in (timings.get("control_publishes") or []) if isinstance(p, dict)]
+    page = page_stats() if page_stats else None
     every = probe_rows()[rows_before:]
     marks = ["dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms", "output_decoded_ms",
              "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
@@ -373,11 +449,13 @@ def measure(surface, phase, params, column, pid, streams=()):
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {
         "session": SESSION, "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
-        "key_to_frame_ms": pct(f(column)), "column": column,
+        "key_to_frame_ms": page_key_to_frame(page) if column == PAGE_PAINT else pct(f(column)), "column": column,
+        "key_verdicts": verdicts, "page_typing": page,
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
         "dispatch_ms": pct([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
                             if r.get("dispatch_end_ms") and r.get("dispatch_start_ms")]),
-        "dispatch_to_frame_ms": pct([float(r[column]) - float(r["dispatch_end_ms"]) for r in rows if r.get("dispatch_end_ms")]),
+        "dispatch_to_frame_ms": pct([float(r[probe_column or column]) - float(r["dispatch_end_ms"]) for r in rows
+                                     if r.get("dispatch_end_ms")]),
         "key_rpc_ms": pct(trips),
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
@@ -514,7 +592,70 @@ def surface_omnibar(phase, pid):
     return entry
 
 
-SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
+def surface_chat(phase, pid):
+    # The agent chat's composer: the webview surface a prompt is typed into, measured on `contents_ms` like the
+    # terminal so the pair answers "terminal vs gui" directly. Its own reply streams in the load phase, which is
+    # the case the complaint is about: typing while a reply arrives.
+    if not LOAD.get("chat_ws"):
+        cli("workspace", "create", "--name", "chat typing", "--focus")
+        ws, _ = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("chat typing")), 20) or (None, [])
+        LOAD["chat_ws"] = ws
+        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+        time.sleep(1)  # the workspace shows
+        reply = action("palette.newAgentChat", settle=1.0)
+        # The action answers while the chat still opens: wait for its page, as make_load does.
+        ready = wait(lambda: (lambda r: r if r.get("document_ready") else None)(
+            rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 30, step=0.5)
+        engine = rpc("debug.agent_pane", {"action": "engine"}) or {}
+        LOAD["chat_pane"] = engine.get("pane")
+        note(f"chat: pane {engine.get('pane')} ({engine.get('engine')}) ready={bool(ready)} {json.dumps(reply)[:120]}")
+        time.sleep(2)  # the transcript lays out
+    else:
+        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": LOAD["chat_ws"]}, "focus": True,
+                           "origin": "script"})
+        time.sleep(0.5)  # the workspace shows
+    if phase == "load":
+        make_load(LOAD["chat_ws"])
+    pane = LOAD.get("chat_pane")
+    focused = rpc("debug.agent_pane", {"action": "focus_composer", **({"pane": pane} if pane else {})}, timeout=20)
+    if not (isinstance(focused, dict) and focused.get("focused")):
+        state = rpc("debug.agent_pane", {"action": "composer_focused", **({"pane": pane} if pane else {})})
+        note(f"chat: no composer to focus ({json.dumps(focused)[:160]}; composer_focused {json.dumps(state)[:120]})")
+        return None
+    if not pane:
+        note("chat: debug.agent_pane engine named no pane, so the keys have no page window to go to")
+        return None
+    route = chat_key_route(pane)
+    if route is None:
+        return None
+    streams = []
+    if phase == "load":
+        own = chat_stream(pane)
+        if own:
+            streams.append(own)
+        other = chat_streams()
+        if other:
+            streams.append(other)
+    LOAD["focus"] = focus_report()
+    # The page's own per-key marks, so the chat's key-to-frame is its `to_paint` (each key's event time to
+    # after the frame that paints it) and the hops split into webview delivery (`to_listener`), the page's
+    # edit and render (`to_work`) and the frame after it (`to_frame`): debug.agent_pane typing_stats
+    # (webviews perf.ts AcpmuxPerf). `probe: "commit"` closes the native row at the commit after dispatch,
+    # since no terminal echo follows a page's key, which keeps the probe's send-to-dispatch hops readable.
+    def page_stats():
+        return rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=20)
+
+    rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=20)
+    entry = measure("chat", phase, dict(route, probe="commit"), PAGE_PAINT, pid, streams,
+                    page_stats=page_stats, probe_column="commit_ms")
+    # Leave the composer empty for the next round: select all, then delete.
+    rpc("debug.key", dict(route, key="a", modifiers=["command"]))
+    rpc("debug.key", dict(route, key="delete"))
+    return entry
+
+
+SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar,
+            "chat": surface_chat}
 
 
 def run_session(session):
