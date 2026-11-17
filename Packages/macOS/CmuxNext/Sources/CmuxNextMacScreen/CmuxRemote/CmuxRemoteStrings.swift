@@ -15,6 +15,7 @@ enum CmuxRemoteStrings {
     }
     static var done: String { String(localized: "remote.done", defaultValue: "Done", table: "CmuxRemote", bundle: .module) }
     static var allow: String { String(localized: "remote.allow", defaultValue: "Allow", table: "CmuxRemote", bundle: .module) }
+    static var alwaysAllow: String { String(localized: "remote.alwaysAllow", defaultValue: "Always Allow", table: "CmuxRemote", bundle: .module) }
 
     static func confirmShare() -> (String, String) {
         (String(localized: "remote.confirm.share.title", defaultValue: "Share This Mac?", table: "CmuxRemote", bundle: .module),

@@ -83,6 +83,9 @@ extension RemoteSettings {
     /// `remote.endSharingOnQuit`.
     public nonisolated static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
     public nonisolated static let endSharingOnQuitDefault = false
+    /// `remote.shareWithoutAsking`.
+    public nonisolated static let shareWithoutAskingPath = ["remote", "shareWithoutAsking"]
+    public nonisolated static let shareWithoutAskingDefault = false
     /// `remote.ultra`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
     public nonisolated static let ultraPath = ["remote", "ultra"]
     public nonisolated static let ultraDefault: UltraConnectionMode = .auto
@@ -353,6 +356,17 @@ extension MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(RemoteSettings.endSharingOnQuitDefault),
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
+            ),
+            SettingDescriptor(
+                RemoteSettings.shareWithoutAskingPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.shareWithoutAsking", "Share This Mac Without Asking"),
+                help: SettingsText.keyed("settings.remote.shareWithoutAsking.help", "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. Always Allow on the Share This Mac? dialog turns this on."),
+                summary: SettingsText.keyed("settings.remote.shareWithoutAsking.summary", "Agents turn on Share This Mac without asking"),
+                kind: .toggle,
+                default: .bool(RemoteSettings.shareWithoutAskingDefault),
+                keywords: ["cmux remote", "screen sharing", "share this mac", "always allow", "ask", "confirm", "agents"]
             ),
             SettingDescriptor(
                 RemoteSettings.ultraPath,

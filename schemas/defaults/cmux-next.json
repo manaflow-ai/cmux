@@ -713,6 +713,7 @@
     "setting.phone.keepAwake": "pluggedIn",
     "setting.picker.pinned": [],
     "setting.remote.endSharingOnQuit": false,
+    "setting.remote.shareWithoutAsking": false,
     "setting.remote.ultra": "auto",
     "setting.screenshots.findTools": true,
     "setting.screenshots.folders": [],

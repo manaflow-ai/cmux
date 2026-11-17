@@ -4496,6 +4496,12 @@
       "title" : "End Sharing When cmux Quits",
       "type" : "boolean"
     },
+    "remote.shareWithoutAsking" : {
+      "default" : false,
+      "description" : "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. Always Allow on the Share This Mac? dialog turns this on.",
+      "title" : "Share This Mac Without Asking",
+      "type" : "boolean"
+    },
     "remote.ultra" : {
       "default" : "auto",
       "description" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection.",

@@ -63,6 +63,17 @@ struct CmuxRemoteSharingSetup {
         })
     }
 
+    /// `remote.confirm {action: share}`'s sheet: the overview offers Always Allow beside Continue.
+    /// Whether sharing went on, and whether the person chose Always Allow for it.
+    func confirmRequest(in window: NSWindow) async throws -> (shared: Bool, always: Bool) {
+        let center = CmuxDialogCenter.shared
+        let answer = await center.present(Self.spec(.overview, offerAlways: true), in: .window(window)).button
+        let shared = try await proceed(after: answer == "always" ? "continue" : answer) { spec in
+            await center.present(spec, in: .window(window)).button
+        }
+        return (shared, shared && answer == "always")
+    }
+
     func confirm(in window: NSWindow) async throws -> Bool {
         let center = CmuxDialogCenter.shared
         let answer = await center.present(Self.spec(.overview), in: .window(window))
@@ -107,14 +118,15 @@ struct CmuxRemoteSharingSetup {
 
     nonisolated static func identifier(_ step: Step) -> String { "cmux.dialog.screenSharing.setup.\(step.rawValue)" }
 
-    static func spec(_ step: Step) -> CmuxDialogSpec {
+    static func spec(_ step: Step, offerAlways: Bool = false) -> CmuxDialogSpec {
         let title: String, lines: [String], choices: [CmuxDialogButton]
         switch step {
         case .overview:
             title = L.t("macScreen.setup.title", "Share This Mac")
             lines = [L.t("macScreen.setup.source", "Share this Mac’s main display with your devices."),
                      L.t("macScreen.setup.consent", "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click.")]
-            choices = [.init(id: "continue", title: L.t("macScreen.setup.continue", "Continue"), role: .default)]
+            choices = (offerAlways ? [CmuxDialogButton(id: "always", title: CmuxRemoteStrings.alwaysAllow)] : [])
+                + [.init(id: "continue", title: L.t("macScreen.setup.continue", "Continue"), role: .default)]
         case .screen, .screenCheck:
             title = L.t("macScreen.setup.screen.title", "Allow Screen Recording")
             lines = [L.t("macScreen.setup.screen.body", "macOS needs Screen Recording permission for this cmux app to share your display."),

@@ -196,7 +196,7 @@ extension AppServices {
 
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
         CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
-                                    window: { [weak self] in self?.windows.active?.window },
+                                    settings: { [weak self] in self?.settings }, window: { [weak self] in self?.windows.active?.window },
                                     openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") })
     }
 

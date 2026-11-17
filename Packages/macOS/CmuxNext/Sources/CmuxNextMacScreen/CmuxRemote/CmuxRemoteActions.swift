@@ -4,7 +4,7 @@ public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextDevices
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// What cmux Remote's actions need from the app: the hub, a window to ask in, and Settings.
@@ -12,14 +12,18 @@ public struct CmuxRemoteActionEnvironment {
     public var remote: CmuxRemoteService
     public var screenHost: MacScreenHubHost
     public var hub: @MainActor () -> DeviceHub?
+    /// Settings: `remote.shareWithoutAsking`, which Always Allow on "Share This Mac" turns on.
+    public var settings: @MainActor () -> SettingsController?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
 
-    public init(remote: CmuxRemoteService, screenHost: MacScreenHubHost, hub: @escaping @MainActor () -> DeviceHub?, window: @escaping @MainActor () -> NSWindow?,
+    public init(remote: CmuxRemoteService, screenHost: MacScreenHubHost, hub: @escaping @MainActor () -> DeviceHub?,
+                settings: @escaping @MainActor () -> SettingsController? = { nil }, window: @escaping @MainActor () -> NSWindow?,
                 openDevices: @escaping @MainActor () -> Void) {
         self.remote = remote
         self.screenHost = screenHost
         self.hub = hub
+        self.settings = settings
         self.window = window
         self.openDevices = openDevices
     }
@@ -130,15 +134,57 @@ extension CmuxRemoteActionEnvironment {
                         apply: { try await Self.applyAccess(device: device, scope: scope, hub: hub) }))
                 }
                 let screenHost = environment.screenHost
+                let settings = environment.settings()
+                let step = Self.shareStep(alreadyShared: hub.thisDevice?.macScreenShared == true,
+                                          withoutAsking: settings?.snapshot.remote.shareWithoutAsking == true)
                 // The setup sheet asks and turns sharing on itself, so its answer is the change.
                 return .followUp(Self.confirmedChange(
                     confirm: {
-                        guard let window else { return false }
-                        return try await CmuxRemoteSharingSetup(host: screenHost).confirm(in: window)
+                        let setup = CmuxRemoteSharingSetup(host: screenHost)
+                        switch step {
+                        case .nothing:
+                            return true
+                        case .apply:
+                            // Always Allow skips the overview; a missing macOS grant still gets its own step.
+                            return try await setup.proceed(after: "continue") { spec in
+                                guard let window else { return "cancel" }
+                                return await CmuxDialogCenter.shared.present(spec, in: .window(window)).button
+                            }
+                        case .ask:
+                            guard let window else { return false }
+                            let answer = try await setup.confirmRequest(in: window)
+                            if answer.always, let settings { await Self.shareWithoutAsking(settings) }
+                            return answer.shared
+                        }
                     },
                     apply: {}))
             }.withDeadline(.fixed(Self.confirmationTimeout)),
         ]
+    }
+
+    /// What `remote.confirm {action: share}` does.
+    nonisolated enum ShareStep: Equatable, Sendable {
+        /// Show the "Share This Mac" overview.
+        case ask
+        /// Turn sharing on with no overview: the person chose Always Allow.
+        case apply
+        /// Nothing: this Mac already shares. No write either, so a hub list that is behind (the
+        /// person just stopped sharing on another device) never turns sharing back on.
+        case nothing
+    }
+
+    /// The share request's step. Leo, 2026-11-16: "i dont want to have to click share this mac
+    /// allow every single time when screen sharing". `remote.shareWithoutAsking` is user-only:
+    /// settings.set from an agent, the CLI or MCP is refused.
+    nonisolated static func shareStep(alreadyShared: Bool, withoutAsking: Bool) -> ShareStep {
+        alreadyShared ? .nothing : withoutAsking ? .apply : .ask
+    }
+
+    /// Always Allow: the person's click turns on `remote.shareWithoutAsking` (the user writer: the
+    /// click is in this app's UI). A refused or failed write only means the next request asks again.
+    static func shareWithoutAsking(_ settings: SettingsController) async {
+        guard let descriptor = SettingsSchema.descriptor(for: RemoteSettings.shareWithoutAskingPath) else { return }
+        try? await settings.setSetting(descriptor, to: .bool(true), by: .user)
     }
 
     /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 624,
   "sections": [
     {
       "id": "general",
@@ -1188,6 +1188,14 @@
           "key": "remote.endSharingOnQuit",
           "title": "End Sharing When cmux Quits",
           "help": "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
+          "kind": "toggle",
+          "default": false,
+          "group": "cmux Remote"
+        },
+        {
+          "key": "remote.shareWithoutAsking",
+          "title": "Share This Mac Without Asking",
+          "help": "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. Always Allow on the Share This Mac? dialog turns this on.",
           "kind": "toggle",
           "default": false,
           "group": "cmux Remote"
