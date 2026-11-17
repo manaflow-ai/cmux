@@ -110,6 +110,17 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
             Scene(group: s, id: "viewer-keyboard", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"], signedIn: false, settle: 6) { app in
                 C.tap(app.buttons["Keyboard"].firstMatch, "Keyboard button")
             },
+            // The Mac is locked or its display asleep (a black picture): the notice, in each placement.
+            Scene(group: s, id: "viewer-mac-locked-banner", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore",
+                                                                   "-CmuxMobileScreenSharingDemoSource", "locked"], signedIn: false, settle: 6),
+            Scene(group: s, id: "viewer-mac-asleep-banner", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore",
+                                                                   "-CmuxMobileScreenSharingDemoSource", "asleep"], signedIn: false, settle: 6),
+            Scene(group: s, id: "viewer-mac-locked-card", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore",
+                                                                 "-CmuxMobileScreenSharingDemoSource", "locked",
+                                                                 "-CmuxMobileScreenSharingDemoNotice", "card"], signedIn: false, settle: 6),
+            Scene(group: s, id: "viewer-mac-locked-toolbar", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore",
+                                                                    "-CmuxMobileScreenSharingDemoSource", "locked",
+                                                                    "-CmuxMobileScreenSharingDemoNotice", "toolbar"], signedIn: false, settle: 6),
             Scene(group: s, id: "viewer-landscape", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"], signedIn: false, settle: 6) { _ in
                 XCUIDevice.shared.orientation = .landscapeLeft
                 C.pause(1.5)
