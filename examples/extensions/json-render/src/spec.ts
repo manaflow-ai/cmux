@@ -148,17 +148,20 @@ export function draw(spec: Spec, key: string, s: State, scope: Scope = {}): View
     case "Row": view = Row({ title: str("title"), subtitle: props.subtitle == null ? undefined : str("subtitle"), symbol: props.symbol == null ? undefined : str("symbol"), tint: props.tint == null ? undefined : str("tint") }); break
     case "Button": view = Button(str("label"), () => run(el.on?.press, s, scope)); break
     case "TextField": {
-      const to = bound(props.value, scope)
+      // The bound path is read at write time: inside a repeat it moves with the item.
+      const binds = bound(props.value, scope) !== null
+      const write = (t: string) => { const to = bound(props.value, scope); if (to) s.set(to, t) }
       view = TextField(str("value"), {
         placeholder: props.placeholder == null ? undefined : String(props.placeholder),
-        onEdit: to ? (t) => s.set(to, t) : undefined,
-        onSubmit: (t) => { if (to) s.set(to, t); run(el.on?.submit, s, scope) }
+        onEdit: binds ? write : undefined,
+        onSubmit: (t) => { write(t); run(el.on?.submit, s, scope) }
       })
       break
     }
     case "Toggle": {
-      const to = bound(props.checked, scope)
-      view = Toggle(() => !!live("checked")(), { label: props.label == null ? undefined : str("label"), onChange: to ? (on) => s.set(to, on) : undefined })
+      const binds = bound(props.checked, scope) !== null
+      const write = (on: boolean) => { const to = bound(props.checked, scope); if (to) s.set(to, on) }
+      view = Toggle(() => !!live("checked")(), { label: props.label == null ? undefined : str("label"), onChange: binds ? write : undefined })
       break
     }
     case "Badge": view = Badge(str("text"), () => String(live("tone")() ?? "secondary")); break
