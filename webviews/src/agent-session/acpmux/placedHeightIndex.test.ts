@@ -235,8 +235,10 @@ describe("PlacedHeightIndex rows in view", () => {
     }
     // The next snapshot (a streamed token grows the last row) is another tree: nothing is kept from this one.
     const next = base.update(count - 1, 99, marks[count - 1]);
+    const before = base.topAt(count - 1);
     const walks = placedIndexStats.prefixWalks;
-    expect(next.topAt(count - 1)).toBeGreaterThan(base.topAt(count - 1) - 1);
+    const after = next.topAt(count - 1);
+    expect(after).toBeGreaterThan(before - 1);
     expect(placedIndexStats.prefixWalks - walks).toBe(1);
   });
 });

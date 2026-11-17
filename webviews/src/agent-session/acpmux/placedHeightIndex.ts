@@ -151,15 +151,19 @@ function readLeaf(node: Node | undefined, low: number, high: number, leafIndex: 
 /// leaf, never one per row (placedHeightIndex.test.ts).
 export const placedIndexStats = { prefixWalks: 0 };
 
-/// What the rows before leaf `leafIndex` sum to.
+/// What the rows before leaf `leafIndex` sum to, as the scalars a cursor starts from. The walk joins the left
+/// sibling of every right turn the way `join` does (same gap, same order of sums), kept in locals: a Summary per
+/// level made every row drawn in a frame allocate a chain of objects, which grew with the chat's depth.
 function prefixBeforeLeaf(
   root: Node | undefined,
   capacity: number,
   leafIndex: number,
   between: GapBetween | undefined,
-): Summary {
+): Cursor {
   placedIndexStats.prefixWalks += 1;
-  let prefix = EMPTY;
+  let sum = 0;
+  let drawn = 0;
+  let lastMark = 0;
   let node = root;
   let low = 0;
   let high = capacity;
@@ -169,12 +173,18 @@ function prefixBeforeLeaf(
       node = node.left;
       high = middle;
     } else {
-      prefix = join(prefix, summaryOf(node.left), between);
+      const left = summaryOf(node.left);
+      if (left.rows > 0) {
+        const gap = drawn > 0 && left.drawn > 0 ? (between ? between(lastMark, left.firstMark) : left.firstGap) : 0;
+        sum = sum + gap + left.sum;
+        if (left.drawn > 0) lastMark = left.lastMark;
+        drawn = Math.min(2, drawn + left.drawn);
+      }
       node = node.right;
       low = middle;
     }
   }
-  return prefix;
+  return { top: sum, drawn: drawn > 0, lastMark };
 }
 
 /// One row placed after the rows summarised by (top, drawn, lastMark): the walk `placeRows` takes.
@@ -187,6 +197,8 @@ type Cursor = { top: number; drawn: boolean; lastMark: number };
  */
 export class PlacedHeightIndex {
   readonly count: number;
+  /// The starting cursor of each leaf asked for (`cursorAtLeaf`): a cache of what the immutable tree already says.
+  private readonly leafCursors = new Map<number, Cursor>();
   /// Where the last row ends (gaps included).
   readonly totalHeight: number;
 
@@ -263,9 +275,15 @@ export class PlacedHeightIndex {
     return top;
   }
 
+  /// Where a walk over leaf `leafIndex` starts. The tree never changes, so each leaf's prefix is walked once for the
+  /// snapshot (the rows in view ask for their tops and gaps one by one), and every caller steps its own copy.
   private cursorAtLeaf(leafIndex: number): Cursor {
-    const prefix = prefixBeforeLeaf(this.root, this.capacity, leafIndex, this.rules.between);
-    return { top: prefix.sum, drawn: prefix.drawn > 0, lastMark: prefix.lastMark };
+    let known = this.leafCursors.get(leafIndex);
+    if (!known) {
+      known = prefixBeforeLeaf(this.root, this.capacity, leafIndex, this.rules.between);
+      this.leafCursors.set(leafIndex, known);
+    }
+    return { top: known.top, drawn: known.drawn, lastMark: known.lastMark };
   }
 
   /// The row's top: where the rows above it end, plus its own gap when it draws.
@@ -424,7 +442,10 @@ export class PlacedHeightIndex {
   /** Finds the first row whose top is greater than `target` (upper-bound semantics). */
   upperBoundTop(target: number): number {
     const between = this.rules.between;
-    let prefix = EMPTY;
+    // The prefix joined so far, in scalars (`prefixBeforeLeaf`).
+    let sum = 0;
+    let drawn = 0;
+    let lastMark = 0;
     let node = this.root;
     let low = 0;
     let high = this.capacity;
@@ -433,12 +454,20 @@ export class PlacedHeightIndex {
     while (node && high - low > 1) {
       const middle = low + ((high - low) >>> 1);
       const left = summaryOf(node.left);
-      const through = join(prefix, left, between);
-      if (left.rows > 0 && through.sum - left.lastHeight > target) {
+      let through = sum;
+      if (left.rows > 0) {
+        const gap = drawn > 0 && left.drawn > 0 ? (between ? between(lastMark, left.firstMark) : left.firstGap) : 0;
+        through = sum + gap + left.sum;
+      }
+      if (left.rows > 0 && through - left.lastHeight > target) {
         node = node.left;
         high = middle;
       } else {
-        prefix = through;
+        if (left.rows > 0) {
+          sum = through;
+          if (left.drawn > 0) lastMark = left.lastMark;
+          drawn = Math.min(2, drawn + left.drawn);
+        }
         node = node.right;
         low = middle;
       }
