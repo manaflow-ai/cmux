@@ -125,8 +125,8 @@ impl Doc {
                     // A newest message past the bound alone (a pasted log) keeps its newest
                     // text, so its chat is still found.
                     if newest_first.is_empty() {
-                        let tail = newest_tail(&flat, CHAT_BYTES - 1).to_owned();
-                        bytes = tail.len() + 1;
+                        let tail = newest_tail(&flat, CHAT_BYTES.saturating_sub(1)).to_owned();
+                        bytes = tail.len().saturating_add(1);
                         newest_first.push((turn, answer, tail));
                     }
                     break 'turns;
@@ -196,8 +196,8 @@ impl Doc {
         let mut cut = self.messages.get(keep).map_or(len, |m| m.start as usize);
         // The newest message past the bound alone keeps its newest text, as `of_turns` keeps it.
         if keep == self.messages.len() && self.messages.len() > self.live as usize {
-            keep = self.messages.len() - 1;
-            cut = len - newest_tail(&self.text, CHAT_BYTES).len();
+            keep = self.messages.len().saturating_sub(1);
+            cut = len.saturating_sub(newest_tail(&self.text, CHAT_BYTES).len());
         }
         self.text.drain(..cut);
         self.messages.drain(..keep);
@@ -281,11 +281,10 @@ impl Doc {
 
 /// At most the last `max` bytes of `text`, cut on a character boundary.
 fn newest_tail(text: &str, max: usize) -> &str {
-    let mut start = text.len().saturating_sub(max);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
+    let start = (text.len().saturating_sub(max)..=text.len())
+        .find(|&at| text.is_char_boundary(at))
+        .unwrap_or(text.len());
+    text.get(start..).unwrap_or_default()
 }
 
 /// Whether `text` holds a letter that lowercases to ASCII (`İ`, the Kelvin sign).

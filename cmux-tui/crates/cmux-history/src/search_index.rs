@@ -356,11 +356,11 @@ fn put(transaction: &Transaction<'_>, doc: &SearchDoc) -> Result<(), HistoryErro
 
 /// The first [`MAX_TEXT_BYTES`] of `text`, cut on a character boundary.
 fn bounded(text: &str) -> &str {
-    let mut end = text.len().min(MAX_TEXT_BYTES);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    let end = (0..=text.len().min(MAX_TEXT_BYTES))
+        .rev()
+        .find(|&at| text.is_char_boundary(at))
+        .unwrap_or_default();
+    text.get(..end).unwrap_or_default()
 }
 
 /// ` AND d.kind IN (?, …)` for `kinds`, binding them; empty for every kind.
