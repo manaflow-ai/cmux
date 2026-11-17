@@ -15,6 +15,8 @@ struct DensityPlaygroundView: View {
     @State private var confirmingDelete = false
     @State private var flash: String?
     @FocusState private var nameFocused: Bool
+    /// The value field with the keyboard (its key): Command-1, -2 and -3 put it on the group's first value.
+    @FocusState private var focusedValue: String?
 
     /// The window's own sizes (a 4 pt grid), apart from the density being tuned.
     enum Size {
@@ -64,12 +66,17 @@ struct DensityPlaygroundView: View {
         VStack(alignment: .leading, spacing: Size.gap) {
             HStack(spacing: Size.gap) {
                 Text(DensityPlaygroundStrings.density)
-                Picker(DensityPlaygroundStrings.density, selection: Binding(get: { model.draft.id }, set: { model.select(id: $0) })) {
-                    ForEach(model.densities) { density in
-                        Text(model.name(density)).tag(density.id)
+                Menu(model.name(model.draft)) {
+                    // Inline, so the density in use has its checkmark.
+                    Picker(DensityPlaygroundStrings.density, selection: Binding(get: { model.draft.id }, set: { model.select(id: $0) })) {
+                        ForEach(model.densities) { density in
+                            Text(model.name(density)).tag(density.id)
+                        }
                     }
+                    .pickerStyle(.inline).labelsHidden()
                 }
-                .labelsHidden().pickerStyle(.menu).fixedSize()
+                .fixedSize()
+                .accessibilityLabel(DensityPlaygroundStrings.density)
                 .accessibilityIdentifier("cmux.densityPlayground.picker")
                 TextField(DensityPlaygroundStrings.name, text: $nameText)
                     .textFieldStyle(.roundedBorder)
@@ -141,7 +148,10 @@ struct DensityPlaygroundView: View {
     /// Command-1, -2 and -3 pick a group from the keyboard (a segmented control takes no focus by default).
     private var groupShortcuts: some View {
         ForEach(Array(DensityTokenCatalog.Group.allCases.enumerated()), id: \.offset) { index, item in
-            Button("") { group = item }
+            Button("") {
+                group = item
+                focusedValue = model.entries.first { $0.group == item }?.key
+            }
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
                 .opacity(0).frame(width: 0, height: 0)
                 .accessibilityHidden(true)
@@ -186,7 +196,7 @@ struct DensityPlaygroundView: View {
                         .padding(.top, Size.pad - 4)
                         .padding(.bottom, 4)
                     ForEach(section.entries) { entry in
-                        DensityPlaygroundRow(model: model, entry: entry)
+                        DensityPlaygroundRow(model: model, entry: entry, focus: $focusedValue)
                     }
                 }
             }
@@ -201,9 +211,11 @@ struct DensityPlaygroundView: View {
 private struct DensityPlaygroundRow: View {
     let model: DensityPlaygroundModel
     let entry: DensityTokenCatalog.Entry
+    /// The window's value focus: this row edits while it holds `entry.key`.
+    var focus: FocusState<String?>.Binding
     @State private var text = ""
-    @FocusState private var editing: Bool
     typealias Size = DensityPlaygroundView.Size
+    private var editing: Bool { focus.wrappedValue == entry.key }
 
     var body: some View {
         let changed = model.isChanged(entry)
@@ -225,7 +237,7 @@ private struct DensityPlaygroundRow: View {
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .frame(width: Size.field)
-                .focused($editing)
+                .focused(focus, equals: entry.key)
                 .onSubmit(commit)
                 .onChange(of: editing) { if !editing { commit() } }
                 .accessibilityLabel(entry.label)
