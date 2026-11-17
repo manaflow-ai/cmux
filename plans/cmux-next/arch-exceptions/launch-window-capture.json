@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-17",
+  "row": "app_lines",
+  "allow": 46,
+  "why": "Launch stage 0 window capture: the logic lives in the new CmuxNextLaunchCapture target; the App adds only its wiring, which only the App can give: the AppServices+LaunchCaptureHost one-line forwards, the window events the capture schedule needs (live resize, full screen, occlusion, close in WindowController/WindowManager), the theme and quit hooks, and TabContentCache's page picture time and its one accessor (TabContentCache and PaneController are App types).",
+  "author": "gcp-agent-lane-1/launch-window-capture (claude opus)",
+  "owner": "gcp-agent-lane-1",
+  "receipt": "Review (independent claude opus subagent a2cfd1ef): SHIP at 1382357fc50cfb4455171a87fd3a2a3c58dbab1f",
+  "expiry": "2026-12-17"
+}
