@@ -204,7 +204,7 @@ public final class CmuxMobileAuthModel {
 
     /// The UserDefaults key that keeps a simulator's `CMUX_MOBILE_STACK_ENVIRONMENT` across launches
     /// the system makes (a notification action wakes the app with no launch variables).
-    static let stackEnvironmentOverrideKey = "cmuxMobile.dev.stackEnvironment"
+    nonisolated static let stackEnvironmentOverrideKey = "cmuxMobile.dev.stackEnvironment"
 
     /// Whether this launch signs in to the development Stack project. DEBUG and staging builds do,
     /// except a DEBUG simulator build launched with `CMUX_MOBILE_STACK_ENVIRONMENT=production`
@@ -212,7 +212,7 @@ public final class CmuxMobileAuthModel {
     /// simulator (scripts/ios-live) mirrors a person's own Macs, which sign in to production, and
     /// pairing admits only the Mac's own account. A device build, or any non-DEBUG build, never
     /// reads the variable.
-    static func usesDevelopmentStack(
+    nonisolated static func usesDevelopmentStack(
         environment: [String: String], isDebug: Bool, isSimulator: Bool, stagingStack: Bool,
         defaults: UserDefaults
     ) -> Bool {
