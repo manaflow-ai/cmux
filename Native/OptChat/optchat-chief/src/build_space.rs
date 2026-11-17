@@ -115,7 +115,7 @@ mod tests {
     fn an_unusable_space_sends_nothing() {
         let heads = Heads::start();
         let request = ureq::get(&format!("{}/v1/health", heads.base_url));
-        let error = super::apply(request, &unusable()).err().expect("refused");
+        let error = super::apply(request, &unusable()).expect_err("refused");
         assert!(error.contains("refusing to call cmux Cloud"), "{error}");
         assert!(heads.spaces().is_empty());
     }
