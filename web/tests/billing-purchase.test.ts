@@ -3530,7 +3530,7 @@ describe("cmux NEXT Cloud subscriptions", () => {
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_next" }], [{ plan: "next_pro" }]];
 
     const result = await applySubscriptionUpdate(
-      nextSubscription({ status: "active", price: { id: "price_np", lookup_key: "cmux-next-pro-monthly-100" } }) as never,
+      nextSubscription({ status: "active", price: { id: "price_np", lookup_key: "cmux-next-pro-monthly-50" } }) as never,
       {
         db: fakeDb() as never,
         stackApp: { getUser: async () => user } as never,

@@ -135,12 +135,12 @@ export type NextPlanOffer = {
 export const NEXT_PLAN_OFFERS: readonly NextPlanOffer[] = [
   {
     id: NEXT_PRO_PLAN_ID,
-    priceUsdPerMonth: 100,
-    includedMachineMinutes: 150_000,
-    includedUsageUsd: 185,
-    maxRunningMachines: 32,
-    maxKeptMachines: 100,
-    maxSnapshots: 100,
+    priceUsdPerMonth: 50,
+    includedMachineMinutes: 75_000,
+    includedUsageUsd: 92.5,
+    maxRunningMachines: 16,
+    maxKeptMachines: 50,
+    maxSnapshots: 50,
     largestMachine: { vcpus: 8, memoryGib: 16 },
     maxDiskGib: 128,
   },

@@ -27,7 +27,7 @@ describe("cmux NEXT subscription plans", () => {
 
   test("a cmux-next lookup key, then checkout metadata, are the fallbacks", () => {
     expect(nextPlanIdForSubscription(subscription({ id: "p", lookup_key: "cmux-next-max-monthly-200" }), null, {})).toBe("next_max");
-    expect(nextPlanIdForSubscription(subscription({ id: "p", lookup_key: "cmux-next-pro-monthly-100" }), null, {})).toBe("next_pro");
+    expect(nextPlanIdForSubscription(subscription({ id: "p", lookup_key: "cmux-next-pro-monthly-50" }), null, {})).toBe("next_pro");
     expect(nextPlanIdForSubscription(subscription({ id: "p" }), { plan: "next_pro" }, {})).toBe("next_pro");
   });
 
