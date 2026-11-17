@@ -16,9 +16,11 @@
 #             build PACKAGE and its tests into LOG; the packages phase runs
 #             several of these at once before its serial test pass.
 #   probe-host  print this Mac's iOS simulator host readiness and exit, changing
-#             nothing: the selected Xcode and its version, `xcrun simctl runtime
-#             list` and the available runtime builds, free disk on the work
-#             volume, RAM and simslim. hq's ios-simulators role records the
+#             nothing (simctl may start CoreSimulatorService): one `probe-host
+#             KEY=VALUE` line each for host, os, ram_gib, work_volume_free_gib and
+#             work_volume_total_gib (the step's checkout volume), xcode_apps,
+#             xcode_select, developer_dir, xcodebuild, runtime_builds and simslim,
+#             then `xcrun simctl runtime list`. hq's ios-simulators role records the
 #             runtime builds it shows (mini-fleet.json ios_simulator_observed)
 #             for minis an operator cannot reach over SSH:
 #               cmux-ci run --class light --script scripts/ci/package-test-lane.sh \
@@ -85,7 +87,9 @@ if [ "${1:-}" = probe-host ]; then
   probe xcode_apps "$(cd /Applications 2>/dev/null && ls -d Xcode*.app 2>/dev/null | tr '\n' ' ' || true)"
   probe xcode_select "$(xcode-select -p 2>/dev/null || echo none)"
   probe developer_dir "${DEVELOPER_DIR:-unset}"
-  probe xcodebuild "$(xcodebuild -version 2>/dev/null | tr '\n' ' ' || echo none)"
+  # Capture, then flatten: a tool that prints and then fails keeps one line.
+  first_line() { local v; v=$("$@" 2>/dev/null) && [ -n "$v" ] && printf '%s' "$v" | tr '\n' ' ' || printf unreadable; }
+  if have xcodebuild; then probe xcodebuild "$(first_line xcodebuild -version)"; else probe xcodebuild none; fi
   if have xcrun && json=$(xcrun simctl list -j runtimes 2>/dev/null); then
     probe runtime_builds "$(printf '%s' "$json" | python3 -c 'import json, sys
 print(" ".join(r["buildversion"] + ("" if r.get("isAvailable") else "(unavailable)") for r in json.load(sys.stdin).get("runtimes", [])))' 2>/dev/null || echo unreadable)"
@@ -96,7 +100,7 @@ print(" ".join(r["buildversion"] + ("" if r.get("isAvailable") else "(unavailabl
   fi
   simslim=/Users/Shared/cmux-build-fleet/tools/bin/simslim
   if [ -x "$simslim" ]; then
-    probe simslim "$("$simslim" --version 2>/dev/null | head -n 1 || echo unreadable)"
+    probe simslim "$(first_line "$simslim" --version)"
   else
     probe simslim missing
   fi
