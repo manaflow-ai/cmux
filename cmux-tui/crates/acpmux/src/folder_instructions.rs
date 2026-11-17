@@ -565,7 +565,7 @@ pub(crate) fn read_whole_beneath(
 
 /// The start of `rel` beneath `cwd` (at most the cap and a few bytes) and its full size;
 /// `None` when it is not there as a regular file or holds only whitespace.
-fn readable(cwd: &Path, rel: &str) -> Option<(String, u64)> {
+pub(crate) fn readable(cwd: &Path, rel: &str) -> Option<(String, u64)> {
     let file = open_beneath(cwd, rel)?;
     let size = file.metadata().ok()?.len();
     // Never more than the cap and a little: a huge file must not fill memory.
