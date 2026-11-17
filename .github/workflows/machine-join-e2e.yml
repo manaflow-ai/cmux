@@ -133,10 +133,12 @@ jobs:
 
       # share: Xvfb (the host's virtual display and the viewer's own) and cmux-rd from the run's commit,
       # with the release features (cmux-rd-release.yml): Cisco's OpenH264, downloaded at run time, and the
-      # device hub link. cmux-rd-host is its own Cargo workspace.
+      # device hub link. cmux-rd-host is its own Cargo workspace. dbus-user-session gives the joined
+      # user's lingering user manager its session bus (/run/user/UID/bus), which the share's user
+      # units need; the runner image has none (run 44004680060: no bus after 30 s).
       - name: Install the share's display server
         if: inputs.share
-        run: sudo apt-get install -y xvfb
+        run: sudo apt-get install -y xvfb dbus-user-session
 
       - name: Build cmux-rd
         id: cmuxrd
@@ -236,7 +238,7 @@ jobs:
 
       # With share: the run's cmux-rd root-owned beside acpmux and linked where the host's user unit runs it
       # (~/.local/bin/cmux-rd, where a join installs it); the joined user's user manager running (lingering,
-      # as that user's ssh login would start it: `enable` installs and starts the host unit through it, and
+      # started explicitly so a failure names its reason, as that user's ssh login would start it: `enable` installs and starts the host unit through it, and
       # the host starts the virtual display through it); and a second disposable user for the viewer, with
       # its own empty home. Nothing of the share itself runs here. No secret here.
       - name: Prepare the share
@@ -267,18 +269,34 @@ jobs:
             "$JOIN_BASE/bin/cmux-rd" openh264-install
           # The X socket directory both displays use (the host's from :99, the viewer's :42).
           sudo install -d -o root -g root -m 1777 /tmp/.X11-unix
+          # What runs the user manager here: PID 1 and logind (one line each, in every run's log).
+          echo "pid 1: $(ps -o comm= -p 1); system: $(systemctl is-system-running 2>&1 || true); logind: $(systemctl is-active systemd-logind.service 2>&1 || true)"
+          systemctl is-active --quiet systemd-logind.service || sudo systemctl start systemd-logind.service
           sudo loginctl enable-linger "$JOIN_USER"
-          bus="/run/user/$JOIN_UID/bus"
+          # Lingering asks logind to start it; starting it here too says why when it cannot.
+          manager="user@$JOIN_UID.service"
+          started=0
+          sudo timeout 60 systemctl start "$manager" && started=1
+          # The manager's own socket, which `systemctl --user` connects to (the session bus is a separate
+          # package, dbus-user-session, which a machine need not have).
+          private="/run/user/$JOIN_UID/systemd/private"
           for _ in $(seq 1 60); do
-            [ -S "$bus" ] && break
+            [ -S "$private" ] && break
             sleep 0.5
           done
-          if [ ! -S "$bus" ]; then
-            echo "::error::the joined user's user manager did not start (no $bus after 30 s)"
+          if [ "$started" != 1 ] || [ ! -S "$private" ]; then
+            echo "::group::why the joined user's user manager is not running"
+            sudo timeout 20 systemctl status --no-pager --lines 20 systemd-logind.service "user-runtime-dir@$JOIN_UID.service" "$manager" || true
+            sudo timeout 20 journalctl -b --no-pager --lines 60 -u systemd-logind.service -u "user-runtime-dir@$JOIN_UID.service" -u "$manager" || true
+            sudo ls -la "/run/user/$JOIN_UID" "/run/user/$JOIN_UID/systemd" || true
+            echo "::endgroup::"
+            echo "::error::the joined user's user manager did not start (systemctl start $manager: $started, $private after 30 s: $([ -S "$private" ] && echo yes || echo no))"
             exit 1
           fi
+          bus="/run/user/$JOIN_UID/bus"
+          echo "user manager: running; session bus: $([ -S "$bus" ] && echo "$bus" || echo none)"
           sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
-            XDG_RUNTIME_DIR="/run/user/$JOIN_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+            XDG_RUNTIME_DIR="/run/user/$JOIN_UID" \
             systemctl --user is-system-running || true
 
       # With bench=deps: cmux-tui's sources and the webviews manifest copied for the disposable user, the
