@@ -397,7 +397,8 @@ extension AgentPaneTransport {
                     addedRoots += gestureRootsUsed.filter { !addedRoots.contains($0) }
                 }
             case .failure(let refusal):
-                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket)
+                let detail = refusal.reason == AgentPaneGitHubFolder.cloudOnlyReason ? AgentPaneModel.gitHubFolderCloudOnlyMessage : nil
+                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket, detail: detail, reason: refusal.reason)
             }
         }
         // The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.

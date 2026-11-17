@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextFocus
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -29,5 +30,15 @@ import Testing
         #expect(cache.moveBrowser(standIn.id, to: daemonTab))
         #expect(entry.tab.id.rawValue != daemonTab.id, "the premise: the moved page keeps its stand-in id")
         #expect(entry.key == daemonTab.id, "the toggle names a tab the focus model does not show")
+    }
+
+    /// The other order of the same hand-over (live loop on linear.app and github.com, 1 press in 200 each): the focus
+    /// model already shows the daemon's tab while the page's entry still answers its stand-in id. A toggle that names a
+    /// tab the window's topology does not hold names none, so the reducer takes the focused browser tab itself.
+    @Test func aToggleForATabTheTopologyDoesNotHoldNamesTheFocusedTab() {
+        var focus = FocusState()
+        focus.topology = FocusTopology(panes: [FocusTopology.Pane(id: "pane_1", tabs: [FocusTopology.Tab(id: "tab_44", kind: .browser)], selected: "tab_44")])
+        #expect(focus.focusModeTab(for: "tab_44") == "tab_44")
+        #expect(focus.focusModeTab(for: "pending_tab_1") == nil, "a stand-in id the focus model never saw: no toggle would run")
     }
 }
