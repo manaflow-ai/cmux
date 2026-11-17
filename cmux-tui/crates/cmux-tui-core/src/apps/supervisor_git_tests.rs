@@ -62,7 +62,7 @@ fn a_repository_installs_at_a_pinned_commit_after_its_consent_card_listing() {
     assert_eq!(card["reviewed"], false, "a repository not on the community list is not reviewed");
     assert_eq!(card["tier"], "unverified");
     assert_eq!(card["scopes"][0]["scope"], "workspace:read");
-    assert!(f.supervisor.inner.lock().unwrap().mirror.apps.get("octo/hello").is_none());
+    assert!(!f.supervisor.inner.lock().unwrap().mirror.apps.contains_key("octo/hello"));
 
     // Only the person's confirmed install installs.
     let refused = install_with_origin(&f, Origin::Cli).unwrap_err();
