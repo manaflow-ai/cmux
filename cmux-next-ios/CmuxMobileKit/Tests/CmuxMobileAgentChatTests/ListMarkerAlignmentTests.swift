@@ -107,7 +107,7 @@ import UIKit
     /// The row as drawn, on the chat's background, in both looks, attached to the result bundle for
     /// the PR's before and after. The cell is hosted in a window of the shot's look: outside a window
     /// its labels resolve `.label` in the light look whatever the cell's override (a dark shot drew
-    /// black text on black).
+    /// black text on black). The dark shot must have light text, so a blank capture fails.
     static func recordShots(category: UIContentSizeCategory) {
         for style in [UIUserInterfaceStyle.dark, .light] {
             guard let cell = try? cell(width: 350, category: category, style: style) else { continue }
@@ -120,8 +120,16 @@ import UIKit
             window.layoutIfNeeded()
             let format = UIGraphicsImageRendererFormat()
             format.scale = 3
-            let image = UIGraphicsImageRenderer(bounds: rect, format: format).image { _ in
-                window.drawHierarchy(in: rect, afterScreenUpdates: true)
+            // `drawHierarchy` draws nothing in the test host (a transparent image), so render the
+            // layer tree, each label drawn again under the window's look.
+            for label in cell.contentView.subviews.compactMap({ $0 as? UILabel }) {
+                label.setNeedsDisplay()
+                label.layer.displayIfNeeded()
+            }
+            let image = UIGraphicsImageRenderer(bounds: rect, format: format).image { context in
+                (style == .dark ? UIColor.black : UIColor.white).setFill()
+                context.fill(rect)
+                window.traitCollection.performAsCurrent { cell.layer.render(in: context.cgContext) }
             }
             window.isHidden = true
             if style == .dark {
