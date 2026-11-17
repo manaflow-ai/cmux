@@ -202,4 +202,17 @@ mod tests {
         let rate = 230_400.0 / 8_333.0;
         assert!(late as f64 <= (rate * BURST_US as f64 / 1152.0).ceil() + 1.0, "{late}");
     }
+
+    #[test]
+    fn clearing_after_an_outage_drops_stale_frames_before_the_newest() {
+        let mut p = Pacer::new();
+        p.push_frame(vec![vec![1; 1152]; 10], 10_000_000, 16_667, 0);
+        assert!(p.due(0).len() < 10);
+        p.push_frame(vec![vec![2; 1152]], 10_000_000, 16_667, 1_000);
+        p.clear();
+        p.push_frame(vec![vec![9; 1152]], 10_000_000, 16_667, 2_000);
+        let due = p.due(2_000);
+        assert_eq!(due, vec![vec![9; 1152]]);
+        assert_eq!(p.queued_bytes(), 0);
+    }
 }

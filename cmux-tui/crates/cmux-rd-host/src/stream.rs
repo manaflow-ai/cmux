@@ -93,6 +93,8 @@ pub struct MediaSession {
     frame_interval_us: u64,
     /// Timing lines of frames still in the pacer: datagrams left, the line without `sent_us`.
     paced_logs: VecDeque<(usize, serde_json::Value)>,
+    /// After an outage, replace any frame waiting in the link with the newest encoded frame.
+    send_newest_after_outage: bool,
 }
 
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
@@ -297,6 +299,7 @@ impl MediaSession {
             pacer: pacing_enabled().then(Pacer::new),
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
+            send_newest_after_outage: false,
         })
     }
 
@@ -512,11 +515,12 @@ impl MediaSession {
         // its one-slot completion channel until that queue drains instead of
         // turning queue pressure into an acknowledgement-shaped backlog.
         if self.pacer.as_ref().is_some_and(|pacer| !pacer.is_empty())
-            || carrier_send_queue_busy(carrier)
+            || (carrier_send_queue_busy(carrier) && !self.send_newest_after_outage)
         {
             return Ok(());
         }
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
+        self.send_newest_after_outage = false;
         let frame = result?;
         // Logged after the send, with the send time (`sent_us`).
         let logged = self.timing.is_some().then(|| {
@@ -605,6 +609,16 @@ impl MediaSession {
         send_output_datagrams(carrier, &out.datagrams, |datagram, departed_us| {
             self.engine.datagram_sent(datagram, departed_us);
         });
+        if out.outage_ended.is_some() {
+            // Datagrams released after a radio hold belong to frames that are already stale.
+            // Drop the paced backlog and let the next encoded frame replace the link's waiting
+            // frame once, even when the bounded queue still reports one frame in flight.
+            if let Some(pacer) = self.pacer.as_mut() {
+                pacer.clear();
+            }
+            self.paced_logs.clear();
+            self.send_newest_after_outage = true;
+        }
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
             let _ = self.desktop.release_all();
