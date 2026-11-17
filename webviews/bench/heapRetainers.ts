@@ -16,6 +16,8 @@ export type Retainers = {
   lines: string[];
 };
 
+const PLACE_DEPTH = Number(process.env.HEAP_PLACE_DEPTH ?? 1);
+
 export function retainers(s: Snapshot, { minBytes = 512 * 1024, depth = 14 } = {}): Retainers {
   const { nodes, edges, strings, nf, ef, nodeTypes, edgeTypes } = s;
   const n = nodes.length / nf;
@@ -194,8 +196,11 @@ export function retainers(s: Snapshot, { minBytes = 512 * 1024, depth = 14 } = {
         continue;
       }
       const at = prefix[v] ?? "";
-      if (elementLike.has(edges[e]!) || at.split(".").length > 10) placeOf[w] = placeId(`${at}[]`);
-      else prefix[w] = `${at}.${edgeName(e).slice(0, 30)}`;
+      // HEAP_PLACE_DEPTH (default 1): how many collections a place goes through before it ends.
+      const element = elementLike.has(edges[e]!);
+      const through = element ? at.split("[]").length : 0;
+      if ((element && through >= PLACE_DEPTH) || at.split(".").length > 14) placeOf[w] = placeId(`${at}[]`);
+      else prefix[w] = element ? `${at}[]` : `${at}.${edgeName(e).slice(0, 30)}`;
     }
     prefix[v] = undefined;
   }
