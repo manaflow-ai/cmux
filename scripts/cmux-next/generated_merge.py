@@ -52,8 +52,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 GUARD = "scripts/ci/generated_files_guard.py"
 SDK_MANIFEST = ".cmux-sdk-manifest.json"
-# Written beside the manifest by the same SDK run (sync-resource-api.py), never listed in it.
-SDK_SIDECARS = {SDK_MANIFEST, ".cmux-resource-api.json"}
+# The manifest itself, written beside the files it lists, never listed in it.
+SDK_SIDECARS = {SDK_MANIFEST}
 GENERATED_DRIVER = "cmux-generated-v1"
 # The semantic drivers a `line` family may name instead of git's line merge (.gitattributes).
 LINE_DRIVERS = {"unspecified", "cmux-insertions-v1", "cmux-baseline-v1", "cmux-capabilities-v1"}
@@ -95,7 +95,6 @@ def in_dir(directory: str, *command: str) -> tuple[str, ...]:
 PY = "python3"
 SDK = (
     (PY, "cmux-tui/bindings/codegen/generate.py", "--write"),
-    (PY, "cmux-tui/bindings/rust/scripts/sync-resource-api.py"),
 )
 CLOUD = (in_dir("backend/packages/protocol", "bun", "scripts/export-client.ts"),
          in_dir("backend/packages/protocol", "bun", "scripts/export-rust-client.ts"))
@@ -138,7 +137,7 @@ REGENERATE: dict[str, Regen] = {
     "schemas/defaults/cmux-next.json": here((PY, "scripts/ci/defaults_guard.py", "snapshot")),
     "web/data/cmux-shortcuts.generated.json": here(("bun", "web/scripts/export-docs-shortcuts.ts")),
     "cmux-tui/crates/cmux-app-host/generated/*": here(("bun", "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts")),
-    "cmux-tui/bindings/*/.cmux-resource-api.json": here(*SDK),
+    "cmux-tui/bindings/*.cmux-sdk-manifest.json": here(*SDK),
     "clients/ts/cloud/src/generated.ts": here(*CLOUD),
     "scripts/ghosttykit-checksums.txt": autofix("the base autofix's GhosttyKit pin"),
     "scripts/lint-namespace-types-ratchet.txt": autofix("base-autofix.sh's namespace ratchet step; merges entry by entry",
