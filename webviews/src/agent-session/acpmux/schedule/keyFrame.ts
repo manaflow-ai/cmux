@@ -9,24 +9,41 @@
  * frame, once, and the key's frame paints the composer alone. The stream loses one intermediate state per
  * key, never a frame and never text: its next frame draws everything that arrived.
  *
- * Capture-phase listeners on the window, installed once on first use; nothing runs between keys.
+ * Every agent chat page shares one renderer and so one main thread (CEFSwitches.swift
+ * `processPerSitePageSchemes`): a key typed in one chat also waited behind every other chat's stream
+ * commit in that frame. The page that takes the key says so on a same-origin BroadcastChannel, and
+ * every other chat page's stream work waits that frame too.
+ *
+ * Capture-phase listeners on the window and one channel, installed once on first use; nothing runs
+ * between keys.
  */
 
 /** A key handled this long before a frame's start makes it that key's frame (one 60 Hz interval). */
 export const KEY_FRAME_MS = 17;
 
 const KEY_EVENTS = ["keydown", "beforeinput", "compositionupdate"] as const;
+const CHANNEL = "cmux-agent-key-frame";
 
 let lastKeyAt = Number.NEGATIVE_INFINITY;
 let listening = false;
 
 function listen(): void {
-  if (listening || typeof window === "undefined" || typeof performance === "undefined") return;
+  if (listening || typeof performance === "undefined") return;
   listening = true;
-  const mark = () => {
+  const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel(CHANNEL) : undefined;
+  if (channel) channel.onmessage = keyInAnotherPage;
+  // One post per key: `beforeinput` and `compositionupdate` follow their keydown in the same interval.
+  const mark = (event: Event) => {
     lastKeyAt = performance.now();
+    if (event.type === "keydown") channel?.postMessage(0);
   };
+  if (typeof window === "undefined") return;
   for (const type of KEY_EVENTS) window.addEventListener(type, mark, { capture: true, passive: true });
+}
+
+/** Another chat page of this renderer took a key (its channel message): this page's next frame is that key's. */
+export function keyInAnotherPage(): void {
+  lastKeyAt = performance.now();
 }
 
 /** Whether a key was handled within KEY_FRAME_MS before `frameTime` (a rAF timestamp). */

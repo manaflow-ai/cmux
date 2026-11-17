@@ -4,7 +4,7 @@
 // text be drawn fast".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { nextFrame } from "./direct";
-import { KEY_FRAME_MS, keyFrame, noteKeyForTest } from "./schedule/keyFrame";
+import { KEY_FRAME_MS, keyFrame, keyInAnotherPage, noteKeyForTest } from "./schedule/keyFrame";
 
 type Frame = (time: number) => void;
 let frames: Map<number, Frame>;
@@ -71,6 +71,17 @@ describe("key frame", () => {
     tick(1000);
     noteKeyForTest(1010);
     tick(1016);
+    expect(runs).toBe(1);
+    cancel();
+  });
+
+  test("a key typed in another chat page of the renderer keeps this page's stream out of that frame", () => {
+    let runs = 0;
+    const cancel = nextFrame(() => (runs += 1));
+    keyInAnotherPage();
+    tick(performance.now() + 1);
+    expect(runs).toBe(0);
+    tick(performance.now() + 18);
     expect(runs).toBe(1);
     cancel();
   });
