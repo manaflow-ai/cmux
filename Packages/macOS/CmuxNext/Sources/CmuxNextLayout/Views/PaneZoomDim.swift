@@ -12,14 +12,14 @@ import Foundation
 struct PaneZoomDim {
     enum Phase {
         /// No dim shows.
-        case none
+        case off
         /// The dim comes over the layout before a zoom; the zoom shows when ``remaining`` is spent.
         case coming
         /// The dim goes over the layout an unzoom showed; it leaves when ``remaining`` is spent.
         case going
     }
 
-    var phase: Phase = .none
+    var phase: Phase = .off
     /// Seconds of frame time left in the phase.
     var remaining: TimeInterval = 0
     /// The pane an unzoom gives its place back to: the dim comes with the frame that shows that unzoom.

@@ -240,7 +240,7 @@ final class ScreenContentView: NSView {
             let returning = unzooming && dimsOthers && !zoomCameUndimmed && !frameInput.snapWaitsForContent && self.layout.panes.count == 1
                 ? self.layout.panes.first : nil
             // A zoom while an unzoom's dim still goes takes that dim over from the strength it shows (`beginZoomDim`).
-            if zooming, zoomDim.phase == .going { (zoomDim.phase, zoomDim.remaining) = (.none, 0) } else { endZoomDim() }
+            if zooming, zoomDim.phase == .going { (zoomDim.phase, zoomDim.remaining) = (.off, 0) } else { endZoomDim() }
             zoomDim.returning = returning
         }
         self.layout = layout

@@ -48,9 +48,9 @@ extension ScreenContentView {
 
     /// One frame tick of the dim's time. A dim that goes leaves when its fade is over. Returns whether a dim shows.
     func stepZoomDim(_ dt: Double) -> Bool {
-        guard zoomDim.phase != .none else { return false }
+        guard zoomDim.phase != .off else { return false }
         zoomDim.remaining -= dt
         if zoomDim.phase == .going, zoomDim.remaining <= 0 { endZoomDim() }
-        return zoomDim.phase != .none
+        return zoomDim.phase != .off
     }
 }
