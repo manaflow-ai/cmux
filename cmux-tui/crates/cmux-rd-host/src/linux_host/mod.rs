@@ -944,9 +944,9 @@ fn run(args: &Args) -> Res<()> {
         );
         match after {
             AfterLink::Idle => {}
-            AfterLink::Kept(_, ws) => {
+            AfterLink::Kept(id, ws) => {
                 eprintln!(
-                    "linux-host: a new hub link is up and the hub has the session on; it goes on"
+                    "linux-host: a new hub link is up and the hub has session {id} on; it goes on"
                 );
                 next = Some(ws);
             }
