@@ -150,14 +150,18 @@ export async function checkAppleDelivery(input: {
   readonly readHealth: HealthReader;
   readonly clock: NightlyClock;
   readonly environment: string;
+  /** How long Apple may take to attempt delivery (default 5 min). */
   readonly timeoutMs?: number;
+  /** How long the ledger may take to show it once Apple delivered (default 1 min). */
+  readonly ledgerTimeoutMs?: number;
   readonly intervalMs?: number;
 }): Promise<DeliveryReport> {
   const { client, readHealth, clock, environment } = input;
   const timeoutMs = input.timeoutMs ?? 5 * 60_000;
+  const ledgerTimeoutMs = input.ledgerTimeoutMs ?? 60_000;
   const intervalMs = input.intervalMs ?? 10_000;
   const started = clock.now();
-  const deadline = started + timeoutMs;
+  let deadline = started + timeoutMs;
   let notificationUuid: string | null = null;
   let attempts: DeliveryReport["attempts"] = [];
   let appleDelivered = false;
@@ -220,9 +224,11 @@ export async function checkAppleDelivery(input: {
     return report("Apple's signed TEST payload carries no notification UUID");
   }
 
-  // 2. Our ledger's record of it. Apple counts a delivery only after our 200,
-  // which the route sends once the row is durable, so this is normally
-  // immediate; the wait covers a read replica that lags.
+  // 2. Our ledger's record of it, in the environment we asked for. Apple
+  // counts a delivery only after our 200, which the route sends once the row
+  // is durable, so this is normally immediate; its own short budget covers a
+  // read replica that lags, however late Apple's attempt came.
+  deadline = clock.now() + ledgerTimeoutMs;
   for (;;) {
     let answer: { status: number; body: unknown };
     try {
@@ -230,8 +236,13 @@ export async function checkAppleDelivery(input: {
     } catch (error) {
       answer = { status: 0, body: { error: describeError(error) } };
     }
-    const body = answer.body as { found?: unknown; receivedAt?: unknown; processedAt?: unknown } | null;
+    const body = answer.body as
+      | { found?: unknown; environment?: unknown; receivedAt?: unknown; processedAt?: unknown }
+      | null;
     if (answer.status === 200 && body?.found === true) {
+      if (body.environment !== environment) {
+        return report(`the ledger recorded ${notificationUuid} as ${String(body.environment)}, not ${environment}`);
+      }
       recorded = true;
       receivedAt = typeof body.receivedAt === "string" ? body.receivedAt : null;
       processedAt = typeof body.processedAt === "string" ? body.processedAt : null;
@@ -241,7 +252,7 @@ export async function checkAppleDelivery(input: {
       return report(`the health read answered HTTP ${answer.status} ${JSON.stringify(answer.body)}`);
     }
     if (!(await pause())) {
-      return report(`Apple delivered ${notificationUuid}, but it was not recorded in apple_notifications within ${Math.round(timeoutMs / 1000)} s (last health answer HTTP ${answer.status})`);
+      return report(`Apple delivered ${notificationUuid}, but it was not recorded in apple_notifications within ${Math.round(ledgerTimeoutMs / 1000)} s (last health answer HTTP ${answer.status})`);
     }
   }
 }

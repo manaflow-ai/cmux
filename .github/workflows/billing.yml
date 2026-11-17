@@ -29,6 +29,9 @@ on:
       - "scripts/ci/billing_lane.py"
       - "tests/test_ci_billing_lane.py"
       - "web/scripts/run-db-behavior-tests.sh"
+      - ".github/workflows/billing-nightly.yml"
+      - "scripts/ci/billing_nightly.py"
+      - "tests/test_ci_billing_nightly.py"
       - "docs/billing/**"
       - "web/services/billing/**"
       - "web/services/vms/entitlements.ts"
@@ -116,8 +119,10 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Test the lane's routing and selection
-        run: python3 tests/test_ci_billing_lane.py
+      - name: Test the lane's routing and selection, and the nightly's wiring
+        run: |
+          python3 tests/test_ci_billing_lane.py
+          python3 tests/test_ci_billing_nightly.py
 
       - name: Route billing jobs
         id: route

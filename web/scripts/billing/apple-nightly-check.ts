@@ -124,8 +124,8 @@ if (check === "delivery") {
     `### App Store Server API: ${bundleId}, ${environment}: ${report.ok ? "pass" : "FAIL"}`,
     "",
     report.ok
-      ? `The key authenticated and original transaction ${originalTransactionId} has Apple status ${report.status ?? "unknown"}.`
-      : `**Failure:** ${report.failure}`,
+      ? `The key authenticated and the configured Sandbox subscription has Apple status ${report.status ?? "unknown"}.`
+      : `**Failure:** ${report.failure?.replaceAll(originalTransactionId, "<configured transaction>")}`,
   ]);
   process.exit(report.ok ? 0 : 1);
 }

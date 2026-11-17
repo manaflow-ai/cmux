@@ -15,11 +15,12 @@ const findAppleTestNotification = mock(async (_uuid: string): Promise<Receipt | 
 });
 const captureBillingError = mock(() => {});
 
+// Only the database read is replaced; the route's UUID validator is the real one.
+const realHealth = await import("../services/billing/apple/notificationHealth");
+const { isAppleNotificationUuid } = realHealth;
 mock.module("../services/billing/apple/notificationHealth", () => ({
+  ...realHealth,
   findAppleTestNotification,
-  isAppleNotificationUuid: (value: unknown) =>
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
 }));
 mock.module("../services/errors", () => ({ captureBillingError }));
 
@@ -28,6 +29,7 @@ const { GET } = await import("../app/api/cron/apple-notifications/health/route")
 const TOKEN_ENV = "APPLE_NOTIFICATIONS_HEALTH_TOKEN";
 const original = { token: process.env[TOKEN_ENV], cron: process.env.CRON_SECRET };
 const UUID = "6f2a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+const HEALTH = "h".repeat(32);
 
 function request(query: string, authorization?: string): Request {
   return new Request(`https://cmux.test/api/cron/apple-notifications/health${query}`, {
@@ -46,6 +48,16 @@ afterEach(() => {
   }
 });
 
+describe("Apple notification UUID validator", () => {
+  test("accepts only one UUID", () => {
+    expect(isAppleNotificationUuid(UUID)).toBe(true);
+    expect(isAppleNotificationUuid(UUID.toUpperCase())).toBe(true);
+    for (const value of [null, undefined, 42, "", "not-a-uuid", `${UUID}x`, ` ${UUID}`, `${UUID}\n`, `${UUID}'--`, UUID.replaceAll("-", "")]) {
+      expect(isAppleNotificationUuid(value)).toBe(false);
+    }
+  });
+});
+
 describe("Apple notification health", () => {
   test("fails closed when the deployment has no health token", async () => {
     delete process.env[TOKEN_ENV];
@@ -56,30 +68,40 @@ describe("Apple notification health", () => {
     expect(findAppleTestNotification).not.toHaveBeenCalled();
   });
 
+  test("treats a token shorter than 32 characters as unset", async () => {
+    process.env[TOKEN_ENV] = "short-token";
+    const response = await GET(request(`?uuid=${UUID}`, "Bearer short-token"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "health_token_missing" });
+    expect(findAppleTestNotification).not.toHaveBeenCalled();
+  });
+
   test("rejects a missing, wrong, or cron token", async () => {
-    process.env[TOKEN_ENV] = "health";
+    process.env[TOKEN_ENV] = HEALTH;
     process.env.CRON_SECRET = "cron";
-    for (const authorization of [undefined, "Bearer wrong", "Bearer cron", "health", "Basic health"]) {
+    for (const authorization of [undefined, "Bearer wrong", "Bearer cron", HEALTH, `Basic ${HEALTH}`, `Bearer ${HEALTH}x`]) {
       const response = await GET(request(`?uuid=${UUID}`, authorization));
       expect(response.status).toBe(401);
+      expect(response.headers.get("cache-control")).toBe("no-store");
       expect(await response.json()).toEqual({ error: "unauthorized" });
     }
     expect(findAppleTestNotification).not.toHaveBeenCalled();
   });
 
   test("refuses anything but one notification UUID", async () => {
-    process.env[TOKEN_ENV] = "health";
+    process.env[TOKEN_ENV] = HEALTH;
     for (const query of ["", "?uuid=", "?uuid=not-a-uuid", `?uuid=${UUID}%27--`, `?uuid=${UUID}x`]) {
-      const response = await GET(request(query, "Bearer health"));
+      const response = await GET(request(query, `Bearer ${HEALTH}`));
       expect(response.status).toBe(400);
+      expect(response.headers.get("cache-control")).toBe("no-store");
       expect(await response.json()).toEqual({ error: "invalid_uuid" });
     }
     expect(findAppleTestNotification).not.toHaveBeenCalled();
   });
 
   test("reports a TEST notification that has not arrived", async () => {
-    process.env[TOKEN_ENV] = "health";
-    const response = await GET(request(`?uuid=${UUID}`, "Bearer health"));
+    process.env[TOKEN_ENV] = HEALTH;
+    const response = await GET(request(`?uuid=${UUID}`, `Bearer ${HEALTH}`));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({
@@ -93,13 +115,13 @@ describe("Apple notification health", () => {
   });
 
   test("reports only booleans, timestamps and the environment of a recorded one", async () => {
-    process.env[TOKEN_ENV] = "health";
+    process.env[TOKEN_ENV] = HEALTH;
     receipt = {
       receivedAt: new Date("2026-11-16T09:00:01.000Z"),
       processedAt: new Date("2026-11-16T09:00:02.000Z"),
       environment: "Sandbox",
     };
-    const response = await GET(request(`?uuid=${UUID}`, "Bearer health"));
+    const response = await GET(request(`?uuid=${UUID}`, `Bearer ${HEALTH}`));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       found: true,
@@ -111,10 +133,11 @@ describe("Apple notification health", () => {
   });
 
   test("answers a retryable 503 without detail when the lookup fails", async () => {
-    process.env[TOKEN_ENV] = "health";
+    process.env[TOKEN_ENV] = HEALTH;
     lookupError = new Error("connection refused at 10.0.0.5:5432");
-    const response = await GET(request(`?uuid=${UUID}`, "Bearer health"));
+    const response = await GET(request(`?uuid=${UUID}`, `Bearer ${HEALTH}`));
     expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({ error: "lookup_failed", retryable: true });
     expect(captureBillingError).toHaveBeenCalledTimes(1);
   });

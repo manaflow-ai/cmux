@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Helpers for .github/workflows/billing-nightly.yml.
 
-    billing_nightly.py config NAME...   # ready=true|false to $GITHUB_OUTPUT
-    billing_nightly.py alert --title T --workflow FILE
+    billing_nightly.py config --environment ENV NAME...   # ready=true|false to $GITHUB_OUTPUT
+    billing_nightly.py alert --title T --workflow FILE [--no-slack]
 
 `config` reads HAS_<NAME>=true|false for each NAME (the workflow sets them
 from `secrets.NAME != ''` or `vars.NAME != ''`, so no value reaches this
 script). A missing name makes the job skip with a summary naming what an
 operator must add to the `billing-nightly` environment; the night stays green.
+With everything present it also reads the environment's deployment-branch
+rule and fails unless it allows main alone: any workflow on any branch can
+name an environment, so that rule is what keeps the secrets on main.
 
 `alert` reads NEEDS (the workflow's `toJSON(needs)`). A failed or cancelled
 job makes the night red: it opens one issue with the given title, or rewrites
@@ -15,7 +18,8 @@ the open one's body, and the next green night closes it, as
 cloud-journey-prod.yml does. When the state changes (no open issue and red,
 or an open issue and green) it also posts one message to Slack through the
 notify-only CMUX_NOTIFY_TOKEN, as cloud-vm-canary.yml does. A missing token
-only warns: the issue is the record.
+or a failed post only warns: the issue is the record, and the night's verdict
+comes from the jobs alone. `--no-slack` (feat-cmux-next's file) skips Slack.
 """
 
 from __future__ import annotations
@@ -62,22 +66,52 @@ def _write(path_var: str, text: str) -> None:
             handle.write(text)
 
 
-def config(names: list[str]) -> int:
+def environment_allows_only_main(policy: dict | None, rules: list[list[str]] | None) -> bool:
+    """The deployment_branch_policy and its custom rules ([name, type]) allow the main branch alone."""
+    if not policy or not policy.get("custom_branch_policies") or policy.get("protected_branches"):
+        return False
+    return rules == [["main", "branch"]]
+
+
+def _environment_rule(environment: str) -> tuple[dict | None, list[list[str]] | None]:
+    repo = os.environ["GITHUB_REPOSITORY"]
+    policy = json.loads(_gh("api", f"repos/{repo}/environments/{environment}", "--jq", ".deployment_branch_policy") or "null")
+    rules = None
+    if policy and policy.get("custom_branch_policies"):
+        rules = json.loads(_gh("api", f"repos/{repo}/environments/{environment}/deployment-branch-policies",
+                               "--jq", '[.branch_policies[] | [.name, (.type // "branch")]]'))
+    return policy, rules
+
+
+def config(environment: str, names: list[str]) -> int:
     if not names:
         print(__doc__, file=sys.stderr)
         return 2
     missing = missing_config(dict(os.environ), names)
-    _write("GITHUB_OUTPUT", f"ready={'false' if missing else 'true'}\n")
     if missing:
+        _write("GITHUB_OUTPUT", "ready=false\n")
         text = (
             "### Skipped: not configured\n\n"
-            "Add these to the `billing-nightly` environment (Settings > Environments; deployment branches: "
-            "main only) to turn this check on: " + ", ".join(f"`{name}`" for name in missing) + ".\n"
+            f"Limit the `{environment}` environment's deployment branches to main (Settings > Environments), "
+            "then add these to it to turn this check on: " + ", ".join(f"`{name}`" for name in missing) + ".\n"
         )
         print(f"::notice title=Billing nightly check skipped::missing {', '.join(missing)}")
         _write("GITHUB_STEP_SUMMARY", text)
-    else:
-        print("configuration present")
+        return 0
+    try:
+        policy, rules = _environment_rule(environment)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        _write("GITHUB_OUTPUT", "ready=false\n")
+        print(f"::error::could not read the {environment} environment's deployment-branch rule: {error}")
+        return 1
+    if not environment_allows_only_main(policy, rules):
+        _write("GITHUB_OUTPUT", "ready=false\n")
+        print(f"::error::the {environment} environment holds secrets but its deployment branches are not main alone "
+              f"(policy {json.dumps(policy)}, rules {rules}); any branch's workflow could read them. "
+              "Restrict it to main in Settings > Environments.")
+        return 1
+    _write("GITHUB_OUTPUT", "ready=true\n")
+    print("configuration present; environment limited to main")
     return 0
 
 
@@ -86,6 +120,7 @@ def _gh(*args: str) -> str:
 
 
 def _notify(text: str) -> None:
+    """Posts to Slack; every failure is a warning, never the night's verdict."""
     token = os.environ.get("CMUX_NOTIFY_TOKEN", "").strip()
     if not token:
         print(f"::warning::CMUX_NOTIFY_TOKEN is not set in the billing-nightly environment; not posting: {text}")
@@ -97,12 +132,17 @@ def _notify(text: str) -> None:
         headers={"authorization": f"Bearer {token}", "content-type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
-        if not json.loads(response.read() or b"{}").get("ok"):
-            raise RuntimeError("the notify endpoint did not answer ok")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            ok = json.loads(response.read() or b"{}").get("ok")
+    except (OSError, ValueError) as error:
+        print(f"::warning::the Slack post failed ({error}); the issue still records the state")
+        return
+    if not ok:
+        print("::warning::the notify endpoint did not answer ok; the issue still records the state")
 
 
-def alert(title: str, workflow: str) -> int:
+def alert(title: str, workflow: str, slack: bool = True) -> int:
     needs = json.loads(os.environ["NEEDS"])
     run_url = os.environ["RUN_URL"]
     bad = red_jobs(needs)
@@ -117,7 +157,9 @@ def alert(title: str, workflow: str) -> int:
         _gh("issue", "edit", open_issue, "--body", issue_body(needs, run_url, workflow, datetime.now(timezone.utc)))
     elif plan["issue"] == "close":
         _gh("issue", "close", open_issue, "--comment", f"Green again ([run]({run_url})).")
-    if plan["slack"] == "red":
+    if not slack:
+        pass
+    elif plan["slack"] == "red":
         _notify(f":rotating_light: Billing nightly is red ({', '.join(bad)}). <{run_url}|run>")
     elif plan["slack"] == "green":
         _notify(f":white_check_mark: Billing nightly is green again. <{run_url}|run>")
@@ -128,10 +170,11 @@ def alert(title: str, workflow: str) -> int:
 
 
 def main(argv: list[str]) -> int:
-    if argv and argv[0] == "config":
-        return config(argv[1:])
-    if len(argv) == 5 and argv[0] == "alert" and argv[1] == "--title" and argv[3] == "--workflow":
-        return alert(argv[2], argv[4])
+    if len(argv) >= 3 and argv[0] == "config" and argv[1] == "--environment":
+        return config(argv[2], argv[3:])
+    if len(argv) in (5, 6) and argv[0] == "alert" and argv[1] == "--title" and argv[3] == "--workflow" \
+            and argv[5:] in ([], ["--no-slack"]):
+        return alert(argv[2], argv[4], slack=argv[5:] != ["--no-slack"])
     print(__doc__, file=sys.stderr)
     return 2
 

@@ -157,11 +157,38 @@ describe("Apple delivery round trip", () => {
       readHealth: health([notYet]).read,
       clock: clock(),
       environment: "Sandbox",
-      timeoutMs: 30_000,
+      ledgerTimeoutMs: 30_000,
       intervalMs: 10_000,
     });
     expect(report).toMatchObject({ ok: false, appleDelivered: true, recorded: false });
     expect(report.failure).toContain("not recorded");
+  });
+
+  test("gives the ledger its own budget however late Apple attempted", async () => {
+    const c = clock();
+    const reads = health([notYet, notYet, recorded]);
+    const report = await checkAppleDelivery({
+      client: client([{ sendAttempts: [] }, { sendAttempts: [] }, delivered]),
+      readHealth: reads.read,
+      clock: c,
+      environment: "Sandbox",
+      timeoutMs: 20_000,
+      ledgerTimeoutMs: 20_000,
+      intervalMs: 10_000,
+    });
+    expect(report.ok).toBe(true);
+    expect(reads.seen.length).toBe(3);
+  });
+
+  test("fails when the ledger has it under the other environment", async () => {
+    const report = await checkAppleDelivery({
+      client: client([delivered]),
+      readHealth: health([recorded]).read,
+      clock: clock(),
+      environment: "Production",
+    });
+    expect(report.ok).toBe(false);
+    expect(report.failure).toContain("as Sandbox, not Production");
   });
 
   test("stops at once on a health endpoint configuration error", async () => {

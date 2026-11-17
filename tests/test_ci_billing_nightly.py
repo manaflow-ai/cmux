@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import re
 import sys
@@ -86,8 +87,8 @@ class Workflow(unittest.TestCase):
         for job in ("apple-delivery", "apple-api"):
             block = self.jobs[job]
             with self.subTest(job=job):
-                self.assertIn("scripts/ci/billing_nightly.py config", block)
-                names = re.search(r"billing_nightly\.py config ([A-Z_ ]+)\n", block).group(1).split()
+                self.assertIn("scripts/ci/billing_nightly.py config --environment billing-nightly", block)
+                names = re.search(r"billing_nightly\.py config --environment billing-nightly ([A-Z_ ]+)\n", block).group(1).split()
                 for name in names:
                     self.assertRegex(block, rf"HAS_{name}: \$\{{\{{ (secrets|vars)\.{name} != '' \}}\}}")
                 # Each later step runs only when the configuration is present.
@@ -104,8 +105,16 @@ class Workflow(unittest.TestCase):
         self.assertIn("https://cmux.com/api/cron/apple-notifications/health", block)
         self.assertTrue(CHECK.is_file())
 
+    def test_secret_jobs_run_on_a_literal_runner(self) -> None:
+        for job in SECRET_JOBS:
+            with self.subTest(job=job):
+                runs_on = re.search(r"^    runs-on: (.*)$", self.jobs[job], re.MULTILINE).group(1)
+                self.assertNotIn("vars.", runs_on)
+
     def test_storekit_dispatches_feat_cmux_next(self) -> None:
         block = self.jobs["storekit"]
+        # Only a missing file skips; any other API error fails the job.
+        self.assertIn('grep -q "HTTP 404"', block)
         self.assertIn("gh workflow run billing-nightly.yml -R \"$GITHUB_REPOSITORY\" --ref feat-cmux-next", block)
         self.assertNotIn("secrets.", block.replace("secrets.GITHUB_TOKEN", ""))
 
@@ -121,17 +130,40 @@ class Script(unittest.TestCase):
         env = {"HAS_A": "true", "HAS_B": "false"}
         self.assertEqual(nightly.missing_config(env, ["A", "B", "C"]), ["B", "C"])
 
-    def test_config_writes_ready(self) -> None:
-        for env, ready in (({"HAS_A": "true"}, "true"), ({"HAS_A": "false"}, "false")):
-            with tempfile.NamedTemporaryFile("r", suffix=".out") as output, \
-                    tempfile.NamedTemporaryFile("r", suffix=".md") as summary, \
-                    mock.patch.dict(os.environ, {**env, "GITHUB_OUTPUT": output.name,
-                                                 "GITHUB_STEP_SUMMARY": summary.name}), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(nightly.config(["A"]), 0)
-                self.assertEqual(output.read(), f"ready={ready}\n")
-                if ready == "false":
-                    self.assertIn("`A`", summary.read())
+    def run_config(self, env: dict[str, str], rule) -> tuple[int, str, str, str]:
+        with tempfile.NamedTemporaryFile("r", suffix=".out") as output, \
+                tempfile.NamedTemporaryFile("r", suffix=".md") as summary, \
+                mock.patch.dict(os.environ, {**env, "GITHUB_OUTPUT": output.name, "GITHUB_STEP_SUMMARY": summary.name,
+                                             "GITHUB_REPOSITORY": "manaflow-ai/cmux"}), \
+                mock.patch.object(nightly, "_environment_rule", side_effect=rule), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            code = nightly.config("billing-nightly", ["A"])
+            return code, output.read(), summary.read(), out.getvalue()
+
+    def test_config_skips_green_while_secrets_are_missing(self) -> None:
+        code, output, summary, _ = self.run_config({"HAS_A": "false"}, AssertionError("not read"))
+        self.assertEqual((code, output), (0, "ready=false\n"))
+        self.assertIn("`A`", summary)
+
+    def test_config_is_ready_only_when_the_environment_allows_main_alone(self) -> None:
+        main_only = lambda _env: ({"custom_branch_policies": True, "protected_branches": False}, [["main", "branch"]])
+        self.assertEqual(self.run_config({"HAS_A": "true"}, main_only)[:2], (0, "ready=true\n"))
+        for policy, rules in ((None, None),
+                              ({"custom_branch_policies": False, "protected_branches": True}, None),
+                              ({"custom_branch_policies": True, "protected_branches": False}, [["main", "branch"], ["*", "branch"]]),
+                              ({"custom_branch_policies": True, "protected_branches": False}, [["main", "tag"]]),
+                              ({"custom_branch_policies": True, "protected_branches": False}, [])):
+            with self.subTest(policy=policy, rules=rules):
+                code, output, _, out = self.run_config({"HAS_A": "true"}, lambda _env, p=policy, r=rules: (p, r))
+                self.assertEqual((code, output), (1, "ready=false\n"))
+                self.assertIn("::error::", out)
+
+    def test_config_fails_closed_when_the_rule_cannot_be_read(self) -> None:
+        import subprocess
+        def broken(_env):
+            raise subprocess.CalledProcessError(1, ["gh"])
+        code, output, _, _ = self.run_config({"HAS_A": "true"}, broken)
+        self.assertEqual((code, output), (1, "ready=false\n"))
 
     def test_red_jobs(self) -> None:
         needs = {"suite": {"result": "success"}, "apple-api": {"result": "failure"},
@@ -143,6 +175,63 @@ class Script(unittest.TestCase):
         self.assertEqual(nightly.plan_alert(True, "12"), {"issue": "edit", "slack": ""})
         self.assertEqual(nightly.plan_alert(False, "12"), {"issue": "close", "slack": "green"})
         self.assertEqual(nightly.plan_alert(False, ""), {"issue": "", "slack": ""})
+
+    def run_alert(self, needs: dict, open_issue: str, slack: bool = True, notify=None):
+        calls: list[tuple[str, ...]] = []
+        def gh(*args: str) -> str:
+            calls.append(args)
+            return open_issue if args[:2] == ("issue", "list") else ""
+        posted: list[str] = []
+        with mock.patch.dict(os.environ, {"NEEDS": json.dumps(needs), "RUN_URL": "https://run"}), \
+                mock.patch.object(nightly, "_gh", side_effect=gh), \
+                mock.patch.object(nightly, "_notify", side_effect=notify or posted.append), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            code = nightly.alert("Billing nightly is red", "billing-nightly.yml", slack=slack)
+        return code, calls, posted, out.getvalue()
+
+    def test_alert_searches_the_exact_title(self) -> None:
+        _, calls, _, _ = self.run_alert({"suite": {"result": "success"}}, "")
+        search = calls[0]
+        self.assertEqual(search[:5], ("issue", "list", "--state", "open", "--search"))
+        self.assertIn('select(.title == "Billing nightly is red")', search[-1])
+
+    def test_red_night_opens_an_issue_posts_and_fails(self) -> None:
+        code, calls, posted, out = self.run_alert({"suite": {"result": "failure"}, "storekit": {"result": "success"}}, "")
+        self.assertEqual(code, 1)
+        self.assertEqual(calls[1][:4], ("issue", "create", "--title", "Billing nightly is red"))
+        self.assertEqual(len(posted), 1)
+        self.assertIn("suite", posted[0])
+        self.assertIn("::error::", out)
+
+    def test_later_red_rewrites_the_open_issue_quietly(self) -> None:
+        code, calls, posted, _ = self.run_alert({"apple-api": {"result": "cancelled"}}, "77")
+        self.assertEqual(code, 1)
+        self.assertEqual(calls[1][:3], ("issue", "edit", "77"))
+        self.assertEqual(posted, [])
+
+    def test_green_night_closes_the_issue_and_says_so(self) -> None:
+        code, calls, posted, _ = self.run_alert({"suite": {"result": "success"}, "storekit": {"result": "skipped"}}, "77")
+        self.assertEqual(code, 0)
+        self.assertEqual(calls[1][:3], ("issue", "close", "77"))
+        self.assertEqual(len(posted), 1)
+
+    def test_no_slack_skips_the_post(self) -> None:
+        _, _, posted, _ = self.run_alert({"suite": {"result": "failure"}}, "", slack=False)
+        self.assertEqual(posted, [])
+
+    def test_a_slack_failure_never_changes_the_verdict(self) -> None:
+        import urllib.error
+        def boom(*_args, **_kwargs):
+            raise urllib.error.URLError("down")
+        with mock.patch.dict(os.environ, {"CMUX_NOTIFY_TOKEN": "t", "CMUX_NOTIFY_URL": "https://notify",
+                                          "CMUX_NOTIFY_CHANNEL": "C"}), \
+                mock.patch.object(nightly.urllib.request, "urlopen", side_effect=boom), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            nightly._notify("hello")
+        self.assertIn("::warning::", out.getvalue())
+        with mock.patch.dict(os.environ, {"CMUX_NOTIFY_TOKEN": ""}), contextlib.redirect_stdout(io.StringIO()) as out:
+            nightly._notify("hello")
+        self.assertIn("::warning::", out.getvalue())
 
     def test_issue_body_lists_every_job(self) -> None:
         body = nightly.issue_body({"suite": {"result": "failure"}, "storekit": {"result": "success"}},

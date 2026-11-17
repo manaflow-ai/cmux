@@ -8,6 +8,7 @@ import { captureBillingError } from "../../../../../services/errors";
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "cache-control": "no-store" };
+const MIN_TOKEN_LENGTH = 32;
 
 /**
  * Whether an App Store TEST notification reached the ledger, for the Billing
@@ -16,12 +17,16 @@ const NO_STORE = { "cache-control": "no-store" };
  *
  * `GET ?uuid=<notificationUUID>` with `Authorization: Bearer
  * <APPLE_NOTIFICATIONS_HEALTH_TOKEN>`. Its own token, not CRON_SECRET, so the
- * CI job that holds it can read this and run no cron. Unset, it answers 503.
+ * CI job that holds it can read this and run no cron. Unset or shorter than
+ * 32 characters, it answers 503.
  * Only TEST rows answer, with booleans, timestamps and the environment;
  * never a payload, transaction or error text.
  */
 export async function GET(request: Request): Promise<Response> {
-  const auth = authorizeBearerSecret(request, process.env.APPLE_NOTIFICATIONS_HEALTH_TOKEN);
+  // The route has no rate limit, so the token's entropy is the whole defense:
+  // a short one counts as unset (generate it with `openssl rand -hex 32`).
+  const configured = process.env.APPLE_NOTIFICATIONS_HEALTH_TOKEN?.trim() ?? "";
+  const auth = authorizeBearerSecret(request, configured.length >= MIN_TOKEN_LENGTH ? configured : undefined);
   if (!auth.ok) {
     return auth.reason === "secret_missing"
       ? Response.json({ error: "health_token_missing" }, { status: 503, headers: NO_STORE })

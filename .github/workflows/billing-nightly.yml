@@ -25,13 +25,17 @@ name: Billing nightly
 #   cloud-journey-prod.yml does; and one Slack message to #cmux-automations
 #   when the state changes, as cloud-vm-canary.yml does.
 #
-# Secrets live in the `billing-nightly` environment (deployment branches: main
-# only). Until an operator adds them, the Apple jobs skip with a summary that
-# names what is missing, and the night stays green:
+# Secrets live in the `billing-nightly` environment. An operator first limits
+# its deployment branches to main, then adds the secrets: any workflow on any
+# branch can name an environment, so that rule is the real boundary, and the
+# config step fails the job when secrets are present without it. Until the
+# secrets exist, the Apple jobs skip with a summary that names what is
+# missing, and the night stays green:
 #   APPLE_IAP_KEY_ID, APPLE_IAP_ISSUER_ID, APPLE_IAP_PRIVATE_KEY: the server's
 #     In-App Purchase key (docs/billing/ios-in-app-purchases.md, "Server env").
 #   APPLE_NOTIFICATIONS_HEALTH_TOKEN: the same value as the production web
-#     deployment's APPLE_NOTIFICATIONS_HEALTH_TOKEN.
+#     deployment's APPLE_NOTIFICATIONS_HEALTH_TOKEN (`openssl rand -hex 32`;
+#     the route refuses a token shorter than 32 characters).
 #   CMUX_NOTIFY_TOKEN: the notify-only token cloud-vm-canary.yml uses.
 #   Variable APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID: a Sandbox subscription
 #     of com.cmux.app to look up (apple-api skips without it).
@@ -45,10 +49,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: billing-nightly-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   suite:
@@ -66,10 +66,11 @@ jobs:
       fail-fast: false
       matrix:
         environment: [Sandbox, Production]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     environment: billing-nightly
     permissions:
+      actions: read # read the environment's deployment-branch rule
       contents: read
     defaults:
       run:
@@ -88,7 +89,8 @@ jobs:
           HAS_APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID != '' }}
           HAS_APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY != '' }}
           HAS_APPLE_NOTIFICATIONS_HEALTH_TOKEN: ${{ secrets.APPLE_NOTIFICATIONS_HEALTH_TOKEN != '' }}
-        run: python3 scripts/ci/billing_nightly.py config APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_NOTIFICATIONS_HEALTH_TOKEN
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/billing_nightly.py config --environment billing-nightly APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_NOTIFICATIONS_HEALTH_TOKEN
 
       - name: Setup Bun
         if: steps.config.outputs.ready == 'true'
@@ -119,15 +121,16 @@ jobs:
         run: |
           bun scripts/billing/apple-nightly-check.ts delivery \
             --environment "$ENVIRONMENT" --bundle-id com.cmux.app \
-            --health-url "$HEALTH_URL" --report "$RUNNER_TEMP/apple-delivery.json"
+            --health-url "$HEALTH_URL"
 
   apple-api:
     name: apple-api
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     environment: billing-nightly
     permissions:
+      actions: read # read the environment's deployment-branch rule
       contents: read
     defaults:
       run:
@@ -146,7 +149,8 @@ jobs:
           HAS_APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID != '' }}
           HAS_APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY != '' }}
           HAS_APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID: ${{ vars.APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID != '' }}
-        run: python3 scripts/ci/billing_nightly.py config APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/billing_nightly.py config --environment billing-nightly APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID
 
       - name: Setup Bun
         if: steps.config.outputs.ready == 'true'
@@ -175,7 +179,7 @@ jobs:
         run: |
           bun scripts/billing/apple-nightly-check.ts api \
             --environment Sandbox --bundle-id com.cmux.app \
-            --original-transaction-id "$ORIGINAL_TRANSACTION_ID" --report "$RUNNER_TEMP/apple-api.json"
+            --original-transaction-id "$ORIGINAL_TRANSACTION_ID"
 
   storekit:
     name: storekit
@@ -193,9 +197,14 @@ jobs:
         run: |
           set -euo pipefail
           # Until feat-cmux-next has its billing-nightly.yml, there is nothing to run.
-          if ! gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/billing-nightly.yml?ref=feat-cmux-next" --silent 2>/dev/null; then
-            echo "feat-cmux-next has no billing-nightly.yml yet; StoreKit suite skipped." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
+          # Only a 404 means the file is not there yet; any other error fails the job.
+          if ! out="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/billing-nightly.yml?ref=feat-cmux-next" --silent 2>&1)"; then
+            if grep -q "HTTP 404" <<< "$out"; then
+              echo "feat-cmux-next has no billing-nightly.yml yet; StoreKit suite skipped." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "::error::could not read feat-cmux-next's billing-nightly.yml: $out"
+            exit 1
           fi
           gh workflow run billing-nightly.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next
           echo "Dispatched billing-nightly.yml on feat-cmux-next; it reports the StoreKit suite in its own run and issue." >> "$GITHUB_STEP_SUMMARY"
@@ -204,7 +213,7 @@ jobs:
     name: alert
     needs: [suite, apple-delivery, apple-api, storekit]
     if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     environment: billing-nightly
     permissions:

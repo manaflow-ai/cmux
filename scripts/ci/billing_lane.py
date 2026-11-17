@@ -33,6 +33,10 @@ LANE_PATTERNS = (
     "scripts/ci/billing_lane.py",
     "tests/test_ci_billing_lane.py",
     "web/scripts/run-db-behavior-tests.sh",
+    # The nightly calls this lane; billing-changes runs its guard test.
+    ".github/workflows/billing-nightly.yml",
+    "scripts/ci/billing_nightly.py",
+    "tests/test_ci_billing_nightly.py",
 )
 
 WEB_PATTERNS = (
