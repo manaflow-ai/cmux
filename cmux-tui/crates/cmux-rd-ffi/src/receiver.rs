@@ -78,6 +78,10 @@ pub struct Receiver {
     arrivals: VecDeque<Arrival>,
     decode_us: VecDeque<u32>,
     keyframe_requested: bool,
+    /// The app asked for a keyframe ([`Self::request_keyframe`]). Silence on
+    /// the link never holds this request: a static page sends no frames, and
+    /// that is not an outage. Only the viewer's own recovery asks wait.
+    keyframe_asked: bool,
     /// The ready queue lost part of a reference chain: frames are dropped
     /// until a keyframe restarts the decoder.
     chain_broken: bool,
@@ -131,6 +135,7 @@ impl Receiver {
             arrivals: VecDeque::new(),
             decode_us: VecDeque::new(),
             keyframe_requested: false,
+            keyframe_asked: false,
             chain_broken: false,
             recovery_sent: false,
             last_recovery_request_us: None,
@@ -241,9 +246,11 @@ impl Receiver {
     /// Asks the host for a keyframe (a decode error or a frame gap). The
     /// request rides every feedback until a keyframe is released.
     pub fn request_keyframe(&mut self) {
-        // A new request goes out in the next feedback, not on the interval.
-        self.recovery_sent &= self.keyframe_requested;
+        // A new request goes out in the next feedback, not on the interval;
+        // so does one held while the link was quiet.
+        self.recovery_sent &= self.keyframe_requested && self.keyframe_asked;
         self.keyframe_requested = true;
+        self.keyframe_asked = true;
     }
 
     /// Whether the next feedback asks the host to recover.
@@ -272,12 +279,13 @@ impl Receiver {
             .map_or(0, |at| at.saturating_add(self.recovery_request_interval_us()))
     }
 
-    /// Whether a feedback sent at `now_us` asks for a keyframe: not while the
-    /// link is away (an outage, design D12), whose late frames are not lost.
+    /// Whether a feedback sent at `now_us` asks for a keyframe. The viewer's
+    /// own asks wait while the link is away (an outage, design D12), whose
+    /// late frames are not lost; the app's request never waits on silence.
     fn asks_recovery(&self, now_us: u64) -> bool {
         self.need_recovery()
             && now_us >= self.recovery_allowed_at()
-            && !self.reassembler.link_away(now_us)
+            && (self.keyframe_asked || !self.reassembler.link_away(now_us))
     }
 
     /// Counters for the status line.
@@ -482,6 +490,7 @@ impl Receiver {
             !tile && (frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE);
         if keyframe {
             self.keyframe_requested = false;
+            self.keyframe_asked = false;
             self.chain_broken = false;
             self.frames_skipped += self.ready.len() as u64;
             self.ready.clear();
