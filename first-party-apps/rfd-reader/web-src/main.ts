@@ -249,7 +249,7 @@ function decorateLinks(root: HTMLElement) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   const hits: Text[] = []
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    if (/\bRFD[\s-]?\d{1,4}\b/i.test(n.nodeValue ?? "") && !(n.parentElement?.closest("a, code, pre, h1"))) hits.push(n as Text)
+    if (/\bRFD[\s-]?\d{1,4}\b/i.test(n.nodeValue ?? "") && !(n.parentElement?.closest("a, code, pre, h1, h2, .docnum"))) hits.push(n as Text)
   }
   for (const t of hits) {
     const frag = document.createDocumentFragment()

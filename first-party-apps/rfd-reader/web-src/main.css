@@ -9,7 +9,7 @@
   --raise2: color-mix(in srgb, var(--text) 8%, var(--bg));
   --ok: #30a46c;
   --warm: #d6872b;
-  --measure: 72ch;
+  --measure: 680px;
   color-scheme: light dark;
 }
 * { box-sizing: border-box; }
@@ -164,7 +164,7 @@ body[data-variant="index"] .blocks .blk { grid-template-columns: minmax(0, var(-
 body[data-variant="index"] .thread { position: relative; border: 0; padding: 0; background: none; }
 body[data-variant="index"] .thread > summary { width: 22px; height: 22px; border-radius: 11px; background: color-mix(in srgb, var(--warm) 22%, var(--bg)); color: transparent; overflow: hidden; }
 body[data-variant="index"] .thread > summary::before { content: "💬"; color: var(--text); font-size: 11px; display: grid; place-items: center; width: 22px; height: 22px; }
-body[data-variant="index"] .thread[open] { position: absolute; right: 0; z-index: 3; width: 320px; transform: translateX(calc(100% - 28px)); }
+body[data-variant="index"] .thread[open] { position: absolute; right: 34px; top: 0; z-index: 3; width: 320px; }
 body[data-variant="index"] .thread[open] > :not(summary) { background: var(--bg); }
 body[data-variant="index"] .thread[open] { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16); }
 body[data-variant="index"] .thread[open] > summary { width: auto; height: auto; background: none; color: inherit; }
@@ -217,8 +217,8 @@ body[data-variant="directory"] .toc ol { display: flex; flex-wrap: wrap; gap: 2p
 /* B: contents as a sticky rail left of the text. */
 body[data-variant="index"] .docbody { display: grid; grid-template-columns: 190px minmax(0, 1fr); column-gap: 28px; align-items: start; }
 body[data-variant="index"] .toc { position: sticky; top: 0; padding-top: 4px; }
-body[data-variant="index"] .toc li { padding: 2px 0; }
+body[data-variant="index"] .toc li { padding-top: 2px; padding-bottom: 2px; }
 /* C: contents like a book's, under the title. */
-body[data-variant="focus"] .toc { max-width: var(--measure); margin: 0 auto 22px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
-body[data-variant="focus"] .toc li { padding: 1px 0; }
+body[data-variant="focus"] .toc { max-width: var(--measure); margin: 0 auto 22px; padding-left: 0; padding-right: 0; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+body[data-variant="focus"] .toc li { padding-top: 1px; padding-bottom: 1px; }
 body[data-variant="focus"] .fields, body[data-variant="focus"] .links, body[data-variant="focus"] .docmeta { max-width: var(--measure); }
