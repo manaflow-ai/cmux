@@ -235,21 +235,26 @@ export function useProcessRegistry(
   const on = live || running;
   // The window's calls as of now, for a read in flight; and the calls read for the chat so far.
   const calls = useRef<readonly string[]>([]);
-  calls.current = window?.calls ?? [];
+  const windowCalls = window?.calls;
   const endedWithin = window?.endedWithin;
   const asked = useRef<{ sessionId?: string; calls: Set<string> }>({ calls: new Set() });
-  if (asked.current.sessionId !== sessionId || !windowed) asked.current = { sessionId, calls: new Set() };
   // The processes this view saw run, for the chat: the tray may still show one as just ended, so
   // a window read after the whole list keeps it (`recentState` `held`).
   const seenRunning = useRef<{ sessionId?: string; ids: Set<string>; read?: readonly SessionInfoProcess[] }>({
     ids: new Set(),
   });
-  if (seenRunning.current.sessionId !== sessionId) seenRunning.current = { sessionId, ids: new Set() };
-  // Read once per new list, not per render.
-  if (state.sessionId === sessionId && seenRunning.current.read !== state.processes) {
-    seenRunning.current.read = state.processes;
-    for (const process of state.processes) if (process.state === "running") seenRunning.current.ids.add(process.id);
-  }
+  // The refs are written here, never in render, and only effects and reads in flight read them.
+  // Declared before the effects that read them, so it runs first on every commit.
+  useEffect(() => {
+    calls.current = windowCalls ?? [];
+    if (asked.current.sessionId !== sessionId || !windowed) asked.current = { sessionId, calls: new Set() };
+    if (seenRunning.current.sessionId !== sessionId) seenRunning.current = { sessionId, ids: new Set() };
+    // Read once per new list, not per render.
+    if (state.sessionId === sessionId && seenRunning.current.read !== state.processes) {
+      seenRunning.current.read = state.processes;
+      for (const process of state.processes) if (process.state === "running") seenRunning.current.ids.add(process.id);
+    }
+  }, [windowCalls, sessionId, windowed, state]);
   useEffect(() => {
     if (!source || !sessionId || !on) return;
     let current = true;

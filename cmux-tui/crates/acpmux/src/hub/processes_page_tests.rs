@@ -267,7 +267,7 @@ fn calls_read_their_processes_whatever_their_age() {
     let many: Vec<String> = (0..1_000).map(|n| format!("call-{n}")).collect();
     let reply = call_values(table.call_snapshot(&many), 100_000, |_| 0);
     let answered = reply["answered"].as_u64().unwrap() as usize;
-    assert!(answered >= 1 && answered < 1_000);
+    assert!((1..1_000).contains(&answered));
     assert_eq!(reply["processes"].as_array().unwrap().len(), answered);
     assert!(reply.to_string().len() < 100_000);
 }
