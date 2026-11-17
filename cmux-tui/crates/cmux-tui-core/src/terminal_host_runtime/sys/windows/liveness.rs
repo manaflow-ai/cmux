@@ -121,3 +121,75 @@ pub fn probe(path: &Path) -> io::Result<LeaseProbe> {
         None => LeaseProbe::Held,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
+
+    fn lease_path(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cmux-liveness-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("lease")
+    }
+
+    /// A handle opened with `FILE_FLAG_OVERLAPPED`: `LockFileEx` answers `ERROR_IO_PENDING`
+    /// while another handle holds the lock and the kernel finishes the call later, writing
+    /// into its OVERLAPPED. `lock_file` must wait for that, not return with the OVERLAPPED
+    /// still in the kernel's hands.
+    #[test]
+    fn a_waiting_lock_on_an_overlapped_handle_returns_holding_the_lock() {
+        let path = lease_path("overlapped");
+        let holder = acquire(&path, LeaseKind::Exclusive, false).unwrap().expect("first lease");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OVERLAPPED)
+            .open(&path)
+            .unwrap();
+        let (tx, rx) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+        let waiter = std::thread::spawn(move || {
+            let got = lock_file(&file, LeaseKind::Exclusive, true);
+            tx.send(got.map_err(|e| e.to_string())).unwrap();
+            // Holds the lock until the test has looked.
+            let _ = released.recv();
+            unlock_file(&file);
+        });
+        if let Ok(early) = rx.recv_timeout(Duration::from_millis(300)) {
+            panic!("lock_file returned {early:?} while another handle held the lock");
+        }
+        drop(holder);
+        let got = rx.recv_timeout(Duration::from_secs(10)).expect("lock_file returned");
+        assert_eq!(got, Ok(true));
+        assert_eq!(probe(&path).unwrap(), LeaseProbe::Held);
+        release.send(()).unwrap();
+        waiter.join().unwrap();
+        assert_eq!(probe(&path).unwrap(), LeaseProbe::Free);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// The same handle, not waiting: a held lock is a plain `Ok(false)`.
+    #[test]
+    fn a_try_lock_on_an_overlapped_handle_sees_a_held_lock() {
+        let path = lease_path("overlapped-try");
+        let _holder = acquire(&path, LeaseKind::Exclusive, false).unwrap().expect("first lease");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OVERLAPPED)
+            .open(&path)
+            .unwrap();
+        assert_eq!(
+            lock_file(&file, LeaseKind::Exclusive, false).map_err(|e| e.to_string()),
+            Ok(false)
+        );
+        drop((file, _holder));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+}
