@@ -14,6 +14,7 @@ const JOURNAL_WRITER: &str = "session journal writer";
 const OUTPUT_CLEANUP_WORKER: &str = "output cleanup worker";
 const STORE_WRITE: &str = "a write of the session's store";
 const REGISTRY_HOLD: &str = "a hold of the registry's lock";
+const LAST_PASS: &str = "output store: the last pass";
 
 /// How [`Mux::release_ownership`] ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,6 +279,13 @@ impl Mux {
         // Each thread that a bounded join left alive and that keeps this
         // owner, by name: its own threads, and the threads with no owner.
         alive.extend(stop_join::alive_at(self.stop_owner(), deadline));
+        // The last write of the output store is still to make (its stop
+        // left its writer, or that write left output of a terminal of the
+        // session in no file): no thread, and it keeps the session too. The
+        // owner's drop makes that write as the session's owner.
+        if self.output_store.last_write_is_missing() {
+            alive.push(LAST_PASS);
+        }
         // A join of the journal writer that ran out, in this shutdown or
         // before it: stderr is often lost, the record is not.
         let writer_join = self.journal_ingress.late_writer_join();

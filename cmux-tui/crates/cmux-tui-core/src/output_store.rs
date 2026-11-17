@@ -1125,32 +1125,6 @@ impl OutputStore {
             .collect()
     }
 
-    /// Store every terminal's output now (a journal checkpoint and quit):
-    /// the screen a respawn after a reboot gets is the screen at this point.
-    /// Only terminals with bytes not yet durable are visited (unwritten
-    /// bytes, an unsynced tail, or a pass they wait for): a quit with
-    /// hundreds of terminals does work for the ones that printed, not for
-    /// every terminal, while no daemon answers (quit_pass_tests.rs).
-    pub(crate) fn write_now(&self, mux: &Mux) {
-        if self.directory.is_none() {
-            return;
-        }
-        for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
-            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-            if !state.pending.is_empty() || state.tail_unsynced || state.force_snapshot {
-                state.dirty = true;
-            }
-        }
-        let policy = self.cached_policy().unwrap_or_else(|| {
-            PersistencePolicy::resolve(
-                std::env::var(PERSISTENCE_MODE_ENV).ok().as_deref(),
-                None,
-                None,
-            )
-        });
-        snapshot::final_pass(mux, self, policy);
-    }
-
     /// Record `log`'s measured resident bytes (`rows`: its history rows at
     /// the measurement, `None` on the alternate screen or when the terminal
     /// is gone) and move its share

@@ -4,13 +4,15 @@
 //! (`memory_budget.rs`), the snapshot and tail pass (`snapshot.rs`), or both.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use super::snapshot::write_pass;
-use super::{OutputStore, PersistencePolicy};
+use super::{LogState, OutputStore, PERSISTENCE_MODE_ENV, PersistenceMode, PersistencePolicy};
 use crate::Mux;
 use crate::mux::stop_join;
+use crate::resource::{ContentPublicId, TerminalPublicId};
 
 /// The writer's thread, in what the owner's release says of a thread that a
 /// stop left alive.
@@ -37,6 +39,10 @@ pub(super) struct Writer {
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// The thread that a stop left alive, for each later stop.
     left: Mutex<Option<Arc<std::thread::JoinHandle<()>>>>,
+    /// The store's last write is still to make: a stop that left the writer
+    /// made none, or the last one left output of a terminal of the session
+    /// in no file. The owner's release reads it and keeps the session.
+    last_write_missing: AtomicBool,
     /// The line that the store's stop wrote to stderr when it made no last
     /// write; a test reads it.
     #[cfg(test)]
@@ -130,15 +136,21 @@ impl OutputStore {
     /// Final write at quit, on the caller's thread: stop the writer, then
     /// make every terminal's unwritten bytes durable.
     ///
-    /// A stop that left the writer alive makes no last write (decision of
-    /// 2026-11-17): that write needs the pass lock, and a writer in a pass
-    /// holds it. That stop says so in one stderr line. Each later stop that
-    /// finds that thread alive makes no last write either, and has no line.
+    /// A stop that left the writer alive makes no last write: that write
+    /// needs the pass lock, and a writer in a pass holds it. That stop says
+    /// so in one stderr line. Each later stop that finds that thread alive
+    /// makes no last write either, and has no line. The write is then still
+    /// to make, and the owner's release keeps the session for it
+    /// ([`Self::last_write_is_missing`]).
     pub(crate) fn shutdown(&self, mux: &Mux) {
         if self.directory.is_none() {
             return;
         }
-        match self.writer.stop(self.directory().and_then(Path::parent)) {
+        let stop = self.writer.stop(self.directory().and_then(Path::parent));
+        if !matches!(stop, WriterStop::Ended) {
+            self.writer.last_write_missing.store(true, Ordering::Release);
+        }
+        match stop {
             WriterStop::Ended => {}
             WriterStop::LeftBefore => return,
             WriterStop::LeftNow => {
@@ -167,6 +179,105 @@ impl OutputStore {
             }
         }
         self.write_now(mux);
+    }
+
+    /// Store every terminal's output now (a journal checkpoint and quit):
+    /// the screen a respawn after a reboot gets is the screen at this point.
+    /// Only terminals with bytes not yet durable are visited (unwritten
+    /// bytes, an unsynced tail, or a pass they wait for): a quit with
+    /// hundreds of terminals does work for the ones that printed, not for
+    /// every terminal, while no daemon answers (quit_pass_tests.rs).
+    ///
+    /// An owner that gave its session up writes no file of it: after that
+    /// release this makes no write and no prune. An owner that keeps its
+    /// session makes this write as the session's owner.
+    pub(crate) fn write_now(&self, mux: &Mux) {
+        if self.directory.is_none() || mux.owner_release().is_released() {
+            return;
+        }
+        for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.waits_for_a_write() {
+                state.dirty = true;
+            }
+        }
+        let policy = self.cached_policy().unwrap_or_else(|| {
+            PersistencePolicy::resolve(
+                std::env::var(PERSISTENCE_MODE_ENV).ok().as_deref(),
+                None,
+                None,
+            )
+        });
+        super::snapshot::final_pass(mux, self, policy);
+    }
+
+    /// True when the store's last write is still to make: a stop that left
+    /// the writer made none, or the last [`Self::write_now`] left output of
+    /// a terminal of the session in no file. The owner's release reads it:
+    /// the lease is the last thing that an owner gives up, so an owner with
+    /// that write to make keeps its session, and makes the write at its
+    /// drop.
+    pub(crate) fn last_write_is_missing(&self) -> bool {
+        self.writer.last_write_missing.load(Ordering::Acquire)
+    }
+
+    /// True when output of a terminal of the session is in no file. Called
+    /// at the end of a last write, inside its hold of the pass lock.
+    ///
+    /// Not counted: a private terminal (its output goes to no file by
+    /// design), and a terminal that is not in the session, with no runtime
+    /// and no tab (no write takes its output, and the next owner has no
+    /// terminal that reads it).
+    ///
+    /// The locks, each taken alone, and each one that a pass takes for a log
+    /// in this order: the logs' map with each log's state, the private set,
+    /// then the session's state, one time and only when a log is left.
+    fn holds_unwritten_output(&self, mux: &Mux) -> bool {
+        let mut waiting: Vec<TerminalPublicId> = self
+            .logs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .filter(|log| {
+                log.state.lock().unwrap_or_else(PoisonError::into_inner).waits_for_a_write()
+            })
+            .map(|log| log.terminal_id.clone())
+            .collect();
+        waiting.retain(|terminal| self.known_privacy(terminal) != Some(true));
+        if waiting.is_empty() {
+            return false;
+        }
+        let state = mux.state.lock().unwrap_or_else(PoisonError::into_inner);
+        waiting.into_iter().any(|terminal| {
+            state.terminal_catalog.contains_key(&terminal)
+                || !state.placements_of_content(&ContentPublicId::Terminal(terminal)).is_empty()
+        })
+    }
+}
+
+impl LogState {
+    /// Output of this terminal is in no file yet: bytes that no write took,
+    /// a tail that no sync made durable, or a snapshot that a pass owes.
+    fn waits_for_a_write(&self) -> bool {
+        !self.pending.is_empty() || self.tail_unsynced || self.force_snapshot
+    }
+}
+
+/// Reads, at the end of a last write of the store, if that write is whole.
+/// The pass makes it right after it took the pass lock (`snapshot.rs`), so
+/// the read is at each end of that pass and inside its hold of the lock.
+pub(super) struct LastWrite<'a> {
+    pub(super) mux: &'a Mux,
+    pub(super) store: &'a OutputStore,
+    pub(super) mode: PersistenceMode,
+}
+
+impl Drop for LastWrite<'_> {
+    fn drop(&mut self) {
+        // Memory mode keeps no output in a file: no write of it is missing.
+        let missing =
+            self.mode != PersistenceMode::Memory && self.store.holds_unwritten_output(self.mux);
+        self.store.writer.last_write_missing.store(missing, Ordering::Release);
     }
 }
 
@@ -338,14 +449,10 @@ mod worker_tests {
         /// Whether the store's state of `terminal` says that output of it is
         /// in no file: bytes that no write took, a tail that no sync made
         /// durable, or a snapshot that a pass owes.
-        pub(crate) fn has_unwritten_output_of(
-            &self,
-            terminal: &crate::resource::TerminalPublicId,
-        ) -> bool {
+        pub(crate) fn has_unwritten_output_of(&self, terminal: &TerminalPublicId) -> bool {
             let logs = self.logs.lock().unwrap_or_else(PoisonError::into_inner);
             logs.get(terminal).is_some_and(|log| {
-                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-                !state.pending.is_empty() || state.tail_unsynced || state.force_snapshot
+                log.state.lock().unwrap_or_else(PoisonError::into_inner).waits_for_a_write()
             })
         }
     }
