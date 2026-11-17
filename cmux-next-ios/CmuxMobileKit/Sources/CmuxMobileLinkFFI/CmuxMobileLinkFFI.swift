@@ -3128,7 +3128,9 @@ public struct TerminalChatCandidate: Equatable, Hashable {
      */
     public var agentSessionId: String?
     /**
-     * A View Only chat (`watching`): it follows the transcript the terminal writes.
+     * A chat that follows the terminal (`watching`): it shows the transcript the terminal
+     * writes. Once the Mac's Toggle handed it to that terminal, the Mac sends into it there;
+     * a paired device does not (acpmux `remote.terminal_session`).
      */
     public var watching: Bool
     /**
@@ -3149,7 +3151,9 @@ public struct TerminalChatCandidate: Equatable, Hashable {
          * The harness's own session id it resumes or watches (`agentSessionId`).
          */agentSessionId: String?, 
         /**
-         * A View Only chat (`watching`): it follows the transcript the terminal writes.
+         * A chat that follows the terminal (`watching`): it shows the transcript the terminal
+         * writes. Once the Mac's Toggle handed it to that terminal, the Mac sends into it there;
+         * a paired device does not (acpmux `remote.terminal_session`).
          */watching: Bool, 
         /**
          * Its status (`closed` chats are skipped).
@@ -3335,7 +3339,7 @@ public struct TerminalChatFacts: Equatable, Hashable {
     public var running: Bool
     /**
      * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
-     * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
+     * make a watching chat of it for the phone (`remote.adopt_refused`: a remote device adopts
      * no local session). The chat face waits for a chat the Mac opens.
      */
     public var chatRefused: Bool
@@ -3356,7 +3360,7 @@ public struct TerminalChatFacts: Equatable, Hashable {
          */running: Bool, 
         /**
          * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
-         * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
+         * make a watching chat of it for the phone (`remote.adopt_refused`: a remote device adopts
          * no local session). The chat face waits for a chat the Mac opens.
          */chatRefused: Bool) {
         self.terminal = terminal

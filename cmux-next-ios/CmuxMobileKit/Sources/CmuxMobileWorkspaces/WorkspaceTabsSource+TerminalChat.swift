@@ -14,8 +14,12 @@ private let terminalChatLog = Logger(subsystem: "dev.cmux.mobile", category: "te
 /// of one harness session, instant both ways, mid-turn). A terminal opens on its terminal face
 /// until the person picks Chat (Leo, 2026-11-15).
 ///
-/// A terminal tab whose agent is Claude Code or Codex has two faces: its terminal and a View
-/// Only chat of the session its agent runs (the chat the Mac's Toggle opens, acpmux `watch`).
+/// A terminal tab whose agent is Claude Code or Codex has two faces: its terminal and the Mac's
+/// chat of the session its agent runs (the chat the Mac's Toggle opens, acpmux `watch`). Once the
+/// Mac's Toggle handed that chat to the terminal, the Mac sends into that terminal through it
+/// (Leo, 2026-11-14, "chat writable in both directions": "this is obviously what we need"). The
+/// phone reads it live; its send is refused with acpmux's words (`remote.terminal_session`, D13),
+/// since the terminal's agent asks for permission there, outside the remote floor.
 /// Both stay built while the tab is open (`TerminalChatPair`), so a swap is a flag flip: no
 /// reload, the chat's scroll kept. A chat tab of such a session has the same control; its
 /// terminal face is the terminal tab running the session.
@@ -41,9 +45,9 @@ extension WorkspaceTabsSource {
             .joined(separator: "|")
     }
 
-    /// The acpmux chat that shows terminal `tab`'s session: one of the Mac's (a View Only chat
-    /// first), else the one this phone had opened, else the one this phone kept on disk (a
-    /// relaunch with the Mac out of reach opens on its kept turns). Rust decides
+    /// The acpmux chat that shows terminal `tab`'s session: one of the Mac's (one that follows
+    /// the terminal first), else the one this phone had opened, else the one this phone kept on
+    /// disk (a relaunch with the Mac out of reach opens on its kept turns). Rust decides
     /// (`terminal_chat_pairing`), with whether to keep or forget the pairing.
     func chatPairing(_ tab: WorkspaceTab, in workspace: Workspace) -> TerminalChatPairing? {
         guard tab.kind == .terminal, let harness = tab.harness, let session = tab.linkIDs?.harnessSession else { return nil }
@@ -120,7 +124,7 @@ extension WorkspaceTabsSource {
             macID: workspace.macID, acpmuxSessionID: chatSession))
     }
 
-    /// The chat face needs a chat no chat of the Mac is: ask the Mac for its View Only chat, once
+    /// The chat face needs a chat no chat of the Mac is: ask the Mac for its chat of the session, once
     /// per session. A Mac that refuses a phone this (acpmux `remote.adopt_refused`) is not asked
     /// again; its terminals open on the terminal face, their chat face disabled with why.
     ///
@@ -158,13 +162,13 @@ extension WorkspaceTabsSource {
                     self?.openedTerminalChats[key] = chat
                     backend.keepTerminalChat(chat, harness: harness, session: session, on: macID)
                 case .refused:
-                    terminalChatLog.info("acpmux on \(macID, privacy: .public) makes no View Only chat for a phone")
+                    terminalChatLog.info("acpmux on \(macID, privacy: .public) makes no watching chat for a phone")
                     self?.terminalChatRefusingMacs.insert(macID)
                 }
             } catch {
                 // The terminal stays reachable: the tab falls back to it, and says why.
                 guard let self else { return }
-                terminalChatLog.error("view only chat failed: \(String(describing: error), privacy: .public)")
+                terminalChatLog.error("terminal chat failed: \(String(describing: error), privacy: .public)")
                 if self.chosenFaces[tabID] != .terminal { self.chosenFaces[tabID] = .terminal }
                 self.show(Self.message(error))
             }

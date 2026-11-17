@@ -177,6 +177,7 @@ async fn a_watched_chat_pages_its_watched_transcript() {
         offset: std::fs::metadata(&file).unwrap().len(),
         codex_items: false,
         open: None,
+        ..Default::default()
     });
     let start =
         crate::adopt_replay::newest_prompt_start(&file, crate::adopt_replay::PAGE_TURNS).unwrap();

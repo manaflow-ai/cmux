@@ -14,6 +14,9 @@ extension ChatSettings {
     /// `agents.chats.sessionRecap`.
     public nonisolated static let sessionRecapPath = ["agents", "chats", "sessionRecap"]
     public nonisolated static let sessionRecapDefault = true
+    /// `agents.chats.terminalChatWritable`: Off by default (Leo, 2026-11-15: "these are opt-in settings. If someone opts into it, it therefore only needs to like look good afterwards"). On: a chat Toggle Terminal and Chat hands to a cmux terminal keeps its composer; what it sends goes into that terminal's Claude Code or Codex, and Stop stops the terminal's turn (cmux-tui acpmux hub/bridge.rs, hub/terminal_input.rs). Off: the chat is a View Only watch, as before; turning it off unbinds every such chat at once (hub/release_to_watch.rs).
+    public nonisolated static let terminalChatWritablePath = ["agents", "chats", "terminalChatWritable"]
+    public nonisolated static let terminalChatWritableDefault = false
     /// `agents.chats.coldArchive`: Off by default (Leo, 2026-11-09: "potentially auto compress old history to save disk? some sort of cold archival thing"). On: the acpmux daemon moves the log of every chat idle for coldArchiveAfterDays into one zstd file and keeps a preview (title, last messages, sizes) in the chat list; opening the chat brings the log back byte for byte (cmux-tui acpmux hub/cold_archive.rs, read from the settings file at each pass).
     public nonisolated static let coldArchivePath = ["agents", "chats", "coldArchive"]
     public nonisolated static let coldArchiveDefault = false
@@ -72,6 +75,16 @@ nonisolated enum ChatSettingsSchema {
                 kind: .toggle,
                 default: .bool(ChatSettings.sessionRecapDefault),
                 keywords: ["agents", "chats", "recap", "summary", "away", "claude"]
+            ),
+            SettingDescriptor(
+                ChatSettings.terminalChatWritablePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.chats.terminalChatWritable", "Write to a Chat a Terminal Runs"),
+                help: SettingsText.keyed("settings.chats.terminalChatWritable.help", "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it."),
+                kind: .toggle,
+                default: .bool(ChatSettings.terminalChatWritableDefault),
+                keywords: ["agents", "chats", "terminal", "toggle", "composer", "writable", "claude", "codex"]
             ),
             SettingDescriptor(
                 ChatSettings.coldArchivePath,

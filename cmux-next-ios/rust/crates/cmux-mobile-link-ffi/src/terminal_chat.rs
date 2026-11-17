@@ -14,6 +14,12 @@
 //! - which of the Mac's acpmux chats already shows a harness session, so the phone
 //!   shows that one instead of asking for another ([`terminal_chat_session`]).
 //!
+//! A chat the Mac's Toggle handed to a terminal stays writable on the Mac (Leo, 2026-11-14,
+//! answering "chat writable in both directions": "this is obviously what we need"): the Mac's
+//! sends go into that terminal's own Claude Code or Codex. The phone's chat face follows it live,
+//! but a phone's send is refused with acpmux's words (`remote.terminal_session`, D13): the
+//! terminal's agent asks for permission in that terminal, outside the remote floor.
+//!
 //! Swift only binds: it reads the tab's facts, shows what these answer and sends the
 //! acpmux adopt the Mac sends (`session/new` with `_meta.acpmux.adopt {harness,
 //! agentSessionId, watch: true}`) when the chat face needs a chat.
@@ -41,7 +47,7 @@ pub struct TerminalChatFacts {
     /// A chat: a terminal tab the phone lists reports `session`.
     pub running: bool,
     /// A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
-    /// make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
+    /// make a watching chat of it for the phone (`remote.adopt_refused`: a remote device adopts
     /// no local session). The chat face waits for a chat the Mac opens.
     pub chat_refused: bool,
 }
@@ -86,7 +92,9 @@ pub struct TerminalChatCandidate {
     pub harness: String,
     /// The harness's own session id it resumes or watches (`agentSessionId`).
     pub agent_session_id: Option<String>,
-    /// A View Only chat (`watching`): it follows the transcript the terminal writes.
+    /// A chat that follows the terminal (`watching`): it shows the transcript the terminal
+    /// writes. Once the Mac's Toggle handed it to that terminal, the Mac sends into it there;
+    /// a paired device does not (acpmux `remote.terminal_session`).
     pub watching: bool,
     /// Its status (`closed` chats are skipped).
     pub status: String,
@@ -96,7 +104,7 @@ pub struct TerminalChatCandidate {
 /// chat's run first), which the phone does not do yet.
 pub const NO_TERMINAL: &str = "No terminal runs this chat. Toggle it on the Mac to resume it in a terminal.";
 
-/// A terminal whose session no chat shows, when the Mac's acpmux makes no View Only chat
+/// A terminal whose session no chat shows, when the Mac's acpmux makes no watching chat
 /// for a phone: the Mac's Toggle Terminal and Chat opens one, which the phone then shows.
 pub const NO_CHAT: &str =
     "This session has no chat yet. Toggle Terminal and Chat on the Mac once to open one here.";
@@ -173,7 +181,7 @@ pub fn terminal_chat_swap(facts: TerminalChatFacts, shown: TabFace, to: TabFace)
             reason: faces.disabled_reason.unwrap_or_else(|| NO_CHAT.to_owned()),
         };
     }
-    // A terminal tab holds both faces itself: its chat is a View Only chat of its session.
+    // A terminal tab holds both faces itself: its chat is the Mac's chat that follows its session.
     if facts.terminal || to == TabFace::Chat {
         return TerminalChatSwap::Show { face: to };
     }

@@ -292,6 +292,7 @@
     "setting.agents.chats.enabled": true,
     "setting.agents.chats.roots": [],
     "setting.agents.chats.sessionRecap": true,
+    "setting.agents.chats.terminalChatWritable": false,
     "setting.agents.defaultPermissionMode": "fullAccess",
     "setting.agents.guidance.claude": true,
     "setting.agents.guidance.codex": true,

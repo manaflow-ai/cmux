@@ -130,6 +130,35 @@ pub fn find(home: &Path, id: &str, listed: &[String]) -> Option<Thread> {
     rows(home, &[id.to_owned()], listed).into_iter().next()
 }
 
+/// Thread `id`, while a running Codex holds it, whichever client started it: the thread a cmux
+/// terminal resumed (`hub/release_to_watch.rs`, `codex resume` records `codex-tui`). The bridge
+/// reaches it only through that terminal's binding (`hub/bridge.rs`), never by a listing. Its row
+/// only names it; a thread with no row yet is still the held one.
+pub fn find_held(home: &Path, id: &str) -> Option<Thread> {
+    if !is_thread_id(id) || crate::adopt_live::holder("codex", id, home).is_none() {
+        return None;
+    }
+    let row = cmux_chat_index::codex_thread_rows(home, &[id.to_owned()]).into_iter().next();
+    Some(match row {
+        Some(r) => Thread {
+            id: r.id,
+            originator: r.originator.unwrap_or_default(),
+            cwd: r.cwd.map(PathBuf::from),
+            name: r.name,
+            title: r.title,
+            version: r.cli_version,
+        },
+        None => Thread {
+            id: id.to_owned(),
+            originator: String::new(),
+            cwd: None,
+            name: None,
+            title: None,
+            version: None,
+        },
+    })
+}
+
 /// The thread whose Codex started a process of `ancestry` (the socket peer first, then each
 /// parent): the first process whose environment names a thread (`env_thread`) and whose parent
 /// is a Codex binary (`is_codex`) naming no thread or another one. Unreadable processes are passed.

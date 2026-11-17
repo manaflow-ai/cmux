@@ -4949,6 +4949,268 @@
         }
       }
     },
+    "settings.chats.terminalChatWritable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write to a Chat a Terminal Runs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكتابة في محادثة تشغّلها طرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pisanje u razgovor koji pokreće terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv i en chat, som en terminal kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einen Chat schreiben, den ein Terminal ausführt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribir en un chat que ejecuta una terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrire dans une discussion qu'un terminal exécute"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrivi in una chat eseguita da un terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルが実行中のチャットに書き込む"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សរសេរ​ទៅ​ការ​ជជែក​ដែល​ទែមីណាល់​កំពុង​ដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 실행 중인 채팅에 쓰기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv i en chat som en terminal kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pisz do czatu uruchomionego w terminalu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escrever em um chat que um terminal executa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Писать в чат, который ведёт терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เขียนถึงแชตที่เทอร์มินัลกำลังรัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir terminalin çalıştırdığı sohbete yaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Писати в чат, який веде термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viết vào cuộc trò chuyện do terminal chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向终端运行的聊天发送消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向終端機執行的聊天傳送訊息"
+          }
+        }
+      }
+    },
+    "settings.chats.terminalChatWritable.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما ينقل «تبديل الطرفية والمحادثة» محادثة Claude Code أو Codex إلى طرفية، يبقى محرر الرسائل في المحادثة: ما ترسله يذهب إلى جلسة تلك الطرفية، و«إيقاف» يوقف دورها. عند الإيقاف، تكون المحادثة للعرض فقط ما دامت الطرفية تشغّلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada Prebaci terminal i razgovor premjesti Claude Code ili Codex razgovor u terminal, zadrži polje za pisanje: ono što pošaljete ide u sesiju tog terminala, a Zaustavi zaustavlja njegov red. Isključeno, razgovor je samo za pregled dok ga terminal pokreće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når Skift mellem terminal og chat flytter en Claude Code- eller Codex-chat til en terminal, beholder chatten sit skrivefelt: det, du sender, går ind i terminalens session, og Stop stopper dens tur. Slået fra er chatten kun til visning, mens terminalen kører den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn „Terminal und Chat wechseln“ einen Claude Code- oder Codex-Chat in ein Terminal verschiebt, behält der Chat sein Eingabefeld: Was du sendest, geht in die Sitzung dieses Terminals, und Stopp beendet dessen Zug. Aus ist der Chat schreibgeschützt, solange das Terminal ihn ausführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando Alternar terminal y chat mueve un chat de Claude Code o Codex a una terminal, el chat conserva su cuadro de redacción: lo que envíes va a la sesión de esa terminal y Detener detiene su turno. Desactivado, el chat es de solo lectura mientras la terminal lo ejecuta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand Basculer entre terminal et discussion déplace une discussion Claude Code ou Codex vers un terminal, la discussion garde sa zone de saisie : ce que vous envoyez va dans la session de ce terminal, et Arrêter arrête son tour. Désactivé, la discussion est en lecture seule tant que le terminal l'exécute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando Alterna terminale e chat sposta una chat di Claude Code o Codex in un terminale, la chat mantiene il suo campo di scrittura: ciò che invii va nella sessione di quel terminale e Interrompi ne ferma il turno. Disattivato, la chat è di sola lettura mentre il terminale la esegue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ターミナルとチャットを切り替え」で Claude Code または Codex のチャットをターミナルに移したとき、チャットの入力欄を残します。送信した内容はそのターミナルのセッションに届き、「停止」でそのターンを止めます。オフの場合、ターミナルが実行している間チャットは閲覧のみになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេល​ប្ដូរ​ទែមីណាល់ និង​ការ​ជជែក ផ្លាស់ទី​ការ​ជជែក Claude Code ឬ Codex ទៅ​ទែមីណាល់ ការ​ជជែក​រក្សា​ប្រអប់​សរសេរ​របស់​វា៖ អ្វី​ដែល​អ្នក​ផ្ញើ​ចូល​ទៅ​វគ្គ​របស់​ទែមីណាល់​នោះ ហើយ​បញ្ឈប់​បញ្ឈប់​វេន​របស់​វា។ បិទ ការ​ជជែក​គ្រាន់តែ​មើល​បាន ខណៈ​ទែមីណាល់​កំពុង​ដំណើរការ​វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널과 채팅 전환으로 Claude Code 또는 Codex 채팅을 터미널로 옮길 때 채팅의 입력창을 유지합니다. 보낸 내용은 해당 터미널의 세션으로 전달되고, 중지를 누르면 그 차례가 멈춥니다. 끄면 터미널이 실행하는 동안 채팅은 보기 전용입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når Bytt mellom terminal og chat flytter en Claude Code- eller Codex-chat til en terminal, beholder chatten skrivefeltet sitt: det du sender, går inn i terminalens økt, og Stopp stopper turen dens. Av er chatten bare til visning mens terminalen kjører den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy Przełącz terminal i czat przenosi czat Claude Code lub Codex do terminala, czat zachowuje pole wpisywania: to, co wyślesz, trafia do sesji tego terminala, a Zatrzymaj zatrzymuje jego turę. Po wyłączeniu czat jest tylko do odczytu, dopóki uruchamia go terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando Alternar terminal e chat move um chat do Claude Code ou Codex para um terminal, o chat mantém sua caixa de escrita: o que você envia vai para a sessão desse terminal, e Parar interrompe a vez dele. Desativado, o chat fica somente leitura enquanto o terminal o executa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда «Переключить терминал и чат» переносит чат Claude Code или Codex в терминал, у чата остаётся поле ввода: отправленное уходит в сессию этого терминала, а «Стоп» останавливает его ход. Если выключено, чат доступен только для просмотра, пока его ведёт терминал."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อสลับเทอร์มินัลและแชตย้ายแชต Claude Code หรือ Codex ไปยังเทอร์มินัล แชตจะยังมีช่องเขียนข้อความ: สิ่งที่คุณส่งจะเข้าไปในเซสชันของเทอร์มินัลนั้น และหยุดจะหยุดรอบของมัน หากปิด แชตจะเป็นแบบดูอย่างเดียวขณะที่เทอร์มินัลรันอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal ve Sohbet Arasında Geçiş bir Claude Code veya Codex sohbetini terminale taşıdığında sohbet yazma alanını korur: gönderdiğiniz şey o terminalin oturumuna gider ve Durdur onun turunu durdurur. Kapalıyken sohbet, terminal onu çalıştırdığı sürece yalnızca görüntülenebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли «Перемкнути термінал і чат» переносить чат Claude Code або Codex у термінал, у чаті лишається поле введення: надіслане йде в сесію цього термінала, а «Зупинити» зупиняє його хід. Якщо вимкнено, чат лише для перегляду, поки його веде термінал."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi Chuyển đổi terminal và trò chuyện chuyển một cuộc trò chuyện Claude Code hoặc Codex sang terminal, cuộc trò chuyện vẫn giữ ô soạn thảo: nội dung bạn gửi đi vào phiên của terminal đó, và Dừng sẽ dừng lượt của nó. Khi tắt, cuộc trò chuyện chỉ để xem trong lúc terminal chạy nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当“切换终端与聊天”把 Claude Code 或 Codex 聊天移到终端时，保留聊天的输入框：你发送的内容会进入该终端的会话，“停止”会停止它的当前轮次。关闭时，终端运行期间聊天为只读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當「切換終端機與聊天」把 Claude Code 或 Codex 聊天移到終端機時，保留聊天的輸入框：你傳送的內容會進入該終端機的工作階段，「停止」會停止它目前的回合。關閉時，終端機執行期間聊天為唯讀。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.harnessPlacement": {
       "extractionState": "manual",
       "localizations": {

@@ -100,7 +100,7 @@ impl std::fmt::Display for SessionStatus {
 }
 
 /// What a watched chat follows (`hub/watch.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Watching {
     /// `claude` or `codex`.
@@ -117,6 +117,28 @@ pub struct Watching {
     /// comes, or Take Over settles it. Kept so a daemon restart goes on with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<WatchedTurn>,
+    /// The terminal the chat handed its conversation to (`acpmux resume-here`,
+    /// `hub/release_to_watch.rs`): the chat's prompts go into that terminal's harness
+    /// (`hub/bridge.rs`) while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalDriver>,
+    /// Prompts the terminal took while a turn ran (Claude Code's `queue-operation` enqueue), shown
+    /// at once, oldest first, so the line that runs each later does not show it again (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<String>,
+}
+
+/// The process a chat handed its conversation to (`Watching::terminal`): `acpmux resume-here`,
+/// which becomes the harness (`exec`, same pid).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalDriver {
+    pub pid: u32,
+    /// When `pid` started (ms since the epoch), so a later process under a reused pid is not it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started: Option<u64>,
+    /// The harness's store the conversation is in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
+    pub store: PathBuf,
 }
 
 /// A watched chat's open turn (`Watching::open`).

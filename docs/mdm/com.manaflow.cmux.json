@@ -485,6 +485,12 @@
       "title" : "Session Recap",
       "type" : "boolean"
     },
+    "agents.chats.terminalChatWritable" : {
+      "default" : false,
+      "description" : "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it.",
+      "title" : "Write to a Chat a Terminal Runs",
+      "type" : "boolean"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",

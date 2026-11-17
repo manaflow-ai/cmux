@@ -459,7 +459,7 @@ const CODEX_CONTEXT: [&str; 4] = [
 ];
 
 /// The text of a message's content: a string, or the `text` of its text blocks.
-fn text_of(content: &Value) -> Option<String> {
+pub(crate) fn text_of(content: &Value) -> Option<String> {
     let text = match content {
         Value::String(s) => s.clone(),
         Value::Array(blocks) => blocks
