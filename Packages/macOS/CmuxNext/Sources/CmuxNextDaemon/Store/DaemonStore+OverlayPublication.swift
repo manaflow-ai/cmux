@@ -15,7 +15,7 @@ import Foundation
 /// terminals of 30 background workspaces kept the shown workspace re-mapping through the split's own frames
 /// (instant-splits, "off-screen work is deferred"). Its screen's tree is held the same way.
 ///
-/// A pending tab creation (a New Tab key whose answer waits) did the same to its pane (decision of 2026-11-17): the
+/// A pending tab creation (a New Tab key whose answer waits) did the same to its pane: the
 /// lift took the stand-in tab out of the pane's tab list and the restore put a new record of it back, so each daemon
 /// batch wrote the list 2 times for each creation that waited and every tracked reader of the list (the pane's strip)
 /// mapped again, whatever workspace the batch was about. The pane's tab list is held the same way, the list's own

@@ -150,8 +150,8 @@ struct TabOverlayNetPublishTests {
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
 
-    /// The time of the store's work for a hold of the New Tab key whose answers come one by one after the keys
-    /// (decision of 2026-11-17): a print with no bound, for 3 sizes of the hold. Each key is one creation that
+    /// The time of the store's work for a hold of the New Tab key whose answers come one by one after the keys:
+    /// a print with no bound, for 3 sizes of the hold. Each key is one creation that
     /// waits. Each answer is the daemon's `tab-added` event with the creation's transaction, then the reply's
     /// settlement. The times are of a Debug build with no daemon, no window and no reader of the tab list.
     ///
