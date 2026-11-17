@@ -606,7 +606,7 @@ impl Coordinator {
         match event {
             Event::Restore(trigger) => self.on_restore(trigger, &mut fx),
             Event::TokensProbed { ticket, probe, storage_was_available, read_failed } => {
-                self.on_tokens_probed(ticket, probe, storage_was_available, read_failed, &mut fx)
+                self.on_tokens_probed(ticket, probe, storage_was_available, read_failed, &mut fx);
             }
             Event::TokenStorageAvailability { ticket, available } => {
                 if ticket.generation != self.session_generation || !available {
@@ -634,10 +634,10 @@ impl Coordinator {
                 }
             }
             Event::CachedSessionValidated { ticket, result } => {
-                self.on_cached_session_validated(ticket, result, &mut fx)
+                self.on_cached_session_validated(ticket, result, &mut fx);
             }
             Event::SurvivingRefreshTokenRead { ticket, after_error, result, read_failed } => {
-                self.on_surviving_refresh_token(ticket, after_error, result, read_failed, &mut fx)
+                self.on_surviving_refresh_token(ticket, after_error, result, read_failed, &mut fx);
             }
             Event::StaleSessionCleared { ticket, reason } => {
                 if ticket.generation == self.session_generation
@@ -652,10 +652,10 @@ impl Coordinator {
                 Err(_) => self.clear_stale_session(ticket, false, "auto-login failed", &mut fx),
             },
             Event::SignInRequested { kind, sets_loading } => {
-                self.on_sign_in_requested(kind, sets_loading, &mut fx)
+                self.on_sign_in_requested(kind, sets_loading, &mut fx);
             }
             Event::TokenWorkQuiesced { flow, result } => {
-                self.on_token_work_quiesced(flow, result, &mut fx)
+                self.on_token_work_quiesced(flow, result, &mut fx);
             }
             Event::OnlineChecked { flow, online } => {
                 if !online {
@@ -682,13 +682,13 @@ impl Coordinator {
             Event::SignInUserFetched { flow, result } => match result {
                 Err(failure) => self.fail_sign_in(flow, failure, flow.sets_loading, &mut fx),
                 Ok(None) => {
-                    self.fail_sign_in(flow, AuthFailure::Unauthorized, flow.sets_loading, &mut fx)
+                    self.fail_sign_in(flow, AuthFailure::Unauthorized, flow.sets_loading, &mut fx);
                 }
                 Ok(Some(_)) if flow.generation != self.session_generation => {
                     self.fail_sign_in(flow, AuthFailure::Cancelled, flow.sets_loading, &mut fx);
                 }
                 Ok(Some(user)) => {
-                    self.apply_signed_in_user(user, true, AfterTeams::SignIn(flow), &mut fx)
+                    self.apply_signed_in_user(user, true, AfterTeams::SignIn(flow), &mut fx);
                 }
             },
             Event::TeamsRequested => {
@@ -696,7 +696,7 @@ impl Coordinator {
                 self.begin_team_refresh(generation, false, AfterTeams::Nothing, &mut fx);
             }
             Event::TeamsRefreshed { ticket, result } => {
-                self.on_teams_refreshed(ticket, result, &mut fx)
+                self.on_teams_refreshed(ticket, result, &mut fx);
             }
             Event::PostSignInHookFinished { ticket } => self.after_teams(ticket.after, &mut fx),
             Event::TeamScopeRecoveryDue { id } => self.on_recovery_due(id, &mut fx),
@@ -712,10 +712,10 @@ impl Coordinator {
             }
             Event::SetSelectedTeam(team_id) => self.set_selected_team(team_id, &mut fx),
             Event::TeamSelectionMutated => {
-                self.team_mutation_generation = self.team_mutation_generation.wrapping_add(1)
+                self.team_mutation_generation = self.team_mutation_generation.wrapping_add(1);
             }
             Event::TeamListMutated => {
-                self.team_list_generation = self.team_list_generation.wrapping_add(1)
+                self.team_list_generation = self.team_list_generation.wrapping_add(1);
             }
             Event::SendCodeStarted => {
                 self.is_loading = true;
@@ -924,7 +924,7 @@ impl Coordinator {
                 self.finish_restore(fx);
             }
             Err(failure) => {
-                fx.push(Effect::ReadSurvivingRefreshToken { ticket, after_error: Some(failure) })
+                fx.push(Effect::ReadSurvivingRefreshToken { ticket, after_error: Some(failure) });
             }
         }
     }
