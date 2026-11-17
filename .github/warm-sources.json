@@ -35,6 +35,7 @@
     "ci-web.yml:web-db-migrations": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-instant-navigation": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-typecheck": {"class": "webview", "warm": ["actions-cache"]},
+    "ci.yml:changes": {"class": "tooling", "warm": ["ssd-cas", "product-reuse"]},
     "ci.yml:claude-wrapper": {"class": "mac-run-product", "warm": [], "exempt": "Python tests of the Claude wrapper on macOS; compiles nothing"},
     "ci.yml:dogfood-build": {"class": "mac-build", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cloud-command-deadlines.yml:command-regressions": {"class": "mac-build", "warm": [], "exempt": "cold: compiles on a Mac from a clean tree; no warm source wired yet"},
