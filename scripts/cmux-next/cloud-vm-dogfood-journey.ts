@@ -317,7 +317,8 @@ async function awake(id: string): Promise<void> {
   if (state === "running") return;
   if (state === "paused" || state === "pausing") {
     if (state === "pausing") await waitForState(id, "paused", 3 * 60_000);
-    expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume (wake)");
+    // 409: something else (an exec, inbound traffic) woke it between the read and the resume.
+    expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200, 409], "POST resume (wake)");
   }
   await waitForState(id, "running", 5 * 60_000);
 }
@@ -727,7 +728,9 @@ try {
       result["memoryKeptOnExecWake"] = String(field(whilePaused.body, "stdout") ?? "").trim() === "alive";
       if (result["memoryKeptOnExecWake"] !== true) failed.push("memoryKeptOnExecWake");
     } else {
-      // The exec failed; it may still have woken the VM. awake() resumes only a VM that is still paused.
+      // The exec failed: a red (exec should wake a paused VM). It may still have woken it; awake() resumes only a
+      // VM that is still paused, so the rest of the journey runs.
+      failed.push("execWakes");
       note(`exec on a paused VM answered ${whilePaused.status}, expected it to wake the VM and answer 200`);
       await awake(id);
     }
