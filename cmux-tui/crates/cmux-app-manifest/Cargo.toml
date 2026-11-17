@@ -16,3 +16,5 @@ sha2.workspace = true
 hex.workspace = true
 jsonschema.workspace = true
 regex.workspace = true
+# contributes.wallpapers: the same manifest and program check the app runs (package.rs).
+cmux-wallpaper = { path = "../cmux-wallpaper" }

@@ -65,6 +65,9 @@ pub fn validate_package_file(dir: &Path, file_name: &str) -> PackageReport {
     if crate::is_valid(&issues) {
         issues.extend(catalog_file(dir, &manifest));
     }
+    if crate::is_valid(&issues) {
+        issues.extend(wallpaper_folders(dir, &manifest));
+    }
     PackageReport { manifest: Some(manifest), issues }
 }
 
@@ -92,6 +95,15 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
     }
     for (i, notice) in m["notices"].as_array().into_iter().flatten().enumerate() {
         add(&format!("/notices/{i}/path"), notice.get("path"));
+    }
+    for (i, w) in m
+        .pointer("/contributes/wallpapers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        add(&format!("/contributes/wallpapers/{i}/path"), w.get("path"));
     }
     let files: Option<Vec<&str>> =
         m["files"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
@@ -135,6 +147,86 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
                     .and_then(|text| crate::hidden::script_issue(&at, &p, text))
                 {
                     out.push(issue);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `contributes.wallpapers` (plans/cmux-next/live-wallpapers.md): each listed
+/// folder's `wallpaper.json` and program pass cmux-wallpaper's checks, the
+/// same the app runs before it loads one, and no two share an id. The paths
+/// themselves (inside the package, present, listed in `files`) were checked
+/// by `referenced_files`.
+fn wallpaper_folders(dir: &Path, m: &Value) -> Vec<Issue> {
+    let mut out = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    let list = m.pointer("/contributes/wallpapers").and_then(Value::as_array);
+    for (i, w) in list.into_iter().flatten().enumerate() {
+        let at = format!("/contributes/wallpapers/{i}/path");
+        let Some(rel) = w["path"].as_str() else { continue };
+        let folder = dir.join(rel);
+        let raw = match std::fs::read(folder.join("wallpaper.json")) {
+            Ok(raw) => raw,
+            Err(_) => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{rel}/wallpaper.json not found"),
+                ));
+                continue;
+            }
+        };
+        let manifest = match cmux_wallpaper::Manifest::parse(&raw) {
+            Ok(manifest) => manifest,
+            Err(e) => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{rel}/wallpaper.json{}: {}", e.pointer, e.message),
+                ));
+                continue;
+            }
+        };
+        if ids.contains(&manifest.id) {
+            out.push(Issue::error(
+                at.clone(),
+                "wallpaper.duplicate",
+                format!("wallpaper id {} is contributed twice", manifest.id),
+            ));
+        }
+        ids.push(manifest.id.clone());
+        // The manifest's shader path is checked relative (no `..`, no leading `/`).
+        let shader = folder.join(&manifest.shader);
+        let too_large = std::fs::metadata(&shader)
+            .map(|md| md.len() > cmux_wallpaper::MAX_SOURCE_BYTES as u64)
+            .unwrap_or(false);
+        if too_large {
+            out.push(Issue::error(
+                at,
+                "wallpaper.program",
+                format!("{rel}/{} is larger than 64 KiB", manifest.shader),
+            ));
+            continue;
+        }
+        match std::fs::read(&shader) {
+            Err(_) => out.push(Issue::error(
+                at,
+                "wallpaper.program",
+                format!("{rel}/{} not found", manifest.shader),
+            )),
+            Ok(source) => {
+                if let Err(e) = cmux_wallpaper::compile_bytes(&source) {
+                    out.push(Issue::error(
+                        at,
+                        "wallpaper.program",
+                        format!(
+                            "{rel}/{}{}{e}",
+                            manifest.shader,
+                            if e.location.is_some() { ":" } else { ": " }
+                        ),
+                    ));
                 }
             }
         }

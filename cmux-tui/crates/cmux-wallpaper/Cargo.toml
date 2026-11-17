@@ -1,0 +1,16 @@
+[package]
+name = "cmux-wallpaper"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux NEXT live wallpapers: the manifest, the WGSL program's sandbox and its translation to Metal and GLSL ES, the Frame uniform, the pointer smoothing and the draw scheduler (plans/cmux-next/live-wallpapers.md). Pure: no I/O."
+
+[lints]
+workspace = true
+
+[dependencies]
+# The gallery's naga-cli is 30.0.2 (design/live-wallpapers-gallery/build.mjs): keep them on one version.
+naga = { version = "30.0.2", default-features = false, features = ["wgsl-in", "msl-out", "glsl-out"] }
+serde_json.workspace = true
