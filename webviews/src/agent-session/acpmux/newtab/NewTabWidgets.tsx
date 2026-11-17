@@ -10,8 +10,10 @@
 //
 // Let it crash: a tile whose widget threw keeps its last scene, dimmed, with "Updating..." while the
 // daemon mounts it again; a tile whose app is gone says so in its own card. No tile's state touches
-// another, and the page around the grid is never blanked.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+// another, and the page around the grid is never blanked: a render error in one tile draws only that
+// tile's "unavailable" card, and one in the grid itself draws no grid, so the composer, the other
+// tiles and an extension's room over the composer (`tabs.newTabApp`) stay (error boundaries below).
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
 import { SceneRenderer } from "../../../apps/scene/SceneRenderer";
 import { observeTileVisibility } from "../../../apps/scene/widgetVisibility";
@@ -24,6 +26,7 @@ import {
   type WidgetTilePlacement,
 } from "../../../apps/scene/widgetsClient";
 import type { PageClient } from "../../../pages/shared/pageClient";
+import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
 import { Icon } from "../icons/Icon";
 import { pageHostClient } from "../pageHost";
 import { AddWidgetGallery, type AddWidgetLook } from "./AddWidgetGallery";
@@ -43,9 +46,16 @@ const EMPTY_READ = () => EMPTY;
 /// While edit mode shows the meter, it reads the daemon's counts this often.
 const METER_MS = 5000;
 
+/// The widget host for every grid under it, when the page's own host is not the one to use: the
+/// gallery and tests draw the whole New Tab page (NewTabScreen) on an in-memory host.
+const WidgetsHostContext = createContext<PageClient | null | undefined>(undefined);
+export const NewTabWidgetsHost = WidgetsHostContext.Provider;
+
 /** The page's widgets in the New Tab place. `injected` is the gallery's or a test's host. */
 export function useNewTabWidgets(injected?: PageClient | null) {
-  const client = injected === undefined ? (pageHostClient() ?? appPanelsDevClient()) : injected;
+  const provided = useContext(WidgetsHostContext);
+  const host = injected === undefined ? provided : injected;
+  const client = host === undefined ? (pageHostClient() ?? appPanelsDevClient()) : host;
   const owner = useMemo(() => (client ? new AppWidgetsClient(client, "newtab") : undefined), [client]);
   const view = useSyncExternalStore(
     owner?.subscribe ?? NOOP_SUBSCRIBE,
@@ -70,14 +80,7 @@ export function useNewTabWidgets(injected?: PageClient | null) {
   return { client, owner, view };
 }
 
-export function NewTabWidgets({
-  client: injected,
-  tileLook = "glass",
-  editLook = "badge",
-  galleryLook = "rows",
-  initialEditing = false,
-  initialGallery = false,
-}: {
+type NewTabWidgetsProps = {
   client?: PageClient | null;
   tileLook?: WidgetTileLook;
   editLook?: WidgetEditLook;
@@ -85,7 +88,32 @@ export function NewTabWidgets({
   /// The gallery's states: edit mode or the Add Widget sheet open from the start.
   initialEditing?: boolean;
   initialGallery?: boolean;
-}) {
+};
+
+/// Nothing the grid draws can take the page down: a render error anywhere in it (past a tile's own
+/// boundary) draws no grid until the page mounts it again.
+const GRID = {};
+
+export function NewTabWidgets(props: NewTabWidgetsProps) {
+  return (
+    <AttachmentPreviewBoundary
+      attachment={GRID}
+      fallback={null}
+      failure="New Tab widget grid failed to draw; the page goes on without it"
+    >
+      <WidgetGrid {...props} />
+    </AttachmentPreviewBoundary>
+  );
+}
+
+function WidgetGrid({
+  client: injected,
+  tileLook = "glass",
+  editLook = "badge",
+  galleryLook = "rows",
+  initialEditing = false,
+  initialGallery = false,
+}: NewTabWidgetsProps) {
   const nt = useNt();
   const { client, owner, view } = useNewTabWidgets(injected);
   const editing = useWidgetEditing(initialEditing);
@@ -205,7 +233,15 @@ export function WidgetTile({
   if (!tile) return null;
   return (
     <div ref={ref} className="nt-widget-tile" data-size={placement.size} data-app={placement.app}>
-      <TileBody tile={tile} label={label} />
+      {/* A throw while this tile draws shows only its own card as unavailable; a new mount (the
+          daemon's remount, a resize) tries again. */}
+      <AttachmentPreviewBoundary
+        attachment={tile}
+        fallback={<UnavailableCard size={placement.size} label={label} />}
+        failure={`New Tab widget ${placement.app} failed to draw; showing its card as unavailable`}
+      >
+        <TileBody tile={tile} label={label} />
+      </AttachmentPreviewBoundary>
     </div>
   );
 }
@@ -227,10 +263,7 @@ function TileBody({ tile, label }: { tile: WidgetTileMount; label: string }) {
       aria-busy={status.state === "loading"}
     >
       {failed ? (
-        <output className="nt-widget-notice">
-          <Icon name="status.attention" size={12} />
-          <span>{nt("widgets.unavailable", { name: label })}</span>
-        </output>
+        <UnavailableNotice label={label} />
       ) : (
         <SceneRenderer store={store} dispatch={tile.mount.dispatch} resolveAsset={tile.mount.resolveAsset} />
       )}
@@ -239,6 +272,25 @@ function TileBody({ tile, label }: { tile: WidgetTileMount; label: string }) {
           {nt("widgets.updating")}
         </output>
       )}
+    </section>
+  );
+}
+
+function UnavailableNotice({ label }: { label: string }) {
+  const nt = useNt();
+  return (
+    <output className="nt-widget-notice">
+      <Icon name="status.attention" size={12} />
+      <span>{nt("widgets.unavailable", { name: label })}</span>
+    </output>
+  );
+}
+
+/** A tile that threw while it drew: its card, saying so, in the tile's own place. */
+function UnavailableCard({ size, label }: { size: WidgetTilePlacement["size"]; label: string }) {
+  return (
+    <section className="nt-widget-card" data-size={size} data-status="failed" aria-label={label}>
+      <UnavailableNotice label={label} />
     </section>
   );
 }
