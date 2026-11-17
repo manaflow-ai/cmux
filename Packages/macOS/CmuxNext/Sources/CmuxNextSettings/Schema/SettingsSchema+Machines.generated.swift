@@ -73,6 +73,12 @@ extension MacScreenSettings {
     public nonisolated static let systemShortcutsDefault = false
 }
 
+extension MacScreenSettings {
+    /// `macScreen.onlyPersonStartsViewing`: Read by MacScreenPages.agentMayStartViewing: off (the default), an agent's or the CLI's macScreen.open with a device of the person's own starts viewing at once (MacScreenPages.isOwnDevice); on, it waits at the Connect card for the person's click, as before. Leo 2026-11-17: "why should it get held only be aperson's click? i dont like that".
+    public nonisolated static let onlyPersonStartsViewingPath = ["macScreen", "onlyPersonStartsViewing"]
+    public nonisolated static let onlyPersonStartsViewingDefault = false
+}
+
 extension MacScreenDebugSettings {
     /// `macScreen.debug.relayOnly`.
     public nonisolated static let relayOnlyPath = ["macScreen", "debug", "relayOnly"]
@@ -321,6 +327,25 @@ extension MachineSettingsSchema {
 }
 
 extension MachineSettingsSchema {
+    static var macScreenViewing: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.screenSharing", "Screen Sharing")
+        return [
+            SettingDescriptor(
+                MacScreenSettings.onlyPersonStartsViewingPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.macScreen.onlyPersonStartsViewing", "Only Your Click Starts Viewing a Screen"),
+                help: SettingsText.keyed("settings.macScreen.onlyPersonStartsViewing.help", "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."),
+                summary: SettingsText.keyed("settings.macScreen.onlyPersonStartsViewing.summary", "Agents can't start viewing your screens"),
+                kind: .toggle,
+                default: .bool(MacScreenSettings.onlyPersonStartsViewingDefault),
+                keywords: ["screen sharing", "mac screen", "agents", "automation", "cli", "view", "control", "click", "approve"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
     static var macScreenDebug: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreen", "Mac Screen")
         return [
@@ -334,40 +359,6 @@ extension MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(MacScreenDebugSettings.relayOnlyDefault),
                 keywords: ["mac screen", "relay", "turn", "webrtc", "ice", "development", "debug"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var remote: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
-        return [
-            SettingDescriptor(
-                RemoteSettings.endSharingOnQuitPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
-                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
-                kind: .toggle,
-                default: .bool(RemoteSettings.endSharingOnQuitDefault),
-                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
-            ),
-            SettingDescriptor(
-                RemoteSettings.ultraPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."),
-                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
-                kind: .choice([
-                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
-                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
-                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
-                ]),
-                default: .string(RemoteSettings.ultraDefault.rawValue),
-                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
             ),
         ]
     }

@@ -166,6 +166,8 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly, "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.
         "macScreen.systemShortcuts": .userOnly,
+        // It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.
+        "macScreen.onlyPersonStartsViewing": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.

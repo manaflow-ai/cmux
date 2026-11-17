@@ -191,7 +191,7 @@ final class MacScreenCardView: MacScreenThemedView {
         case let .hubWaiting(scope):
             spinner()
             title(String(format: L.t("macScreen.hub.waitingTitle", "Waiting for %@ to approve…"), name))
-            detail(String(format: L.t("macScreen.hub.waitingBody", "You asked for %@. Someone at that Mac needs to allow it."), scope.title))
+            detail(String(format: L.t("macScreen.hub.waitingOwnerBody", "You asked for %@. Its owner needs to allow it."), scope.title))
             buttons([cancel({ $0.cancelRequest() }, id: "macScreen.hub.cancel")])
         case let .hubDeclined(scope):
             glyph("hand.raised", ink: \.attention)

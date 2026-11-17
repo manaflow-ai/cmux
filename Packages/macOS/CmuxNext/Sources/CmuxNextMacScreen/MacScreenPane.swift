@@ -33,6 +33,8 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// The agent that started this tab's view without a person's click; nil for a person's.
+    public internal(set) var startedBy: MacScreenStarter?
 
     init(session: MacScreenSession?, name: String, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
@@ -245,14 +247,17 @@ public final class MacScreenPane {
         hideTimer.cancel()
         guard !visible else { return }
         visible = true
-        if let hub = model.hub {
-            // A device's tab asks the hub when shown with a scope waiting
-            // (opened by a person with View or Control, or hidden past its grace mid-session).
-            if hub.phase == .idle, let scope = hub.resumeScope {
-                hub.resumeScope = nil
-                hub.request(scope)
-            }
-        }
+        // A device's tab asks the hub when shown with a scope waiting
+        // (opened by a person with View or Control, or hidden past its grace mid-session).
+        requestWaitingScope()
+    }
+
+    /// A device tab idle with a scope waiting asks the hub for it: when shown, or at once for a
+    /// view an agent started (`MacScreenPages`), so a tab opened in the background streams too.
+    func requestWaitingScope() {
+        guard let hub = model.hub, hub.phase == .idle, let scope = hub.resumeScope else { return }
+        hub.resumeScope = nil
+        hub.request(scope)
     }
 
     /// The tab is hidden: the stream stays for `hiddenGrace`, then ends

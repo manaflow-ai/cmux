@@ -282,7 +282,10 @@ extension SettingsPageLayout {
     /// Devices holds what the Server page showed; its old links open it (legacy_ids).
     private static let devicesCategory = CategorySpec(
         id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
-        groups: [],
+        groups: [
+            // Whether an agent or the CLI may start viewing the person's own devices without their click.
+            GroupSpec(group: "settings.group.screenSharing"),
+        ],
         lead: [.devices], trail: [.server, .tailnet], legacyIDs: ["server"]
     )
 

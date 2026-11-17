@@ -35,9 +35,11 @@ public struct MacScreenTabEvents {
 /// Mac Screen tabs, their own page tab kind (the app's `mac-screen` page):
 /// the user's devices through the device hub, this Mac as a hub host
 /// (`MacScreenHubHost`, its permissions in `MacScreenShareHost`), and each
-/// tab (`MacScreenTab`) by its page tab key. A device tab asks the hub only
-/// when a person opened it with a scope in this process; tabs that
-/// automation opened, or that were restored, wait at the Connect card.
+/// tab (`MacScreenTab`) by its page tab key. A device tab asks the hub when
+/// a person opened it with a scope in this process, or when an agent or the
+/// CLI opened it on the person's own device (`agentMayStartViewing`; it asks
+/// at once, shown or not, and says who started it). Other automation opens
+/// and restored tabs wait at the Connect card.
 /// Pairing links are gone: a tab restored on an old link record shows that
 /// they are no longer supported.
 @MainActor
@@ -89,6 +91,14 @@ public final class MacScreenPages {
     let hubBox = MacScreenHubBox()
     /// Scopes a person chose for a device on the home page, until its tab asks the hub.
     var pendingScopes: [String: SessionScope] = [:]
+    /// Device id -> the agent that started viewing it (`MacScreenActions`), until its tab is prepared.
+    var pendingStarters: [String: MacScreenStarter] = [:]
+    /// Tab key -> the agent that started its view without a person's click.
+    private var starters: [String: MacScreenStarter] = [:]
+    /// Settings > Devices > Only Your Click Starts Viewing a Screen
+    /// (`macScreen.onlyPersonStartsViewing`): on, a tab automation opens waits
+    /// at the Connect card, on any device. The app feeds it from the setting.
+    public var onlyPersonStartsViewing = false
     private var namesWatch: Task<Void, Never>?
     /// Send System Shortcuts to the Remote Mac: the app's one system shortcut tap.
     public let systemShortcuts: MacScreenSystemShortcuts
@@ -264,25 +274,34 @@ public final class MacScreenPages {
 
     /// The home page opens device `id` asking for `scope` (a person's click).
     func openDeviceFromHome(_ id: String, scope: SessionScope?, in key: String) {
-        if let scope { pendingScopes[id] = scope }
+        if let scope { want(scope, for: id, startedBy: nil) }
         replace(key, with: MacScreenRecord(deviceID: id))
     }
 
     /// The home page opens device `id` in a new tab beside it.
     func openDeviceInNewTab(_ id: String, scope: SessionScope?, from key: String) {
-        if let scope { pendingScopes[id] = scope }
+        if let scope { want(scope, for: id, startedBy: nil) }
         events.openInNewTab(MacScreenRecord(deviceID: id), key)
     }
 
     /// Makes a record for an already-resolved screen-device UUID. Machine routes,
     /// joined IDs and display names are not screen identities; callers that have
     /// a person-requested scope can carry it into the first connection.
-    public func record(forDevice device: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
+    /// `startedBy`: an agent started it without a person's click (``agentMayStartViewing(_:among:)``
+    /// allowed it): its tab is confirmed when prepared, asks at once and says who started it.
+    public func record(forDevice device: String, requesting scope: SessionScope? = nil,
+                       startedBy: MacScreenStarter? = nil) -> MacScreenRecord {
         guard let id = MacScreenRecord.normalizedDeviceID(device) else {
             return MacScreenRecord(macID: nil)
         }
-        if let scope { pendingScopes[id] = scope }
+        if let scope { want(scope, for: id, startedBy: startedBy) }
         return MacScreenRecord(deviceID: id)
+    }
+
+    /// Device `id`'s next tab asks for `scope`; `startedBy` names the agent that asked, nil for a person.
+    private func want(_ scope: SessionScope, for id: String, startedBy: MacScreenStarter?) {
+        pendingScopes[id] = scope
+        pendingStarters[id] = startedBy
     }
 
     /// At launch: the shortcut tap, the permissions, and the saved device names
@@ -300,10 +319,16 @@ public final class MacScreenPages {
     // MARK: Page tabs
 
     /// Tab `key` will show `record` (set up before its view is made). `byPerson`:
-    /// a person opened it here, so it connects without asking.
+    /// a person opened it here, so it connects without asking. A record an agent
+    /// started on the person's own device (`record(forDevice:requesting:startedBy:)`)
+    /// is confirmed too, and its view is made now, so it asks the hub even when
+    /// it opens in the background and is never shown.
     public func prepare(_ key: String, record: MacScreenRecord, byPerson: Bool) {
         records[key] = record
-        if byPerson { confirmed[key] = record } else { confirmed[key] = nil }
+        let starter = record.deviceID.flatMap { pendingStarters.removeValue(forKey: $0) }
+        starters[key] = byPerson ? nil : starter
+        confirmed[key] = byPerson || starter != nil ? record : nil
+        if starters[key] != nil, tabs[key] == nil { _ = makeView(for: key) }
     }
 
     /// What tab `key` shows, kept as its page tab route: "home",
@@ -367,6 +392,7 @@ public final class MacScreenPages {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
+        starters[key] = nil
         systemShortcuts.update()
     }
 
@@ -393,7 +419,10 @@ public final class MacScreenPages {
         tab.record = record
         let key = tab.key
         if let device = record.deviceID {
-            tab.install(makeHubPane(deviceID: device, record: record, key: key))
+            let pane = makeHubPane(deviceID: device, record: record, key: key)
+            tab.install(pane)
+            // An agent's start asks now, shown or not: a tab opened in the background still streams.
+            if starters[key] != nil { pane.requestWaitingScope() }
             events.titleChanged(key)
             return
         }
@@ -420,12 +449,14 @@ public final class MacScreenPages {
     }
 
     /// A device hub device's screen. A tab a person opened with a scope asks
-    /// the hub when shown; any other waits at the Connect card.
+    /// the hub when shown, one an agent started asks at once (`show`); any
+    /// other waits at the Connect card.
     private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
         if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
+        pane.model.startedBy = starters[key]
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }
         #endif

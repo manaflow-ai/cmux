@@ -9,6 +9,7 @@
     "cloud": ["cloud", "CloudNewWorkspaceSetting"],
     "mobile": ["mobile", "MobileSettings"],
     "macScreen": ["macScreen", "MacScreenSettings"],
+    "macScreenViewing": ["macScreenViewing", "MacScreenSettings"],
     "macScreenDebug": ["macScreenDebug", "MacScreenDebugSettings"],
     "remote": ["remote", "RemoteSettings"],
     "deviceHub": ["deviceHub", "DeviceHubSettings"],

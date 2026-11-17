@@ -5,8 +5,14 @@ import CmuxNextSettings
 /// `mac_screen.state` (every build; `cmux app mac-screens [--tab TAB]`): one row per Mac Screen
 /// tab showing one of the user's devices, read-only, for checking how fast a viewer is:
 /// - `tab`, `device_id`, `device` (the tab's name for it);
-/// - `phase` (`connecting`, `connected`, `failed`, `ended`; null with no session), `connected`,
-///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
+/// - `phase` (`connecting`, `connected`, `failed`, `ended`; null while no stream has started),
+///   `connected`, `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
+/// - `hub` (a device hub tab: how far its request got before the stream): `connect_card` (waiting
+///   for a person's View or Control, as a tab opened by automation does), `requesting`,
+///   `waiting_for_approval`, `approved`, `streaming`, `stream_failed`, `declined`, `refused`,
+///   `revoked`, `ended`; `hub_reason` names a refusal, revocation or end;
+/// - `started_by`: who started the view without a person's click (the agent session's title or the
+///   calling app, else `agent`), null for a tab a person opened or one waiting at the Connect card;
 /// - `connect_started_at` (ISO 8601, when this session's connect began) and `first_frame_ms`
 ///   (from it to the first decoded frame reaching the screen; null until then);
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
@@ -56,8 +62,16 @@ extension MacScreenPages {
         ]
         guard let pane = tab.pane else { return .object(row) }
         row["has_frame"] = .bool(pane.model.hasFrame)
+        row["started_by"] = pane.model.startedBy.map { .string($0.stateValue) } ?? .null
+        if let hub = pane.model.hub {
+            let (name, reason) = hubPhaseName(hub.phase)
+            row["hub"] = .string(name)
+            row["hub_reason"] = reason.map(JSONValue.string) ?? .null
+        }
         guard let session = pane.session else { return .object(row) }
-        row["phase"] = .string(phaseName(session.phase))
+        // A session that never connected sits in its initial `.ended`: no stream, not one that ended.
+        let started = session.timings.startedAt != nil || session.phase != .ended
+        row["phase"] = started ? .string(phaseName(session.phase)) : .null
         row["connected"] = .bool(session.phase == .connected)
         row["path"] = .string(session.streamPath)
         let timings = session.timings
@@ -89,6 +103,34 @@ extension MacScreenPages {
         case .connected: "connected"
         case .failed: "failed"
         case .ended: "ended"
+        }
+    }
+
+    /// The hub viewer's phase as `hub`, and its `hub_reason` when it has one.
+    static func hubPhaseName(_ phase: MacScreenHubPhase) -> (String, String?) {
+        switch phase {
+        case .idle: ("connect_card", nil)
+        case .requesting: ("requesting", nil)
+        case .waitingForApproval: ("waiting_for_approval", nil)
+        case .approved: ("approved", nil)
+        case .streaming: ("streaming", nil)
+        case .streamFailed: ("stream_failed", nil)
+        case .declined: ("declined", nil)
+        case let .refused(refusal, _): ("refused", refusalName(refusal))
+        case let .revoked(reason): ("revoked", reason)
+        case let .ended(reason): ("ended", reason)
+        }
+    }
+
+    private static func refusalName(_ refusal: MacScreenHubRefusal) -> String {
+        switch refusal {
+        case .permissionNone: "permission_none"
+        case .scopeExceeds: "scope_exceeds"
+        case .hostOffline: "host_offline"
+        case .notShared: "not_shared"
+        case .notFound: "not_found"
+        case .notSignedIn: "not_signed_in"
+        case .other: "other"
         }
     }
 }

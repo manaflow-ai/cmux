@@ -103,7 +103,10 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages).count == 1, "the home tab is not a screen")
         #expect(idle["tab"]?.stringValue == "a")
         #expect(idle["device_id"]?.stringValue == deviceID)
-        #expect(idle["phase"]?.stringValue == "ended")
+        // Opened by automation that waits for the person: the Connect card, no stream started yet.
+        #expect(idle["phase"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["hub"]?.stringValue == "connect_card" && idle["hub_reason"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["started_by"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
@@ -120,6 +123,7 @@ struct MacScreenStateControlTests {
         session.framesCounted(MacScreenFrameCounter())
 
         let live = try #require(try rows(pages, tab: "a").first)
+        #expect(live["phase"]?.stringValue == "ended", "a connect began: the phase is the session's")
         #expect(live["connect_started_at"]?.stringValue == "2023-11-14T22:13:20Z")
         let first = try #require(live["first_frame_ms"]?.doubleValue)
         #expect(first >= 0 && first < 10_000)

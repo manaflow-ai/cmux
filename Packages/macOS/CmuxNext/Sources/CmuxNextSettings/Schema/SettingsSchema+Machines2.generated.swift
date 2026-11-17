@@ -2,6 +2,40 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension MachineSettingsSchema {
+    static var remote: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
+        return [
+            SettingDescriptor(
+                RemoteSettings.endSharingOnQuitPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
+                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
+                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
+                kind: .toggle,
+                default: .bool(RemoteSettings.endSharingOnQuitDefault),
+                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
+            ),
+            SettingDescriptor(
+                RemoteSettings.ultraPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
+                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."),
+                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
+                kind: .choice([
+                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
+                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
+                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
+                ]),
+                default: .string(RemoteSettings.ultraDefault.rawValue),
+                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
     static var deviceHub: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
         return [
