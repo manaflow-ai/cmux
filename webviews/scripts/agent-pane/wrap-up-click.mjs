@@ -15,7 +15,20 @@ try {
     await stubMockBridge(page, { ready: { sessionId } });
     await page.goto(`${server.url}?mock`, { waitUntil: "networkidle" });
     const button = page.locator(".acpmux-next-step__answer").first();
-    await button.waitFor({ timeout: 20_000 });
+    await button.waitFor({ timeout: 120_000 }).catch(async (error) => {
+      await page.screenshot({ path: path.join(out, `${sessionId}-no-card.png`) });
+      throw error;
+    });
+    // Leo's case: a turn runs when he answers, so the answer waits in the queue behind it.
+    await page.waitForFunction(() => window.cmuxAcpmuxActions?.["chat.send"]);
+    await page.evaluate(() => window.cmuxAcpmuxActions["chat.send"]({ text: "Also check the tests" }));
+    await page
+      .waitForFunction(
+        () => document.querySelector(".acpmux-composer [data-working], .acpmux-stop-button, [aria-label='Stop']"),
+        null,
+        { timeout: 5000 },
+      )
+      .catch(() => console.log("no working marker"));
     await settle(page);
     const label = (await button.innerText()).split("\n")[0].trim();
     await page.screenshot({ path: path.join(out, `${sessionId}-0-before.png`) });
@@ -30,7 +43,7 @@ try {
           requestAnimationFrame(() =>
             resolve({
               buttons: document.querySelectorAll(".acpmux-next-step__answer").length,
-              quoteLines: [...document.querySelectorAll(".acpmux-scroll *")].filter(
+              quoteLines: [...document.querySelectorAll("body *")].filter(
                 (n) => n.children.length === 0 && /^>\s/.test(n.textContent ?? ""),
               ).length,
             }),
@@ -45,7 +58,9 @@ try {
     await page.screenshot({ path: path.join(out, `${sessionId}-3-later.png`) });
     const later = await page.evaluate(() => ({
       buttons: document.querySelectorAll(".acpmux-next-step__answer").length,
-      text: document.querySelector(".acpmux-scroll")?.innerText.slice(-1500),
+      queue: [...document.querySelectorAll(".acpmux-queued-kind, .acpmux-composer-queue, [class*='queued']")]
+        .map((n) => n.innerText)
+        .slice(0, 4),
     }));
     console.log(JSON.stringify({ sessionId, label, frame, later }, null, 1));
     await page.close();
