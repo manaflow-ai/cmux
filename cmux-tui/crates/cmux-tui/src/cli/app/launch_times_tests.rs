@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use super::super::{AppCommand, parse};
-use super::{Command, FILE_NAME, MAX_BYTES, default_path, read, table};
+use super::{Command, FILE_NAME, MAX_BYTES, default_path, phase_line, read, table};
 
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -17,18 +17,58 @@ const LINE: &str = r#"{"build":"200","commit":"31583607abcdef","first_launch_of_
 fn launch_times_parses_its_options() {
     assert_eq!(
         parse(&args(&["app", "launch-times"])).unwrap(),
-        Some(AppCommand::LaunchTimes(Command { limit: None, file: None }))
+        Some(AppCommand::LaunchTimes(Command { limit: None, file: None, phases: false }))
     );
     assert_eq!(
         parse(&args(&["app", "launch-times", "--limit", "5", "--file", "/tmp/x.jsonl"])).unwrap(),
         Some(AppCommand::LaunchTimes(Command {
             limit: Some(5),
-            file: Some(PathBuf::from("/tmp/x.jsonl"))
+            file: Some(PathBuf::from("/tmp/x.jsonl")),
+            phases: false,
         }))
     );
     assert!(parse(&args(&["app", "launch-times", "--limit", "0"])).is_err());
     assert!(parse(&args(&["app", "launch-times", "--limit", "soon"])).is_err());
     assert!(parse(&args(&["app", "launch-times", "extra"])).is_err());
+    assert_eq!(
+        parse(&args(&["app", "launch-times", "--phases"])).unwrap(),
+        Some(AppCommand::LaunchTimes(Command { limit: None, file: None, phases: true }))
+    );
+}
+
+/// A row with phases (the app's `phases` object, sorted keys as it writes them) reads back with the
+/// object whole, for the JSON view; `--phases` prints them under the row in the order they came, each
+/// with its step from the one before. A row written before phases has no line.
+#[test]
+fn launch_times_prints_each_rows_phases() {
+    let with: Value = serde_json::from_str(&LINE.replace(
+        r#""pre_main_ms""#,
+        r#""phases":{"cef.ready":900,"dfl.menu":130.6,"did_finish_launching_start":60,"reveal.home":830.7},"pre_main_ms""#,
+    ))
+    .unwrap();
+    let without: Value = serde_json::from_str(LINE).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE_NAME);
+    std::fs::write(&path, format!("{}\n{LINE}\n", serde_json::to_string(&with).unwrap())).unwrap();
+    let records = read(&path, None).unwrap();
+    assert_eq!(records, [with.clone(), without.clone()]);
+    assert_eq!(records[0]["phases"]["dfl.menu"], json!(130.6));
+    assert!(records[1].get("phases").is_none());
+
+    assert_eq!(
+        phase_line(&with).unwrap(),
+        "  phases: did_finish_launching_start=60 (+60)  dfl.menu=130.6 (+70.6)  reveal.home=830.7 (+700.1)  cef.ready=900 (+69.3)"
+    );
+    assert_eq!(phase_line(&without), None);
+
+    let plain = table(&records, false);
+    assert_eq!(plain.lines().count(), 3, "no phases without --phases: {plain}");
+    let text = table(&records, true);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 4, "{text}");
+    assert!(lines[1].starts_with("2027-01-15"), "{text}");
+    assert!(lines[2].starts_with("  phases: did_finish_launching_start=60"), "{text}");
+    assert!(lines[3].starts_with("2027-01-15"), "the row without phases has no line: {text}");
 }
 
 /// NIGHTLY's CLI with `CMUX_BUNDLE_ID=com.cmuxterm.app.nightly` reads NIGHTLY's own file.
@@ -61,7 +101,7 @@ fn launch_times_reads_the_apps_record_back() {
     assert_eq!(record["home_revealed_by"], "mark");
     assert_eq!(record["prewarmed"], true);
     assert_eq!(record["first_launch_of_build"], true);
-    let text = table(&records);
+    let text = table(&records, false);
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("started_at"), "{text}");
@@ -81,7 +121,7 @@ fn launch_times_table_prints_the_prior_chat_columns() {
     ))
     .unwrap();
     let other: Value = serde_json::from_str(LINE).unwrap();
-    let text = table(&[chat, other]);
+    let text = table(&[chat, other], false);
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 3, "{text}");
     let header: Vec<&str> = lines[0].split_whitespace().collect();
