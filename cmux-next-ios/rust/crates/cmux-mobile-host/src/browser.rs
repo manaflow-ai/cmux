@@ -628,7 +628,7 @@ pub async fn serve(
         .filter(|video| !video.is_closed());
     // The phone's tag for this tab's lane frames (cmux_mobile_link::media::tag).
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
-    let track = track.map(|video| (video, video_tag));
+    let track = track.map(|video| (video, video_tag, crate::traffic::Kind::BrowserVideo));
     let result = splice(claim, Some(guard), filter_frame, first, peer, sender, receiver, track).await;
     config.release(tab, viewer).await;
     result
@@ -646,11 +646,21 @@ pub(crate) async fn splice(
     peer: &Peer,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
-    track: Option<(&cmux_mobile_link::media::VideoOut, Option<u32>)>,
+    track: Option<(&cmux_mobile_link::media::VideoOut, Option<u32>, crate::traffic::Kind)>,
 ) -> Result<(), Refusal> {
     let Claim { addr, secret, stopped: mut cancelled, visible, .. } = claim_of_host;
     let secret = secret.as_str();
-    let video_tag = track.and_then(|(_, tag)| tag);
+    let video_tag = track.and_then(|(_, tag, _)| tag);
+    // Lane frames count where the lane hands them to a route (traffic.rs;
+    // `VideoClaim::count_into`), so a frame the lane drops counts nothing.
+    let video_meter = track.map(|(_, _, kind)| crate::traffic::TRAFFIC.meter(kind));
+    let claim_lane = |video: &cmux_mobile_link::media::VideoOut| {
+        let mut claim = video.claim();
+        if let Some(meter) = &video_meter {
+            claim.count_into(Arc::clone(meter));
+        }
+        claim
+    };
     // A tagged phone keeps only its own tab's lane frames (the lane changes
     // tabs without telling it when); an older phone sent no tag.
     let lane_frame = |frame: cmux_rd_core::reassembly::CompleteFrame| {
@@ -685,7 +695,7 @@ pub(crate) async fn splice(
     // the page's frames ride the media lane. A newer browser channel on the
     // same link takes the lane over; this one then carries its video on
     // the channel again (the host deframer stays, so frames stay whole).
-    let mut claim = track.map(|(video, _)| video.claim());
+    let mut claim = track.map(|(video, _, _)| claim_lane(video));
     // Every host frame is read whole: the guard reads the host's `rb.page`,
     // and track mode takes the video datagrams out.
     let mut host_deframer = StreamDeframer::default();
@@ -812,11 +822,11 @@ pub(crate) async fn splice(
                                         // from a hidden tab that opened later.
                                         if shown
                                             && claim.as_ref().is_none_or(|c| !c.owns())
-                                            && let Some((video, _)) = track
+                                            && let Some((video, _, _)) = track
                                             && !video.is_closed()
                                         {
                                             tracing::info!("browser: the shown tab takes the media lane back");
-                                            claim = Some(video.claim());
+                                            claim = Some(claim_lane(video));
                                             // A fresh viewer of the main stream,
                                             // starting at a keyframe.
                                             bridge = crate::browser_track::TrackBridge::new();
