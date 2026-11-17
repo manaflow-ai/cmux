@@ -18,7 +18,9 @@ impl IdempotencyKey {
     pub fn new(key: &str) -> Result<Self, ProviderError> {
         let ok = !key.is_empty()
             && key.len() <= 128
-            && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+            && key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
         if ok {
             Ok(Self(key.to_owned()))
         } else {
@@ -81,7 +83,9 @@ impl CreateSpec {
             ));
         }
         if self.idle_grace_minutes == 0 {
-            return Err(ProviderError::Refused("idle stop needs a grace above 0 minutes".into()));
+            return Err(ProviderError::Refused(
+                "idle stop needs a grace above 0 minutes".into(),
+            ));
         }
         for (key, value) in &self.labels {
             let label_ok = |s: &str, min: usize| {
@@ -94,7 +98,9 @@ impl CreateSpec {
             let starts_lower = key.bytes().next().is_some_and(|b| b.is_ascii_lowercase());
             if !starts_lower || !label_ok(key, 1) || !label_ok(value, 0) || key.starts_with("cmux-")
             {
-                return Err(ProviderError::Refused(format!("label {key:?} is not allowed")));
+                return Err(ProviderError::Refused(format!(
+                    "label {key:?} is not allowed"
+                )));
             }
         }
         Ok(())
@@ -114,11 +120,19 @@ pub struct Request {
 
 impl Request {
     pub fn create(spec: CreateSpec) -> Self {
-        Self { op: Op::Create, machine: None, spec: Some(spec) }
+        Self {
+            op: Op::Create,
+            machine: None,
+            spec: Some(spec),
+        }
     }
 
     pub fn on(op: Op, machine: &str) -> Self {
-        Self { op, machine: Some(machine.to_owned()), spec: None }
+        Self {
+            op,
+            machine: Some(machine.to_owned()),
+            spec: None,
+        }
     }
 
     /// The request's identity for conflict checks: the same key may only
@@ -230,5 +244,16 @@ pub trait MachineProvider {
     ) -> Result<(MachineState, Option<String>), ProviderError>;
     /// What the provider shows for a machine now: `None` when it is gone.
     fn observe(&self, machine: &str) -> Result<Option<MachineState>, ProviderError>;
+    /// What the provider shows for the machine a `create` under `key` makes,
+    /// for settling that create after a lost answer: a machine of that name
+    /// that another key made is a [`ProviderError::Conflict`], never ours.
+    fn observe_created(
+        &self,
+        key: &IdempotencyKey,
+        machine: &str,
+    ) -> Result<Option<MachineState>, ProviderError> {
+        let _ = key;
+        self.observe(machine)
+    }
     fn cost_estimate(&self, spec: &CreateSpec) -> CostEstimate;
 }

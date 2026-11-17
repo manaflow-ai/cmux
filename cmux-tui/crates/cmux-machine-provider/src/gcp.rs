@@ -514,6 +514,30 @@ impl MachineProvider for GcpProvider {
         Ok(self.instance(machine)?.map(|i| state_of(Some(&i))))
     }
 
+    fn observe_created(
+        &self,
+        key: &IdempotencyKey,
+        machine: &str,
+    ) -> Result<Option<MachineState>, ProviderError> {
+        if !valid_name(machine) {
+            return Err(ProviderError::Refused(format!(
+                "machine {machine:?} is not a GCP name"
+            )));
+        }
+        let Some(found) = self.instance(machine)? else {
+            return Ok(None);
+        };
+        // The same check as a create's 409: ours only with our key's label.
+        if found.pointer("/labels/cmux-key").and_then(Value::as_str)
+            != Some(key_label(key).as_str())
+        {
+            return Err(ProviderError::Conflict(format!(
+                "{machine} belongs to another key"
+            )));
+        }
+        Ok(Some(state_of(Some(&found))))
+    }
+
     fn cost_estimate(&self, spec: &CreateSpec) -> CostEstimate {
         cost_estimate(spec)
     }

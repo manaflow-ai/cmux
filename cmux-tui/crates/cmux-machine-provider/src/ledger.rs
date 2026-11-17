@@ -48,16 +48,37 @@ impl Outcome {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 enum Line {
-    Pending { key: IdempotencyKey, fingerprint: String, op: Op, machine: String },
-    Done { fingerprint: String, receipt: Receipt },
-    Failed { key: IdempotencyKey, fingerprint: String, error: String },
+    Pending {
+        key: IdempotencyKey,
+        fingerprint: String,
+        op: Op,
+        machine: String,
+    },
+    Done {
+        fingerprint: String,
+        receipt: Receipt,
+    },
+    Failed {
+        key: IdempotencyKey,
+        fingerprint: String,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone)]
 enum Entry {
-    Pending { fingerprint: String, op: Op, machine: String },
-    Done { fingerprint: String, receipt: Receipt },
-    Failed { fingerprint: String },
+    Pending {
+        fingerprint: String,
+        op: Op,
+        machine: String,
+    },
+    Done {
+        fingerprint: String,
+        receipt: Receipt,
+    },
+    Failed {
+        fingerprint: String,
+    },
 }
 
 impl Entry {
@@ -92,11 +113,17 @@ impl Ledger {
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
         let mut file = options.open(path)?;
         file.try_lock().map_err(|e| {
-            std::io::Error::other(format!("{}: another process holds it ({e})", path.display()))
+            std::io::Error::other(format!(
+                "{}: another process holds it ({e})",
+                path.display()
+            ))
         })?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
-        let whole = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i.saturating_add(1));
+        let whole = bytes
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i.saturating_add(1));
         if whole < bytes.len() {
             file.set_len(whole as u64)?;
         }
@@ -107,8 +134,14 @@ impl Ledger {
             entries: HashMap::new(),
             generations: HashMap::new(),
         };
-        for line in bytes.get(..whole).unwrap_or_default().split(|&b| b == b'\n') {
-            let Ok(line) = serde_json::from_slice::<Line>(line) else { continue };
+        for line in bytes
+            .get(..whole)
+            .unwrap_or_default()
+            .split(|&b| b == b'\n')
+        {
+            let Ok(line) = serde_json::from_slice::<Line>(line) else {
+                continue;
+            };
             ledger.absorb(line);
         }
         Ok(ledger)
@@ -151,8 +184,9 @@ impl Ledger {
             spec.validate()?;
         }
         let scope = scope_of(provider);
-        let fingerprint =
-            hex::encode(Sha256::digest(format!("{scope}\0{}", request.fingerprint()).as_bytes()));
+        let fingerprint = hex::encode(Sha256::digest(
+            format!("{scope}\0{}", request.fingerprint()).as_bytes(),
+        ));
         let machine = match (request.op, &request.machine) {
             (Op::Create, _) => provider.machine_for(key),
             (_, Some(machine)) => machine.clone(),
@@ -167,10 +201,17 @@ impl Ledger {
             }
             Some(Entry::Done { receipt, .. }) => return Ok(Outcome::Replayed(receipt)),
             Some(Entry::Pending { .. }) => {
-                if let Some(state) = settled_by(request.op, provider.observe(&machine)?) {
+                let observed = match request.op {
+                    Op::Create => provider.observe_created(key, &machine)?,
+                    _ => provider.observe(&machine)?,
+                };
+                if let Some(state) = settled_by(request.op, observed) {
                     let receipt =
                         self.commit(provider, key, request.op, &machine, state, None, true);
-                    self.append(&Line::Done { fingerprint, receipt: receipt.clone() })?;
+                    self.append(&Line::Done {
+                        fingerprint,
+                        receipt: receipt.clone(),
+                    })?;
                     return Ok(Outcome::Reconciled(receipt));
                 }
             }
@@ -187,7 +228,10 @@ impl Ledger {
             Ok((state, artifact)) => {
                 let receipt =
                     self.commit(provider, key, request.op, &machine, state, artifact, false);
-                self.append(&Line::Done { fingerprint, receipt: receipt.clone() })?;
+                self.append(&Line::Done {
+                    fingerprint,
+                    receipt: receipt.clone(),
+                })?;
                 Ok(Outcome::Committed(receipt))
             }
             // The answer is lost: the line stays pending for the next run.
@@ -252,18 +296,41 @@ impl Ledger {
 
     fn absorb(&mut self, line: Line) {
         match line {
-            Line::Pending { key, fingerprint, op, machine } => {
-                self.entries.insert(key, Entry::Pending { fingerprint, op, machine });
+            Line::Pending {
+                key,
+                fingerprint,
+                op,
+                machine,
+            } => {
+                self.entries.insert(
+                    key,
+                    Entry::Pending {
+                        fingerprint,
+                        op,
+                        machine,
+                    },
+                );
             }
-            Line::Done { fingerprint, receipt } => {
+            Line::Done {
+                fingerprint,
+                receipt,
+            } => {
                 let at = format!(
                     "{}/{}/{}/{}",
                     receipt.provider, receipt.project, receipt.location, receipt.machine
                 );
                 self.generations.insert(at, receipt.generation);
-                self.entries.insert(receipt.key.clone(), Entry::Done { fingerprint, receipt });
+                self.entries.insert(
+                    receipt.key.clone(),
+                    Entry::Done {
+                        fingerprint,
+                        receipt,
+                    },
+                );
             }
-            Line::Failed { key, fingerprint, .. } => {
+            Line::Failed {
+                key, fingerprint, ..
+            } => {
                 self.entries.insert(key, Entry::Failed { fingerprint });
             }
         }
@@ -272,7 +339,12 @@ impl Ledger {
 
 /// Where a key's machines live: `provider/project/location`.
 fn scope_of(provider: &dyn MachineProvider) -> String {
-    format!("{}/{}/{}", provider.provider(), provider.project(), provider.location())
+    format!(
+        "{}/{}/{}",
+        provider.provider(),
+        provider.project(),
+        provider.location()
+    )
 }
 
 /// The state that shows a pending op took effect, or `None` when it must be
