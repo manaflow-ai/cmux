@@ -32,8 +32,10 @@ public enum ActionTargetVisibility {
     /// and MCP keep both.
     public static func showOne(_ shown: ActionID, else other: ActionID, in registry: ActionRegistry,
                                when: @escaping @MainActor (ActionInvocation) -> Bool) {
-        hide(shown, in: registry) { !when($0) }
-        hide(other, in: registry, when: when)
+        // Asked while a menu builds: a target it cannot find reads false, with no refusal (as `gate`).
+        let quiet: @MainActor (ActionInvocation) -> Bool = { [weak registry] invocation in registry?.withoutRefusals { when(invocation) } ?? false }
+        hide(shown, in: registry) { !quiet($0) }
+        hide(other, in: registry, when: quiet)
     }
 
     /// Whether the menu row of `id` is left out for `invocation`'s target.

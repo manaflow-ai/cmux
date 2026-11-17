@@ -58,8 +58,11 @@ struct ContextMenuEssentialsTests {
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
         #expect(frontend?.arguments["group"] == .target(ActionTargetRef(kind: .workspaceGroup, id: "g1")))
         // The rest moved, not gone.
-        #expect(allActions(menu).contains("palette.markWorkspaceUnread"))
-        #expect(allActions(menu).contains("workspace.duplicate"))
+        let more = menu.items.first { $0.title == "More" }?.submenu.map(allActions) ?? []
+        #expect(more.contains("palette.clearWorkspaceName"))
+        #expect(more.contains("workspace.duplicate"))
+        // Mark as Read and Unread moved up, not into More twice.
+        #expect(!more.contains("palette.markWorkspaceRead") && !more.contains("palette.markWorkspaceUnread"))
     }
 
     /// Leo 2026-10-29: "I feel like there's a much better way of doing things than just all of these

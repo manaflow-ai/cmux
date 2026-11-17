@@ -37,10 +37,7 @@ struct WorkspaceMenuReadUnreadTests {
             let pin = try #require(ids.firstIndex(of: "palette.toggleWorkspacePin"), "\(ids)")
             #expect(ids.indices.contains(pin + 1) && ids[pin + 1] == Self.unread, "Mark as Unread follows Pin: \(ids)")
             #expect(!ids.contains(Self.read), "a read row offers no Mark as Read: \(ids)")
-            let markUnread = try #require(rows.first { $0.0 == Self.unread }?.1)
-            #expect(markUnread.isEnabled)
-
-            try Self.click(markUnread)
+            try Self.click(try #require(rows.first { $0.0 == Self.unread }?.1))
             try await PinnedPageTests.until({ workspace.markedUnread }, report: { "the daemon never marked \(workspace.id) unread" })
 
             // An unread row: Mark as Read in the same place, and no Mark as Unread.
@@ -52,6 +49,24 @@ struct WorkspaceMenuReadUnreadTests {
 
             try Self.click(try #require(rows.first { $0.0 == Self.read }?.1))
             try await PinnedPageTests.until({ !workspace.markedUnread }, report: { "the daemon never cleared \(workspace.id)'s mark" })
+            #expect(Self.topRows(services, workspace).map(\.0).contains(Self.unread))
+        }
+    }
+
+    /// The row's dot also shows for a tab marked unread by hand (the tab menu's Mark Tab as Unread), so the row
+    /// offers Mark as Read; it drops the tab's mark, and the row offers Mark as Unread again.
+    @Test func aTabMarkedUnreadMakesTheRowOfferMarkAsRead() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let workspace = try #require(services.daemon.store.workspaces.first)
+            let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+            try TabUnreadMark.set(true, tab: tab, daemon: services.daemon)
+            try await PinnedPageTests.until({ tab.markedUnread }, report: { "the daemon never marked tab \(tab.id) unread" })
+            #expect(!workspace.markedUnread, "only the tab is marked")
+
+            let rows = Self.topRows(services, workspace)
+            #expect(!rows.map(\.0).contains(Self.unread), "a row with a dot offers no Mark as Unread: \(rows.map(\.0))")
+            try Self.click(try #require(rows.first { $0.0 == Self.read }?.1, "no Mark as Read: \(rows.map(\.0))"))
+            try await PinnedPageTests.until({ !tab.markedUnread }, report: { "Mark as Read left tab \(tab.id)'s mark" })
             #expect(Self.topRows(services, workspace).map(\.0).contains(Self.unread))
         }
     }

@@ -116,9 +116,12 @@ public final class WorkspaceModel: Identifiable {
         return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
     }
 
-    /// Whether the sidebar row draws an unread dot: marked unread by hand, or a tab with an unread
-    /// notification (the workspace row menu's Mark as Read or Mark as Unread, #44931).
-    public var showsUnreadDot: Bool { markedUnread || unreadCount > 0 }
+    /// Whether the sidebar row draws an unread mark (cmux-layout-reducer `sidebar_face.rs` `unread`): marked
+    /// unread by hand, an unread tab, or a tab marked unread or asking for the person. The workspace row
+    /// menu offers Mark as Read or Mark as Unread by it (#44931).
+    public var showsUnreadDot: Bool {
+        markedUnread || unreadCount > 0 || screens.contains { $0.panes.contains { $0.tabs.contains(where: \.showsUnread) } }
+    }
 
     /// Tabs with an unread marker, counted from the mirrored tabs, which
     /// every tab delta (an acknowledgement included) keeps current. The

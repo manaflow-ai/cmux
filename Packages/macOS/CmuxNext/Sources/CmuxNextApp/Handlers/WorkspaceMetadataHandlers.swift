@@ -99,8 +99,8 @@ enum WorkspaceMetadataHandlers {
         for group in sidebar.model.coloredGroups { sidebar.handle(.setGroupColor(group, GroupTint.none)) }
     }
 
-    /// Acknowledges every unread tab of `workspaces` (all tabs when the
-    /// daemon rollup reports unread but no tab carries a marker).
+    /// Acknowledges every unread tab of `workspaces` (all tabs when the daemon rollup reports unread
+    /// but no tab carries a marker) and drops tabs' own unread and agent marks, as a tab's Mark as Read does.
     static func acknowledge(_ workspaces: [WorkspaceModel], _ context: AppActionContext) throws {
         try context.require(DaemonCapability.notificationAck.rawValue)
         let machines = context.services.machines
@@ -111,10 +111,10 @@ enum WorkspaceMetadataHandlers {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
             for tab in unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread {
-                // Read now (dots, badges, unread count) and kept while the daemon is down; the tree's echo settles it,
-                // only the daemon's refusal rolls it back.
+                // Read now (dots, badges, count), kept while the daemon is down; only its refusal rolls it back.
                 daemon.readNotification(of: tab)
             }
+            for tab in tabs { if tab.markedUnread { try? TabUnreadMark.set(false, tab: tab, daemon: daemon) }; if tab.attention != nil { try? TabUnreadMark.clearAttention(tab: tab, daemon: daemon) } }
         }
     }
 
