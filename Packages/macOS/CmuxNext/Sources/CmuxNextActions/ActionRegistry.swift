@@ -293,6 +293,17 @@ public final class ActionRegistry {
     public private(set) var duplicateBindings: [ActionID] = []
     private var placeholders: Set<ActionID> = []
 
+    /// Ids a bind named that the loaded catalog lacks: App code that binds a row before the pinned app
+    /// FFI carries it (the Swift and the Rust row land together; the release with the row is pinned an
+    /// hour or more later). Checked by tests, never trapped, so the Debug app still launches; the app
+    /// logs a fault.
+    public private(set) var bindsWithoutRow: [ActionID] = []
+
+    /// Records `id` on ``bindsWithoutRow`` when `bound`, a bind's result, is false.
+    public func expectBound(_ bound: Bool, _ id: ActionID) {
+        if !bound { bindsWithoutRow.append(id) }
+    }
+
     func noteBinding(_ id: ActionID, placeholder: Bool) {
         let canonical = canonicalID(for: id)
         if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }

@@ -17,6 +17,7 @@ struct BindAheadOfPinTests {
         services.cloudTeam.bind(into: registry, reason: { nil })
 
         #expect(registry.action(for: "cloud.team.sessions") == nil)
+        #expect(registry.bindsWithoutRow.contains("cloud.team.sessions"))
     }
 
     @Test func cloudHandlerBindsIntoACatalogWithoutItsRow() {
@@ -24,7 +25,7 @@ struct BindAheadOfPinTests {
 
         CloudHandlers.bind("cloud.notInThePinnedCatalog", registry, reason: { nil }) { _ in }
 
-        #expect(registry.action(for: "cloud.notInThePinnedCatalog") == nil)
+        #expect(registry.bindsWithoutRow == ["cloud.notInThePinnedCatalog"])
     }
 
     @Test func unavailablePlaceholdersBindIntoACatalogWithoutTheirRows() {
@@ -32,6 +33,6 @@ struct BindAheadOfPinTests {
 
         registry.bindUnavailable(["notInThePinnedCatalog"], ActionFailure(message: "unavailable"))
 
-        #expect(registry.action(for: "notInThePinnedCatalog") == nil)
+        #expect(registry.bindsWithoutRow == ["notInThePinnedCatalog"])
     }
 }

@@ -46,7 +46,7 @@ enum CloudHandlers {
         let bound = registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
             do { try body(invocation) } catch { registry?.refuse(RefusalStrings.describe(error)) }
         })
-        assert(bound, "\(id) is not in the action catalog")
+        registry.expectBound(bound, id)
     }
 
     static func bindMachineCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
@@ -103,7 +103,7 @@ enum CloudHandlers {
                 return nil
             }, cancelAuthorization: { signedOutCreation.cancel(expected: expected) }, start: start)
         }
-        assert(bound, "newCloudMachine is not in the action catalog")
+        registry.expectBound(bound, "newCloudMachine")
     }
 
     // MARK: Resolution

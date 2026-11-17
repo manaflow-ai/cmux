@@ -38,7 +38,7 @@ extension CloudTeamFeature {
                     }
                 })
             }
-            assert(bound, "\(id) is not in the action catalog")
+            registry.expectBound(bound, id)
         }
 
         bind("cloud.team.sessions") { invocation in

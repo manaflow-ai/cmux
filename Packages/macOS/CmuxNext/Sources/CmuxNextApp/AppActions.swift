@@ -145,10 +145,10 @@ enum AppActions {
         ActionRouting.install(services)
         ActionRouting.installUserIntentObservers(services)
         WindowKeyTable.install(services)
-        // One owner per action: a second binding silently replaces the first. The check is a test
-        // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
-        if !registry.duplicateBindings.isEmpty {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        // One owner per action (noActionIsBoundTwice) and a pinned catalog row per bind (BindAheadOfPinTests) are
+        // tests; at runtime a Debug dogfood build must not crash, so only a fault.
+        for (what, ids) in [("actions bound twice", registry.duplicateBindings), ("binds without a catalog row", registry.bindsWithoutRow)] where !ids.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("\(what, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
         }
     }
 

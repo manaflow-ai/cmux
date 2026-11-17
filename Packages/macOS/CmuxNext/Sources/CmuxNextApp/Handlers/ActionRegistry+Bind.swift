@@ -64,7 +64,7 @@ extension ActionRegistry {
     func bindUnavailable(_ ids: [ActionID], _ failure: ActionFailure) {
         for id in ids {
             let bound = bindUnavailable(id, reason: failure.message)
-            assert(bound, "\(id) is not in the action catalog")
+            expectBound(bound, id)
         }
     }
 }
