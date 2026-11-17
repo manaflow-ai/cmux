@@ -422,8 +422,8 @@ export default async function TermsOfServicePage() {
         billing settings or by a message to{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a>. The
         cancellation takes effect at the end of the period that you paid for.
-        We do not refund a period that started, except where the law requires a
-        refund.
+        We do not refund a period that started, except as &ldquo;Ending the
+        account&rdquo; says and where the law requires a refund.
       </p>
       <p>
         cmux Cloud has no spend limit unless a person on your team sets one.
@@ -479,7 +479,9 @@ export default async function TermsOfServicePage() {
         indemnity, &ldquo;Confidential information&rdquo;, &ldquo;Agents act on
         your behalf&rdquo;, &ldquo;AI output&rdquo;, &ldquo;Your content and
         connected tools&rdquo; (until deletion), &ldquo;Data export and deletion&rdquo;, and &ldquo;Law,
-        disputes, and changes for cmux Cloud&rdquo; continue. If we end the account for a reason other than your breach of these Terms, we refund the unused credits that you bought (granted credits count as used first).
+        disputes, and changes for cmux Cloud&rdquo; continue. If we end the account for a reason other than your breach of these Terms, we refund the unused credits that you bought (granted credits count as
+        used first) and, pro rata, the fees that you paid in advance for the
+        unused part of a plan period.
       </p>
 
       <h3>Law, disputes, and changes for cmux Cloud</h3>

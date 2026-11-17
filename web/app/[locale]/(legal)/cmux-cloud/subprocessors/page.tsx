@@ -166,7 +166,7 @@ const subprocessors: readonly Subprocessor[] = [
     category: "Logs and traces",
     name: "Axiom, Inc.",
     purpose: "Stores service logs and traces of cmux.cloud.",
-    location: "See the provider's privacy policy",
+    location: "United States (AWS us-east-1)",
   },
   {
     group: "content",
