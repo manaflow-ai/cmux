@@ -3,7 +3,7 @@
 # point is a fresh launch somebody installing and launching from scratch"). On a fleet Mac's console session, one DMG:
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-fresh-install.sh --ref <sha> [--arg=dmg=nightly|URL|sha256:HEX] [--arg=reps=5] \
-#     [--arg=rows=n,q,m] [--arg=trace=1] --artifact .build/launch-fresh-install/report.tgz --timeout 5400
+#     [--arg=rows=n,q,m,p] [--arg=trace=1] --artifact .build/launch-fresh-install/report.tgz --timeout 5400
 # dmg= is as launch-premain.sh takes it (sha256:HEX: the fleet store, a pull request's signed candidate). Rows, each
 # launch the first open of a copy nothing has run, with an empty home (a person's first launch), opened through
 # LaunchServices as a double-click opens it:
@@ -11,6 +11,8 @@
 #   q   the real fresh install: a DMG file quarantined as a browser download marks it, mounted, the app dragged into
 #       /Applications (Finder's copy, else ditto with the volume's quarantine kept; the row says which), opened there
 #   m   the same quarantined DMG, the app opened from the mounted volume
+#   p   as n, then the updater pre-warm's first step run on the copy before the open (its executable with
+#       --cmux-prewarm-launch, StagedUpdatePrewarm: exec and dyld, then exit), as an installer of ours could run it
 # Every launch gets a new DMG file (q, m) or a new copy (n) and a new quarantine event, so no row reuses a check.
 # Per launch, ms from the open request: the system's "downloaded from the Internet" prompt on screen and gone (its Open
 # pressed by the console's CuaDriver at once, so a person's reading time is not in the row), the process start, `main`
@@ -30,7 +32,7 @@ source "$LF_DIR/launch-premain.sh"
 
 main() {
   cd "$LF_DIR/../.." || exit 3
-  local out="$PWD/.build/launch-fresh-install" dmg=nightly reps=5 rows="n,q,m" trace=0 arg rc=0 rep row
+  local out="$PWD/.build/launch-fresh-install" dmg=nightly reps=5 rows="n,q,m,p" trace=0 arg rc=0 rep row
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
@@ -42,7 +44,7 @@ main() {
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$rows" =~ ^[nqm](,[nqm])*$ ]] || { echo "rows= takes n,q,m" >&2; exit 2; }
+  [[ "$rows" =~ ^[nqmp](,[nqmp])*$ ]] || { echo "rows= takes n,q,m,p" >&2; exit 2; }
   echo "LF host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LF root yes" || echo "LF root no (trace=1 needs it for fs_usage)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -95,7 +97,7 @@ for name in dict.fromkeys(r["row"] for r in rows):
              "translocated": sum(1 for r in runs if r.get("translocated")),
              "prompted": sum(1 for r in runs if isinstance(r.get("prompt"), (int, float)))}
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
-                "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms"):
+                "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms"):
         table[key] = med([r.get(key) for r in runs])
     # The part of the window's time after the prompt is gone: what the app can be faster at.
     table["window_after_prompt"] = med([r["window"] - r["prompt_gone"] for r in runs
@@ -114,6 +116,12 @@ quarantine() {
 }
 
 qattr() { xattr -p com.apple.quarantine "$1" 2>/dev/null || echo none; }
+
+# cpu_delta BEFORE AFTER: the checkers' summed CPU ms between two checker_cpu readings.
+cpu_delta() {
+  awk -v b="$1" -v a="$2" 'BEGIN { n = split(b, x, " "); split(a, y, " "); t = 0
+    for (i = 1; i <= n; i++) { split(x[i], p, "="); split(y[i], q, "="); t += q[2] - p[2] }; print t }'
+}
 
 now_ms() { python3 -I -c 'import time; print(int(time.time() * 1000))'; }
 
@@ -138,8 +146,9 @@ first() {
   mount="$OUT/mnt-$tag" dmgfile="$OUT/$tag.dmg"
   mkdir -p "$mount" "$OUT/home-$tag" && chmod 0777 "$OUT/home-$tag"
   cp "$OUT/app.dmg" "$dmgfile" || return 1
-  local mounted_by=hdiutil mount_ms=null t_mount
-  if [[ "$name" == n ]]; then
+  local mounted_by=hdiutil mount_ms=null t_mount prewarm_ms=null cpu_prepare
+  cpu_prepare="$(checker_cpu)"
+  if [[ "$name" == n || "$name" == p ]]; then
     hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
   else
     # A quarantined DMG opened as a double-click opens it (DiskImageMounter, its own check of the image), else hdiutil.
@@ -156,7 +165,7 @@ first() {
   fi
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   case "$name" in
-    n) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
+    n|p) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
        app="$dir/$(basename "$found")" ;;
     q) dir="$APPS/cmux-fresh-install-$RUN_ID-$tag"
        console /bin/mkdir -p "$dir"
@@ -172,6 +181,15 @@ first() {
     m) app="$found"; copied_by=mounted ;;
   esac
   [[ "$name" != m ]] && { hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null; }
+  if [[ "$name" == p ]]; then
+    local exe t_warm
+    exe="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+    t_warm="$(now_ms)"
+    console /usr/bin/perl -e 'alarm 60; exec @ARGV' "$exe" --cmux-prewarm-launch >/dev/null 2>&1
+    prewarm_ms=$(($(now_ms) - t_warm))
+  fi
+  # What the checkers spent while the DMG was mounted and the copy made (and pre-warmed, row p): before the open.
+  local prepare_checker_ms; prepare_checker_ms="$(cpu_delta "$cpu_prepare" "$(checker_cpu)")"
   before="$(qattr "$app")"
   local fw="$app/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp" fwq
   fwq="$(qattr "$fw")"
@@ -199,9 +217,10 @@ b = dict(p.split("=") for p in sys.argv[4].split()); a = dict(p.split("=") for p
 for k in b: r[k + "_ms"] = int(a[k]) - int(b[k])
 r.update(row=sys.argv[1], rep=sys.argv[2] if sys.argv[2] == "T" else int(sys.argv[2]), copied_by=sys.argv[3],
          quarantine_before=sys.argv[6], quarantine_after=sys.argv[7], framework_quarantine=sys.argv[8], load=float(sys.argv[9]),
-         mounted_by=sys.argv[10], mount_ms=json.loads(sys.argv[11]))
+         mounted_by=sys.argv[10], mount_ms=json.loads(sys.argv[11]), prewarm_ms=json.loads(sys.argv[12]),
+         prepare_checker_ms=int(sys.argv[13]))
 print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" "$cpu_after" "$before" "$after" "$fwq" "$(load1)" \
-    "$mounted_by" "$mount_ms")"
+    "$mounted_by" "$mount_ms" "$prewarm_ms" "$prepare_checker_ms")"
   echo "LF-RUN $json"
   # Every process this copy left (the app, its helpers, the daemons a quit keeps), from the copy or where it ran
   # translocated.
@@ -214,7 +233,7 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
   # Only what this launch made: the copy (or the mount) and its DMG file.
   case "$name" in
-    n) rm -rf "$OUT/copy-$tag" ;;
+    n|p) rm -rf "$OUT/copy-$tag" ;;
     q) console /bin/rm -rf "$dir" ;;
     m) hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 ;;
   esac
