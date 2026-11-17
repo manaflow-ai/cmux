@@ -120,6 +120,12 @@ fn a_failed_image_description_is_described_again_and_the_summaries_above_it_are_
     let note = note_id(&h);
     let failed = h.chat.message(note).unwrap().1;
     assert!(failed.contains("no description"), "{failed}");
+    // `memory redescribe failed` picks exactly this note.
+    let failed_notes = || {
+        let db = optchat_host::db::ReadOnly::open(&h.chat.db_path()).unwrap();
+        optchat_chief::memory_cli::failed_descriptions(&db).unwrap()
+    };
+    assert_eq!(failed_notes(), vec![note]);
 
     // The owner asks for it to be described again.
     let (reply, answer) = channel();
@@ -160,6 +166,12 @@ fn a_failed_image_description_is_described_again_and_the_summaries_above_it_are_
         .expect("the note's line is built");
     assert!(leaf.contains("red Ask pill"), "{leaf}");
     assert!(!leaf.contains("is taken"), "{leaf}");
+    let db = optchat_host::db::ReadOnly::open(&h.chat.db_path()).unwrap();
+    assert!(
+        optchat_chief::memory_cli::failed_descriptions(&db)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

@@ -42,7 +42,7 @@ mod previews;
 mod prewarm;
 pub mod reaction_wake;
 mod recover;
-mod redescribe;
+pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
