@@ -21,19 +21,21 @@ type Step = PapercutStep;
 
 /// `extra` steps follow the chat's last turn (inside the running turn when `running`); `lead` steps
 /// come first, before the first turn; `session` adds to or replaces the chat's summary fields (a
-/// queue, say).
+/// queue, say). `answer` writes turn n's reply (it should start `Answer n:`, which the lanes wait for).
 export function papercutEvents({
   turns,
   running,
   extra = [],
   lead = [],
   session: fields = {},
+  answer = (n) => `Answer ${n}: the checks on the merged head are green.`,
 }: {
   turns: number;
   running: boolean;
   extra?: Step[];
   lead?: Step[];
   session?: Record<string, unknown>;
+  answer?: (n: number) => string;
 }) {
   const steps: Step[] = [];
   let clock = START;
@@ -47,7 +49,7 @@ export function papercutEvents({
       "agent_message_chunk",
       update({
         sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: `Answer ${n}: the checks on the merged head are green.` },
+        content: { type: "text", text: answer(n) },
       }),
       clock,
     ]);

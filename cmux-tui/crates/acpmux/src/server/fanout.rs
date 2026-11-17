@@ -6,8 +6,47 @@ use super::{
     json,
 };
 use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot};
 
-pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<()> {
+/// How long a turn's answer waits for its connection's fan-out to send the updates broadcast
+/// before it ([`Flush::sent`]). The fan-out only sends queued lines (it never waits on a client),
+/// so this bounds a stalled task, never a slow reader.
+const FLUSH_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Asks the connection's fan-out to send every hub event already broadcast. A turn's answer goes
+/// on the request's own task, its updates through the fan-out, so under load the answer could
+/// overtake the turn's last text: the pane drew the turn ended, then its words, a layout shift
+/// (tests/permission_matrix.rs, 2 runs in 50 on a loaded Linux box). Its events are broadcast
+/// before the turn's answer resolves, so once the fan-out has drained its queue they are sent.
+pub(super) struct Flush(mpsc::UnboundedSender<oneshot::Sender<()>>);
+
+impl Flush {
+    pub(super) fn channel() -> (Self, mpsc::UnboundedReceiver<oneshot::Sender<()>>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (Self(tx), rx)
+    }
+
+    /// Returns once the fan-out sent what was broadcast before this call, its task ended, or
+    /// [`FLUSH_BOUND`] passed.
+    pub(super) async fn sent(&self) {
+        let (done, sent) = oneshot::channel();
+        if self.0.send(done).is_ok() {
+            let _ = tokio::time::timeout(FLUSH_BOUND, sent).await;
+        }
+    }
+}
+
+fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+    // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
+    let _stream = durable_gate::stream_scope(&ev.record);
+    deliver(hub, conn, ev);
+}
+
+pub(super) fn start(
+    hub: Arc<Hub>,
+    conn: Arc<Conn>,
+    mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+) -> tokio::task::JoinHandle<()> {
     let mut rx = hub.subscribe();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
@@ -18,6 +57,20 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
         loop {
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
+                // A turn's answer waits for the events queued before it (`Flush`).
+                Some(done) = flushes.recv() => {
+                    loop {
+                        match rx.try_recv() {
+                            Ok(ev) => send_event(&hub, &conn, ev),
+                            Err(broadcast::error::TryRecvError::Lagged(n)) => conn.send(
+                                &Message::notification("_acpmux/lagged", json!({"dropped": n})),
+                            ),
+                            Err(_) => break,
+                        }
+                    }
+                    let _ = done.send(());
+                    continue;
+                }
                 note = harnesses.recv() => {
                     match note {
                         Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
@@ -80,11 +133,7 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                 }
             };
             match ev {
-                Ok(ev) => {
-                    // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
-                    let _stream = durable_gate::stream_scope(&ev.record);
-                    deliver(&hub, &conn, ev);
-                }
+                Ok(ev) => send_event(&hub, &conn, ev),
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
                 }

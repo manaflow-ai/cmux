@@ -20,9 +20,13 @@
 #   paths    = ["glob", ...]             # repo-relative; `**` crosses directories, `*` and `?` stay in one segment
 #
 # policy = "keep": the area stays in `language`. A pull request fails when, inside the area,
-#   - it loses files of `language`: more files of `language` deleted or renamed out of the area (or renamed to
-#     another language) than added to it. A split, move within the area or rename passes; a deletion with no
-#     replacement in the same language, the shape of a port, fails;
+#   - it loses files of `language` (more files of `language` deleted or renamed out of the area, or renamed to
+#     another language, than added to it) AND brings in code that could replace them: at least one new source file
+#     of another language (swift, rust or web) anywhere in the repo, added, copied or renamed from another language
+#     (an area file renamed to another language counts). That pair is the shape of a port. A split, move within the
+#     area or rename passes. A pull request that only deletes, and edits files that already exist, is a removal, not
+#     a port, and passes (Leo, 2026-11-17, ceremony audit: "go remove this"; cmux#45562 deleted a chat notice's four
+#     web files, added nothing, and was refused as a port). The rule reads the diff, never the PR text;
 #   - or it adds a file of a foreign language: swift areas refuse rust and web files, web areas refuse swift and
 #     rust files, rust areas refuse swift files (crates already carry small TypeScript runtimes and templates).
 #   Files that are no language (json, md, xcstrings, toml, images) are never counted.
