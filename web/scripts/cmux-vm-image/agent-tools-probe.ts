@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
-import { ensureOutputFile, harnessEnsureScript, liveBootImage, pickerHarnesses, regressionGate } from "./harness-gate";
+import { BROWSER_CHECKS, checkRegressionGate, ensureOutputFile, harnessEnsureScript, liveBootImage, pickerHarnesses, regressionGate } from "./harness-gate";
 import { CURRENT_BIN, sq } from "./lock";
 
 const PROBE_DIR = "/tmp/cmux-agent-tools-probe";
@@ -560,33 +560,76 @@ async function harnessEnsureOutputs(vm: Vm, harnesses: readonly string[], outDir
   return outputs;
 }
 
+export type LiveBaseline = { harness: HarnessOutputs | null; checks: Record<string, Check> | null };
+
 /**
- * The live image's result of the same ensure: a clone of production's boot image (harness-gate.ts liveBootImage),
- * given the probe's dir and workspace, then the same script through the same daemon terminal; deleted by its id. Null
- * when it cannot be read, so the gate falls back to blocking every candidate failure.
+ * The live image's results, for the gates that block only regressions: a clone of production's boot image
+ * (harness-gate.ts liveBootImage) runs the probe's own steps (static checks, the recorded launch, the MCP server calls)
+ * and then the harness gate's ensure, through the same daemon terminal; its files go to `live/`; deleted by its id.
+ * A part that cannot be read is null, so its gate falls back to blocking every candidate failure.
  */
-async function liveHarnessOutputs(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, options: ProbeOptions): Promise<HarnessOutputs | null> {
-  if (options.baseline !== "live") return null;
+async function liveBaseline(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, options: ProbeOptions): Promise<LiveBaseline> {
+  const none: LiveBaseline = { harness: null, checks: null };
+  if (options.baseline !== "live") return none;
   const name = `cmuxnp-dev-vmimg-${options.tag}-agenttools-live`;
+  const outDir = path.join(options.outDir, "live");
+  mkdirSync(outDir, { recursive: true });
+  const warn = (what: string, e: unknown) =>
+    console.log(`::warning title=Image roll baseline::no live image ${what} (${String(e).slice(0, 300).replace(/[\r\n%]/g, " ")}); every candidate failure of it blocks`);
+  const result: ProbeResult = { checks: {}, timings: {}, files: [] };
+  const check: Checker = (n, ok, detail) => {
+    result.checks[n] = { ok, detail };
+    console.log(`live ${ok ? "PASS" : "FAIL"} ${n}: ${detail.slice(0, 300)}`);
+  };
   let created: Awaited<ReturnType<typeof createVm>> | null = null;
   try {
     const live = await liveBootImage();
-    console.log(`harness gate baseline: live image ${live.id} (${live.snapshotId})`);
+    console.log(`baseline: live image ${live.id} (${live.snapshotId})`);
     created = await createVm(fs, ledger, { name, snapshotId: live.snapshotId });
     await firstExec(created.vm, created.t0);
-    await run(created.vm, `install -d -m 0700 -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${PROBE_DIR} && install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${WORK_DIR}`);
-    const C = `${CURRENT_BIN}/cmux-tui --session cloud`;
-    await run(created.vm, `${C} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${C} workspace create --name ${WORKSPACE} >/dev/null`, 60_000, DEVBOX_WORK_USER);
-    return await harnessEnsureOutputs(created.vm, await pickerHarnesses(), options.outDir, "harness-ensure-live");
+    await run(created.vm, `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${WORK_DIR}`);
+    let checks: Record<string, Check> | null = null;
+    try {
+      if (!(await prepare(created.vm, check, result))) throw new Error(`daemon terminal: ${result.checks["daemon-terminal"]?.detail ?? "unavailable"}`);
+      await callServers(created.vm, check, result, outDir, await recordLaunch(created.vm, check, result, outDir));
+      checks = result.checks;
+    } catch (e) {
+      warn("browser checks", e);
+    }
+    try {
+      return { harness: await harnessEnsureOutputs(created.vm, await pickerHarnesses(), options.outDir, "harness-ensure-live"), checks };
+    } catch (e) {
+      warn("harness result", e);
+      return { harness: null, checks };
+    }
   } catch (e) {
-    console.log(`::warning title=Image harness gate::no live image result (${String(e).slice(0, 300).replace(/[\r\n%]/g, " ")}); every candidate failure blocks`);
-    return null;
+    warn("result", e);
+    return none;
   } finally {
     if (created) await deleteVm(created.vm, created.vmId, name, ledger);
   }
 }
 
-export async function agentToolsProbe(vm: Vm, options: ProbeOptions, live: HarnessOutputs | null = null): Promise<ProbeResult> {
+/**
+ * The browser checks block only regressions (harness-gate.ts checkRegressionGate): a candidate failure the live image
+ * shares is re-judged a pass carrying its warning, here, as a workflow warning and in the step summary.
+ */
+function browserGate(result: ProbeResult, live: Record<string, Check> | null): void {
+  const gate = checkRegressionGate(BROWSER_CHECKS, result.checks, live);
+  const one = (s: string) => s.replace(/[\r\n%]/g, " ");
+  for (const b of gate.blocking) console.log(`::error title=Image browser check (${b.check})::${one(b.detail)}`);
+  for (const w of gate.warnings) {
+    result.checks[w.check] = { ok: true, detail: w.detail };
+    console.log(`WARN ${w.check}: ${w.detail.slice(0, 500)}`);
+    console.log(`::warning title=Image browser check (${w.check})::${one(w.detail)}`);
+  }
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary && gate.warnings.length) {
+    appendFileSync(summary, ["", "### Image browser check: already failing on the live image (not blocking)", "", ...gate.warnings.map((w) => `- **${w.check}**: ${one(w.detail).slice(0, 400)}`), ""].join("\n"));
+  }
+}
+
+export async function agentToolsProbe(vm: Vm, options: ProbeOptions, live: LiveBaseline = { harness: null, checks: null }): Promise<ProbeResult> {
   const result: ProbeResult = { checks: {}, timings: {}, files: [] };
   const check: Checker = (name, ok, detail) => {
     result.checks[name] = { ok, detail };
@@ -595,8 +638,9 @@ export async function agentToolsProbe(vm: Vm, options: ProbeOptions, live: Harne
   if (!(await prepare(vm, check, result))) return result;
   const servers = await recordLaunch(vm, check, result, options.outDir);
   await callServers(vm, check, result, options.outDir, servers);
+  browserGate(result, live.checks);
   await desktopChecks(vm, check);
-  await harnessEnsureChecks(vm, check, result, options.outDir, live);
+  await harnessEnsureChecks(vm, check, result, options.outDir, live.harness);
   const plan = agentStepPlan(options);
   if (plan.run) await agentStep(vm, check, result, options.outDir);
   else {
@@ -611,8 +655,8 @@ export async function main(argv = process.argv): Promise<number> {
   mkdirSync(options.outDir, { recursive: true });
   const fs = freestyleClient();
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
-  // The live image first, on its own clone: the candidate's harness gate compares against it (regressionGate).
-  const live = await liveHarnessOutputs(fs, ledger, options);
+  // The live image first, on its own clone: the candidate's harness and browser gates compare against it.
+  const live = await liveBaseline(fs, ledger, options);
   const name = `cmuxnp-dev-vmimg-${options.tag}-agenttools`;
   let vm: Vm;
   let vmId: string;

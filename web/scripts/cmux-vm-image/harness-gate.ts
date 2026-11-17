@@ -108,6 +108,31 @@ export function regressionGate(harnesses: readonly string[], candidate: Record<s
   return { passed: harnesses.length > 0 && blocking.length === 0, blocking, warnings, results: cand.results };
 }
 
+/** The agent tools probe's browser checks: the cmux MCP's browser call, its page title and its screenshot. */
+export const BROWSER_CHECKS = ["mcp-cmux-calls", "browser-page-title", "browser-screenshot"] as const;
+
+export type CheckResult = { ok: boolean; detail: string };
+export type CheckNote = { check: string; detail: string };
+
+/**
+ * The same rule as regressionGate for probe checks judged on both images: a candidate failure blocks only when the
+ * live image passed that check; one already failing there is a warning naming it. With no live result for it (`null`,
+ * or the check absent), the failure blocks.
+ */
+export function checkRegressionGate(names: readonly string[], candidate: Record<string, CheckResult | undefined>, live: Record<string, CheckResult | undefined> | null) {
+  const blocking: CheckNote[] = [];
+  const warnings: CheckNote[] = [];
+  for (const name of names) {
+    const c = candidate[name];
+    if (!c || c.ok) continue;
+    const was = live?.[name];
+    if (!was) blocking.push({ check: name, detail: `${c.detail} (no live image result to compare: blocks)` });
+    else if (was.ok) blocking.push({ check: name, detail: `${c.detail} (passes on the live image: a regression)` });
+    else warnings.push({ check: name, detail: `${c.detail} (already failing on the live image: ${was.detail})` });
+  }
+  return { blocking, warnings };
+}
+
 const AUTO_ROLL = fileURLToPath(new URL("../../../images/cmux-vm/auto-roll.ts", import.meta.url));
 
 /** The live image: production's boot image (auto-roll.ts BOOT_ENTRY) in workers/cmux-vm/wrangler.jsonc at this checkout. */
