@@ -148,7 +148,7 @@ enum ThemeRepaint {
         let transition = ColorTransition.current
         var seen = Set<ObjectIdentifier>()
         var passes: [(views: [NSView], layout: Bool)] = []
-        var blendRoots: [NSView] = []
+        var blendRoots: [NSView] = [], blendViews: [NSView] = []
         var shown: [(layer: CALayer, colors: [(LayerColor, CGColor?)])] = []
         for request in pending {
             let roots = request.roots()
@@ -159,6 +159,7 @@ enum ThemeRepaint {
             guard !onScreen.isEmpty else { continue }
             for view in onScreen { if let layer = view.layer { collect(layer, into: &shown) } }
             blendRoots += roots.filter { $0.window.map(isOnScreen) == true }
+            blendViews += onScreen
         }
         for change in work { change() }
         for pass in passes {
@@ -170,7 +171,7 @@ enum ThemeRepaint {
         }
         for responder in responders { responder() }
         guard !shown.isEmpty else { return }
-        settle(blendRoots, views: passes.flatMap(\.views))
+        settle(blendRoots, views: blendViews)
         for entry in shown {
             for (property, before) in entry.colors {
                 let now = property.value(in: entry.layer)
@@ -179,13 +180,14 @@ enum ThemeRepaint {
         }
     }
 
-    /// The blend's regions lay out and display now (the work the next display cycle does), so colors
-    /// set in `updateLayer()`, and in `layout()` by a view whose hook asks for layout, blend too.
+    /// The blend's regions lay out and update their layers now (the work the next display cycle does),
+    /// so colors set in `updateLayer()`, and in `layout()` by a view whose hook asks for layout, blend
+    /// too. Only the regions: `displayIfNeeded()` laid out the whole window first, which on Cmd-, was
+    /// the half-built window inside the key (2026-11-16). Colors drawn in `draw(_:)` switch at once.
     static func settle(_ roots: [NSView], views: [NSView]) {
-        for root in roots {
-            root.layoutSubtreeIfNeeded()
-            root.displayIfNeeded()
-        }
+        for root in roots { root.layoutSubtreeIfNeeded() }
+        // Every view here was marked for display by this repaint; the display cycle runs them again.
+        for view in views where view.wantsUpdateLayer && view.layer != nil { view.updateLayer() }
     }
 
     /// The views under `roots` that draw in `scope`: each root and its subtree, without the
