@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -2629,7 +2629,7 @@
         {
           "key": "appearance.fontSmoothing",
           "title": "Text Smoothing",
-          "help": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.",
+          "help": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages, tabs and the sidebar change at once; other text changes after cmux restarts. Terminal text keeps its own setting.",
           "kind": "choice",
           "default": "auto",
           "group": "Density and Motion",
@@ -6703,6 +6703,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Developer Tools"
+        },
+        {
+          "key": "labs.gcpMachineProvider",
+          "title": "Machines in Your GCP Project",
+          "help": "Lets cmux create Linux machines in a Google Cloud project you own, billed to that project. Your credential stays on this Mac.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
         },
         {
           "key": "labs.liveCode",
