@@ -6,8 +6,6 @@ extension PageInfoPages {
 
     func cookiesPage() -> NSView {
         var views: [NSView] = [header(PageInfoStrings.cookiesHeader, subtitle: model.site.displayName, back: true)]
-        views.append(padded(PageInfoStyle.label(PageInfoStrings.cookiesDescription, font: PageInfoStyle.captionFont,
-                                                color: PageInfoStyle.secondaryText, wraps: true)))
         guard let data = model.siteData else {
             views.append(PageInfoRowView(symbol: nil, title: PageInfoStrings.loading, interactive: false))
             return stack(views)
