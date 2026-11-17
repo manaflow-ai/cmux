@@ -2673,9 +2673,10 @@ class Target:
     # Shared workflows carry delivery runs in their API name/display title.
     name: str = ""
     display_title: str = ""
-    # A dispatch named this run (WATCH_RUN_ID, dispatch_target()) at an attempt past 1: its current attempt is
-    # watched with attempt 1's rules whatever its number, and the open-head failover may place it again past
-    # REFUSAL_RESCUE_ATTEMPT (places_again()). The watch ends at its one rescue, so a dispatch never loops.
+    # A dispatch named this run (WATCH_RUN_ID, dispatch_target()): its current attempt is watched with attempt 1's
+    # rules whatever its number, the open-head failover may place it again past REFUSAL_RESCUE_ATTEMPT
+    # (places_again()), and while its open head keeps it the watch looks again until the watch limit (follow()).
+    # The watch still ends at its one rescue: a dispatch re-places a run at most once.
     dispatched: bool = False
 
     @property
@@ -2762,7 +2763,8 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
 def dispatch_target(run: Mapping[str, Any], repository: str) -> Target | str:
     """The run a dispatch names (WATCH_RUN_ID) to watch, at its current attempt, or why it is none.
 
-    Attempt 1 is judged as its workflow_run event is (target_from_event()). A later attempt is judged as attempt 1
+    Attempt 1 is judged as its workflow_run event is (target_from_event()), and watched as dispatched unless it is a
+    delivery build. A later attempt is judged as attempt 1
     and then watched at its own number with attempt 1's rules (Target.dispatched): a dispatch is a person's or an
     agent's ask about this run now. Before 2026-11-17 it answered "not watched: attempt N; its first attempt's
     watch follows it", which no watch did: five cmux-next runs sat 5 to 7 hours on their bot attempt 3 on
@@ -2772,7 +2774,12 @@ def dispatch_target(run: Mapping[str, Any], repository: str) -> Target | str:
     down at its cancel, which re-reads the attempt first."""
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
-        return target_from_event({"workflow_run": run}, repository)
+        # cmux#44805's run 44067910921 (2026-11-17): attempt 1's Debug compile waited 5 hours on a side label, and
+        # a watch dating that wait from its own first sighting ended at its first open-head answer.
+        target = target_from_event({"workflow_run": run}, repository)
+        if isinstance(target, str) or is_delivery_target(target):
+            return target
+        return dataclasses.replace(target, dispatched=True)
     first = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
     if isinstance(first, str):
         return first
