@@ -52,6 +52,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -75,6 +76,7 @@ RATE_LIMIT_RESET = re.compile(r"(?:x[- ]?ratelimit[- ]?reset|reset(?:s)?(?: at)?
 MARKER_GONE = re.compile(r"\bNot Found\b|\bHTTP 404\b")
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
+GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
 class QuotaRefused(RuntimeError):
@@ -115,18 +117,38 @@ def quota_retry_before(text: str, now: datetime | None = None) -> str:
     return boundary.strftime("%H:%MZ")
 
 
+def _budget_reset(now: datetime) -> datetime | None:
+    """Return the earliest future reset of a spent REST counter recorded by glaeda-gh."""
+    try:
+        document = json.loads(GLAEDA_BUDGET.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    counters = document.get("restCounters") if isinstance(document.get("restCounters"), list) else []
+    resets = []
+    for counter in [*counters, document.get("rest")]:
+        try:
+            remaining = float(counter["remaining"])
+            limit = float(counter["limit"])
+            reset = float(counter["reset"])
+        except (TypeError, KeyError, ValueError):
+            continue
+        if limit > 0 and remaining / limit < 0.01 and reset > now.timestamp():
+            resets.append(datetime.fromtimestamp(reset, timezone.utc))
+    return min(resets) if resets else None
+
+
 def _rate_limit_retry_before(refused: str) -> str:
-    """Ask GitHub once for the current core reset, then use a bounded local fallback."""
-    # GitHub documents this endpoint as available even when the resource it reports is exhausted.
-    answer = subprocess.run(["gh", "api", "rate_limit", "--jq", ".resources.core.reset"],
-                            capture_output=True, text=True)
-    reset = _reset_time(answer.stdout) if answer.returncode == 0 else None
+    """Use the refused call's reset, then glaeda's poorest REST counter, then a bounded fallback."""
+    # Separate `gh api rate_limit` answers can describe a different REST window from the call that failed.
+    reset = _reset_time(refused)
     if reset is not None:
         return _ceil_minute(reset).strftime("%H:%MZ")
-    # Older gh versions and proxy refusals may still include the reset header. If not, do not guess :00:
-    # give the installation a full hour from this refusal instead.
-    if (reset := _reset_time(refused)) is not None:
+    if (reset := _budget_reset(datetime.now(timezone.utc))) is not None:
         return _ceil_minute(reset).strftime("%H:%MZ")
+    # Without the refusal header or a current budget reading, do not guess :00: give the installation a full hour
+    # from this refusal instead.
     return quota_retry_before("", datetime.now(timezone.utc))
 
 

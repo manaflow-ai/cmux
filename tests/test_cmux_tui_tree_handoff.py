@@ -44,16 +44,11 @@ FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
-if args[:3] == ["api", "rate_limit", "--jq"]:
-    reset = state.get("rate_limit_reset")
-    if reset is None:
-        print("rate limit endpoint unavailable", file=sys.stderr); sys.exit(1)
-    open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
-    open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
-    print(reset)
-    sys.exit(0)
 if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
-    print("gh: API rate limit exceeded for the repo installation (HTTP 403)", file=sys.stderr); sys.exit(1)
+    message = "gh: API rate limit exceeded for the repo installation (HTTP 403)"
+    if state.get("rate_limit_header"):
+        message += f"\nx-ratelimit-reset: {state['rate_limit_header']}"
+    print(message, file=sys.stderr); sys.exit(1)
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
 open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
 if args[:2] == ["run", "rerun"]:
@@ -298,13 +293,13 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(handoff.quota_retry_before("x-ratelimit-reset: 1794891631", now), "05:01Z")
         self.assertEqual(handoff.quota_retry_before("API rate limit exceeded", now), "05:56Z")
 
-    def test_rate_limit_endpoint_reset_is_used_and_rounded_up(self):
-        state = {"rate_limited": ["t"], "rate_limit_reset": "1794891631",
+    def test_refused_call_reset_wins_over_a_different_rate_limit_answer(self):
+        state = {"rate_limited": ["t"], "rate_limit_reset": "1794891600", "rate_limit_header": "1794891631",
                  "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
         result, calls = self.run_handoff(state, extra=("--published",))
         self.assertEqual(result.returncode, 1)
         self.assertIn("no attempt before 05:01Z", result.stdout)
-        self.assertIn(["api", "rate_limit", "--jq", ".resources.core.reset"], calls)
+        self.assertFalse(any(c[:3] == ["api", "rate_limit", "--jq"] for c in calls))
 
     def test_other_refusals_do_not_spend_the_spare_token(self):
         # HTTP 403 without a rate limit (the fake's jobs_error) is not a quota refusal.
