@@ -28,7 +28,11 @@ public struct TerminalDemoRoot: View {
             let latency = alt ? (defaults.object(forKey: "CmuxMobileTerminalDemoMacLatencyMs") as? Int ?? 60) : 0
             let mac = MacPaneMockSession(columns: grid.count == 2 ? grid.first ?? 120 : 120, rows: grid.count == 2 ? grid.last ?? 40 : 40,
                                          program: alt ? "htop" : nil, latency: .milliseconds(latency))
-            if alt { altMac = mac }
+            if alt {
+                altMac = mac
+                // Starts with no program remembered: the first htop is viewed, not fitted.
+                TerminalFitMemory.reset()
+            }
             session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         } else {
             session = TerminalHostGridDemoSession.requestedSpec

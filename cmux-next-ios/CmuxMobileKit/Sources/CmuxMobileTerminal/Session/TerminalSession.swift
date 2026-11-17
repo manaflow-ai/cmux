@@ -225,6 +225,13 @@ public protocol TerminalSession: AnyObject {
     func noteReaderRowsFromEnd(_ rows: Int)
     /// The session itself, under any session wrapping it (the projection).
     var underlyingSession: AnyObject { get }
+    /// Fit to Phone for the program in the foreground, the projection's one
+    /// exception (``TerminalProjectingSession``): whether the phone claims its
+    /// grid for it now; nil for a session that does not project.
+    var fitsToPhone: Bool? { get }
+    /// The title menu's Fit to Phone: fits the foreground program now (and
+    /// remembers it), or gives the Mac its grid back (and forgets it).
+    func toggleFitToPhone()
 }
 
 extension TerminalSession {
@@ -263,6 +270,10 @@ extension TerminalSession {
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 
     public var underlyingSession: AnyObject { self }
+
+    public var fitsToPhone: Bool? { nil }
+
+    public func toggleFitToPhone() {}
 
     public var hostGridOwnerName: String? { nil }
 }

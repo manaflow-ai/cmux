@@ -158,6 +158,7 @@ import Testing
     /// releases it; htop started again fits at once, before any frame of it
     /// at the Mac's grid.
     @Test func theAlternateScreenIsShownAtTheMacsGridAndTypingFitsOnce() {
+        TerminalFitMemory.reset()
         let mac = MacPaneMockSession(columns: 120, rows: 40, program: "htop")
         let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         var grids: [(columns: Int, alternate: Bool)] = []

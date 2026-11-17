@@ -649,6 +649,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let live = model.session.underlyingSession as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
         }
+        // The projection's exception by hand: the phone fits on its own when
+        // typing into a TUI; this undoes it (the Mac keeps its size) or forces it.
+        if let fits = model.session.fitsToPhone {
+            actions.append(TerminalTabAction(title: fits ? "Keep the Mac's Size" : "Fit to Phone",
+                                             systemImage: fits ? "macbook" : "iphone") { model.session.toggleFitToPhone() })
+        }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
