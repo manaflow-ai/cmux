@@ -14,11 +14,11 @@ import Foundation
 @MainActor
 final class CEFHiddenPageTrim {
     /// Chromium's pressure level the notice names.
-    static let level = "critical"
+    nonisolated static let level = "critical"
     /// From the first freeze of a burst to the notice: one notice serves every page frozen together.
-    static let delay: Duration = .seconds(2)
+    nonisolated static let delay: Duration = .seconds(2)
     /// The least time between two notices.
-    static let minimumGap: Duration = .seconds(60)
+    nonisolated static let minimumGap: Duration = .seconds(60)
 
     private let timer = DemandTimer(owner: "CEFHiddenPageTrim")
     private let notify: @MainActor (CEFTab) async -> Void
