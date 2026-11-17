@@ -311,6 +311,7 @@ impl LocalStore {
         let Ok(rd) = crate::home_fs::read_dir(&events) else { return Ok(None) };
         let mut out = Vec::new();
         let mut cold = Vec::new();
+        let mut one_index = false;
         for entry in rd {
             let name = entry.name.to_string_lossy().into_owned();
             if entry.is_file
@@ -319,11 +320,18 @@ impl LocalStore {
                 cold.push(index);
                 continue;
             }
+            // The chat's one index of its cold segments: the archive takes their raw bytes, not
+            // the index, and the rehydrate brings them back plain.
+            if entry.is_file && name == super::cold_segments::INDEX_FILE {
+                one_index = true;
+                continue;
+            }
             if !entry.is_file || !log_file(&name) {
                 return Ok(None);
             }
             out.push((name, events.join(&entry.name)));
         }
+        let cold = super::cold_segments::cold_indexes(&session, one_index, cold)?;
         // The commit drops `cold-segments/` whole: only when every file in it is an archive the
         // listing takes (its index is beside the log) or a temporary leftover. A file a settle set
         // aside there (`.orphan-`, `.damaged-`) may be the only copy of a segment, so the chat
@@ -367,6 +375,7 @@ impl LocalStore {
                 entry.name.to_str().is_some_and(|name| {
                     name.strip_suffix(".ndjson").is_some_and(|stem| stem.parse::<u32>().is_ok())
                         || super::cold_segments::idx_index(name).is_some()
+                        || name == super::cold_segments::INDEX_FILE
                 })
             })),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),

@@ -6,7 +6,9 @@
 //!
 //! An open chat's log only grew: 152.1 MB at 100k rows (`scripts/measure/chat-disk-growth.py`),
 //! 1.461 MB per simulated hour. With the setting on, everything but the open segment and the
-//! indexes is compressed: `scripts/measure/chat-cold-segments.py` measures it.
+//! chat's one index is compressed, and the open segment rolls at
+//! `cold_segments::COLD_ROLL_BYTES` (512 KiB; each round sets it, `Store::set_cold_roll`):
+//! `scripts/measure/chat-cold-segments.py` and `chat-disk-growth.py --cold-segments` measure it.
 //!
 //! One worker for the daemon ([`Hub::cold_segments_worker`]), never a thread per segment. The
 //! store calls a hook when a segment rolls over (`LocalStore::append_line`), under its writers'
@@ -106,6 +108,8 @@ impl Hub {
             .unwrap_or_else(level_now);
         #[cfg(not(test))]
         let level = level_now();
+        // The open segment rolls at the cold-segment size while the setting is on.
+        self.store.set_cold_roll(level.is_some());
         let mut more = false;
         for id in ids {
             if self.shutting_down() {

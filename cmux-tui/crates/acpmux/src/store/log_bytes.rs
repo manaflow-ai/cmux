@@ -518,7 +518,9 @@ impl LocalStore {
             // may have started the next one since the listing. The next one's name is its
             // index + 1, so one look at that name says, and the directory is listed only when
             // it is there.
-            let full = length >= self.segment_bytes || segment.index == 0;
+            // At the least roll size: a segment that rolled at the cold-segment size
+            // (`LocalStore::set_cold_roll`) is full too.
+            let full = length >= self.least_roll_bytes() || segment.index == 0;
             if is_last
                 && !relisted
                 && full

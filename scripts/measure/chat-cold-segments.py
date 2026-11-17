@@ -4,10 +4,11 @@
 Sibling of chat-disk-growth.py (same daemon, agent, turns and clock). Here one release acpmux daemon runs with the
 setting agents.chats.coldSegments on at agents.chats.coldSegmentsLevel --level (3 by default), written to its own
 settings file (CMUX_NEXT_CONFIG_FILE); --off runs the same chat with the setting off, the "before": every byte
-local, the same page-back walk from the open segment's first seq. With it on, each sealed 8 MiB segment of the live
+local, the same page-back walk from the open segment's first seq. With it on, each sealed segment (512 KiB, COLD_ROLL_BYTES) of the live
 chat moves to
-<session>/cold-segments/NNNNNN.zst (zstd frames of ~128 KiB raw, cut at line ends), its chunk index
-events/NNNNNN.cold.idx stays local, and only the open segment plus indexes stay on the hot path.
+<session>/cold-segments/NNNNNN.zst (zstd frames of ~128 KiB raw, cut at line ends), its chunk index goes in the
+chat's one index events/segments.cold.idx (older builds: events/NNNNNN.cold.idx per segment), which stays local,
+and only the open segment plus that index stay on the hot path.
 
 1. Disk: every --sample-turns turns, the chat dir split into local bytes (all but cold-segments/) and cold bytes;
    least-squares slopes after the first 10% of turns: chat_disk.local_mb_per_hour, chat_disk.cold_mb_per_hour; the
@@ -41,6 +42,29 @@ base = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(base)
 
 COLD_DIR = "cold-segments"
+INDEX_FILE = "segments.cold.idx"
+
+
+def cold_entries(events):
+    """Each cold segment's index entry in `events`, as (NNNNNN, doc): the chat's one index, and the per-segment files
+    an older build wrote."""
+    out = {}
+    try:
+        names = sorted(os.listdir(events))
+    except OSError:
+        return []
+    for name in names:
+        try:
+            if name == INDEX_FILE:
+                with open(os.path.join(events, name)) as f:
+                    for seg, doc in json.load(f)["segments"].items():
+                        out.setdefault(f"{int(seg):06d}", doc)
+            elif name.endswith(".cold.idx") and len(name) == 6 + len(".cold.idx"):
+                with open(os.path.join(events, name)) as f:
+                    out.setdefault(name[:6], json.load(f))
+        except (OSError, ValueError, KeyError):
+            pass
+    return sorted(out.items())
 PAGE_LIMIT = 400
 PAGE_BYTES = 1024 * 1024
 MB = 1048576.0
@@ -87,14 +111,9 @@ def split(chat_dir):
                 cold += size
             else:
                 local += size
-            if name.endswith(".cold.idx"):
-                try:
-                    with open(path) as f:
-                        doc = json.load(f)
-                    raw += doc["rawLen"]
-                    comp += doc["compLen"]
-                except (OSError, ValueError, KeyError):
-                    pass
+    for _, doc in cold_entries(os.path.join(chat_dir, "events")):
+        raw += doc.get("rawLen", 0)
+        comp += doc.get("compLen", 0)
     return {"local": local, "cold": cold, "raw": raw, "comp": comp}
 
 
@@ -341,12 +360,9 @@ def main():
         assert len(local_segs) == 1, f"sealed segments still local: {local_segs}"
         end = take(turns)
         idx = []
-        for name in sorted(os.listdir(os.path.join(d.chat_dir, "events"))):
-            if name.endswith(".cold.idx"):
-                with open(os.path.join(d.chat_dir, "events", name)) as f:
-                    doc = json.load(f)
-                idx.append({"seg": name[:6], "raw": doc["rawLen"], "comp": doc["compLen"], "chunks": len(doc["chunks"]),
-                            "ms": doc["compressMs"]})
+        for seg, doc in cold_entries(os.path.join(d.chat_dir, "events")):
+            idx.append({"seg": seg, "raw": doc["rawLen"], "comp": doc["compLen"], "chunks": len(doc["chunks"]),
+                        "ms": doc["compressMs"]})
         oldest_local = first_seq(os.path.join(d.chat_dir, "events", f"{local_segs[0]:06d}.ndjson"))
         base.log(f"open segment {local_segs[0]:06d} starts at seq {oldest_local}; {len(idx)} cold segments")
 
@@ -367,8 +383,13 @@ def main():
         for name in sorted(os.listdir(kept)):
             shutil.move(os.path.join(kept, name), os.path.join(d.chat_dir, "events", name))
         for e in idx:
-            os.remove(os.path.join(d.chat_dir, "events", f"{e['seg']}.cold.idx"))
+            legacy = os.path.join(d.chat_dir, "events", f"{e['seg']}.cold.idx")
+            if os.path.exists(legacy):
+                os.remove(legacy)
             os.remove(os.path.join(d.chat_dir, COLD_DIR, f"{e['seg']}.zst"))
+        one = os.path.join(d.chat_dir, "events", INDEX_FILE)
+        if os.path.exists(one):
+            os.remove(one)
         os.rmdir(os.path.join(d.chat_dir, COLD_DIR))
         d.cold = False
         d.start()

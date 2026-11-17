@@ -812,6 +812,9 @@ impl Store for ForkView {
     fn on_segment_sealed(&self, hook: SealHook) {
         self.inner.on_segment_sealed(hook)
     }
+    fn set_cold_roll(&self, on: bool) {
+        self.inner.set_cold_roll(on)
+    }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
     fn release_history(&self, id: &str) -> Result<()> {
