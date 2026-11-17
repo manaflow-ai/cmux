@@ -330,6 +330,8 @@ pub struct Supervisor {
     /// `integration.request` for provider `github`, answered here
     /// (`github_gateway.rs`). Unset, the call goes to the provider.
     pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
+    /// The App Store's Community source (`community.rs`), made on first use.
+    pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -478,6 +480,7 @@ impl Supervisor {
             router,
             fetcher,
             github: OnceLock::new(),
+            community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),

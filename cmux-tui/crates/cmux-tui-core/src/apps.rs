@@ -30,6 +30,8 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod community;
+#[cfg(unix)]
 mod composer;
 #[cfg(unix)]
 mod deploy;
