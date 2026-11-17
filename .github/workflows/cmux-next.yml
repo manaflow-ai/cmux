@@ -4871,7 +4871,8 @@ jobs:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
-    timeout-minutes: 50 # 40, plus the PR autofix pack step's 10
+    # 40, plus the PR autofix pack step's 10.
+    timeout-minutes: 50
     outputs:
       patch: ${{ steps.regenerate.outputs.patch }}
     env:
