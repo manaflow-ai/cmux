@@ -98,7 +98,7 @@ impl Hub {
             && !self.secrets.waiting_in(&session.id)
             && session.queued() == 0
             && session.pending_permissions().is_empty()
-            && !self.background_work(session)
+            && !self.agent_background_work(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
@@ -113,7 +113,7 @@ impl Hub {
     /// this table and outlives the harness), a background subagent, or a sub-session or
     /// background subagent at work below it (`work_below.rs`). Neither the idle pass nor an
     /// automatic restart (`stale_host_respawn.rs`, `profile_respawn.rs`) ends an agent with any.
-    pub(super) fn background_work(&self, session: &Session) -> bool {
+    pub(super) fn agent_background_work(&self, session: &Session) -> bool {
         self.any_process_running(session)
             || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
             || session.work_below_since.lock().map_or(false, |v| *v != 0)

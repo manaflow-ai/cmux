@@ -57,7 +57,7 @@ impl Hub {
             // A background process or subagent at work would end with the harness, at the turn's
             // end too: it restarts once nothing runs in it instead (`idle.rs` `respawn_when_quiet`),
             // as an agent on a replaced binary does (`stale_host_respawn.rs`).
-            if self.background_work(&session) {
+            if self.agent_background_work(&session) {
                 self.respawn_when_quiet(&session);
                 continue;
             }
