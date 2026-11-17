@@ -3,6 +3,9 @@
 // Read again when the stack, the scroller or a surface changes size, when a surface's own motion
 // ends (the tray settling in on its entrance translate), and when the dock's children or a surface's
 // `data-card` change (a ghost tray removed; the tray's corners rounding as it turns into a card).
+// The stack can also move with no size changing: Session Info pushing the chat over shifts it inside
+// a scroller of the same size. So an attribute change on any of the stack's ancestors, and the end of
+// an ancestor's own motion, read it again on the next frame (one read per frame at most).
 import { useLayoutEffect, type RefObject } from "react";
 import { besideMask } from "./besideStack";
 
@@ -45,8 +48,17 @@ export function useBesideStack(
       const values = [mask?.images, mask?.sizes, mask?.positions];
       VARIABLES.forEach((name, at) => {
         const value = values[at];
+        if (value === (view.style.getPropertyValue(name) || undefined)) return;
         if (value) view.style.setProperty(name, value);
         else view.style.removeProperty(name);
+      });
+    };
+    let frame = 0;
+    const nextFrame = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        paint();
       });
     };
     const sizes = new ResizeObserver(paint);
@@ -69,13 +81,26 @@ export function useBesideStack(
     };
     dock.addEventListener("animationend", settled);
     dock.addEventListener("transitionend", settled);
+    // The stack's ancestors (the scroller writes its own mask variables, so it is never one here).
+    const moved = new MutationObserver(nextFrame);
+    for (let node = dock.parentElement; node; node = node.parentElement)
+      if (node !== view) moved.observe(node, { attributes: true });
+    const ancestorSettled = (event: Event) => {
+      if (event.target instanceof Node && event.target !== dock && event.target.contains(dock)) nextFrame();
+    };
+    document.addEventListener("animationend", ancestorSettled);
+    document.addEventListener("transitionend", ancestorSettled);
     paint();
     return () => {
       sizes.disconnect();
       children.disconnect();
       cards.disconnect();
+      moved.disconnect();
+      if (frame) cancelAnimationFrame(frame);
       dock.removeEventListener("animationend", settled);
       dock.removeEventListener("transitionend", settled);
+      document.removeEventListener("animationend", ancestorSettled);
+      document.removeEventListener("transitionend", ancestorSettled);
       for (const name of VARIABLES) view.style.removeProperty(name);
     };
   }, [dock, scroller, ghostClass]);
