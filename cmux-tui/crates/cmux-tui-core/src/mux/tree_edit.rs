@@ -142,7 +142,17 @@ pub(super) fn append_to_auto_layout(
     *auto_layout = Some(panes);
 }
 
+/// Removes `pane` from the live `screen`. False when the screen has no pane
+/// left. The floating panes follow the tree: the entry of `pane` goes, and
+/// when `pane` was the last tiled pane, the front floating pane becomes tiled
+/// (`floating-panes-v1`).
 pub(super) fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
+    let remains = remove_pane_from_screen_tree(mux, screen, pane);
+    screen.settle_floating_panes();
+    remains
+}
+
+fn remove_pane_from_screen_tree(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
     screen.invalidate_layout_undo();
     if screen.layout_columns_active() {
         let Some(index) =

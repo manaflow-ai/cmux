@@ -57,14 +57,15 @@ pub(crate) fn make_remote_home() -> String {
 
 /// What a remote command answered.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RemoteOut {
+pub struct RemoteOut {
     pub ok: bool,
     pub stdout: String,
     pub stderr: String,
 }
 
-/// How the host commands reach a machine: ssh, or a fake in tests.
-pub(crate) trait Remote {
+/// How the host commands reach a machine: ssh, or a fake in tests. Public so
+/// `cmux device setup` (cmux-tui devices/setup.rs) reaches a Mac the same way.
+pub trait Remote {
     fn host(&self) -> &str;
     /// Run one of acpmux's fixed scripts on the host; `stdin` is fed to it
     /// (data never goes into the script text).
@@ -92,7 +93,7 @@ pub(crate) trait Remote {
 /// which no ssh option bounds.
 const REACH_BOUND: std::time::Duration = std::time::Duration::from_secs(20);
 
-pub(crate) struct SshRemote<'a>(pub &'a str);
+pub struct SshRemote<'a>(pub &'a str);
 
 impl Remote for SshRemote<'_> {
     fn host(&self) -> &str {
