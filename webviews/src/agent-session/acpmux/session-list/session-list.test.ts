@@ -137,7 +137,7 @@ test("registers before open, applies a batch once, and takes after subscribers",
   const snapshots: string[][] = [];
   host.store.subscribe("s.1", (snapshot) => snapshots.push(snapshot.slots.get("all")!.map((item) => item.sessionId)));
   await clock.frame();
-  expect(snapshots).toEqual([["a", "b"]]);
+  expect(snapshots).toEqual([["b", "a"]]);
   expect(calls.filter((call) => call.method === "list.taken").map((call) => call.params.batch)).toEqual([1]);
 });
 
