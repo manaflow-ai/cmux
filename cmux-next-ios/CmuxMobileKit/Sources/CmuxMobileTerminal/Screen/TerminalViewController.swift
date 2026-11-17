@@ -62,7 +62,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private let scrollView = TerminalScrollView()
     private let tuiClip = UIView()
-    private let tuiHost = UIView()
+    private let tuiHost = TerminalAreaHostView()
     private let bottomStack = UIView()
     private let bottomBacking = UIView()
     /// 24 pt fade above the composer card, shown only while rows are scrolled
@@ -449,6 +449,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.isHidden = true
         tuiClip.translatesAutoresizingMaskIntoConstraints = false
         tuiHost.translatesAutoresizingMaskIntoConstraints = false
+        // Sideways the clip (`tuiClip`) bounds the area; the host clips
+        // only its height.
+        tuiHost.overhang = 4096
         tuiClip.addSubview(tuiHost)
         tuiBelowCover.isUserInteractionEnabled = false
         tuiBelowCover.translatesAutoresizingMaskIntoConstraints = false
@@ -1093,6 +1096,55 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.layoutIfNeeded()
     }
 
+    /// Sizes sent for a full-screen app and not answered yet, oldest first.
+    /// The Mac answers every resize, in order (a grid change, a mirror reset
+    /// and a replay); while a newer one is out, an answer is for a size the
+    /// page no longer wants. Only the newest answer is drawn: a toggle the
+    /// person took back (show, then hide before the Mac answered) swaps the
+    /// grid 0 times, a double toggle once.
+    private var claimsInFlight: [(size: TerminalResizeSettle.Size, at: CFTimeInterval)] = []
+
+    /// Claims older than a round trip's cap get no answer (the Mac kept its
+    /// grid, or the link changed).
+    private func pruneClaims() {
+        let now = CACurrentMediaTime()
+        let cap = TerminalTUIGridHold.capSeconds
+        claimsInFlight.removeAll { now - $0.at > cap }
+    }
+
+    /// The Mac's grid `size` arrived: it answers the oldest claim of that
+    /// size, and is stale when a newer claim is still out.
+    private func answerIsStale(_ size: TerminalResizeSettle.Size) -> Bool {
+        pruneClaims()
+        guard model.isTUI, let index = claimsInFlight.firstIndex(where: { $0.size == size }) else { return false }
+        claimsInFlight.removeFirst(index + 1)
+        return !claimsInFlight.isEmpty
+    }
+
+    /// The newest answer is still out for a full-screen app: a held still
+    /// stays up until it is drawn (an older answer fed meanwhile is never
+    /// shown).
+    private var newestAnswerAwaited: Bool {
+        guard model.isTUI else { return false }
+        pruneClaims()
+        return !claimsInFlight.isEmpty
+    }
+
+    /// A stale answer waits at most a round trip's cap for the newest one.
+    private func armStaleAnswerExpiry() {
+        staleAnswerExpiry?.cancel()
+        staleAnswerExpiry = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: TerminalTUIGridHold.cap)
+            guard let self, !Task.isCancelled, self.output.nextHostGridIsStale || !self.claimsInFlight.isEmpty else { return }
+            sizingLog.notice("the newest answer did not come: queued answers go to the screen")
+            self.claimsInFlight.removeAll()
+            self.output.clearStale()
+            self.scheduleOutput()
+            if self.freezeView != nil, self.model.isTUI, self.heldFrameMayGo() { self.unfreeze() }
+        }
+    }
+    private var staleAnswerExpiry: Task<Void, Never>?
+
     private func endGridHold(layout: Bool) {
         tuiGridHoldExpiry?.cancel()
         tuiGridHoldExpiry = nil
@@ -1111,6 +1163,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sentGrid = size
         }
         claimedTUIRows = size.rows
+        if model.isTUI, why != "first" {
+            // Answers still queued answer an older size now.
+            pruneClaims()
+            output.markGridsStale()
+            claimsInFlight.append((size, CACurrentMediaTime()))
+        }
         // The answer to this claim is a round trip away from now.
         if tuiGridHold.heldRows != nil { armGridHoldExpiry() }
     }
@@ -1401,6 +1459,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // a reset waits behind it, is taken before the replay is fed).
             let leaving = event == .alternateScreen(false)
             apply(replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).release, pageWide: leaving)
+            // Nothing waits for an answer any more: a reattach replays at the
+            // grid it has, an app off the alternate screen keeps no hold.
+            claimsInFlight.removeAll()
+            output.clearStale()
         default:
             break
         }
@@ -1416,15 +1478,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // waiting for older rows is placed by this reset's replay.
                 olderRowsAsked = false
                 markReadingPosition()
-                // The queue waits for the keyboard (`replayHold`) and the
-                // Mac answered again (a double toggle: 28, 40 and 30 rows
-                // asked): the answers before this one are cleared by this
-                // reset, so only its grid is drawn, and the replay gate
-                // counts the replay fed next.
-                if replayHold.gridPending || replayHold.holding,
-                   output.dropAnswersBeforeLastGrid(reset: Self.mirrorReset) > 0 {
-                    sizingLog.notice("older answers dropped: the Mac answered again while the keyboard moved")
-                }
                 // Held for the keyboard: the frame is held when it is fed.
                 if replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).takeHeldFrame {
                     freezeLastFrame()
@@ -1467,8 +1520,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // what follows wait for the keyboard to stop (`replayHold`).
             _ = replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows)
             // In order with the bytes too: the mirror takes the Mac's new
-            // grid right before the first byte drawn for it.
-            output.append(hostGrid: columns, rows: rows)
+            // grid right before the first byte drawn for it. An answer to a
+            // resize older than the newest waits in the queue; the newest
+            // answer drops it (its reset clears whatever it would draw).
+            let stale = answerIsStale(.init(columns: columns, rows: rows))
+            output.append(hostGrid: columns, rows: rows, stale: stale)
+            if stale {
+                sizingLog.notice("answer \(columns, privacy: .public)x\(rows, privacy: .public) is for an older resize: it waits for the newest")
+                armStaleAnswerExpiry()
+            } else if output.dropStaleAnswers() > 0 {
+                sizingLog.notice("older answers dropped: the newest one is \(columns, privacy: .public)x\(rows, privacy: .public)")
+            }
             scheduleOutput()
         case .hostGridOwner(let name):
             // In order with the grid events: the owner and the grid it set
@@ -1556,6 +1618,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// (`replayHold`), until `keyboardStopped` or the movement's end.
     private func holdsAtGrid() -> Bool {
         if replayHold.holding { return true }
+        // An older resize's answer waits for the newest one (or its expiry).
+        if output.nextHostGridIsStale {
+            stopOutputLink()
+            return true
+        }
         guard replayHold.holdsAt(nextIsGrid: output.nextHostGrid != nil) else { return false }
         stopOutputLink()
         let deadline = max(0, keyboardMoveEnds - CACurrentMediaTime()) + 0.1
@@ -2580,6 +2647,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The held frame may go (`TerminalHeldFrame.releasesOnPresent`).
     private func heldFrameMayGo() -> Bool {
         guard !holdAwaitsReset else { return false }
+        // A newer resize's answer is coming: this replay is not shown.
+        guard !newestAnswerAwaited else { return false }
         guard model.isTUI || (placedSinceHold && document != nil && cell.height > 0) else { return false }
         let visible = model.isTUI ? 0..<0 : visibleRowRange
         return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: restorePending,
@@ -3695,7 +3764,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyboardClaim = false
         let wills = keyboardWills
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.predictionGrace) { [weak self] in
-            guard let self, self.keyboardWills == wills, self.model.isTUI else { return }
+            guard let self, self.keyboardWills == wills, self.model.isTUI, self.view.window != nil else { return }
             sizingLog.notice("keyboard toggle not carried out: the page's rows are claimed again")
             self.keyboardStopped()
             self.view.layoutIfNeeded()

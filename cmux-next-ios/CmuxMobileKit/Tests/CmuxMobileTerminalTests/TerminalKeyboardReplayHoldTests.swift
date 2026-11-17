@@ -92,9 +92,11 @@ import Testing
     }
 }
 
-/// A double toggle asks the Mac three times (28, 40, then 30 rows) while
-/// the keyboard moves: each answer is a grid change, a mirror reset and a
-/// replay, queued behind the keyboard hold. Only the newest is fed.
+/// A double toggle asks the Mac three times (28, 40, then 30 rows) and a
+/// reversed one twice (30, then 40) before the first answer is drawn. Each
+/// answer is a grid change, a mirror reset and a replay. Answers to a
+/// resize older than the newest wait in the queue (stale), and the newest
+/// answer drops them: only its grid is drawn.
 @Suite struct TerminalOutputQueueAnswerTests {
     let reset = TerminalKeyboardReplayHold.mirrorReset
 
@@ -104,37 +106,49 @@ import Testing
         return out
     }
 
-    @Test func aNewerAnswerDropsTheQueuedOnesBeforeIt() {
+    @Test func theNewestAnswerDropsTheStaleOnesBeforeIt() {
         var queue = TerminalOutputQueue()
         queue.append(Data("echo".utf8))
-        queue.append(hostGrid: 53, rows: 28)
+        queue.append(hostGrid: 53, rows: 28, stale: true)
         queue.append(reset)
         queue.append(Data("replay28".utf8))
         queue.append(alternateScreen: true)
-        queue.append(hostGrid: 53, rows: 40)
+        #expect(!queue.nextHostGridIsStale)
+        _ = queue.next(budget: 1 << 20)
+        #expect(queue.nextHostGridIsStale)
+        queue.append(hostGrid: 53, rows: 40, stale: true)
         queue.append(reset)
         queue.append(Data("replay40".utf8))
         queue.append(hostGrid: 53, rows: 30)
-        let dropped = queue.dropAnswersBeforeLastGrid(reset: reset)
+        let dropped = queue.dropStaleAnswers()
         #expect(dropped == 2 * reset.count + 16)
         queue.append(reset)
         queue.append(Data("replay30".utf8))
-        #expect(queue.pendingBytes == 4 + reset.count + 8)
-        #expect(steps(&queue) == [.bytes(Data("echo".utf8)), .alternateScreen(true), .hostGrid(columns: 53, rows: 30),
-                                  .bytes(reset + Data("replay30".utf8))])
+        #expect(queue.pendingBytes == reset.count + 8)
+        #expect(steps(&queue) == [.alternateScreen(true), .hostGrid(columns: 53, rows: 30), .bytes(reset + Data("replay30".utf8))])
     }
 
-    @Test func aGridWithNoQueuedAnswerBeforeItDropsNothing() {
+    @Test func aNewerResizeMakesQueuedAnswersStaleAndTheirWaitCanEnd() {
+        var queue = TerminalOutputQueue()
+        queue.append(hostGrid: 53, rows: 30)
+        queue.append(reset)
+        #expect(!queue.nextHostGridIsStale)
+        queue.markGridsStale()
+        #expect(queue.nextHostGridIsStale)
+        // The newest answer never came: the queued ones go on in order.
+        queue.clearStale()
+        #expect(!queue.nextHostGridIsStale)
+        #expect(steps(&queue) == [.hostGrid(columns: 53, rows: 30), .bytes(reset)])
+    }
+
+    @Test func aGridWithNoStaleAnswerBeforeItDropsNothing() {
         var queue = TerminalOutputQueue()
         queue.append(Data("echo".utf8))
         queue.append(hostGrid: 53, rows: 26)
-        #expect(queue.dropAnswersBeforeLastGrid(reset: reset) == 0)
-        // A grid change with no reset after it (another device's grid) is
-        // not an answer: the bytes after it stay.
+        #expect(queue.dropStaleAnswers() == 0)
         queue.append(Data("live".utf8))
         queue.append(hostGrid: 53, rows: 30)
-        #expect(queue.dropAnswersBeforeLastGrid(reset: reset) == 0)
+        #expect(queue.dropStaleAnswers() == 0)
         #expect(steps(&queue).count == 4)
     }
 }
-

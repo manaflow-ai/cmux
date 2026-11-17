@@ -90,6 +90,10 @@ public struct TerminalTUIGridHold: Equatable, Sendable {
     /// round trip (`TerminalReclaimHold.reclaimWait`). Past it, no answer is
     /// coming (the Mac kept its grid) and the area shows the page's rows.
     public static let cap: Duration = TerminalResizeSettle.settle + TerminalReclaimHold.reclaimWait
+    /// `cap` in seconds.
+    public static var capSeconds: TimeInterval {
+        Double(cap.components.seconds) + Double(cap.components.attoseconds) / 1e18
+    }
 
     public init() {}
 
