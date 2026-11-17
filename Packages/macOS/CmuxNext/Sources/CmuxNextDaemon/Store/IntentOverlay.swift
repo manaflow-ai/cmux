@@ -179,17 +179,18 @@ import Foundation
         return apply(pending.movePlace?.resolved(pending.kind, in: store) ?? pending.kind, to: store)
     }
 
-    /// A new intent's first apply: its inverse, and for a tab move the place the apply gave the tab.
+    /// A new intent's first apply: its inverse, and for a tab move the place that the apply gives the tab (read
+    /// before the apply, in the daemon's order).
     static func show(_ intent: Intent, in store: DaemonStore) -> (undo: IntentUndo?, place: TabMovePlace?) {
-        let undo = apply(intent, to: store)
-        return (undo, TabMovePlace(of: intent, in: store))
+        let place = TabMovePlace(of: intent, in: store)
+        return (apply(intent, to: store), place)
     }
 
     /// ``restore(_:to:)`` for the log: its inverse, and a tab move's place (the one of its first apply; read now when
     /// this is its first apply: the intent was made while the overlay was lifted, or a stage held it).
     static func showAgain(_ pending: PendingIntent, in store: DaemonStore) -> (undo: IntentUndo?, place: TabMovePlace?) {
-        let undo = restore(pending, to: store)
-        return (undo, pending.movePlace ?? TabMovePlace(of: pending.kind, in: store))
+        let place = pending.movePlace ?? TabMovePlace(of: pending.kind, in: store)
+        return (restore(pending, to: store), place)
     }
 
     static func undo(_ undo: IntentUndo, in store: DaemonStore) {
