@@ -83,9 +83,8 @@ enum TerminalChatHandler {
     /// Toggle Terminal and Chat's facts about `tab`, which the action and the tab's right-click row (``offersToggle(on:services:)``)
     /// both hand to the Rust route, so the row shows exactly where the key acts; with the chat's adopted session
     /// (`key`, `harness:agentSessionId`) and the live terminals running it, best first (as an `agent/` link picks them).
-    /// `membership`: only what decides whether the right-click row shows (the tab's kind, its session, and for a chat
-    /// whether a terminal runs it or a hand-off is under way: a chat no terminal runs is a GUI chat and shows no row);
-    /// the turn only picks among the routes that act.
+    /// `membership`: only the tab's kind and its session (hibernation's pairing, read on every switch): the running
+    /// terminals, the turn and the hand-off would walk every machine's agents there. The right-click row reads them all.
     static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
         -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
         let tabs = services.agentTabs, terminal = tab.kind == .pty
@@ -101,23 +100,23 @@ enum TerminalChatHandler {
         var facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
                                             agent: terminal ? tab.agent?.agent : adopted?.harness,
                                             session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId)
-        guard let adopted else { return (facts, key, []) }
+        guard !membership, let adopted else { return (facts, key, []) }
         let terminals = DeepLink.agentTabs(harness: adopted.harness, session: adopted.agentSessionId, adopted: nil,
                                            harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions).filter { $0.tab != tab.id })
         let handOff = key.flatMap { tabs.terminalHandOffs[$0] }
         facts.running = !terminals.isEmpty
+        facts.busy = tab.agentSession.map(turnOpen) ?? false
         facts.handOff = handOff
         facts.handOffOpen = handOff?.tab.map { services.locateTabOnAnyMachine($0) != nil } ?? false
         facts.now = Date().timeIntervalSince1970
-        if !membership { facts.busy = tab.agentSession.map(turnOpen) ?? false }
         return (facts, key, terminals)
     }
 
     /// Whether `tab` is half of a live terminal and chat pair, so its right-click offers the action (``PaneController/contextMenu(for:)``).
     /// A chat no terminal runs is a GUI chat and offers none (Leo, 2026-11-17: "just... stop showing the toggle on gui");
-    /// the key and the palette still resume it in a terminal.
+    /// the key and the palette still resume it in a terminal. One walk per right-click, as the key's own.
     static func offersToggle(on tab: TabModel, services: AppServices) -> Bool {
-        offersToggle(WindowRules().terminalChatToggle(facts(tab, services: services, membership: true).facts))
+        offersToggle(WindowRules().terminalChatToggle(facts(tab, services: services).facts))
     }
 
     /// Whether the route's answer `route` shows the toggle, as cmux-window-rules `TerminalChatToggle::shows_toggle` answers it.
