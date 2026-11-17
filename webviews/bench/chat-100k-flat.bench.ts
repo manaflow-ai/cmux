@@ -19,7 +19,7 @@
 // row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise.
-// HIDDEN=0 keeps every chat shown. HIDE (below) picks how the others hide.
+// HIDDEN=0 keeps every chat shown.
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
 // traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
@@ -59,9 +59,6 @@ const STREAM_S = Number(process.env.STREAM_S ?? 10);
 const TPS = Number(process.env.TPS ?? 30);
 const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
-// How a hidden chat hides: "chromium" (default) hides its page to Chromium as the app does; "document" fakes only its
-// document's visibilityState (the bench before), so Chromium still draws it.
-const HIDE = process.env.HIDE ?? "chromium";
 const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
@@ -87,10 +84,6 @@ const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
   console.error("chat-100k-flat: CASES is all, main, grown-many, running or long-many");
-  process.exit(2);
-}
-if (HIDE !== "chromium" && HIDE !== "document") {
-  console.error("chat-100k-flat: HIDE is chromium or document");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
@@ -555,32 +548,23 @@ try {
       );
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
       if (HIDDEN) {
-        // A chat tab that is not shown is hidden to Chromium, as in the app: its pane hides the page's host view and
-        // the CEF fork orders the page window out (CEFPaneHost.applyHostVisibility), so its WebContents is hidden,
-        // its document turns hidden and its compositor draws no frames. Here DevTools `Page.setWebLifecycleState`
-        // does the same: "frozen" calls WebContents::WasHidden before it freezes, and "active" thaws the page but
-        // does not show it (as CEFTab.freezeNeverShownPage relies on). The app freezes a hidden chat only after
-        // browser.freezeHiddenTabs (30 s), so the page is left thawed. HIDE=document fakes only the document's state
-        // (the bench before): Chromium then still draws every hidden page.
-        for (const { page, cdp } of pages.slice(0, -1)) {
-          if (HIDE === "document")
-            await page.evaluate(() => {
-              Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-              Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
-              document.dispatchEvent(new Event("visibilitychange"));
-            });
-          else {
-            await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
-            await cdp.send("Page.setWebLifecycleState", { state: "active" });
-          }
-        }
-        // fixed-wait: the hidden pages' visibilitychange work runs before the idle windows.
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        let hidden = 0;
+        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
+        // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
+        // WAKES=1 takes), which the app's hidden pages do not: there the pane hides the page's host view, the CEF fork
+        // orders its page window out (CEFPaneHost.applyHostVisibility) and the page freezes after 30 s hidden
+        // (HiddenChatPages). No DevTools call hides a page in this headless Chromium (hide-probe.bench.ts: a minimized
+        // window, a background tab or target, another tab brought to front, Page.setWebLifecycleState frozen then
+        // active: each page stays visible at 60 frames a second, in chrome-headless-shell and Chrome's new headless).
+        // What that leaves in: the hidden pages' compositor tiles, 118 MB of empty x20's renderer and 190 MB of long
+        // x20's (memory-infra cc/tile_memory, HEAP_RETAINERS=1, 100k rows); without them the ratio would be about 2.1x, not
+        // 2.01x, so they do not make the gap. Its V8 heap does (+347 MB).
         for (const { page } of pages.slice(0, -1))
-          if ((await page.evaluate(() => document.visibilityState)) === "hidden") hidden += 1;
-        console.log(`  ${name}: ${hidden} of ${count - 1} pages hidden (HIDE=${HIDE})`);
-        if (hidden !== count - 1) throw new Error(`chat-100k-flat: ${name}: only ${hidden} of ${count - 1} pages hid`);
+          await page.evaluate(() => {
+            Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+            Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+            document.dispatchEvent(new Event("visibilitychange"));
+          });
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
       const shownProfiler = pages.at(-1)!.cdp;
       // Each reading is the median of REPEAT windows, so one noisy window on a shared runner cannot set the run's max

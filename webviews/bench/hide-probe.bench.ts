@@ -1,4 +1,9 @@
-// Temporary probe: which DevTools call hides a page to headless Chromium (document hidden, no frames).
+// Which DevTools call hides a page to headless Chromium, as the app hides a chat tab it does not show (its document
+// hidden, no frames): each way below, then the page's visibilityState and animation frames a second. chat-100k-flat
+// hides its hidden chats only by faking visibilityState because none of these does (2026-11-17, Chromium 151: every
+// page stayed visible at 60 frames a second). Run it again when the pinned Chrome moves.
+//   bun bench/hide-probe.bench.ts            chrome-headless-shell (what the benches launch)
+//   PROBE_CHANNEL=chrome bun bench/hide-probe.bench.ts   Chrome's new headless mode
 import { chromium } from "./browsers";
 
 // PROBE_CHANNEL=chrome: the installed Google Chrome in its new headless mode (real tabs and windows).
