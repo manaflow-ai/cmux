@@ -60,6 +60,15 @@ parser.add_argument("--stress", action="store_true",
                          "Uses scripts/cmux-next/perf-stress-session.py when present, else the builder here")
 parser.add_argument("--sessions", help="comma list of light,stress: one app launch each (default: light, or stress with --stress)")
 parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
+# The chat arm's keys were queued, not delivered: `interceptKeyDown` claimed every one of them while the
+# router's own dry_run verdict was `deliver`, and the composer's text never changed. For a bare printable
+# key the only claimants are routesBareKey, typesAhead and typesIntoPrimaryInput, and type-ahead queues a
+# key for a page whose `PageInputReadiness` is not ready (`isReady = documentReady && awaitedTarget == nil`,
+# PageInputReadiness.update). `CMUX_DEBUG_FOCUS_WAIT=off` makes it wait for no command focus, so this says
+# whether the awaited focus is what holds the keys. A diagnostic, not the measured state: a number taken
+# under it is not the app a person types in, and the run says so.
+parser.add_argument("--focus-wait", default="", choices=["", "off", "epoch", "field"],
+                    help="CMUX_DEBUG_FOCUS_WAIT for the launch (default: the app's own 'field')")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
 opts = parser.parse_args()
@@ -306,6 +315,7 @@ def chat_key_route(pane):
         rpc("debug.key", dict(params, key="delete"))
         if stats.get("keys"):
             return params
+    note(f"chat: journal tail {json.dumps(rpc('debug.journal', {'limit': 12}) or {})[:700]}")
     note("chat: no debug.key route reached the composer; nothing measured")
     return None
 
@@ -716,6 +726,11 @@ def run_session(session):
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.focus_wait:
+        # Diagnostic (--focus-wait): what holds the chat's keys. Named in the report so no number taken
+        # under it is read as the app's own behaviour.
+        env["CMUX_DEBUG_FOCUS_WAIT"] = opts.focus_wait
+        note(f"launch: CMUX_DEBUG_FOCUS_WAIT={opts.focus_wait} (diagnostic, not the shipped focus wait)")
     # The chat surface needs the app in front. A bench launches with `CMUX_NEXT_NO_ACTIVATE=1`, under which
     # `CmuxApplication.refusesActivation` refuses every activation, and then no view of the pane holds the
     # keyboard: the measured `composer_focused {"focused": true, "native": false}` of three runs. The key
