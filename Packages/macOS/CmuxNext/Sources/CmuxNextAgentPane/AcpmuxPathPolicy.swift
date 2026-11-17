@@ -25,7 +25,7 @@ nonisolated enum AcpmuxPathPolicy {
         /// click (cx-nn3e); the pane asks about it first (`workspace.useFolder`).
         public var outsideIsHomeOrAbove = false
         /// Why, as a code the page words (``AgentPaneGitHubFolder/cloudOnlyReason``); nil for most refusals.
-        public var reason: String? = nil
+        public var reason: String?
 
         public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
                     outsideIsHomeOrAbove: Bool = false, reason: String? = nil) {
