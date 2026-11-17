@@ -31,8 +31,8 @@ fn system_locale() -> Option<String> {
     }
     let output = cmux_process::Command::new("/usr/bin/defaults")
         .args(["read", "-g", "AppleLocale"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .output()
         .ok()
         .filter(|o| o.status.success())?;
