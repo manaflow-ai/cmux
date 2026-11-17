@@ -78,19 +78,22 @@ const readClientCounts = (page: Page) =>
     return counts ? { ...counts } : undefined;
   }) as Promise<ClientCounts | undefined>;
 
-type HostPushReceipt = LoadReceipt & { prefilled_lines: number; held_before_keys: number };
+type HostPushReceipt = LoadReceipt & { held_before_keys: number; ms_to_held: number; last_pushed_seq: number };
 /// `--held N`: the load as the host's pacer pushes it, raw frames through the client's own socket with one record per
 /// tool line (the mock daemon's load folds a tick's lines into one update, about 120 records a second, so a chat
-/// never grows past direct.ts `HELD_RECORDS` inside a run and never sheds). Before the first key it fills an open
-/// turn until the client holds `held` records, so a run filled past `HELD_RECORDS` (4,000) sheds from the first key;
-/// then a reply at `rate` chunks/s and `lines` tool lines/s, every frame due pushed once per ~16 ms on a fixed
-/// schedule. The receipt has the mock load's shape (debug `typingLoad`), so the same rate and continuity checks apply.
+/// never grows past direct.ts `HELD_RECORDS` inside a run and never sheds). One open turn: a reply at `rate` chunks/s
+/// and a call printing `lines` lines/s, every frame due pushed once per ~16 ms on a fixed schedule from the first
+/// frame; the keys start once the client holds `held` records, so with `held` past `HELD_RECORDS` (4,000) the chat
+/// sheds while they are typed. The receipt has the mock load's shape (debug `typingLoad`), so the same rate and
+/// continuity checks apply.
 async function startHostPush(page: Page, options: { rate: number; lines: number; held: number }) {
   const error = await page.evaluate(({ rate, lines, held }) => {
     const client = (window as any).__benchClient;
     if (!client) return "no direct client to push to";
     type Socket = { readyState: number; onmessage: ((message: { data: string }) => void) | null };
     let seq = client.lastSeq as number;
+    const startSeq = seq;
+    const startHeld = (client.events?.length ?? 0) as number;
     const id = JSON.stringify(client.selectedSessionId);
     const event = (kind: string, msg: string) =>
       `{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":${id},"seq":${++seq},"at":${Date.now()},"dir":"mux","kind":"${kind}","msg":${msg}}}`;
@@ -118,67 +121,62 @@ async function startHostPush(page: Page, options: { rate: number; lines: number;
         `{"sessionUpdate":"tool_call","toolCallId":"${call}","title":"Run bun run build","kind":"execute","status":"in_progress","rawInput":{"command":"bun run build"}}`,
       ),
     ]);
+    const t0 = performance.now();
     const receipt = {
       running: true,
-      started_epoch_ms: 0,
+      started_epoch_ms: performance.timeOrigin + t0,
       deltas: 0,
       toolLines: 0,
       elapsedMs: 0,
       maxGapMs: 0,
       maxScheduleOffsetMs: 0,
-      prefilled_lines: 0,
       held_before_keys: 0,
+      ms_to_held: 0,
+      last_pushed_seq: seq,
     };
     const state = { stopped: false, filled: false, receipt };
     (window as any).__hostPush = state;
-    const pace = () => {
-      receipt.held_before_keys = client.events?.length ?? 0;
-      state.filled = true;
-      const t0 = performance.now();
-      receipt.started_epoch_ms = performance.timeOrigin + t0;
-      let last = t0;
-      let sentChunks = 0;
-      let sentLines = 0;
-      const pump = () => {
-        if (state.stopped) {
-          receipt.running = false;
-          return;
-        }
-        const now = performance.now();
-        const elapsed = (now - t0) / 1000;
-        receipt.maxGapMs = Math.max(receipt.maxGapMs, now - last);
-        last = now;
-        const dueChunks = Math.floor(elapsed * rate);
-        const dueLines = Math.floor(elapsed * lines);
-        // How late the oldest frame pushed in this tick is against its due time.
-        const oldest = Math.min(
-          sentChunks < dueChunks ? (sentChunks + 1) / rate : Infinity,
-          lines > 0 && sentLines < dueLines ? (sentLines + 1) / lines : Infinity,
-        );
-        if (Number.isFinite(oldest))
-          receipt.maxScheduleOffsetMs = Math.max(receipt.maxScheduleOffsetMs, now - t0 - oldest * 1000);
-        const frames: string[] = [];
-        for (; sentChunks < dueChunks; sentChunks += 1) frames.push(chunk());
-        for (; sentLines < dueLines; sentLines += 1) frames.push(line());
-        push(frames);
-        receipt.deltas = sentChunks;
-        receipt.toolLines = sentLines;
-        receipt.elapsedMs = now - t0;
-        if (elapsed < 120) setTimeout(pump, 16);
-        else receipt.running = false;
-      };
-      setTimeout(pump, 16);
+    // Paced from the first frame, as the test streams: the keys start once the client holds `held` records.
+    let last = t0;
+    let sentChunks = 0;
+    let sentLines = 0;
+    const pump = () => {
+      if (state.stopped) {
+        receipt.running = false;
+        return;
+      }
+      const now = performance.now();
+      const elapsed = (now - t0) / 1000;
+      receipt.maxGapMs = Math.max(receipt.maxGapMs, now - last);
+      last = now;
+      const dueChunks = Math.floor(elapsed * rate);
+      const dueLines = Math.floor(elapsed * lines);
+      // How late the oldest frame pushed in this tick is against its due time.
+      const oldest = Math.min(
+        sentChunks < dueChunks ? (sentChunks + 1) / rate : Infinity,
+        lines > 0 && sentLines < dueLines ? (sentLines + 1) / lines : Infinity,
+      );
+      if (Number.isFinite(oldest))
+        receipt.maxScheduleOffsetMs = Math.max(receipt.maxScheduleOffsetMs, now - t0 - oldest * 1000);
+      const frames: string[] = [];
+      for (; sentChunks < dueChunks; sentChunks += 1) frames.push(chunk());
+      for (; sentLines < dueLines; sentLines += 1) frames.push(line());
+      push(frames);
+      receipt.deltas = sentChunks;
+      receipt.toolLines = sentLines;
+      receipt.elapsedMs = now - t0;
+      receipt.last_pushed_seq = seq;
+      // Counted as records taken in (held at the start plus pushed), not as held now: a client that sheds past
+      // `HELD_RECORDS` holds fewer than it took.
+      if (!state.filled && startHeld + (seq - startSeq) >= held) {
+        receipt.held_before_keys = client.events?.length ?? 0;
+        receipt.ms_to_held = Math.round(now - t0);
+        state.filled = true;
+      }
+      if (elapsed < 120) setTimeout(pump, 16);
+      else receipt.running = false;
     };
-    // The fill: tool lines in batches of 500, a task each, until the client holds `held` records.
-    const fill = () => {
-      if (state.stopped) return;
-      if ((client.events?.length ?? 0) < held && receipt.prefilled_lines < 200_000) {
-        push(Array.from({ length: 500 }, line));
-        receipt.prefilled_lines += 500;
-        setTimeout(fill, 0);
-      } else pace();
-    };
-    fill();
+    setTimeout(pump, 16);
     return undefined;
   }, options);
   if (error) throw new Error(`held load: ${error}`);
@@ -189,6 +187,21 @@ const readHostPush = (page: Page) =>
     ...(window as any).__hostPush.receipt,
     epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()),
   })) as Promise<HostPushReceipt>;
+/// The client's state after the keys, to say why a run did or did not shed: records held, the newest seq it applied
+/// against the newest pushed, whether the view follows and whether an older page is in flight.
+const readClientState = (page: Page) =>
+  page.evaluate(() => {
+    const client = (window as any).__benchClient;
+    if (!client) return undefined;
+    return {
+      held_after_keys: client.events?.length ?? null,
+      last_seq: client.lastSeq ?? null,
+      last_pushed_seq: (window as any).__hostPush?.receipt.last_pushed_seq ?? null,
+      following: client.following ?? null,
+      loading_older: client.loadingOlder !== undefined,
+      shed_retry_at: client.shedRetryAt ?? null,
+    };
+  });
 
 export async function seedComposer(surface: Surface, turns: number) {
   await surface.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
@@ -303,6 +316,8 @@ export async function runComposerLoad(
           ),
         );
   const before = await readLoads();
+  // What the load made the client do before the first key (the stream's start), then counted again over the keys.
+  const countsBeforeKeys = countError ? undefined : await readClientCounts(page);
   if (!countError) await resetClientCounts(page);
   await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
@@ -355,6 +370,7 @@ export async function runComposerLoad(
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
   });
   const counts = countError ? undefined : await readClientCounts(page);
+  const clientState = countError ? undefined : await readClientState(page);
   const after = await readLoads();
   if (held !== undefined) await page.evaluate(() => void ((window as any).__hostPush.stopped = true));
   else
@@ -467,6 +483,9 @@ export async function runComposerLoad(
     older_pages: counts?.older_pages ?? null,
     refolds: counts?.refolds ?? null,
     shed,
+    counts_before_keys: countsBeforeKeys ?? null,
+    ms_to_held: held !== undefined ? ((after[0] as HostPushReceipt).ms_to_held ?? null) : null,
+    client_after_keys: clientState ?? null,
     budget_p95_ms: 16,
     budget_p99_ms: 33,
     budget_policy: "report-only",

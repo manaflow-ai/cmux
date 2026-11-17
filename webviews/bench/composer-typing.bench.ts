@@ -225,7 +225,8 @@ async function measure(
         if (canonical === "L1" || canonical === "L3")
           console.log(
             `SHED ${canonical} ${row.rows} rows${HELD === undefined ? "" : `, held ${String(row.held_before_keys)}`}: ` +
-              `sheds ${String(row.sheds)}, older pages ${String(row.older_pages)}, refolds ${String(row.refolds)}; ${row.shed}`,
+              `sheds ${String(row.sheds)}, older pages ${String(row.older_pages)}, refolds ${String(row.refolds)}; ${row.shed}` +
+              ` (before keys ${JSON.stringify(row.counts_before_keys)}, after keys ${JSON.stringify(row.client_after_keys)}, valid ${String(row.valid)}${row.errors.length ? `: ${row.errors.join("; ")}` : ""})`,
           );
         return { engine, ...row };
       } finally {
