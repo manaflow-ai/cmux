@@ -36,11 +36,11 @@
         "id": "n8",
         "type": "Text",
         "props": {
-          "font": 50,
           "lineLimit": 1,
           "fixedSize": "horizontal",
           "contentTransition": "numericText",
           "text": "9:41",
+          "font": 50,
           "weight": "heavy",
           "color": "primary",
           "opacity": 1
@@ -51,7 +51,14 @@
         "op": "create",
         "id": "n10",
         "type": "Text",
-        "props": { "font": "headline", "weight": "bold", "color": "secondary", "text": "AM" }
+        "props": {
+          "font": "headline",
+          "weight": "bold",
+          "color": "secondary",
+          "lineLimit": 1,
+          "fixedSize": "horizontal",
+          "text": "AM"
+        }
       },
       { "op": "children", "id": "n9", "children": ["n10"] },
       { "op": "children", "id": "n7", "children": ["n8", "n9"] },
@@ -102,11 +109,11 @@
         "id": "n9",
         "type": "Text",
         "props": {
-          "font": 56,
           "lineLimit": 1,
           "fixedSize": "horizontal",
           "contentTransition": "numericText",
           "text": "9:41",
+          "font": 56,
           "weight": "heavy",
           "color": "primary",
           "opacity": 1
@@ -117,7 +124,14 @@
         "op": "create",
         "id": "n11",
         "type": "Text",
-        "props": { "font": "headline", "weight": "bold", "color": "secondary", "text": "AM" }
+        "props": {
+          "font": "headline",
+          "weight": "bold",
+          "color": "secondary",
+          "lineLimit": 1,
+          "fixedSize": "horizontal",
+          "text": "AM"
+        }
       },
       { "op": "children", "id": "n10", "children": ["n11"] },
       { "op": "children", "id": "n8", "children": ["n9", "n10"] },
@@ -237,11 +251,11 @@
         "id": "n6",
         "type": "Text",
         "props": {
-          "font": 64,
           "lineLimit": 1,
           "fixedSize": "horizontal",
           "contentTransition": "numericText",
           "text": "9:41",
+          "font": 64,
           "weight": "heavy",
           "color": "primary",
           "opacity": 1
@@ -252,7 +266,14 @@
         "op": "create",
         "id": "n8",
         "type": "Text",
-        "props": { "font": "headline", "weight": "bold", "color": "secondary", "text": "AM" }
+        "props": {
+          "font": "headline",
+          "weight": "bold",
+          "color": "secondary",
+          "lineLimit": 1,
+          "fixedSize": "horizontal",
+          "text": "AM"
+        }
       },
       { "op": "children", "id": "n7", "children": ["n8"] },
       { "op": "children", "id": "n5", "children": ["n6", "n7"] },
@@ -1347,11 +1368,11 @@
         "id": "n6",
         "type": "Text",
         "props": {
-          "font": 64,
           "lineLimit": 1,
           "fixedSize": "horizontal",
           "contentTransition": "numericText",
           "text": "09:41",
+          "font": 64,
           "weight": "heavy",
           "color": "primary",
           "opacity": 1
@@ -1530,11 +1551,11 @@
         "id": "n6",
         "type": "Text",
         "props": {
-          "font": 64,
           "lineLimit": 1,
           "fixedSize": "horizontal",
           "contentTransition": "numericText",
           "text": "9:41",
+          "font": 64,
           "weight": "thin",
           "color": "primary",
           "opacity": 0.55
@@ -1545,7 +1566,14 @@
         "op": "create",
         "id": "n8",
         "type": "Text",
-        "props": { "font": "headline", "weight": "bold", "color": "secondary", "text": "AM" }
+        "props": {
+          "font": "headline",
+          "weight": "bold",
+          "color": "secondary",
+          "lineLimit": 1,
+          "fixedSize": "horizontal",
+          "text": "AM"
+        }
       },
       { "op": "children", "id": "n7", "children": ["n8"] },
       { "op": "children", "id": "n5", "children": ["n6", "n7"] },
@@ -1751,12 +1779,12 @@
         "id": "n8",
         "type": "Text",
         "props": {
-          "font": 50,
           "lineLimit": 1,
           "fixedSize": "horizontal",
           "contentTransition": "numericText",
           "monospaced": true,
           "text": "9:41",
+          "font": 40,
           "weight": "bold",
           "color": "accent",
           "opacity": 1
@@ -1767,7 +1795,14 @@
         "op": "create",
         "id": "n10",
         "type": "Text",
-        "props": { "font": "headline", "weight": "bold", "color": "secondary", "text": "AM" }
+        "props": {
+          "font": "headline",
+          "weight": "bold",
+          "color": "secondary",
+          "lineLimit": 1,
+          "fixedSize": "horizontal",
+          "text": "AM"
+        }
       },
       { "op": "children", "id": "n9", "children": ["n10"] },
       { "op": "children", "id": "n7", "children": ["n8", "n9"] },
@@ -1806,11 +1841,11 @@
         "id": "n7",
         "type": "Text",
         "props": {
-          "font": 56,
           "lineLimit": 1,
           "fixedSize": "horizontal",
           "contentTransition": "numericText",
           "text": "9:41",
+          "font": 56,
           "weight": "regular",
           "color": "#FF9500",
           "opacity": 1
@@ -1821,7 +1856,14 @@
         "op": "create",
         "id": "n9",
         "type": "Text",
-        "props": { "font": "headline", "weight": "bold", "color": "secondary", "text": "AM" }
+        "props": {
+          "font": "headline",
+          "weight": "bold",
+          "color": "secondary",
+          "lineLimit": 1,
+          "fixedSize": "horizontal",
+          "text": "AM"
+        }
       },
       { "op": "children", "id": "n8", "children": ["n9"] },
       { "op": "children", "id": "n6", "children": ["n7", "n8"] },

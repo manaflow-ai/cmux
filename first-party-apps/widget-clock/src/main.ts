@@ -46,6 +46,8 @@ export interface WidgetContext {
 
 /** The big time's point size per size: Apple's widget scale, heavy weight. */
 const TIME_FONT: Record<Size, number> = { small: 50, medium: 56, large: 64 }
+/** Monospaced digits are wider: smaller, so the small tile still fits the time and AM/PM on one line. */
+const MONO_TIME_FONT: Record<Size, number> = { small: 40, medium: 46, large: 56 }
 
 const zoneOf: ZoneOf = (zone, at) => cmux.time.zone(zone, at)
 
@@ -62,7 +64,7 @@ function withDesign(view: View, style: () => TimeStyle): View {
 /** The time with its AM/PM beside it, small, on the baseline (the Lock Screen drops it; a widget keeps it). */
 function bigTime(time: () => string, period: () => string, hasPeriod: () => boolean, size: Size, style: () => TimeStyle): View {
   const digits = Text(time)
-    .font(TIME_FONT[size])
+    .font(() => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size])
     .weight(() => style().weight)
     .color(() => style().color)
     .opacity(() => style().opacity)
@@ -71,7 +73,7 @@ function bigTime(time: () => string, period: () => string, hasPeriod: () => bool
     .contentTransition("numericText")
   return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
     withDesign(digits, style),
-    () => (hasPeriod() ? Text(period).font("headline").weight("bold").secondary() : null)
+    () => (hasPeriod() ? Text(period).font("headline").weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null)
   ])
 }
 

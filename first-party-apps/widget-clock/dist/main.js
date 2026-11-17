@@ -2470,6 +2470,7 @@
   }
   var showsDate = (settings) => settings.date !== false;
   var TIME_FONT = { small: 50, medium: 56, large: 64 };
+  var MONO_TIME_FONT = { small: 40, medium: 46, large: 56 };
   var zoneOf = (zone, at) => cmux.time.zone(zone, at);
   function withDesign(view, style) {
     const designable = view;
@@ -2478,10 +2479,10 @@
     return untrack(style).design === "monospaced" ? view.monospaced() : view;
   }
   function bigTime(time, period, hasPeriod, size, style) {
-    const digits = Text(time).font(TIME_FONT[size]).weight(() => style().weight).color(() => style().color).opacity(() => style().opacity).lineLimit(1).fixedSize("horizontal").contentTransition("numericText");
+    const digits = Text(time).font(() => (style().design === "monospaced" ? MONO_TIME_FONT : TIME_FONT)[size]).weight(() => style().weight).color(() => style().color).opacity(() => style().opacity).lineLimit(1).fixedSize("horizontal").contentTransition("numericText");
     return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
       withDesign(digits, style),
-      () => hasPeriod() ? Text(period).font("headline").weight("bold").secondary() : null
+      () => hasPeriod() ? Text(period).font("headline").weight("bold").secondary().lineLimit(1).fixedSize("horizontal") : null
     ]);
   }
   function cityRow(c, hasPeriod, style) {
