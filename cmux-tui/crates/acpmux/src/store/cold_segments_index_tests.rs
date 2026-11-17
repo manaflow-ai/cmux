@@ -515,6 +515,8 @@ fn many_segments_cost() {
     let t = Instant::now();
     let moved = move_all(&store);
     eprintln!("MANYSEG moved {moved} segments in {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
+    measure(&store, "cold, index under 2 s old (parsed at each read)");
+    std::thread::sleep(RACY + std::time::Duration::from_millis(500));
     measure(&store, "cold");
     let fresh = LocalStore::new(sessions.clone(), COLD_ROLL_BYTES).unwrap();
     measure(&fresh, "cold, a fresh store");

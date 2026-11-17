@@ -36,8 +36,8 @@
 //! segment is still there is never read. A reader that listed the `.ndjson` before the move
 //! removed it opens the archive instead ([`open_segment`]). A damaged archive or index is a clear
 //! error on read, never a silent gap. The parsed index is kept per file ([`chat_index`], keyed by
-//! the file's identity, length and modification time): a listing or an open of a cold segment
-//! reads it once per change, not once per segment.
+//! the file's identity, length and modification time, once it is two seconds old): a listing or an
+//! open of a cold segment reads it once per change, not once per segment.
 //!
 //! A chat written before the one index has one file per segment, `events/NNNNNN.cold.idx`
 //! ([`IDX_SUFFIX`]): it reads as it did (the listing and [`read_index`] take both), and its next
@@ -173,6 +173,8 @@ impl FileStamp {
 type Loaded = HashMap<PathBuf, (FileStamp, std::sync::Arc<ChatIndex>)>;
 static LOADED: std::sync::LazyLock<Mutex<Loaded>> = std::sync::LazyLock::new(Default::default);
 const LOADED_MAX: usize = 256;
+/// How old an index file must be before its parse is kept ([`chat_index`]).
+const RACY: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn not_found(e: &anyhow::Error) -> bool {
     e.downcast_ref::<std::io::Error>().is_some_and(is_not_found)
@@ -208,6 +210,13 @@ pub(crate) fn chat_index(session: &Path) -> Result<Option<(FileStamp, std::sync:
         doc.schema
     );
     let doc = std::sync::Arc::new(doc);
+    // Kept only once the file is older than the clock's coarsest step: a file rewritten in place
+    // within the same tick, at the same length, would otherwise read as the one kept (every
+    // write here is a rename, a new inode; this covers a hand's edit).
+    let settled = stamp.modified.and_then(|m| m.elapsed().ok()).is_some_and(|age| age > RACY);
+    if !settled {
+        return Ok(Some((stamp, doc)));
+    }
     let mut loaded = LOADED.lock_or_recover();
     if loaded.len() >= LOADED_MAX {
         loaded.clear();
