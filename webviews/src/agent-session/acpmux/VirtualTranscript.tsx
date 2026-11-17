@@ -2434,7 +2434,8 @@ function TranscriptView({
       if (
         Math.abs(next - dockSpaceRef.current) >= 0.5 ||
         Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
-        Math.abs(nextCard - dockCardRef.current) >= 0.5
+        Math.abs(nextCard - dockCardRef.current) >= 0.5 ||
+        Math.abs(nextNotice - dockNoticeRef.current) >= 0.5
       )
         flushSync(() => {
           setDockSpace(next);
@@ -4186,9 +4187,9 @@ function TranscriptView({
   // first draw: after a restart the chat's saved copy drew without the line, and the live page that took
   // over with it as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused). The
   // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
-  // (they grew: a reply streaming on, a send), or Jump to latest or the reader's wheel past the end gives
-  // it back (`takeRoom`, `giveTrayRoom`).
-  const noticeHeldAt = noticeBase.current;
+  // (they grew: a reply streaming on, a send) or Jump to latest gives it back (`takeRoom`).
+  // Another chat starts from none taken: the last chat's base is not this one's.
+  const noticeHeldAt = sessionSwitched ? 0 : noticeBase.current;
   const noticeTaken = openedAtLatest && !sessionSwitched && rowsGrew > 0.5;
   // Scrolled up the room is held anyway (`heldRoom`), and the base waits for the view to follow again.
   const noticeHold =
@@ -5196,7 +5197,8 @@ function TranscriptView({
     foldRide.current?.takeHanded(drawnRef.current);
     previousViewport.current = { height, width, dockSpace, dockCard };
     // With the composer's growth, which is room again once the view stops following.
-    heldRoom.current = room + lifted + cardHold + noticeHold;
+    // A hold for a line that went is room the rows still have: it stays in the room once scrolled up.
+    heldRoom.current = room + lifted + cardHold + Math.max(0, noticeHold);
     appliedLift.current = lift;
     liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
@@ -5293,14 +5295,11 @@ function TranscriptView({
       if (
         event.deltaY <= 0 ||
         !followingRef.current ||
-        (dockTrayRef.current - foldBase.current <= 0.5 &&
-          dockCardRef.current - cardBase.current <= 0.5 &&
-          dockNoticeRef.current - noticeBase.current <= 0.5)
+        (dockTrayRef.current - foldBase.current <= 0.5 && dockCardRef.current - cardBase.current <= 0.5)
       )
         return;
       foldBase.current = dockTrayRef.current;
       cardBase.current = dockCardRef.current;
-      noticeBase.current = dockNoticeRef.current;
       trayToggled.current = false;
       heldRoom.current = dockRoomRef.current;
       flushSync(() => {
