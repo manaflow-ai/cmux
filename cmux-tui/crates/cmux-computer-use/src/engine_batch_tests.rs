@@ -352,6 +352,11 @@ fn a_watched_wait_for_rechecks_less_often() {
     let d = desktop_with(doc(false, "", "Save"));
     *d.signals.lock().unwrap() = Some(Signals::default());
     let (e, slept) = rig_with(d.clone(), |_, _| {});
+    // The agent has looked at the window: a window's first read walks a
+    // small tree twice (a web view filled on first read), so the reads
+    // counted below are one walk each.
+    assert!(!e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"})).is_error);
+    slept.lock().unwrap().clear();
     let later = walks(&d) + 2;
     d.trees_from_walk.lock().unwrap().push((later, doc(true, "", "Save")));
     let out = batch(&e, json!([{"action": "wait_for", "target": {"role": "sheet"}}]));
@@ -390,6 +395,8 @@ fn wait_for_disappears_and_values() {
     // The sheet closes three reads in.
     let d = desktop_with(doc(true, "", "Save"));
     let e = rig(d.clone());
+    // Looked at first, so each read below is one walk (see above).
+    assert!(!e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"})).is_error);
     let later = walks(&d) + 3;
     d.trees_from_walk.lock().unwrap().push((later, doc(false, "", "Save")));
     let out = batch(
