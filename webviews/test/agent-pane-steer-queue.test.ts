@@ -21,6 +21,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
   setDefaultTimeout(220_000);
@@ -208,8 +209,8 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     await page.keyboard.press("Enter");
     await page.waitForSelector(".acpmux-steer-queue", { state: "detached" });
     await page.waitForFunction(
-      (text) => document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes(text),
-      line,
+      ({ text, COMPOSER_EDITOR }) => document.querySelector(COMPOSER_EDITOR)?.textContent?.includes(text),
+      { text: line, COMPOSER_EDITOR },
       { timeout: 30_000 },
     );
     await page.close();

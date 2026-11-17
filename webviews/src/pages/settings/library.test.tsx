@@ -2,14 +2,14 @@
 // with its switch and its order; where two entries that are on set the same key, the lower one says
 // in words which higher one wins and on what; a change runs the CLI's verb and draws the library it
 // answers; a refusal (a preview is open) shows the CLI's own words and changes nothing.
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, setSystemTime, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { MockOptions } from "./mockProvider";
 import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle, click } = await import("./testing");
+const { renderPage, settle, click, run } = await import("./testing");
 const { mockEmptyLibrary, mockLongLibrary, relist, runLibrary, mockLibrary } = await import("./mockLibrary");
 const { beatenByEntry } = await import("./customizeLibrary");
 
@@ -128,4 +128,73 @@ test("a host with no CLI draws no card and no error", async () => {
   await open({ failing: { "cmux.settings.customize.library": "cmux.page.unavailable" } });
   expect(listed()).toBeGreaterThan(0);
   expect(card()).toBeNull();
+});
+
+test("a list read a toggle overtakes doesn't draw the old switch back over the toggle's answer", async () => {
+  await open();
+  let release = () => {};
+  page!.provider.libraryReadHold = new Promise<void>((resolve) => (release = resolve));
+  // Back on Personalization past the section's fresh time: the library is read again in the
+  // background, and that read (held) sees night on.
+  setSystemTime(new Date(Date.now() + 60_000));
+  try {
+    const before = listed();
+    await run(() => page!.history.push("/settings/general"));
+    await run(() => page!.history.push("/settings/personalization"));
+    await settle();
+    expect(listed()).toBeGreaterThan(before);
+    expect(toggle("night").disabled).toBe(false);
+    await click(toggle("night"));
+    await settle();
+    expect(page!.provider.libraryRuns).toEqual([{ verb: "off", name: "night" }]);
+    expect(toggle("night").getAttribute("aria-checked")).toBe("false");
+    release();
+    await settle();
+    expect(toggle("night").getAttribute("aria-checked")).toBe("false");
+    expect(entry("roomy").querySelector("[data-library-beaten]")).toBeNull();
+  } finally {
+    release();
+    setSystemTime();
+  }
+});
+
+async function scrolledWhile(body: (scrolled: HTMLElement[]) => Promise<void>) {
+  const view = globalThis.window.HTMLElement.prototype;
+  const original = view.scrollIntoView;
+  const scrolled: HTMLElement[] = [];
+  view.scrollIntoView = function (this: HTMLElement) {
+    scrolled.push(this);
+  };
+  try {
+    await body(scrolled);
+  } finally {
+    view.scrollIntoView = original;
+  }
+}
+
+test("?focus=card.customizeLibrary opens Personalization scrolled to the library", async () => {
+  await scrolledWhile(async (scrolled) => {
+    page = await renderPage({ path: "/settings/personalization?focus=card.customizeLibrary" });
+    await settle();
+    expect(card()).not.toBeNull();
+    expect(scrolled).toContain(card()!);
+    page.unmount();
+    page = null;
+    scrolled.length = 0;
+    await open();
+    expect(scrolled).not.toContain(card()!);
+  });
+});
+
+test("with fifty entries, Remove on an early row scrolls its confirmation into view and focuses Cancel", async () => {
+  await scrolledWhile(async (scrolled) => {
+    await open({ library: mockLongLibrary(50) });
+    await click(action("look-02", "remove"));
+    await settle();
+    const confirm = card()!.querySelector<HTMLElement>("[data-library-confirm]")!;
+    expect(confirm.textContent).toContain("Remove look-02?");
+    expect(scrolled).toContain(confirm);
+    expect(document.activeElement).toBe(confirm.querySelector('[data-library-action="cancel"]'));
+    expect(page!.provider.libraryRuns).toEqual([]);
+  });
 });

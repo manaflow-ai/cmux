@@ -57,6 +57,15 @@ enum Command {
         #[serde(default)]
         region: Option<cmux_layout_reducer::sidebar_doc::Region>,
     },
+    /// Reads the local app folders again now and reloads `app`, or every
+    /// local app, as a save would (`Supervisor::reload_local_now`). No
+    /// gesture: it changes no install, grant or placement, only reruns
+    /// scripts the person already installed.
+    #[serde(rename = "apps-reload")]
+    Reload {
+        #[serde(default)]
+        app: Option<String>,
+    },
     #[serde(rename = "apps-set")]
     Set {
         idempotency_key: String,
@@ -165,6 +174,13 @@ enum Command {
     /// The verified app's provider of `family` says its data changed (`<family>.changed`).
     #[serde(rename = "apps-provider-changed")]
     ProviderChanged { family: String },
+    /// One bridge message of an app's web pane (`render: web`,
+    /// apps/page_calls.rs), from the Mac app that hosts the page: `page`
+    /// names the open page, `message` is the page's raw `{id, op, params}`
+    /// (the size limit applies before it is parsed). Verified app only. The
+    /// reply is the page's answer `{id, ok, value | error}`.
+    #[serde(rename = "apps-page-call")]
+    PageCall { app: String, page: String, message: String },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -229,6 +245,28 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
         let _ = spawn_off_startup(move || {
             mux.control_clients.apps.get_or_init(&mux);
         });
+    }
+}
+
+/// Runs `job` on a thread of its own and replies to `id` with its result
+/// when it ends; the connection reads its next request meanwhile.
+fn answer_off_thread(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    job: impl FnOnce() -> Result<Value, crate::apps::ApiError> + Send + 'static,
+) -> bool {
+    let answer = writer.clone();
+    let asked = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("cmux-apps-reload".into())
+        .spawn(move || reply(&answer, asked, job()));
+    match spawned {
+        Ok(_) => true,
+        Err(error) => reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new("operation.failed", error.to_string())),
+        ),
     }
 }
 
@@ -430,6 +468,20 @@ pub(super) fn try_handle(
             )),
         ));
     }
+    // A web pane's call runs with its app's grant: only the app that hosts
+    // the page may send it, so no other connection borrows that grant.
+    if matches!(request.command, Command::PageCall { .. })
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection hosts an extension's web pane",
+            )),
+        ));
+    }
     if crate::apps::advertised().is_none() {
         return Some(reply(
             writer,
@@ -445,11 +497,33 @@ pub(super) fn try_handle(
     );
     let Request { id, origin, command } = request;
     let user = origin == crate::apps::Origin::User;
+    // A forced reload reads every local folder and may wait on a load trial
+    // per open view (seconds): it answers from its own thread, so this
+    // connection's mounts and events go on meanwhile (`apps-reload`, and the
+    // app's Reload Custom Views, the App Store op `apps.local.reload`).
+    let command = match command {
+        Command::Reload { app } => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.reload_local_now(app.as_deref())
+            }));
+        }
+        Command::Store { op, args } if op == "apps.local.reload" => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.store_call(client, &op, args, origin)
+            }));
+        }
+        command => command,
+    };
     let result = match command {
         Command::List => Ok(supervisor.list()),
         Command::ReloadLocal => Ok(supervisor.reload_local_apps_now()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
+        // Answered on its own thread above.
+        Command::Reload { .. } => Err(crate::apps::ApiError::new(
+            "operation.failed",
+            "apps-reload is answered off this thread",
+        )),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
@@ -474,6 +548,7 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                grant_optional: false,
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
@@ -500,6 +575,19 @@ pub(super) fn try_handle(
                         request: id.clone().unwrap_or(Value::Null),
                     }),
                 },
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::PageCall { app, page, message } => {
+            let writer = writer.clone();
+            supervisor.page_call(
+                client,
+                &app,
+                &page,
+                &message,
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),
@@ -654,6 +742,26 @@ mod tests {
             let code = error_code(&mux, app, &app_out, request);
             assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
         }
+    }
+
+    /// A web pane's call runs with its app's grant, so only the verified app
+    /// that hosts the page may send one: a CLI or agent connection cannot
+    /// borrow an extension's scopes through `apps-page-call`.
+    #[test]
+    fn page_calls_need_the_verified_app_connection() {
+        let mux = Mux::new_for_test("apps-page-call-gate", SurfaceOptions::default());
+        let call = || json!({"id": 1, "cmd": "apps-page-call", "app": "local/web", "page": "p1", "message": "{\"id\":\"1\",\"op\":\"workspace.list\"}"});
+        let (cli, cli_out) = connection(&mux, Some("cli"), false);
+        assert_eq!(error_code(&mux, cli, &cli_out, call()).as_deref(), FORBIDDEN);
+        let (declared, declared_out) = connection(&mux, Some("app"), false);
+        assert_eq!(error_code(&mux, declared, &declared_out, call()).as_deref(), FORBIDDEN);
+        let (agent_app, agent_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        assert_eq!(error_code(&mux, agent_app, &agent_out, call()).as_deref(), FORBIDDEN);
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        let code = error_code(&mux, app, &app_out, call());
+        assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
     }
 
     /// `apps-capabilities` answers the capability manifest on any local

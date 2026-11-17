@@ -22,7 +22,7 @@ struct CmdNRowSlotTests {
         // The slot named explicitly, so the base's default (`top`) does not decide the result: only the jump does.
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -101,7 +101,7 @@ struct CmdNInGroupRowSlotTests {
         }
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"\#(placement.rawValue)"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings

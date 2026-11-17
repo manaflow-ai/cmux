@@ -36,18 +36,26 @@ pub(crate) const MAX_FILES: u64 = 500_000;
 pub(crate) const FIRST_BYTES: u64 = 256 * 1024 * 1024;
 /// The most files of that first pass.
 pub(crate) const FIRST_FILES: u64 = 20_000;
+/// How far past [`MAX_FILES`] a listing goes on while only repository history (`.git` at any
+/// depth) is over it: a parent of repositories whose nested histories hold most of its files is
+/// listed to its last folder, since a first pass sends no history anyway; the listing's cost stays
+/// bounded at this many times the file limit.
+const HISTORY_ROOM: u64 = 4;
 /// How long an `--allow-large` lasts for its folder.
 const GRANT_LASTS: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The running total of a copy's files against its limits, and each listed file's size (what a
 /// first pass picks by). Only the file count ends a listing ([`FileLimit`]), so its cost is
-/// bounded; bytes past [`MAX_BYTES`] make the copy a first pass once the listing is done.
+/// bounded; bytes past [`MAX_BYTES`], or files past [`MAX_FILES`] the listing went on past because
+/// they were repository history, make the copy a first pass once the listing is done.
 #[derive(Clone, Debug)]
 pub(super) struct Cap {
     max_bytes: u64,
     max_files: u64,
     bytes: u64,
     files: u64,
+    /// The files counted that are not repository history.
+    working: u64,
     sizes: HashMap<String, u64>,
 }
 
@@ -55,14 +63,19 @@ impl Cap {
     /// The limits for a copy ([`MAX_BYTES`], [`MAX_FILES`]; a test's own in tests).
     pub(super) fn new() -> Self {
         let (max_bytes, max_files) = limits();
-        Self { max_bytes, max_files, bytes: 0, files: 0, sizes: HashMap::new() }
+        Self { max_bytes, max_files, bytes: 0, files: 0, working: 0, sizes: HashMap::new() }
     }
 
-    /// Counts one file of `bytes` going as `relative`: [`FileLimit`] once the file limit is
-    /// passed, which ends the listing.
+    /// Counts one file of `bytes` going as `relative`: [`FileLimit`] once the files that are not
+    /// repository history pass the file limit (or all of them pass [`HISTORY_ROOM`] times it),
+    /// which ends the listing.
     pub(super) fn charge(&mut self, relative: &str, bytes: u64) -> Result<(), FileLimit> {
         self.files += 1;
-        if self.files > self.max_files {
+        if !super::local::in_history(relative) {
+            self.working += 1;
+        }
+        if self.working > self.max_files || self.files > self.max_files.saturating_mul(HISTORY_ROOM)
+        {
             return Err(FileLimit);
         }
         self.bytes = self.bytes.saturating_add(bytes);
@@ -70,9 +83,9 @@ impl Cap {
         Ok(())
     }
 
-    /// Whether what was listed is more than a copy sends whole.
-    pub(super) fn past_bytes(&self) -> bool {
-        self.bytes > self.max_bytes
+    /// Whether what was listed is more than a copy sends whole, in bytes or in files.
+    pub(super) fn past(&self) -> bool {
+        self.bytes > self.max_bytes || self.files > self.max_files
     }
 
     /// The size `relative` was counted at (0 for one never counted).

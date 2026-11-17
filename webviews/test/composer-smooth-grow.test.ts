@@ -24,6 +24,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_MD, COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 type Frame = {
   t: number;
@@ -63,13 +64,13 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
   /// The page side of the frame reads: `__grow.start()` records one Frame per painted frame into
   /// `__grow.frames` until `__grow.stop()`. Read in a ResizeObserver made after the pane's own (a
   /// probe resized in each frame's callbacks), so each read is of the layout that frame paints.
-  const sampler = () => {
+  const sampler = ({ COMPOSER_MD_FIELD }: { COMPOSER_MD_FIELD: string }) => {
     const w = window as unknown as { __grow: { frames: Frame[]; start(): void; stop(): void } };
     const read = (): Frame | undefined => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock");
       const card = document.querySelector<HTMLElement>(".acpmux-composer-box");
-      const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field");
+      const field = document.querySelector<HTMLElement>(COMPOSER_MD_FIELD);
       if (!scroller || !dock || !card || !field) return undefined;
       const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].filter(
         (row) => row.getBoundingClientRect().height > 0,
@@ -147,8 +148,8 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Animation.enable");
     await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.1 });
-    await page.evaluate(sampler);
-    await page.locator(".acpmux-composer-box .acpmux-md").click();
+    await page.evaluate(sampler, { COMPOSER_MD_FIELD });
+    await page.locator(COMPOSER_MD).click();
     await rest(page);
     return page;
   };
@@ -176,8 +177,10 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
   };
 
   const lineHeight = (page: Page) =>
-    page.evaluate(() =>
-      Number.parseFloat(getComputedStyle(document.querySelector(".acpmux-composer-box .acpmux-md-field")!).lineHeight),
+    page.evaluate(
+      ({ COMPOSER_MD_FIELD }) =>
+        Number.parseFloat(getComputedStyle(document.querySelector(COMPOSER_MD_FIELD)!).lineHeight),
+      { COMPOSER_MD_FIELD },
     );
 
   /// The runs of frames whose card height changed (each a growth or shrink), split where it held
@@ -289,9 +292,9 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
       () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
     );
     const frames = await record(page, () => page.keyboard.press("ControlOrMeta+V"));
-    const pasted = await page.evaluate(
-      () => document.querySelector(".acpmux-composer-box .acpmux-md")!.textContent ?? "",
-    );
+    const pasted = await page.evaluate(({ COMPOSER_MD }) => document.querySelector(COMPOSER_MD)!.textContent ?? "", {
+      COMPOSER_MD,
+    });
     expect(pasted).toContain("Line 40 of the pasted notes");
     // The height before the paste comes first: a paste that lands at once may do so before the
     // first frame read.

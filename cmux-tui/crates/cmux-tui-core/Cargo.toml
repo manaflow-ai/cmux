@@ -20,6 +20,8 @@ cmux-json.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
+# The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
@@ -85,6 +87,8 @@ parking_lot = { workspace = true, features = ["arc_lock"] }
 arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
+# cmux Remote's verified copy outside the app (`remote_host/macos.rs`).
+cmux-signed-bundle.workspace = true
 socket2.workspace = true
 quick-xml.workspace = true
 notify.workspace = true

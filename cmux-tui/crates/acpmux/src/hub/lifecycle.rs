@@ -115,6 +115,7 @@ impl Hub {
             wait_start,
             throwaway,
             require_asking,
+            credential,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -125,6 +126,8 @@ impl Hub {
             .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
+        // A harness installed since the catalog loaded serves this start (`rediscover.rs`).
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
@@ -312,7 +315,8 @@ impl Hub {
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
-            && checked_cwd.is_none();
+            && checked_cwd.is_none()
+            && credential.is_none();
         let pooled =
             if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
         // Every way out of here (an error, or this future dropped) before
@@ -378,6 +382,8 @@ impl Hub {
             meta.throwaway = throwaway;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
+            // Before the session is published, so its first spawn already has it; memory only.
+            *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.

@@ -17,7 +17,7 @@ A cell is one Cloud chat started from one folder on this Mac with `cmux cloud st
 
 Workspaces (WORKSPACES): an empty folder, a small repo, a big monorepo (a cmux clone), a repo whose
 remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder past the copy's
-limits (`huge-plain`: a sparse 21 GiB file, no disk spent), a parent folder of repositories that is no
+limits (`huge-plain`: a sparse 21 GiB file, no disk spent; `huge-repo`: one repository with one), a parent folder of repositories that is no
 repository itself, under the limits (`parent-repos`, copied whole) and past them (`huge-parent-repos`,
 ~/Projects' shape). A folder past the limits is never refused: the chat starts in it at once from a first pass of
 its files (link/sync_cli/size_cap.rs) and its reply must read the folder's word, within FIRST_PASS_REPLY_WITHIN_S;
@@ -60,9 +60,12 @@ import claude_login_cache  # noqa: E402
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "huge-plain", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
-# The cells past the copy's limits: the chat starts from a first pass, never a refusal; no tree compare.
-FIRST_PASS_CELLS = ("huge-plain", "huge-parent-repos")
+              "big-plain", "huge-plain", "huge-repo", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
+# The cells past the copy's limits: the chat starts from a first pass, never a refusal; no tree or git compare
+# (a first pass sends no history), and the big file must stay on the Mac (left_on_mac >= 1).
+FIRST_PASS_CELLS = ("huge-plain", "huge-repo", "huge-parent-repos")
+# The file each first-pass cell leaves on the Mac.
+FIRST_PASS_LEFT = "disk.img"
 # The repositories inside parent-repos and huge-parent-repos.
 PARENT_REPOS = ("api", "web", "work/tools")
 WORD_FILE = "cmux-matrix-word.txt"
@@ -231,6 +234,12 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
     elif kind == "huge-plain":
         path.mkdir(parents=True)
         write(path / "src/app.py", "print('hi')\n")
+        with open(path / "disk.img", "wb") as sparse:
+            sparse.truncate(HUGE_PLAIN_BYTES)
+    elif kind == "huge-repo":
+        # One repository past the limits, its own folder for the chat (cmuxterm-hq#11697): a sparse 21 GiB
+        # untracked build product beside its sources.
+        small_repo(path)
         with open(path / "disk.img", "wb") as sparse:
             sparse.truncate(HUGE_PLAIN_BYTES)
     elif kind in ("parent-repos", "huge-parent-repos"):
@@ -804,7 +813,9 @@ class Matrix:
                         mine, theirs = set(expected["lines"]), set(got["lines"])
                         cell["only_here"] = sorted(line.split(" ", 2)[2] for line in mine - theirs)[:40]
                         cell["only_there"] = sorted(line.split(" ", 2)[2] for line in theirs - mine)[:40]
-            if cell["local_git"]:
+            if name in FIRST_PASS_CELLS:
+                cell["left_on_mac"] = self.left_on_mac(answer, machine, remote)
+            if cell["local_git"] and name not in FIRST_PASS_CELLS:
                 git_probe = (f"cd {shlex_quote(remote)} && python3 -c \"import json,subprocess,hashlib;"
                              "r=lambda *a: subprocess.run(['git',*a],capture_output=True,text=True).stdout;"
                              "s=r('status','--porcelain=v1','--untracked-files=no');"
@@ -817,6 +828,21 @@ class Matrix:
         cell["machine_killed"] = self.kill(machine) if machine else None
         cell["result"] = verdict(cell, canary)
         return cell
+
+
+def _left_on_mac(self, answer: dict, machine: str, remote: str) -> int:
+    """How many files a first-pass cell left on the Mac: the copy's `left_on_mac` count when the answer carries it,
+    else 1 when the cell's big file is not on the machine (0 when it is)."""
+    counts = answer.get("skipped_counts") if isinstance(answer.get("skipped_counts"), dict) else {}
+    if isinstance(counts.get("left_on_mac"), int):
+        return counts["left_on_mac"]
+    path = shlex_quote(f"{remote}/{FIRST_PASS_LEFT}")
+    got, _ = self.exec_json(machine, f"if [ -e {path} ]; then echo '{{\"there\":true}}'; "
+                                     f"else echo '{{\"there\":false}}'; fi", timeout=120)
+    return 0 if got.get("there") is not False else 1
+
+
+Matrix.left_on_mac = _left_on_mac
 
 
 def shlex_quote(text: str) -> str:
@@ -839,6 +865,8 @@ def verdict(cell: dict, canary: str) -> str:
         problems.append("tree differs")
     if first_pass and (cell.get("create_to_reply_s") or 0) > FIRST_PASS_REPLY_WITHIN_S:
         problems.append(f"first reply after {cell.get('create_to_reply_s')} s")
+    if first_pass and (cell.get("left_on_mac") or 0) < 1:
+        problems.append("nothing left on the Mac")
     if cell.get("hash_match") is None:
         problems.append("tree not checked")
     if cell.get("git_match") is False:

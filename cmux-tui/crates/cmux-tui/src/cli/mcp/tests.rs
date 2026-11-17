@@ -95,6 +95,10 @@ struct Live {
     oldest: usize,
     /// Every daemon read fails.
     daemon_down: bool,
+    /// The daemon's `chat.list` rows (its chat index); none when unset.
+    chats: Option<Value>,
+    /// Only the daemon's `chat.list` read fails.
+    chats_down: bool,
     changes: Vec<(Instant, Change)>,
 }
 
@@ -119,6 +123,10 @@ enum Change {
     Expire(usize),
     /// Daemon reads fail (true) or answer again (false).
     DaemonDown(bool),
+    /// The daemon's chat index (`chat.list` rows) now.
+    Chats(Value),
+    /// The daemon's `chat.list` read fails (true) or answers again (false).
+    ChatsDown(bool),
 }
 
 impl Live {
@@ -138,6 +146,8 @@ impl Live {
                 Change::Generation(generation) => self.generation = Some(generation.to_owned()),
                 Change::Expire(oldest) => self.oldest = oldest,
                 Change::DaemonDown(down) => self.daemon_down = down,
+                Change::Chats(rows) => self.chats = Some(rows),
+                Change::ChatsDown(down) => self.chats_down = down,
             }
         }
     }
@@ -258,6 +268,12 @@ impl Backend for Fake {
         live.settle();
         if live.daemon_down {
             return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if request["operation"] == "chat.list" {
+            if live.chats_down {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+            return Ok(live.chats.clone().unwrap_or_else(|| json!([])));
         }
         if let Some(daemon) = &live.daemon {
             let mut daemon = daemon.clone();
@@ -941,6 +957,8 @@ fn json_rpc_lifecycle_and_errors() {
         "window_list",
         "agents_snapshot",
         "app_new_window",
+        "device_setup",
+        "device_start",
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
@@ -2428,5 +2446,43 @@ fn a_terminal_named_by_its_tab_through_terminal() {
     assert_eq!(
         last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
         "{last}"
+    );
+}
+
+/// `device_setup` and `device_start` are listed, say they grant nobody access, and refuse wrong
+/// arguments before running anything.
+#[test]
+fn device_tools_are_listed_and_check_their_arguments() {
+    let mut server = Server::new(Fake::default(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    for name in [device_tools::SETUP, device_tools::START] {
+        let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"));
+        let description = tool["description"].as_str().unwrap();
+        assert!(description.contains("grants nobody access"), "{description}");
+    }
+    for (name, arguments) in [
+        (device_tools::SETUP, json!({})),
+        (device_tools::SETUP, json!({"device": "studio-mac", "all": true})),
+        (device_tools::SETUP, json!({"device": "--all"})),
+        (device_tools::START, json!({})),
+    ] {
+        let answer = server
+            .handle(&json!({"jsonrpc": "2.0", "id": "c", "method": "tools/call",
+                            "params": {"name": name, "arguments": arguments}}))
+            .unwrap();
+        assert_eq!(answer["result"]["isError"], true, "{name} {arguments}: {answer}");
+    }
+    let words =
+        |name: &str, arguments: Value| device_tools::words(name, arguments.as_object().unwrap());
+    assert_eq!(
+        words(device_tools::SETUP, json!({"device": "studio-mac"})).unwrap(),
+        ["setup", "studio-mac"]
+    );
+    assert_eq!(words(device_tools::SETUP, json!({"all": true})).unwrap(), ["setup", "--all"]);
+    assert_eq!(
+        words(device_tools::START, json!({"device": "studio-mac"})).unwrap(),
+        ["start", "studio-mac"]
     );
 }

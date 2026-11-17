@@ -63,9 +63,22 @@ public final class MacScreenPages {
     /// Whether this build has a usable device hub address: always, unless a
     /// DEV build's `deviceHub.url` override is not valid. The home page says
     /// "sign in" when it does and asks to fix the address when it does not.
+    /// Only an address that is not valid makes it false: never a sign-out or a restore.
     public var hubConfigured: Bool {
         get { hubBox.configured }
         set { hubBox.configured = newValue }
+    }
+    /// The saved cmux sign-in is still being restored at launch: the pages say
+    /// they are loading, not "sign in" and not "fix the address".
+    public var hubRestoring: Bool {
+        get { hubBox.restoring }
+        set { hubBox.restoring = newValue }
+    }
+    /// Signed in, and the device hub for that account is still starting (its identity and first
+    /// connection): the pages say they are loading, not "sign in".
+    var hubConnecting: Bool {
+        get { hubBox.connecting }
+        set { hubBox.connecting = newValue }
     }
     /// Startup failure before a hub exists; cleared only on recovery or a changed account/address.
     var hubStartupError: String? {
@@ -80,6 +93,8 @@ public final class MacScreenPages {
     /// Send System Shortcuts to the Remote Mac: the app's one system shortcut tap.
     public let systemShortcuts: MacScreenSystemShortcuts
     public var events = MacScreenTabEvents()
+    /// Kept apart from app tab events so replacing those cannot disconnect the registered action.
+    var shareThisMac: () -> Void = {}
     /// The app's shortcut matcher: true keeps a key down in cmux.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
     /// Settings > Development > Relay Only (`macScreen.debug.relayOnly`):
@@ -103,7 +118,7 @@ public final class MacScreenPages {
 
     /// - Parameters:
     ///   - store: the saved Mac Screen records.
-    ///   - work: the app's blocking-work lanes (the permission checks run on its system lane).
+    ///   - work: the app's blocking-work context. Permission probes run in a fresh async child.
     public init(store: MacScreenStore, work: BackgroundWork) {
         self.store = store
         host = MacScreenShareHost(work: work)
@@ -121,8 +136,8 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
-    /// cmux Remote serves this Mac (docs/cmux-remote.md): its Screen Sharing worker shows the
-    /// approval banner and serves host sessions, also with this app quit; this app is a viewer.
+    /// Whether the worker owns hosting and approval. The active NEXT app keeps this false and
+    /// uses the worker only for identity and pushes; a host ticket must have exactly one owner.
     public var remoteHosted = false {
         didSet {
             guard remoteHosted != oldValue else { return }
@@ -399,6 +414,7 @@ public final class MacScreenPages {
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
         actions.signIn = { [weak self] in self?.events.signIn() }
+        actions.shareThisMac = { [weak self] in self?.shareThisMac() }
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
         return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
     }

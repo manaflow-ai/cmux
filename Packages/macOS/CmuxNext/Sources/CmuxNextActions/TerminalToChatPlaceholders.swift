@@ -7,7 +7,8 @@ import Foundation
 /// so the App's handler coverage holds and no menu offers a row that cannot run. A real bind
 /// replaces a placeholder, and one made before this runs is kept.
 @MainActor
-public enum TerminalToChatPlaceholders {
+public struct TerminalToChatPlaceholders {
+    public init() {}
     public static let ids: [ActionID] = ["terminal.fixLastCommand", "terminal.sendLastOutputToChat", "terminal.sendSelectionToChat"]
 
     static var reason: String {

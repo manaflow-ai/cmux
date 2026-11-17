@@ -85,7 +85,7 @@ import Testing
         // The sidebar draws from the settings controller's design settings, as in the app (its own
         // instance here: suites run in parallel, and another sidebar reads the shared one).
         let design = DesignSettings()
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: design, fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: design, fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()

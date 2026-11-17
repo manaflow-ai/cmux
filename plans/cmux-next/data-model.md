@@ -274,7 +274,18 @@ lists those in its current space. Switching window W to space R:
 1. W shows the workspaces it owns in R and selects the one it last showed.
 2. Else W takes every workspace of R that no open window currently showing R
    owns.
-3. Else the app creates a workspace in R on R's default session.
+3. Else W shows the workspaces of R that other open windows own, as the same
+   workspaces (step 4 below).
+4. Else the app creates a workspace in R on R's default session.
+
+A window is a view of a space (2026-11-15, spaces-overhaul-DESIGN.md rule 6):
+while W shows R it also lists, as guests, every workspace of R that another
+open normal window owns. A guest is the same workspace in a second window: its
+terminals draw in both (each window has its own surface and attach), a tab
+with one view (browser, chat, page) draws in the window that showed it first
+and the other offers Show Here. The guests follow from the owners and each
+window's space; `WindowManager.shareSpaces` is their one writer. When the
+owner's window closes, the first window that lists the workspace owns it.
 
 When W loses the last workspace of its space it shows the most recent other
 space it owns workspaces in, else the existing rule closes it. Selecting a

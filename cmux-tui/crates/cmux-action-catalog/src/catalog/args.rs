@@ -291,6 +291,10 @@ pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const SITE_HOST: Argument = Argument { name: "host", title: t("HistoryActions", "argument.history.siteHost", "Site"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CLOSED_ITEM: Argument = Argument { name: "closed", title: t("HistoryActions", "argument.history.closed", "Closed Item"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:closed.list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const PROXY_SCHEME: Argument = Argument { name: "scheme", title: t("BrowserProfileActions", "argument.browserProfile.proxyScheme", "Proxy Type"), kind: ArgKind::Enumeration(CASES_PROXY_SCHEME), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PROXY_HOST: Argument = Argument { name: "host", title: t("BrowserProfileActions", "argument.browserProfile.proxyHost", "Proxy Host"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -510,8 +514,6 @@ pub const AGENT_3: Argument = Argument { name: "agent", title: t("CloudSessionAc
 pub const NAME_6: Argument = Argument { name: "name", title: t("CloudSessionActions", "argument.cloudStartSession.name", "Machine Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const CWD_3: Argument = Argument { name: "cwd", title: t("CloudSessionActions", "argument.cloudStartSession.cwd", "Folder on the Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
-pub const LOGIN: Argument = Argument { name: "login", title: t("CloudSessionActions", "argument.cloudStartSession.login", "Harness Login"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const FROM_FOLDER: Argument = Argument { name: "fromFolder", title: t("CloudSessionActions", "argument.cloudStartSession.fromFolder", "Folder on This Mac to Copy"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]

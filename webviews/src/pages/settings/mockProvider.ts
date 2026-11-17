@@ -6,6 +6,8 @@
 //
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
+import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockModels, runMockModels } from "./mockModels";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
@@ -55,6 +57,8 @@ import {
   type WorkspaceBackground,
   type CustomizeTryOn,
   type KeysState,
+  type ModelsRun,
+  type ModelsState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -629,6 +633,21 @@ export class MockSettingsProvider {
         this.worktreeReadHold
           ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
           : this.readWorktree(params as { path: string }),
+      "cmux.settings.models.state": () => {
+        if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
+        return this.models;
+      },
+      "cmux.settings.models.run": (params) => {
+        const run = params as ModelsRun;
+        this.modelRuns.push(run);
+        if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
+        try {
+          this.setModels(runMockModels(this.models, run));
+        } catch (error) {
+          throw new ProtocolError("cmux.settings.invalid", error instanceof Error ? error.message : String(error));
+        }
+        return {};
+      },
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -721,6 +740,8 @@ export class MockSettingsProvider {
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
+      "cmux.settings.models.state",
+      "cmux.settings.models.run",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
@@ -794,9 +815,22 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+    provide("cmux.settings.models.changed", (ctx) => this.track(this.modelsChanged, ctx));
     provide("cmux.settings.keys.changed", (ctx) => this.track(this.keysChanged, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
+  }
+
+  /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
+  models: ModelsState | null = structuredClone(mockModels.macLogins);
+  /** Models gestures the page sent (pasted keys included, so tests can check what was sent). */
+  readonly modelRuns: ModelsRun[] = [];
+  private readonly modelsChanged = new Set<EventSourceContext>();
+
+  /** Replaces Settings > Models and tells the page, like the app's acpmux change push. */
+  setModels(models: ModelsState): void {
+    this.models = models;
+    for (const ctx of this.modelsChanged) ctx.emit(models);
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -817,11 +851,21 @@ export class MockSettingsProvider {
   libraryRefusal: string | null = null;
   /** Every library change the page ran, in order (tests). */
   readonly libraryRuns: LibraryRun[] = [];
+  /** Holds each `customize library list` until it settles; the read answers the library as it was
+   * when the read began (a test's slow read that a change overtakes). */
+  libraryReadHold: Promise<void> | null = null;
 
   /** `cmux --json customize library VERB`: the listing, or the CLI's error envelope as the host
    * answers it (a refusal is an answer, not a failed call). */
-  private runLibrary(run: LibraryRun): { library?: LibraryListing; code?: string; message?: string } {
-    if (run.verb === "list") return { library: this.library };
+  private runLibrary(
+    run: LibraryRun,
+  ):
+    | { library?: LibraryListing; code?: string; message?: string }
+    | Promise<{ library?: LibraryListing; code?: string; message?: string }> {
+    if (run.verb === "list") {
+      const listed = this.library;
+      return this.libraryReadHold ? this.libraryReadHold.then(() => ({ library: listed })) : { library: listed };
+    }
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
     const next = runLibrary(this.library, run);
@@ -1107,6 +1151,8 @@ export class MockSettingsProvider {
     switch (run.action) {
       case "refresh":
       case "openPermission":
+      case "openScreen":
+      case "shareThisMac":
         return result;
       case "signIn":
         this.setDevices({ ...state, signIn: null, status: { text: "Connecting…", tone: "attention" } });
@@ -1616,6 +1662,8 @@ export class MockSettingsProvider {
           },
         };
       }
+    } else if (run.action.startsWith("agentKey") && this.accounts.agentKeys) {
+      this.accounts = { ...this.accounts, agentKeys: runMockAgentKeys(this.accounts.agentKeys, run) };
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
@@ -1939,6 +1987,7 @@ export function mockDevicesState(): DevicesState {
       thisDevice: true,
       sharesText: "Shares Mac Screen",
       access: null,
+      screenAction: { kind: "share", title: "Share" },
       removeConfirm: {
         title: "Remove this Mac?",
         body: "This Mac leaves your devices. You can sign in again later.",
@@ -1970,6 +2019,7 @@ export function mockDevicesState(): DevicesState {
         thisDevice: false,
         sharesText: "Shares Mac Screen",
         access: "ask",
+        screenAction: { kind: "view", title: "View screen", disabled: true },
         removeConfirm: removeConfirm("MacBook Pro"),
       },
     ],
