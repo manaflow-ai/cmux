@@ -544,13 +544,13 @@ PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
     return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_root_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def gui_lane(key: str) -> str:
@@ -561,7 +561,7 @@ def gui_lane(key: str) -> str:
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_side_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def warm_lane(index: str = "") -> str:
@@ -2893,7 +2893,7 @@ class Wiring(unittest.TestCase):
             # The Claude wrapper, a side lane: the light side label when the picker put it there, else the side
             # label first.
             "ci.yml": "(contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner "
-                      "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
+                      "|| vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
             # root jobs; the side lanes are not. tests-build-and-lag is a GUI
@@ -2924,6 +2924,9 @@ class Wiring(unittest.TestCase):
                       "github.run_attempt <= 2 && "
                       "contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
                       "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) "
+                      # With vars.CI_BLACKSMITH_MACOS off, a dispatch the picker did not place takes the side lane.
+                      "|| github.event_name == 'workflow_dispatch' && vars.CI_BLACKSMITH_MACOS != 'on' && "
+                      "vars.CI_SIDE_LANE_RUNNER "
                       "|| vars.CI_PAID_MACOS_OVERFLOW == '1'", wrapper)
 
     def test_callers_pass_the_choice(self):
