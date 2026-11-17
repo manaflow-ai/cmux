@@ -31,6 +31,8 @@ import Foundation
     private(set) var lastPreloadAction: OmniboxPreloadAction?
     /// The last end sent: the opened URL and whether the predictor learned from it (`debug.omnibar`).
     private(set) var lastPreloadEnd: (opened: URL?, learn: Bool)?
+    /// The bound tab's last navigation timing read, as JSON (`debug.omnibar`'s `page_timing`).
+    var debugPageTiming: String?
 
     /// The omnibar now belongs to `tab`'s page: the page it leaves forgets an edit in progress unlearned.
     func setPreloader(_ tab: (any BrowserOmniboxPreloading)?) {

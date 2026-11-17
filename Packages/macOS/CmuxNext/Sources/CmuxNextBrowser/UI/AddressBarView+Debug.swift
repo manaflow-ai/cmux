@@ -100,6 +100,31 @@ extension AddressBarView {
         return snapshot
     }
 
+    /// `debug.omnibar`'s `preload` object; with `pageTiming`, also `page_timing`: the bound tab's
+    /// navigation timing as JSON (`url`, `origin`, `fcp`, `activation`; bench `omnibar`). It is read
+    /// with no gesture and no agent mark: an agent's `browser.page.eval` marks the tab agent-driven,
+    /// and such a tab never preloads. Each call starts a read and reports the one before.
+    public func debugPreloadReport(pageTiming: Bool) -> [String: String] {
+        var report = debugSnapshot.preloadReport
+        guard pageTiming, let tab = controller.preloader as? any BrowserTab else { return report }
+        report["page_timing"] = controller.debugPageTiming
+        Task { [weak controller] in  // inherits the view's main actor
+            let value = try? await tab.evaluate(Self.pageTimingScript, world: .isolated, gesture: .cmux)
+            if case .string(let json)? = value { controller?.debugPageTiming = json }
+        }
+        return report
+    }
+
+    /// The shown document's URL, time origin, first contentful paint and prerender activation start (ms).
+    static let pageTimingScript = """
+        (() => {
+          const n = performance.getEntriesByType('navigation')[0];
+          const f = performance.getEntriesByName('first-contentful-paint')[0];
+          return JSON.stringify({url: location.href, origin: performance.timeOrigin,
+                                 fcp: f ? f.startTime : null, activation: n ? (n.activationStart || 0) : 0});
+        })()
+        """
+
     /// Dispatches a press (and drag) and release over the omnibar text the
     /// way `NSWindow.sendEvent` does for a key window: the hit view becomes
     /// first responder, then gets the press, while the release and drags

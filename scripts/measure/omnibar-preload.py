@@ -24,7 +24,8 @@ Between samples the tab goes to about:blank. Enter is the wall clock just before
 runs on the same Mac as the app); paint is the page's own `performance.timeOrigin + FCP`, and for a page that
 was prerendered, `timeOrigin + max(FCP, activationStart)` (the page was painted while hidden; the person sees
 it at activation, as Chrome's own prerendered FCP counts it). A prerendered sample counts only when the page
-reports activationStart > 0.
+reports activationStart > 0. The page is read through `debug.omnibar` (page_timing), never `browser.page.eval`:
+an agent's call marks the tab agent-driven, and an agent-driven tab never preloads.
 
 Prints one `OMNIBAR {json}` line and writes DIR/omnibar-preload.json:
   {"build": {...}, "samples": [{"url", "arm", "round", "enter_to_fcp_ms", "activated"}], "summary": {...}}
@@ -90,19 +91,25 @@ def wait(predicate, seconds, step=0.1):
     return None
 
 
-def page(script):
-    reply = call("browser.page.eval", {"script": script})
-    return reply.get("value") if isinstance(reply, dict) and "error" not in reply else None
+def timing():
+    """The tab's navigation timing (`debug.omnibar` page_timing: read with no gesture and no agent mark; an agent's
+    `browser.page.eval` would mark the tab agent-driven, and an agent-driven tab never preloads). Each call starts a
+    read and answers the one before, so a poll sees a page one step late."""
+    reply = call("debug.omnibar", {"page_timing": True})
+    raw = ((reply or {}).get("preload") or {}).get("page_timing") if isinstance(reply, dict) else None
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
 
 
-TIMING = """(() => {
-  const n = performance.getEntriesByType('navigation')[0];
-  const f = performance.getEntriesByName('first-contentful-paint')[0];
-  if (!n || !f) return null;
-  const a = n.activationStart || 0;
-  return {url: location.href, origin: performance.timeOrigin, fcp: f.startTime, activation: a,
-          paint_wall: performance.timeOrigin + Math.max(f.startTime, a)};
-})()"""
+def painted(want):
+    """The timing of a painted page whose URL has `want`, with its wall-clock paint (as the person sees it)."""
+    t = timing()
+    if not t or want not in (t.get("url") or "") or t.get("fcp") is None:
+        return None
+    t["paint_wall"] = t["origin"] + max(t["fcp"], t["activation"] or 0)
+    return t
 
 
 def omnibar():
@@ -131,18 +138,18 @@ def type_then_enter(text, settle=0.0):
 
 def blank():
     call("debug.omnibar_type", {"text": "about:blank", "commit": True})
-    wait(lambda: page("location.href") == "about:blank", 10)
+    wait(lambda: (timing() or {}).get("url") == "about:blank", 10, 0.1)
 
 
 def sample(text, want, arm, round_):
     """Type `text` (+ Return); the time from Return to the page's paint, read from the page."""
     blank()
     enter = type_then_enter(text, opts.settle if arm == "prerendered" else 0.0)
-    timing = wait(lambda: (lambda t: t if t and want in t.get("url", "") else None)(page(TIMING)), 30, 0.2)
-    if not timing:
+    seen = wait(lambda: painted(want), 30, 0.1)
+    if not seen:
         return {"url": want, "arm": arm, "round": round_, "enter_to_fcp_ms": None, "activated": False}
-    return {"url": want, "arm": arm, "round": round_, "activated": timing["activation"] > 0,
-            "enter_to_fcp_ms": round(timing["paint_wall"] - enter, 1), "field": LAST_FIELD, "loaded": timing["url"], "preload": LAST_PRELOAD}
+    return {"url": want, "arm": arm, "round": round_, "activated": seen["activation"] > 0,
+            "enter_to_fcp_ms": round(seen["paint_wall"] - enter, 1), "field": LAST_FIELD, "loaded": seen["url"], "preload": LAST_PRELOAD}
 
 
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
@@ -207,7 +214,7 @@ try:
         for _ in range(3):
             blank()
             type_then_enter(text)
-            wait(lambda: host in (page("location.href") or ""), 30, 0.2)
+            wait(lambda: host in ((timing() or {}).get("url") or ""), 30, 0.2)
         for r in range(opts.rounds):
             samples.append(sample(text, host, "prerendered", r))
             print(json.dumps(samples[-1]), flush=True)
