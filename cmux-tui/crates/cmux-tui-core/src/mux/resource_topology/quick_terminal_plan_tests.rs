@@ -10,7 +10,7 @@ use super::*;
 /// A workspace with one screen, one tiled pane and the quick terminal that a toggle made: the mux, the
 /// screen and the quick terminal.
 fn with_quick_terminal(name: &str) -> (Arc<Mux>, ScreenId, PaneId) {
-    let mux = Mux::new_for_test(name, crate::SurfaceOptions::default());
+    let mux = Mux::new_for_test(name, SurfaceOptions::default());
     mux.new_workspace(None, Some((80, 22))).unwrap();
     let screen = mux.with_state(|state| state.workspaces[0].screens[0].id);
     let made = mux
