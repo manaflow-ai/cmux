@@ -79,6 +79,34 @@ extension PaneLayoutCommitTests {
                 "the frame that shows the close did not give the pane that gets the focus its look: dim \(String(describing: next.chromeInputs?.dim))")
     }
 
+    /// The close of the pane that has the focus, by the key, in a strip at rest: no camera moves and no pane changes its
+    /// size, so no frame tick follows the key's turn, and that turn shows the close itself. Its one pass hides the closed
+    /// pane and gives the pane that gets the focus its look: a ring or a dim asked for while a change is not shown never
+    /// waits for a frame that does not come.
+    @Test func aKeysCloseThatNoFrameFollowsShowsTheRingsAndDimsInTheKeysTurn() throws {
+        let harness = Harness(Self.strip([1, 2, 3, 4]), focused: "p1", holds: false) { $0.rowsEnabledOverride = true }
+        defer { harness.window.closeAfterTest() }
+        // The columns that stay keep their widths (no setting of the Mac the test runs on resizes them).
+        harness.model.newColumnWidthModeOverride = .matchCurrent
+        harness.model.dimsInactivePanes = true
+        harness.root.syncWithModel()
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let closed = try #require(harness.root.context.hosts["p1"])
+        let next = try #require(harness.root.context.hosts["p2"])
+        let before = try #require(next.chromeInputs, "set-up: the pane beside the focused one has no ring or dim state")
+        try #require(before.dim > 0 && !before.focused, "set-up: the pane beside the focused one is not dimmed: \(before.dim)")
+
+        _ = try #require(harness.model.showPaneClose("p1"), "set-up: the model left p1's close to the daemon's tree")
+        try #require(harness.model.focusedPane == "p2", "set-up: the close gave the focus to \(String(describing: harness.model.focusedPane))")
+        harness.root.syncWithModelForNextFrame()
+        try #require(!screen.hasMotion && !screen.frameInput.snapWaitsForContent,
+                     "set-up: a frame tick follows the key's turn: a camera moves, or a pane changed its size")
+        #expect(closed.isHidden, "the key's turn, which no frame tick follows, still shows the closed pane")
+        #expect(next.chromeInputs?.focused == true && next.chromeInputs?.dim == 0,
+                "the turn that hides the closed pane did not give the pane that gets the focus its look: dim \(String(describing: next.chromeInputs?.dim))")
+    }
+
     // MARK: A close that moves a camera
 
     /// One full-width column of rows (`heights` in permille of the column), as the daemon sends it: the rows, and the
