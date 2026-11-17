@@ -1,5 +1,7 @@
 import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
+import { higherNextPlanId, isNextPlanId, nextPlanIdForSubscription, type NextPlanId } from "./nextPlans";
+import { activeNextPlanForUser, syncNextPlanMetadata } from "./nextPlanBilling";
 export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -266,8 +268,8 @@ type UserCheckoutPostCommitSync = {
   stackApp: StackBillingApp | null | undefined;
   deferProMetadataUntilVerification?: boolean;
   sendRecoveryMagicLink?: boolean;
-  /** The personal plan the checkout bought (pro or max), from its Price. */
-  plan: PersonalPlanId;
+  /** The plan the checkout bought (go, pro, max, next_pro or next_max), from its Price. */
+  plan: PersonalPlanId | NextPlanId;
 };
 
 type CheckoutCompletionLockedResult = {
@@ -480,7 +482,7 @@ export async function recordCheckoutCompletion(
           deferProMetadataUntilVerification:
             input.deferProMetadataUntilVerification,
           sendRecoveryMagicLink: input.sendRecoveryMagicLink,
-          plan: requirePersonalPlanIdForSubscription(subscription, input.session.metadata),
+          plan: userPlanIdForSubscription(subscription, input.session.metadata),
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -1811,7 +1813,13 @@ async function syncUserCheckoutAfterCommit(
         }
         return;
       }
-      await syncProPlanMetadata(user, true, mutationLease, input.plan);
+      if (isNextPlanId(input.plan)) {
+        // The checkout just bought this plan; any other active NEXT row may be higher.
+        const activePlan = higherNextPlanId(input.plan, await activeNextPlanForUser(db, input.stackUserId));
+        await syncNextPlanMetadata(user, activePlan, mutationLease);
+      } else {
+        await syncProPlanMetadata(user, true, mutationLease, input.plan);
+      }
       if (input.sendRecoveryMagicLink && input.email) {
         await requestPurchaseMagicLink(
           db,
@@ -2020,6 +2028,12 @@ export async function applySubscriptionUpdate(
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? getStackServerApp(),
     sync: async (freshUser, mutationLease) => {
+      // A cmux NEXT subscription mirrors the user's best active NEXT row; it
+      // never touches the classic plan or TestFlight.
+      if (nextPlanIdForSubscription(subscription)) {
+        await syncNextPlanMetadata(freshUser, await activeNextPlanForUser(db, lockedResult.stackUserId), mutationLease);
+        return;
+      }
       // Label the mirror with the plan this subscription's Price sells, so a
       // Billing Portal switch between Pro and Max lands as `cmuxPlan` change.
       const currentMetadata = await syncProPlanMetadata(
@@ -2660,9 +2674,18 @@ async function updateExistingUserStripeSubscription(
  * payload without a lookup key; unrecognized plans are rejected before persistence or entitlement sync.
  */
 
+/** A user-scoped subscription's plan: a cmux NEXT plan, else a personal classic plan. */
+function userPlanIdForSubscription(
+  subscription: Stripe.Subscription,
+  sessionMetadata?: Stripe.Metadata | null,
+): PersonalPlanId | NextPlanId {
+  return nextPlanIdForSubscription(subscription, sessionMetadata) ??
+    requirePersonalPlanIdForSubscription(subscription, sessionMetadata);
+}
+
 function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;
-  const plan = input.scope === "team" ? TEAM_PLAN_ID : requirePersonalPlanIdForSubscription(subscription);
+  const plan = input.scope === "team" ? TEAM_PLAN_ID : userPlanIdForSubscription(subscription);
   return {
     id: subscription.id,
     customerId: input.customerId,

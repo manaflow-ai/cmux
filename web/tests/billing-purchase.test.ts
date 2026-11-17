@@ -3497,3 +3497,110 @@ describe("purchase sign-in email delivery when Stack throws", () => {
     expect(channel.sendVerificationEmail).not.toHaveBeenCalled();
   });
 });
+
+describe("cmux NEXT Cloud subscriptions", () => {
+  beforeEach(() => {
+    inserts.length = 0;
+    updates.length = 0;
+    upsertUpdates.length = 0;
+    insertErrorsByTable.clear();
+    selectResults = [];
+    tombstoneSelectResults = [];
+    accountMutationOperationId = null;
+    delete process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY;
+    delete process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY;
+  });
+
+  function nextSubscription(input: { status: string; price: { id: string; lookup_key?: string } }) {
+    return {
+      id: "sub_next",
+      customer: "cus_user",
+      status: input.status,
+      metadata: { stackUserId: "user_123", plan: "next_pro", app: "cmux" },
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1_800_000_000, price: input.price }] },
+    };
+  }
+
+  test("an active NEXT subscription is stored as next_pro and mirrored without touching the classic plan", async () => {
+    const update = mock(async () => undefined);
+    const removeTester = mock(async () => undefined);
+    const user = { id: "user_123", primaryEmail: "buyer@example.com", clientReadOnlyMetadata: { cmuxPlan: "pro" }, update };
+    // customer owner, existing row, active NEXT rows
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_next" }], [{ plan: "next_pro" }]];
+
+    const result = await applySubscriptionUpdate(
+      nextSubscription({ status: "active", price: { id: "price_np", lookup_key: "cmux-next-pro-monthly-50" } }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: { isAscConfigured: () => true, removeTester },
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: true });
+    expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values.plan).toBe("next_pro");
+    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxPlan: "pro", cmuxNextPlan: "next_pro" } });
+    expect(removeTester).not.toHaveBeenCalled();
+  });
+
+  test("a lapsed NEXT subscription, recognized by its configured Price id, clears only the NEXT plan", async () => {
+    process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY = "price_configured_max";
+    const update = mock(async () => undefined);
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "next_max", cmuxNextPlan: "next_max", cmuxVmPlan: "pro" },
+      update,
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_next" }], []];
+
+    const result = await applySubscriptionUpdate(
+      nextSubscription({ status: "canceled", price: { id: "price_configured_max" } }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: { isAscConfigured: () => true, removeTester },
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values.plan).toBe("next_max");
+    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
+    expect(removeTester).not.toHaveBeenCalled();
+  });
+
+  test("a completed NEXT checkout records the row and writes cmuxPlan next_max", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      isAnonymous: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+    const input = checkoutInput();
+    const result = await recordCheckoutCompletion(
+      {
+        ...input,
+        session: { ...input.session, metadata: { app: "cmux", plan: "next_max", stackUserId: "user_123" } },
+        subscription: {
+          ...input.subscription,
+          metadata: { app: "cmux", plan: "next_max", stackUserId: "user_123" },
+          items: { data: [{ current_period_end: 1_800_000_000, price: { id: "price_nm", lookup_key: "cmux-next-max-monthly-200" } }] },
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", subscriptionId: "sub_123" });
+    expect(inserts.find((entry) => entry.table === stripeSubscriptions)?.values.plan).toBe("next_max");
+    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxNextPlan: "next_max", cmuxPlan: "next_max" } });
+  });
+});

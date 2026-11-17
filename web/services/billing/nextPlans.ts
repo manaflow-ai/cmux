@@ -56,3 +56,95 @@ export function nextPlanIdFromMetadata(raw: unknown): NextPlanId | null {
   const subscribed = nextPlanId(metadata[NEXT_PLAN_METADATA_KEY]) ?? nextPlanId(metadata.cmuxPlan);
   return higherNextPlanId(nextPlanId(metadata.cmuxVmPlan), subscribed);
 }
+
+/** Env var holding the Stripe Price id each NEXT plan is sold at. */
+export const NEXT_PLAN_PRICE_ENV = {
+  [NEXT_PRO_PLAN_ID]: "STRIPE_PRICE_NEXT_PRO_MONTHLY",
+  [NEXT_MAX_PLAN_ID]: "STRIPE_PRICE_NEXT_MAX_MONTHLY",
+} as const satisfies Record<NextPlanId, string>;
+
+type EnvSource = Readonly<Record<string, string | undefined>>;
+
+/** The configured Price id for a NEXT plan, or null when it is not for sale. */
+export function nextPlanPriceId(plan: NextPlanId, source: EnvSource = process.env): string | null {
+  const value = source[NEXT_PLAN_PRICE_ENV[plan]]?.trim();
+  return value ? value : null;
+}
+
+/** Whether checkout can sell each NEXT plan (its Price id is configured). */
+export function nextPlanCheckoutAvailability(
+  source: EnvSource = process.env,
+): Record<NextPlanId, boolean> {
+  return {
+    [NEXT_PRO_PLAN_ID]: nextPlanPriceId(NEXT_PRO_PLAN_ID, source) !== null,
+    [NEXT_MAX_PLAN_ID]: nextPlanPriceId(NEXT_MAX_PLAN_ID, source) !== null,
+  };
+}
+
+type SubscriptionLike = {
+  readonly items?: { readonly data?: readonly { readonly price?: { readonly id?: string | null; readonly lookup_key?: string | null } | null }[] } | null;
+  readonly metadata?: Readonly<Record<string, string>> | null;
+};
+
+/**
+ * The NEXT plan a subscription sells, or null when it sells something else.
+ * A configured Price id is authoritative; a `cmux-next-*` lookup key, then
+ * checkout metadata on a Price without a lookup key, are the fallbacks (the
+ * same order the classic plans use).
+ */
+export function nextPlanIdForSubscription(
+  subscription: SubscriptionLike,
+  sessionMetadata?: Readonly<Record<string, string>> | null,
+  source: EnvSource = process.env,
+): NextPlanId | null {
+  const prices = (subscription.items?.data ?? []).map((item) => item.price).filter((price) => price != null);
+  for (const plan of NEXT_PLAN_IDS) {
+    const priceId = nextPlanPriceId(plan, source);
+    if (priceId && prices.some((price) => price.id === priceId)) return plan;
+  }
+  const lookupKey = prices.find((price) => typeof price.lookup_key === "string" && price.lookup_key.trim())?.lookup_key;
+  if (lookupKey) {
+    if (lookupKey.startsWith("cmux-next-max-")) return NEXT_MAX_PLAN_ID;
+    if (lookupKey.startsWith("cmux-next-pro-")) return NEXT_PRO_PLAN_ID;
+    return null;
+  }
+  return nextPlanId(subscription.metadata?.plan ?? sessionMetadata?.plan);
+}
+
+/** What each NEXT plan includes, as sold on the dashboard. */
+export type NextPlanOffer = {
+  readonly id: NextPlanId;
+  readonly priceUsdPerMonth: number;
+  /** Usage at list rates included each month; it resets monthly. */
+  readonly includedUsageUsd: number;
+  readonly maxRunningMachines: number;
+  /** Machines kept, running plus paused. */
+  readonly maxKeptMachines: number;
+  readonly maxSnapshots: number;
+  readonly largestMachine: { readonly vcpus: number; readonly memoryGib: number };
+  readonly maxDiskGib: number;
+};
+
+/** The two NEXT plans in the order they are offered (contract 2026-11-17). */
+export const NEXT_PLAN_OFFERS: readonly NextPlanOffer[] = [
+  {
+    id: NEXT_PRO_PLAN_ID,
+    priceUsdPerMonth: 50,
+    includedUsageUsd: 30,
+    maxRunningMachines: 10,
+    maxKeptMachines: 50,
+    maxSnapshots: 50,
+    largestMachine: { vcpus: 8, memoryGib: 16 },
+    maxDiskGib: 128,
+  },
+  {
+    id: NEXT_MAX_PLAN_ID,
+    priceUsdPerMonth: 200,
+    includedUsageUsd: 125,
+    maxRunningMachines: 25,
+    maxKeptMachines: 200,
+    maxSnapshots: 200,
+    largestMachine: { vcpus: 32, memoryGib: 64 },
+    maxDiskGib: 256,
+  },
+];
