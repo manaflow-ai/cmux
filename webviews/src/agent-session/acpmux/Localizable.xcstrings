@@ -272115,270 +272115,6 @@
         }
       }
     },
-    "git.commit.stagedHint": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يودع التغييرات المُجهّزة فقط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commituje samo pripremljene promjene."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Committer kun de stagede ændringer."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Committet nur die gestagten Änderungen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Commits the staged changes only."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Confirma solo los cambios preparados."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Valide uniquement les modifications indexées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esegue il commit solo delle modifiche in stage."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ステージ済みの変更だけをコミットします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit តែការផ្លាស់ប្ដូរដែលបាន Stage ប៉ុណ្ណោះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스테이징된 변경 사항만 커밋합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Committer bare de stagede endringene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatwierdza tylko przygotowane zmiany."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faz commit apenas das alterações preparadas."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Коммитит только индексированные изменения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คอมมิตเฉพาะการเปลี่ยนแปลงที่สเตจแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yalnızca hazırlanan değişiklikleri commit eder."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Комітить лише проіндексовані зміни."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chỉ commit các thay đổi đã stage."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "仅提交已暂存的更改。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "僅提交已暫存的變更。"
-          }
-        }
-      }
-    },
-    "git.commit.allHint": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يودع كل تغيير في الملفات المتتبَّعة، مثل git commit -a."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commituje svaku promjenu u praćenim fajlovima, kao git commit -a."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Committer alle ændringer i sporede filer, ligesom git commit -a."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Committet alle Änderungen an verfolgten Dateien, wie git commit -a."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Commits every change to tracked files, like git commit -a."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Confirma todos los cambios de los archivos con seguimiento, como git commit -a."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Valide toutes les modifications des fichiers suivis, comme git commit -a."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esegue il commit di tutte le modifiche ai file tracciati, come git commit -a."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追跡中のファイルのすべての変更をコミットします（git commit -a と同じ）。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit ការផ្លាស់ប្ដូរទាំងអស់លើឯកសារដែលកំពុងតាមដាន ដូច git commit -a ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "git commit -a처럼 추적 중인 파일의 모든 변경 사항을 커밋합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Committer alle endringer i sporede filer, som git commit -a."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatwierdza każdą zmianę w śledzonych plikach, jak git commit -a."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faz commit de todas as alterações em arquivos rastreados, como git commit -a."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Коммитит все изменения в отслеживаемых файлах, как git commit -a."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คอมมิตการเปลี่ยนแปลงทั้งหมดในไฟล์ที่ติดตาม เหมือน git commit -a"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İzlenen dosyalardaki tüm değişiklikleri git commit -a gibi commit eder."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Комітить усі зміни у відстежуваних файлах, як git commit -a."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Commit mọi thay đổi trong các tệp được theo dõi, giống git commit -a."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提交已跟踪文件的所有更改，与 git commit -a 相同。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提交已追蹤檔案的所有變更，與 git commit -a 相同。"
-          }
-        }
-      }
-    },
     "git.commit.submit": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -272914,127 +272650,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم تصل أي استجابة، لذا ربما تم الإيداع. أعد المحاولة للتحقق. لن يتم الإيداع مرتين."
+            "value": "لم يصل رد من git. أعد المحاولة لترى هل تم الالتزام."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odgovor nije stigao, pa je commit možda napravljen. Pokušajte ponovo da provjerite. Commit se neće napraviti dvaput."
+            "value": "Git nije odgovorio. Pokušajte ponovo da vidite je li commit napravljen."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der kom intet svar, så committet kan være lavet. Prøv igen for at tjekke. Der committes ikke to gange."
+            "value": "Intet svar fra git. Prøv igen for at se, om der blev committet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Es kam keine Antwort, daher wurde der Commit möglicherweise erstellt. Erneut versuchen, um es zu prüfen. Es wird nicht doppelt committet."
+            "value": "Keine Antwort von git. Versuche es erneut, um zu sehen, ob committet wurde."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No answer came back, so the commit may have been made. Retry to check. It will not commit twice."
+            "value": "No answer from git. Retry to see whether it committed."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No llegó respuesta, así que el commit puede haberse realizado. Reintenta para comprobarlo. No se confirmará dos veces."
+            "value": "git no respondió. Reintenta para ver si se hizo el commit."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune réponse n’a été reçue, la validation a donc peut-être eu lieu. Réessayez pour vérifier. Elle ne sera pas effectuée deux fois."
+            "value": "Pas de réponse de git. Réessayez pour voir si le commit a été fait."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non è arrivata alcuna risposta, quindi il commit potrebbe essere stato eseguito. Riprova per verificare. Il commit non verrà eseguito due volte."
+            "value": "Nessuna risposta da git. Riprova per vedere se il commit è stato fatto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "応答がなかったため、コミットされた可能性があります。再試行して確認してください。二重にコミットされることはありません。"
+            "value": "git から応答がありません。再試行してコミットされたか確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនមានការឆ្លើយតបទេ ដូច្នេះ Commit អាចត្រូវបានធ្វើរួចហើយ។ សូមព្យាយាមម្ដងទៀតដើម្បីពិនិត្យ។ វានឹងមិន Commit ពីរដងទេ។"
+            "value": "គ្មានចម្លើយពី git ទេ។ សូមព្យាយាមម្ដងទៀត ដើម្បីមើលថាវាបាន commit ឬអត់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "응답이 없어 커밋이 이미 완료되었을 수 있습니다. 다시 시도하여 확인하십시오. 두 번 커밋되지는 않습니다."
+            "value": "git에서 응답이 없습니다. 다시 시도해 커밋되었는지 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det kom ikke noe svar, så commiten kan ha blitt utført. Prøv igjen for å sjekke. Den blir ikke committet to ganger."
+            "value": "Ingen svar fra git. Prøv igjen for å se om det ble committet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak odpowiedzi, więc commit mógł zostać utworzony. Ponów, aby sprawdzić. Nie zostanie zatwierdzony dwukrotnie."
+            "value": "Brak odpowiedzi od git. Spróbuj ponownie, aby sprawdzić, czy commit się udał."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma resposta foi recebida, então o commit pode ter sido feito. Tente novamente para verificar. O commit não será feito duas vezes."
+            "value": "O git não respondeu. Tente novamente para ver se o commit foi feito."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ответ не получен, поэтому коммит мог быть создан. Повторите, чтобы проверить. Повторного коммита не будет."
+            "value": "git не ответил. Повторите, чтобы проверить, создан ли коммит."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้รับการตอบกลับ คอมมิตอาจถูกสร้างแล้ว ลองอีกครั้งเพื่อตรวจสอบ ระบบจะไม่คอมมิตซ้ำ"
+            "value": "ไม่มีคำตอบจาก git ลองอีกครั้งเพื่อดูว่าคอมมิตแล้วหรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yanıt gelmedi, bu nedenle commit yapılmış olabilir. Kontrol etmek için yeniden deneyin. İki kez commit edilmez."
+            "value": "git yanıt vermedi. Commit yapılıp yapılmadığını görmek için yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відповіді не надійшло, тож коміт міг бути створений. Повторіть, щоб перевірити. Повторного коміту не буде."
+            "value": "git не відповів. Повторіть, щоб перевірити, чи створено коміт."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không nhận được phản hồi, nên commit có thể đã được tạo. Thử lại để kiểm tra. Sẽ không commit hai lần."
+            "value": "git không phản hồi. Thử lại để xem đã commit chưa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未收到响应，提交可能已经完成。请重试以检查，不会重复提交。"
+            "value": "git 没有响应。请重试以查看是否已提交。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未收到回應，提交可能已經完成。請重試以檢查，不會重複提交。"
+            "value": "git 沒有回應。請重試以查看是否已提交。"
           }
         }
       }
@@ -275158,127 +274894,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم تصل أي استجابة، لذا ربما تم إرسال الدفع. أعد المحاولة للتحقق. لن يتم الدفع مرتين."
+            "value": "لم يصل رد من git. أعد المحاولة لترى هل تم الدفع."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odgovor nije stigao, pa je push možda poslan. Pokušajte ponovo da provjerite. Push se neće poslati dvaput."
+            "value": "Git nije odgovorio. Pokušajte ponovo da vidite je li push poslan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der kom intet svar, så pushet kan være sendt. Prøv igen for at tjekke. Der pushes ikke to gange."
+            "value": "Intet svar fra git. Prøv igen for at se, om der blev pushet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Es kam keine Antwort, daher wurde der Push möglicherweise gesendet. Erneut versuchen, um es zu prüfen. Es wird nicht doppelt gepusht."
+            "value": "Keine Antwort von git. Versuche es erneut, um zu sehen, ob gepusht wurde."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No answer came back, so the push may have been sent. Retry to check. It will not push twice."
+            "value": "No answer from git. Retry to see whether it pushed."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No llegó respuesta, así que el push puede haberse enviado. Reintenta para comprobarlo. No se enviará dos veces."
+            "value": "git no respondió. Reintenta para ver si se hizo el push."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune réponse n’a été reçue, l’envoi a donc peut-être eu lieu. Réessayez pour vérifier. Il ne sera pas effectué deux fois."
+            "value": "Pas de réponse de git. Réessayez pour voir si le push a été fait."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non è arrivata alcuna risposta, quindi il push potrebbe essere stato inviato. Riprova per verificare. Il push non verrà eseguito due volte."
+            "value": "Nessuna risposta da git. Riprova per vedere se il push è stato fatto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "応答がなかったため、プッシュされた可能性があります。再試行して確認してください。二重にプッシュされることはありません。"
+            "value": "git から応答がありません。再試行してプッシュされたか確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនមានការឆ្លើយតបទេ ដូច្នេះ Push អាចត្រូវបានផ្ញើរួចហើយ។ សូមព្យាយាមម្ដងទៀតដើម្បីពិនិត្យ។ វានឹងមិន Push ពីរដងទេ។"
+            "value": "គ្មានចម្លើយពី git ទេ។ សូមព្យាយាមម្ដងទៀត ដើម្បីមើលថាវាបាន push ឬអត់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "응답이 없어 푸시가 이미 전송되었을 수 있습니다. 다시 시도하여 확인하십시오. 두 번 푸시되지는 않습니다."
+            "value": "git에서 응답이 없습니다. 다시 시도해 푸시되었는지 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det kom ikke noe svar, så pushen kan ha blitt sendt. Prøv igjen for å sjekke. Den blir ikke pushet to ganger."
+            "value": "Ingen svar fra git. Prøv igjen for å se om det ble pushet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak odpowiedzi, więc zmiany mogły zostać wypchnięte. Ponów, aby sprawdzić. Nie zostaną wypchnięte dwukrotnie."
+            "value": "Brak odpowiedzi od git. Spróbuj ponownie, aby sprawdzić, czy push się udał."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma resposta foi recebida, então o push pode ter sido enviado. Tente novamente para verificar. O push não será feito duas vezes."
+            "value": "O git não respondeu. Tente novamente para ver se o push foi feito."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ответ не получен, поэтому изменения могли быть отправлены. Повторите, чтобы проверить. Повторной отправки не будет."
+            "value": "git не ответил. Повторите, чтобы проверить, отправлен ли push."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้รับการตอบกลับ การพุชอาจถูกส่งแล้ว ลองอีกครั้งเพื่อตรวจสอบ ระบบจะไม่พุชซ้ำ"
+            "value": "ไม่มีคำตอบจาก git ลองอีกครั้งเพื่อดูว่าพุชแล้วหรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yanıt gelmedi, bu nedenle push gönderilmiş olabilir. Kontrol etmek için yeniden deneyin. İki kez push edilmez."
+            "value": "git yanıt vermedi. Push yapılıp yapılmadığını görmek için yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відповіді не надійшло, тож push міг бути виконаний. Повторіть, щоб перевірити. Повторного push не буде."
+            "value": "git не відповів. Повторіть, щоб перевірити, чи надіслано push."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không nhận được phản hồi, nên push có thể đã được gửi. Thử lại để kiểm tra. Sẽ không push hai lần."
+            "value": "git không phản hồi. Thử lại để xem đã push chưa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未收到响应，推送可能已经发送。请重试以检查，不会重复推送。"
+            "value": "git 没有响应。请重试以查看是否已推送。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未收到回應，推送可能已經送出。請重試以檢查，不會重複推送。"
+            "value": "git 沒有回應。請重試以查看是否已推送。"
           }
         }
       }
@@ -277270,127 +277006,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر على cmux تسجيل النتيجة. أعد المحاولة للتحقق مما فعله git."
+            "value": "حدث خطأ ما. أعد المحاولة لترى ما فعله git."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nije mogao zabilježiti rezultat. Pokušajte ponovo da provjerite šta je git uradio."
+            "value": "Nešto nije u redu. Pokušajte ponovo da vidite šta je git uradio."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kunne ikke registrere resultatet. Prøv igen for at tjekke, hvad git gjorde."
+            "value": "Noget gik galt. Prøv igen for at se, hvad git gjorde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux konnte das Ergebnis nicht speichern. Versuche es erneut, um zu prüfen, was git getan hat."
+            "value": "Etwas ist schiefgelaufen. Versuche es erneut, um zu sehen, was git getan hat."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not record the result. Retry to check what git did."
+            "value": "Something went wrong. Retry to see what git did."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux no ha podido registrar el resultado. Reintenta para comprobar qué hizo git."
+            "value": "Algo salió mal. Reintenta para ver qué hizo git."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux n’a pas pu enregistrer le résultat. Réessayez pour vérifier ce qu’a fait git."
+            "value": "Un problème est survenu. Réessayez pour voir ce que git a fait."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux non è riuscito a registrare il risultato. Riprova per verificare cosa ha fatto git."
+            "value": "Qualcosa è andato storto. Riprova per vedere cosa ha fatto git."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は結果を記録できませんでした。再試行して git の結果を確認してください。"
+            "value": "問題が発生しました。再試行して git の結果を確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux មិនអាចកត់ត្រាលទ្ធផលបានទេ។ សូមព្យាយាមម្ដងទៀតដើម្បីពិនិត្យអ្វីដែល git បានធ្វើ។"
+            "value": "មានបញ្ហាកើតឡើង។ សូមព្យាយាមម្ដងទៀត ដើម្បីមើលអ្វីដែល git បានធ្វើ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux가 결과를 기록하지 못했습니다. 다시 시도하여 git이 수행한 작업을 확인하십시오."
+            "value": "문제가 발생했습니다. 다시 시도해 git이 한 작업을 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kunne ikke registrere resultatet. Prøv igjen for å sjekke hva git gjorde."
+            "value": "Noe gikk galt. Prøv igjen for å se hva git gjorde."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nie mógł zapisać wyniku. Ponów, aby sprawdzić, co zrobił git."
+            "value": "Coś poszło nie tak. Spróbuj ponownie, aby zobaczyć, co zrobił git."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux não conseguiu registrar o resultado. Tente novamente para verificar o que o git fez."
+            "value": "Algo deu errado. Tente novamente para ver o que o git fez."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не удалось сохранить результат. Повторите, чтобы проверить, что сделал git."
+            "value": "Что-то пошло не так. Повторите, чтобы увидеть, что сделал git."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux บันทึกผลลัพธ์ไม่ได้ ลองอีกครั้งเพื่อตรวจสอบว่า git ทำอะไรไปแล้ว"
+            "value": "เกิดข้อผิดพลาด ลองอีกครั้งเพื่อดูว่า git ทำอะไรไปแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux sonucu kaydedemedi. git'in ne yaptığını kontrol etmek için yeniden deneyin."
+            "value": "Bir sorun oluştu. git'in ne yaptığını görmek için yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не вдалося записати результат. Повторіть, щоб перевірити, що зробив git."
+            "value": "Щось пішло не так. Повторіть, щоб побачити, що зробив git."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux không thể ghi lại kết quả. Thử lại để kiểm tra git đã làm gì."
+            "value": "Đã xảy ra lỗi. Thử lại để xem git đã làm gì."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 无法记录结果。请重试以检查 git 的执行结果。"
+            "value": "出了点问题。请重试以查看 git 做了什么。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 無法記錄結果。請重試以檢查 git 的執行結果。"
+            "value": "發生問題。請重試以查看 git 做了什麼。"
           }
         }
       }
@@ -277402,127 +277138,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يتطلب الإيداع والدفع وجود مجلد هذه الدردشة على هذا الـ Mac واتصالًا بـ cmux."
+            "value": "تعذّر الوصول إلى cmux. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Za commit i push potreban je folder ovog chata na ovom Macu i veza sa cmuxom."
+            "value": "Nije moguće doći do cmuxa. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Commit og Push kræver denne chats mappe på denne Mac og en forbindelse til cmux."
+            "value": "Kunne ikke nå cmux. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Committen und Pushen erfordern den Ordner dieses Chats auf diesem Mac und eine Verbindung zu cmux."
+            "value": "cmux ist nicht erreichbar. Versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Commit and Push need this chat's folder on this Mac and a connection to cmux."
+            "value": "Couldn't reach cmux. Try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Confirmar y Enviar necesitan la carpeta de este chat en este Mac y una conexión con cmux."
+            "value": "No se pudo conectar con cmux. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Valider et Pousser nécessitent le dossier de cette conversation sur ce Mac et une connexion à cmux."
+            "value": "Impossible de joindre cmux. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Commit e Push richiedono la cartella di questa chat su questo Mac e una connessione a cmux."
+            "value": "Impossibile raggiungere cmux. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コミットとプッシュには、この Mac 上のチャットのフォルダと cmux への接続が必要です。"
+            "value": "cmux に接続できませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Commit និង Push ត្រូវការថតរបស់ការជជែកនេះនៅលើ Mac នេះ និងការតភ្ជាប់ទៅ cmux ។"
+            "value": "មិនអាចភ្ជាប់ទៅ cmux បានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "커밋과 푸시를 사용하려면 이 Mac에 이 채팅의 폴더가 있고 cmux에 연결되어 있어야 합니다."
+            "value": "cmux에 연결할 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Commit og Push krever mappen til denne chatten på denne Macen og en tilkobling til cmux."
+            "value": "Fikk ikke kontakt med cmux. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatwierdzanie i wypychanie wymagają folderu tego czatu na tym Macu i połączenia z cmux."
+            "value": "Nie udało się połączyć z cmux. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Commit e Push precisam da pasta deste chat neste Mac e de uma conexão com o cmux."
+            "value": "Não foi possível acessar o cmux. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для коммита и отправки нужна папка этого чата на этом Mac и подключение к cmux."
+            "value": "Не удалось связаться с cmux. Попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การคอมมิตและพุชต้องใช้โฟลเดอร์ของแชทนี้บน Mac เครื่องนี้และการเชื่อมต่อกับ cmux"
+            "value": "ติดต่อ cmux ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Commit ve Push için bu sohbetin klasörünün bu Mac'te olması ve cmux bağlantısı gerekir."
+            "value": "cmux'a ulaşılamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для коміту й push потрібна папка цього чату на цьому Mac і з’єднання з cmux."
+            "value": "Не вдалося зв’язатися з cmux. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Commit và Push cần thư mục của cuộc trò chuyện này trên máy Mac này và kết nối tới cmux."
+            "value": "Không thể kết nối cmux. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "提交和推送需要此聊天的文件夹位于这台 Mac 上，并且已连接到 cmux。"
+            "value": "无法连接 cmux。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "提交和推送需要此聊天的資料夾位於這台 Mac 上，並且已連線到 cmux。"
+            "value": "無法連線 cmux。請重試。"
           }
         }
       }
@@ -278458,127 +278194,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الملفات الجديدة التي يضيفها هذا الإيداع (غير متتبَّعة وغير متجاهَلة):"
+            "value": "الملفات الجديدة التي يضيفها هذا الالتزام:"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novi fajlovi koje ovaj commit dodaje (nepraćeni, nisu ignorisani):"
+            "value": "Nove datoteke koje ovaj commit dodaje:"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nye filer, som dette commit tilføjer (usporede, ikke ignorerede):"
+            "value": "Nye filer, som dette commit tilføjer:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neue Dateien, die dieser Commit hinzufügt (nicht verfolgt, nicht ignoriert):"
+            "value": "Neue Dateien, die dieser Commit hinzufügt:"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New files this commit adds (untracked, not ignored):"
+            "value": "New files this commit adds:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Archivos nuevos que añade este commit (sin seguimiento, no ignorados):"
+            "value": "Archivos nuevos que añade este commit:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouveaux fichiers ajoutés par cette validation (non suivis, non ignorés) :"
+            "value": "Nouveaux fichiers ajoutés par ce commit :"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuovi file aggiunti da questo commit (non tracciati, non ignorati):"
+            "value": "Nuovi file aggiunti da questo commit:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコミットで追加される新しいファイル（未追跡で、無視されていないもの）:"
+            "value": "このコミットで追加される新しいファイル:"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ឯកសារថ្មីដែល Commit នេះបន្ថែម (មិនបានតាមដាន មិនត្រូវបានមិនអើពើ)៖"
+            "value": "ឯកសារថ្មីដែល commit នេះបន្ថែម៖"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 커밋으로 추가되는 새 파일(추적되지 않고 무시되지 않은 파일):"
+            "value": "이 커밋이 추가하는 새 파일:"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nye filer denne commiten legger til (usporede, ikke ignorerte):"
+            "value": "Nye filer denne committen legger til:"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowe pliki dodawane w tym commicie (nieśledzone, nieignorowane):"
+            "value": "Nowe pliki dodawane przez ten commit:"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arquivos novos que este commit adiciona (não rastreados, não ignorados):"
+            "value": "Arquivos novos que este commit adiciona:"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новые файлы, добавляемые этим коммитом (неотслеживаемые, не игнорируемые):"
+            "value": "Новые файлы в этом коммите:"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไฟล์ใหม่ที่คอมมิตนี้จะเพิ่ม (ไม่ได้ติดตาม และไม่ได้ถูกละเว้น):"
+            "value": "ไฟล์ใหม่ที่คอมมิตนี้เพิ่ม:"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu commit'in eklediği yeni dosyalar (izlenmeyen, yok sayılmayan):"
+            "value": "Bu commit'in eklediği yeni dosyalar:"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нові файли, які додає цей коміт (невідстежувані, не ігноровані):"
+            "value": "Нові файли в цьому коміті:"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tệp mới mà commit này thêm vào (chưa theo dõi, không bị bỏ qua):"
+            "value": "Tệp mới mà commit này thêm:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此提交将添加的新文件（未跟踪且未被忽略）："
+            "value": "此提交添加的新文件："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此提交將加入的新檔案（未追蹤且未被忽略）："
+            "value": "此提交新增的檔案："
           }
         }
       }
@@ -278728,25 +278464,25 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema novih fajlova."
+            "value": "Nema novih datoteka."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der er ingen nye filer."
+            "value": "Ingen nye filer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Es gibt keine neuen Dateien."
+            "value": "Keine neuen Dateien."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no new files."
+            "value": "No new files."
           }
         },
         "es": {
@@ -278764,7 +278500,7 @@
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non ci sono nuovi file."
+            "value": "Nessun nuovo file."
           }
         },
         "ja": {
@@ -278776,7 +278512,7 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនមានឯកសារថ្មីទេ។"
+            "value": "គ្មានឯកសារថ្មីទេ។"
           }
         },
         "ko": {
@@ -278788,7 +278524,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det finnes ingen nye filer."
+            "value": "Ingen nye filer."
           }
         },
         "pl": {
@@ -278800,7 +278536,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não há arquivos novos."
+            "value": "Nenhum arquivo novo."
           }
         },
         "ru": {
@@ -278854,127 +278590,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر سرد {n} من الملفات الجديدة الإضافية، لذا لا يمكن إيداع الملفات الجديدة من هنا. نظّفها أو أودِع من الطرفية."
+            "value": "{n} ملفات جديدة أخرى غير معروضة. نفّذ الالتزام بها في الطرفية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još {n} novih fajlova nije moguće izlistati, pa se novi fajlovi ne mogu commitati odavde. Počistite ih ili commitajte u terminalu."
+            "value": "Još {n} novih datoteka nije izlistano. Commitajte ih u terminalu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{n} nye filer mere kunne ikke vises, så nye filer kan ikke committes herfra. Ryd op i dem, eller commit i en terminal."
+            "value": "{n} nye filer mere vises ikke. Commit dem i en terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{n} weitere neue Dateien konnten nicht aufgelistet werden, daher können neue Dateien hier nicht committet werden. Räume sie auf oder committe in einem Terminal."
+            "value": "{n} weitere neue Dateien sind nicht aufgelistet. Committe sie im Terminal."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} more new files could not be listed, so new files cannot be committed from here. Clean them up or commit in a terminal."
+            "value": "{n} more new files aren't listed. Commit them in a terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se han podido listar {n} archivos nuevos más, así que no se pueden confirmar archivos nuevos desde aquí. Límpialos o confirma en un terminal."
+            "value": "{n} archivos nuevos más no aparecen. Haz commit de ellos en una terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{n} autres nouveaux fichiers n’ont pas pu être listés, les nouveaux fichiers ne peuvent donc pas être validés ici. Faites le ménage ou validez dans un terminal."
+            "value": "{n} autres nouveaux fichiers ne sont pas listés. Commitez-les dans un terminal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non è stato possibile elencare altri {n} nuovi file, quindi i nuovi file non possono essere inclusi nel commit da qui. Rimuovili o esegui il commit in un terminale."
+            "value": "Altri {n} nuovi file non sono elencati. Fai il commit in un terminale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかに {n} 件の新しいファイルを一覧表示できなかったため、ここから新しいファイルをコミットできません。不要なファイルを削除するか、ターミナルでコミットしてください。"
+            "value": "ほかに {n} 個の新しいファイルが一覧にありません。ターミナルでコミットしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ឯកសារថ្មី {n} ទៀតមិនអាចរាយបានទេ ដូច្នេះមិនអាច Commit ឯកសារថ្មីពីទីនេះបានទេ។ សូមសម្អាតវា ឬ Commit នៅក្នុងទែមីណាល់។"
+            "value": "ឯកសារថ្មី {n} ទៀតមិនត្រូវបានរាយទេ។ សូម commit ពួកវានៅក្នុង terminal។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 파일 {n}개를 더 나열할 수 없어 여기에서 새 파일을 커밋할 수 없습니다. 파일을 정리하거나 터미널에서 커밋하십시오."
+            "value": "새 파일 {n}개가 더 목록에 없습니다. 터미널에서 커밋하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{n} nye filer til kunne ikke listes opp, så nye filer kan ikke committes herfra. Rydd dem opp eller commit i en terminal."
+            "value": "{n} nye filer til vises ikke. Commit dem i en terminal."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie można wyświetlić kolejnych nowych plików ({n}), więc nowych plików nie można tu zatwierdzić. Uporządkuj je lub zatwierdź w terminalu."
+            "value": "Kolejne nowe pliki ({n}) nie są wyświetlone. Zatwierdź je w terminalu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível listar mais {n} arquivos novos, então não é possível fazer commit de arquivos novos aqui. Organize-os ou faça o commit em um terminal."
+            "value": "Mais {n} arquivos novos não aparecem. Faça o commit deles em um terminal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удалось получить ещё новых файлов: {n}, поэтому новые файлы нельзя закоммитить отсюда. Наведите порядок или закоммитьте в терминале."
+            "value": "Ещё {n} новых файлов не показаны. Закоммитьте их в терминале."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงรายการไฟล์ใหม่อีก {n} ไฟล์ไม่ได้ จึงคอมมิตไฟล์ใหม่จากที่นี่ไม่ได้ ให้จัดการไฟล์เหล่านั้นหรือคอมมิตในเทอร์มินัล"
+            "value": "ไฟล์ใหม่อีก {n} ไฟล์ไม่ได้แสดงในรายการ คอมมิตไฟล์เหล่านั้นในเทอร์มินัล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{n} yeni dosya daha listelenemedi, bu nedenle yeni dosyalar buradan commit edilemez. Bunları temizleyin veya terminalde commit edin."
+            "value": "{n} yeni dosya daha listelenmedi. Onları bir terminalde commit edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ще {n} нових файлів не вдалося перелічити, тому нові файли не можна закомітити звідси. Приберіть їх або закомітьте в терміналі."
+            "value": "Ще {n} нових файлів не показано. Закомітьте їх у терміналі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể liệt kê thêm {n} tệp mới, nên không thể commit tệp mới từ đây. Hãy dọn dẹp chúng hoặc commit trong terminal."
+            "value": "Còn {n} tệp mới chưa được liệt kê. Hãy commit chúng trong terminal."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "另有 {n} 个新文件无法列出，因此无法从此处提交新文件。请清理这些文件或在终端中提交。"
+            "value": "另有 {n} 个新文件未列出。请在终端中提交它们。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "另有 {n} 個新檔案無法列出，因此無法從此處提交新檔案。請清理這些檔案或在終端機中提交。"
+            "value": "另有 {n} 個新檔案未列出。請在終端機中提交它們。"
           }
         }
       }
@@ -278986,127 +278722,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر سرد الملفات الجديدة، لذا لا يمكن إيداعها من هنا."
+            "value": "تعذّر عرض الملفات الجديدة. نفّذ الالتزام بها في الطرفية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nove fajlove nije moguće izlistati, pa se ne mogu commitati odavde."
+            "value": "Nove datoteke nije moguće izlistati. Commitajte ih u terminalu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "De nye filer kunne ikke vises, så de kan ikke committes herfra."
+            "value": "De nye filer kunne ikke vises. Commit dem i en terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die neuen Dateien konnten nicht aufgelistet werden, daher können sie hier nicht committet werden."
+            "value": "Die neuen Dateien konnten nicht aufgelistet werden. Committe sie im Terminal."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The new files could not be listed, so they cannot be committed from here."
+            "value": "Couldn't list the new files. Commit them in a terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se han podido listar los archivos nuevos, así que no se pueden confirmar desde aquí."
+            "value": "No se pudieron listar los archivos nuevos. Haz commit de ellos en una terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les nouveaux fichiers n’ont pas pu être listés, ils ne peuvent donc pas être validés ici."
+            "value": "Impossible de lister les nouveaux fichiers. Commitez-les dans un terminal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non è stato possibile elencare i nuovi file, quindi non possono essere inclusi nel commit da qui."
+            "value": "Impossibile elencare i nuovi file. Fai il commit in un terminale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいファイルを一覧表示できなかったため、ここからはコミットできません。"
+            "value": "新しいファイルを一覧表示できませんでした。ターミナルでコミットしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនអាចរាយឯកសារថ្មីបានទេ ដូច្នេះមិនអាច Commit វាពីទីនេះបានទេ។"
+            "value": "មិនអាចរាយឯកសារថ្មីបានទេ។ សូម commit ពួកវានៅក្នុង terminal។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 파일을 나열할 수 없어 여기에서 커밋할 수 없습니다."
+            "value": "새 파일 목록을 가져올 수 없습니다. 터미널에서 커밋하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "De nye filene kunne ikke listes opp, så de kan ikke committes herfra."
+            "value": "Kunne ikke vise de nye filene. Commit dem i en terminal."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie można wyświetlić nowych plików, więc nie można ich tu zatwierdzić."
+            "value": "Nie udało się wyświetlić nowych plików. Zatwierdź je w terminalu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível listar os arquivos novos, então não é possível fazer commit deles aqui."
+            "value": "Não foi possível listar os arquivos novos. Faça o commit deles em um terminal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удалось получить список новых файлов, поэтому их нельзя закоммитить отсюда."
+            "value": "Не удалось показать новые файлы. Закоммитьте их в терминале."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงรายการไฟล์ใหม่ไม่ได้ จึงคอมมิตไฟล์เหล่านั้นจากที่นี่ไม่ได้"
+            "value": "แสดงรายการไฟล์ใหม่ไม่ได้ คอมมิตไฟล์เหล่านั้นในเทอร์มินัล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni dosyalar listelenemedi, bu nedenle buradan commit edilemezler."
+            "value": "Yeni dosyalar listelenemedi. Onları bir terminalde commit edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вдалося перелічити нові файли, тому їх не можна закомітити звідси."
+            "value": "Не вдалося показати нові файли. Закомітьте їх у терміналі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể liệt kê tệp mới, nên không thể commit chúng từ đây."
+            "value": "Không thể liệt kê tệp mới. Hãy commit chúng trong terminal."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "无法列出新文件，因此无法从此处提交它们。"
+            "value": "无法列出新文件。请在终端中提交它们。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "無法列出新檔案，因此無法從此處提交它們。"
+            "value": "無法列出新檔案。請在終端機中提交它們。"
           }
         }
       }
@@ -279514,127 +279250,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ليس لهذه الدردشة مجلد على هذا الـ Mac، لذا لا يمكن لـ cmux الإيداع أو الدفع لها هنا."
+            "value": "مجلد هذه الدردشة ليس على هذا الـMac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj chat nema folder na ovom Macu, pa cmux ovdje ne može za njega uraditi commit ili push."
+            "value": "Mapa ovog chata nije na ovom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chat har ingen mappe på denne Mac, så cmux kan ikke committe eller pushe for den her."
+            "value": "Denne chats mappe er ikke på denne Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Chat hat keinen Ordner auf diesem Mac, daher kann cmux hier nicht für ihn committen oder pushen."
+            "value": "Der Ordner dieses Chats ist nicht auf diesem Mac."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This chat has no folder on this Mac, so cmux cannot commit or push for it here."
+            "value": "This chat's folder isn't on this Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat no tiene carpeta en este Mac, así que cmux no puede confirmar ni enviar por él aquí."
+            "value": "La carpeta de este chat no está en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette conversation n’a pas de dossier sur ce Mac, cmux ne peut donc pas valider ni pousser pour elle ici."
+            "value": "Le dossier de ce chat n’est pas sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa chat non ha una cartella su questo Mac, quindi cmux non può eseguire commit o push qui."
+            "value": "La cartella di questa chat non è su questo Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このチャットにはこの Mac 上のフォルダがないため、cmux はここでコミットやプッシュを実行できません。"
+            "value": "このチャットのフォルダはこの Mac にありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកនេះមិនមានថតនៅលើ Mac នេះទេ ដូច្នេះ cmux មិនអាច Commit ឬ Push សម្រាប់វានៅទីនេះបានទេ។"
+            "value": "ថតរបស់ការជជែកនេះមិននៅលើ Mac នេះទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 채팅에는 이 Mac에 폴더가 없으므로 cmux가 여기에서 커밋하거나 푸시할 수 없습니다."
+            "value": "이 채팅의 폴더가 이 Mac에 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chatten har ingen mappe på denne Macen, så cmux kan ikke committe eller pushe for den her."
+            "value": "Mappen til denne chatten er ikke på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten czat nie ma folderu na tym Macu, więc cmux nie może tu dla niego zatwierdzać ani wypychać."
+            "value": "Folderu tego czatu nie ma na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat não tem uma pasta neste Mac, então o cmux não pode fazer commit nem push para ele aqui."
+            "value": "A pasta deste chat não está neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У этого чата нет папки на этом Mac, поэтому cmux не может выполнить здесь коммит или отправку."
+            "value": "Папки этого чата нет на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทนี้ไม่มีโฟลเดอร์บน Mac เครื่องนี้ cmux จึงคอมมิตหรือพุชให้แชทนี้จากที่นี่ไม่ได้"
+            "value": "โฟลเดอร์ของแชทนี้ไม่ได้อยู่บน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbetin bu Mac'te bir klasörü yok, bu nedenle cmux burada onun için commit veya push yapamaz."
+            "value": "Bu sohbetin klasörü bu Mac'te değil."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей чат не має папки на цьому Mac, тому cmux не може тут виконати коміт або push для нього."
+            "value": "Папки цього чату немає на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuộc trò chuyện này không có thư mục trên máy Mac này, nên cmux không thể commit hoặc push cho nó tại đây."
+            "value": "Thư mục của cuộc trò chuyện này không nằm trên máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天在这台 Mac 上没有文件夹，因此 cmux 无法在此为其提交或推送。"
+            "value": "此聊天的文件夹不在这台 Mac 上。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天在這台 Mac 上沒有資料夾，因此 cmux 無法在此為其提交或推送。"
+            "value": "此聊天的資料夾不在這台 Mac 上。"
           }
         }
       }
