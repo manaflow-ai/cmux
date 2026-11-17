@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ServerEventInput } from "../services/analytics/serverEvents";
-import { appleEnvironmentGrantsEntitlement } from "../services/billing/apple/config";
+import { appleEnvironmentGrantsEntitlement, appleSandboxGrantNeedsAccountEmail } from "../services/billing/apple/config";
 import { appleSubscriptionGrantsAccess, bestAppleEntitlement } from "../services/billing/apple/entitlement";
 import type { AppleServerApi } from "../services/billing/apple/serverApi";
 import {
@@ -665,6 +665,24 @@ describe("Apple entitlement policy", () => {
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, { ...production, APPLE_IAP_SANDBOX_ENTITLEMENTS: "none" })).toBe(false);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta" }, {})).toBe(true);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Xcode", bundleId: BUNDLE }, {})).toBe(false);
+  });
+
+  test("staging, a separate Vercel project deployed to its own production environment, grants every Sandbox purchase", () => {
+    // cmux-staging.vercel.app runs with VERCEL_ENV=production (cloud-vm-ops: each project uses its own
+    // production environment), so VERCEL_ENV alone made staging refuse every TestFlight and simulator buyer.
+    const staging = { VERCEL_ENV: "production", VERCEL_PROJECT_ID: "prj_804LTAUdOwulMvEfcmfnU8bvGo3T", APPLE_IAP_SANDBOX_ACCOUNT_EMAILS: "review@example.com" };
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "tester@example.com" }, staging)).toBe(true);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta" }, staging)).toBe(true);
+    expect(appleSandboxGrantNeedsAccountEmail(staging)).toBe(false);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, { ...staging, APPLE_IAP_SANDBOX_ENTITLEMENTS: "none" })).toBe(false);
+    // Production (or a production deployment whose project is unknown) keeps the allowlist.
+    for (const production of [
+      { VERCEL_ENV: "production", VERCEL_PROJECT_ID: "prj_kH8qcuoliyJ2TLI4vMM03rnNVzr4" },
+      { VERCEL_ENV: "production" },
+    ]) {
+      expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "tester@example.com" }, production)).toBe(false);
+      expect(appleSandboxGrantNeedsAccountEmail(production)).toBe(true);
+    }
   });
 
   test("the highest granting plan wins and unknown plans never grant", () => {
