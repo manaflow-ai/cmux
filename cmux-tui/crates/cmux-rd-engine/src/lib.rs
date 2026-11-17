@@ -746,7 +746,9 @@ impl MediaEngine {
         let idr_allowed = state
             .last_forced_idr_us
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
-        if fb.need_recovery && idr_allowed {
+        // While the path is away (D12) a keyframe would only join the hold; the viewer
+        // keeps asking until a frame it can decode arrives, so the ask waits for the path.
+        if fb.need_recovery && idr_allowed && !self.cc.frozen() {
             state.last_forced_idr_us = Some(now_us);
             state.force_idr = Some(IdrReason::Recovery);
             state.gate.clear_in_flight();

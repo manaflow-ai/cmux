@@ -560,3 +560,64 @@ fn no_repair_is_sent_while_the_path_is_away() {
     );
     assert_eq!(out.datagrams.len(), 2, "the NACK is answered once the path is back");
 }
+
+/// D12: a recovery ask during the hold's first feedback waits for the path (the viewer
+/// keeps asking); it is answered with a keyframe once the path is up.
+#[test]
+fn no_recovery_keyframe_while_the_path_is_away() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let arrived = |sent: &[Vec<u8>], at: u32| -> Vec<Arrival> {
+        sent.iter()
+            .map(|d| Arrival {
+                transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                arrival_us: at,
+            })
+            .collect()
+    };
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            arrivals: arrived(&sent, 5_000),
+            ..Feedback::default()
+        }),
+        false,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let second = e.damage(0, small, 20_000).expect("second");
+    let sent = send(&mut e, &second, false, 6_000, 20_000);
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&sent[..2], 420_000),
+            need_recovery: true,
+            ..Feedback::default()
+        }),
+        false,
+        424_000,
+    );
+    assert!(out.outage_ended.is_some());
+    assert!(out.encode.as_ref().is_none_or(|r| !r.force_idr), "a keyframe into the hold: {out:?}");
+    if let Some(req) = out.encode {
+        send(&mut e, &req, false, 500, 430_000);
+    }
+    let third = e.damage(0, small, 431_000);
+    let fresh = match third {
+        Some(req) => send(&mut e, &req, false, 500, 431_000),
+        None => Vec::new(),
+    };
+    let fresh = if fresh.is_empty() { sent[2..4].to_vec() } else { fresh };
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            arrivals: arrived(&fresh, 435_000),
+            need_recovery: true,
+            ..Feedback::default()
+        }),
+        false,
+        700_000,
+    );
+    let req = out.encode.expect("the recovery ask is answered once the path is back");
+    assert!(req.force_idr);
+}
