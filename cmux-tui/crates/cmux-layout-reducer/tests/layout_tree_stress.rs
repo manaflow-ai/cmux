@@ -84,7 +84,7 @@ fn corpus(panes: usize, others: usize) -> Corpus {
         next
     };
     let mut state = LayoutState::default();
-    let mut add_pane = |state: &mut LayoutState, id: &mut dyn FnMut() -> u64| {
+    let add_pane = |state: &mut LayoutState, id: &mut dyn FnMut() -> u64| {
         let pane = id();
         let tabs = vec![id(), id()];
         for tab in &tabs {
