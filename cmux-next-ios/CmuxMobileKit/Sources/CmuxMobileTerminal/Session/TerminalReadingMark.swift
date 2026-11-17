@@ -82,6 +82,31 @@ struct TerminalReadingMark: Equatable {
         return copy
     }
 
+    /// The anchor where its own rows (those with text) appear exactly once
+    /// within ``searchRows`` of its row in a scrollback of `totalRows` rows;
+    /// nil when they are not there, or appear more than once (a program
+    /// printing the same block over and over gives no single place).
+    func uniqueMatch(totalRows: Int, rowText: (Int) -> String?) -> TerminalScrollModel.Anchor? {
+        let head = Array(rows[anchorIndex..<min(rows.count, anchorIndex + Self.length)])
+        guard totalRows > 0, head.contains(where: { !$0.isEmpty }) else { return nil }
+        let center = min(max(0, row), totalRows - 1)
+        let low = max(0, center - Self.searchRows)
+        let high = min(totalRows - head.count, center + Self.searchRows)
+        guard low <= high else { return nil }
+        var found: Int?
+        for start in low...high {
+            var matches = true
+            for (index, expected) in head.enumerated() where rowText(start + index).map(Self.normalized) != expected {
+                matches = false
+                break
+            }
+            guard matches else { continue }
+            if found != nil { return nil }
+            found = start
+        }
+        return found.map { .init(row: $0, delta: delta) }
+    }
+
     /// The anchor in a rebuilt scrollback of `totalRows` rows.
     func locate(totalRows: Int, rowText: (Int) -> String?) -> TerminalScrollModel.Anchor? {
         guard totalRows > 0 else { return nil }
