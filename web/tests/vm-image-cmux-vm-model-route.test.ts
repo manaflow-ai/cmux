@@ -4,7 +4,7 @@
 // where agent-config.sh keeps Claude's pair set aside, so the route is pinned in each agent's managed
 // (root-owned, highest precedence) settings, which outrank any login a user or an old copy left in HOME.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as bake from "../scripts/cmux-vm-image/bake";
@@ -110,7 +110,7 @@ describe("cmux VM image model route", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "cmux-vm-model-route-sync-"));
     const stub = mkdtempSync(path.join(os.tmpdir(), "cmux-vm-model-route-getent-"));
     const at = (p: string) => path.join(root, p);
-    const exists = (p: string) => Bun.file(at(p)).size > 0;
+    const exists = (p: string) => existsSync(at(p)) && statSync(at(p)).size > 0;
     try {
       // What the bake writes.
       for (const file of [...bake.agentModelRouteFiles(), { path: bake.AGENT_MODEL_ROUTE_SYNC_PATH, text: bake.agentModelRouteSyncScript(), mode: 0o755 }]) {
@@ -135,14 +135,14 @@ describe("cmux VM image model route", () => {
       // A dev pool machine: both route files, byte for byte.
       await pass(true);
       for (const file of bake.agentModelRouteFiles()) {
-        expect(await Bun.file(at(file.target)).text()).toBe(file.text);
+        expect(readFileSync(at(file.target), "utf8")).toBe(file.text);
       }
 
       // The edge goes away: the route goes with it, but a managed file someone else wrote stays.
       writeFileSync(at("/etc/codex/managed_config.toml"), "# an operator's own\n");
       await pass(false);
       expect(exists("/etc/claude-code/managed-settings.json")).toBe(false);
-      expect(await Bun.file(at("/etc/codex/managed_config.toml")).text()).toBe("# an operator's own\n");
+      expect(readFileSync(at("/etc/codex/managed_config.toml"), "utf8")).toBe("# an operator's own\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(stub, { recursive: true, force: true });
