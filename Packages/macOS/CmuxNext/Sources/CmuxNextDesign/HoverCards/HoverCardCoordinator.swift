@@ -150,6 +150,9 @@ public final class HoverCardCoordinator {
         }
     }
 
+    /// A window of this app came front (it became key): the top window cached under the pointer may be under it now.
+    public func windowOrderChanged() {}
+
     // MARK: Sources
 
     public func register(_ source: any HoverCardSource) {
