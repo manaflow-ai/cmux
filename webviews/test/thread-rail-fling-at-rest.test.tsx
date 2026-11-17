@@ -83,10 +83,13 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 });
 
 const { act } = await import("react");
-// The minimap places its band in the frame after a scroll event, as a browser runs it.
+// A fling's frame: the trackpad's momentum wheel event, then the scroll it made; the minimap places its
+// band in the frame after the scroll event, as a browser runs it. The wheel carries no delta, so the
+// transcript's own wheel handling moves nothing: the test sets the offset the fling reached.
 const scrolledFrame = (target: EventTarget) =>
   act(async () => {
     clock += FRAME_MS;
+    target.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 0, bubbles: true }));
     target.dispatchEvent(new dom.window.Event("scroll"));
     await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
   });

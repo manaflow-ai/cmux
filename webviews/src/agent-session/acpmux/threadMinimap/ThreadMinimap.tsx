@@ -95,10 +95,11 @@ const RAIL_FILTER_LABEL = {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
-/// A fling, for the rail's list: FLING_MOVES band moves in a row, each with the transcript going at
-/// least FLING_SPEED px a ms (200 px a 60 Hz frame, past reading speed) and each within FLING_REST_MS
-/// of the last. One jump, a wheel read line by line or a key's step is none. The fling is at rest
-/// once the band has held FLING_REST_MS.
+/// A fling, for the rail's list: FLING_MOVES band moves in a row while the wheel drives the chat (a
+/// wheel event, a trackpad's momentum ones included, within FLING_REST_MS), each with the transcript
+/// going at least FLING_SPEED px a ms (200 px a 60 Hz frame, past reading speed) and each within
+/// FLING_REST_MS of the last. A jump, a wheel read line by line or a key's step is none. The fling is
+/// at rest once the band has held FLING_REST_MS.
 const FLING_SPEED = 12;
 const FLING_MOVES = 3;
 const FLING_REST_MS = 120;
@@ -1060,6 +1061,17 @@ export function ThreadMinimap({
     },
     [],
   );
+  /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES).
+  const wheelAt = useRef(Number.NEGATIVE_INFINITY);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const wheeled = () => {
+      wheelAt.current = performance.now();
+    };
+    node.addEventListener("wheel", wheeled, { capture: true, passive: true });
+    return () => node.removeEventListener("wheel", wheeled, { capture: true });
+  }, [scroller]);
   useLayoutEffect(() => {
     const node = list.current;
     // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
@@ -1094,7 +1106,10 @@ export function ThreadMinimap({
       const reader = live.current.top;
       const since = was && was.sessionId === sessionId ? now - was.at : Infinity;
       const fast =
-        was && since < FLING_REST_MS && Math.abs(reader - was.top) >= FLING_SPEED * Math.max(1, since)
+        was &&
+        since < FLING_REST_MS &&
+        now - wheelAt.current < FLING_REST_MS &&
+        Math.abs(reader - was.top) >= FLING_SPEED * Math.max(1, since)
           ? was.fast + 1
           : 0;
       bandMotion.current = { first: onScreen.first, last: onScreen.last, top: reader, at: now, fast, sessionId };
