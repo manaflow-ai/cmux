@@ -75,12 +75,28 @@ pub(crate) struct Ledger {
     /// Items hidden by a snooze, until when: they come back when `now`
     /// passes it.
     snoozed: HashMap<String, i64>,
+    /// The same snoozes in wake order, so a commit reads only the ones due.
+    wakes: BTreeSet<(i64, String)>,
 }
 
 impl Ledger {
     /// Snoozed items whose time has come by `now`.
+    // perf-hot: 1us feed-mirror-commit (every mirror commit, frame tick included)
     pub(crate) fn woken(&self, now: i64) -> Vec<String> {
-        self.snoozed.iter().filter(|(_, until)| **until <= now).map(|(id, _)| id.clone()).collect()
+        self.wakes.iter().take_while(|(until, _)| *until <= now).map(|(_, id)| id.clone()).collect()
+    }
+
+    fn snooze(&mut self, id: &str, until: i64) {
+        if let Some(old) = self.snoozed.insert(id.to_owned(), until) {
+            self.wakes.remove(&(old, id.to_owned()));
+        }
+        self.wakes.insert((until, id.to_owned()));
+    }
+
+    fn unsnooze(&mut self, id: &str) {
+        if let Some(old) = self.snoozed.remove(id) {
+            self.wakes.remove(&(old, id.to_owned()));
+        }
     }
 
     /// How many items the panel list holds.
@@ -143,16 +159,16 @@ impl Ledger {
                     }
                     match new.snoozed_until {
                         Some(until) if !new.is_archived() && until > now => {
-                            self.snoozed.insert(id.to_owned(), until);
+                            self.snooze(id, until);
                         }
                         _ => {
-                            self.snoozed.remove(id);
+                            self.unsnooze(id);
                         }
                     }
                     self.visible.insert(id.to_owned(), new);
                 }
                 None => {
-                    self.snoozed.remove(id);
+                    self.unsnooze(id);
                     self.visible.remove(id);
                 }
             }
