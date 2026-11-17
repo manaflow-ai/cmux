@@ -187,9 +187,7 @@ struct CloudMove {
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
-        // The copy is estimated and decided (whole, first pass or seed) before any machine is picked or made: the copy
-        // below sends what this said (cmux-tui link/sync_cli/estimate.rs). It never refuses.
-        _ = await cli.startChatPreflight(local: folder.root)
+        _ = await cli.startChatPreflight(local: folder.root) // the copy's estimate and decision (whole, first pass, seed) before any machine is picked or made; never refuses (cmux-tui sync_cli/estimate.rs)
         let machine = try await self.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // From here the chat may move to this machine: a quit or a crash before the move ends
@@ -282,7 +280,7 @@ struct CloudMove {
               suffix: String = "") async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = Self.remote(folder, under: root, suffix: suffix)
+            let remote = folder.remote(under: root, suffix: suffix)
             do {
                 last = try await cli.seedPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -294,13 +292,6 @@ struct CloudMove {
             guard last.errorCode == "fs.permission_denied" else { break }
         }
         throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
-    }
-
-    /// `folder`'s place under `root` on a machine, its folder name ending in `suffix` (``sync``).
-    static func remote(_ folder: CloudMoveFolder, under root: String, suffix: String) -> (folder: String, chat: String) {
-        let remote = folder.remote(under: root)
-        guard !suffix.isEmpty else { return remote }
-        return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
