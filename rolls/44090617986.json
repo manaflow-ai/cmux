@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44090617986",
+  "recorded_at": "2026-11-17T13:28:23Z",
+  "reason": "cmux-tui ad59ef8c68f3 changes the image's cmux-tui (pinned 2954cbf3f5d4)",
+  "dry_run": false,
+  "cmux_tui": "ad59ef8c68f391c1fe322cfaa8a09b361a00a5e3",
+  "fixes": [
+    {
+      "sha": "ad59ef8c68f391c1fe322cfaa8a09b361a00a5e3",
+      "mergedAt": "2026-11-17T05:02:03-08:00",
+      "subject": "cmux-rd-host: ShmSeg lends its pages only while no X request runs; only main writes the environment (#45461)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T13:28:23Z",
+    "snapshot_id": "sh-108c4615e45f42da902bbb2a2a56f31f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44090617986): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "963984ee972afde4cead603843cc523ecf534708",
+    "image": "cloud-native-auto-ad59ef8c-44090617986-1",
+    "revision": "ci-44090617986-1",
+    "at": "2026-11-17T13:28:23Z"
+  },
+  "rolled_back": false
+}
