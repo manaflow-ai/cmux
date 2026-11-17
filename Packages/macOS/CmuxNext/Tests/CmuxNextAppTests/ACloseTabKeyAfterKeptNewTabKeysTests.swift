@@ -152,6 +152,10 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
         }
 
         var said: String { log.said }
+        /// How many kept keys ran again, and the two counts of `debug.focus`: the cancelled pairs, then the lost Close
+        /// Tab keys.
+        var keptKeysRunAgain: Int { log.replays }
+        var tabKeyCounts: [Double?] { AHoldsEndCountsItsTabKeyPairsAndLostCloseKeysTests.counts(services) }
 
         private func label(_ id: String) -> String { (start.contains(id) ? "old tab " : "new tab ") + id }
 
@@ -246,29 +250,30 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
     }
 
     /// The things that the keys started and that are not at their end, by their names; empty when each is at its end.
-    /// The two observed facts of the store, and four things that no Observation tells: the hold of the window's keys
-    /// and the close guard's two sets (plain values of the app) and the closed creations of the store's log of
-    /// intents (the log is not observed). A close that hides its tab while it reads is in the store's closing tabs, so
-    /// the close guard's two sets are read for the tabs that this app lists (one test process can run the app of
-    /// another suite).
+    /// The two observed facts of the store, and three things that no Observation tells: the hold of the window's keys
+    /// and the close guard's two sets (plain values of the app). A close that hides its tab while it reads is in the
+    /// store's closing tabs, so the close guard's two sets are read for the tabs that this app lists (one test process
+    /// can run the app of another suite).
+    ///
+    /// A creation that a Close Tab key closed before the daemon's answer is not a named thing. The store hides its
+    /// tab while its entry is in the log of intents, so the store's lists do not change when it ends. And the creation
+    /// of a New Tab page of these rows ends only when its row lets it go, after this wait.
     static func stillOpen(in window: NSWindow, services: AppServices) -> [String] {
-        let store = services.daemon.store
         let listed = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
         var open = observedStillOpen(services)
         if services.keyRouter.creationInputCoordinator.isHolding(in: window) { open.append("a hold of the window's keys") }
         if !TabCloseGuard.reading.isDisjoint(with: listed) { open.append("a close that reads from the daemon") }
         if !TabCloseGuard.asking.isDisjoint(with: listed) { open.append("a close that asks") }
-        if store.intentLog.entries.contains(where: { $0.closeWhenCreated || $0.standInClosed }) { open.append("a closed creation that the daemon did not end") }
         return open
     }
 
     /// The end of the keys' work, by named facts and with no quiet time: each thing that the keys started is at its end
-    /// (`stillOpen`: no hold of the window's keys, no close that reads, asks or waits for the daemon, no closed creation
-    /// that the daemon did not end, no stand-in of a terminal tab; a New Tab page keeps its stand-in), then the daemon
-    /// answers one more request on the app's connection (it handled each request before it), and the things are still
-    /// at their end. The caller then reads the store one time.
+    /// (`stillOpen`: no hold of the window's keys, no close that reads, asks or waits for the daemon, no stand-in of a
+    /// terminal tab; a New Tab page keeps its stand-in), then the daemon answers one more request on the app's
+    /// connection (it handled each request before it), and the things are still at their end. The caller then reads
+    /// the store one time.
     ///
-    /// The two observed facts of the store wait by an Observation, with a limit. The four other things have no
+    /// The two observed facts of the store wait by an Observation, with a limit. The three other things have no
     /// Observation, and the app gives a test no hook for them through an init: the fixture's bounded poll reads them,
     /// and reads the two observed facts again. The poll can only fail: it ends when each named thing is at its end or
     /// with a `setup:` failure at its bound, and no check reads the time that it took.
@@ -292,7 +297,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
 
     /// The two checks of each test, and the test's counts.
     static func check(_ keys: Keys, _ label: String, lateAnswers: Int) {
-        print("KEYS-IN-ORDER \(label): \(keys.count) keys, \(keys.repeats) repeats, \(lateAnswers) answers given late, \(keys.keptNewTabKeys) New Tab keys kept by a hold")
+        print("KEYS-IN-ORDER \(label): \(keys.count) keys, \(keys.repeats) repeats, \(lateAnswers) answers given late, \(keys.keptNewTabKeys) New Tab keys kept by a hold, \(keys.keptKeysRunAgain) kept keys that ran again, counts \(keys.tabKeyCounts)")
         #expect(keys.oldTabsClosedAfterANewTabKey.isEmpty,
                 "a Close Tab key that came after a New Tab key closed \(keys.oldTabsClosedAfterANewTabKey), tabs that were there before the first key; \(keys.keptNewTabKeys) New Tab keys were kept by a hold; \(keys.said)")
         let new = keys.newTabs, gone = keys.oldTabsGone
@@ -363,7 +368,14 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
 
     /// A split key opens the hold: Cmd-D, Cmd-T, Cmd-T as a repeat, Cmd-W, in one turn. The New Tab key makes a New
     /// Tab page here. At the end: the split's pane with its tab, and one of the two new tabs. The hold keeps the Close
-    /// Tab key, and its end counts 1 pair.
+    /// Tab key.
+    ///
+    /// No pair goes in this row. The split's own view takes the keyboard before the hold's end, and it takes its 3
+    /// kept keys then (`CreationInputCoordinator.flush`: the lane of a creation whose early view has the keyboard).
+    /// That path does not reduce the kept keys (`CreationInputBuffer.reduceTabKeys` says which ends do). The keys run
+    /// again in the order of the presses: New Tab, New Tab, Close Tab. The Close Tab key then closes the page of the
+    /// newest New Tab key, which is the result that the pair gives. So 3 kept keys ran again, and `debug.focus`
+    /// counts 0 pairs and 0 lost keys.
     @Test func aCloseTabKeyAfterNewTabKeysBehindASplitClosesTheNewestNewTab() async throws {
         try await Self.withTerminalPane { services, window, log in
             let held = HeldCreations()
@@ -384,7 +396,9 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
             } catch { failure = error }
             Self.check(keys, "a split key, 2 New Tab keys that make pages, a Close Tab key", lateAnswers: 1)
             Self.checkTheSplitsTab(splitTabs, keys)
-            Self.checkThePair(close, keys, services)
+            #expect(close == .kept, "the Close Tab key that came after a kept New Tab key was not kept by a hold (its own call: \(close.map { "\($0)" } ?? "no call")); \(keys.said)")
+            #expect(keys.keptKeysRunAgain == 3 && keys.tabKeyCounts == [0, 0],
+                    "\(keys.keptKeysRunAgain) kept keys ran again and the debug read counts \(keys.tabKeyCounts) (want 3 keys, then 0 cancelled pairs and 0 lost Close Tab keys: the split's own view takes its keys in the order of the presses); \(keys.said)")
             // Each creation of a New Tab page ends before the window closes.
             held.release()
             if let failure { throw failure }
@@ -519,9 +533,10 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
                 let first = try keys.closeTab()
                 try #require(first == .ran && TabCloseGuard.reading.contains(terminal.id),
                              "setup: the first Cmd-W did not run, or it did not wait for the close's read; \(keys.said)")
-                // The pane shows the neighbour and the focus is on it.
-                try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == neighbour.id && focused() == neighbour.id },
-                                                report: { "setup: the pane does not show the neighbour (it selects \(pane.stripModel.selectedID?.rawValue ?? "no tab")) or the focus is not on it (\(focused() ?? "no terminal")) while the close reads; \(keys.said)" })
+                // The pane shows the neighbour, the focus is on it, and the close's read waits at the debug hold (the
+                // read comes there some turns after the key: a release before it would hold nothing).
+                try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == neighbour.id && focused() == neighbour.id && hold.held >= 1 },
+                                                report: { "setup: the pane does not show the neighbour (it selects \(pane.stripModel.selectedID?.rawValue ?? "no tab")), or the focus is not on it (\(focused() ?? "no terminal")), or the close's read is not held (\(hold.held) reads wait) while the close reads; \(keys.said)" })
                 // One turn of the main actor, inside the read.
                 try keys.newTab()
                 try keys.newTab(repeats: true)
