@@ -273,8 +273,6 @@ struct ChatDockLinkSplitMotionTests {
         let screen = Screen()
         let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
         let loneFrame = link.frame
-        // The app's link placement names the chat's pane before the chat docks.
-        screen.model.handOffContent(of: Self.anchor)
         screen.show(Self.docked)
         let chat = try #require(screen.host(Self.dock))
         // The change's own turn: the lone pane shows as before, and the dock's pane is not placed yet.
@@ -303,45 +301,6 @@ struct ChatDockLinkSplitMotionTests {
         #expect(linkRest.minX >= rest.maxX - 1, "the link's pane rests over the chat: \(linkRest) vs \(rest)")
     }
 
-    /// A folder opened from a lone chat (or a person's new tab from it) docks the chat through
-    /// `ChatColumnPlacement.route`, which hands the chat's content over the same way: the hint is
-    /// pending while the move runs, stays when the move lands, and is dropped when it fails, so a
-    /// later split still plays as a split.
-    @Test func aHandOffDuringAMoveLastsOnlyWhenTheMoveLands() {
-        let screen = Screen()
-        var during: PaneID?
-        var finish: (@MainActor (Bool) -> Void)?
-        screen.model.handOffContent(of: Self.anchor) { done in
-            during = screen.model.pendingContentHandoff
-            finish = done
-        }
-        #expect(during == Self.anchor, "the hint was not pending while the chat docked")
-        finish?(false)
-        #expect(screen.model.pendingContentHandoff == nil, "a failed dock left the hint for the next split")
-
-        screen.model.handOffContent(of: Self.anchor) { done in done(true) }
-        #expect(screen.model.pendingContentHandoff == Self.anchor, "a dock that landed dropped the hint before it played")
-    }
-
-    /// The dock that lands through it shows as any dock does: the chat's pane is not placed in the
-    /// turn of the change, and from the first frame tick on it keeps one frame, its dock rect.
-    @Test func aFolderDockThroughTheMoveKeepsTheChatPut() throws {
-        let screen = Screen()
-        screen.model.handOffContent(of: Self.anchor) { done in
-            screen.show(Self.docked)
-            done(true)
-        }
-        let chat = try #require(screen.host(Self.dock)), view = try #require(screen.screen)
-        #expect(chat.frame.width < 1, "the chat's pane showed before the frame that shows the dock: \(chat.frame)")
-        var frames: [CGRect] = []
-        for _ in 1...60 {
-            screen.step()
-            frames.append(chat.frame)
-        }
-        let rest = try #require(view.displayedFrame(of: Self.dock))
-        #expect(rest.width > 1 && frames.allSatisfy { $0 == rest }, "the chat's pane moved when a folder docked it: \(frames.map(\.width))")
-    }
-
     /// Right side panes (Leo 2026-10-24: "it didn't even show this initially. Like ... I had to
     /// drag it out to resize, and ... as I drag, I see this small sliver opening up from the
     /// center"): beside a docked chat, the strip clip of a pane at x X0 and width W was cut to
@@ -350,7 +309,6 @@ struct ChatDockLinkSplitMotionTests {
     /// part inside the strip, and at rest all of it, after the link lands and after a resize.
     @Test func aRightPaneBesideADockedChatShowsItsPartInsideTheStripOnEveryFrame() throws {
         let screen = Screen()
-        screen.model.handOffContent(of: Self.anchor)
         screen.show(Self.docked)
         let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
         var wrong: [String] = []
@@ -383,7 +341,6 @@ struct ChatDockLinkSplitMotionTests {
     /// whole page once it lands, not a sliver.
     @Test func aRightPageBesideADockedChatShowsTheWholePage() throws {
         let screen = Screen(.page)
-        screen.model.handOffContent(of: Self.anchor)
         screen.show(Self.docked)
         for _ in 1...120 { screen.step() }
         screen.root.layoutSubtreeIfNeeded()
@@ -403,7 +360,6 @@ struct ChatDockLinkSplitMotionTests {
     @Test func aRightPageBesideADockedChatShowsTheWholePageWhileTheChatsEdgeIsDragged() throws {
         let screen = Screen(.page)
         defer { screen.close() }
-        screen.model.handOffContent(of: Self.anchor)
         screen.show(Self.docked)
         for _ in 1...120 { screen.step() }
         screen.root.layoutSubtreeIfNeeded()
@@ -436,7 +392,6 @@ struct ChatDockLinkSplitMotionTests {
     @Test func aRightTerminalBesideADockedChatShowsItsPartInsideTheStripOnEveryFrame() throws {
         let screen = Screen(.terminal)
         defer { screen.close() }
-        screen.model.handOffContent(of: Self.anchor)
         screen.show(Self.docked)
         let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
         let session = try #require(screen.provider.terminal, "the link's pane holds no terminal")
@@ -522,7 +477,6 @@ struct ChatDockLinkSplitMotionTests {
         // The open: a lone chat docks left and the pane keeps the right of the screen. The dock is one
         // commit: its own turn shows the pane as it was.
         let loneFrame = link.frame
-        screen.model.handOffContent(of: Self.anchor)
         screen.show(Self.docked)
         screen.root.layoutSubtreeIfNeeded()
         #expect(link.frame == loneFrame, "the pane moved in the turn of the dock: \(loneFrame) -> \(link.frame)")

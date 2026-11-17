@@ -15,9 +15,9 @@ extension ScreenContentView {
     /// `debug.motion` `trace_*` sampler (registered by `LayoutRootView`): per display frame, each
     /// shown pane host as `[pane, x, y, width, height, alpha, z]`, where the rect is what shows of
     /// it (its frame cut by its strip clip) in window points with a top-left
-    /// origin and `z` its index among this screen's subviews (higher draws in front); each divider
-    /// as `[id, x, y, width, height, alpha, z]`; and `zoom`, the pane a zoom or unzoom moves (or "").
-    /// Covered panes (a zoom's leaving ones) are listed too. Hidden screens report nothing.
+    /// origin and `z` its index among this screen's subviews (higher draws in front); and each divider
+    /// as `[id, x, y, width, height, alpha, z]`. A pane a layout change took out is listed until that change shows (its
+    /// host shows until then); a pane a zoom covers is hidden and is not listed. Hidden screens report nothing.
     /// Each pane row goes on with what its content is laid out at: the host's frame
     /// `[fx, fy, fwidth, fheight]` (window points, top-left origin), the content view's size
     /// `[cwidth, cheight]`, and `header`, the share of the content's header (its tab strip)

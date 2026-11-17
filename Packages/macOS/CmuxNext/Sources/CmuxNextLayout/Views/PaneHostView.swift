@@ -112,7 +112,7 @@ final class PaneHostView: NSView, RestingPlacement {
                     heldContentSize = nil
                     return
                 }
-                // The content takes its rest size for the whole spring (`contentFrame`), a handoff's too: its first frame
+                // The content takes its rest size for the whole spring (`contentFrame`): its first frame
                 // is already at its final size, so nothing replays a resize at the landing.
                 heldContentSize = restContentSize ?? content.frame.size
                 heldTakesNextRest = false

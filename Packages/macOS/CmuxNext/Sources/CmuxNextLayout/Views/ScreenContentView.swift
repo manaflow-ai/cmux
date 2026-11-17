@@ -259,12 +259,6 @@ final class ScreenContentView: NSView {
         let animate = animated && !context.reduceMotion && bounds.width > 0 && !structural
         // `ui.paneAnimations` (default on): a released divider springs only with it on.
         let splits = animate && context.animatesPaneLayout
-        // A pane that hands what it shows to the pane this change adds (`LayoutModel.handOffContent`): a pane added on
-        // the giver's screen spends it.
-        if structural, let giver = context.model.pendingContentHandoff, before.panes[giver] != nil,
-           baseGeometry.panes.keys.contains(where: { before.panes[$0] == nil }) {
-            context.model.contentHandoff = nil
-        }
         let targetsBefore = (panes: paneFrames.mapValues(\.targetRect), dividers: dividerFrames.mapValues(\.targetRect)) // M4
         // An animated width or ratio change (a preset, an equalize) is carried: its camera may re-anchor (M8).
         // A viewport resize under a spring (`rebasing`) is not: each frame moves with its target, and putting it
