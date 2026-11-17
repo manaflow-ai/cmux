@@ -50,6 +50,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 32: `cmux_shim_browser_resize_fence(browser, port, timeout ms, done, context)` (1 when the fork took
+    /// the fence); nil in an older shim.
+    let browserResizeFence: (@convention(c) (Int32, UInt32, Int32,
+                                             (@convention(c) (UnsafeMutableRawPointer?, Int32) -> Void)?,
+                                             UnsafeMutableRawPointer?) -> Int32)?
     /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
     let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
@@ -357,6 +362,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
         browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
