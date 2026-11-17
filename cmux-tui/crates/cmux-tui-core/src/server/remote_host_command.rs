@@ -175,10 +175,22 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     Ok(answer)
 }
 
-pub(super) fn config(mux: &Mux, client: u64, update: Value) -> anyhow::Result<Value> {
+/// `remote-host-config`: the switches of the request, each one optional.
+pub(super) fn config(
+    mux: &Mux,
+    client: u64,
+    computer_use: Option<bool>,
+    screen_sharing: Option<bool>,
+    headless: Option<bool>,
+) -> anyhow::Result<Value> {
     if !caller(mux, client)?.verified_app {
         return Err(forbidden("switches come from the cmux app").into());
     }
+    let update = json!({
+        "computer_use": computer_use,
+        "screen_sharing": screen_sharing,
+        "headless": headless,
+    });
     mux.control_clients.remote_host.set_config(&update).map_err(unavailable)
 }
 
