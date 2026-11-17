@@ -2952,7 +2952,7 @@ class BlacksmithPrRescue(unittest.TestCase):
                 continue
             if isinstance(rerun, str) and RERUN_BLACKSMITH_MACOS.match(rerun):
                 moved.add(where.split(" ", 2)[1].rstrip(":"))
-        for name in ("fast-tier", "swift-test", "daemon-test", "cmux-scheme-compile"):
+        for name in ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile"):
             self.assertIn(name, moved)
 
 class _RetryPlacedNeeds(_RerunPlacedNeeds):
