@@ -189,7 +189,9 @@ final class CEFPrewarmSession {
     }
 
     /// Runs `end` on a background queue when process `pid` exits; the returned source must be kept for the watch to last.
-    static func watchExit(of pid: pid_t, then end: @escaping @Sendable () -> Void) -> any DispatchSourceProcess {
+    /// Nonisolated: in this main-actor module the handler would otherwise be a main-actor closure, and the runtime's
+    /// isolation check trapped on the background queue as the parent ended (NIGHTLY 4401252575901, 2026-11-16).
+    nonisolated static func watchExit(of pid: pid_t, then end: @escaping @Sendable () -> Void) -> any DispatchSourceProcess {
         // A process source: the only exit signal for a process this one did not start (the pre-warm's main thread is Chromium's).
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
         source.setEventHandler { end() }
