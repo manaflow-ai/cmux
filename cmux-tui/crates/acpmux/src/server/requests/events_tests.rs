@@ -333,3 +333,65 @@ fn a_page_cuts_an_oversized_tool_output_and_the_record_reads_whole_on_its_own() 
     assert_eq!(update["content"][0]["content"]["text"].as_str(), Some(log.as_str()));
     assert!(update.pointer("/_meta/acpmux/cut").is_none());
 }
+
+/// A chat of three turns, five records each: its prompt (seq 1, 6, 11), then four agent records.
+/// Turn 2's prompt is followed by a steer into it (seq 12), which starts no turn.
+fn three_turns() -> Arc<Hub> {
+    let store = MemoryStore::default();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "lastSeq": 15, "eventCount": 15,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    for seq in 1..=15u64 {
+        let (dir, kind, msg) = match seq {
+            1 | 6 | 11 => ("mux", "user_message", json!({"text": format!("prompt {seq}")})),
+            12 => ("mux", "user_message", json!({"text": "also", "steer": true})),
+            _ => ("in", "agent_message_chunk", json!({"text": format!("part {seq}")})),
+        };
+        let record =
+            EventRecord { seq, at: seq, dir: dir.into(), kind: kind.into(), msg, host_seq: None };
+        store.append("c", &record).unwrap();
+    }
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    Hub::new_deferred(config, Box::new(store), crate::mailbox::Mailbox::memory())
+}
+
+fn older(hub: &Arc<Hub>, before: u64, limit: u64, whole_turns: bool) -> Value {
+    let mut params = json!({"sessionId": "c", "beforeSeq": before, "limit": limit});
+    if whole_turns {
+        params["wholeTurns"] = json!(true);
+    }
+    handle(hub, method::MUX_EVENTS, &params, None).unwrap()
+}
+
+/// The design's step 2 (docs/design/agent-transcript-clean-slate.md: "an older page is 1 read"):
+/// with `wholeTurns` an older page begins at its oldest turn start, so the pane lands each read
+/// whole and pages on from its first seq, carrying nothing to its next ask.
+#[test]
+fn a_whole_turns_older_page_begins_at_its_oldest_turn_start() {
+    let hub = three_turns();
+    // As before: the newest seven records, the end of turn 1 first.
+    assert_eq!(seqs(&older(&hub, 16, 7, false)), [9, 10, 11, 12, 13, 14, 15]);
+    // Whole turns: turn 2 from its prompt; turn 1's end waits for the next page. Its steer at 12
+    // starts no turn.
+    let page = older(&hub, 16, 7, true);
+    assert_eq!(seqs(&page), [11, 12, 13, 14, 15]);
+    assert_eq!(page["hasMore"], true);
+    assert_eq!(page["pageThrough"], 15);
+    // The next page reads on from the first seq: turn 1, whole.
+    let page = older(&hub, 11, 7, true);
+    assert_eq!(seqs(&page), [6, 7, 8, 9, 10]);
+    assert_eq!(page["hasMore"], true);
+    // The log's first page has nothing older to end a turn: it goes whole.
+    let page = older(&hub, 6, 7, true);
+    assert_eq!(seqs(&page), [1, 2, 3, 4, 5]);
+    assert_eq!(page["hasMore"], false);
+    // A page inside one long turn holds no turn start (the steer is not one): it goes whole.
+    assert_eq!(seqs(&older(&hub, 16, 4, true)), [12, 13, 14, 15]);
+    // A page that begins at a turn start is as it was.
+    assert_eq!(seqs(&older(&hub, 16, 5, true)), [11, 12, 13, 14, 15]);
+}
