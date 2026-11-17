@@ -120,6 +120,7 @@ pub(crate) fn manifest(id: &str, version: &str, scopes: Value) -> String {
     json!({
         "manifestVersion": 2, "id": id, "name": "Hello", "version": version,
         "description": "Says hello", "engines": {"cmux": "^2.0"},
+        "repository": format!("https://github.com/{}/hello", id.split('/').next().unwrap_or_default()),
         "runtime": {"main": "main.js"}, "files": ["main.js"], "scopes": scopes,
         "implements": {"cmux.section/1": {"export": "render", "title": "Hello"}}
     })

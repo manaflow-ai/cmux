@@ -267,7 +267,9 @@ impl Refs {
     /// (`<sha>\t<ref>` lines) ref list.
     pub fn parse(body: &[u8]) -> Result<Self, String> {
         let mut raw: Vec<(String, String)> = Vec::new();
-        let smart = body.get(..4).is_some_and(|head| head.iter().all(u8::is_ascii_hexdigit));
+        // A dumb ref list is `<40 hex>\t<ref>` lines; a smart one starts with a pkt-line length.
+        let smart = body.get(..4).is_some_and(|head| head.iter().all(u8::is_ascii_hexdigit))
+            && body.get(40) != Some(&b'\t');
         if smart {
             let mut rest = body;
             while let Some((head, after)) = rest.split_at_checked(4) {
