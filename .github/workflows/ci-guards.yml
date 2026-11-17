@@ -1475,6 +1475,7 @@ jobs:
           python3 tests/test_nightly_next_canary_runs_installed_app.py
           python3 tests/test_nightly_next_canary_cadence.py
           python3 tests/test_nightly_next_canary_feed_origin.py
+          python3 tests/test_nightly_next_canary_harness_worktree.py
 
       - name: Validate the cmux NEXT DEV publisher cancels only superseded runs
         if: ${{ matrix.group == 'release-notary' }}
