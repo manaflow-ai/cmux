@@ -60,8 +60,13 @@ export default function CmuxCloudDpaPage() {
         requires other processing, Company tells Customer before that
         processing, unless that law forbids it. Company tells Customer
         immediately if it believes that an instruction breaks data protection
-        law. Company does not sell Customer Personal Data and does not use it
-        to train generalized AI models.
+        law. Company does not follow an instruction that would break the
+        Google API Services User Data Policy or the Slack API Terms, and tells
+        Customer. Company does not sell Customer Personal Data and does not use
+        it to train generalized AI models. Company keeps usage records (counts,
+        sizes, times, models, and costs, with account identifiers) as a
+        controller for billing, security, and service improvement; these
+        records contain no content.
       </p>
 
       <h2>3. Customer&rsquo;s duties</h2>
@@ -78,22 +83,28 @@ export default function CmuxCloudDpaPage() {
       <h2>4. Confidentiality and security</h2>
       <p>
         Company makes sure that its staff who can access Customer Personal Data
-        are bound by confidentiality. Company keeps the technical and
-        organizational security measures in the Security annex below.
+        are bound by confidentiality. Company uses appropriate technical and
+        organizational measures to give a level of security appropriate to the
+        risk, as Article 32 GDPR requires, including at least the measures in
+        the Security annex below. Company can change the measures but does not
+        lower the overall level of security.
       </p>
 
       <h2>5. Subprocessors</h2>
       <p>
         Customer gives Company general authorization to use subprocessors. The
-        current subprocessors are on the{" "}
+        current subprocessors are in the list &ldquo;Subprocessors&rdquo; on
+        the{" "}
         <a href="https://cmux.com/cmux-cloud/subprocessors">subprocessor page</a>.
         Company binds each subprocessor by a written contract with the same
         data protection duties as this DPA in substance, and Company stays fully
-        liable to Customer for each subprocessor&rsquo;s performance. Company
+        liable to Customer for each subprocessor&rsquo;s performance. [LEGAL
+        REVIEW: confirm before publication that a data processing agreement is
+        in place with each listed subprocessor.] Company
         gives notice of a new subprocessor at least [LEGAL REVIEW: proposed 30]
         days before it starts to process Customer Personal Data, by an update
-        of the subprocessor page and an email to Customer&rsquo;s notice
-        address. Customer can object in writing in that time on reasonable data
+        of the subprocessor page and an email to Customer&rsquo;s team
+        administrators. Customer can object in writing in that time on reasonable data
         protection grounds. If the parties cannot solve the objection, Customer
         can end its use of the affected service.
       </p>
@@ -131,8 +142,12 @@ export default function CmuxCloudDpaPage() {
 
       <h2>8. Return and deletion</h2>
       <p>
-        While Customer&rsquo;s account is active, Customer can delete Customer
-        Personal Data in cmux Cloud and can ask for a copy of it. At
+        While Customer&rsquo;s account is active, Customer can delete
+        conversations, files, and memory in cmux Cloud and can ask for a copy of
+        Customer Personal Data. This does not delete the model call records and
+        the archive copy of agent conversations; Company deletes those within
+        30 days after Customer&rsquo;s written request to founders@cmux.com.
+        [LEGAL REVIEW: owner decision on a fixed limit for these records.] At
         Customer&rsquo;s choice, Company returns (gives a copy of) or deletes
         Customer Personal Data when the account ends. Until Company deletes the
         data from its live systems, Customer can ask for a copy. Company deletes
@@ -185,7 +200,8 @@ export default function CmuxCloudDpaPage() {
         reasonable and appropriate steps to make sure that Company uses the
         data as this DPA says, and, after notice, to stop and correct
         unauthorized use. Company helps Customer answer consumer requests as
-        Section 6 says.
+        Section 6 says. Customer tells Company of each consumer request that
+        Company must act on and gives the information that Company needs.
       </p>
 
       <h2>Annex: details of processing</h2>
@@ -224,7 +240,7 @@ export default function CmuxCloudDpaPage() {
       <h2>Security annex</h2>
       <ul>
         <li>Encryption of data in transit.</li>
-        <li>Encrypted storage of access credentials in a secrets vault; credentials are not given to AI models.</li>
+        <li>Encrypted storage of access credentials in a secrets vault; systems designed so that credentials are not given to AI models.</li>
         <li>Isolated cloud machines for agent work.</li>
         <li>Access controls for staff.</li>
         <li>Audit logs of actions, approvals, and policy decisions.</li>

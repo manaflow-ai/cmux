@@ -15,6 +15,9 @@ export const metadata: Metadata = {
 };
 
 type Subprocessor = {
+  /** `content`: processes the content that we process for teams (a subprocessor under the DPA). `controller`:
+   * account, billing, and usage data, for which we are the controller (not a subprocessor). */
+  readonly group: "content" | "controller";
   readonly category: string;
   readonly name: string;
   readonly purpose: string;
@@ -24,108 +27,126 @@ type Subprocessor = {
 // [confirm]: not yet confirmed against contracts and production configuration.
 const subprocessors: readonly Subprocessor[] = [
   {
+    group: "content",
     category: "Cloud hosting and storage",
     name: "Cloudflare, Inc.",
     purpose: "Runs the cmux.cloud service, stores files and conversation archives, serves the web app, and runs open AI models (Workers AI).",
     location: "United States and global edge network",
   },
   {
+    group: "content",
     category: "Cloud hosting",
     name: "Vercel, Inc.",
     purpose: "Hosts the cmux.com website and the cloud machine dashboard.",
     location: "United States",
   },
   {
+    group: "content",
     category: "Database",
     name: "PlanetScale, Inc.",
     purpose: "Stores account, team, conversation, meeting, calendar, and billing records.",
     location: "United States",
   },
   {
+    group: "controller",
     category: "Analytics database",
     name: "ClickHouse, Inc. [confirm]",
     purpose: "Stores usage and cost records.",
     location: "United States [confirm]",
   },
   {
+    group: "content",
     category: "Cloud machines",
     name: "Freestyle [confirm legal entity]",
     purpose: "Runs the cloud machines where agents work and the cloud VMs that you create.",
     location: "United States [confirm]",
   },
   {
+    group: "content",
     category: "Cloud machines",
     name: "Daytona [confirm legal entity]",
     purpose: "Runs cloud machines when a team chooses this provider.",
     location: "[confirm]",
   },
   {
+    group: "content",
     category: "AI model providers",
     name: "Vercel, Inc. (AI Gateway)",
     purpose: "Routes AI model requests to the model providers below.",
     location: "United States",
   },
   {
+    group: "content",
     category: "AI model providers",
     name: "OpenRouter, Inc.",
     purpose: "Routes AI model requests when the primary route is not available.",
     location: "United States",
   },
   {
+    group: "content",
     category: "AI model providers",
     name: "OpenAI, L.L.C.",
     purpose: "AI models, and speech-to-text for audio and video files.",
     location: "United States",
   },
   {
+    group: "content",
     category: "AI model providers",
     name: "Anthropic, PBC; Google LLC; and other model providers reached through the routes above [confirm list]",
     purpose: "AI models.",
     location: "United States [confirm]",
   },
   {
+    group: "content",
     category: "Meeting recording service",
     name: "Recall.ai, Inc.",
     purpose: "Joins meetings as the notetaker, records their audio, and makes the transcript.",
     location: "United States",
   },
   {
+    group: "controller",
     category: "Sign-in service",
     name: "Hexclave (Stack Auth) [confirm legal entity]",
     purpose: "Sign-in, sessions, and account management.",
     location: "United States [confirm]",
   },
   {
+    group: "controller",
     category: "Payment processor",
     name: "Stripe, Inc.",
     purpose: "Payments, credits, and invoices.",
     location: "United States",
   },
   {
+    group: "controller",
     category: "Product analytics",
     name: "PostHog, Inc.",
     purpose: "Product usage analytics.",
     location: "United States",
   },
   {
+    group: "content",
     category: "Error monitoring",
     name: "Functional Software, Inc. (Sentry)",
     purpose: "Error reports and performance traces for cmux.cloud, the cmux.com website, and the apps.",
     location: "United States",
   },
   {
+    group: "content",
     category: "Logs and traces",
     name: "Axiom, Inc.",
     purpose: "Stores service logs and traces of cmux.cloud.",
     location: "United States [confirm]",
   },
   {
+    group: "content",
     category: "Secrets vault",
     name: "Microsoft Corporation (Azure)",
     purpose: "Runs the vault that stores encrypted access credentials for connected tools.",
     location: "United States (West US)",
   },
   {
+    group: "controller",
     category: "Email delivery",
     name: "[confirm provider]",
     purpose: "Sends service email.",
@@ -144,8 +165,10 @@ export default function CmuxCloudSubprocessorsPage() {
         Manaflow, Inc. uses the service providers below to provide cmux Cloud:
         the hosted service at <a href="https://cmux.cloud">cmux.cloud</a> and
         the cloud machines that you create from the cmux app or the cmux.com
-        dashboard. Except for AI model providers, they process personal data
-        only for us, to provide their service, under written contracts. Our{" "}
+        dashboard. Except for AI model providers and our payment processor, they
+        process personal data only for us, to provide their service, under
+        written contracts. [LEGAL REVIEW: confirm a data processing agreement
+        with each listed provider before publication.] Our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         and our{" "}
         <a href="https://cmux.com/cmux-cloud/dpa">Data Processing Addendum</a>{" "}
@@ -166,14 +189,37 @@ export default function CmuxCloudSubprocessorsPage() {
         that provider is your provider, not ours.
       </p>
 
-      <h2>Service providers</h2>
+      <p>Last updated: [LEGAL REVIEW: publication date].</p>
+
+      <h2>Subprocessors</h2>
+      <p>They process the content that we process for teams, under the Data Processing Addendum.</p>
       <ul>
-        {subprocessors.map((entry) => (
-          <li key={`${entry.category}-${entry.name}`}>
-            <strong>{entry.name}</strong> ({entry.category}): {entry.purpose}{" "}
-            Location: {entry.location}.
-          </li>
-        ))}
+        {subprocessors
+          .filter((entry) => entry.group === "content")
+          .map((entry) => (
+            <li key={`${entry.category}-${entry.name}`}>
+              <strong>{entry.name}</strong> ({entry.category}): {entry.purpose}{" "}
+              Location: {entry.location}.
+            </li>
+          ))}
+      </ul>
+
+      <h2>Other service providers</h2>
+      <p>
+        They process account, billing, and usage data, for which we are the
+        controller. Our payment processor also uses payment data for its own
+        purposes, such as fraud prevention and its legal duties, under its own
+        privacy policy.
+      </p>
+      <ul>
+        {subprocessors
+          .filter((entry) => entry.group === "controller")
+          .map((entry) => (
+            <li key={`${entry.category}-${entry.name}`}>
+              <strong>{entry.name}</strong> ({entry.category}): {entry.purpose}{" "}
+              Location: {entry.location}.
+            </li>
+          ))}
       </ul>
 
       <h2>Changes to this list</h2>

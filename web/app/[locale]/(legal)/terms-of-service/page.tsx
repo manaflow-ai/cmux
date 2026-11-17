@@ -20,8 +20,9 @@ export default async function TermsOfServicePage() {
         The website located at{" "}
         <a href="https://cmux.com">cmux.com</a> (the
         &ldquo;Site&rdquo;) and the cmux desktop application (the
-        &ldquo;Application&rdquo;) are copyrighted works belonging to Manaflow
-        (&ldquo;Company&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;, and
+        &ldquo;Application&rdquo;) are copyrighted works belonging to Manaflow, Inc., a [LEGAL REVIEW:
+        state of incorporation] corporation, 18428 Vantage Pointe Dr, Rowland
+        Heights, CA 91748-5142, United States (&ldquo;Company&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;, and
         &ldquo;we&rdquo;). These Terms of Use (these &ldquo;Terms&rdquo;) set
         forth the legally binding terms and conditions that govern your use of
         the Site and Application.
@@ -140,7 +141,7 @@ export default async function TermsOfServicePage() {
         TO THE MAXIMUM EXTENT PERMITTED BY LAW, OUR LIABILITY TO YOU FOR ANY
         DAMAGES WILL AT ALL TIMES BE LIMITED TO THE GREATER OF FIFTY US DOLLARS
         ($50) OR THE AMOUNTS YOU PAID TO COMPANY IN THE 12 MONTHS BEFORE THE
-        CLAIM.
+        EVENT THAT CAUSED THE CLAIM.
       </p>
 
       <h2>7. Term and Termination</h2>
@@ -221,13 +222,12 @@ export default async function TermsOfServicePage() {
 
       <h3>Your content and connected tools</h3>
       <p>
-        You keep ownership of the content you and your team put into or create
+        As between you and Company, you own the content you and your team put into or create
         with cmux Cloud, including messages, files, code, meeting transcripts,
         notes, memory, and agent output (&ldquo;Your Content&rdquo;). You grant
         Company a worldwide, non-exclusive license to host, copy, process,
         transmit, and display Your Content only as necessary to provide,
-        secure, and support cmux Cloud for you, and to make aggregated,
-        de-identified usage data, as our{" "}
+        secure, and support cmux Cloud for you, as our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         describes. For personal data in Your Content, our{" "}
         <a href="https://cmux.com/cmux-cloud/dpa">Data Processing Addendum</a>{" "}
@@ -238,7 +238,10 @@ export default async function TermsOfServicePage() {
         lists them.
         You represent that you have the rights and permissions necessary to
         put Your Content into cmux Cloud and to connect each tool you connect.
-        Your use of a connected tool, such as Slack, Google, GitHub, or Linear,
+        Company can make and use statistics about the use of cmux Cloud (such
+        as counts, sizes, durations, models, and costs) that contain none of
+        Your Content and identify no person and no customer. Your use of a
+        connected tool, such as Slack, Google, GitHub, or Linear,
         is also subject to that tool&rsquo;s own terms.
       </p>
 
@@ -284,8 +287,8 @@ export default async function TermsOfServicePage() {
         and you must tell participants who cannot see them, such as people who
         join by phone. You must check that the notice appeared. If a participant
         objects and the law requires that participant&rsquo;s consent, you must
-        remove the notetaker and delete the transcript and notes of that
-        meeting. The notetaker records for you: Company records, transcribes,
+        remove the notetaker, delete the transcript and notes of that meeting,
+        and ask us at founders@cmux.com to delete our remaining copies. The notetaker records for you: Company records, transcribes,
         and stores a meeting only as your service provider.
       </p>
       <p>
@@ -296,9 +299,10 @@ export default async function TermsOfServicePage() {
         team sent, including a claim that a notice or consent that the law
         requires was not given. This does not apply to the extent that the
         claim was caused by Company&rsquo;s breach of these Terms or of the
-        Data Processing Addendum, or by a notice, deletion, or security
-        function of cmux Cloud that did not work as our Privacy Policy
-        describes. Company will promptly tell you of a covered claim, let you
+        Data Processing Addendum, or by a defect in cmux Cloud that stopped
+        a notice, a deletion, or a security function from working. A notice
+        that the meeting&rsquo;s or the platform&rsquo;s settings stopped is
+        not a defect. Company will promptly tell you of a covered claim, let you
         control the defense and settlement, and give reasonable help at your
         cost. You may not settle a claim in a way that admits fault for
         Company or puts a duty on Company without Company&rsquo;s consent.
@@ -320,14 +324,27 @@ export default async function TermsOfServicePage() {
 
       <h3>Fees, credits, and spend limits</h3>
       <p>
-        cmux Cloud charges for usage, such as AI model use, transcription,
-        and cloud machine time, at the prices shown in cmux Cloud or on its
-        pricing page when the usage occurs. Usage is paid from credits that
+        The service at cmux.cloud charges for usage, such as AI model use,
+        transcription, and cloud machine time, at the prices shown in cmux
+        Cloud or on its pricing page when the usage occurs. Usage is paid from credits that
         your team buys through our payment processor. Prices do
         not include taxes, and you are responsible for applicable taxes.
         Credits are not refundable, except where the law requires a refund.
         We give at least [LEGAL REVIEW: proposed 30] days&rsquo; notice of a
         price increase; a change applies to usage after it takes effect.
+      </p>
+      <p>
+        Cloud machine plans. If you buy a plan for the cloud machines that you
+        create from the Application or the cmux.com dashboard, you pay the plan
+        price shown at checkout in advance for each billing period (a month or
+        a year). The plan renews for the same period at the price then shown
+        for your plan until you cancel. You can cancel at any time in your
+        billing settings or by a message to{" "}
+        <a href="mailto:founders@cmux.com">founders@cmux.com</a>. The
+        cancellation takes effect at the end of the period that you paid for.
+        We do not refund a period that started, except where the law requires a
+        refund. [LEGAL REVIEW: confirm the cancellation path and the refund
+        rule against the checkout.]
       </p>
       <p>
         cmux Cloud has no spend limit unless a person on your team sets one.
@@ -351,10 +368,13 @@ export default async function TermsOfServicePage() {
 
       <h3>Data export and deletion</h3>
       <p>
-        While your team&rsquo;s account is active, you can delete Your Content
-        in cmux Cloud and ask us at{" "}
+        While your team&rsquo;s account is active, you can delete
+        conversations, files, and memory in cmux Cloud and ask us at{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a> for a copy of
-        it. Until we delete Your Content from our live systems, you can ask
+        Your Content. This does not delete the model call records and the
+        archive copy of agent conversations; we delete those within 30 days
+        after your written request to founders@cmux.com. [LEGAL REVIEW: owner
+        decision on a fixed limit for these records.] Until we delete Your Content from our live systems, you can ask
         for a copy. We delete Your Content from our live systems 30 days after
         the account ends, or sooner if you ask, and from backups within 35 days
         after the account ends, as our{" "}
@@ -365,13 +385,13 @@ export default async function TermsOfServicePage() {
 
       <h3>Ending the account</h3>
       <p>
-        You can end your team&rsquo;s account at any time in cmux Cloud or by a
-        message to{" "}
+        You can end your team&rsquo;s account at any time by a message to{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a>. We can end
         your team&rsquo;s account if you materially break these Terms and do
         not fix the breach within 30 days after our notice, at once for illegal
         use or a security risk, or for any other reason with 30 days&rsquo;
-        notice. For cmux Cloud, the modification paragraph of Section 1 and
+        notice. [LEGAL REVIEW: add &ldquo;in cmux Cloud&rdquo; as a way to end
+        the account when the control ships.] For cmux Cloud, the modification paragraph of Section 1 and
         Section 7 apply only as this subsection and &ldquo;Suspension&rdquo;
         say. When the account ends, your right to use cmux Cloud ends, you pay
         for usage up to that time, and &ldquo;Data export and deletion&rdquo;
@@ -384,18 +404,25 @@ export default async function TermsOfServicePage() {
       <p>
         For cmux Cloud, these Terms are governed by the laws of the State of
         California, without its conflict of laws rules. [LEGAL REVIEW: confirm
-        the governing law and the arbitration seat.] Nothing in Section 8
+        the governing law, the arbitration seat, and the court for claims that
+        are not arbitrated.] Nothing in Section 8
         stops a person from using their privacy rights, from making a complaint
         to a data protection authority or another government agency, or from
         asking a court for an injunction against misuse of personal data,
-        confidential information, or intellectual property. We can change this
-        Section 10. For a material change, we tell your team&rsquo;s
+        confidential information, or intellectual property. We can change these
+        Terms as they apply to cmux Cloud. A change does not lower the
+        protection of the Data Processing Addendum for data that we already
+        hold. For a material change, we tell your team&rsquo;s
         administrators by email or in cmux Cloud at least 30 days before the
         change takes effect. If you use cmux Cloud after that date, you accept
-        the change. For cmux Cloud, Section 3 does not apply to the extent that
-        a claim was caused by Company&rsquo;s breach of these Terms or of the
-        Data Processing Addendum, and Section 6 also applies to claims under
-        the Data Processing Addendum, as far as the law allows. This Section 10, the rest of these Terms, the Data
+        the change. For cmux Cloud, Section 3 does not cover a claim about a
+        meeting recording, transcript, or notes; only the indemnity in
+        &ldquo;Meeting recording and consent&rdquo; covers it. The exclusions
+        and the procedure of that indemnity (notice, control of the defense,
+        settlement) also apply to Section 3. In Sections 1 to 9 as they apply
+        to cmux Cloud, &ldquo;you&rdquo; has the meaning in &ldquo;Teams and
+        accounts&rdquo;. Section 6 also applies to claims under the Data
+        Processing Addendum, as far as the law allows. This Section 10, the rest of these Terms, the Data
         Processing Addendum, and a separate written agreement, if there is one,
         are the entire agreement about cmux Cloud.
       </p>
@@ -407,7 +434,7 @@ export default async function TermsOfServicePage() {
       </p>
 
       <p>
-        Copyright &copy; {currentYear} Manaflow. All rights reserved.
+        Copyright &copy; {currentYear} Manaflow, Inc. All rights reserved.
       </p>
     </>
   );
