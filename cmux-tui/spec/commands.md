@@ -11570,9 +11570,16 @@ the verified app's only (`origin.forbidden`).
 
 ### remote-host-config
 
-`{"cmd":"remote-host-config","computer_use":B,"screen_sharing":B,"headless":B}`,
+`{"cmd":"remote-host-config","computer_use":B,"screen_sharing":B,"headless":B,"app_permissions":{"screen_recording":B,"accessibility":B}}`,
 each optional. The verified app's switches; the daemon saves them and starts or
-stops the host.
+stops the host. `app_permissions` is the app's own Screen Recording
+(`CGPreflightScreenCaptureAccess()`) and Accessibility (`AXIsProcessTrusted()`),
+the grants that matter in a build without cmux Remote (Release and NIGHTLY,
+`bundled: false`), where the app captures the screen itself. The daemon keeps
+them in memory only (never in `config.json`) and shows them as
+`remote-host-status` `app.permissions`; a call that sets no switch never saves,
+starts or stops anything. The app sends them at each daemon connect and when it
+becomes active.
 
 ### remote-host-app
 
