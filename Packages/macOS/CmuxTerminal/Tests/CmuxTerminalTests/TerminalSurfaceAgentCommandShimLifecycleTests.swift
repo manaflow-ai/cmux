@@ -1,6 +1,8 @@
 import AppKit
+import CmuxTerminalCore
 import Foundation
 import GhosttyKit
+import os
 import Testing
 @testable import CmuxTerminal
 
@@ -16,9 +18,125 @@ private actor AgentCommandShimSelectionProbe {
     }
 }
 
+private final class AgentCommandShimRemovalRecorder: Sendable {
+    private let state = OSAllocatedUnfairLock<[(surfaceId: UUID, rootDirectory: URL)]>(initialState: [])
+
+    var removals: [(surfaceId: UUID, rootDirectory: URL)] {
+        state.withLock { $0 }
+    }
+
+    func record(surfaceId: UUID, rootDirectory: URL) {
+        state.withLock { $0.append((surfaceId, rootDirectory)) }
+    }
+}
+
 @MainActor
 @Suite
 struct TerminalSurfaceAgentCommandShimLifecycleTests {
+    @Test
+    func permanentCloseRemovesTheSurfaceShims() async {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let rootDirectory = URL(fileURLWithPath: "/tmp/cmux-agent-shim-close-tests", isDirectory: true)
+        let recorder = AgentCommandShimRemovalRecorder()
+        let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimRootDirectory: rootDirectory,
+            installAgentCommandShims: { _, surfaceId, rootDirectory, _ in
+                TerminalSurfaceAgentCommandShimSet(
+                    directoryPath: rootDirectory
+                        .appendingPathComponent("cmux-cli-shims/\(surfaceId.uuidString)").path,
+                    shims: []
+                )
+            },
+            isExecutableFile: { _ in false },
+            removeAgentCommandShims: { recorder.record(surfaceId: $0, rootDirectory: $1) }
+        )
+        let surface = makeSurface(
+            nativeView: nativeView,
+            paneHost: paneHost,
+            runtimeFilesystem: runtimeFilesystem
+        )
+        _ = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+        _ = await surface.agentCommandShimInstallTask?.value
+        _ = await surface.agentCommandShimCompletionTask?.value
+        #expect(surface.agentCommandShims != nil)
+
+        surface.removeAgentCommandShimsForPermanentClose()
+
+        #expect(recorder.removals.map(\.surfaceId) == [surface.id])
+        #expect(recorder.removals.map(\.rootDirectory) == [rootDirectory])
+        // A pane reopened under the same surface must install again.
+        #expect(surface.agentCommandShims == nil)
+        let reopened = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+        #expect(!reopened.isReady)
+        _ = await surface.agentCommandShimInstallTask?.value
+        _ = await surface.agentCommandShimCompletionTask?.value
+    }
+
+    @Test
+    func permanentCloseLeavesAnInstallStillRunningToTheSweep() async {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let probe = AgentCommandShimInstallProbe()
+        let recorder = AgentCommandShimRemovalRecorder()
+        let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimRootDirectory: URL(
+                fileURLWithPath: "/tmp/cmux-agent-shim-close-tests",
+                isDirectory: true
+            ),
+            installAgentCommandShims: { _, _, _, _ in
+                await probe.install()
+                return nil
+            },
+            isExecutableFile: { _ in false },
+            removeAgentCommandShims: { recorder.record(surfaceId: $0, rootDirectory: $1) }
+        )
+        let surface = makeSurface(
+            nativeView: nativeView,
+            paneHost: paneHost,
+            runtimeFilesystem: runtimeFilesystem
+        )
+        _ = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+        await probe.waitForInstallationCount(1)
+        let installTask = surface.agentCommandShimInstallTask
+
+        // Removing now would lose to the install, which writes the directory
+        // when it finishes.
+        surface.removeAgentCommandShimsForPermanentClose()
+
+        #expect(recorder.removals.isEmpty)
+        await probe.releaseAll()
+        _ = await installTask?.value
+        _ = await surface.agentCommandShimCompletionTask?.value
+    }
+
+    @Test(arguments: [TerminalSurfaceIOMode.manual, .manualMirror])
+    func permanentCloseOfAManualSurfaceRemovesNothing(mode: TerminalSurfaceIOMode) {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let recorder = AgentCommandShimRemovalRecorder()
+        let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-unused-manual-shims"),
+            installAgentCommandShims: { _, _, _, _ in nil },
+            isExecutableFile: { _ in false },
+            removeAgentCommandShims: { recorder.record(surfaceId: $0, rootDirectory: $1) }
+        )
+        let surface = makeSurface(
+            nativeView: nativeView, paneHost: paneHost,
+            runtimeFilesystem: runtimeFilesystem, ioMode: mode
+        )
+
+        surface.removeAgentCommandShimsForPermanentClose()
+
+        #expect(recorder.removals.isEmpty)
+    }
+
     @Test
     func cancellationKeepsOneInstallerRegisteredUntilCompletion() async {
         let nativeView = FakeTerminalSurfaceNativeView(

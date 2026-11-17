@@ -18,7 +18,18 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
+    /// Removes the per-surface agent command shims of a surface whose pane
+    /// has closed for good.
+    public let removeAgentCommandShims:
+        @Sendable (
+            _ surfaceId: UUID,
+            _ rootDirectory: URL
+        ) -> Void
+
     /// Creates the runtime filesystem seam with a policy-aware shim installer.
+    ///
+    /// `removeAgentCommandShims` defaults to doing nothing, which suits tests
+    /// and embedders whose installer writes nothing to disk.
     public init(
         agentCommandShimRootDirectory: URL,
         installAgentCommandShims:
@@ -28,11 +39,17 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 _ rootDirectory: URL,
                 _ enabledCommands: Set<TerminalSurfaceAgentCommand>
             ) async -> TerminalSurfaceAgentCommandShimSet?,
-        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
+        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
+        removeAgentCommandShims:
+            @escaping @Sendable (
+                _ surfaceId: UUID,
+                _ rootDirectory: URL
+            ) -> Void = { _, _ in }
     ) {
         self.agentCommandShimRootDirectory = agentCommandShimRootDirectory
         self.installAgentCommandShims = installAgentCommandShims
         self.isExecutableFile = isExecutableFile
+        self.removeAgentCommandShims = removeAgentCommandShims
     }
 
     /// Creates the runtime filesystem seam with an installer that ignores
