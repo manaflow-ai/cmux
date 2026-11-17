@@ -6425,6 +6425,22 @@ class GuardGroupPerStep(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "Validate the PR design spec check"):
             self.judge(github)
 
+    def test_an_unknown_replay_step_is_resolved_against_the_base_run(self):
+        github = GuardGroupGitHub(
+            ["guard red step (unknown): Lint every workflow",
+             "0 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["guard red step (base): Lint every workflow",
+             "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed"])
+        self.assertIn(f"excused '{GUARD_GROUP}'", self.judge(github))
+
+    def test_an_unknown_replay_step_is_still_refused_when_the_base_is_green(self):
+        github = GuardGroupGitHub(
+            ["guard red step (unknown): Lint every workflow",
+             "0 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["0 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"])
+        with self.assertRaisesRegex(excuse.Refused, "Lint every workflow"):
+            self.judge(github)
+
     def test_a_step_only_quoted_in_a_failing_steps_output_is_no_base_evidence(self):
         github = GuardGroupGitHub(
             ["guard red step (new): Lint every workflow",
@@ -6453,6 +6469,64 @@ class GuardGroupPerStep(unittest.TestCase):
         github.logs[2] = log(GUARD_GROUP, GUARD_STEP, "guard red step (base): Lint every workflow",
                              "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed")
         with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
+            self.judge(github)
+
+    # feat-cmux-next job 133860622386 (run 44030379505, 2026-11-17 at 8cd2edf828): every red step is echoed as an
+    # `##[error]STEP` annotation, and one guard's name says "timeout". test_reds.TRUNCATED's `[Tt]imeout` read that
+    # annotation as a cut-short run, so every PR with the base's red guard group was refused "a failure no parser names
+    # is never a base red" before guard_group compared its steps (cmux#45075, cmux#44814).
+    RATCHET = "Validate short timeout ratchet"
+    RATCHET_FINDINGS = (
+        f"{RATCHET} :: Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+CatalogCall.swift:"
+        "swift-duration: 1 new short timeout(s); add a reason or remove the timeout",
+        f"{RATCHET} :: cmux-tui/crates/acpmux/src/cli/send_relay.rs:rust-duration: 2 hits, allowlist says 1; "
+        "a new short timeout was added",
+        "Validate test determinism gate :: tests/test_cmux_next_base_merge_carry.py: git-write-without-fixture",
+    )
+
+    def ratchet_lines(self, kind, findings=RATCHET_FINDINGS):
+        steps = [self.RATCHET, "Validate test determinism gate", *findings]
+        return ([f"##[error]{step}" for step in steps] + [f"guard red step ({kind}): {step}" for step in steps])
+
+    def test_a_guard_step_named_timeout_is_no_cut_short_run(self):
+        github = GuardGroupGitHub(
+            [*self.ratchet_lines("new"),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        github.run = pr_graphql(self, [], ["cmux-tui/crates/cmux-tui/src/spare_warm.rs",
+                                           "scripts/cmux-next/cloud-journey.ts"], number=44814)
+        text = self.judge(github)
+        self.assertIn(f"excused '{GUARD_GROUP}'", text)
+        self.assertIn(self.RATCHET, text)
+
+    def test_a_guard_finding_in_a_file_the_pr_changes_is_not_excused(self):
+        github = GuardGroupGitHub(
+            [*self.ratchet_lines("new"),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        github.run = pr_graphql(self, [], ["cmux-tui/crates/acpmux/src/cli/send_relay.rs"], number=44814)
+        with self.assertRaisesRegex(excuse.Refused, r"#44814 changes .*send_relay\.rs"):
+            self.judge(github)
+
+    def test_a_guard_finding_the_pr_changed_is_not_excused(self):
+        # The PR adds a third timeout to a file the base already lists: its finding line differs from the base's.
+        mine = (*self.RATCHET_FINDINGS[:1],
+                f"{self.RATCHET} :: cmux-tui/crates/acpmux/src/cli/send_relay.rs:rust-duration: 3 hits, "
+                "allowlist says 1; a new short timeout was added", *self.RATCHET_FINDINGS[2:])
+        github = GuardGroupGitHub(
+            [*self.ratchet_lines("new", mine),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        github.run = pr_graphql(self, [], ["scripts/x.py"], number=44814)
+        with self.assertRaisesRegex(excuse.Refused, "3 hits"):
+            self.judge(github)
+
+    def test_a_guard_step_that_timed_out_is_still_cut_short(self):
+        github = GuardGroupGitHub(
+            ["##[error]Validate fleet rule lints timed out after 600s", *self.ratchet_lines("new"),
+             "5 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            [*self.ratchet_lines("tip"), "5 guard steps red at the tip"], base_conclusion="failure")
+        with self.assertRaisesRegex(excuse.Refused, "timed out after 600s.*never a base red"):
             self.judge(github)
 
     def test_a_red_outside_the_guard_comparison_is_refused(self):
@@ -6620,6 +6694,282 @@ class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
         self.assertIsNotNone(excuse.RERUN_ASK.search("Could not read the reviews; re-run this check."))
         self.assertIsNotNone(excuse.RERUN_ASK.search("Could not list the changed paths; re-run this check"))
         self.assertIsNone(excuse.RERUN_ASK.search("the check said: please re-run this checker"))
+
+
+class GitHubQuotaRedIsInfra(unittest.TestCase):
+    """A red whose failed steps printed only GitHub's API rate-limit refusal (cmux#44387 at cf31af39, job
+    133700254405: `re-run the runs that deferred to the published tree` could not list its markers) is Infra, a
+    refusal naming the re-run, with the job green on base. Another error beside it keeps the comparison, and a base
+    red the same way still excuses it as the base's."""
+
+    NAME = "re-run the runs that deferred to the published tree"
+    STEP = "Re-run the runs that deferred to this tree"
+    QUOTA = ("##[error]tree f416335316d9 is published, but gh api repos/manaflow-ai/cmux/actions/artifacts?name=x "
+             "failed: gh: API rate limit exceeded for installation ID 175618676. (HTTP 403). Those commits have no "
+             "cmux-tui manifest until their runs are re-run (gh run rerun RUN).")
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def judge(self, *lines, base_red=False):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        base = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
+        if base_red:
+            github.logs[2] = log(self.NAME, self.STEP, *lines)
+        else:
+            base["conclusion"] = "success"
+            base["steps"] = [dict(step, conclusion="success") for step in base["steps"]]
+            github.base_runs[1]["conclusion"] = "success"
+            github.logs[2] = log(self.NAME, self.STEP, "Re-ran run 1 (feat-cmux-next, attempt 1).")
+        github.jobs[2] = base
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_quota_only_red_is_infra_with_base_green(self):
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*API rate limit exceeded.*needs a re-run"):
+            self.judge(self.QUOTA, self.EXIT)
+
+    def test_a_red_with_another_error_beside_the_quota_is_not_infra(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(self.QUOTA, "##[error]manifest mismatch: cmux-tui/abc/manifest.json holds other bytes", self.EXIT)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+
+    def test_a_base_red_the_same_way_is_still_compared(self):
+        try:
+            self.judge(self.QUOTA, self.EXIT, base_red=True)
+        except excuse.Refused as caught:
+            self.assertNotIsInstance(caught, excuse.Infra)
+
+    def test_only_the_quota_line_matches(self):
+        self.assertIsNotNone(excuse.GITHUB_QUOTA.search("gh: API rate limit exceeded for installation ID 1"))
+        self.assertIsNotNone(excuse.GITHUB_QUOTA.search("You have exceeded a secondary rate limit."))
+        self.assertIsNone(excuse.GITHUB_QUOTA.search("Deployment rate limited"))
+
+
+class GitHubQuotaJobRed(unittest.TestCase):
+    """The published-tree hand-off's own quota refusal is a retryable job state, not a PR red."""
+
+    NAME = "re-run the runs that deferred to the published tree"
+    STEP = "Re-run the runs that deferred to this tree"
+    QUOTA = ("##[error][quota-only] deferred runs not re-run for the published tree; run 10; "
+             "no attempt before 05:00Z; the repo installation's API limit refused its API call.")
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.jobs[1]["id"] = 12345
+        github.logs[12345] = log(self.NAME, self.STEP, *lines)
+        github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                              steps=[dict(step, conclusion="success") for step in github.jobs[2]["steps"]])
+        github.logs[2] = log(self.NAME, self.STEP, "Re-ran run 1 (feat-cmux-next, attempt 1).")
+        with self.assertRaises(excuse.JobRateLimited) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        return str(caught.exception)
+
+    def test_quota_only_job_is_a_typed_retryable_refusal(self):
+        self.assertIn("run 10; job 12345; no attempt before 05:00Z", self.judge(self.QUOTA, self.EXIT))
+
+    def test_another_error_keeps_the_job_as_a_normal_red(self):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, self.QUOTA,
+                              "##[error]manifest mismatch: cmux-tui/abc/manifest.json holds other bytes", self.EXIT)
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertNotIsInstance(caught.exception, excuse.JobRateLimited)
+
+    def test_marker_parser_requires_the_exact_job_and_live_error(self):
+        job = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        job["id"] = 12345
+        self.assertEqual(excuse.tree_handoff_quota_only(job, log(self.NAME, self.STEP, self.QUOTA, self.EXIT)),
+                         "run 10; job 12345; no attempt before 05:00Z")
+        self.assertIsNone(excuse.tree_handoff_quota_only(job, log(self.NAME, self.STEP, self.EXIT)))
+
+    def test_marker_parser_consumes_the_producer_annotation(self):
+        """The classifier fixture is the hand-off's actual stdout, converted to GitHub log syntax."""
+        handoff_script = ROOT / "scripts/ci/cmux_tui_tree_handoff.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_gh = Path(tmp, "gh")
+            fake_gh.write_text("#!/usr/bin/env python3\n"
+                               "import sys\n"
+                               "print('gh: API rate limit exceeded for the repo installation (HTTP 403)', file=sys.stderr)\n"
+                               "raise SystemExit(1)\n")
+            fake_gh.chmod(0o755)
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": "t"}
+            produced = subprocess.run(
+                [sys.executable, str(handoff_script), "--repo", "o/r", "--run-id", "10", "--key", "k", "--published"],
+                capture_output=True, text=True, env=env)
+        annotation = next(line for line in produced.stdout.splitlines()
+                           if line.startswith("::error title=deferred runs not re-run::"))
+        live_error = annotation.replace("::error title=deferred runs not re-run::", "##[error]", 1)
+        job = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        job["id"] = 12345
+        self.assertEqual(excuse.tree_handoff_quota_only(job, log(self.NAME, self.STEP, live_error)),
+                         "run 10; job 12345; no attempt before " + re.search(r"no attempt before (\d{2}:\d{2}Z)", live_error).group(1))
+
+
+class RetargetedGitHub(FakeGitHub):
+    """cmux#44908 at e19e1487: opened into feat-cmux-next, retargeted to main at 01:05Z. Its 'defaults guard' job 1
+    ran at 00:40Z in pull_request_target run 10 under the old base and failed; main has no run of its workflow with a
+    verdict. GitHub's run record lists the current base (main), and its timeline event names no refs."""
+
+    PATH = ".github/workflows/cmux-next-defaults-guard.yml"
+    NAME = "defaults guard"
+    STEP = "Check the defaults"
+    WORKFLOW = """name: cmux-next defaults guard
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+    branches: [feat-cmux-next]
+permissions: {}
+jobs:
+  defaults:
+    name: defaults guard
+    if: ${{ github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action != 'closed' || github.event.pull_request.merged) }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: python3 scripts/ci/defaults_guard.py
+"""
+
+    def __init__(self, *, workflow=WORKFLOW, event="pull_request_target", recorded_base="main",
+                 changed_at=("2026-11-17T01:05:29Z",), head_workflow=None):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)}
+        self.logs = {1: log(self.NAME, self.STEP, "##[error]plans/cmux-next/action-surfaces.json is missing",
+                            "##[error]Process completed with exit code 1.")}
+        self.base_runs = []
+        self.files = {("main", self.PATH): workflow, (HEAD, self.PATH): head_workflow or workflow}
+        self.run_record = {"id": 10, "workflow_id": 7, "event": event, "path": self.PATH, "head_sha": HEAD,
+                           "created_at": "2026-11-17T00:40:50Z", "status": "completed", "conclusion": "failure",
+                           "pull_requests": [{"number": 44908, "head": {"sha": HEAD}, "base": {"ref": recorded_base}}]}
+        self.timeline = [{"event": "labeled", "created_at": "2026-11-17T00:30:00Z"}] + [
+            {"event": "base_ref_changed", "created_at": when, "commit_id": None} for when in changed_at]
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if "/issues/44908/timeline" in route:
+            return [copy.deepcopy(self.timeline)]
+        if route.endswith("/actions/runs/10"):
+            return copy.deepcopy(self.run_record)
+        if "/actions/workflows/7/runs?" in route:
+            assert "branch=main" in route, route
+            return {"workflow_runs": []}
+        if "/compare/main..." in route:
+            return {"merge_base_commit": {"sha": BASE_SHA}, "files": []}
+        if "/commits/main" in route or "/branches/main" in route:
+            return {"sha": BASE_SHA, "commit": {"sha": BASE_SHA}}
+        return super().json(route, paginate=paginate)
+
+    def blob(self, repo, ref, path):
+        if (ref, path) not in self.files:
+            raise excuse.Refused(f"{repo}@{ref}: {path} unread")
+        return self.files[(ref, path)]
+
+
+
+class RedFromTheOldBaseAfterRetarget(unittest.TestCase):
+    """A red whose pull_request(_target) run fired while the pull request had another base, whose workflow at the
+    current base has a branch filter excluding that base, is excused (retargeted_red): no run for the current base
+    will ever replace it (cmux#44908 at e19e1487, run 43989567080, job 133726383213). The same red with the base
+    unchanged since the run, or a filter that runs for the current base, is refused as before."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "main", HEAD, [10], github))
+
+    def test_the_incidents_red_from_feat_cmux_next_is_excused_on_main(self):
+        github = RetargetedGitHub()
+        said = self.judge(github)
+        self.assertIn("excused 'defaults guard': run 10 (pull_request_target, job 1) ran for base feat-cmux-next, "
+                      "not main (#44908's base was changed at 2026-11-17T01:05:29Z, after it; the run fired, so its "
+                      "base was the one branch its filter runs for); its workflow does not run for base main "
+                      "(branches: [feat-cmux-next]), so no run will replace this red", said)
+        self.assertEqual(sum("/timeline" in route for route in github.routes), 1)
+
+    def test_a_base_github_records_on_the_run_names_the_old_base_without_the_timeline(self):
+        github = RetargetedGitHub(recorded_base="feat-cmux-next", changed_at=())
+        self.assertIn("ran for base feat-cmux-next, not main (run 10 records base feat-cmux-next)", self.judge(github))
+        self.assertFalse(any("/timeline" in route for route in github.routes))
+
+    def test_the_same_red_with_the_base_unchanged_is_not_excused(self):
+        for changed_at in ((), ("2026-11-17T00:10:00Z",)):  # no retarget, or one before the run fired
+            with self.subTest(changed_at=changed_at):
+                with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+                    self.judge(RetargetedGitHub(changed_at=changed_at))
+
+    def test_a_filter_that_runs_for_the_new_base_is_not_excused(self):
+        for branches in ("[feat-cmux-next, main]", "['**']", "[feat-*, 'm*']", "['*', '!feat-cmux-next']"):
+            with self.subTest(branches=branches):
+                workflow = RetargetedGitHub.WORKFLOW.replace("branches: [feat-cmux-next]", f"branches: {branches}")
+                with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+                    self.judge(RetargetedGitHub(workflow=workflow))
+        # No filter at all runs for every base.
+        workflow = RetargetedGitHub.WORKFLOW.replace("    branches: [feat-cmux-next]\n", "")
+        with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+            self.judge(RetargetedGitHub(workflow=workflow))
+
+    def test_branches_ignore_and_a_negated_pattern_that_exclude_the_new_base_are_excused(self):
+        for spec in ("branches-ignore: [main]", "branches: ['**', '!main']", "branches: ['feat-*']"):
+            with self.subTest(spec=spec):
+                workflow = RetargetedGitHub.WORKFLOW.replace("branches: [feat-cmux-next]", spec)
+                said = self.judge(RetargetedGitHub(workflow=workflow))
+                self.assertIn(f"ran for #44908's earlier base, not main", said)
+                self.assertIn(f"its workflow does not run for base main ({spec.replace(chr(39), '')})", said)
+
+    def test_a_pattern_it_does_not_model_excuses_nothing(self):
+        workflow = RetargetedGitHub.WORKFLOW.replace("branches: [feat-cmux-next]", "branches: ['feat-[a-z]*']")
+        with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+            self.judge(RetargetedGitHub(workflow=workflow))
+
+    def test_only_the_simple_job_if_form_stands_in_for_a_filter(self):
+        no_filter = RetargetedGitHub.WORKFLOW.replace("    branches: [feat-cmux-next]\n", "")
+        simple = re.sub(r"    if: .*\n", "    if: github.event.pull_request.base.ref == 'feat-cmux-next'\n", no_filter)
+        said = self.judge(RetargetedGitHub(workflow=simple))
+        self.assertIn("ran for base feat-cmux-next, not main (#44908's base was changed at 2026-11-17T01:05:29Z, "
+                      "after it; the job ran, so its if: held for feat-cmux-next); its job does not run for base main "
+                      "(if: github.event.pull_request.base.ref == 'feat-cmux-next')", said)
+        # The incident's compound `if:` alone (no filter) is not read, so it excuses nothing.
+        with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+            self.judge(RetargetedGitHub(workflow=no_filter))
+
+    def test_a_pull_request_run_needs_the_heads_copy_to_exclude_the_base_too(self):
+        open_copy = RetargetedGitHub.WORKFLOW.replace("branches: [feat-cmux-next]", "branches: [feat-cmux-next, main]")
+        for event, head_workflow, excused in (("pull_request", None, True), ("pull_request", open_copy, False)):
+            with self.subTest(head_workflow=bool(head_workflow)):
+                workflow = RetargetedGitHub.WORKFLOW.replace("pull_request_target:", "pull_request:")
+                head = head_workflow and head_workflow.replace("pull_request_target:", "pull_request:")
+                github = RetargetedGitHub(workflow=workflow, event=event, head_workflow=head)
+                if excused:
+                    self.assertIn("run 10 (pull_request, job 1) ran for base feat-cmux-next", self.judge(github))
+                else:
+                    with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+                        self.judge(github)
+
+    def test_another_event_or_an_unread_workflow_excuses_nothing(self):
+        github = RetargetedGitHub()
+        github.run_record["event"] = "push"
+        with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+            self.judge(github)
+        github = RetargetedGitHub()
+        del github.files[("main", RetargetedGitHub.PATH)]
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_filter_excludes_reads_githubs_rules(self):
+        def doc(spec):
+            return {True: {"pull_request_target": spec}}
+        self.assertEqual(excuse.filter_excludes(doc({"branches": ["feat-cmux-next"]}), "pull_request_target", "main"),
+                         "branches: [feat-cmux-next]")
+        self.assertIsNone(excuse.filter_excludes(doc({"branches": ["main"]}), "pull_request_target", "main"))
+        self.assertIsNone(excuse.filter_excludes(doc({"branches": ["*"]}), "pull_request_target", "main"))
+        # `*` stops at a slash, `**` does not; a later `!` pattern excludes, a later positive one re-admits.
+        self.assertIsNotNone(excuse.filter_excludes(doc({"branches": ["*"]}), "pull_request_target", "lane/x"))
+        self.assertIsNone(excuse.filter_excludes(doc({"branches": ["**"]}), "pull_request_target", "lane/x"))
+        self.assertIsNone(excuse.filter_excludes(doc({"branches": ["**", "!main", "main"]}),
+                                                 "pull_request_target", "main"))
+        self.assertIsNone(excuse.filter_excludes(doc({"types": ["opened"]}), "pull_request_target", "main"))
+        self.assertIsNone(excuse.filter_excludes(doc(None), "pull_request_target", "main"))
+        self.assertIsNone(excuse.filter_excludes({True: ["pull_request_target"]}, "pull_request_target", "main"))
+        self.assertIsNone(excuse.filter_excludes(doc({"branches": ["release-?"]}), "pull_request_target", "main"))
 
 
 class WsCheckGitHub:
@@ -10407,9 +10757,9 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
-    "asks_only_rerun", "warn_only_steps", "without_warn_only",
+    "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
-    "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
+    "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
     "owned_unnamed", "cited_red", "compile_errors_verdict", "setup_errors"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
@@ -10435,6 +10785,7 @@ RAW_LOG_READERS = {
     "generated_no_verdict": "a gate: only refuses",
     "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
                              "nothing",
+    "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
     "gallery_crash_verdict": "compares gallery health artifacts, per state, never log lines",
@@ -14058,6 +14409,9 @@ SCANNERS = {
     "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
     "base_red_excuse.without_warn_only": lambda f: excuse.without_warn_only(f.view, {"x"}),
     "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
+    "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
+                                                   excuse.github_quota_only(f.base_view)),
+    "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),

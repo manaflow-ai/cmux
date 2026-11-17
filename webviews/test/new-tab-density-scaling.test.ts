@@ -27,7 +27,7 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
   });
 
   for (const engine of ["chromium", "webkit"]) {
-    test(`${engine}: the whole composer area scales from Default, including create buttons`, async () => {
+    test(`${engine}: the whole composer area scales from Default, including searchable create rows`, async () => {
       const page = await browsers.get(engine)!.newPage({ viewport: { width: 1600, height: 1000 } });
       const port = (vite.httpServer!.address() as { port: number }).port;
       try {
@@ -51,14 +51,17 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".nt-popover .nt-row").first().waitFor();
+          expect(await page.locator(".nt-create").count()).toBe(0);
+          await page.locator(".nt-field [contenteditable]").fill("new");
+          await page.locator('.nt-row[data-type="create"]').first().waitFor();
           await page.evaluate(() => document.fonts.ready);
           results.push(
             await page.evaluate((scale) => {
               const composer = document.querySelector<HTMLElement>(".nt-composer")!;
-              const create = document.querySelector<HTMLElement>(".nt-create")!;
+              const create = document.querySelector<HTMLElement>(".nt-popover")!;
               const box = composer.getBoundingClientRect();
               const group = create.getBoundingClientRect();
-              const buttons = [...create.querySelectorAll<HTMLElement>(".nt-tool")];
+              const buttons = [...create.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')];
               const buttonBounds = buttons.map((button) => button.getBoundingClientRect());
               const drawn = (element: Element, property: string) => {
                 let zoom = 1;
@@ -67,7 +70,7 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
                 return parseFloat(getComputedStyle(element).getPropertyValue(property)) * zoom;
               };
               // Walk every descendant so newly added controls join the guard automatically.
-              const elements = [composer, create, document.querySelector<HTMLElement>(".nt-popover")!]
+              const elements = [composer, create]
                 .flatMap((root) => [root, ...root.querySelectorAll("*")])
                 .filter((element) => {
                   const bounds = element.getBoundingClientRect();
@@ -85,7 +88,7 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
                 centered: (group.left + group.right - box.left - box.right) / 2,
                 buttonsCentered: (buttonBounds[0]!.left + buttonBounds.at(-1)!.right - box.left - box.right) / 2,
                 spacing: group.top - box.bottom,
-                gap: buttonBounds[1]!.left - buttonBounds[0]!.right,
+                gap: buttonBounds[1]!.top - buttonBounds[0]!.bottom,
                 buttons: buttons.map((button): Record<string, number> => ({
                   ...Object.fromEntries(
                     [
