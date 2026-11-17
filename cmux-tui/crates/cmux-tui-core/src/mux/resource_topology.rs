@@ -98,6 +98,7 @@ mod effect_execution;
 mod effectful_operation;
 mod emptied_workspace;
 mod end_terminals_batch;
+pub(in crate::mux) mod floating_panes;
 mod layout_ops;
 pub(in crate::mux) use layout_ops::LayoutSizesUnchanged;
 mod layout_projection;

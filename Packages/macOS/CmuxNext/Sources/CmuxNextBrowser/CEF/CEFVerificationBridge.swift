@@ -20,6 +20,9 @@ final class CEFVerificationBridge {
 
     init(tab: CEFTab) { self.tab = tab }
 
+    /// Whether a page's detector reported, never what the page shows.
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "verification-autofill")
+
     private static var binding: (String, [String: Any]) {
         ("Runtime.addBinding", ["name": VerificationPageScripts.channel, "executionContextName": VerificationPageScripts.world])
     }
@@ -106,6 +109,8 @@ final class CEFVerificationBridge {
 
     /// The detector's report (a binding payload or a page channel post), untrusted.
     func report(_ payload: String) {
-        if VerificationPageScripts.isWaitingReport(payload) { tab?.emit(.verificationPageWaiting) }
+        let waiting = VerificationPageScripts.isWaitingReport(payload)
+        Self.log.debug("detector report (waiting: \(waiting, privacy: .public))")
+        if waiting { tab?.emit(.verificationPageWaiting) }
     }
 }

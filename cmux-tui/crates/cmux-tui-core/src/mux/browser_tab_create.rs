@@ -234,20 +234,12 @@ impl Mux {
                     };
                     state.insert_pane(pane);
                     stamp_pane_focus(self, &mut state, pane_id);
-                    state.workspaces[workspace_index].screens.push(Screen {
-                        id: screen_id,
-                        public_id: ScreenPublicId::random()?,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        creation_order_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    });
+                    state.workspaces[workspace_index].screens.push(Screen::with_one_pane(
+                        screen_id,
+                        ScreenPublicId::random()?,
+                        None,
+                        pane_id,
+                    ));
                     state.workspaces[workspace_index].active_screen = 0;
                     let entity = crate::server::tree_entity_json(
                         &state,
@@ -330,20 +322,12 @@ impl Mux {
                     name,
                     name_source: crate::resource_name::NameSource::Auto,
                     name_revision: 0,
-                    screens: vec![Screen {
-                        id: screen_id,
-                        public_id: ScreenPublicId::random()?,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        creation_order_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    }],
+                    screens: vec![Screen::with_one_pane(
+                        screen_id,
+                        ScreenPublicId::random()?,
+                        None,
+                        pane_id,
+                    )],
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
