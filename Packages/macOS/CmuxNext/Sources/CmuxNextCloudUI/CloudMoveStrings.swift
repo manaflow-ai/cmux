@@ -55,8 +55,10 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.notConnected", defaultValue: "%@ didn't connect. Retry once it's online.", table: "Cloud", bundle: .module), machine)
     }
     /// The machine did not connect, and its last connect said why (the link's own words); no reason: ``notConnected(_:)``.
+    /// A bare `relay` (the machine never came to the relay: it did not come online) is a code, not words a person
+    /// can act on ("didn't connect: relay. Retry when that's fixed."), so it reads as no reason.
     public static func notConnected(_ machine: String, because reason: String?) -> String {
-        guard let reason else { return notConnected(machine) }
+        guard let reason, reason != "relay" else { return notConnected(machine) }
         return String(format: String(localized: "cloud.move.notConnectedBecause", defaultValue: "%1$@ didn't connect: %2$@. Retry when that's fixed.", table: "Cloud", bundle: .module), machine, reason)
     }
     public static func syncFailed(_ machine: String, _ detail: String) -> String {

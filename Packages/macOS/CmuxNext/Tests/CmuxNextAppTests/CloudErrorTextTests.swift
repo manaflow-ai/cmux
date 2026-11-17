@@ -126,6 +126,12 @@ struct CloudErrorTextTests {
         }
     }
 
+    /// A machine that never came to the relay names no code: "didn't connect: relay" told a person nothing to do.
+    @Test func aMachineThatNeverCameOnlineNamesNoCode() {
+        #expect(CloudMoveStrings.notConnected("dev", because: "relay") == CloudMoveStrings.notConnected("dev"))
+        #expect(CloudMoveStrings.notConnected("dev", because: "its sign-in expired").contains("its sign-in expired"))
+    }
+
     @Test func anActionFailureReadsAsItsMessage() {
         #expect(CloudStrings.errorText(ActionFailure(message: "No Cloud machine is selected.")) == "No Cloud machine is selected.")
     }
