@@ -16,7 +16,13 @@ extension NSWindow {
     /// window" rule asks this. A page window with no parent yet acts for the main window, as
     /// ``KeyWindowRole`` resolves it. A panel, sheet or other window that holds the key does not count.
     @MainActor public func holdsKeyboard(key: NSWindow?) -> Bool {
-        key === self
+        var current = key
+        while let window = current, window !== self {
+            guard window.isChromiumPageWindow, window.sheetParent == nil else { return false }
+            guard let parent = window.parent else { return isMainWindow }
+            current = parent
+        }
+        return current != nil
     }
 
     /// Whether web content has the keyboard here: a `WKWebView` (or a view inside one) is the first
