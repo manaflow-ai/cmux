@@ -96,7 +96,15 @@ import UIKit
         init() {
             window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874)) // iPhone 17 Pro
             host = UIHostingController(rootView: AnyView(EmptyView()))
-            window.rootViewController = host
+            // The page in a container, as TabsKit hosts it: a zoom scales the page's view, never
+            // the window's root (whose frame the window sets).
+            let container = UIViewController()
+            window.rootViewController = container
+            container.addChild(host)
+            host.view.frame = window.bounds
+            host.view.autoresizingMask = []
+            container.view.addSubview(host.view)
+            host.didMove(toParent: container)
             window.makeKeyAndVisible()
         }
         var size: CGSize { window.bounds.size }
@@ -122,15 +130,17 @@ import UIKit
         }
     }
 
-    /// Row tops on the live page (window points), by row id: rows the page shows.
+    /// Row tops on the live page (page points: the page view's, the window's while it is not
+    /// scaled), by row id: rows the page shows.
     static func liveRows(_ window: UIWindow) -> [String: CGRect] {
-        guard let list = find(ChatTranscriptCollectionView.self, in: window),
+        guard let page = window.rootViewController?.children.first?.view,
+              let list = find(ChatTranscriptCollectionView.self, in: window),
               let layout = list.collectionViewLayout as? ChatTranscriptLayout else { return [:] }
         var rows: [String: CGRect] = [:]
         for item in layout.items {
             guard let top = layout.top(of: item.id), let height = layout.height(of: item.id) else { continue }
-            let frame = list.convert(CGRect(x: 0, y: top, width: list.bounds.width, height: height), to: nil)
-            if frame.maxY > 0, frame.minY < window.bounds.height { rows[item.id] = frame }
+            let frame = list.convert(CGRect(x: 0, y: top, width: list.bounds.width, height: height), to: page)
+            if frame.maxY > 0, frame.minY < page.bounds.height { rows[item.id] = frame }
         }
         return rows
     }
@@ -229,6 +239,50 @@ import UIKit
         #expect(!settled.rows.isEmpty, "the card shows rows")
         #expect(settled.worst <= 0.5, "card vs settled page, per row: \(settled.line)")
         #expect(worstAny <= 0.5, "card vs the page in every frame as it opens (\(opening.count + landed.count) frames, worst \(worstAny)); first frame: \(firstLaidOut.line)")
+    }
+
+    /// The tab was shown (its composer measured), then the grid opened, then its card was
+    /// tapped. TabsKit draws the page scaled down for the zoom, with no accessory, and full size
+    /// once it lands. The page keeps every message the card shows in the card's place in every
+    /// frame, scaled or not. Before cmux#45442's fix the page converted the composer's window
+    /// point into the scaled page and drew the newest turn 146 pt low until the zoom landed
+    /// (the fleet UI capture: "Both test suites pass" at 449 pt, then 299).
+    @Test(arguments: [(1, 1), (3, 4)])
+    func aShownTabsPageKeepsTheCardsPlaceWhileTheZoomScalesIt(turns: Int, paragraphs: Int) async throws {
+        let harness = Harness()
+        defer { harness.window.isHidden = true }
+        let store = Self.store(turns: turns, paragraphs: paragraphs)
+        let surface = AgentChatSurface()
+        let topInset = harness.insets.top + 8
+        harness.show(LivePage(store: store, surface: surface, topInset: topInset, accessoryBottom: harness.accessoryBottom, showsAccessory: true))
+        await harness.frames(40)
+        try #require(surface.stackMaxY != nil, "the composer stack reported its frame")
+
+        // The grid: the card is drawn from the tab's surface.
+        let bottomInset = WorkspaceTabPage.bottomInset(surface: surface)
+        let card = await Self.previewRows(harness, store: store, topInset: topInset, bottomInset: bottomInset)
+
+        // The zoom: the page, scaled from the card's size up to the screen's, no accessory.
+        let page = harness.host.view!
+        var frames: [Shift] = []
+        func record() { frames.append(Self.shift(card: card, live: Self.liveRows(harness.window), cardHeight: harness.cardHeight)) }
+        page.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
+        harness.show(LivePage(store: store, surface: surface, topInset: topInset, accessoryBottom: harness.accessoryBottom, showsAccessory: false))
+        for step in 1 ... 8 {
+            let scale = 0.4 + 0.6 * CGFloat(step) / 8
+            page.transform = scale >= 1 ? .identity : CGAffineTransform(scaleX: scale, y: scale)
+            await harness.frames(2) { record() }
+        }
+        // Landed: TabsKit adds the accessory.
+        harness.show(LivePage(store: store, surface: surface, topInset: topInset, accessoryBottom: harness.accessoryBottom, showsAccessory: true))
+        await harness.frames(20) { record() }
+
+        let laidOut = frames.filter { $0.worst.isFinite }
+        let worst = laidOut.map(\.worst).max() ?? .infinity
+        let worstFrame = laidOut.max { $0.worst < $1.worst }
+        print("CARDOPENGEOMETRY zoom turns=\(turns) frames=\(frames.count) worst=\(worst): \(worstFrame?.line ?? "-")")
+        #expect(!laidOut.isEmpty, "the page laid out its rows")
+        #expect(worst <= 0.5, "card vs the page while the zoom scales it (\(frames.count) frames, worst \(worst)): \(worstFrame?.line ?? "-")")
     }
 }
 #endif
