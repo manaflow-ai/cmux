@@ -186,3 +186,34 @@ fn send_key_encodes_command_chords_from_authoritative_keyboard_modes() {
         b"\x1b[99;9u\x1b[122;9u\x1b[122;10u\x1b[97;9u"
     );
 }
+
+/// Typing on an exited host's final screen drops the bytes, so it is no `daemon.pty.write` hop: the
+/// mark fired before the runtime was read and joined a key press to a write that never happened.
+#[cfg(unix)]
+#[test]
+fn input_dropped_on_an_exited_host_is_no_pty_write_mark() {
+    let mux = Mux::new_for_test("pty-write-mark-exited", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    *surface.as_pty().unwrap().runtime.lock().unwrap() = PtyRuntime::ExitedHosted;
+    crate::pty_write_marks::take_marked();
+
+    surface.write_bytes(b"x").unwrap();
+
+    assert_eq!(crate::pty_write_marks::take_marked(), Vec::<&str>::new());
+}
+
+/// A local PTY write is one `daemon.pty.write` hop; a failed one is none.
+#[test]
+fn a_local_pty_write_is_marked_once_and_a_failed_one_not_at_all() {
+    let mux = Mux::new_for_test("pty-write-mark-local", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    crate::pty_write_marks::take_marked();
+    surface.write_bytes(b"x").unwrap();
+    assert_eq!(crate::pty_write_marks::take_marked(), vec!["daemon.pty.write"]);
+
+    replace_local_writer(&surface, Box::new(PartialWouldBlockWriter { accepted_prefix: true }));
+    assert!(surface.write_bytes(b"y").is_err());
+    assert_eq!(crate::pty_write_marks::take_marked(), Vec::<&str>::new());
+}

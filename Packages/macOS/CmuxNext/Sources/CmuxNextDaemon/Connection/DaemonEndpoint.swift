@@ -382,6 +382,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
     case agentSessionStartModel = "agent-session-start-model-v1"
+    case agentSessionStartPermissionMode = "agent-session-start-permission-mode-v1"
     /// `mode` on `agent-session-start`: the person's mode pick, applied on their own Cloud VM only.
     case agentSessionStartMode = "agent-session-start-mode-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
@@ -405,6 +406,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionLoginMachine = "agent-session-login-machine-v1"
     /// Owner-only context inventory and cmux-added overrides for an attached session.
     case agentSessionContext = "agent-session-context-v1"
+    /// `agent-session-prompt` takes `steer`: the owner's and a Cloud team member's prompt steers
+    /// into the running turn (a link guest's is still held for the owner).
+    case agentSessionSteer = "agent-session-steer-v1"
+    /// `agent-session-queue-approve` / `-queue-decline`: the owner runs or drops a prompt held for
+    /// them (a link guest's) on a chat on that machine.
+    case agentSessionQueueDecision = "agent-session-queue-decision-v1"
+    /// A Cloud team member's chat verbs on a teammate's team machine (`agent-session-team-list`
+    /// and the attach verbs, stamped with the member the link token names).
+    case agentSessionMember = "agent-session-member-v1"
     /// `agent-session-btw`: the composer's `/btw` on a Cloud chat, as acpmux's inline
     /// `_acpmux/btw` on the tab's own session (owner only).
     case agentSessionBtw = "agent-session-btw-v1"
@@ -628,8 +638,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
