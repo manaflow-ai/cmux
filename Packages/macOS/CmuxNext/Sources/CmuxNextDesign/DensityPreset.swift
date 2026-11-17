@@ -60,9 +60,12 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         if self == .cozy {
             for (key, value) in Self.compact.tokens.tokens where Self.isOmnibarToken(key) { sizes[key] = value }
             // Default's bar is Chrome's location bar (Lucas 2026-11-17: "for chrome the omnibar should be 34px tall
-            // (chrome = default, but still same font size)"), rounded at Helium's 8 on 28. Its text and icons stay Compact's.
+            // (chrome = default, but still same font size)"), rounded at Helium's 8 on 28. Its icons and insets stay Compact's.
             sizes["omnibarHeight"] = Self.chromeOmnibarHeight
             sizes["omnibarCornerRadius"] = Double(DensityTokens.half(Self.chromeOmnibarHeight * 8 / 28))
+            // Its URL capitals are a point over Compact's 10 (Lucas 2026-11-17: "for default our font size has to be 1px
+            // taller in height"), with the smoothing's 0.31 pt as in the reference below.
+            sizes["omnibarFontSize"] = (Self.defaultOmnibarCapHeight - 0.31) / 0.70459
         }
         return DensityTokens(id: rawValue, name: name, level: (Self.referenceTokens.level + 3) * t - 3,
                              spacing: Self.referenceTokens.spacing * t,
@@ -78,8 +81,10 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
     /// The sizes ``omnibarScaleFactor`` scales: every `omnibar*` token and the toolbar glyphs beside the bar.
     static func isOmnibarToken(_ key: String) -> Bool { key.hasPrefix("omnibar") || key == "toolbarGlyphSize" }
 
-    /// Default's location bar: Chrome's 34 pt (`kLocationBarHeight` in Chrome's layout constants), with Compact's text.
+    /// Default's location bar: Chrome's 34 pt (`kLocationBarHeight` in Chrome's layout constants).
     static let chromeOmnibarHeight: Double = 34
+    /// Default's URL capitals: 11 pt, a point over Compact's 10.
+    static let defaultOmnibarCapHeight: Double = 11
 
     // The unscaled reference also resolves sizes that use the legacy compact/comfortable pairs.
     static let referenceTokens = DensityTokens(id: cozy.rawValue, name: "Default", level: 0.5, fontSize: 14,

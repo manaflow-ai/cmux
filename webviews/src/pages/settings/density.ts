@@ -76,6 +76,7 @@ const REFERENCE_TOKENS: Record<string, number> = {
 };
 
 const CHROME_OMNIBAR_HEIGHT = 34;
+const DEFAULT_OMNIBAR_CAP_HEIGHT = 11;
 
 /** Swift `DensityPreset.isOmnibarToken`: every `omnibar*` size and the toolbar glyphs beside the bar. */
 const omnibarTokens = (tokens: Record<string, number>) =>
@@ -102,6 +103,8 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
     Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
     tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
     tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
+    // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).
+    tokens.omnibarFontSize = (DEFAULT_OMNIBAR_CAP_HEIGHT - 0.31) / 0.70459;
   }
   return {
     id,
