@@ -691,4 +691,156 @@ struct NewTabKeySessionWalkTests {
         #expect(gave && withIcon == 1,
                 "the sign: the icon did not arrive in the kept rows (given: \(gave), rows with an icon: \(withIcon)), so the count says nothing")
     }
+
+    /// True when one kept tab row has `title`.
+    private static func keeps(_ title: String, _ services: AppServices) -> Bool {
+        (services.newTabPlaces.rows ?? []).contains(where: { rows in rows.tabs.contains(where: { $0.title == title }) })
+    }
+
+    /// A New Tab page whose view is made after a change of a row shows the changed row (decision of 2026-11-17).
+    ///
+    /// A page's lists come from the kept rows, and the kept rows get a change some turns after it. A places event
+    /// goes only to a page that has a view. So a page that opens in the turn of a change, and whose view is made
+    /// after the kept rows got that change, must get the change another way: else it shows the row of before until
+    /// the next change of a listed row.
+    ///
+    /// The steps are the test's own, with no wait for a time. One turn of the main actor has a title change of a
+    /// tab in the first rows and 2 New Tab keys, with no prewarmed page. No frame comes between the keys, so the
+    /// first key's tab is never the shown one and gets no view. Then the kept rows get the change (a condition of
+    /// the setup, as is `the first key's tab has no view`). Then the test selects the first key's tab, so its view
+    /// is made. The second key's page is the shown one: its view is made at the frame after the keys, before or
+    /// after the kept rows got the change; it must show the changed row in both orders.
+    ///
+    /// Before the decision of 2026-11-16 a page's lists came from a walk of the session in the key's call, so the
+    /// page of a key after a change had the change (by a read; this file does not compile there).
+    @Test func aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow() async throws {
+        try await Self.withPane { start in
+            let services = start.services
+            let tabs = services.agentTabs
+            // No prewarmed page: a tab gets its page view only at a frame that shows it.
+            let pool = services.newTabSpares
+            pool.dropAll()
+            pool.makeSpare = { _ in nil }
+            defer { pool.makeSpare = nil }
+            let terminals = SessionFixtureSize.real.places { $0.isTerminal }
+            let place = try #require(terminals.first, "setup: the session has no terminal")
+            let surface = LargeSessionWindowFixture.surface(workspace: place.workspace, index: place.index)
+            let store = services.machines.local.store
+            let before = Set(tabs.newTabPages.keys.map(\.key))
+
+            // One turn of the main actor: the change, then 2 New Tab keys.
+            store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "late row", text: "late row", activity: nil))
+            let firstKey = Self.newTab(start)
+            let afterFirst = tabs.newTabPages.entries.filter { !before.contains($0.key.key) }
+            let secondKey = Self.newTab(start)
+            let keptInTurn = Self.keeps("late row", services)
+            try #require(firstKey.ran && firstKey.made == 1 && secondKey.ran && secondKey.made == 1 && afterFirst.count == 1,
+                         "setup: the 2 New Tab keys added \(firstKey.made) and \(secondKey.made) tabs; the first opened \(afterFirst.count) pages")
+            let first = afterFirst[0].key
+            let valueInTurn = (tabs.newTabPages[first]?.page.omnibar.tabs ?? []).contains(where: { $0.title == "late row" })
+
+            // The kept rows get the change, and the frame after the keys shows the second key's tab.
+            await LargeSessionWindowFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
+            try #require(Self.keeps("late row", services),
+                         "setup: the kept rows do not have the changed title after the drain, so the feed did not run")
+            try #require(tabs.views[first] == nil,
+                         "setup: the first key's tab has a page view before a frame showed it: its view is not made after the change")
+            let others = tabs.newTabPages.entries.filter { !before.contains($0.key.key) && $0.key.key != first.key }
+            let shownRows = others.compactMap { tabs.views[$0.key] }.first?.model.newTab?.omnibar.tabs
+            let shownHas = shownRows?.contains(where: { $0.title == "late row" })
+
+            // The test's own step: the first key's tab is selected, so its page view is made now.
+            let id = try #require(start.pane.orderedIDs.first(where: { $0.rawValue == first.key }),
+                                  "setup: the strip does not list the first key's tab")
+            start.pane.select(id)
+            await LargeSessionWindowFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
+            let byFrame = tabs.views[first]
+            let made = byFrame ?? tabs.view(for: first.key)
+            let view = try #require(made, "setup: the first key's tab gets no page view after its select")
+            let rows = view.model.newTab?.omnibar.tabs ?? []
+            let has = rows.contains(where: { $0.title == "late row" })
+            let shownText = shownHas.map { "\($0)" } ?? "it has no view"
+            print("new tab key, \(start.workspaces) workspaces, a title change and 2 New Tab keys in one turn: the kept rows had the change "
+                + "in that turn: \(keptInTurn); the first key's page value had it in that turn: \(valueInTurn). After the kept rows got it: "
+                + "the second key's page (the shown one) lists it: \(shownText); the first key's page, "
+                + "whose view came after its select (by a frame: \(byFrame != nil)), lists \(rows.count) tab rows and the change: \(has)")
+            #expect(has, "the page whose view was made after the change lists the tab's title of before the change")
+            #expect(shownHas == true, "the shown page does not list the changed title after the kept rows got it (\(shownText))")
+        }
+    }
+
+    /// A small PNG, as a site's icon.
+    private static func png() throws -> Data {
+        let made = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
+                                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        let bitmap = try #require(made, "setup: no bitmap")
+        for x in 0..<8 {
+            for y in 0..<8 { bitmap.setColor(NSColor(srgbRed: 0.2, green: 0.6, blue: 0.7, alpha: 1), atX: x, y: y) }
+        }
+        return try #require(bitmap.representation(using: .png, properties: [:]), "setup: the bitmap gives no PNG")
+    }
+
+    /// The icons of the session's pages are no part of the kept rows (decision of 2026-11-17): the map of a workspace
+    /// reads no icon and no icon address. So an icon address that 20 tabs get maps no workspace, and an icon that
+    /// arrives in the app's icon store maps none.
+    ///
+    /// The count is the one of this suite: the maps of a workspace for the bar (`newTabPlaceSource`), on the app's
+    /// own services, its own places feed and its own icon store, with no New Tab page open. No fetch leaves the
+    /// Mac: the test gives the app's icon loader the image of 2 addresses before a tab has them, and the loader
+    /// answers from what it has. 20 browser tabs of 20 workspaces get the first address, as 20 pages of one site do.
+    /// Then the test asks the app's icon store for the second address, which no tab has, as a tab strip asks for
+    /// an icon; the sign that this icon arrived is a condition of the setup.
+    ///
+    /// A report and no condition: if the app's icon store has the first address's icon while no New Tab page is
+    /// open. The store does not say who asked for an icon, and the sidebar's rows ask the same store.
+    @Test func anIconAddressAndAnIconThatArrivesMapNoWorkspace() async throws {
+        try await Self.withPane { start in
+            let services = start.services
+            let open = services.agentTabs.newTabPages.entries.count
+            try #require(open == 0, "setup: \(open) New Tab pages are open")
+            let count = 20
+            let withAPage = services.machines.local.store.workspaces.compactMap { workspace in
+                workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.kind == .browser })
+            }
+            let pages = Array(withAPage.prefix(count))
+            try #require(pages.count == count, "setup: \(pages.count) workspaces have a browser tab, want \(count)")
+            let profile = services.browserProfiles.engineProfile(forTab: pages[0].id)
+            let image = try Self.png()
+            let listed = try #require(URL(string: "https://new-tab-key-walk.invalid/listed.png"))
+            let other = try #require(URL(string: "https://new-tab-key-walk.invalid/other.png"))
+            let loader = BrowserFaviconLoader.shared
+            let tookListed = loader.store(image, at: listed, profile: profile) != nil
+            let tookOther = loader.store(image, at: other, profile: profile) != nil
+            try #require(tookListed && tookOther, "setup: the app's icon loader did not take the test's image")
+
+            // 20 tabs of 20 workspaces get the address of one icon.
+            _ = start.visits.takeByWorkspace()
+            for tab in pages { tab.faviconURL = listed.absoluteString }
+            await LargeSessionWindowFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
+            let atAddress = start.visits.takeByWorkspace()
+            let addressMaps = atAddress.values.reduce(0, +)
+            let storeHasListed = services.favicons.cachedImage(for: listed.absoluteString, profile: profile) != nil
+
+            // ONE icon arrives in the app's icon store: an icon of no tab.
+            let hadOther = services.favicons.image(for: other.absoluteString, profile: profile) != nil
+            await LargeSessionWindowFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
+            let atArrival = start.visits.takeByWorkspace()
+            let arrivalMaps = atArrival.values.reduce(0, +)
+            let arrived = services.favicons.cachedImage(for: other.absoluteString, profile: profile) != nil
+            print("new tab key, \(start.workspaces) workspaces, no New Tab page open: an icon address that \(count) tabs of \(count) "
+                + "workspaces got mapped \(atAddress.count) different workspaces in \(addressMaps) maps (the app's icon store has that "
+                + "icon then: \(storeHasListed)); ONE icon of no tab that arrived mapped \(atArrival.count) different workspaces in "
+                + "\(arrivalMaps) maps")
+            try #require(!hadOther && arrived,
+                         "setup: the icon of no tab did not arrive in the drain (in the store before: \(hadOther), after: \(arrived))")
+            #expect(atAddress.count == 0,
+                    "an icon address that \(count) tabs got mapped \(atAddress.count) workspaces in \(addressMaps) maps, want 0")
+            #expect(atArrival.count == 0,
+                    "ONE icon that arrived mapped \(atArrival.count) workspaces in \(arrivalMaps) maps, want 0")
+        }
+    }
 }
