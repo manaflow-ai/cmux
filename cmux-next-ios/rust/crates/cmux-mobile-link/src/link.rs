@@ -1349,6 +1349,40 @@ fn refuse(inner: &Inner, stream: usize, channel: u32, code: &str, reason: &str) 
     let _ = inner.push(stream, Class::Control, Frame::new(channel, FrameType::Close, payload));
 }
 
+/// Payload byte totals one or more channels add to: what their senders queued
+/// for the peer and what their receivers handed to the owner. Opt-in
+/// ([`ChannelSender::count_into`], [`ChannelReceiver::count_into`]); a channel
+/// without one counts nothing. One relaxed atomic add per chunk, no lock and no
+/// allocation, so a meter shared by every channel of a kind costs the same at
+/// any rate.
+#[derive(Debug, Default)]
+pub struct ByteMeter {
+    received: AtomicU64,
+    sent: AtomicU64,
+}
+
+impl ByteMeter {
+    /// Payload bytes received so far.
+    pub fn received(&self) -> u64 {
+        self.received.load(Ordering::Relaxed)
+    }
+
+    /// Payload bytes sent so far.
+    pub fn sent(&self) -> u64 {
+        self.sent.load(Ordering::Relaxed)
+    }
+
+    /// Adds `bytes` received (also for traffic that does not ride a channel).
+    pub fn add_received(&self, bytes: usize) {
+        self.received.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    /// Adds `bytes` sent (also for traffic that does not ride a channel: a media lane's frames).
+    pub fn add_sent(&self, bytes: usize) {
+        self.sent.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+}
+
 /// Sending half of a channel.
 pub struct ChannelSender {
     id: u32,
@@ -1357,6 +1391,8 @@ pub struct ChannelSender {
     inner: Arc<Inner>,
     /// Set by our close or drop, or by the peer's close (see [`Route`]).
     closed: Arc<AtomicBool>,
+    /// Where queued payload bytes are counted, if anywhere.
+    meter: Option<Arc<ByteMeter>>,
 }
 
 impl ChannelSender {
@@ -1375,6 +1411,11 @@ impl ChannelSender {
         self.stream == INPUT
     }
 
+    /// Counts every payload byte this sender queues from now on into `meter`.
+    pub fn count_into(&mut self, meter: Arc<ByteMeter>) {
+        self.meter = Some(meter);
+    }
+
     /// Send bytes; writes are split into [`DATA_CHUNK`] frames, and a
     /// channel with [`CHANNEL_QUEUE_BYTES`] already queued waits for room.
     pub async fn send(&self, data: Bytes) -> Result<(), LinkError> {
@@ -1387,9 +1428,14 @@ impl ChannelSender {
             if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
             }
+            let size = chunk.len();
             let frame = Frame::new(self.id, FrameType::Data, chunk);
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
-                Pushed::Queued => {}
+                Pushed::Queued => {
+                    if let Some(meter) = &self.meter {
+                        meter.add_sent(size);
+                    }
+                }
                 Pushed::Shutdown => return Err(self.inner.closed_error()),
                 Pushed::ChannelClosed => return Err(LinkError::ChannelClosed),
             }
@@ -1425,9 +1471,16 @@ impl Drop for ChannelSender {
 pub struct ChannelReceiver {
     rx: mpsc::Receiver<ChannelEvent>,
     done: bool,
+    /// Where delivered payload bytes are counted, if anywhere.
+    meter: Option<Arc<ByteMeter>>,
 }
 
 impl ChannelReceiver {
+    /// Counts every payload byte this receiver delivers from now on into `meter`.
+    pub fn count_into(&mut self, meter: Arc<ByteMeter>) {
+        self.meter = Some(meter);
+    }
+
     /// The next event; `None` after `Closed` was delivered.
     pub async fn recv(&mut self) -> Option<ChannelEvent> {
         if self.done {
@@ -1435,8 +1488,13 @@ impl ChannelReceiver {
         }
         match self.rx.recv().await {
             Some(event) => {
-                if matches!(event, ChannelEvent::Closed(_)) {
-                    self.done = true;
+                match &event {
+                    ChannelEvent::Data(data) => {
+                        if let Some(meter) = &self.meter {
+                            meter.add_received(data.len());
+                        }
+                    }
+                    ChannelEvent::Closed(_) => self.done = true,
                 }
                 Some(event)
             }
@@ -1464,8 +1522,8 @@ impl Channel {
         closed: Arc<AtomicBool>,
     ) -> Self {
         Self {
-            sender: ChannelSender { id, stream, class, inner, closed },
-            receiver: ChannelReceiver { rx, done: false },
+            sender: ChannelSender { id, stream, class, inner, closed, meter: None },
+            receiver: ChannelReceiver { rx, done: false, meter: None },
         }
     }
 
