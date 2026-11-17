@@ -320,7 +320,7 @@ final class ScreenContentView: NSView {
             // a close's go (`releaseDeparted`).
             guard zooming || !context.livePanes.contains(pane) else { continue }
             if context.hosts[pane]?.superview === self {
-                context.retire(pane, from: screenID, until: zooming ? .zoom : .landing, shownAtRank: liveRank(of: pane, in: before))
+                context.retire(pane, from: screenID, until: zooming ? .zoom : .landing)
                 frameInput.snapDeparted.append(pane)
             } else if !zooming {
                 context.release(pane)
@@ -396,9 +396,9 @@ final class ScreenContentView: NSView {
             }
         }
 
-        // The docks' backdrops and the stacking order are part of what a frame shows: they change in the pass that shows
-        // this change, with its panes (`beginShowingChange`), not here.
-        frameInput.dockIsStale = true
+        // The docks' backdrops, the stacking order and the rings and dims are part of what a frame shows: they change in
+        // the pass that shows this change, with its panes (`beginShowingChange`), not here.
+        frameInput.changeIsUnshown = true
         // The scroll follows in `syncScroll`, which the root calls with the focus after every update, and presents.
         // Only a structural change re-places everything: a ratio, width or row-height change (every divider
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
