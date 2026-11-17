@@ -569,6 +569,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// Rows a reload weighed in full: compared, estimated, given a layout item (tests: a token
     /// weighs the rows it changed, not every row of its turn).
     private(set) var rowsWeighed = 0
+    #if DEBUG
+    /// Why each row was weighed, `reason:kind`, in order (tests: what an open weighs twice).
+    var weighReasons: [String] = []
+    #endif
     /// Rows offered to the warm-up (tests: once each, not every row on every reload).
     private(set) var warmUpOffers = 0
     /// Snapshot applies by `reload` (tests: a token whose rows keep their ids applies none).
@@ -979,6 +983,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     continue
                 }
                 rowsWeighed += 1
+                #if DEBUG
+                if weighReasons.count < 4000 {
+                    let why = previous == nil ? "noPrevious" : position >= (previous?.rows.count ?? 0) ? "newPosition"
+                        : previous?.ids[position] != row.id ? "moved" : previous?.rows[position] != row ? "changed"
+                        : rows[row.id] != row ? "stale" : forced.contains(row.id) ? "forced" : "prime"
+                    weighReasons.append("\(why):\(row.costKind)")
+                }
+                #endif
                 weighed.append(row.id)
                 if rows[row.id] != row {
                     let isNew = rows[row.id] == nil
