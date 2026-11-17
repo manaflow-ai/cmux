@@ -14,7 +14,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.newTabTemplate", "New Tab Template"),
-                help: SettingsText.keyed("settings.tabs.newTabTemplate.help", "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."),
+                help: SettingsText.keyed("settings.tabs.newTabTemplate.help", "The layout of the New Tab page. Terminal opens a terminal instead."),
                 kind: .choice([
                     SettingChoice(NewTabTemplate.minimal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateMinimal", "Minimal")),
                     SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
@@ -32,7 +32,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.nativeNewTabPage", "Native New Tab Page"),
-                help: SettingsText.keyed("settings.tabs.nativeNewTabPage.help", "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."),
+                help: SettingsText.keyed("settings.tabs.nativeNewTabPage.help", "Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only."),
                 kind: .toggle,
                 default: .bool(NativeNewTabPageSetting.fallback),
                 keywords: ["new tab", "native", "swift", "page", "cmd-t", "fast", "web", "alternative", "command palette", "actions"]
@@ -42,7 +42,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.newTabApp", "New Tab App"),
-                help: SettingsText.keyed("settings.tabs.newTabApp.help", "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."),
+                help: SettingsText.keyed("settings.tabs.newTabApp.help", "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."),
                 summary: SettingsText.keyed("settings.tabs.newTabApp.summary", "An extension's New Tab page"),
                 kind: .text,
                 default: nil,
@@ -54,7 +54,6 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position (Cmd-T)"),
-                help: SettingsText.keyed("settings.tabs.newTabPosition.help", "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
                 kind: .choice([
                     SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
                     SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
@@ -68,7 +67,6 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.newTabButtonPosition", "New Tab Position (+ Button)"),
-                help: SettingsText.keyed("settings.tabs.newTabButtonPosition.help", "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."),
                 kind: .choice([
                     SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
                     SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
@@ -82,7 +80,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.plusButton", "+ Button Visibility"),
-                help: SettingsText.keyed("settings.tabs.plusButton.help", "On Hover shows each tab bar's + only while the pointer is over that tab bar."),
+                help: SettingsText.keyed("settings.tabs.plusButton.help", "Applies in Minimal Mode; otherwise the + always shows."),
                 kind: .choice([
                     SettingChoice(PlusButtonMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(PlusButtonMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
@@ -95,7 +93,6 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.barPosition", "Tab Bar Position"),
-                help: SettingsText.keyed("settings.tabs.barPosition.help", "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."),
                 kind: .choice([
                     SettingChoice(TabBarPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                     SettingChoice(TabBarPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
@@ -108,7 +105,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.browser.toolbarPosition", "Browser Toolbar Position"),
-                help: SettingsText.keyed("settings.browser.toolbarPosition.help", "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."),
+                help: SettingsText.keyed("settings.browser.toolbarPosition.help", "Where the address bar of browser and Markdown panes sits."),
                 kind: .choice([
                     SettingChoice(ToolbarPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                     SettingChoice(ToolbarPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
@@ -121,7 +118,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.barOrder", "Tab Bar and Browser Toolbar"),
-                help: SettingsText.keyed("settings.tabs.barOrder.help", "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."),
+                help: SettingsText.keyed("settings.tabs.barOrder.help", "Whether the tab bar sits above or below the address bar."),
                 summary: SettingsText.keyed("settings.tabs.barOrder.summary", "Which sits on top in a browser pane"),
                 kind: .choice([
                     SettingChoice(TabBarOrder.aboveToolbar.rawValue, SettingsText.keyed("settings.choice.tabsAboveToolbar", "Tab Bar Above")),
@@ -135,7 +132,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.toolbarButtons", "Tab Bar Buttons"),
-                help: SettingsText.keyed("settings.tabs.toolbarButtons.help", "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."),
+                help: SettingsText.keyed("settings.tabs.toolbarButtons.help", "The rest are in the More menu."),
                 kind: .orderedChoices([
                     SettingChoice("splitRight", SettingsText.keyed("settings.tabs.toolbarButtons.splitRight", "Split Right")),
                     SettingChoice("splitDown", SettingsText.keyed("settings.tabs.toolbarButtons.splitDown", "Split Down")),
@@ -146,7 +143,7 @@ nonisolated enum TabSettingsSchema {
                 ]),
                 default: .array(PaneToolbarButtonsSetting.fallback.map { .string($0) }),
                 keywords: ["toolbar", "split", "buttons", "pin", "more"]
-            ).hiddenFromSettingsPage("action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)"),
+            ).hiddenFromSettingsPage("action ids; toggled from the tab bar's More menu (Show in Tab Bar)"),
             SettingDescriptor(
                 LayoutMetricSetting.tabFontSizePath,
                 section: .general,
@@ -174,7 +171,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.overflow", "Tab Overflow"),
-                help: SettingsText.keyed("settings.tabs.overflow.help", "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."),
+                help: SettingsText.keyed("settings.tabs.overflow.help", "Shrink narrows tabs before scrolling; Scroll keeps them wide."),
                 kind: .choice([
                     SettingChoice(TabOverflow.shrink.rawValue, SettingsText.keyed("settings.choice.tabOverflowShrink", "Shrink")),
                     SettingChoice(TabOverflow.scroll.rawValue, SettingsText.keyed("settings.choice.tabOverflowScroll", "Scroll")),
@@ -198,7 +195,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.tabMinActiveWidth", "Minimum Selected Tab Width"),
-                help: SettingsText.keyed("settings.tabs.tabMinActiveWidth.help", "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."),
+                help: SettingsText.keyed("settings.tabs.tabMinActiveWidth.help", "The selected tab stays at least this wide when tabs shrink."),
                 kind: .number(SettingNumber(LayoutMetricSetting.tabMinActiveWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.tabMinActiveWidthPlaceholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
@@ -209,7 +206,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.tabMinInactiveWidth", "Minimum Tab Width"),
-                help: SettingsText.keyed("settings.tabs.tabMinInactiveWidth.help", "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."),
+                help: SettingsText.keyed("settings.tabs.tabMinInactiveWidth.help", "Narrowest the other tabs get before the strip scrolls."),
                 kind: .number(SettingNumber(LayoutMetricSetting.tabMinInactiveWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.tabMinInactiveWidthPlaceholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
@@ -231,7 +228,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.newTerminal.opensWorkspace", "New Terminal Opens a Workspace"),
-                help: SettingsText.keyed("settings.newTerminal.opensWorkspace.help", "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."),
+                help: SettingsText.keyed("settings.newTerminal.opensWorkspace.help", "Hold Option to reverse it for one click."),
                 kind: .toggle,
                 default: .bool(NewTerminalWorkspaceSetting.fallback),
                 keywords: ["new terminal", "workspace", "space", "tab", "option"]
@@ -241,7 +238,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.verticalTabs", "Use Vertical Tabs for All Workspaces"),
-                help: SettingsText.keyed("settings.tabs.verticalTabs.help", "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."),
+                help: SettingsText.keyed("settings.tabs.verticalTabs.help", "Tabs in a list beside the panes. A tab bar's menu changes one workspace."),
                 kind: .toggle,
                 default: .bool(VerticalTabsSetting.fallback),
                 keywords: ["vertical", "tabs", "list", "side", "sidebar", "edge", "chrome", "horizontal", "strip", "workspace"]
@@ -251,7 +248,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.verticalTabsExpandOnHover", "Expand Collapsed Vertical Tabs on Hover"),
-                help: SettingsText.keyed("settings.tabs.verticalTabsExpandOnHover.help", "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."),
+                help: SettingsText.keyed("settings.tabs.verticalTabsExpandOnHover.help", "Show titles while the pointer is over the collapsed list."),
                 kind: .toggle,
                 default: .bool(VerticalTabsSetting.expandOnHoverDefault),
                 keywords: ["vertical", "tabs", "collapse", "collapsed", "expand", "hover", "icons", "auto"]
@@ -261,7 +258,6 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.hideLoneChatTab", "Hide the Tab of a Chat Alone in Its Pane"),
-                help: SettingsText.keyed("settings.tabs.hideLoneChatTab.help", "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."),
                 kind: .toggle,
                 default: .bool(LoneChatTabSetting.fallback),
                 keywords: ["tab", "tabs", "bar", "strip", "hide", "lone", "single", "one", "chat", "top", "row", "minimal"]
@@ -271,7 +267,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN", "Swap Cmd-T and Cmd-N"),
-                help: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN.help", "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."),
+                help: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN.help", "Cmd-T opens a workspace and Cmd-N opens a tab."),
                 kind: .toggle,
                 default: .bool(SwapCmdTAndCmdNSetting.fallback),
                 keywords: ["cmd-t", "cmd-n", "swap", "new tab", "new workspace", "shortcut", "keyboard"]

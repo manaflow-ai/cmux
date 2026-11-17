@@ -25,6 +25,7 @@ import { PAPERCUT_CHAT, papercutEvents } from "./support/papercutChat";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => {
   setDefaultTimeout(600_000);
@@ -189,11 +190,11 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
     anims: string[];
     count: number;
   };
-  const readFrame = () => {
+  const readFrame = ({ MAIN_DOCK }: { MAIN_DOCK: string }) => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const thread = document.querySelector<HTMLElement>(".acpmux-thread")!;
     const rows = document.querySelectorAll<HTMLElement>(".acpmux-thread .acpmux-row");
-    const dock = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-dock")!;
+    const dock = document.querySelector<HTMLElement>(MAIN_DOCK)!;
     const shift = (node: Element) => {
       const style = getComputedStyle(node);
       const translate = style.translate && style.translate !== "none" ? (style.translate.split(" ")[1] ?? "0") : "0";
@@ -255,7 +256,7 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
   }
   const settle = (page: Page) =>
     page.evaluate(
-      () =>
+      ({ MAIN_DOCK }) =>
         new Promise<void>((resolve) => {
           let last = "";
           let still = 0;
@@ -264,7 +265,7 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
             frames++;
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const rows = document.querySelectorAll<HTMLElement>(".acpmux-thread .acpmux-row");
-            const dock = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-dock")!;
+            const dock = document.querySelector<HTMLElement>(MAIN_DOCK)!;
             const now = [
               scroller.scrollTop,
               scroller.scrollHeight,
@@ -284,6 +285,7 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
             return false;
           });
         }),
+      { MAIN_DOCK },
     );
   // fixed-wait: wall time is the behavior: a reply's chunks arrive over time, and a hidden page gets no frames to wait on.
   const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -292,7 +294,9 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
     const page = await browsers.get(name)!.newPage({ viewport: { width: 980, height: 700 } });
     await installHide(page);
     await installPaintedFrames(page);
-    await page.addInitScript(`window.readTranscriptFrame = ${readFrame.toString()}`);
+    await page.addInitScript(
+      `window.readTranscriptFrame = () => (${readFrame.toString()})(${JSON.stringify({ MAIN_DOCK })})`,
+    );
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(

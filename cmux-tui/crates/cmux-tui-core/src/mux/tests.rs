@@ -42,7 +42,10 @@ mod disk_usage_read_cost;
 mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
+pub(crate) mod floating_panes;
 mod history_agent_fold;
+#[cfg(unix)]
+mod holder_late_start;
 mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
@@ -52,6 +55,8 @@ mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
 mod layout_sizes;
+#[cfg(unix)]
+mod layout_sizes_session_cost;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
@@ -70,6 +75,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod scoped_load_side_tables;
 mod session_lists;
 mod signaled_mutex;
 mod single_reads;
@@ -95,6 +101,8 @@ mod workspace_close_cost;
 #[cfg(unix)]
 mod workspace_close_time;
 mod workspace_materialize;
+#[cfg(unix)]
+mod workspace_registry_stress;
 mod workspaces;
 mod writer_lock_order;
 
@@ -315,6 +323,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
                     },
                 ],
             },
+            floating: Vec::new(),
         },
         RegistryScreen {
             public_id: second_screen.clone(),
@@ -326,6 +335,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
             zoomed_pane: Some(panes[4].clone()),
             auto_layout: Some(vec![panes[4].clone()]),
             viewport: RegistryViewport::default(),
+            floating: Vec::new(),
         },
     ];
     let registry_panes = vec![

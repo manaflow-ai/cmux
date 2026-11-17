@@ -7,8 +7,9 @@ import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
+import { COMPOSER_EDITOR } from "./composerSelectors";
 
-const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
+const PROMPT = COMPOSER_EDITOR;
 const ROW = ".acpmux-emoji-row";
 
 const snapshot = chat([

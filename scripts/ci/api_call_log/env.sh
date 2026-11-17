@@ -2,10 +2,14 @@
 # hours of REST budget attribution. Every GitHub API request a step makes, from Python or from
 # gh, becomes one `gh-call` line in the job log (the format scripts/ci/gh_call_log.py reads).
 # Each line holds the method, the path with no query string, the X-RateLimit headers
-# Python already received, and GITHUB_WORKFLOW/GITHUB_JOB. It never logs a header value
-# besides those, a body, a flag value or a token.
+# Python already received, GITHUB_WORKFLOW/GITHUB_JOB, and `tok=`: the first 8 hex digits of the
+# SHA-256 of the token the call sent, so a gh line and a Python line on the same App token group
+# together and the Python line's X-RateLimit-Reset names that token's installation pool. It
+# never logs a header value besides those, a body, a flag value or a token.
 #
-# It switches itself off at 2026-11-05 00:00 UTC (below); a follow-up removes it and the BASH_ENV lines.
+# It switches itself off at 2026-11-19 00:00 UTC (below): a second window, for the cmux-bot
+# installation's pool (hq docs/handbook/app-installation-spend-per-caller.md); the first ended
+# 2026-11-05. A follow-up removes it and the BASH_ENV lines.
 #
 # This file must never fail, never print, and never change what a step does. It does three things:
 #   - puts scripts/ci/api_call_log/gh first on PATH, a shim that logs one line and execs the real gh with the same argv;
@@ -23,7 +27,7 @@ _api_call_log_setup() {
   case "${RUNNER_OS:-}" in Linux | macOS) ;; *) return 1 ;; esac
   [ -n "${RUNNER_TEMP:-}" ] && [ -n "${BASH_SOURCE[0]:-}" ] || return 1
   # Self-expiring: after this hour (UTC) it does nothing, whether or not the cleanup PR has landed.
-  [ "$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)" -lt 2026110500 ] || return 1
+  [ "$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)" -lt 2026111900 ] || return 1
   local src dir sink
   src=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || src=""
   dir="$RUNNER_TEMP/api-call-log"

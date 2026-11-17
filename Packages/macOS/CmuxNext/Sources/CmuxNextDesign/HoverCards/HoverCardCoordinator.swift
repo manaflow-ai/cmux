@@ -12,7 +12,7 @@ public import CmuxNextDesignTokens
 /// nothing), dismissals, suppressions and removed targets. Nothing polls
 /// while no card shows (a pointer resting on a card is the one exception,
 /// below): the only timers are one-shot `DemandTimer`s, armed only in a pending,
-/// leaving, grace or pinned phase (the settle timer only while pending); the event monitor for dismissals exists only
+/// leaving, grace or pinned phase; the event monitor for dismissals exists only
 /// while a card is pending or shown.
 ///
 /// Hover intent (`HoverIntentTiming`): a pointer moving from a shown card's
@@ -56,6 +56,13 @@ public final class HoverCardCoordinator {
     var topWindowCache: (point: CGPoint, at: CFTimeInterval, number: Int)?
     /// One frame at 120 Hz: how long a cached top window holds.
     static let topWindowLifetime: CFTimeInterval = 1.0 / 120
+    /// The windows whose sidebar is hidden, held weakly (a new window that reuses a closed one's
+    /// identifier never inherits its hide). No source in one of these windows, or in a window attached
+    /// to one, gives a target a card; every other window's sources still do. A hidden sidebar was an
+    /// app-wide suppression (`HoverSuppression.sidebarHide`): a background or off-screen window with
+    /// its sidebar hidden stopped every card in every window, and one closed while hidden stopped them
+    /// until relaunch.
+    private(set) var hiddenSidebars: [ObjectIdentifier: WeakWindow] = [:]
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -102,31 +109,12 @@ public final class HoverCardCoordinator {
     /// pointer gives no target a card (a row's, a tab's or a user's custom
     /// one); Show Resource Usage still pins one. Tests inject one.
     public var hoverCardsEnabled: () -> Bool = { DesignSettings.shared.showsHoverCards }
-    /// The cold delay is the default one, which opens a card once the pointer stops; a delay the
-    /// user set in `sidebar.hoverCards.delay`, 400 ms too, is a fixed wait (review F2 of #38872).
-    /// Tests inject one.
-    public var delaySettles: () -> Bool = { !DesignSettings.shared.hoverCardDelayIsSet }
     /// A mouse button is down (a press, a drag, a selection): the pointer
     /// gives no target a card, as in Chrome. Tests inject one.
     public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
-    /// Fires a pending card's deadline early once the pointer stops on its target
-    /// (`HoverCardTiming.settleQuiet`); armed only while a card is pending.
-    private let settleTimer: DemandTimer
-    /// Time on the timers' clock, so a test's manual clock moves the pointer's speed too.
-    private let elapsed: () -> Duration
-    /// The last pointer move and its time, for the pointer's speed.
-    private var lastMove: (point: CGPoint, at: Duration)?
-
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
-        settleTimer = DemandTimer(owner: "HoverCards.settle", clock: clock)
-        elapsed = Self.stopwatch(clock)
-    }
-
-    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> () -> Duration {
-        let start = clock.now
-        return { start.duration(to: clock.now) }
     }
 
     /// App and window notifications, installed with the first source (a
@@ -159,7 +147,6 @@ public final class HoverCardCoordinator {
         MainActor.assumeIsolated {
             if let monitor { NSEvent.removeMonitor(monitor) }
             timer.cancel()
-            settleTimer.cancel()
         }
     }
 
@@ -187,7 +174,9 @@ public final class HoverCardCoordinator {
         let timing = HoverIntentTiming.current
         machine.leaveWindow = timing.cardGrace
         machine.aimWindow = timing.cardAim
-        let card = shownCardFrame
+        // A card the pointer never enters (a horizontal tab's preview) is not there for it: the pointer
+        // on it is off its target, as anywhere else, and heads into nothing.
+        let card = shownCardFrame.flatMap { shownCardIsEnterable ? $0 : nil }
         let aiming = card?.isAimedAt(from: lastPointer, to: now) == true
         lastPointer = now
         // On the card the pointer is on no target (the card ignores the mouse,
@@ -210,44 +199,6 @@ public final class HoverCardCoordinator {
         // sidebar row's card): a tab's card below its strip still swaps at once, as in Chrome.
         let holdsAim = machine.shownTarget?.leave.hidesAtOnce != true || panel?.escapeGeometry != nil
         send(.hit(hit?.target, moved: true, aiming: aiming && holdsAim, bridging: bridging))
-        settle(at: now)
-    }
-
-    /// A pending card at the default delay opens once the pointer stops on its target
-    /// (`HoverCardTiming.settleQuiet` and friends): this move slow enough after the last one opens it
-    /// now, else it opens if no move follows within the quiet window. Content moving under a still
-    /// pointer sends no move, so it still waits the whole delay.
-    private func settle(at point: CGPoint) {
-        // The same point again is the same move reported twice (crossing between strips, one event is
-        // the exit of one and the entry of the next, review F1 of #38872): not a sample, or it reads
-        // as a pointer at rest and opens the card it is passing over.
-        if let lastMove, lastMove.point == point { return }
-        let at = elapsed()
-        let last = lastMove
-        lastMove = (point, at)
-        guard case .pending(let target, let token) = machine.phase, target.delay == HoverCardTiming.showDelay,
-              delaySettles() else {
-            settleTimer.cancel()
-            return
-        }
-        if let last, at > last.at, at - last.at <= HoverCardTiming.settleSample {
-            let distance = Double(hypot(point.x - last.point.x, point.y - last.point.y))
-            if distance / (at - last.at).hoverCardSeconds <= HoverCardTiming.settleSpeed {
-                settled(token)
-                return
-            }
-        }
-        settleTimer.schedule(after: HoverCardTiming.settleQuiet) { @MainActor [weak self] in
-            self?.settled(token)
-        }
-    }
-
-    /// The pointer stopped on the target `token`'s card waits for: it shows now, as at its deadline.
-    private func settled(_ token: Int) {
-        settleTimer.cancel()
-        guard case .pending(_, let armed) = machine.phase, armed == token else { return }
-        timer.cancel()
-        send(.deadline(token: token))
     }
 
     /// `point` is between the shown target's own frame and its card, beside the card (a sidebar
@@ -267,8 +218,12 @@ public final class HoverCardCoordinator {
         return panel.cardFrame
     }
 
-    /// Whether the pointer rests on the shown card now.
-    private func pointerIsOnCard() -> Bool { shownCardFrame?.contains(currentPointer()) == true }
+    /// Whether the pointer rests on the shown card now; never on a card it does not enter.
+    private func pointerIsOnCard() -> Bool { shownCardIsEnterable && shownCardFrame?.contains(currentPointer()) == true }
+
+    /// The shown card's target lets the pointer onto its card (`HoverTarget.enterable`): a sidebar row's
+    /// card does, a horizontal tab's preview does not (user 2026-11-16).
+    private var shownCardIsEnterable: Bool { machine.shownTarget?.enterable != false }
 
     /// The pointer rests on the shown card now (a source holds its targets still while it does: the card
     /// follows its target, so a target moving would carry the card out from under the pointer).
@@ -320,6 +275,56 @@ public final class HoverCardCoordinator {
     }
     public func suppress(_ reason: HoverSuppression) { send(.suppress(reason)) }
 
+    /// `window`'s sidebar was hidden or shown. Hidden: no source in that window gives a target a card
+    /// (its edge float's rows and its tab strips included), and a card of that window goes now; a card
+    /// of another window stays. Shown: the pointer's target gets its card again, as after ``unsuppress(_:)``.
+    public func sidebarHidden(_ hidden: Bool, in window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        hiddenSidebars = hiddenSidebars.filter { $0.value.window != nil }
+        guard hidden else {
+            if hiddenSidebars.removeValue(forKey: key) != nil { rehitAfterRelease() }
+            return
+        }
+        hiddenSidebars[key] = WeakWindow(window)
+        if let active = machine.activeTarget, !belongs(active, to: window) { return }
+        send(.dismiss(.action))
+    }
+
+    /// `window` closes (its controller's teardown): what it held here goes with it (its hidden
+    /// sidebar's hold on its cards). The hold is weak too, so a window freed without one never holds.
+    public func windowClosed(_ window: NSWindow) {
+        if hiddenSidebars.removeValue(forKey: ObjectIdentifier(window)) != nil { rehitAfterRelease() }
+    }
+
+    /// `target` is `window`'s: its source's window is that window or attached to it.
+    private func belongs(_ target: HoverTarget, to window: NSWindow) -> Bool {
+        guard let source = owners[target.id]?.source?.hoverCardWindow else { return target.window == window.windowNumber }
+        var next: NSWindow? = source
+        while let current = next {
+            if current === window { return true }
+            next = current.parent
+        }
+        return false
+    }
+
+    /// `window`, or a window it is attached to, has its sidebar hidden.
+    func sidebarIsHidden(over window: NSWindow) -> Bool {
+        guard !hiddenSidebars.isEmpty else { return false }
+        var next: NSWindow? = window
+        while let current = next {
+            if hiddenSidebars[ObjectIdentifier(current)]?.window === current { return true }
+            next = current.parent
+        }
+        return false
+    }
+
+    /// A hold on cards ended: the pointer's target gets its card again, as after ``unsuppress(_:)``.
+    private func rehitAfterRelease() {
+        guard !mouseButtonDown() else { return }
+        let onCard = pointerIsOnCard()
+        send(.hit(onCard ? nil : hitTest(escaping: escapeTarget(at: currentPointer()))?.target, moved: false, bridging: onCard))
+    }
+
     public func unsuppress(_ reason: HoverSuppression) {
         send(.unsuppress(reason))
         guard !mouseButtonDown() else { return }
@@ -336,15 +341,18 @@ public final class HoverCardCoordinator {
     public func pin(_ target: HoverTarget, from source: any HoverCardSource) {
         // An inactive app shows no card (its window would stay hidden).
         guard appIsActive() else { return }
+        // A window with its sidebar hidden pins no card (the app-wide suppression refused it too).
+        if let window = source.hoverCardWindow, sidebarIsHidden(over: window) { return }
         owners[target.id] = WeakSource(source)
         send(.pin(target))
     }
 
     /// `id`'s content changed: the shown card updates in place.
-    public func contentChanged(_ id: HoverTargetID) {
+    /// - Parameter animated: The card grows or folds to its new size on its spring (a tab's picture landing).
+    public func contentChanged(_ id: HoverTargetID, animated: Bool = false) {
         guard machine.shownTarget?.id == id, let body = owners[id]?.source?.hoverCardBody(for: id) else { return }
         body.applyTheme()
-        panel?.refit()
+        panel?.refit(animated: animated)
         updateCardMouse()
     }
 
@@ -427,16 +435,20 @@ public final class HoverCardCoordinator {
             // A target takes the card from its owner's content: the owner hears it ended.
             finishOwned()
             guard let source = owners[target.id]?.source, let parent = source.hoverCardWindow, parent.isVisible,
-                  let anchor = source.hoverCardAnchor(for: target.id), let body = source.hoverCardBody(for: target.id)
+                  let anchor = source.hoverCardAnchor(for: target.id),
+                  let body = MotionTrace.measure("hoverCard.body", { source.hoverCardBody(for: target.id) })
             else {
                 // The target vanished between the hit test and the show.
                 send(.targetRemoved(target.id))
                 return
             }
             let panel = cardWindow(for: cardKey(of: source))
-            panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
-                          themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
-                          cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
+            // Main-thread time of each show while `debug.motion` records (one Bool read when off).
+            MotionTrace.measure("hoverCard.present") {
+                panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
+                              themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
+                              cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
+            }
             // `present` lets an interactive card take the mouse; off the card it gives it back now.
             updateCardMouse()
             // A hover card whose row's escape slot already holds the pointer (it rested in the
@@ -562,7 +574,7 @@ public final class HoverCardCoordinator {
         let top = topWindowNumber(at: point)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
-                  let hit = source.hoverCardHit(at: point) else { continue }
+                  !sidebarIsHidden(over: window), let hit = source.hoverCardHit(at: point) else { continue }
             owners[hit.target.id] = entry
             return hit
         }
@@ -594,6 +606,7 @@ public final class HoverCardCoordinator {
             "phase": "\(machine.phase)",
             "last_hit": machine.lastHit?.id.rawValue ?? "-",
             "suppressions": machine.suppressions.map(\.rawValue).sorted().joined(separator: ","),
+            "hidden_sidebars": "\(hiddenSidebars.values.filter { $0.window != nil }.count)",
             "enabled": "\(hoverCardsEnabled())",
             "delay_ms": "\(Self.milliseconds(DesignSettings.shared.hoverCardDelay))",
             "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
@@ -603,6 +616,7 @@ public final class HoverCardCoordinator {
             "retiring_windows": "\(retiring.count)",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
+            "last_present": panel?.lastPresent.text ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
             "timer_armed": "\(timer.isScheduled)",
             "monitor": "\(monitor != nil)",
@@ -626,4 +640,9 @@ public final class HoverCardCoordinator {
 struct WeakSource {
     weak var source: (any HoverCardSource)?
     init(_ source: any HoverCardSource) { self.source = source }
+}
+
+struct WeakWindow {
+    weak var window: NSWindow?
+    init(_ window: NSWindow) { self.window = window }
 }

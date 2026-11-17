@@ -23,7 +23,8 @@ these are path diagnostics, not a matched wire-bandwidth comparison with another
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
 main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
-uploads `results.json` and a `summary.md` that shows each number's change against the last daily
+uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
+screen-share-fast goal reads. The summary shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
 ## Prebuilt tools
@@ -42,12 +43,16 @@ cmux-ci run --class exclusive --measurement --label measure --script scripts/mea
   --ref SHA --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz
 ```
 
-The archive holds one folder, `tools/`. Nothing is compiled: only the `rd` target
-has this mode, and a Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3
-instead of compiling the launcher.
+The archive holds one folder, `tools/`. Nothing is compiled on the bench Mac: the `rd`,
+`apple-high` and `apple-standard` targets have this mode; WebRTC still requires its own build folder.
+A Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3 instead of compiling
+the launcher. Apple targets require `screen-eval-window-id` in the archive and fail closed if it is absent
+or not executable.
 
 ```
 bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=rd [repeats=3] [samples=200]
+# On a second Mac with the prebuilt helper and a granted launcher:
+bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=apple-high,apple-standard viewer-of=HOST_IP peer-token=HEX
 ```
 
 ## Scenarios (fixed)
@@ -104,6 +109,117 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
+- `apple-rfb`: Apple's Screen Sharing server measured headless, with no window on any Mac.
+  `rfb-viewer.py` runs from a shell on the viewer Mac, logs in to the host's screensharingd with
+  the host account (RFB security type 30, the login Screen Sharing.app uses), keeps one update
+  request outstanding and decodes only the marker rows, so its pure-Python decoder never throttles
+  the stream. Latency is an RFB key or click to the first decoded update whose marker counter
+  changed (it ends at decode, like rd's `bench`); kbps is the RFB bytes it read; fps is the
+  framebuffer updates that carried a rectangle; the OCR frame is one fully decoded framebuffer at
+  the end of the hold. Readiness is the same fresh nonce as below, read from the framebuffer.
+  The client offers ZRLE, zlib, CopyRect and raw (`encodings_seen` records what the server used),
+  so this is Apple's server with standard RFB encodings, not the picture Screen Sharing.app gets
+  over Apple's own encodings. The login is the one Screen Sharing.app saved in the viewer
+  account's keychain for the host ("Remember this password"; the first read may show macOS's
+  keychain prompt once), or a file in the viewer account's real home,
+  `~/.config/screen-stream-eval/login` (mode 0600), which wins when present: the host account's
+  password, for the account with the viewer's name (the fleet Macs share one), or a user name line
+  first. Never argv, environment or logs. Each view runs under a hard time limit. Its viewer opens
+  no window and posts nothing on its own Mac, so `viewer-of=` runs it from a person's Mac too;
+  `person_guard.py` still refuses a person's Mac as its host, where its input lands.
+- `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
+  same host and sample the displayed connection for OCR and viewer CPU. They
+  request Standard + Full Quality and Standard + Adaptive Quality respectively;
+  neither is Apple's separate High Performance connection type. Connection
+  setup still requires an authorized connection. The adapter selects and checks
+  the quality menu item, then requires a fresh source nonce in the selected window
+  before its window workload starts. kbps is the Screen Sharing.app process's
+  received bytes from `nettop` (all its sockets, as `gui-viewer.sh` counts a
+  third-party viewer), read at each one-second bucket's end; a failed read, or no bytes
+  in the whole window, keeps every row's bytes null with `bytes_unavailable`
+  rather than reporting zero. Decoded FPS and session time to first frame
+  remain unavailable. The
+  target records sampled screenshot changes separately as `sampled_fps`; this
+  is a normalized observation rate, not decoded transport FPS. The target
+  selects Full Quality for `apple-high` and Adaptive Quality for
+  `apple-standard` directly through the app's View menu and fails closed when
+  that menu cannot be selected. These items are available only in Standard
+  connections ([Apple's macOS 26 guide](https://support.apple.com/en-us/guide/mac-help/mh14066/26/mac/26)).
+  Select Standard during connection setup on the dedicated viewer. Apple
+  targets require a second Mac and explicit `targets=`; the daily loopback
+  defaults remain `rd,webrtc`.
+  Each view launches its own Screen Sharing.app instance (`open -g -n`, never
+  activated), binds its pid and window, quits only that pid when the view ends
+  (success, failure or signal), and a watchdog ends a view that hangs; a
+  Screen Sharing process the target did not start is never touched. Apple
+  window runs require `presented-observer=1` with
+  `presented-marker-origin=X,Y`, `presented-cell-size=N` and
+  `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
+  optional `presented-display=main`, `presented-timeout-ms=1000` and
+  `presented-seed=1`. The viewer step exports these values locally and runs its
+  bundled `cmux-rd observe` against that exact visible window; it accepts only
+  a complete `cmux.presented-marker/1` receipt. Without all values, Apple
+  latency stays explicitly unavailable; screenshot sampling never becomes a
+  latency claim. Each connection attempt reopens the documented View menu,
+  verifies the selected check mark, binds the observed PID/window, and records
+  `apple-connection.json` with the chosen quality profile and host.
+
+### Source readiness and the common marker
+
+Each Apple window repeat gets a fresh random 128-bit source nonce. The host passes it through the
+existing peer command, and the viewer clears any nonce left from another repeat. After selecting
+quality and binding the PID/window, the adapter runs `cmux-rd observe --mode passive` for one second
+with `--expected-nonce HEX32`. Only a complete `cmux.presented-marker-series/2` receipt with the
+expected nonce, verified host identity, matching PID/window and an advancing counter permits `GO`.
+A connecting window, wrong host, old screenshot, frozen marker, missing observer or failed quality
+selection cannot start the source workload. A failed host stops the scene before GO instead of
+starting it for cleanup. This is source-scene identity evidence within the existing trusted peer
+boundary; it neither authenticates a new Apple session nor changes hub approval or system grants.
+
+`scene-marker=1` opts other targets into the same source layout; Apple's targets always use it.
+The first row is the existing 20-cell marker (16 counter bits, LSB first, then guards 1,0,1,0).
+Eight rows below carry nonce words in the same layout: canonical hex bytes `001122...eeff` become
+little-endian words `0x1100, 0x3322, ..., 0xffee`. All nine rows persist throughout the repeat in
+a reserved strip above the text. The readiness counter advances at 10 Hz before GO; thereafter it
+advances only when a requested typing/scroll source frame is drawn. Idle does not animate. This
+adapter still reports screenshot changes separately; it does not claim passive presented FPS.
+
+`source-scene-N.json` records source layout in points, not viewer capture pixels. The selected
+window may scale, offset or crop those points; calibrate the actual capture's marker origin/cell
+size. Full-window OCR in this marker layout is unavailable until explicit matched host/viewer
+pixel crops are calibrated. The source and viewer PNGs are retained; absent calibration produces
+`comparison_ready:false` and null CER, never a full-window comparison. Legacy decode targets keep
+their previous source layout unless `scene-marker=1` is supplied.
+
+### Optional pinned video workload
+
+Pass `video=/absolute/path/to/clip.mp4 video-sha256=HEX64` to add one 20-second video phase after
+scroll. The path is operator-supplied and must already exist on the measurement Mac; the scene
+verifies the SHA-256 before it opens the source window and refuses a missing, changed, generated or
+downloaded clip. The current fixture provenance is Blender Big Buck Bunny `bbb_sunflower_1080p_60fps_normal.mp4`:
+archive URL `https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_60fps_normal.mp4.zip`,
+archive SHA-256 `68c456673409f8df09b80d0afe29ecb38ef110551fa8a93c83e54a96ebdaec78`, extracted
+SHA-256 `3aa2d8946ec7cf3b50b7148fb3338ca421e6ec34987b20a4044845d674794e3e`, 355856562 bytes,
+1920x1080 AVC1 at 60 fps, duration 634.5333333333 seconds. The harness uses only the first
+20 seconds and records `video-requested.json` plus one `video-media-N.json` receipt containing the
+same checksum, dimensions, nominal FPS, selected interval and actually presented decoded frames.
+The video phase does not replace the fixed idle, typing, scroll or OCR phases.
+
+Prebuilt runs need the updated `screen-eval-scene` and a `cmux-rd` that supports nonce observation;
+`tools-only=1` packages both plus the window-ID helper. An older observer fails closed. Readiness
+uses a precreated start signal and does not start its clock before connecting, so session time to
+first frame remains null. No authenticated real-Mac comparison has been established by these tests.
+
+The existing `rd` and `webrtc` targets use their passive bench viewers and end
+at decode; those rows are not presentation comparisons with Apple. A common
+comparison must drive the approved production Mac Screen pane through the hub,
+put its visible window on the same viewer display, and pass that pane's exact
+PID/window and capture-pixel marker geometry through the `presented-*` arguments.
+The same `cmux-rd observe` receipt then supplies presented p50/p95 for each
+contender. Hub connection identity, selected profile, scene/marker identity,
+window bounds and capture dimensions are required artifacts; Apple transport
+bytes and decoded FPS remain unavailable unless an approved counter exists.
+No hidden decoder or alternate renderer is evidence for the table.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
@@ -157,7 +273,9 @@ appear under `targets.petal` in the same schema.
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
-`eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records
+`eval.py`) and `summary.md`. With more than one target, `summary.md` starts, after the run line, with a "Side by side"
+table, one row per target: key and click glass-to-glass p50, kbps and fps in each window phase (a
+viewer without frame counts shows its sampled screenshot changes, marked `*`). For `rd`, each window's additive `extra.netem_metrics` records
 per-encode attempts, emitted frames, skips, IDRs, P frames, received video/FEC bytes and bitrate.
 Decoded FPS counts successful decoder output. On-time FPS counts frames decoded within 100 ms
 of the source's captured display-frame timestamp, joined to decoder completion by the exact
@@ -173,6 +291,58 @@ There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.
+
+`probe.json` is the goal-facing row. It is complete only for a two-Mac run (`run.link` starts with
+`lan`), with an `rd` key p50 and an Apple comparison target's key p50. A missing pair or comparison is
+`outcome: unknown`; a complete run is `pass` only when the cmux key p50 is at most 160 ms, otherwise
+`fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
+observations. It never invents a comparison number from a one-Mac loopback run.
+
+## Linux, kernel netem jitter (no Mac)
+
+`rd-netem-linux.py` builds `cmux-rd` at each `--commit` and runs the Linux host (Xvfb,
+`cmux-rd testapp --workload motion`, `--profile baseline`) and `cmux-rd bench --carrier udp` in two
+network namespaces joined by a veth, with `tc netem` on each direction: clean, 5±5 ms,
+15±15 ms with 1 % burst loss (Gilbert-Elliott, bursts of about 4 packets), 30±30 ms with 2 % loss.
+Per commit and profile it writes one JSON line (`cmux.rd-netem-linux/1`): key-to-frame p50/p95 and
+lost, received Mbps for every second of a 20 s passive session, the host's target kbps for every
+second (its stats message), IDRs from the host's timing records, and the bench line's
+`stage_ledger` (`cmux.rd-stage-ledger/1`) when that commit has one. `results.md` is the table;
+`rd-netem-linux.py table results.jsonl` redraws it.
+
+It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the fleet it runs through
+HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
+
+```
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+  git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
+  git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
+  python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
+    --commit FULL_SHA [--commit FULL_SHA ...]'
+```
+
+DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
+prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
+
+Hosts encode with Cisco's OpenH264 binary, the one shipped hosts load: the measured binary's own
+`cmux-rd openh264-install` fetches it and checks its pinned SHA-256. `--openh264 PATH` uses a copy
+you already have. `--openh264 source` keeps OpenH264 compiled from source by the `bench` feature.
+That build has no assembly and encodes about 3x slower (`cmux-rd encode-selftest` at 1080p on the
+pool: a typed glyph costs 15 to 20 ms from source and 6 ms with Cisco's binary). The tables mark
+its rows "source-built, about 3x slower". They mark rows from before this flag the same way,
+because those were all source-built, including #44486's 14.9 and 9.8 ms encode rows.
+
+The build controller's Linux pool has `sch_netem` too and runs it from this repository directly
+(the script exits 3 before measuring when `modprobe sch_netem` fails):
+
+```
+cmux-ci submit --kind fast-checks --label cmux-next-linux --repo https://github.com/manaflow-ai/cmux.git \
+  --ref DRIVER_SHA --command 'set -e; out=${FAST_CHECKS_OUT:-$PWD/rd-netem-out}; mkdir -p "$out";
+  python3 -u scripts/measure/screen-stream-eval/rd-netem-linux.py --deps --out "$out" --commit FULL_SHA'
+cmux-ci wait JOB && cmux-ci log JOB
+```
+
+The JSON lines and the table are in the job's log.
 
 ## Two Macs
 

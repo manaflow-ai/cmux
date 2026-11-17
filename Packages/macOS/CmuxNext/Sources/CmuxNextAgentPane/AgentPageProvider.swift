@@ -39,14 +39,14 @@ public nonisolated struct AgentPageOps {
             "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
             "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "chat.attach.external", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
+            "project.list", "project.icon", "folder.complete", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "chat.attach.external", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.sessionInfo.pinch", "pane.glass", "pane.toastAvoidance", "pane.toast", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "externalAccess.openSettings",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
-            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
+            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
             // The model menu's Add account (App.tsx); the old bridge took it, the page host refused it unknown_op.
@@ -55,11 +55,11 @@ public nonisolated struct AgentPageOps {
             // the model, never logged. Without it the page host's pages wrote no line of their own.
             AgentPageFlickerLog.method,
             // A chat's unsent prompts (``AgentPaneUnsentPrompts``): answered before the model, never logged.
-            "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get",
+            "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get", "chat.rows.open", "chat.rows.close", "chat.rows.page", "chat.rows.blob", "chat.rows.taken",
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneGitHubRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods

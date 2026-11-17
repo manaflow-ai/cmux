@@ -165,6 +165,23 @@ import Testing
         await link.close()
     }
 
+    /// A line longer than the pipe takes at once (a token answer is ~1.5 KB, past `PIPE_BUF`) goes in whole
+    /// as the child reads; before, the one non-blocking write took a part, the rest was dropped and the
+    /// supervisor never saw its answer.
+    @Test func aLongLineGoesInWholeWhileTheChildReads() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ccs-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let out = folder.appendingPathComponent("stdin")
+        let child = ChildProcess(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", #"sleep 0.3; cat > "$0""#, out.path])
+        try child.startHoldingInput()
+        let line = String(repeating: "x", count: 256 * 1024)
+        #expect(child.writeInput(line: line, patience: .seconds(10)), "the whole line went in")
+        child.closeInput()
+        _ = await child.waitForExit()
+        #expect((try? Data(contentsOf: out).count) == line.utf8.count + 1)
+    }
+
     @Test func everyLinkErrorRoundTripsOnTheSupervisorsWire() {
         let errors: [CloudLinkError] = [
             .disconnected(reason: "closed"), .revoked(reason: "r"), .helperNotRunning(reason: "gone"), .unsafeSocket("x"),

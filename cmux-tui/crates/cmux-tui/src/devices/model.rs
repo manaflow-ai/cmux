@@ -7,6 +7,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::network::{NetworkNode, NetworkStatus};
+use cmux_device_kind::DeviceKind;
+use cmux_device_kind::screen::{self, Screen};
 
 /// What the stores said, as their own `--json` printed it.
 #[derive(Clone, Debug, Default)]
@@ -91,6 +93,11 @@ pub(crate) struct Device {
     pub id: String,
     pub name: String,
     pub kind: Kind,
+    /// What the device is (`mac-mini`, `linux-server`, `iphone`): what it reports of itself
+    /// (`host_health` `device`), else what its record's source or OS tells.
+    pub device: DeviceKind,
+    /// The glyph every view of this device draws: [`DeviceKind::symbol`], an SF Symbol name.
+    pub symbol: &'static str,
     pub roles: Vec<Role>,
     pub state: State,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,6 +114,10 @@ pub(crate) struct Device {
     /// may run chats here in Full access. None for every other row, which has no such setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
+    /// What the Screen Sharing page offers for it (`cmux_device_kind::screen::offer`): View, or
+    /// nothing with the reason. None for a row that is not a machine (a person's login).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen: Option<Screen>,
 }
 
 /// Where an available computer was found.
@@ -124,8 +135,12 @@ pub(crate) enum Found {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Available {
     pub name: String,
-    /// What enroll dials: the MagicDNS name, else the address; an ssh
-    /// config host's own name.
+    /// What enroll dials (`cmux device add ADDRESS --yes`): the person's ssh
+    /// config alias for the computer when one names it, since that alias
+    /// carries their user, key and HostKeyAlias pin (hq#11835: the MagicDNS
+    /// name failed `Host key verification failed` where the alias reached
+    /// it); else the MagicDNS name, else the address; an ssh config host's
+    /// own name.
     pub address: String,
     /// Empty for an ssh config host: nothing says what it runs until enroll reaches it.
     pub os: String,
@@ -186,7 +201,7 @@ pub(crate) struct Listing {
 /// The pool stem of a machine name that ends in a generated id: a last part of 6 or more hex
 /// characters with both a digit and a letter (`3fa17bde`), with any all-digit parts before it
 /// (a timestamp) dropped too. `swarm-01` and `release-20261114` have no generated id.
-fn pool_stem(name: &str) -> Option<&str> {
+pub(crate) fn pool_stem(name: &str) -> Option<&str> {
     let (rest, last) = name.rsplit_once('-')?;
     let generated = last.len() >= 6
         && last.chars().all(|c| c.is_ascii_hexdigit())
@@ -229,10 +244,30 @@ fn parked_detail(name: &str) -> String {
     )
 }
 
+/// The person's ssh config alias for network computer `node`: one whose
+/// HostName is the node (its MagicDNS name, short name or address) first, else
+/// one named as the node is. ssh dials such an alias with the person's own
+/// user, key and known-hosts pin, which the bare MagicDNS name lacks.
+fn ssh_alias(
+    hosts: &[crate::machine_runtime::SshConfigHost],
+    node: &NetworkNode,
+) -> Option<String> {
+    let by_host_name =
+        hosts.iter().find(|h| h.host_name.as_deref().is_some_and(|name| node.answers_to(name)));
+    by_host_name
+        .or_else(|| {
+            // An alias with its own HostName goes elsewhere, whatever its name says.
+            hosts.iter().find(|h| h.host_name.is_none() && node.answers_to(&h.alias))
+        })
+        .map(|h| h.alias.clone())
+}
+
 /// Merges the stores and the network's nodes into one row per device.
 ///
 /// - an acpmux peer is a computer that runs your agents; its URL's host is
-///   matched to a network node for its OS and address;
+///   matched to a network node for its OS and address (a peer with no URL,
+///   a joined machine and a paired computer by their name), so the node is
+///   never offered again as "Not added yet";
 /// - a daemon-role pairing is the record behind a peer of the same name, so
 ///   it joins that row; a client or read-only pairing is its own row;
 /// - remote hosting's `allow` logins and live grants are rows while remote
@@ -247,7 +282,11 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
     for peer in array(&sources.peers, "peers") {
         let Some(name) = text(peer, "name") else { continue };
         let url = text(peer, "url").unwrap_or_default();
-        let node = url_host(&url).and_then(|host| nodes.iter().find(|n| n.answers_to(&host)));
+        // A peer joined over the mesh has no URL: its name is the only key to its node.
+        let node = match url_host(&url) {
+            Some(host) => nodes.iter().find(|n| n.answers_to(&host)),
+            None => node_named(nodes, &name),
+        };
         let error = text(peer, "error").filter(|e| !e.is_empty());
         let connected = peer["connected"].as_bool().unwrap_or(false);
         // acpmux's `parked`: down a day or more. Gone quiet, not a failure a person can act
@@ -262,19 +301,17 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         } else {
             State::Offline
         };
+        let device = peer_device(peer, &url, node);
         devices.push(Device {
             id: format!("peer:{name}"),
             name: name.clone(),
             kind: kind_of(node.map(|n| n.os.as_str())),
+            device,
+            symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state,
             os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
-            reach: node.map(|n| Reach {
-                network: net_name,
-                address: n.address(),
-                ips: n.ips.iter().map(ToString::to_string).collect(),
-                online: n.online,
-            }),
+            reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
             detail: if parked {
@@ -285,6 +322,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 None
             },
             full_access: None,
+            screen: None,
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -303,25 +341,31 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             continue;
         }
         let open = paired["connections"].as_u64().unwrap_or(0) > 0;
+        let device = paired_device(paired, &role);
+        // A paired computer has no address of its own: a network node of its name is it.
+        let node = if role == "phone" { None } else { node_named(nodes, &name) };
         devices.push(Device {
             id: format!("paired:{id}"),
             name,
             // A phone's own record (acpmux role `phone`): the Mac app lists the phone and joins
             // this row to it for its Full-access setting.
             kind: if role == "phone" { Kind::Phone } else { Kind::Computer },
+            device,
+            symbol: device.symbol(),
             roles: vec![match role.as_str() {
                 "read-only" => Role::WatchOnly,
                 "daemon" => Role::RunsAgents,
                 _ => Role::UsesThis,
             }],
             state: if open { State::Connected } else { State::Offline },
-            os: None,
-            reach: None,
+            os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
+            reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Paired { id }],
             added_at,
             detail: None,
             full_access: matches!(role.as_str(), "client" | "phone")
                 .then(|| paired["full_access"] == true),
+            screen: None,
         });
     }
     for row in sources.joined.as_array().map(Vec::as_slice).unwrap_or_default() {
@@ -331,18 +375,25 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         if state == "revoked" {
             continue;
         }
+        let device = reported(row)
+            .unwrap_or_else(|| DeviceKind::from_os(&text(row, "platform").unwrap_or_default()));
+        let name = text(row, "name").unwrap_or_else(|| id.clone());
+        let node = node_named(nodes, &name);
         devices.push(Device {
             id: format!("joined:{id}"),
-            name: text(row, "name").unwrap_or_else(|| id.clone()),
+            name,
             kind: Kind::Computer,
+            device,
+            symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state: if state == "online" { State::Connected } else { State::Offline },
             os: text(row, "platform"),
-            reach: None,
+            reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Joined { machine_id: id }],
             added_at: text(row, "createdAt"),
             detail: None,
             full_access: None,
+            screen: None,
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {
@@ -387,6 +438,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             ));
         }
     }
+    for d in &mut devices {
+        d.screen = screen_of(d);
+    }
     devices.sort_by(|a, b| {
         rank(a.state)
             .cmp(&rank(b.state))
@@ -404,7 +458,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 n.mine,
                 Available {
                     name: n.name.clone(),
-                    address: n.address(),
+                    address: ssh_alias(&sources.ssh_hosts, n).unwrap_or_else(|| n.address()),
                     os: n.os.clone(),
                     mine: n.mine,
                     found: Found::Network,
@@ -481,6 +535,8 @@ fn login_row(
         id,
         name: login.to_owned(),
         kind: Kind::Computer,
+        device: DeviceKind::Generic,
+        symbol: DeviceKind::Generic.symbol(),
         roles: vec![role],
         state,
         os: None,
@@ -489,7 +545,18 @@ fn login_row(
         added_at,
         detail,
         full_access: None,
+        screen: None,
     }
+}
+
+/// What the Screen Sharing page offers for a row: none for a person's login (not a machine), else
+/// what its kind (or, when it reported none, its OS) can do there.
+fn screen_of(d: &Device) -> Option<Screen> {
+    if d.via.iter().all(|v| matches!(v, Via::Grant { .. } | Via::Allow { .. })) {
+        return None;
+    }
+    let os = if d.kind == Kind::Phone { Some("ios") } else { d.os.as_deref() };
+    Some(screen::offer(d.device, os, d.state == State::Connected))
 }
 
 /// The order rows show in: what needs a person first.
@@ -499,6 +566,46 @@ fn rank(state: State) -> u8 {
         State::Error => 1,
         State::Connected => 2,
         State::Offline => 3,
+    }
+}
+
+/// The kind a record says its device reported (`device`), when it names one.
+fn reported(record: &Value) -> Option<DeviceKind> {
+    record["device"].as_str().map(DeviceKind::parse)
+}
+
+/// An acpmux peer's kind: a Cloud machine (a `ws://`/`wss://` peer, as the app's location picker
+/// tells them apart) by its source; else what the peer reported in its health; else its OS.
+fn peer_device(peer: &Value, url: &str, node: Option<&NetworkNode>) -> DeviceKind {
+    if url.starts_with("ws://") || url.starts_with("wss://") {
+        return DeviceKind::Cloud;
+    }
+    reported(&peer["health"])
+        .or_else(|| reported(peer))
+        .unwrap_or_else(|| node.map_or(DeviceKind::Generic, |n| DeviceKind::from_os(&n.os)))
+}
+
+/// A pairing's kind: what the device reported, else its OS, else an iPhone for a phone pairing.
+fn paired_device(paired: &Value, role: &str) -> DeviceKind {
+    reported(paired)
+        .or_else(|| text(paired, "os").map(|os| DeviceKind::from_os(&os)))
+        .filter(|k| *k != DeviceKind::Generic)
+        .unwrap_or(if role == "phone" { DeviceKind::IPhone } else { DeviceKind::Generic })
+}
+
+/// The network node a record with no address of its own names: the node's name, or the
+/// first label of its DNS name. Mesh-joined peers, joined machines and paired computers
+/// have no URL; without this their node is listed again under "Not added yet".
+fn node_named<'a>(nodes: &'a [NetworkNode], name: &str) -> Option<&'a NetworkNode> {
+    nodes.iter().find(|n| n.answers_to(name))
+}
+
+fn reach_of(n: &NetworkNode, network: &'static str) -> Reach {
+    Reach {
+        network,
+        address: n.address(),
+        ips: n.ips.iter().map(ToString::to_string).collect(),
+        online: n.online,
     }
 }
 

@@ -139,11 +139,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         metrics base: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
-        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy); Expanded rows
-        // and headers are two lines. One `resolved` for every sizing site.
+        // Expanded rows and headers are two lines. One `resolved` for every sizing site.
         let m = base.resolved(for: o)
-        // A new workspace's drop gap is a row: as short as minimal mode's rows.
-        let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
+        // A new workspace's drop gap is a row.
+        let gapHeight = max(0, o.gapHeight)
         if o.hidesWorkspaces { return .empty }
         // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
         let once = Self.listingEachWorkspaceOnce(sections)

@@ -78,6 +78,8 @@ impl AttachBuilder {
             rows,
             expected_generation: Optional::Missing,
             expected_terminal_id: Optional::Missing,
+            hybrid_frame: Optional::Missing,
+            hybrid_stream: Optional::Missing,
             replay_history_rows: Optional::Missing,
             output_coalesce_ms: Optional::Missing,
             replay_history_start: Optional::Missing,

@@ -1,5 +1,5 @@
 {
-  "$comment": "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers a stream only to an app that may call its `reads` op (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
+  "$comment": "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again (a stream fed from outside this machine, github.changed, may say {\"live\": bool} about its push channel). The daemon delivers a stream only to an app that may call its `reads` op with its optional `readsParams` (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope; a `reads` op whose catalog scope has a <placeholder> (integration.request) names the narrowed scope in `scope`. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
   "version": 1,
   "events": {
     "workspace.changed": {
@@ -37,6 +37,12 @@
     "settings.changed": {
       "docs": "A cmux setting changed (cmux-next.json, a managed layer, Settings, the CLI or an agent). Read the keys you use again with settings.get; the event names none and carries no values.",
       "reads": "settings.get"
+    },
+    "github.changed": {
+      "docs": "GitHub data the person can read changed: a pull request, a review, a check run or suite, or a commit status, on a repository a GitHub connection covers. The Cloud turns the GitHub App's verified webhook into this invalidation within seconds; read GitHub again through integration.request. The body is {} for a change, or {\"live\": bool} when the push channel goes up or down (signed out, offline, no GitHub connection): a new subscriber hears {\"live\": ...} first. While it is not live, keep a slow re-read.",
+      "reads": "integration.request",
+      "readsParams": { "provider": "github", "method": "GET" },
+      "scope": "integration:github:read"
     },
     "theme.changed": {
       "docs": "The theme changed: the theme, app theme, theme file, theme edits, accent, hue, saturation or highlight color. Theme tones (cmux.theme) repaint on their own; read settings.get again for anything you derive from them.",

@@ -47,9 +47,10 @@ pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 /// Keys a theme file reads that are not settings.
 pub const RESERVED_KEYS: [&str; 5] = ["name", "description", "$schema", "colors", "ghostty"];
 /// Look keys that are no part of a look: the theme file itself, the star
-/// list and its rotation, per-machine and per-display maps, and the saved
+/// list and its rotation, per-machine and per-display maps, the sun location
+/// (where this Mac is), and the saved
 /// custom densities.
-const EXCLUDED_KEYS: [&str; 7] = [
+const EXCLUDED_KEYS: [&str; 8] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -57,6 +58,7 @@ const EXCLUDED_KEYS: [&str; 7] = [
     "appearance.displayBackgrounds",
     "appearance.displayBackgroundRotations",
     "appearance.customDensities",
+    "appearance.backgroundLocation",
 ];
 const LOOK_PREFIXES: [&str; 7] = [
     "appearance.",
@@ -401,7 +403,10 @@ impl<'a> Reader<'a> {
         if !is_look(row) {
             return self.refuse(&row.key, Some(written), "a theme file sets only look settings");
         }
-        let value = if row.validation == Validation::Domain(DomainKind::BackdropSelection) {
+        let value = if matches!(
+            row.validation,
+            Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
+        ) {
             self.picture(written)
         } else {
             written.clone()

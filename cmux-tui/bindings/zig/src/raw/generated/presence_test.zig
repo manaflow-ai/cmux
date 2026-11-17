@@ -53,6 +53,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
     try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.DeleteTerminalCommandsRequest, "all");
+    try expectExplicitNullRejected(protocol.DeviceSetupRequest, "allow_agents");
+    try expectExplicitNullRejected(protocol.DeviceSetupRequest, "dry_run");
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
@@ -88,6 +90,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.SplitRequest, "before");
     try expectExplicitNullRejected(protocol.SplitRequest, "keep");
+    try expectExplicitNullRejected(protocol.TerminalCommandContextRequest, "intent");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
@@ -223,9 +226,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_capabilities");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "machine_device");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_id");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_platform");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "machine_symbol");
     try expectExplicitNullRejected(protocol.IdentifyResult, "session_id");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split_id");
@@ -288,6 +293,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SizePolicy, "priority");
     try expectExplicitNullRejected(protocol.SurfaceResult, "screen_id");
     try expectExplicitNullRejected(protocol.SurfaceResult, "terminal_resource_id");
+    try expectExplicitNullRejected(protocol.SurfaceResult, "transaction");
     try expectExplicitNullRejected(protocol.SurfaceResult, "workspace_id");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");

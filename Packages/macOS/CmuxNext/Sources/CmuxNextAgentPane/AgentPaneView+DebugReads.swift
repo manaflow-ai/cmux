@@ -7,7 +7,8 @@ import Foundation
 /// builds): its readiness for a still and the ACP Inspector toggle.
 extension AgentPaneView {
     /// `debug.agent_pane readiness`: whether the page drew a transcript and a composer, and (with
-    /// `waitForAnimations`, up to 1 s) whether its menus finished animating.
+    /// `waitForAnimations`, up to 1 s) whether its menus finished animating. `open_waits` is the host's
+    /// count of waits for another process before this open's first paint (``AgentPaneOpenWaits``).
     public func debugReadiness(pane: String, waitForAnimations: Bool = false) async -> JSONValue {
         let script = """
         const bodyText = (document.body?.innerText || '').trim();
@@ -44,6 +45,8 @@ extension AgentPaneView {
                 return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
             }
             members["pane"] = .string(pane)
+            members["open_waits"] = .object(["count": .number(Double(model.openWaits.count)),
+                                             "steps": .array(model.openWaits.steps.map { .string($0.rawValue) })])
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])

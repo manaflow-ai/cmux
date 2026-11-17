@@ -427,9 +427,91 @@ def _queue_depth(online: int, idle: int, queued: int) -> float:
     return (queued - idle) / online if online else math.inf
 
 
+# The rescue's depth rule (owned_pool_rescue.pool_depth() and deeper_queue() on main, #43799), ported here because
+# placement runs from feat-cmux-next's scripts/ci at the base sha and cannot import main's. Placement and the rescue
+# judge an owned queue by one rule, so the rescue never holds a re-run off a label placement just chose, and
+# placement never chooses a label the rescue would call deeper. Keep the two copies the same.
+def pool_depth(snapshot: Mapping[str, Any], label: str) -> tuple[int, int] | None:
+    """(jobs queued, seconds its oldest queued job has waited) on `label` by the janitor's snapshot: its `pools` entry
+    (queued, oldest_queued_minutes), else the fleet gates' (`gates.labels`: queued, oldest_queued_s), else None (a
+    label the snapshot does not list proves nothing)."""
+    pools = snapshot.get("pools")
+    gates = snapshot.get("gates")
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    try:
+        entry = pools.get(label) if isinstance(pools, Mapping) else None
+        if isinstance(entry, Mapping) and "queued" in entry:
+            return (max(0, int(entry.get("queued") or 0)),
+                    max(0, int(float(entry.get("oldest_queued_minutes") or 0) * 60)))
+        entry = labels.get(label) if isinstance(labels, Mapping) else None
+        if isinstance(entry, Mapping) and "queued" in entry:
+            return max(0, int(entry.get("queued") or 0)), max(0, int(float(entry.get("oldest_queued_s") or 0)))
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _deeper(there: tuple[int, int], here: tuple[int, int]) -> bool:
+    """Whether the queue `there` is deeper than `here`: more jobs queued, or as many (one or more) with an older
+    oldest one (#43799's deeper_queue())."""
+    return there[0] > here[0] or there[0] == here[0] > 0 and there[1] > here[1]
+
+
+def deeper_queue(snapshot: Mapping[str, Any] | None, sources: Sequence[str], destination: str) -> str:
+    """Why `destination` is a deeper queue than one of `sources`, or "": #43799's deeper_queue(). A label the
+    snapshot does not list, or no snapshot, proves nothing."""
+    if not isinstance(snapshot, Mapping):
+        return ""
+    there = pool_depth(snapshot, destination)
+    if there is None:
+        return ""
+    for source in sorted(set(sources)):
+        here = pool_depth(snapshot, source) if source != destination else None
+        if here is None:
+            continue
+        if _deeper(there, here):
+            return (f"{destination} has {there[0]} queued (oldest {there[1] // 60} min), deeper than {source}'s "
+                    f"{here[0]} queued (oldest {here[1] // 60} min)")
+    return ""
+
+
+def depth_snapshot(seen: Any) -> Mapping[str, Any] | None:
+    """The janitor snapshot placement judges queue depth by: a fresh one only (a stale one proves nothing)."""
+    if seen is None or getattr(seen, "stale", False):
+        return None
+    snapshot = getattr(seen, "snapshot", None)
+    return snapshot if isinstance(snapshot, Mapping) else None
+
+
+def _shallower_jobs(candidate: str, side: str, jobs: Sequence[str], runners: Sequence[Mapping[str, Any]],
+                    seen: Any) -> tuple[str, ...]:
+    """The `jobs` that take the owned label `candidate` instead of `side`: one by one, while `side`'s queue stays
+    deeper than `candidate`'s by #43799's rule, counting the jobs placed here. With no depth for `candidate` in a
+    fresh snapshot, only its idle runners count. A label the janitor found unserved, or full by glaeda's listener
+    health, takes nothing unless a runner carrying it is idle now."""
+    online, idle = _role_online(candidate, runners)
+    if not online:
+        return ()
+    blocked = (candidate in (getattr(seen, "unserved", None) or ())
+               or getattr(seen, "owned_full", {}).get(candidate, False))
+    if blocked and not idle:
+        return ()
+    snapshot = depth_snapshot(seen)
+    here = pool_depth(snapshot, side) if snapshot is not None else None
+    there = pool_depth(snapshot, candidate) if snapshot is not None else None
+    if here is None or there is None:
+        return tuple(jobs[:idle])
+    placed: list[str] = []
+    for job in jobs:
+        if not _deeper(here, (there[0] + len(placed), there[1])):
+            break
+        placed.append(job)
+    return tuple(placed)
+
+
 def session_spill(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
                   route: str, taken: Sequence[str] = ()) -> tuple[str, tuple[str, ...]]:
-    """(the session label, the SESSION_SPILL_JOBS that take it), else ("", ()): the shorter of two owned queues.
+    """(the owned label, the SESSION_SPILL_JOBS that take it), else ("", ()): the shorter of the owned queues.
 
     On 2026-11-15 at 03:15Z glaeda-side-std-xcode-26.6 had 57 jobs queued, the oldest 76 minutes, on its 8
     online runners, while glaeda-session-std-xcode-26.6 had none queued on 13 online (3 listening). A same-repo
@@ -440,37 +522,61 @@ def session_spill(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     So each such job no idle side runner took (`taken`: decide()'s, the light spill's) takes the session label
     while its queue per online runner, counting the jobs placed here, stays shorter than the side route's, read
     from the janitor snapshot's queued counts and the live runners. With no fresh snapshot only an idle session
-    runner counts. Never the console gui label: a PR test takes no gui token. A label the janitor found
-    unserved, or full by glaeda's listener health, takes nothing unless a runner carrying it is idle now.
+    runner counts. A label the janitor found unserved, or full by glaeda's listener health, takes nothing unless
+    a runner carrying it is idle now. Nor does a session queue the rescue's rule (#43799's deeper_queue(): more
+    jobs queued, or as many with an older oldest one) calls deeper than the side route's, counting the jobs placed
+    there: the rescue would never send a job onto it, so placement does not either.
+
+    When the session label takes none, the gui label is the other owned queue these jobs run on (a push's
+    daemon tests and generated files take it whenever the session label has no room): they take it while the
+    side route's queue is deeper by that rule (_shallower_jobs()). On 2026-11-15 glaeda-side-std-xcode-26.6 had
+    61 queued, the oldest 203 min, and glaeda-gui-std-xcode-26.6 had 1, yet a PR's daemon tests queued on side.
     """
     if runners is None:
         return "", ()
     label = (env.get("SIDE_LABEL") or "").strip()
-    session = _live_role_label(label, runners, pool.session_label)
     jobs = [job for job in (env.get("JOBS") or "").split() if job in SESSION_SPILL_JOBS and job not in taken]
-    if not session or not jobs:
+    if not jobs:
         return "", ()
+    side = route or label
+    session = _live_role_label(label, runners, pool.session_label)
+    placed = _session_jobs(session, side, jobs, runners, seen) if session else ()
+    if placed:
+        return session, placed
+    gui = gui_route_label(label, runners)
+    placed = _shallower_jobs(gui, side, jobs, runners, seen) if gui and gui != session else ()
+    return (gui, placed) if placed else ("", ())
+
+
+def _session_jobs(session: str, side: str, jobs: Sequence[str], runners: Sequence[Mapping[str, Any]],
+                  seen: Any) -> tuple[str, ...]:
+    """The `jobs` that take the live session label `session` instead of `side` (session_spill())."""
     online, idle = _role_online(session, runners)
     blocked = (session in (getattr(seen, "unserved", None) or ())
                or getattr(seen, "owned_full", {}).get(session, False))
     if blocked and not idle:
-        return "", ()
+        return ()
     queues = getattr(seen, "owned_queued", None) if seen is not None and not getattr(seen, "stale", False) else None
     if not queues:
         # No queue counts: only the idle session runners are known room.
-        return (session, tuple(jobs[:idle])) if idle else ("", ())
-    side = route or label
+        return tuple(jobs[:idle])
     side_online = _online(side, runners)
     side_idle = pool.live_owned_free(runners, [side])[side] if side_online else 0
     side_queued = int(queues.get(side, 0) or 0)
     session_queued = int(queues.get(session, 0) or 0)
+    snapshot = depth_snapshot(seen)
+    here = pool_depth(snapshot, side) if snapshot is not None else None
+    depth = pool_depth(snapshot, session) if snapshot is not None else None
     placed: list[str] = []
     there = _queue_depth(side_online, side_idle, side_queued)
     for job in jobs:
         if _queue_depth(online, idle, session_queued + len(placed)) >= there:
             break
+        # Never onto a queue deeper than the side route's by the rescue's rule (#43799).
+        if here is not None and depth is not None and _deeper((depth[0] + len(placed), depth[1]), here):
+            break
         placed.append(job)
-    return (session, tuple(placed)) if placed else ("", ())
+    return tuple(placed)
 
 
 def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -657,21 +763,36 @@ def _light_room(label: str, runners: Sequence[Mapping[str, Any]], seen: Any) -> 
     """The idle runners carrying the light side `label` beyond the jobs already queued on it, or 0 while the
     janitor snapshot is unread or stale, or while a nightly or release job waits on the light family (any pool
     of the same `<class>-xcode-<version>` with reserved_queued): nightly first."""
-    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
-    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
-        return 0
-    pools = snapshot.get("pools") or {}
-    own = _family(label)
-    if not isinstance(pools, Mapping) or any(
-            _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
-            for name, entry in pools.items() if isinstance(entry, Mapping)):
+    if not _light_family_open(label, seen):
         return 0
     queued = int((getattr(seen, "owned_queued", None) or {}).get(label, 0) or 0)
     return max(0, pool.live_owned_free(runners, [label])[label] - queued)
 
 
+def _light_family_open(label: str, seen: Any) -> bool:
+    """Whether the janitor snapshot is read and fresh and no nightly or release job waits on the light family of
+    `label` (any pool of the same `<class>-xcode-<version>` with reserved_queued): nightly first."""
+    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
+    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
+        return False
+    pools = snapshot.get("pools") or {}
+    own = _family(label)
+    return isinstance(pools, Mapping) and not any(
+        _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
+        for name, entry in pools.items() if isinstance(entry, Mapping))
+
+
+def cloud_has_room(live: Mapping[str, int] | None, waiting: Mapping[str, int] | None) -> bool:
+    """Whether the light-fit jobs' Blacksmith leg (GUI_OVERFLOW) has a free slot now: in flight plus queued under
+    its capacity (next_macos_cascade.CAPACITY). light_spill_route() reads it only with both counts read."""
+    if live is None or waiting is None:
+        return False
+    return int(live.get(GUI_OVERFLOW, 0)) + int(waiting.get(GUI_OVERFLOW, 0)) < cascade.CAPACITY[GUI_OVERFLOW]
+
+
 def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
-                      owned: Sequence[str] = (), fast: str = "") -> tuple[str, tuple[str, ...]]:
+                      owned: Sequence[str] = (), fast: str = "", live: Mapping[str, int] | None = None,
+                      waiting: Mapping[str, int] | None = None) -> tuple[str, tuple[str, ...]]:
     """(the light minis' side label, the LIGHT_SPILL_JOBS its idle runners take), else ("", ()).
 
     Leo, 2026-11-11, with the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units
@@ -685,6 +806,17 @@ def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     one job per runner, before the cascade. As light_fast_route(): attempt 1 only, never while a nightly
     or release job waits on the light family, and an unread or stale snapshot places nothing. A light
     runner the fast tier just took (`fast`) is not counted.
+
+    With no idle light runner for a job, it still queues on the light side label while that label has an
+    online runner and the Blacksmith leg (GUI_OVERFLOW) has no free slot (cloud_has_room(); `live` and
+    `waiting` are the cascade's counts). It used to go to the cascade, and the cascade's last resort is a
+    Blacksmith macOS label at its cap. On 2026-11-17, cmux#43307's daemon tests (run 44001991089) were placed
+    at 02:23Z with no idle light runner, when `blacksmith-6vcpu-macos-26` held 17 in flight and 91 queued of
+    10. The job became runnable at 04:17Z, landed on that queue and had no runner an hour later. Meanwhile the
+    owned light runners turned over every few minutes (12 busy and 56 held at 02:17Z). A queue on an owned
+    label drains as its runners free; a queue past a cloud label's cap does not. Queuing on the owned label is
+    also safe when the decision is old: the label is right whenever the job becomes runnable, and a cloud slot
+    is taken only while one is free at placement.
     """
     if runners is None or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
         return "", ()
@@ -694,6 +826,9 @@ def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     if not label or not jobs:
         return "", ()
     room = _light_room(label, runners, seen) - (1 if fast == label else 0)
+    if (room < len(jobs) and _light_family_open(label, seen) and _online(label, runners) > 0
+            and live is not None and waiting is not None and not cloud_has_room(live, waiting)):
+        return label, tuple(jobs)  # queue on the owned label: the cloud leg is full (docstring)
     return (label, tuple(jobs[:room])) if room > 0 else ("", ())
 
 
@@ -725,6 +860,73 @@ def light_rerun_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
         return "", ()
     room = _light_room(label, runners, seen)
     return (label, tuple(jobs[:room])) if room > 0 else ("", ())
+
+
+# Borrowing an idle pool beside a backed-up one (borrow_route()). The lenders are role labels whose runners run a std
+# side job as is: the gui label (a std mini's logged-in runner; glaeda's hook admits any cmux-next.yml job there). Not
+# the DEV freshness slot (glaeda's dev_compile_refusal admits only feed compiles on it), not the nightly or promote
+# labels (nightly comes first on its dedicated Macs), and not root, whose runners already carry the side label.
+LENDER_ROLES = (pool.gui_label,)
+# At most this many lender runners run borrowed jobs at once, fleet-wide, and this many idle ones stay free for the
+# lender's own jobs: a GUI job arriving while borrowed work runs still finds an idle runner.
+BORROW_CAP = 2
+BORROW_RESERVE = 1
+# The borrowed jobs by job id, with the run name the janitor snapshot's `running` shows for them (cmux-next.yml).
+BORROW_NAMES = {"release-compile": "cmux-next Release compile (Xcode 26)"}
+
+
+def borrow_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
+                 taken: Sequence[str] = (), lender_own: int = 0) -> tuple[str, tuple[str, ...]]:
+    """(a lender label, the BORROW_JOBS its idle runners take), else ("", ()): an idle pool lends to a backed-up one.
+
+    2026-11-16 03:16Z, macos-pool-load: glaeda-std-xcode-26.6 had 48 queued (oldest 178 min) and
+    glaeda-side-std-xcode-26.6 44 (oldest 113 min), and the slowest PR verdicts ended on the Release compile, while
+    glaeda-gui-std-xcode-26.6 had 0 queued. Side jobs only ever took the side label, its wider classes, the session
+    label or Blacksmith, never an idle gui runner.
+
+    A job of BORROW_JOBS that runs this attempt (CASCADE_RUNS) and that no idle side or light runner took (`taken`)
+    takes the lender label, one per runner, only while all of these hold, read from a fresh janitor snapshot and the
+    live runners (latest reading wins; nothing is kept between placements, and an unread or stale reading borrows
+    nothing):
+    - the side route is backed up: a job queued on it;
+    - the lender has nothing queued (the snapshot's pool and glaeda's gates), is not unserved or full, and has more
+      idle online runners than BORROW_RESERVE plus `lender_own` (this run's own jobs bound for it);
+    - fewer than BORROW_CAP lender runners already run a borrowed job (the snapshot's `running`), counting this run's.
+    The lender's own work keeps first claim: its queue stops borrowing, and the reserve keeps a runner idle for it.
+    """
+    if runners is None or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return "", ()
+    snapshot = depth_snapshot(seen)
+    if snapshot is None:
+        return "", ()
+    label = (env.get("SIDE_LABEL") or "").strip()
+    allowed = set((env.get("BORROW_JOBS") or "").split())
+    runs = (env.get("CASCADE_RUNS") or "").split() if "CASCADE_RUNS" in env else None
+    jobs = [job for job in (env.get("JOBS") or "").split()
+            if job in allowed and job in BORROW_NAMES and job not in taken and (runs is None or job in runs)]
+    side = pool_depth(snapshot, side_route(label, runners) or label)
+    if not jobs or side is None or side[0] <= 0:
+        return "", ()
+    running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
+    borrowed_names = set(BORROW_NAMES.values())
+    for role in LENDER_ROLES:
+        lender = _live_role_label(label, runners, role)
+        if not lender or lender in (getattr(seen, "unserved", None) or ()) \
+                or getattr(seen, "owned_full", {}).get(lender, False):
+            continue
+        depth = pool_depth(snapshot, lender)
+        gates = (snapshot.get("gates") or {}).get("labels") if isinstance(snapshot.get("gates"), Mapping) else None
+        gate = gates.get(lender) if isinstance(gates, Mapping) else None
+        if depth is None or depth[0] > 0 or isinstance(gate, Mapping) and int(gate.get("queued") or 0) > 0:
+            continue
+        carriers = [runner for runner in runners if lender in pool.runner_labels(runner)]
+        lent = sum(1 for runner in carriers
+                   if str((running.get(str(runner.get("name") or "")) or {}).get("job") or "") in borrowed_names)
+        idle = _role_online(lender, runners)[1]
+        room = min(BORROW_CAP - lent, idle - BORROW_RESERVE - lender_own)
+        if room > 0:
+            return lender, tuple(jobs[:room])
+    return "", ()
 
 
 def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
@@ -1220,7 +1422,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         env = without_jobs(env, fresh_jobs)
     owned, fallback, why = decide(env, runners)
     # The jobs no idle std runner took that a light mini runs: an idle light side runner before the cascade.
-    light, light_jobs = light_spill_route(env, runners, seen, owned, fast)
+    light, light_jobs = light_spill_route(env, runners, seen, owned, fast, live, waiting)
     if light_jobs:
         env = without_jobs(env, light_jobs)
         why += f"; no idle std side runner for {', '.join(light_jobs)}, so they take idle light `{light}`"
@@ -1229,11 +1431,29 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     live_gui = gui_route_label(label, runners)
     gui_route = healthy_role_label(live_gui, runners, seen, waiting)
     session_route = healthy_role_label(session_route_label(label, runners), runners, seen, waiting)
+    # A push's session jobs take session_runner, else gui_runner: of two owned labels with room, the shallower one by
+    # the rescue's rule (#43799's deeper_queue()), so they never wait on a session queue deeper than the gui one.
+    deeper = (deeper_queue(depth_snapshot(seen), (gui_route,), session_route)
+              if session_route and gui_route and session_route != gui_route else "")
+    if deeper:
+        why += f"; {deeper}, so the session jobs take `{gui_route}`"
+        session_route = gui_route
     # The PR session jobs no idle side or light runner took: the session queue while it is the shorter one.
     spill_session, session_jobs = session_spill(env, runners, seen, route, (*owned, *light_jobs))
     if session_jobs:
         why += (f"; no idle side runner for {', '.join(session_jobs)}, and `{spill_session}`'s queue is shorter "
                 f"than `{route or label}`'s, so they take it")
+    # The side jobs nothing above took: an idle lender pool (the gui label) while the side route is backed up and the
+    # lender has nothing queued, after this run's own GUI-label jobs, within BORROW_CAP (borrow_route()).
+    runs = (env.get("CASCADE_RUNS") or "").split() if "CASCADE_RUNS" in env else (env.get("JOBS") or "").split()
+    lender_own = sum(1 for job in (*(session_jobs if spill_session and spill_session == live_gui else ()),
+                                   *(job for job in (env.get("JOBS") or "").split() if job == "swift-test"))
+                     if job in runs)
+    borrow, borrow_jobs = borrow_route(env, runners, seen, (*owned, *light_jobs), lender_own)
+    if borrow_jobs:
+        env = without_jobs(env, borrow_jobs)
+        why += (f"; `{route or label}` is backed up and `{borrow}` has idle runners and nothing queued, so "
+                f"{', '.join(borrow_jobs)} borrow it")
     # Generated files' own session lane (vars.CI_SESSION_LANE_RUNNER, a glaeda-session-* label): written only while
     # it has room, so the variable never sends the job to a queue deeper than its pool.
     lane = (env.get("SESSION_LANE") or "").strip()
@@ -1320,6 +1540,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
                          f"fast_runner={fast}\n"
                          f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"
                          f"light_runner={light}\nlight_jobs={delimited(light_jobs)}\n"
+                         f"borrow_runner={borrow}\nborrow_jobs={delimited(borrow_jobs)}\n"
                          f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")

@@ -5,7 +5,7 @@ import Security
 /// Generic password items under one service (`<bundle id>.device-hub`), for
 /// this device only, never synced. A tagged build has its own bundle id and
 /// so its own items; the Keychain trusts only the app that made an item.
-public struct DeviceKeychain: Sendable {
+public struct DeviceKeychain: DeviceIdentityKeychain, Sendable {
     public let service: String
     /// Items in the data-protection keychain (`kSecUseDataProtectionKeychain`),
     /// as the app's other secrets: relay secrets. The device keys stay in the
@@ -74,8 +74,23 @@ public struct DeviceKeychain: Sendable {
     }
 
     public func delete(_ account: String) throws {
-        let status = loginKeychain.withoutUI { SecItemDelete(query(account) as CFDictionary) }
+        let status = deleteStatus(account)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(status) }
+    }
+
+    /// Deletes the item and answers the Keychain's status: an item another build of this bundle id
+    /// made answers errSecInvalidOwnerEdit, which the identity's rules read instead of a throw.
+    public func deleteStatus(_ account: String) -> OSStatus {
+        loginKeychain.withoutUI { SecItemDelete(query(account) as CFDictionary) }
+    }
+
+    /// Adds the item, never replacing one (another build's item refuses an update too).
+    public func add(_ data: Data, account: String) throws {
+        var add = query(account)
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = loginKeychain.withoutUI { SecItemAdd(add as CFDictionary, nil) }
+        guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
     }
 
     func query(_ account: String) -> [String: Any] {
@@ -94,4 +109,12 @@ public struct DeviceKeychain: Sendable {
         }
         return access
     }
+}
+
+/// The Keychain calls the device identity makes (``DeviceKeychain``; tests: a Keychain of several builds).
+protocol DeviceIdentityKeychain: Sendable {
+    func accountsThrowing() throws -> [String]
+    func read(_ account: String) throws -> Data?
+    func add(_ data: Data, account: String) throws
+    func deleteStatus(_ account: String) -> OSStatus
 }

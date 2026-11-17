@@ -18,6 +18,10 @@
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
+    "glaeda-promote-trusted-light-xcode-26.6": {
+      "fallback": "Blacksmith macOS after the owned-pool grace",
+      "after_minutes": 5
+    },
     "glaeda-promote-trusted-std-xcode-26.6": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
@@ -70,6 +74,10 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_FFI_RELEASE_POOL": {
+      "fallback": "unset falls back to the build's earlier routes (the promote pool, vars.CI_SIDE_LANE_RUNNER, Blacksmith); set, a build no runner took in 20 minutes is re-dispatched to Blacksmith macOS by the workflow's rescue job",
+      "after_minutes": 20
+    },
     "CI_NEXT_PROMOTE_POOL": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
@@ -144,6 +152,10 @@
     },
     "CI_SESSION_LANE_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
+      "after_minutes": 5
+    },
+    "CI_SIDE_LANE_LABELS": {
+      "fallback": "unset by default: every runs-on that reads it takes vars.CI_SIDE_LANE_RUNNER in its place, then that route's owned-pool or Blacksmith fallback. Set, it is a JSON label array, one side pool label (glaeda-side-<class>-xcode-<version> or glaeda-side-xcode-<version>) and capability tiers (glaeda-ram-N, glaeda-cores-N, glaeda-display), held to scripts/ci/runner_label_policy.py side_lane_labels_reason, so the job lands on any side runner carrying every label: a pool of many hosts, never one. Clearing it puts each route back on its single side label",
       "after_minutes": 5
     },
     "CI_SIDE_LANE_RUNNER": {
@@ -272,7 +284,7 @@
       "after_minutes": 25
     },
     "CI_BLACKSMITH_MACOS": {
-      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane (docs/ci/cmux-next-workflow-notes.md#note-350)",
+      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane; pr-rescue moves only cmux-next pull-request jobs past a 45-min owned wait or on a re-run (docs/ci/cmux-next-workflow-notes.md#note-350)",
       "after_minutes": 5
     },
     "CI_CLASSIC_NIGHTLY_MINI": {

@@ -1,237 +1,141 @@
 import AppKit
-@testable import CmuxNextLayout
-import CmuxNextDesign
 import CmuxNextTestSupport
+@testable import CmuxNextLayout
 import Testing
 
-/// Zoom and unzoom (Leo 2026-10-13, Lawrence 2026-10-18): the zooming pane owns the motion and is
-/// laid out live at its spring rect on every frame ("content must move while it animates"); it
-/// covers the other panes, which never fade or move and are let go once it lands. Frames step at a
-/// fixed 120 Hz dt, so every assertion is about frame N, not wall time.
+/// Zoom and unzoom (Cmd-Shift-Enter) have no motion between two layouts: each shows whole in one frame, the first
+/// display frame after its change. The zoomed pane fills its screen with its content at that size, and the other
+/// panes are hidden with it; an unzoom shows every pane at its place again. No frame shows the zoomed pane at a size
+/// between its slot and its screen, or a pane beside it that the layout does not have.
+///
+/// The oracle is the layout engine's rest geometry of the model (`PaneLayoutCommitTests.Rest`), and the test is the
+/// clock: it steps the layout's frames itself.
 @MainActor
-@Suite(.closesItsWindows)
-struct PaneZoomMotionTests {
-    final class Panes: LayoutPaneContentProvider {
-        func makeContentView(for pane: PaneID) -> NSView { NSView() }
+@Suite(.closesItsWindows) struct PaneZoomMotionTests {
+    typealias Commit = PaneLayoutCommitTests
+
+    /// A 2 by 2 grid: p1 over p2 on the left, p3 over p4 on the right.
+    static let grid: SplitNode = .split("r", axis: .horizontal, ratio: 0.5,
+                                        a: .split("a", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")),
+                                        b: .split("b", axis: .vertical, ratio: 0.5, a: .leaf("p3"), b: .leaf("p4")))
+
+    static func screens(zoomedOn pane: PaneID? = nil) -> [LayoutScreen] {
+        [LayoutScreen(id: "s", name: "s", layout: .splits(pane.map { .leaf($0) } ?? grid), zoomed: pane != nil)]
     }
 
-    static let dt = 1.0 / 120
-
-    final class Screen {
-        let provider = Panes()
-        let model: LayoutModel
-        let root: LayoutRootView
-        let window: NSWindow
-        let tree: SplitNode
-
-        init(_ tree: SplitNode, reduceMotion: Bool = false) {
-            self.tree = tree
-            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
-                                focusedPane: "p1")
-            root = LayoutRootView(model: model, contentProvider: provider)
-            root.context.reduceMotionOverride = reduceMotion
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
-            window.contentView = root
-            root.layoutSubtreeIfNeeded()
-            // The test is the clock: the display link never ticks.
-            root.driver.isManual = true
-        }
-
-        var screen: ScreenContentView? { root.screenViews["s"] }
-
-        func zoom(_ pane: PaneID) {
-            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf(pane)), zoomed: true)])
-            root.syncWithModel()
-        }
-
-        func unzoom() {
-            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))])
-            root.syncWithModel()
-        }
-
-        /// How much of `pane` shows: 0 once its host is hidden, gone, transparent or clipped away.
-        func opacity(_ pane: PaneID) -> CGFloat {
-            guard let host = root.context.hosts[pane], host.superview != nil, !host.isHidden else { return 0 }
-            if let clip = host.layer?.mask?.frame, clip.width < 0.5 || clip.height < 0.5 { return 0 }
-            return host.alphaValue
-        }
-
-        func hostSize(_ pane: PaneID) -> CGSize? { root.context.hosts[pane]?.frame.size }
-
-        func hostFrame(_ pane: PaneID) -> CGRect? { root.context.hosts[pane]?.frame }
-
-        func shown(_ pane: PaneID) -> CGRect? { screen?.displayedFrame(of: pane) }
-
-        @discardableResult
-        func step() -> Bool { root.advanceFrame(PaneZoomMotionTests.dt) }
+    /// What follows the panes in one frame: the divider lines the screen reports (content drawn above the window, a
+    /// Chromium page, leaves them uncovered), and the panes a zoom on p4 covers whose ring shows.
+    struct Follows {
+        var lines: [CGRect]
+        var ringed: [PaneID]
     }
 
-    /// p1 p2 / p3 p4.
-    static let grid2: SplitNode = .split("v", axis: .vertical, ratio: 0.5,
-                                         a: .split("t", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")),
-                                         b: .split("b", axis: .horizontal, ratio: 0.5, a: .leaf("p3"), b: .leaf("p4")))
-
-    static func row(_ id: String, _ panes: [PaneID]) -> SplitNode {
-        .split(SplitID("\(id)1"), axis: .horizontal, ratio: 1.0 / 3, a: .leaf(panes[0]),
-               b: .split(SplitID("\(id)2"), axis: .horizontal, ratio: 0.5, a: .leaf(panes[1]), b: .leaf(panes[2])))
+    /// The frames one change shows: the frame of its own turn, then `Commit.frames` display frames; and what follows
+    /// the panes in each of them (the rings of `covered`).
+    static func frames(of harness: Commit.Harness, after change: [LayoutScreen], covered: [PaneHostView] = [])
+        throws -> (shown: [Commit.Frame], rest: Commit.Rest, follows: [Follows]) {
+        let screen = try #require(harness.screen)
+        harness.model.apply(screens: change)
+        let rest = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.root.syncWithModel()
+        func follows() -> Follows {
+            Follows(lines: harness.root.interactiveOverlayRects, ringed: covered.filter { !$0.chrome.isHidden }.map(\.pane))
+        }
+        var shown = [Commit.shown(screen)], followed = [follows()]
+        for _ in 0..<Commit.frames {
+            _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+            shown.append(Commit.shown(screen))
+            followed.append(follows())
+        }
+        return (shown, rest, followed)
     }
 
-    /// p1 p2 p3 / p4 p5 p6 / p7 p8 p9.
-    static let grid3: SplitNode = .split("r1", axis: .vertical, ratio: 1.0 / 3, a: row("a", ["p1", "p2", "p3"]),
-                                         b: .split("r2", axis: .vertical, ratio: 0.5, a: row("b", ["p4", "p5", "p6"]),
-                                                   b: row("c", ["p7", "p8", "p9"])))
-
-    /// The token's time scale (`ui.animationSpeed`), so budgets hold at any speed.
-    static var scale: Double { Motion.panes.spring(.move).response / MotionSpring.move.base.response }
-
-    @Test(arguments: [("p1", "p4"), ("p4", "p1"), ("p2", "p3")])
-    func inA2x2ZoomTheZoomedPaneLaysOutLiveAndCoversTheOthersWhichNeverFadeOrMove(zoomed: String, opposite: String) throws {
-        let screen = Screen(Self.grid2)
-        defer { screen.window.closeAfterTest() }
-        let pane = PaneID(zoomed), corner = PaneID(opposite)
-        let others = (Set(Self.grid2.panes) as Set<PaneID>).subtracting([pane])
-        let still = Dictionary(uniqueKeysWithValues: others.map { ($0, screen.hostFrame($0)) })
-        screen.zoom(pane)
-        let target = try #require(screen.screen?.geometry.panes[pane])
-        var reached: Int?, released: Int?, sizes: [CGSize] = []
-        for frame in 1...120 {
-            screen.step()
-            // Lawrence 2026-10-18: cover, never fade. A covered pane is opaque and still until it is let go.
-            for other in others {
-                if let host = screen.root.context.hosts[other], host.superview != nil {
-                    #expect(host.alphaValue == 1, "frame \(frame): \(other) faded")
-                    #expect(host.frame == still[other] ?? nil, "frame \(frame): \(other) moved under the zoom")
-                }
-            }
-            if frame == 1 { #expect(screen.opacity(corner) == 1, "the opposite corner vanished at once") }
-            // Live: the host (its tab strip and terminal) is the spring rect in every frame.
-            #expect(screen.hostFrame(pane) == screen.shown(pane), "frame \(frame): the zoomed pane is not laid out at its rect")
-            if let size = screen.hostSize(pane), size != sizes.last { sizes.append(size) }
-            if reached == nil, let shown = screen.shown(pane), shown.width >= target.width * 0.95, shown.height >= target.height * 0.95 {
-                reached = frame
-            }
-            if released == nil, others.allSatisfy({ screen.root.context.hosts[$0]?.superview == nil }) { released = frame }
-        }
-        #expect(sizes.count >= 10, "the zoomed pane laid out \(sizes.count) sizes: not every frame")
-        #expect(screen.hostFrame(pane) == target)
-        // The zoomed pane reaches 95% within 0.35 s; the covered panes are let go once it lands.
-        #expect((reached ?? .max) <= Int((0.35 * Self.scale / Self.dt).rounded(.up)), "95% at frame \(reached.map(String.init) ?? "never")")
-        #expect((released ?? .max) >= (reached ?? 0), "a covered pane was let go before the zoom reached its rect")
-        #expect(released != nil, "the covered panes were never let go")
+    /// The hosts of the panes a zoom on p4 covers, each with its ring showing. Read before the zoom: while the screen
+    /// is zoomed the layout keeps them, hidden, out of its hosts (`LayoutViewContext.retired`).
+    static func coveredHosts(of harness: Commit.Harness) throws -> [PaneHostView] {
+        let hosts = [PaneID("p1"), PaneID("p2"), PaneID("p3")].compactMap { harness.root.context.hosts[$0] }
+        let ringsShow = hosts.allSatisfy { !$0.chrome.isHidden }
+        try #require(hosts.count == 3 && ringsShow,
+                     "set-up: a pane the zoom covers has no host, or its ring is hidden before the zoom: \(hosts.map(\.pane))")
+        return hosts
     }
 
-    @Test func aCenterZoomIn3x3LaysOutLiveAndLetsGoOfTheCoveredPanesWhenItLands() throws {
-        let screen = Screen(Self.grid3)
-        defer { screen.window.closeAfterTest() }
-        screen.zoom("p5")
-        for frame in 1...120 {
-            screen.step()
-            #expect(screen.hostFrame("p5") == screen.shown("p5"), "frame \(frame): the zoomed pane is not laid out at its rect")
-        }
-        #expect(Self.grid3.panes.filter({ $0 != "p5" }).allSatisfy({ screen.opacity($0) == 0 }))
+    /// The grid at rest in the hand-built look, whose splits draw their line at rest whatever pane separation the
+    /// settings of this process chose (the tests read the lines): the harness, the hosts a zoom on p4 covers and the
+    /// divider lines the grid reports.
+    static func gridAtRest() throws -> (harness: Commit.Harness, covered: [PaneHostView], lines: [CGRect]) {
+        let harness = Commit.Harness(Self.screens(), focused: "p4", holds: false) { $0.followsDesignMetrics = false }
+        Commit.rest(harness)
+        let lines = harness.root.interactiveOverlayRects
+        try #require(!lines.isEmpty, "set-up: the grid reports no divider line at rest")
+        let covered = try Self.coveredHosts(of: harness)
+        return (harness, covered, lines)
     }
 
-    @Test func anUnzoomMidZoomTurnsAtOnceWithNoJumpAndTheLeavingPanesComeBackFromWhereTheyAre() throws {
-        let screen = Screen(Self.grid2)
-        defer { screen.window.closeAfterTest() }
-        screen.zoom("p1")
-        var widths: [CGFloat] = []
-        for _ in 1...6 {
-            screen.step()
-            widths.append(try #require(screen.shown("p1")).width)
+    @Test func aZoomShowsThePaneAtItsScreensSizeInOneFrame() throws {
+        let (harness, covered, lines) = try Self.gridAtRest()
+        defer { harness.window.closeAfterTest() }
+        let screen = try #require(harness.screen)
+        let grid = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+
+        let (shown, zoomed, follows) = try Self.frames(of: harness, after: Self.screens(zoomedOn: "p4"), covered: covered)
+        #expect(grid.isShown(by: shown[0]), "the zoom's own turn changed what the screen shows: \(shown[0].panes)")
+        // What follows the panes shows the layout the panes show, in each frame. The zoom's own turn still shows the
+        // grid: the screen reports the lines of the dividers it shows, and each pane keeps its ring.
+        #expect(follows[0].lines == lines, "the zoom's own turn reports other divider lines than the screen shows: \(follows[0].lines)")
+        #expect(follows[0].ringed.count == covered.count, "the zoom's own turn hid the ring of a pane the screen still shows: \(follows[0].ringed)")
+        for (index, frame) in shown.dropFirst().enumerated() {
+            #expect(zoomed.isShown(by: frame), "frame \(index + 1) of the zoom does not show the zoomed pane alone at its screen's size: \(frame.panes)")
+            #expect(frame.misfits.isEmpty, "frame \(index + 1): the zoomed pane's content is not at the rect its pane gives it: \(frame.misfits)")
+            // The zoomed pane alone: no divider line for a page to leave uncovered, and no ring of a covered pane.
+            #expect(follows[index + 1].lines.isEmpty && follows[index + 1].ringed.isEmpty,
+                    "frame \(index + 1) of the zoom still reports divider lines or shows a covered pane's ring: \(follows[index + 1])")
         }
-        let corner = screen.opacity("p4")
-        #expect(widths[5] > widths[4])
-        screen.unzoom()
-        // Nothing jumps at the interrupt, and the pane turns at once: its growing edges' velocity points away from
-        // the new target, so the next step drops it (`SpringParameters.admitted(velocity:distance:)`) and the pane
-        // shrinks from where it shows. It never grows past the place of the interrupt.
-        #expect(screen.shown("p1")?.width == widths[5], "the zoomed pane jumped on the interrupt")
-        #expect(abs(screen.opacity("p4") - corner) < 0.02, "the opposite corner jumped on the interrupt")
-        screen.step()
-        let after = try #require(screen.shown("p1")).width - widths[5]
-        #expect(after < 0, "the unzoom carried the zoom's velocity: the pane grew \(after) pt more after the interrupt")
-        let returning = try #require(screen.hostFrame("p2"))
-        for frame in 1...120 {
-            screen.step()
-            #expect(screen.hostFrame("p2") == returning, "frame \(frame): a returning pane moved under the unzoom")
-        }
-        #expect(screen.opacity("p4") == 1)
-        #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
+        #expect(Set(zoomed.panes.keys) == ["p4"] && zoomed.dividers.isEmpty, "the zoomed layout is not one pane: \(zoomed.panes)")
+        // A zoom's covered panes are still in the layout (focus topology, theme): the provider keeps them all.
+        #expect(harness.provider.shown == ["p1", "p2", "p3", "p4"], "a zoom took a pane out of the provider's shown panes: \(harness.provider.shown)")
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a zoom that showed still asks for frames")
     }
 
-    @Test func anUnzoomLaysOutLiveAsItShrinksAndUncoversTheOthers() throws {
-        let screen = Screen(Self.grid2)
-        defer { screen.window.closeAfterTest() }
-        screen.zoom("p4")
-        for _ in 1...120 { screen.step() }
-        screen.unzoom()
-        // It shrinks live, a new size every frame, and lands at its slot's.
-        var sizes = [try #require(screen.hostSize("p4"))]
-        let slot = try #require(screen.screen?.geometry.panes["p4"])
-        #expect(screen.opacity("p1") < 0.05, "a returning pane shows over the zoomed one before it shrinks")
-        var shown: Int?
-        for frame in 1...120 {
-            screen.step()
-            #expect(screen.hostFrame("p4") == screen.shown("p4"), "frame \(frame): the unzooming pane is not laid out at its rect")
-            if let size = screen.hostSize("p4"), size != sizes.last { sizes.append(size) }
-            // Uncovered as the zoomed pane shrinks, not popping in as it lands.
-            if frame == 12 { #expect(["p1", "p2", "p3"].allSatisfy { screen.opacity($0) > 0.3 }, "a returning pane is still cut away") }
-            if shown == nil, ["p1", "p2", "p3"].allSatisfy({ screen.opacity($0) > 0.95 }) { shown = frame }
+    @Test func anUnzoomShowsEveryPaneAtItsPlaceInOneFrame() throws {
+        let (harness, covered, lines) = try Self.gridAtRest()
+        defer { harness.window.closeAfterTest() }
+        let screen = try #require(harness.screen)
+        let made = harness.provider.contents.count
+        _ = try Self.frames(of: harness, after: Self.screens(zoomedOn: "p4"))
+        let zoomed = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+
+        let (shown, grid, follows) = try Self.frames(of: harness, after: Self.screens(), covered: covered)
+        #expect(zoomed.isShown(by: shown[0]), "the unzoom's own turn changed what the screen shows: \(shown[0].panes)")
+        // The unzoom's own turn still shows the zoom, and what follows the panes shows it with them: no line of a
+        // divider to come, and no ring of a pane the zoom still covers.
+        #expect(follows[0].lines.isEmpty && follows[0].ringed.isEmpty,
+                "the unzoom's own turn reports divider lines or shows rings that the screen does not show yet: \(follows[0])")
+        for (index, frame) in shown.dropFirst().enumerated() {
+            #expect(grid.isShown(by: frame), "frame \(index + 1) of the unzoom does not show every pane at its place: \(frame.panes)")
+            #expect(frame.misfits.isEmpty, "frame \(index + 1): a pane's content is not at the rect its pane gives it: \(frame.misfits)")
+            // Every pane at its place: the lines between them and each pane's ring are back, as before the zoom.
+            #expect(follows[index + 1].lines == lines && follows[index + 1].ringed.count == covered.count,
+                    "frame \(index + 1) of the unzoom does not report the grid's divider lines, or a pane has no ring: \(follows[index + 1])")
         }
-        #expect(sizes.count >= 10, "the unzooming pane laid out \(sizes.count) sizes: not every frame")
-        #expect(screen.hostFrame("p4") == slot)
-        #expect((shown ?? .max) <= Int((0.35 * Self.scale / Self.dt).rounded(.up)))
+        #expect(harness.provider.contents.count == made && harness.provider.released.isEmpty,
+                "the zoom or the unzoom made or released a pane: \(harness.provider.contents.count) made, \(harness.provider.released) released")
     }
 
-    /// Reduce Motion snaps a zoom: no spring, the whole change in the first frame. A snapped structural change shows
-    /// at the next frame tick, its terminals drawn ahead at their new sizes in the change's turn (CLOSE MOTION 3,
-    /// #37330, `ScreenContentView+SnapFrame`), so that turn still shows what showed, and the first tick shows it all.
-    @Test func reduceMotionZoomsAndUnzoomsInOneFrame() throws {
-        let screen = Screen(Self.grid2, reduceMotion: true)
-        defer { screen.window.closeAfterTest() }
-        let slot = try #require(screen.hostFrame("p1"))
-        screen.zoom("p1")
-        #expect(screen.hostFrame("p1") == slot, "the zoom showed in its own turn, before its terminal had a frame at its size")
-        #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 }, "a covered pane went before the zoom showed")
-        // One frame: the first tick lands the zoom and asks for no second frame (no spring).
-        #expect(!screen.step(), "Reduce Motion asked for a second frame after the zoom's first")
-        let zoomed = try #require(screen.screen?.geometry.panes["p1"])
-        #expect(screen.shown("p1") == zoomed)
-        #expect(screen.hostFrame("p1") == zoomed, "the first frame does not show the zoomed pane at its rect")
-        #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 0 })
-        screen.unzoom()
-        #expect(screen.hostFrame("p1") == zoomed, "the unzoom showed in its own turn, before its terminal had a frame at its size")
-        #expect(!screen.step(), "Reduce Motion asked for a second frame after the unzoom's first")
-        #expect(["p1", "p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 })
-        #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
-        #expect(screen.hostFrame("p1") == slot, "the first frame does not show the unzoomed pane in its slot")
-    }
+    /// A second Cmd-Shift-Enter before the zoom showed: the screen never leaves the layout it showed.
+    @Test func aZoomTurnedBackBeforeItShowedChangesNoFrame() throws {
+        let harness = Commit.Harness(Self.screens(), focused: "p4", holds: false)
+        defer { harness.window.closeAfterTest() }
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        let grid = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
 
-    @Test func anArrivingSplitPaneIsOpaqueAndGrowsLiveFromTheEdgeWhileTheSplitPaneShrinksLive() throws {
-        let paneAnimations = DesignSettings.shared.paneAnimations
-        DesignSettings.shared.paneAnimations = true
-        defer { DesignSettings.shared.paneAnimations = paneAnimations }
-        let screen = Screen(.leaf("p1"))
-        defer { screen.window.closeAfterTest() }
-        let split = SplitNode.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
-        screen.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(split))])
-        screen.root.syncWithModel()
-
-        let pane = try #require(screen.screen?.paneFrames["p2"])
-        #expect(pane.alpha.value == 1, "the arriving pane fades: it must grow in opaque")
-        var widths: [CGFloat] = [], sources: [CGFloat] = []
-        for frame in 1...120 {
-            screen.step()
-            #expect(screen.hostFrame("p2") == screen.shown("p2"), "frame \(frame): the new pane is not laid out at its rect")
-            #expect(screen.hostFrame("p1") == screen.shown("p1"), "frame \(frame): the split pane is not laid out at its rect")
-            if let width = screen.hostSize("p2")?.width, width != widths.last { widths.append(width) }
-            if let width = screen.hostSize("p1")?.width, width != sources.last { sources.append(width) }
+        harness.model.apply(screens: Self.screens(zoomedOn: "p4"))
+        harness.root.syncWithModel()
+        let (shown, _, _) = try Self.frames(of: harness, after: Self.screens())
+        for (index, frame) in shown.enumerated() {
+            #expect(grid.isShown(by: frame), "frame \(index) shows another layout after the zoom was turned back: \(frame.panes)")
         }
-        #expect(widths.count >= 10 && widths == widths.sorted(), "the new pane did not grow live: \(widths.count) sizes")
-        #expect(sources.count >= 10 && sources == sources.sorted(by: >), "the split pane did not shrink live: \(sources.count) sizes")
-        #expect(screen.hostFrame("p2") == screen.screen?.geometry.panes["p2"])
-        #expect(screen.opacity("p2") == 1)
+        #expect(harness.provider.released.isEmpty, "a pane was released: \(harness.provider.released)")
     }
 }

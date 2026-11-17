@@ -13,6 +13,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { quantizePickerRail } from "../src/agent-session/acpmux/pickerRailGeometry";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-menu-width.test.ts", async () => {
   test("picker rail geometry helper is idempotent and clears wide overrides", () => {
@@ -440,16 +441,20 @@ ${css}
       // mode change moves no other control: not the model before it, not Send at the row's end.
       test("permission mode changes move no other control", async () => {
         const page = await open(1000);
-        const edges = await page.$eval(".acpmux-composer-bar", (node) => {
-          const bar = node as HTMLElement;
-          const mode = bar.querySelector<HTMLElement>(".acpmux-mode-text")!;
-          return ["Ask before edits", "Full access", "Auto"].map((label) => {
-            mode.textContent = label;
-            return [".acpmux-model .acpmux-picker-button", ".acpmux-access-trigger", ".acpmux-send"].map(
-              (selector) => bar.querySelector(selector)!.getBoundingClientRect().left,
-            );
-          });
-        });
+        const edges = await page.$eval(
+          ".acpmux-composer-bar",
+          (node, { MODEL_PICKER }) => {
+            const bar = node as HTMLElement;
+            const mode = bar.querySelector<HTMLElement>(".acpmux-mode-text")!;
+            return ["Ask before edits", "Full access", "Auto"].map((label) => {
+              mode.textContent = label;
+              return [MODEL_PICKER, ".acpmux-access-trigger", ".acpmux-send"].map(
+                (selector) => bar.querySelector(selector)!.getBoundingClientRect().left,
+              );
+            });
+          },
+          { MODEL_PICKER },
+        );
         expect(edges[0]![0]).toBeGreaterThan(0);
         expect(edges[1]).toEqual(edges[0]!);
         expect(edges[2]).toEqual(edges[0]!);

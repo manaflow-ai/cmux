@@ -23,6 +23,15 @@ name: cmux-next web bundle publish
 # naming the key, the head, the base, the web ABI and what live_apply.py says
 # the PR changes (`cmux customize use pr:N` reads it). Same-repo PRs only; no web
 # update pointer moves.
+#
+# A branch or a commit, pushed with no PR (`ref`: a branch name, or a full commit
+# on a branch of this repository), is the same, with its change taken from where
+# it branched off feat-cmux-next, under
+#   cmux-next-web/ref/<slug>/latest.json and .../<head>-<base>.json
+# where <slug> is the ref with `/` as `--` (`cmux customize use branch:NAME`,
+# `sha:SHA`). A fork's code never runs here: a commit that no branch of this
+# repository has is refused, and a fork publishes its own layer
+# (cmux-web-layer-fork.yml, run in the fork).
 on:
   push:
     branches: [feat-cmux-next, nightly-next]
@@ -67,8 +76,12 @@ on:
         description: "A pull request's web layer: its number (same-repo PRs only)"
         required: false
         default: ""
+      ref:
+        description: "A branch's or commit's web layer: a branch name, or a full commit on a branch of this repository (not with pr)"
+        required: false
+        default: ""
       base:
-        description: "The commit the PR head is merged onto (default: the feat-cmux-next tip)"
+        description: "The commit the change is applied onto (default: the feat-cmux-next tip)"
         required: false
         default: ""
 
@@ -78,7 +91,7 @@ permissions:
 concurrency:
   # Keys are content-addressed: the newest push covers the tip, so an older
   # pending run can be replaced. A started run finishes.
-  group: cmux-next-web-bundle-publish-${{ github.ref }}-${{ inputs.pr || 'push' }}-${{ inputs.base }}
+  group: cmux-next-web-bundle-publish-${{ github.ref }}-${{ inputs.pr || inputs.ref || 'push' }}-${{ inputs.base }}
   cancel-in-progress: false
 
 jobs:
@@ -87,7 +100,7 @@ jobs:
   # publish job below gets the R2 credentials, starts from a clean checkout and
   # runs no bun or node (the cmux-tui artifacts build/publish split).
   build:
-    if: github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next' && !inputs.pr)
+    if: github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next' && !inputs.pr && !inputs.ref)
     name: build the web bundles for this source key
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
@@ -108,47 +121,76 @@ jobs:
         with:
           persist-credentials: false
           # A PR layer merges the PR head onto base, so it needs their history (no blobs).
-          fetch-depth: ${{ inputs.pr && '0' || '1' }}
-          filter: ${{ inputs.pr && 'blob:none' || '' }}
+          fetch-depth: ${{ (inputs.pr || inputs.ref) && '0' || '1' }}
+          filter: ${{ (inputs.pr || inputs.ref) && 'blob:none' || '' }}
 
       # A PR layer: the PR's head merged onto base, built and published like a push.
       # The build below runs the PR's code with no secret, as it runs a push's.
-      - name: Apply the pull request onto its base
-        if: inputs.pr
+      - name: Apply the pull request or ref onto its base
+        if: inputs.pr || inputs.ref
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr }}
+          REF: ${{ inputs.ref }}
           BASE: ${{ inputs.base }}
         run: |
           set -euo pipefail
-          [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number, got $PR"; exit 1; }
+          [[ -z "$PR" || -z "$REF" ]] || { echo "::error::give pr or ref, not both"; exit 1; }
           [[ -z "$BASE" || "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::base must be a full commit sha"; exit 1; }
-          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .title, .state] | @tsv')"
-          IFS=$'\t' read -r head_repo head base_ref title state <<<"$info"
-          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo "::error::#$PR comes from $head_repo; only same-repo PRs get a published layer"; exit 1; }
-          git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
-          [[ "$(git rev-parse refs/remotes/pr/head)" == "$head" ]] || head="$(git rev-parse refs/remotes/pr/head)"
+          if [[ -n "$PR" ]]; then
+            [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number, got $PR"; exit 1; }
+            info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .title, .state] | @tsv')"
+            IFS=$'\t' read -r head_repo head base_ref title state <<<"$info"
+            [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo "::error::#$PR comes from $head_repo; only same-repo PRs get a published layer"; exit 1; }
+            git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
+            [[ "$(git rev-parse refs/remotes/pr/head)" == "$head" ]] || head="$(git rev-parse refs/remotes/pr/head)"
+            label="#$PR"
+          else
+            # A branch of this repository, or a commit one of its branches has. A commit only a
+            # fork has is refused: fork code never builds here (it publishes its own layer).
+            [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ && "$REF" != -* && "$REF" != *..* ]] || { echo "::error::ref must be a branch name or a full commit, got $REF"; exit 1; }
+            base_ref=feat-cmux-next state=""
+            if git ls-remote --exit-code -q origin "refs/heads/$REF" >/dev/null; then
+              kind=branch
+              git fetch -q --filter=blob:none origin "+refs/heads/$REF:refs/remotes/pr/head"
+              head="$(git rev-parse refs/remotes/pr/head)"
+            elif [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+              kind=sha head="$REF"
+              git fetch -q --filter=blob:none origin '+refs/heads/*:refs/remotes/origin/*'
+              git cat-file -e "$head^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$head" || true
+              git cat-file -e "$head^{commit}" 2>/dev/null && [[ -n "$(git for-each-ref --count=1 --contains "$head" refs/remotes/origin)" ]] \
+                || { echo "::error::$REF is on no branch of $GITHUB_REPOSITORY (a fork's commit?): a fork publishes its own layer with cmux-web-layer-fork.yml"; exit 1; }
+            else
+              echo "::error::$REF is no branch of $GITHUB_REPOSITORY and no full commit"; exit 1
+            fi
+            title="$(git log -1 --format=%s "$head")"
+            label="$REF"
+          fi
           base="${BASE:-$(git rev-parse HEAD)}"
           git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$base"
-          # The layer is the PR's own change on the app's commit, nothing else. Merging the head
-          # would also bring every commit between that commit and where the PR branched off, so
-          # the PR's diff from its branch point is applied instead.
+          # The layer is the change's own diff on the app's commit, nothing else. Merging the head
+          # would also bring every commit between that commit and where it branched off, so the
+          # diff from its branch point is applied instead.
           git fetch -q --filter=blob:none origin "+refs/heads/$base_ref:refs/remotes/pr/base"
           fork="$(git merge-base refs/remotes/pr/base "$head")"
           git -c advice.detachedHead=false checkout -q --detach "$base"
           if ! git diff --binary "$fork" "$head" | git apply -q --3way --index; then
-            echo "::error::#$PR (${head:0:12}) does not apply onto ${base:0:12}: it conflicts with what changed since; rebase it"
+            echo "::error::$label (${head:0:12}) does not apply onto ${base:0:12}: it conflicts with what changed since; rebase it"
             exit 1
           fi
-          git -c user.name=cmux-ci -c user.email=ci@cmux.invalid -c commit.gpgsign=false commit -q --allow-empty -m "#$PR ${head:0:12} on ${base:0:12}"
+          git -c user.name=cmux-ci -c user.email=ci@cmux.invalid -c commit.gpgsign=false commit -q --allow-empty -m "$label ${head:0:12} on ${base:0:12}"
           classify="$(python3 scripts/cmux-next/live_apply.py --json "$fork" "$head")"
           mkdir -p "$RUNNER_TEMP/pr-layer"
-          python3 - "$RUNNER_TEMP/pr-layer/layer.json" "$PR" "$head" "$base" "$(git rev-parse HEAD)" "$title" "$state" "$classify" <<'PY'
+          python3 - "$RUNNER_TEMP/pr-layer/layer.json" "$PR" "$REF" "${kind:-}" "$head" "$base" "$(git rev-parse HEAD)" "$title" "$state" "$classify" <<'PY'
           import json, sys
-          path, pr, head, base, merge, title, state, classify = sys.argv[1:]
-          json.dump({"schema": 1, "repo": "manaflow-ai/cmux", "pr": int(pr), "title": title, "state": state,
-                     "head": head, "base": base, "merge": merge, "classify": json.loads(classify)},
-                    open(path, "w"), indent=1, sort_keys=True)
+          path, pr, ref, kind, head, base, merge, title, state, classify = sys.argv[1:]
+          layer = {"schema": 1, "repo": "manaflow-ai/cmux", "title": title, "state": state,
+                   "head": head, "base": base, "merge": merge, "classify": json.loads(classify)}
+          if pr:
+              layer["pr"] = int(pr)
+          else:
+              layer["kind"], layer["ref"] = kind, ref
+          json.dump(layer, open(path, "w"), indent=1, sort_keys=True)
           PY
           cat "$RUNNER_TEMP/pr-layer/layer.json"
 
@@ -240,7 +282,7 @@ jobs:
       # The PR layer's pointer: the layer facts, its key and the web ABI it needs. Handed on
       # even when the key was already published, so the pointer always moves to this head.
       - name: Write the PR layer pointer
-        if: inputs.pr
+        if: inputs.pr || inputs.ref
         env:
           KEY: ${{ steps.key.outputs.key }}
         run: |
@@ -257,7 +299,7 @@ jobs:
           cat "$RUNNER_TEMP/pr-layer/layer.json"
 
       - name: Hand the PR layer pointer to the publish job
-        if: inputs.pr
+        if: inputs.pr || inputs.ref
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-next-web-pr-layer
@@ -267,11 +309,11 @@ jobs:
 
   publish:
     needs: build
-    if: needs.build.outputs.published != 'true' || inputs.pr
+    if: needs.build.outputs.published != 'true' || inputs.pr || inputs.ref
     name: publish the web bundles to files.cmux.com
     environment:
       name: artifacts
-      deployment: ${{ !inputs.pr && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+      deployment: ${{ !inputs.pr && !inputs.ref && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:
@@ -316,7 +358,7 @@ jobs:
           echo "published https://files.cmux.com/cmux-next-web/$KEY/manifest.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Download the PR layer pointer
-        if: inputs.pr
+        if: inputs.pr || inputs.ref
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-next-web-pr-layer
@@ -325,7 +367,7 @@ jobs:
       # The pointer is not content-addressed: latest.json moves to every new head (short cache),
       # and <head>-<base>.json names one layer for good.
       - name: Upload the PR layer pointer
-        if: inputs.pr
+        if: inputs.pr || inputs.ref
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -333,17 +375,19 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           KEY: ${{ needs.build.outputs.key }}
           PR: ${{ inputs.pr }}
+          REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
           layer="$RUNNER_TEMP/pr-layer/layer.json"
-          read -r head base <<<"$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["key"]==sys.argv[2] and m["pr"]==int(sys.argv[3]); print(m["head"], m["base"])' "$layer" "$KEY" "$PR")"
+          read -r head base <<<"$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["key"]==sys.argv[2] and (m.get("pr")==int(sys.argv[3]) if sys.argv[3] else m.get("ref")==sys.argv[4]); print(m["head"], m["base"])' "$layer" "$KEY" "$PR" "$REF")"
           [[ "$head" =~ ^[0-9a-f]{40}$ && "$base" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$PR" ]]; then folder="pr/$PR"; else folder="ref/${REF//\//--}"; fi
           up() { python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-                   --cache-control "$2" --file "$layer" --key "cmux-next-web/pr/$PR/$1" --content-type application/json; }
+                   --cache-control "$2" --file "$layer" --key "cmux-next-web/$folder/$1" --content-type application/json; }
           up "$head-$base.json" "public, max-age=31536000, immutable"
           up latest.json "public, max-age=30, must-revalidate"
-          curl -fsS --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/pr/$PR/latest.json?check=$GITHUB_RUN_ID" | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["key"]==sys.argv[1], m' "$KEY"
-          echo "PR #$PR layer ${head:0:12} on ${base:0:12} -> $KEY: https://files.cmux.com/cmux-next-web/pr/$PR/latest.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          curl -fsS --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$folder/latest.json?check=$GITHUB_RUN_ID" | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["key"]==sys.argv[1], m' "$KEY"
+          echo "${PR:+#}${PR:-$REF} layer ${head:0:12} on ${base:0:12} -> $KEY: https://files.cmux.com/cmux-next-web/$folder/latest.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The web update channels (plans/cmux-next/web-ota.md): every-merge follows
   # feat-cmux-next, while nightly follows the promoted nightly-next branch. Both
@@ -354,7 +398,7 @@ jobs:
   # pointer back (web-ota-pointer.py newer).
   pointer:
     needs: [build, publish]
-    if: ${{ always() && !inputs.pr && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
+    if: ${{ always() && !inputs.pr && !inputs.ref && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     name: sign the web update pointer
     environment:
       name: artifacts

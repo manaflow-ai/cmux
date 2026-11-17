@@ -440,6 +440,7 @@ impl TurnInfo {
             notice: false,
             persons: false,
             accepted: true,
+            device: None,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }

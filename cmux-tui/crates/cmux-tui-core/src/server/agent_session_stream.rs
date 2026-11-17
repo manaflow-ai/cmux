@@ -1,8 +1,10 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::agent_session_link::list_gate::SessionListFilter;
+use super::agent_session_link::list_source;
 use super::*;
 use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
+use std::sync::atomic::AtomicU64;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
@@ -21,6 +23,7 @@ pub(super) fn connect_and_attach(
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
     let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
+    let filtered = params.get("kinds").is_some();
     let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
     let reader_mux = Arc::downgrade(&mux);
@@ -73,6 +76,18 @@ pub(super) fn connect_and_attach(
         refuse(&writer, id, Refusal::UnknownTab);
         return;
     }
+    // A side chat (acpmux's `side` tag on the page) is the owner's alone: it is remembered, and
+    // a teammate's, team member's or link guest's attach to it ends here, before any record.
+    if side_known::tagged(&page) {
+        sessions.sides.remember(&resolved);
+        sessions.sides.remember(&record_session);
+    }
+    if author.is_some() && (side_known::tagged(&page) || sessions.sides.contains(&resolved)) {
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::NotTrusted);
+        return;
+    }
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's and its descendants'.
@@ -91,14 +106,42 @@ pub(super) fn connect_and_attach(
         watch.set("_meta", meta.clone());
         own.set("_meta", meta.clone());
     }
-    let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
-    let own = local.gate(own, link.capabilities(meta.as_ref(), CALL_TIMEOUT));
-    let watched = if own.served() {
-        watch.set("limit", json!(1));
-        link.call("_acpmux/watch", watch, CALL_TIMEOUT)
-            .and_then(|_| link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT))
+    let capabilities = link.capabilities(meta.as_ref(), CALL_TIMEOUT);
+    // On the v2 list (row 7c) the one-row watch is the switch, and the descendants come by
+    // `page` with `family`, its hot part only (`agent_session_children::kin_ids`, the cap of
+    // 256 kept; decision 301): no row but theirs is read. The list is opened first, so a daemon
+    // without it gets v1's requests and no more; the watch goes on before the kin are read, so
+    // a child started meanwhile is followed.
+    let source = if capabilities.iter().any(|c| c == list_source::INFO_ROWS) {
+        agent_session_children::kin_source(&socket, &link)
     } else {
-        link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT).map(|list| own.narrow(list))
+        Ok(None)
+    };
+    let kin = source.and_then(|source| {
+        let Some(mut source) = source else { return Ok(None) };
+        let mut switch = watch.clone();
+        switch.set("limit", json!(1));
+        link.call("_acpmux/watch", switch, CALL_TIMEOUT)?;
+        agent_session_children::kin_ids(&mut source, &resolved, false).map(Some)
+    });
+    let watched = match kin {
+        Ok(Some(ids)) => Ok(ids),
+        Err(error) => Err(error),
+        // No v2 list: v1's list of this machine's sessions, walked here (a named fallback).
+        Ok(None) => {
+            let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
+            let own = local.gate(own, capabilities);
+            let list = if own.served() {
+                watch.set("limit", json!(1));
+                link.call("_acpmux/watch", watch, CALL_TIMEOUT).and_then(|_| {
+                    link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT)
+                })
+            } else {
+                link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT)
+                    .map(|list| own.narrow(list))
+            };
+            list.map(|list| agent_session_children::descendant_ids(&resolved, &list))
+        }
     };
     // A list read whole from bad pages would follow only some of the session's descendants,
     // and lose the changes of the rest; the client attaches again instead.
@@ -122,6 +165,10 @@ pub(super) fn connect_and_attach(
         writer: writer.clone(),
         outbound,
         calls: AtomicUsize::new(0),
+        ordered_stream: !filtered && page.get("peer").is_none(),
+        next_stream_seq: AtomicU64::new(
+            page.get("lastSeq").and_then(Value::as_u64).map_or(0, |last| last.saturating_add(1)),
+        ),
         ended: AtomicBool::new(false),
         permissions: Mutex::default(),
         prompts: Mutex::default(),
@@ -130,8 +177,7 @@ pub(super) fn connect_and_attach(
     if attachment.author.is_none()
         && let Ok(watched) = &watched
     {
-        attachment
-            .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
+        attachment.follow_children(watched);
     }
     for pending in page.pointer("/session/pending").and_then(Value::as_array).into_iter().flatten()
     {
@@ -311,6 +357,14 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         // A teammate never sees anyone's unsent text (chat-multiplayer design section 5).
         "_acpmux/event" if same_session && attachment.author.is_some() && is_draft(&params) => {}
         "_acpmux/event" if same_session => {
+            if params
+                .get("seq")
+                .and_then(Value::as_u64)
+                .is_some_and(|seq| !attachment.accepts_stream_seq(seq))
+            {
+                attachment.end(Some("gap"));
+                return;
+            }
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
             // Never blocks: a client that does not keep up overflows its
             // stream, which ends with the `overflow` close (the stream's own

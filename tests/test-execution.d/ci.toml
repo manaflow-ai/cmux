@@ -70,6 +70,10 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cloud_journey_prod_preclaim_login.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cloud_overflow_switch.py"
 lane = "linux-guard"
 
@@ -614,6 +618,10 @@ path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_side_lane_capability_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
@@ -671,6 +679,11 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks that every suite lands in
 [[test]]
 path = "tests/test_ci_swiftpm_build_metrics.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_swiftpm_prefetch_shared_cache.py"
 
 [[test]]
 path = "tests/test_ci_take_canonical_root.py"
@@ -765,6 +778,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"
 lane = "linux-guard"
 
 [[test]]

@@ -293,7 +293,7 @@ pub struct OrphanExit {
     /// The MCP servers the harness's configs named just before it started, as the daemon read
     /// them (`LaunchServers::read`): never read again, so a config edited later changes nothing.
     #[serde(default)]
-    pub servers: Vec<crate::hub::Sidecar>,
+    pub servers: Vec<crate::sidecar_census::Sidecar>,
     /// The harness's `PATH`, for the servers its sessions name by command.
     #[serde(default)]
     pub path: String,
@@ -334,7 +334,7 @@ fn suggestions_default() -> bool {
 impl SpawnSpec {
     /// The session's caller token in the harness env, which the host keeps in its record.
     pub fn caller_token(&self) -> Option<String> {
-        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        let key = crate::person_tokens::CALLER_TOKEN_ENV;
         self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
     }
 }
@@ -827,6 +827,7 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    crate::dead_temps::remove_beside(path);
     written
 }
 /// Windows port: host records are owner-only files there (a later landing).

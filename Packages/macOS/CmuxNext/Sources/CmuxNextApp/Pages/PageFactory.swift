@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHistoryPages
 import CmuxNextHomeEngine
+import CmuxNextKeys
 import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextServer
@@ -156,8 +157,8 @@ struct PageFactory {
                           })
     }
 
-    /// The Settings page's engine options.
-    static let settingsEngineOptions = PageEngineOptions.standard
+    /// Settings' engine options: WebKit, so an open claims the pool's painted spare (``PageWebKitReason/pooledInstantOpen``).
+    static let settingsEngineOptions = PageEngineOptions(requiresWebKit: .pooledInstantOpen)
 
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
@@ -180,10 +181,7 @@ struct PageFactory {
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
-        let accounts = services.accounts.model
-        let github = services.accounts.github
-        provider.accountsState = { github.accountsPageState(accounts) }
-        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts) }
+        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys)
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
@@ -198,6 +196,11 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        let models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
+                                              activeTeam: { [weak services] in services?.accounts.activeTeam }, agentKeys: services.accounts.agentKeys,
+                                              policy: services.accounts.modelsPolicy)
+        models.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() } // a chat waiting on Set up Cloud checks again
+        provider.models = models
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
             available: { [weak cloud] in cloud?.auth.isSignedIn ?? false },
@@ -229,6 +232,8 @@ struct PageFactory {
             return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
         }
         let devices = services.deviceHub.settingsModel
+        devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
+        devices.shareThisMac = { [weak services] in _ = services?.registry.perform("macScreen.shareThisMac", invocation: ActionInvocation(origin: .page)) }
         provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
         provider.devicesRun = { params in
             let run: MacScreenDevicesSettings.Run
@@ -243,8 +248,11 @@ struct PageFactory {
         }
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
+        provider.keys = SettingsKeys(requests: services.keyRequests, binary: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
-        provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
+        let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
+        let integrations = SettingsAgentIntegrations(cli: cli)
+        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url })]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }

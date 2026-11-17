@@ -185,6 +185,7 @@ fn a_joined_machines_chat_goes_to_acpmux() {
             id: Some("m_desk".into()),
             name: "Desk Mac".into(),
             host: "mini-2".into(),
+            carrier: joined::Carrier::Hub,
         }))
     };
     let on = |session: &str, on: &str| {
@@ -235,6 +236,25 @@ fn read_and_wait_with_a_session_id_are_the_chats() {
     assert_eq!(session_verb(&strings(&["chat", "list", session])), None);
     assert!(is_session_id(session) && is_session_id("acp:lane-a"));
     assert!(!is_session_id("lane-a") && !is_session_id("msg_1"));
+}
+
+/// hq#11835 row 6: `cmux chat wait HOST/NAME` (the session id `cmux chat --on MACHINE`
+/// answers) is that chat's wait, through acpmux; `chat read HOST/NAME` and the Chief's refs
+/// stay where they were.
+#[test]
+fn wait_with_a_machine_chat_is_the_chats() {
+    let command = strings(&["chat", "wait", "gcp-agent-lane-3/run-tests-abcd", "--timeout", "60"]);
+    assert_eq!(session_verb(&command), Some(("wait", &command[2..])));
+    assert_eq!(session_verb(&strings(&["chat", "read", "lane/x"])), None);
+    assert!(is_machine_chat("studio/run-tests-abcd"));
+    for word in ["lane-a", "#3", "msg_1", "/x", "x/", "a/b/c", "--to", "https://x/y"] {
+        assert!(!is_machine_chat(word), "{word}");
+    }
+    // `parse_wait` keeps it whole, with the timeout.
+    assert_eq!(
+        parse_wait(&command[2..]).unwrap(),
+        Some(("gcp-agent-lane-3/run-tests-abcd".to_owned(), Duration::from_secs(60)))
+    );
 }
 
 #[test]

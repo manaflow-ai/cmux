@@ -197,9 +197,9 @@ This section is the input for rows/notYet.ts.
 ### 2c (the translator, decision 231)
 
 - **a, row heads:** `at` in ms; `seq` on forkable rows; `assistantPhase` (not named in decision 231).
-- **a, user rows:** `from`, `author`, `viaCli`, `sentFrom`, `promptId`, `steerPromptId`, `inlineParts`, `pasted`, `agentText`, `continues` (decision 236).
+- **a, user rows:** `from`, `author`, `sentFrom`, `inlineParts`, `pasted`, `agentText`, `continues` (decision 236). (Built, and so off this list: viaCli, promptId and steerPromptId; the parity corpus shows them drawn the same.)
 - **a, ask rows** (permission, question, secret), patched with `decision` and `answeredBy`. These also give the snapshot's `permission`, `permissionsWaiting`, `permissionsQueued`, `permissionGroups` and `secret` (c).
-- **a, the turn-end notice in every book, Claude's too:** `tokens`, `checkpoint`, `error`, `errorCode`, `stopForced`, `continued`, `retry`, `seq`. (`continues` is the user row's.)
+- **a, the turn-end notice in every book, Claude's too:** `checkpoint`, `stopForced`, `continued`, `retry`. (`continues` is the user row's. Built, and so off this list: tokens, error, errorCode and seq; the parity corpus shows them drawn the same.)
 - **a, records as rows**, patched by a later event: `compaction` (reason, error, preTokens, postTokens), `failover` (from, to), `recap` (key, awayMs, since), `policyUnenforced` (policy), `planBuild`, `memory`, `coach`, `presetApproval`, `offers`, `received`, `agentPair`, `backgroundTask`, `incoming` (sender, message, kind), `inboxThread` (threadId, sender, preview, newest, count, promptIds).
 - **b, the closing group row** (decision 241): `tasks` (TaskLineRow.tsx:8), as `tasks: [{sessionId, name?, harness?}]`, at most 16, with `tasksTotal` when there are more. 2c.
 - **a, maybe:** `background` and `inBackground` (`background_turn`) are not in decision 231's table: 2c?

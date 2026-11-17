@@ -314,3 +314,17 @@ fn an_agents_action_is_no_persons_prompt() {
     let line = t.line(1, false, 0).unwrap();
     assert!(line["acp_activity"].get("last_person_prompt_at").is_none(), "{line}");
 }
+
+/// A line that lets the Cloud pause the machine flushes the guest's writes first, so a
+/// transcript read from the paused machine's saved disk has every line (cmux#36050).
+#[test]
+fn only_a_line_with_nothing_at_work_flushes_before_it_goes() {
+    let mut t = Tracker::new(String::new());
+    let busy = t.line(2, false, 0).unwrap();
+    assert!(!flushes_before(&busy), "{busy}");
+    let idle = t.line(0, false, 1_000).unwrap();
+    assert!(flushes_before(&idle), "{idle}");
+    let renewal = t.line(0, true, 21_000).unwrap();
+    assert!(flushes_before(&renewal), "{renewal}");
+    assert!(!flushes_before(&json!({"other": 0})));
+}

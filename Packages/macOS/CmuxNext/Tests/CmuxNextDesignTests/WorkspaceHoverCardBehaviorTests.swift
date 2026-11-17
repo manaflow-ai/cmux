@@ -28,13 +28,33 @@ struct WorkspaceHoverCardBehaviorTests {
 
     private static func hides(_ effects: [HoverCardEffect]) -> Bool { effects.contains(.hide) }
 
+    /// An owner's card (the update highlights, the pull request card) that just went leaves the
+    /// next card warm, as any card does (Chrome's `kShowWithoutDelayTimeBuffer`): a row within the
+    /// reshow window shows at once, and after it the delay is back.
+    @Test func aRowRightAfterAnOwnedCardShowsAtOnce() throws {
+        var machine = HoverCardMachine()
+        _ = machine.reduce(.owned(true))
+        let ended = machine.reduce(.owned(false))
+        let grace = try #require(machine.armedToken, "no reshow window after the owned card went: \(machine.phase)")
+        #expect(ended == [.schedule(token: grace, after: HoverCardTiming.reshowWindow)])
+        #expect(machine.reduce(.hit(Self.row(1), moved: true)) == [.cancelTimer, .show(Self.row(1), sliding: true)])
+
+        var cold = HoverCardMachine()
+        _ = cold.reduce(.owned(true))
+        _ = cold.reduce(.owned(false))
+        let token = try #require(cold.armedToken)
+        #expect(cold.reduce(.deadline(token: token)).isEmpty)
+        let effects = cold.reduce(.hit(Self.row(1), moved: true))
+        #expect(effects == [.schedule(token: try #require(cold.armedToken), after: Self.delay)], "\(effects)")
+    }
+
     @Test func theCardOpensOnlyAfterTheHoverDelay() throws {
         var machine = HoverCardMachine()
         let effects = machine.reduce(.hit(Self.row(1), moved: true))
         let token = try #require(machine.armedToken)
         #expect(effects == [.schedule(token: token, after: Self.delay)], "no card yet, only the delay: \(effects)")
         #expect(machine.shownTarget == nil)
-        #expect(Self.delay == .milliseconds(400), "the fast cold delay (Leo 2026-11-01): \(Self.delay)")
+        #expect(Self.delay == HoverIntentTiming.cardDelay, "Chrome's delay (Lawrence 2026-11-15): \(Self.delay)")
         #expect(machine.reduce(.deadline(token: token)) == [.show(Self.row(1), sliding: false)])
         #expect(machine.shownTarget == Self.row(1))
     }

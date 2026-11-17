@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2.
+// cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1080,16 +1080,22 @@ pub struct IdentifyResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_capabilities: Option<Vec<String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_device: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_name: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_platform: Option<MachinePlatform>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub min_api_revision: Optional<u32>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_device_id: Optional<String>,
     pub session: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -2456,6 +2462,9 @@ pub struct SurfaceResult {
     pub terminal_incarnation: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_resource_id: Option<String>,
+    /// The transaction of a new-tab request, when it sent one.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
 }
@@ -2588,6 +2597,26 @@ pub struct TabGroupRun {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TabPlace {
+    /// Right after this tab of pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<Id>,
+    /// Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_creation: Optional<String>,
+    /// Right before this tab of pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before: Optional<Id>,
+    /// true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub joins: Optional<bool>,
+    /// true: the first tab after the pinned tabs.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub start: Optional<bool>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalClipboardHost {
     pub kind: TerminalClipboardHostKind,
@@ -2655,6 +2684,32 @@ pub struct TerminalColors {
     pub palette: Option<BTreeMap<String, ColorHex>>,
     pub selection_bg: Nullable<ColorHex>,
     pub selection_fg: Nullable<ColorHex>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContext {
+    pub command: Nullable<String>,
+    pub cwd: Nullable<String>,
+    pub exit_code: Nullable<i32>,
+    pub output: String,
+    pub text: String,
+    pub truncated: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalCommandContextIntent {
+    #[serde(rename = "context")]
+    Context,
+    #[serde(rename = "fix")]
+    Fix,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContextResult {
+    pub context: Nullable<TerminalCommandContext>,
 }
 
 #[rustfmt::skip]

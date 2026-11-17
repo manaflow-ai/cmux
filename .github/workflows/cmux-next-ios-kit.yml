@@ -18,6 +18,13 @@ name: cmux-next-ios kit tests
 #   ambiguous type that only the iOS build saw.
 # The Linux picker offers an idle owned simulator Mac first, with Blacksmith
 # as fallback. The persistent-pool rescue watches stalled owned jobs.
+# Notes (*.md) and cmux-next-ios/verify/ evidence are not the kit: a change to
+# only those builds and tests nothing new (cmux#43251, SECURITY.md and
+# verify/parity-mac.md, took a simulator Mac and went red on kit tests it never
+# touched). A package's Resources/ stays in: SwiftPM bundles what is there.
+# The last matching pattern wins, so the negations come after the includes they
+# narrow and before the ones they re-include. Same rule as ios-review-gate.yml
+# (#43476).
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -44,6 +51,11 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
+      - "Packages/Shared/**/Resources/**"
+      - "Packages/iOS/**/Resources/**"
   push:
     branches: [feat-cmux-next]
     paths:
@@ -69,6 +81,11 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
+      - "Packages/Shared/**/Resources/**"
+      - "Packages/iOS/**/Resources/**"
   workflow_dispatch:
 
 permissions:

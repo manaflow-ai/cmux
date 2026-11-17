@@ -408,11 +408,10 @@ struct ClickedLinkFocusTests {
 
     /// ``splitRight(_:_:)`` whose new pane holds one browser tab and no terminal: the pane on the right
     /// a clicked web link opens a tab in. A browser open goes to a right-column pane that already holds
-    /// a browser whatever the panes' widths (``RightColumnPlacement``, Leo 2026-10-31). Beside a pane
-    /// that holds only a terminal it splits below that pane when the source is 480 pt wide or more and
-    /// the pane on the right 420 pt, and is a tab there only below that, so where it landed was the
-    /// test host's window, not the rule: red on cmux13s-Mac-mini at 79e9919c5c5, b6eb84916c1 and
-    /// 40c945f9ec2, green on cmuxs-Mac-mini (serial job 54e4c583d660).
+    /// a browser whatever the panes' widths (``RightColumnPlacement``, Leo 2026-10-31). Before
+    /// 2026-11-15 a link beside a pane holding only a terminal split below it on a wide enough host, so
+    /// where it landed was the test host's window, not the rule: red on cmux13s-Mac-mini at 79e9919c5c5,
+    /// b6eb84916c1 and 40c945f9ec2, green on cmuxs-Mac-mini (serial job 54e4c583d660).
     private static func splitRightHoldingABrowser(_ services: AppServices, _ content: WorkspaceContentController,
                                                   _ connection: DaemonConnection) async throws -> PaneController {
         let right = try await splitRight(services, content)

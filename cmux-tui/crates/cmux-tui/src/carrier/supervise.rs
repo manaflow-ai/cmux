@@ -22,6 +22,11 @@
 //!   answer; and `{"state":{"refusal":E|null,"answer":…|null}}` whenever
 //!   either changes, before the lines of the same step. `E` is
 //!   `{"kind":…}` with the app's link error fields ([`supervise_wire`]).
+//!   `{"log":TEXT}` names each link step (a connect, park or stop, a child's
+//!   start and exit, the socket ready or a connect's failure, a refusal, an
+//!   unanswered token read) in one bounded line with no credential
+//!   ([`supervise_wire::log_line`]); the app writes it to its unified log,
+//!   category `cloud.carrier`, at a level release builds keep.
 //! - The serve child is this executable's `carrier serve --machine --socket`,
 //!   spawned with this process's environment plus the app's `env`. Its stdin
 //!   gets the token lines; its stderr lines become the machine's events; its
@@ -51,7 +56,7 @@ use tokio::net::unix::pipe;
 use tokio::sync::{mpsc, oneshot};
 
 use super::serve_machine::{
-    Caller, ChildId, Effect, Env, Epoch, Event, LinkError, ReadId, ServeMachine, State,
+    Caller, ChildId, Effect, Env, Epoch, Event, LinkError, ReadId, ServeMachine, State, TokenRead,
 };
 use super::supervise_wire::{self as wire, AppLine};
 use super::{contract, serve_policy};
@@ -66,6 +71,14 @@ pub(super) const KILL_AFTER: Duration = Duration::from_secs(5);
 /// The longest a launch waits for another supervisor's child to give up
 /// the socket: its stop grace and SIGTERM.
 pub(super) const LEASE_WAIT: Duration = Duration::from_secs(10);
+/// How long the app has to answer a `read_token` line. The launch waits
+/// for that answer with the socket's lease held and every connect joins it,
+/// so an answer that never comes (lost, or an app read that never returns)
+/// would wedge the session's link for good (2026-11-15: every Cloud chat
+/// start waited 180 s on such a read). Past it the read fails, the connects
+/// resume with that error and the next connect reads again. The app answers
+/// within its own 75 s.
+pub(super) const TOKEN_READ_DEADLINE: Duration = Duration::from_secs(90);
 /// How long a token line may take to go out.
 const WRITE_LIMIT: Duration = Duration::from_secs(5);
 /// How long stderr is still read after the child exited (a process it
@@ -87,6 +100,8 @@ pub(super) struct Config {
     pub stop_grace: Duration,
     pub kill_after: Duration,
     pub lease_wait: Duration,
+    /// How long a `read_token` line waits for the app's answer.
+    pub token_read_deadline: Duration,
     pub refresh_delay: fn(&str) -> Duration,
     pub check: fn(&str) -> Result<(), LinkError>,
 }
@@ -106,6 +121,7 @@ impl Config {
             stop_grace: STOP_GRACE,
             kill_after: KILL_AFTER,
             lease_wait: LEASE_WAIT,
+            token_read_deadline: TOKEN_READ_DEADLINE,
             refresh_delay: wire::refresh_delay,
             check: serve_policy::check,
         }
@@ -223,6 +239,8 @@ enum Msg {
         generation: u64,
         epoch: Epoch,
     },
+    /// A `read_token` line's deadline: the read fails when it is still unanswered.
+    TokenReadDeadline(ReadId),
     Signal(ChildId, i32),
 }
 
@@ -258,7 +276,8 @@ struct Supervisor {
     tx: mpsc::UnboundedSender<Msg>,
     scope: Scope,
     children: HashMap<ChildId, ChildSlot>,
-    reads: HashMap<ReadId, Epoch>,
+    /// Each unanswered `read_token` line: its launch's epoch, and its deadline (dropping it cancels the deadline).
+    reads: HashMap<ReadId, (Epoch, oneshot::Sender<()>)>,
     /// The socket lease and the child that took it over (None: the launch
     /// that claimed it has not spawned yet).
     lease: Option<(FileLock, Option<ChildId>)>,
@@ -298,23 +317,42 @@ impl Supervisor {
         match msg {
             Msg::App(text) => match wire::app_line(&text) {
                 Some(AppLine::Connect { waiter, keep_refusal }) => {
+                    self.note(&format!("connect {waiter}"));
                     self.dispatch(Event::Connect { waiter, keep_refusal });
                 }
-                Some(AppLine::Park) => self.dispatch(Event::Park),
-                Some(AppLine::Stop) => self.dispatch(Event::Stop),
-                Some(AppLine::AccountEnded) => self.dispatch(Event::AccountEnded),
+                Some(AppLine::Park) => {
+                    self.note("park");
+                    self.dispatch(Event::Park);
+                }
+                Some(AppLine::Stop) => {
+                    self.note("stop");
+                    self.dispatch(Event::Stop);
+                }
+                Some(AppLine::AccountEnded) => {
+                    self.note("account ended: stop");
+                    self.dispatch(Event::AccountEnded);
+                }
                 Some(AppLine::Token { read, result }) => {
-                    if let Some(epoch) = self.reads.remove(&read) {
+                    if let Some((epoch, _deadline)) = self.reads.remove(&read) {
                         self.dispatch(Event::TokenRead { epoch, read, result });
                     }
                 }
                 None => {}
             },
-            Msg::AppEnded => self.dispatch(Event::Stop),
+            Msg::AppEnded => {
+                self.note("the app's input ended: stop");
+                self.dispatch(Event::Stop);
+            }
             Msg::Event(event) => self.dispatch(event),
             Msg::Claimed { epoch, lease } => {
                 // A claim the machine left behind gives its lease back here.
                 if self.machine.is_claiming(epoch) {
+                    if lease.is_none() {
+                        let waited = self.config.lease_wait.as_secs();
+                        self.note(&format!(
+                            "another supervisor kept the socket past {waited} s: launching anyway"
+                        ));
+                    }
                     self.lease = lease.map(|lease| (lease, None));
                     self.dispatch(Event::SocketClaimed(epoch));
                 }
@@ -322,6 +360,15 @@ impl Supervisor {
             Msg::ReadyTimer { generation, epoch } => {
                 if generation == self.ready.0 {
                     self.dispatch(Event::ReadyDeadline(epoch));
+                }
+            }
+            Msg::TokenReadDeadline(read) => {
+                if let Some((epoch, _deadline)) = self.reads.remove(&read) {
+                    let waited = self.config.token_read_deadline.as_secs();
+                    self.note(&format!("token read {read} unanswered after {waited} s"));
+                    let reason = "the app did not answer its access token read".to_owned();
+                    let result = TokenRead::Failed(LinkError::HelperNotRunning { reason });
+                    self.dispatch(Event::TokenRead { epoch, read, result });
                 }
             }
             Msg::RefreshTimer { generation, epoch } => {
@@ -342,7 +389,10 @@ impl Supervisor {
         self.queue.push_back(event);
         while let Some(event) = self.queue.pop_front() {
             let exited = match &event {
-                Event::ChildExit { child, .. } => Some(*child),
+                Event::ChildExit { child, code } => {
+                    self.note(&format!("serve child {child} exited with code {code}"));
+                    Some(*child)
+                }
                 _ => None,
             };
             let effects = self.machine.reduce(event);
@@ -367,16 +417,34 @@ impl Supervisor {
     fn show_state(&mut self) {
         let now = (self.machine.refusal(), self.machine.answer());
         if now != self.shown {
+            if now.0 != self.shown.0 {
+                match &now.0 {
+                    Some(refusal) => self.note(&format!("refused: {}", wire::error_json(refusal))),
+                    None => self.note("refusal cleared"),
+                }
+            }
+            if let Some(answer) = now.1
+                && now.1 != self.shown.1
+            {
+                self.note(&format!("answer {}", answer.word()));
+            }
             (self.out)(wire::state_line(now.0.as_ref(), now.1));
             self.shown = now;
         }
+    }
+
+    /// One link step's `log` line ([`wire::log_line`]).
+    fn note(&self, text: &str) {
+        (self.out)(wire::log_line(text));
     }
 
     fn run(&mut self, effect: Effect) {
         match effect {
             Effect::ClaimSocket(epoch) => self.claim(epoch),
             Effect::ReadToken(epoch, read) => {
-                self.reads.insert(read, epoch);
+                let deadline =
+                    self.timer(self.config.token_read_deadline, Msg::TokenReadDeadline(read));
+                self.reads.insert(read, (epoch, deadline));
                 (self.out)(wire::read_token_line(read));
             }
             Effect::Spawn { child, env } => self.spawn(child, &env),
@@ -411,7 +479,17 @@ impl Supervisor {
             }
             Effect::Terminate(child) => self.terminate(child, Duration::ZERO),
             Effect::TerminateAfterGrace(child) => self.terminate(child, self.config.stop_grace),
-            Effect::Resume(waiters, result) => (self.out)(wire::resume_line(&waiters, &result)),
+            Effect::Resume(waiters, result) => {
+                let connects =
+                    waiters.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+                match &result {
+                    _ if waiters.is_empty() => {}
+                    Ok(_) => self.note(&format!("socket ready for connect {connects}")),
+                    Err(error) => self
+                        .note(&format!("connect {connects} failed: {}", wire::error_json(error))),
+                }
+                (self.out)(wire::resume_line(&waiters, &result));
+            }
             Effect::Publish(caller) => (self.out)(wire::publish_line(caller)),
         }
     }
@@ -482,6 +560,7 @@ impl Supervisor {
         let mut process = match command.spawn() {
             Ok(process) => process,
             Err(error) => {
+                self.note(&format!("serve child {child} did not start: {error}"));
                 let failure =
                     LinkError::disconnected(&format!("cmux carrier serve did not start: {error}"));
                 self.queue.push_back(Event::Spawned { child, failure: Some(failure) });
@@ -518,6 +597,7 @@ impl Supervisor {
         {
             *owner = Some(child);
         }
+        self.note(&format!("serve child {child} started"));
         self.queue.push_back(Event::Spawned { child, failure: None });
     }
 }
@@ -527,6 +607,7 @@ impl Supervisor {
 fn take_lease(path: &Path, wait: Duration) -> Option<FileLock> {
     let file =
         OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(path).ok()?;
+    // short-gate: 50 ms is the retry interval between lock attempts; `wait` is the deadline.
     FileLock::take_within(file, Kind::Exclusive, wait, Duration::from_millis(50)).ok()
 }
 

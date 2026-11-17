@@ -9,7 +9,10 @@
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
 #     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
-#     [--arg=budgets=scripts/perf-bench/budgets.json] [--arg=bench_config=debug|bench]
+#     [--arg=budgets=scripts/perf-bench/budgets.json] [--arg=bench_config=debug|bench] [--arg=app_config=release|bench]
+# app_config= (default release) is the measured app's build. bench keeps Release optimization and compiles in
+# the debug.* control surface (reload.sh --config bench), so the budget scenario's waker lines (debug.wakeups)
+# name who wakes the app instead of "not read: method_not_found".
 # tabswitch= (default on; tabswitch=off skips it) also builds a tagged Debug app at this checkout and
 # runs scripts/cmux-next/tab-switch-matrix.py: real-window tab switch end to end (input event to
 # commit) per tab kind at each count, as a "Tab switch" section of BENCH.md and gate rows.
@@ -34,12 +37,13 @@
 # never fails the step (a bench, not a gate).
 set -euo pipefail
 suite=xbench parity_rows="" parity_loads="light,load" vdisplay="" geometry=""
-rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug
+rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug app_config=release
 tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
 browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
     bench_config=*) bench_config="${arg#bench_config=}" ;;
+    app_config=*) app_config="${arg#app_config=}" ;;
     suite=*) suite="${arg#suite=}" ;;
     parity_rows=*) parity_rows="${arg#parity_rows=}" ;;
     parity_loads=*) parity_loads="${arg#parity_loads=}" ;;
@@ -80,6 +84,10 @@ case "$suite" in
   xbench | parity) ;;
   *) echo "perf-bench.sh: suite=xbench or suite=parity" >&2; exit 2 ;;
 esac
+case "$app_config" in
+  release | bench) ;;
+  *) echo "perf-bench.sh: app_config=release or app_config=bench" >&2; exit 2 ;;
+esac
 [ "$suite" = parity ] && [ "$rounds" = 3 ] && rounds=2
 [ "$suite" = parity ] && [ "$maxload" = 4 ] && maxload=2
 debug=0
@@ -108,7 +116,7 @@ fi
 apps=()
 case "$cmux" in
   build)
-    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config release 2>&1 | tee "$work/reload.log" \
+    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config "$app_config" 2>&1 | tee "$work/reload.log" \
       || { tail -n 80 "$work/reload.log"; exit 1; }
     app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
     [[ -n "$app" && -d "$app" ]] || { echo "perf-bench: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }

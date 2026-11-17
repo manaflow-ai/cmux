@@ -191,6 +191,9 @@ pub struct Conn {
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
+    /// The sessions this connection's own `session/new` created here, newest last (at most
+    /// [`Conn::MAX_CREATED`]): what `_acpmux/side` may tag besides a fork of the chat.
+    created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
     watch_inventory: StdMutex<bool>,
@@ -373,6 +376,22 @@ where
 }
 
 impl Conn {
+    const MAX_CREATED: usize = 256;
+
+    /// Records a session this connection's `session/new` just created here.
+    pub(crate) fn note_created(&self, session: &str) {
+        let mut created = self.created.lock().unwrap_or_else(|e| e.into_inner());
+        if created.len() >= Self::MAX_CREATED {
+            created.pop_front();
+        }
+        created.push_back(session.to_owned());
+    }
+
+    /// True when this connection's own `session/new` created `session` here.
+    pub(crate) fn created_here(&self, session: &str) -> bool {
+        self.created.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|id| id == session)
+    }
+
     fn preparation_cancel(&self, session: &str) -> tokio::sync::watch::Receiver<bool> {
         self.preparation_cancels
             .lock()
@@ -593,7 +612,7 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
-                self.out.push(line);
+                self.out.push_in(line, outbound::reply_lane(msg, reply_to));
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
@@ -658,9 +677,9 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
-        // One queue, in order: a notice queued after this reply goes after it. The client keeps
-        // each row with the higher `listSeq` (`hub/row_log.rs`), so their order does not matter.
-        if !queue.push(line) {
+        // A cheap list read goes ahead of the bulk lane (`outbound.rs`), so a notice may pass it: the
+        // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
+        if !queue.push_in(line, outbound::method_lane(method)) {
             return false;
         }
         whole
@@ -768,29 +787,9 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     Ok(listener)
 }
 
-/// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
-/// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
-/// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
-pub(crate) fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
-    use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
-    match error.kind() {
-        ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
-        _ => std::time::Duration::from_millis(100),
-    }
-}
-
-/// Whether a failed `accept` means the listener itself is gone (closed, never listening or not a
-/// socket), so a retry can never succeed. Any other failure is about one connection or a passing
-/// shortage, and the loop pauses ([`accept_retry_delay`]) and accepts again.
-/// Its callers are the Linux sandbox proxy and the tailnet ingress.
-#[cfg_attr(not(any(target_os = "linux", feature = "tailnet")), allow(dead_code))]
-pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
-    #[cfg(unix)]
-    if matches!(error.raw_os_error(), Some(libc::EBADF | libc::EINVAL | libc::ENOTSOCK)) {
-        return true;
-    }
-    error.kind() == std::io::ErrorKind::UnexpectedEof
-}
+#[cfg_attr(not(any(feature = "tailnet", feature = "hub-carrier")), allow(unused_imports))]
+pub(crate) use crate::accept_errors::accept_ends_listener;
+pub(crate) use crate::accept_errors::accept_retry_delay;
 
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
@@ -885,6 +884,7 @@ pub async fn check_listen_address(addr: &str, allow_network: bool) -> Result<()>
     };
     ws_auth::check_listen(addr, &addrs, false)
 }
+pub use crate::ws_auth::check_listen_address_blocking;
 
 /// The origin of the app's bundled agent pane page (a `cmux-agent` URL
 /// scheme handler). A `file://` page would send `Origin: null`, which every
@@ -1465,35 +1465,7 @@ async fn serve_http(
 
 // ------------------------------------------------------------ connection
 
-/// Where a connection came from. A `Web` connection (the WebSocket
-/// listener: peer daemons, remote clients, relays) is remote-origin: remote
-/// chains build their settings from scratch, so it never starts or sets a
-/// preset that carries harness args or a system prompt, and the session
-/// pool never serves it. `LocalApp` is the app's own agent pane, proven by
-/// every condition in `local_app.rs`: the pool serves it, it may start any
-/// configured preset, and like `Web` it never sets a preset's harness args
-/// or system prompt and never reads a token back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Origin {
-    /// The local Unix socket.
-    #[default]
-    Local,
-    /// The WebSocket listener.
-    Web,
-    /// The app's agent pane over the WebSocket listener (`local_app.rs`).
-    LocalApp,
-    /// A peer acpmux daemon over the WebSocket listener, proven by this
-    /// launch's peer token (`peer_auth.rs`). It has the Web's rights except
-    /// the current-mode rule for prompts and permission answers.
-    Peer,
-}
-
-impl Origin {
-    /// Web or Peer: a connection held to the Web's rules.
-    pub fn web_class(self) -> bool {
-        matches!(self, Origin::Web | Origin::Peer)
-    }
-}
+pub use crate::conn_origin::Origin;
 
 /// A connection from the local Unix socket.
 pub async fn serve_connection(
@@ -1701,6 +1673,7 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
+        created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
@@ -2373,10 +2346,12 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
-mod clock_text;
+#[cfg(test)]
+#[path = "connection_token_tests.rs"]
+mod connection_token_tests;
 mod in_flight;
+pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
-pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
@@ -2409,6 +2384,8 @@ mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
 pub(crate) mod machine_health;
+#[cfg(feature = "hub-carrier")]
+mod machine_routes;
 mod machine_tunnel;
 mod memory_inbox;
 mod models_fanout;
@@ -2435,8 +2412,8 @@ mod prompt_cancel;
 mod workflow_activity;
 mod workflow_runs;
 mod worktrees;
-pub mod ws_auth;
 use crate::hub::is_permission_ask;
+pub use crate::ws_auth;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 pub(crate) use workflow_activity::owner_call as workflow_owner_call;
@@ -2447,9 +2424,11 @@ pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod accounts;
+mod connections;
 mod mcp_connect;
 mod routes;
 mod secrets;
+mod share_host;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
 mod races;
@@ -2515,9 +2494,6 @@ mod compressed_link_tests;
 
 #[cfg(test)]
 mod key_route_tests;
-
-#[cfg(test)]
-mod accept_retry_tests;
 
 #[cfg(test)]
 mod nodelay_tests;

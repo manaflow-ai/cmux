@@ -1,0 +1,5 @@
+# The gates whose tests write the design doc's row 7b (`v2.pr07b.*`). A line is GROUP FILTER; see run-v2-gates.sh.
+# Row 7b: rows by key, and the CLI and MCP list callers.
+acpmux-lib v2_pr07b_info_rows
+acpmux-lib v2_pr07b_callers
+acpmux-lib v2_pr07b_usage_first_read

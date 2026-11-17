@@ -22,10 +22,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var reconnect: AgentSessionAttachClient.Reconnect?
     /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
     var mode: AgentSessionAttachClient.Mode = .attach
-    /// Present only for a Cloud VM resolved by the native machine registry.
-    var cloudMachineID: String?
+    /// Present only for a Cloud VM resolved by the native machine registry, with the signed-in person's name a teammate's machine shows.
+    var cloudMachineID: String?, personName: String?
     var cloudAccount: [String?]?
-    var cloudCredentialRecoveryAvailable = false, cloudTeamMachine = false // the start passed no personal login (team machine)
     /// The App opens this Cloud chat's hand-off turns (``CloudHandoffTurnOpener``).
     var cloudHandoffs = false
     /// The prompt rows of session `session` with a turn checkpoint (``AgentPaneHandshake/cloudTurnRewind``);
@@ -39,6 +38,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The machine's daemon relays a chat's own sign-in (`agent-session-login-v1`) and opens its side
     /// chats there (`agent-session-side-v1`): a new chat's page offers Sign in and New side chat.
     var servesLogin = false, servesSide = false
+    /// A new chat signs its agent in there before it has a session (`agent-session-login-machine-v1`).
+    var servesMachineLogin = false
     /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
@@ -83,19 +84,17 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             }
         }
         let route: AgentPaneRemoteRoute
-        // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
-        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint, reconnect, ownerLink] (cwd: String, level: String?, home: Bool) async throws -> Data in
-            let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, reconnect: reconnect, endpoint: endpoint)
-            let answer: Result<Data, any Error>
-            do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home, ownerLink: ownerLink) }) } catch { answer = .failure(error) }
-            await client.close()
-            return try answer.get()
-        }
+        // The folder trust question of this machine (cx-1bhjj) and a new chat's sign-in there before it
+        // has a session (hq#11225), each on the tab as its store lists it.
+        let tab: AgentTabRemoteClient.TabSurface = { [existing, surface] in try await existing?()?.surface ?? surface }
+        let ask = AgentTabRemoteClient.trust(tab: tab, reconnect: reconnect, endpoint: endpoint, ownerLink: ownerLink)
+        let machineLogin = AgentTabRemoteClient.machineLogin(tab: tab, reconnect: reconnect, endpoint: endpoint, ownerLink: ownerLink)
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
-                let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName, machineSignIn = cloudMachineID == nil] in
+                let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository,
+                                        machineSignIn: machineSignIn)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -108,13 +107,14 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                                                                   updateMachine: updateMachine)
                             .keyedStart(cwd, harness, model, proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
-                        throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
+                        throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder, facts: refusal.pageFacts)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
                 cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
-                servesLogin: servesLogin, servesSide: servesSide)
+                servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil,
+                machineLogin: servesMachineLogin ? machineLogin : nil)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -125,7 +125,6 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
         (handshake.cloudMachineID, handshake.cloudAccount) = (cloudMachineID, cloudAccount)
-        (handshake.cloudCredentialRecoveryAvailable, handshake.cloudTeamMachine) = (cloudCredentialRecoveryAvailable, cloudTeamMachine ? true : nil)
         handshake.cloudRepositoryAvailable = cloudMachineID != nil
         if cloudHandoffs { handshake.cloudHandoffs = true }
         if cloudMachineID != nil, let session, let rows = cloudTurnRewind { handshake.cloudTurnRewind = await rows(session) }

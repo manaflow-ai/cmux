@@ -59,6 +59,9 @@ if (!Number.isInteger(CHURN) || CHURN <= 5 * SAMPLE_EVERY || CHURN % SAMPLE_EVER
   throw new Error(`CHURN must be a multiple of ${SAMPLE_EVERY} over ${5 * SAMPLE_EVERY}`);
 const LATENCY = Number(process.env.LATENCY ?? 0);
 const PROFILE = process.env.PROFILE === "1";
+/// The steady idle window: STEADY_MS of rest, starting STEADY_AFTER_MS after the 5 s one ends.
+const STEADY_AFTER_MS = 8_000;
+const STEADY_MS = 10_000;
 const REMOTE_TAIL = process.env.REMOTE_TAIL;
 if (REMOTE_TAIL !== undefined && !["both", "present", "absent"].includes(REMOTE_TAIL))
   throw new Error("REMOTE_TAIL must be both, present, or absent");
@@ -340,6 +343,7 @@ try {
     shift: number;
     sent: string[];
     quiet?: Idle;
+    steady?: Idle;
     attach: number;
     reconciled: number;
     nativeReads: number;
@@ -612,11 +616,16 @@ try {
       }
       const sent = calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`);
       let quiet: Idle | undefined;
+      let steady: Idle | undefined;
       if (still) {
         await settledAt(page);
         [quiet] = await measureIdle([{ page, cdp }]);
+        // Then the chat left alone, past the 10 s a page beats before it rests (pageHealth.ts): with
+        // nothing changing, nothing should wake.
+        await new Promise((resolve) => setTimeout(resolve, STEADY_AFTER_MS));
+        [steady] = await measureIdle([{ page, cdp }], STEADY_MS);
       }
-      return { ...got, sent, ...(quiet ? { quiet } : {}) };
+      return { ...got, sent, ...(quiet ? { quiet } : {}), ...(steady ? { steady } : {}) };
     } finally {
       await context.close();
     }
@@ -714,8 +723,10 @@ try {
     perfRow({ name: `chat_switch.${key}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });
     const quiet = rounds.at(-1)!.quiet!;
     console.log(
-      `  at rest for 5 s: ${quiet.wakeups} wakeups, ${quiet.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
-        (quiet.sources.length ? `; ${quiet.sources.slice(0, 12).join("; ")}` : ""),
+      `  at rest for 5 s: ${quiet.wakeups} wakeups (${quiet.timeouts} timeouts, ${quiet.intervals} intervals, ` +
+        `${quiet.frames} frames, ${quiet.idleCallbacks} idle callbacks, ${quiet.animations} animations), ` +
+        `${quiet.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
+        (quiet.sources.length ? `; ${quiet.sources.slice(0, 24).join("; ")}` : ""),
     );
     perfRow({
       name: `chat_switch.${key}.idle_wakeups`,
@@ -735,6 +746,24 @@ try {
         clock: "cpu",
         version: 3,
       });
+    const steady = rounds.at(-1)!.steady;
+    if (steady) {
+      console.log(
+        `  left alone for ${STEADY_MS / 1000} s: ${steady.wakeups} wakeups (${steady.timeouts} timeouts, ` +
+          `${steady.intervals} intervals, ${steady.frames} frames, ${steady.idleCallbacks} idle callbacks, ` +
+          `${steady.animations} animations), ${steady.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
+          (steady.sources.length ? `; ${steady.sources.slice(0, 24).join("; ")}` : ""),
+      );
+      // Goal idle-wakeups' row (NOW `idle_chat_rest_wakeups_per_s`, count / 10): a chat left alone wakes nothing.
+      perfRow({
+        name: `chat_switch.${key}.rest_wakeups`,
+        p50: steady.wakeups,
+        p95: steady.wakeups,
+        unit: "count",
+        target: 0,
+        floor: 0.5,
+      });
+    }
   }
   // Growth per switch (bench/growth.ts): one page switches A, B, A, B... and, once warm, samples the GC'd heap, DOM
   // nodes and listeners every SAMPLE_EVERY of CHURN switches. Back where it started, a switch must leave nothing

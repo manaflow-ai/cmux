@@ -10,6 +10,7 @@
 //! reads them even while startup runs.
 
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -93,6 +94,50 @@ impl Gauges {
             "uptimeMs": millis(self.born.elapsed()),
             "startup": phases,
             "memory": memory(),
+            "peerLists": peer_lists().status(),
+        })
+    }
+}
+
+/// Peers' lists (whole, or a follow's patch) a link handed the hub's one notice loop that it has
+/// not taken yet: counted by the link that sends one (`peer_runtime_io.rs`) and by the loop that
+/// takes it (`hub/peer_grace.rs`). The hub's notice channel is bounded by notices, not bytes, so a
+/// loop slower than the lists coming in holds every one of them.
+pub fn peer_lists() -> &'static PeerLists {
+    static LISTS: OnceLock<PeerLists> = OnceLock::new();
+    LISTS.get_or_init(PeerLists::default)
+}
+
+#[derive(Default)]
+pub struct PeerLists {
+    lists: AtomicU64,
+    bytes: AtomicU64,
+    peak_lists: AtomicU64,
+    peak_bytes: AtomicU64,
+}
+
+impl PeerLists {
+    /// A list of `bytes` of row text is on its way into the queue.
+    pub fn queued(&self, bytes: u64) {
+        let lists = self.lists.fetch_add(1, Ordering::Relaxed) + 1;
+        let bytes = self.bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        self.peak_lists.fetch_max(lists, Ordering::Relaxed);
+        self.peak_bytes.fetch_max(bytes, Ordering::Relaxed);
+    }
+
+    /// The loop took a list of `bytes`. Saturating: a test may send a list no link counted.
+    pub fn taken(&self, bytes: u64) {
+        let less = |by: u64| move |v: u64| Some(v.saturating_sub(by));
+        let _ = self.lists.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(1));
+        let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "lists": self.lists.load(Ordering::Relaxed),
+            "bytes": self.bytes.load(Ordering::Relaxed),
+            "peakLists": self.peak_lists.load(Ordering::Relaxed),
+            "peakBytes": self.peak_bytes.load(Ordering::Relaxed),
         })
     }
 }
