@@ -44,6 +44,9 @@ const MAX_SETUP_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_ACTION_BYTES: usize = 16 * 1024;
 /// What the consent card shows in place of a replaced value that holds a credential.
 pub const HIDDEN: &str = "(hidden: holds a credential)";
+
+/// What a setup's actions replaced, by name (`None`: there was none).
+pub type PriorActions = BTreeMap<String, Option<Value>>;
 /// The badge image every setup README links to its page with.
 pub const BADGE_URL: &str = "https://cmux.com/extensions/badge.svg";
 
@@ -390,7 +393,7 @@ pub struct Installed {
     /// The generation that was current before it.
     pub before: Option<u32>,
     /// What the setup's actions replaced, by name (`None`: there was none).
-    pub prior_actions: BTreeMap<String, Option<Value>>,
+    pub prior_actions: PriorActions,
 }
 
 /// An installed setup, as `update` and `remove` read it.
@@ -417,7 +420,7 @@ pub struct Receipt {
     #[serde(default)]
     pub actions: BTreeMap<String, Value>,
     #[serde(default)]
-    pub prior_actions: BTreeMap<String, Option<Value>>,
+    pub prior_actions: PriorActions,
     #[serde(default)]
     pub extensions: Vec<ExtensionReceipt>,
     pub installed_ms: u64,
@@ -701,7 +704,7 @@ impl Customize {
         label: &str,
         origin: &str,
         now_ms: u64,
-    ) -> Result<(Option<Applied>, BTreeMap<String, Option<Value>>), Error> {
+    ) -> Result<(Option<Applied>, PriorActions), Error> {
         self.preview_profile_locked(&setup.profile, origin, now_ms)?;
         let mut prior_actions = BTreeMap::new();
         if !setup.actions().is_empty() {

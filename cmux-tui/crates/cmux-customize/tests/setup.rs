@@ -271,7 +271,7 @@ fn an_update_that_fails_puts_the_installed_setup_back() {
     // The new commit adds a theme where this computer has a folder, so the
     // install step of the update cannot write it (after the old one came off).
     let old = customize.setups().unwrap().remove(0);
-    let mut next = read.clone();
+    let mut next = read;
     next.profile.files.insert("themes/later.json".to_owned(), "{ \"name\": \"Later\" }\n".into());
     fs::create_dir_all(home.config("themes/later.json/inside")).unwrap();
     let error = customize.replace_setup(&old, &next, "setup v2", "cli", 20);
@@ -283,7 +283,7 @@ fn an_update_that_fails_puts_the_installed_setup_back() {
     assert!(customize.status().unwrap().draft.is_none(), "no preview left open");
     assert_eq!(home.settings()["appearance"]["themeFile"], json!("sample-dusk"));
     assert!(home.read("themes/sample-dusk.json").unwrap().contains("Sample Dusk"));
-    let library = old.library.clone().expect("the setup is a library entry");
+    let library = old.library.expect("the setup is a library entry");
     assert!(customize.library().unwrap().entries.iter().any(|entry| entry.name == library));
     // And it still removes cleanly.
     customize.remove_setup(&kept[0], "cli", 30).unwrap();
