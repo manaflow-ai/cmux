@@ -56,6 +56,8 @@ export type AnchoredTranscriptProps = {
   githubRepository?: string;
   canLoadOlder?: boolean;
   onLoadOlder?: (fill: boolean, rising: boolean) => Promise<void>;
+  /** The composer's stack, which floats over the scroller's foot: the last row ends above it. */
+  dock?: HTMLElement | null;
 };
 
 type RowViewProps = Omit<RowProps, "row"> & {
@@ -85,6 +87,7 @@ export function AnchoredTranscript({
   githubRepository,
   canLoadOlder = false,
   onLoadOlder,
+  dock,
 }: AnchoredTranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
@@ -95,6 +98,10 @@ export function AnchoredTranscript({
   const wrote = useRef<number | undefined>(undefined);
   const loadingOlder = useRef(false);
   const nodes = useRef(new Map<string, HTMLElement>());
+  // How far the composer's stack reaches over the scroller, measured with the rows in each commit.
+  const reserve = useRef(0);
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
   const [view, setView] = useState({ top: 0, height: 0 });
 
   const ids = useMemo(() => rows.map((row) => row.id), [rows]);
@@ -113,11 +120,17 @@ export function AnchoredTranscript({
     const node = scroller.current;
     if (!node) return;
     const total = indexRef.current.total();
-    if (spacer.current) spacer.current.style.height = `${THREAD_TOP + total}px`;
+    if (spacer.current) spacer.current.style.height = `${THREAD_TOP + total + reserve.current}px`;
     // Row space starts under the thread's top padding; the scroller's offset counts it.
     const target =
       THREAD_TOP +
-      offsetFor(indexRef.current, positionRef.current, anchor.current, pinned.current, node.clientHeight - THREAD_TOP);
+      offsetFor(
+        indexRef.current,
+        positionRef.current,
+        anchor.current,
+        pinned.current,
+        node.clientHeight - THREAD_TOP - reserve.current,
+      );
     if (Math.abs(node.scrollTop - target) < 0.5) return;
     wrote.current = target;
     writeScrollTop(node, target, "anchor");
@@ -132,6 +145,10 @@ export function AnchoredTranscript({
    */
   const commit = useCallback(() => {
     const heights = indexRef.current;
+    const stack = dockRef.current?.getBoundingClientRect();
+    const view = scroller.current?.getBoundingClientRect();
+    reserve.current =
+      stack && view && stack.height > 0 ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     const reads: [number, number, string][] = [];
     for (const [id, node] of nodes.current) {
       const at = positionRef.current.get(id);
@@ -179,6 +196,7 @@ export function AnchoredTranscript({
     const node = scroller.current;
     if (!node || !observer) return;
     observer.observe(node);
+    if (dock) observer.observe(dock);
     // A row that renders on its own (streamed text reaches its row without this list) commits in
     // the same task, at the microtask after its DOM changed.
     const mutations = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(commit);
@@ -188,7 +206,7 @@ export function AnchoredTranscript({
       observer.disconnect();
       mutations?.disconnect();
     };
-  }, [observer, commit]);
+  }, [observer, commit, dock]);
 
   const onScroll = useCallback(() => {
     const node = scroller.current;
@@ -248,7 +266,7 @@ export function AnchoredTranscript({
       onPointerDownCapture={onPointerDown}
       data-anchored-list=""
     >
-      <div ref={spacer} className="acpmux-spacer" style={{ height: THREAD_TOP + index.total() }}>
+      <div ref={spacer} className="acpmux-spacer" style={{ height: THREAD_TOP + index.total() + reserve.current }}>
         {mounted}
       </div>
     </div>

@@ -1556,6 +1556,7 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
         githubRepository={given.githubRepository}
         canLoadOlder={given.canLoadOlder}
         onLoadOlder={given.onLoadOlder}
+        dock={given.dock}
       />
     );
   }
