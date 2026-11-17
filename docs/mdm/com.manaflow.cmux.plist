@@ -3406,15 +3406,16 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>antialiased</string>
+			<string>auto</string>
 			<key>pfm_description</key>
-			<string>Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.</string>
+			<string>How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.</string>
 			<key>pfm_name</key>
 			<string>appearance.fontSmoothing</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>auto</string>
 				<string>antialiased</string>
-				<string>system</string>
+				<string>subpixel</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Text Smoothing</string>
