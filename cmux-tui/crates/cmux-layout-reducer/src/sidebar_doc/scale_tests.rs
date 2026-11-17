@@ -24,13 +24,18 @@ const S: &str = "mini";
 /// machine section, Pinned, and custom sections), every section's
 /// workspaces in groups of `group_size` (0: loose), and `unplaced` live
 /// workspaces with no item yet (they draw at the end of the machine section).
-struct Sidebar {
-    doc: Doc,
-    live: Vec<LiveWorkspace>,
-    sections: Vec<SectionId>,
+pub(super) struct Sidebar {
+    pub(super) doc: Doc,
+    pub(super) live: Vec<LiveWorkspace>,
+    pub(super) sections: Vec<SectionId>,
 }
 
-fn sidebar(workspaces: usize, sections: usize, group_size: usize, unplaced: usize) -> Sidebar {
+pub(super) fn sidebar(
+    workspaces: usize,
+    sections: usize,
+    group_size: usize,
+    unplaced: usize,
+) -> Sidebar {
     assert!((2..=MAX_SECTIONS).contains(&sections));
     let mut all = vec![Section::machine(S), Section::pinned()];
     for n in 2..sections {
@@ -221,6 +226,26 @@ fn scale_bench() {
                 apply_in_place(&mut s.doc, &[to(&home)], &mut mint).expect("move back");
             }),
         );
+        // The same move and back, each followed by the kept view's refresh
+        // and projection: what a drop costs the window's rows.
+        s.doc.record_touched(true);
+        let mut cache = view_cache::ViewCache::default();
+        let touched = s.doc.take_touched();
+        cache.refresh(&s.doc, request.clone(), touched);
+        report(
+            "move_view",
+            &shape,
+            time(runs, || {
+                for section in [&away, &home] {
+                    let to = Op::Move { items: vec![item.clone()], to: Target::end(section) };
+                    apply_in_place(&mut s.doc, &[to], &mut mint).expect("move");
+                    let touched = s.doc.take_touched();
+                    cache.refresh(&s.doc, request.clone(), touched);
+                    drop(cache.projection(&s.doc));
+                }
+            }),
+        );
+        s.doc.record_touched(false);
         report(
             "pin_unpin",
             &shape,

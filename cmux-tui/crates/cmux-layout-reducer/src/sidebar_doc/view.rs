@@ -99,22 +99,73 @@ fn count_row() {
     ROWS_BUILT.with(|built| built.set(built.get() + 1));
 }
 
-struct Context<'a> {
-    live: HashMap<(&'a str, &'a str), &'a LiveWorkspace>,
-    needle: Option<String>,
+/// The live workspaces of one view, indexed by `(session, workspace id)`
+/// with their place in live order.
+#[derive(Debug, Clone, Default)]
+pub struct LiveIndex {
+    list: Vec<LiveWorkspace>,
+    at: HashMap<String, HashMap<String, usize>>,
+}
+
+impl LiveIndex {
+    pub fn new(list: Vec<LiveWorkspace>) -> Self {
+        let mut at: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        for (index, live) in list.iter().enumerate() {
+            at.entry(live.session_id.clone())
+                .or_default()
+                .entry(live.workspace_id.clone())
+                .or_insert(index);
+        }
+        LiveIndex { list, at }
+    }
+
+    pub fn list(&self) -> &[LiveWorkspace] {
+        &self.list
+    }
+
+    /// The place of `(session, workspace)` in live order (its first entry).
+    pub fn position(&self, session: &str, workspace: &str) -> Option<usize> {
+        self.at.get(session).and_then(|ids| ids.get(workspace)).copied()
+    }
+
+    fn get(&self, reference: &WorkspaceRef) -> Option<&LiveWorkspace> {
+        self.position(&reference.session_id, &reference.workspace_id).map(|at| &self.list[at])
+    }
+}
+
+/// What every row of one view reads besides the document: the live set, the
+/// text filter and the collapsed ids.
+pub(super) struct Context<'a> {
+    live: &'a LiveIndex,
+    pub(super) needle: Option<String>,
     collapsed: Option<HashSet<&'a str>>,
 }
 
-impl Context<'_> {
-    fn is_live(&self, reference: &WorkspaceRef) -> bool {
-        self.live.contains_key(&(reference.session_id.as_str(), reference.workspace_id.as_str()))
+impl<'a> Context<'a> {
+    pub(super) fn new(live: &'a LiveIndex, request: &'a ViewRequest) -> Self {
+        Context {
+            live,
+            needle: request
+                .filter
+                .as_ref()
+                .map(|text| text.trim().to_lowercase())
+                .filter(|text| !text.is_empty()),
+            collapsed: request
+                .collapsed
+                .as_ref()
+                .map(|ids| ids.iter().map(String::as_str).collect()),
+        }
+    }
+
+    pub(super) fn is_live(&self, reference: &WorkspaceRef) -> bool {
+        self.live.get(reference).is_some()
     }
 
     fn title_of(&self, item: &Item) -> String {
         match &item.body {
             Body::Workspace { reference } => self
                 .live
-                .get(&(reference.session_id.as_str(), reference.workspace_id.as_str()))
+                .get(reference)
                 .and_then(|live| live.title.clone())
                 .or_else(|| item.label().map(str::to_string))
                 .unwrap_or_default(),
@@ -131,7 +182,7 @@ impl Context<'_> {
         }
     }
 
-    fn matches(&self, text: &str) -> bool {
+    pub(super) fn matches(&self, text: &str) -> bool {
         self.needle.as_ref().is_none_or(|needle| text.to_lowercase().contains(needle))
     }
 
@@ -141,7 +192,7 @@ impl Context<'_> {
         self.needle.is_none() || self.matches(&self.title_of(item))
     }
 
-    fn is_collapsed(&self, id: &str, stored: bool) -> bool {
+    pub(super) fn is_collapsed(&self, id: &str, stored: bool) -> bool {
         if self.needle.is_some() {
             return false;
         }
@@ -222,31 +273,90 @@ fn group_rows(
     rows
 }
 
-/// The rows of `doc` for one window.
-pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
-    let context = Context {
-        live: request
-            .live
-            .iter()
-            .map(|live| ((live.session_id.as_str(), live.workspace_id.as_str()), live))
-            .collect(),
-        needle: request
-            .filter
-            .as_ref()
-            .map(|text| text.trim().to_lowercase())
-            .filter(|text| !text.is_empty()),
-        collapsed: request.collapsed.as_ref().map(|ids| ids.iter().map(String::as_str).collect()),
-    };
-    let shown_session = |session: &str| {
-        request
-            .window
-            .sessions
-            .as_ref()
-            .is_none_or(|sessions| sessions.iter().any(|s| s == session))
-    };
-    // Unplaced live workspaces, by machine, in live order.
+/// The rows of one top-level item of `section` (a group with its subtree):
+/// a block, which depends only on that item's tree, the section and the
+/// context, so a change rebuilds only the blocks it touches.
+pub(super) fn block_rows(
+    doc: &Doc,
+    context: &Context<'_>,
+    section: &Section,
+    item: &Item,
+) -> Vec<Row> {
+    match &item.body {
+        Body::Workspace { reference } => {
+            let live = context.is_live(reference);
+            if (live || section.keeps_closed) && context.shows(item) {
+                vec![item_row(item, 0, !live, false, false)]
+            } else {
+                Vec::new()
+            }
+        }
+        Body::Group { .. } => group_rows(doc, context, section, item, 0, false, false),
+        _ => {
+            if context.shows(item) {
+                vec![item_row(item, 0, false, false, false)]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// The row of a live workspace the document does not place yet, in
+/// `section` (its machine's).
+pub(super) fn unplaced_row(section: &Section, live: &LiveWorkspace) -> Row {
+    count_row();
+    let reference = WorkspaceRef::new(&live.session_id, &live.workspace_id);
+    Row {
+        key: workspace_item_id(&reference),
+        kind: "workspace".into(),
+        section: section.id.clone(),
+        parent: None,
+        depth: 0,
+        item: None,
+        dimmed: false,
+        reference: Some(reference),
+        collapsed: false,
+        archived: false,
+    }
+}
+
+/// A section's header row, when it shows one: a titled section, a machine
+/// section only when more than one shows, and with a text filter only when
+/// a row of it shows.
+pub(super) fn header_row(
+    section: &Section,
+    context: &Context<'_>,
+    machine_count: usize,
+    body_empty: bool,
+) -> Option<Row> {
+    let header = section.shows_title
+        && (section.kind.machine().is_none() || machine_count > 1)
+        && (context.needle.is_none() || !body_empty);
+    header.then(|| {
+        count_row();
+        Row {
+            key: section.id.clone(),
+            kind: "section".into(),
+            section: section.id.clone(),
+            parent: None,
+            depth: 0,
+            item: None,
+            dimmed: false,
+            reference: None,
+            collapsed: context.is_collapsed(&section.id, false),
+            archived: false,
+        }
+    })
+}
+
+/// Unplaced live workspaces, by machine, in live order.
+pub(super) fn unplaced_by_session<'a>(
+    doc: &Doc,
+    live: &'a [LiveWorkspace],
+) -> Vec<(String, Vec<&'a LiveWorkspace>)> {
     let mut unplaced: Vec<(String, Vec<&LiveWorkspace>)> = Vec::new();
-    for live in &request.live {
+    for live in live {
         let reference = WorkspaceRef::new(&live.session_id, &live.workspace_id);
         if doc.workspace_item(&reference).is_some() {
             continue;
@@ -256,18 +366,29 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             None => unplaced.push((live.session_id.clone(), vec![live])),
         }
     }
-    // The sections this window shows, with a stand-in for each machine
-    // that has unplaced workspaces and no section.
+    unplaced
+}
+
+/// The sections `window` shows, with a stand-in for each machine in
+/// `unplaced_sessions` that has no section.
+pub(super) fn shown_sections<'s>(
+    doc: &Doc,
+    window: &WindowFilter,
+    unplaced_sessions: impl Iterator<Item = &'s str>,
+) -> Vec<Section> {
+    let shown_session = |session: &str| {
+        window.sessions.as_ref().is_none_or(|sessions| sessions.iter().any(|s| s == session))
+    };
     let mut sections: Vec<Section> = doc
         .sections()
         .iter()
         .filter(|section| {
-            section.room.as_ref().is_none_or(|room| request.window.room.as_ref() == Some(room))
+            section.room.as_ref().is_none_or(|room| window.room.as_ref() == Some(room))
         })
-        .filter(|section| section.kind.machine().is_none_or(&shown_session))
+        .filter(|section| section.kind.machine().is_none_or(shown_session))
         .cloned()
         .collect();
-    for (session, _) in &unplaced {
+    for session in unplaced_sessions {
         if doc.machine_section(session).is_some() || !shown_session(session) {
             continue;
         }
@@ -277,87 +398,64 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             .map_or(sections.len(), |i| i + 1);
         sections.insert(at, Section::machine(session));
     }
+    sections
+}
+
+/// Where a section's unplaced rows go among its blocks: above the trailing
+/// run of blocks whose top row is archived (where adopting them puts them).
+/// `heads` yields each block's top row (`None` for a block with no rows).
+pub(super) fn unplaced_at<'r>(heads: impl DoubleEndedIterator<Item = Option<&'r Row>>) -> usize {
+    let heads: Vec<Option<&Row>> = heads.collect();
+    let mut at = heads.len();
+    for (index, head) in heads.iter().enumerate().rev() {
+        let Some(head) = head else { continue };
+        if !head.archived {
+            break;
+        }
+        at = index;
+    }
+    at
+}
+
+/// The rows of `doc` for one window.
+pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
+    let live = LiveIndex::new(request.live.clone());
+    let context = Context::new(&live, request);
+    let unplaced = unplaced_by_session(doc, &request.live);
+    let sections =
+        shown_sections(doc, &request.window, unplaced.iter().map(|(session, _)| session.as_str()));
     let machine_count = sections.iter().filter(|s| s.kind.machine().is_some()).count();
     let mut rows = Vec::new();
     for section in &sections {
-        let mut body: Vec<Row> = Vec::new();
-        let section_collapsed = context.is_collapsed(&section.id, false);
-        for item in doc.list(&section.id, None) {
-            match &item.body {
-                Body::Workspace { reference } => {
-                    let live = context.is_live(reference);
-                    if (live || section.keeps_closed) && context.shows(item) {
-                        body.push(item_row(item, 0, !live, false, false));
-                    }
-                }
-                Body::Group { .. } => {
-                    body.extend(group_rows(doc, &context, section, item, 0, false, false));
-                }
-                _ => {
-                    if context.shows(item) {
-                        body.push(item_row(item, 0, false, false, false));
-                    }
-                }
-            }
-        }
+        let blocks: Vec<Vec<Row>> = doc
+            .list(&section.id, None)
+            .map(|item| block_rows(doc, &context, section, item))
+            .collect();
+        let mut extra: Vec<Row> = Vec::new();
         if let Some(session) = section.kind.machine()
             && let Some((_, list)) = unplaced.iter().find(|(s, _)| s == session)
         {
-            // Above the archived tail, where adopting them puts them.
-            let mut at = body.len();
-            for (index, row) in body.iter().enumerate().rev() {
-                if row.depth == 0 {
-                    if !row.archived {
-                        break;
-                    }
-                    at = index;
-                }
-            }
             for live in list {
-                if !context.matches(live.title.as_deref().unwrap_or_default()) {
-                    continue;
+                if context.matches(live.title.as_deref().unwrap_or_default()) {
+                    extra.push(unplaced_row(section, live));
                 }
-                let reference = WorkspaceRef::new(&live.session_id, &live.workspace_id);
-                count_row();
-                body.insert(
-                    at,
-                    Row {
-                        key: workspace_item_id(&reference),
-                        kind: "workspace".into(),
-                        section: section.id.clone(),
-                        parent: None,
-                        depth: 0,
-                        item: None,
-                        dimmed: false,
-                        reference: Some(reference),
-                        collapsed: false,
-                        archived: false,
-                    },
-                );
-                at += 1;
             }
         }
-        let header = section.shows_title
-            && (section.kind.machine().is_none() || machine_count > 1)
-            && (context.needle.is_none() || !body.is_empty());
-        if header {
-            count_row();
-            rows.push(Row {
-                key: section.id.clone(),
-                kind: "section".into(),
-                section: section.id.clone(),
-                parent: None,
-                depth: 0,
-                item: None,
-                dimmed: false,
-                reference: None,
-                collapsed: section_collapsed,
-                archived: false,
-            });
+        let at = unplaced_at(blocks.iter().map(|block| block.first()));
+        let body_empty = extra.is_empty() && blocks.iter().all(Vec::is_empty);
+        let header = header_row(section, &context, machine_count, body_empty);
+        let folded = header.as_ref().is_some_and(|header| header.collapsed);
+        rows.extend(header);
+        if folded {
+            continue;
         }
-        if !(header && section_collapsed) {
-            rows.extend(body);
+        for (index, block) in blocks.into_iter().enumerate() {
+            if index == at {
+                rows.append(&mut extra);
+            }
+            rows.extend(block);
         }
+        rows.append(&mut extra);
     }
     rows
 }
