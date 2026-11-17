@@ -186,8 +186,8 @@ public final class ChatDiffCache {
     /// `smallLines` lines in all, old and new, and `smallCharacters` characters. Myers over 240 lines
     /// is O((N + M) D), well under a millisecond even for a full rewrite; a large rewrite (hundreds of
     /// milliseconds) still runs off the main thread and its row grows when it lands.
-    static let smallLines = 240
-    static let smallCharacters = 24_000
+    nonisolated static let smallLines = 240
+    nonisolated static let smallCharacters = 24_000
 
     nonisolated static func isSmall(_ inputs: [EditInput]) -> Bool {
         var lines = 0, characters = 0
