@@ -28530,7 +28530,7 @@
       ],
       "constraints": [
         "Never forces: a remote branch with commits the local one lacks refuses with rejected_non_fast_forward.",
-        "When the remote has push refspecs of its own, or the branch tracks a branch with another name on it (and set_upstream is not true), the push is the one git push would make: git's config (remote.<name>.push, push.default) decides where it goes or refuses it, and the result names where it went. set_upstream true pushes the same-named branch and tracks it.",
+        "When the remote has push refspecs of its own, or the branch tracks a branch with another name on it (and set_upstream is not true), the push is the one git push would make: git's config (remote.<name>.push, push.default) decides where it goes or refuses it, and the result names where it went. With set_upstream true, a branch tracking another name pushes the same-named branch instead and tracks it.",
         "git runs in the user's environment, so their credential helper, SSH agent and pre-push hook work as in a terminal. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass), and the whole operation is stopped after 120 s. A mirror remote is refused: a push to it deletes its branches that are not local.",
         "The commit read at the branch's tip (and checked against expected_head) is the one pushed, also by a retry after a lost reply or a timeout. Pushing a commit the remote already has succeeds with up_to_date true.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
