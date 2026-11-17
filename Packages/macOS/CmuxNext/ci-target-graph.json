@@ -204,6 +204,7 @@
         "CmuxNextDictation",
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
+        "CmuxNextPalette",
         "CmuxNextRemoteFetch",
         "CmuxNextSettings",
         "CmuxNextTestSupport",
@@ -217,6 +218,7 @@
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "cmux-tui/spec/",
         "schemas/agent-bridge/contract.json",
+        "schemas/agent-pane/attach-params.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/src/agent-session/acpmux/flickerLog.ts"
       ]
@@ -451,6 +453,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDiff",
+        "CmuxNextFavicons",
         "CmuxNextFeedClient",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
@@ -1206,7 +1209,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
       "targets": [
         "CmuxNextBrowser",
-        "CmuxNextTabs"
+        "CmuxNextTabs",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
