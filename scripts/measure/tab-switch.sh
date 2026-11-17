@@ -96,11 +96,22 @@ frames_main() {
   local root="$PWD" out="$PWD/.build/tab-switch" tmp
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   tmp="$(mktemp -d)"
+  # Every exit (a failed build, a missing tool, a TERM) removes this folder and the worktree in it: the build
+  # holds 13 to 18 GB, and leaked ones filled a bench Mac's disk. By its own path, never by name or glob.
+  TSW_ROOT="$root" TSW_TMP="$tmp"
+  trap 'git -C "$TSW_ROOT" worktree remove --force "$TSW_TMP/src" >/dev/null 2>&1 || true; rm -rf -- "$TSW_TMP"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   chmod 0755 "$tmp" # the harness runs as the console user (console-session.sh): it reads the tools and the DMG here
   echo "TSW host chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername) load=\"$(sysctl -n vm.loadavg)\""
   # The pixels come from CuaDriver, the recorder the fleet grants Screen Recording to (a binary compiled here never holds
   # that grant); the marker and the decoder below need none.
   [ -x /Applications/CuaDriver.app/Contents/MacOS/cua-driver ] || { echo "TSW no CuaDriver on this Mac: cannot record"; exit 3; }
+  # Before the build, as the console user the harness records as: a Mac whose CuaDriver cannot start or has no Screen
+  # Recording grant exits 3 in seconds, not after an hour-long build on an exclusive display worker (2026-11-16:
+  # three display Macs built every pull request's app, then died in cua-driver's `initialize`).
+  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" \
+    preflight || exit 3
   swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
   [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
   local app_args=() label=""
@@ -119,12 +130,14 @@ frames_main() {
   else
     local src="$root"
     if [[ "$build" != head && "$build" != "$(git rev-parse HEAD)" ]]; then
-      # The warm checkout has no origin: the commit comes from the explicit URL.
+      # The warm checkout has no origin: the commit comes from the explicit URL. Never into submodules: a warm
+      # checkout whose ghostty an earlier build populated made git fetch ghostty's new pointer too, which GitHub
+      # refuses ("upload-pack: not our ref"), so every step on two display Macs exited 3 (2026-11-16).
       git cat-file -e "$build^{commit}" 2>/dev/null \
-        || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$build" \
+        || git -c submodule.recurse=false fetch --quiet --no-recurse-submodules https://github.com/manaflow-ai/cmux.git "$build" \
         || { echo "TSW cannot fetch $build" >&2; exit 3; }
       src="$tmp/src"
-      git worktree add --quiet --detach "$src" "$build" || exit 3
+      git -c submodule.recurse=false worktree add --quiet --detach "$src" "$build" || exit 3
     fi
     label="$(git -C "$src" rev-parse HEAD)"
     local configuration=(--release)
@@ -169,6 +182,10 @@ fi
 
 tag="tabswitch"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 prepare_build "$out"
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
@@ -187,4 +204,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
-exec python3 scripts/cmux-next/tab-switch-stages.py --tag "$tag" --app "$app" --out "$out" "$@"
+python3 scripts/cmux-next/tab-switch-stages.py --tag "$tag" --app "$app" --out "$out" "$@"

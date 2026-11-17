@@ -97,6 +97,8 @@ mod key_broker;
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
+mod community;
+#[cfg(unix)]
 mod customize;
 #[cfg(unix)]
 mod dev;
@@ -857,6 +859,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
         .or_else(|| ext::run_reload_config_if_requested(args))
+        .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))

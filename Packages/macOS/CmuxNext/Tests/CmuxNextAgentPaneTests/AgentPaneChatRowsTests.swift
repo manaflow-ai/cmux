@@ -56,6 +56,25 @@ import Testing
         #expect(await code { try await rows.call(AgentPaneChatRows.prefix + "taken", params: .object(["batch": .number(1)]), context: context) } == nil)
     }
 
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// A local pane before its handshake has no socket yet: that chat alone is refused, with a code
+    /// that is none of the four `chat.rows.*` ones, so the page does not run v1 for the document.
+    /// A chat on another machine still answers `chat.rows.off`.
+    @Test func noSocketYetRefusesThatChatAloneAndAnotherMachineIsOff() async {
+        let model = AgentPaneModel(host: NoHost())
+        model.transport.sessions.add("mine")
+        let rows = AgentPaneChatRows(model: model)
+        let open = JSONValue.object(["sid": .string("abc.1"), "chat": .string("mine")])
+        let notYet = await code { try await rows.call(AgentPaneChatRows.prefix + "open", params: open, context: context) }
+        #expect(notYet == AgentPaneTransportError.noConnection.rawValue)
+        #expect(rows.host == nil, "no handle before the pane's socket is known")
+        model.remoteChat = true
+        #expect(await code { try await rows.call(AgentPaneChatRows.prefix + "open", params: open, context: context) } == "chat.rows.off")
+    }
+
     @Test func malformedParamsAreRefused() async {
         let rows = AgentPaneChatRows(model: nil)
         #expect(await code { try await rows.call(AgentPaneChatRows.prefix + "open", params: .object([:]), context: context) } == "cmux.protocol.invalid_params")
