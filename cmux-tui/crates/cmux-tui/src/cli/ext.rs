@@ -12,6 +12,7 @@ mod daemon;
 mod dev;
 #[cfg(test)]
 mod kinds_tests;
+mod pack;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
@@ -64,9 +65,13 @@ cmux ext: make a cmux extension and watch it change as you work.
                                --repo OWNER/REPO (else the folder's github.com origin) makes the
                                id OWNER/NAME, sets repository and fills the README's badge
   cmux ext publish [DIR] [--repo OWNER/REPO] [--write-badge] [--json]
-                               whether DIR is ready to list on cmux.com (manifest, id, README
-                               badge, repository, a picture) and the steps to list it; writes
-                               nothing to the network; exit 1 when something is left to do
+                               whether DIR is ready to list (manifest, id, README badge,
+                               repository, a picture) and the steps: push, a release, the
+                               registry PR; writes nothing to the network; exit 1 when
+                               something is left to do
+  cmux ext pack [DIR] [--out DIR] [--json]
+                               the release assets: cmux-extension.tar.gz (the manifest and the
+                               files it names) and cmux-app.v2.json in DIR/release; prints the sha256
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
   cmux ext shot [DIR] [--out PNG] [--json]
@@ -127,6 +132,8 @@ pub(super) enum Request {
     },
     /// `ext publish [DIR]`: is the folder ready to list, and the steps.
     Publish(publish::PublishOptions),
+    /// `ext pack [DIR]`: the release assets.
+    Pack(pack::PackOptions),
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -260,6 +267,28 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
                 _ => Err(usage("ext shot")),
             }
+        }
+        "pack" => {
+            let mut options = pack::PackOptions { dir: PathBuf::from("."), out: None };
+            let mut dir = None;
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--out" => {
+                        let out = words.next().ok_or_else(|| usage("--out needs a folder"))?;
+                        options.out = Some(PathBuf::from(out));
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if dir.is_some() => return Err(usage("ext pack takes one DIR")),
+                    _ => dir = Some(PathBuf::from(word)),
+                }
+            }
+            if let Some(dir) = dir {
+                options.dir = dir;
+            }
+            Ok(Request::Pack(options))
         }
         "publish" => {
             let mut options =
@@ -447,6 +476,24 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
         Request::Reload { app } => reload(global, app.as_deref(), json_out),
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
+        Request::Pack(mut options) => {
+            options.dir = absolute(options.dir);
+            options.out = options.out.map(absolute);
+            match pack::pack(&options) {
+                Ok(packed) => {
+                    if json_out {
+                        println!("{}", packed.to_json());
+                    } else {
+                        print!("{}", packed.text());
+                    }
+                    exit::OK
+                }
+                Err(message) => {
+                    eprintln!("cmux: {message}");
+                    exit::MANIFEST_INVALID
+                }
+            }
+        }
         Request::Publish(mut options) => {
             options.dir = absolute(options.dir);
             match publish::check(&options) {

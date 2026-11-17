@@ -16,14 +16,12 @@ use super::Field as _;
 pub(super) const BADGE_SVG: &str = "https://cmux.com/extensions/badge.svg";
 /// The GitHub topic the cmux.com crawler searches.
 pub(super) const TOPIC: &str = "cmux-extension";
-/// Where an author submits a repository by hand.
-pub(super) const SUBMIT_URL: &str = "https://cmux.com/extensions";
 /// The README line that marks the badge and install line as placeholders.
 pub(super) const PLACEHOLDER_NOTE: &str = "<!-- cmux: OWNER/REPO below is a placeholder; once this folder has a GitHub repository, run `cmux ext publish --repo OWNER/REPO --write-badge` to fill it in. -->";
 
 /// A GitHub repository, `OWNER/REPO` as GitHub spells it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Repo {
+pub(in crate::cli) struct Repo {
     pub owner: String,
     pub name: String,
 }
@@ -224,7 +222,7 @@ pub(super) fn with_badge(readme: &str, repo: &Repo) -> Option<String> {
 
 /// `ext publish`'s options.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PublishOptions {
+pub(in crate::cli) struct PublishOptions {
     pub dir: PathBuf,
     /// `--repo OWNER/REPO`.
     pub repo: Option<String>,
@@ -491,12 +489,13 @@ pub(super) fn check(options: &PublishOptions) -> Result<Report, String> {
         );
     }
 
-    let next = next_steps(dir, repo.as_ref());
+    let next = next_steps(dir, repo.as_ref(), &manifest);
     Ok(Report { dir: dir.clone(), repo, id, checks, wrote_badge, next })
 }
 
-/// The steps after the checks: push, the topic or the submission, install.
-fn next_steps(dir: &Path, repo: Option<&Repo>) -> Vec<String> {
+/// The steps after the checks: push, a release with the packed assets, the
+/// registry PR, install.
+fn next_steps(dir: &Path, repo: Option<&Repo>, manifest: &Value) -> Vec<String> {
     let slug = repo.map_or("OWNER/REPO".to_string(), Repo::slug);
     let push = if origin_repo(dir).is_some() {
         "commit and push to GitHub: git add -A && git commit -m \"Publish\" && git push".to_string()
@@ -509,12 +508,91 @@ fn next_steps(dir: &Path, repo: Option<&Repo>) -> Vec<String> {
             "make it a git repository and push it: git init -b main && git add -A && git commit -m \"First version\" && gh repo create {slug} --public --source . --push"
         )
     };
+    let version = manifest.field("version").as_str().unwrap_or("VERSION");
+    let (assets, archive) = (super::pack::OUT_DIR, super::pack::ARCHIVE);
+    let manifest_asset = super::pack::MANIFEST_ASSET;
     vec![
         push,
         format!(
-            "add the GitHub topic {TOPIC} so cmux.com finds it: gh repo edit {slug} --add-topic {TOPIC}"
+            "release it (cmux installs and updates from releases): cmux ext pack && gh release create {version} {assets}/{manifest_asset} {assets}/{archive} --repo {slug} --title {version} --notes \"First version\""
         ),
-        format!("or submit it at {SUBMIT_URL}; it is listed once reviewed"),
+        format!(
+            "list it: open a PR to {REGISTRY} adding this entry to {REGISTRY_FILE}:\n       {}",
+            registry_entry(repo, manifest)
+        ),
+        format!(
+            "optional: the GitHub topic {TOPIC} puts it on the candidates list: gh repo edit {slug} --add-topic {TOPIC}"
+        ),
         format!("anyone installs it with: {}", install_for(&slug)),
     ]
+}
+
+/// The registry repository whose list is the list of record, and its file
+/// for extensions.
+pub(super) const REGISTRY: &str = "manaflow-ai/cmux-extensions";
+pub(super) const REGISTRY_FILE: &str = "extensions.json";
+
+/// The extension's entry in the registry's `extensions.json`.
+pub(super) fn registry_entry(repo: Option<&Repo>, manifest: &Value) -> Value {
+    let text = |key: &str| manifest.field(key).as_str().unwrap_or_default().to_string();
+    let author = manifest
+        .field("publisher")
+        .field("name")
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| repo.map(|repo| repo.owner.clone()))
+        .unwrap_or_default();
+    json!({
+        "id": text("id"),
+        "name": text("name"),
+        "author": author,
+        "description": text("description"),
+        "repo": repo.map_or("OWNER/REPO".to_string(), Repo::slug),
+    })
+}
+
+/// The name an extension in development loads under (`local/NAME`): its
+/// own for a `local/` id, the id's name for a published one (`OWNER/NAME`
+/// with a `repository`, whose owner the validator checked), else why not.
+pub(super) fn dev_name(id: &str, manifest: &Value) -> Result<String, String> {
+    match id.split_once('/') {
+        Some(("local", name)) => Ok(name.to_string()),
+        Some((_, name)) if manifest.field("repository").is_string() => Ok(name.to_string()),
+        _ => Err(format!(
+            "{id}: an extension in development is a local/ app, or OWNER/NAME with its repository; use \"local/{}\"",
+            id.split('/').nth(1).unwrap_or("name")
+        )),
+    }
+}
+
+/// The published id of a package whose manifest names one (`OWNER/NAME`;
+/// `pkg.id` is then `local/NAME`).
+pub(super) fn published_id(pkg: &super::dev::Package) -> Option<&str> {
+    pkg.manifest.field("id").as_str().filter(|id| *id != pkg.id)
+}
+
+/// The bytes `ext dev` copies for `rel`: a published extension's manifest
+/// and catalog say `local/NAME` (and its namespace) instead of its own id,
+/// the only publisher the daemon's local folder holds. Everything else, and
+/// a `local/` extension's every file, as it is.
+pub(super) fn as_loaded(pkg: &super::dev::Package, rel: &Path, bytes: Vec<u8>) -> Vec<u8> {
+    let Some(published) = published_id(pkg) else { return bytes };
+    let catalog = pkg.manifest.field("catalog").as_str().map(Path::new);
+    let is_manifest = MANIFESTS.iter().any(|file| rel == Path::new(file));
+    if !is_manifest && Some(rel) != catalog {
+        return bytes;
+    }
+    let Ok(text) = std::str::from_utf8(&bytes) else { return bytes };
+    if is_manifest {
+        return text
+            .replacen(&format!("\"{published}\""), &format!("\"{}\"", pkg.id), 1)
+            .into_bytes();
+    }
+    // The catalog: its ops' owner, the family (`"ns"`) and each op (`"ns.op"`).
+    let (from, to) =
+        (cmux_app_manifest::app_namespace(published), cmux_app_manifest::app_namespace(&pkg.id));
+    text.replace(&format!("app:{published}"), &format!("app:{}", pkg.id))
+        .replace(&format!("\"{from}\""), &format!("\"{to}\""))
+        .replace(&format!("\"{from}."), &format!("\"{to}."))
+        .into_bytes()
 }

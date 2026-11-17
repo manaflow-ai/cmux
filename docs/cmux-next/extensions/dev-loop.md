@@ -203,7 +203,13 @@ apps folder says `local/`; the folder keeps its own id).
 `cmux ext publish [DIR] [--repo OWNER/REPO] [--write-badge] [--json]` writes nothing to the
 network. It checks the manifest validates, the id starts with the owner, the `repository` field,
 the README badge (`--write-badge` adds it or fills the placeholder), and an image `icon` or
-`screenshots`; then prints the steps: push to GitHub, add the topic `cmux-extension` (cmux.com
-lists repositories with it once reviewed), or submit at https://cmux.com/extensions. Exit 0 when
-ready, 1 when something is left (each `todo` line says what), 2 for a bad `--repo` or folder.
-Commit `dist/main.js`: cmux installs the repository as it is, with no build.
+`screenshots`; then prints the steps: push to GitHub; a release whose tag is the manifest's
+`version`, with the assets `cmux ext pack` writes (the exact `gh release create` line); and a pull
+request to manaflow-ai/cmux-extensions adding the printed entry to `extensions.json`, the list of
+record. Exit 0 when ready, 1 when something is left (each `todo` line says what), 2 for a bad
+`--repo` or folder. Commit `dist/main.js` too, so the source tree loads as it is.
+
+`cmux ext pack [DIR] [--out DIR] [--json]` validates the folder as `ext dev` does and writes
+`release/cmux-extension.tar.gz` (the manifest and the files it names, sorted, with no times or
+owners, so the same files give the same bytes) and `release/cmux-app.v2.json`, and prints the
+archive's sha256. Exit 4 when the folder does not validate.

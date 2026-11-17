@@ -35,16 +35,19 @@ cmux ext dev --once --json   # one validate + build + reload; exit 0 ok, 1 load,
 ## Share it
 
 This folder is a git repository with everything cmux needs at its root. Commit `dist/main.js`
-with the source: cmux installs the repository as it is, with no build.
+with the source, so the repository loads as it is.
 
 ```sh
 cmux ext publish        # checks it is ready to list and prints the steps
+cmux ext pack           # release/cmux-extension.tar.gz and release/cmux-app.v2.json, with the sha256
 ```
 
-It checks the manifest, that the id starts with your GitHub account, the badge above, the
-`repository` field and a picture (an `icon` or `screenshots`), then says what is left: push to
-GitHub, add the topic `cmux-extension` (cmux.com lists repositories with it once reviewed), or
-submit it at https://cmux.com/extensions. `--write-badge` puts the badge in this README.
+`cmux ext publish` checks the manifest, that the id starts with your GitHub account, the badge
+above, the `repository` field and a picture (an `icon` or `screenshots`), then prints the steps:
+push to GitHub; make a release whose tag is the manifest's `version` with the two files
+`cmux ext pack` writes (cmux installs and updates from releases); and open a pull request to
+manaflow-ai/cmux-extensions adding the entry it prints to `extensions.json`. `--write-badge` puts
+the badge in this README.
 
 ## Files
 

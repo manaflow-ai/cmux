@@ -11,6 +11,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::dev::{self, Phase};
+use super::pack::{self, PackOptions};
 use super::publish::{self, PublishOptions, Repo};
 use super::tests::{FakeDaemon, dev_options, global, words};
 use super::{Request, parse, scaffold};
@@ -106,6 +107,10 @@ fn new_and_publish_parse_their_repository_flags() {
     assert_eq!(options.dir, Path::new("ext/x"));
     assert_eq!(options.repo.as_deref(), Some("Acme/x"));
     assert!(options.write_badge);
+    assert_eq!(
+        parse(&words("pack x --out y")),
+        Ok(Request::Pack(PackOptions { dir: "x".into(), out: Some("y".into()) }))
+    );
     let Ok(Request::Publish(options)) = parse(&words("publish")) else { panic!("bare publish") };
     assert_eq!(
         (options.dir.as_path(), options.repo, options.write_badge),
@@ -136,7 +141,7 @@ fn a_new_extension_with_a_repository_is_published_by_its_owner_and_still_loads()
     assert!(std::fs::read_to_string(dir.join(".gitignore")).unwrap().contains("node_modules/"));
 
     let pkg = dev::load_package(&dir).unwrap_or_else(|errors| panic!("{errors:?}"));
-    assert_eq!((pkg.id.as_str(), pkg.published.as_deref()), ("local/hello", Some("acme/hello")));
+    assert_eq!((pkg.id.as_str(), publish::published_id(&pkg)), ("local/hello", Some("acme/hello")));
     let local = root.path().join("state/apps/local");
     let fake = FakeDaemon::start(&local, "local/hello", false);
     let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
@@ -235,6 +240,22 @@ fn publish_says_what_is_left_and_then_that_it_is_ready() {
     let text = report.text();
     assert!(text.contains("gh repo edit Acme/hello-ext --add-topic cmux-extension"), "{text}");
     assert!(text.contains("https://cmux.com/extensions"), "{text}");
+    assert!(
+        text.contains("cmux ext pack && gh release create 0.1.0 release/cmux-app.v2.json release/cmux-extension.tar.gz --repo Acme/hello-ext"),
+        "{text}"
+    );
+    assert!(text.contains("open a PR to manaflow-ai/cmux-extensions"), "{text}");
+    let entry = publish::registry_entry(Some(&acme()), &read_json(&dir.join("cmux-app.json")));
+    assert_eq!(
+        entry,
+        json!({
+            "id": "acme/hello",
+            "name": "Hello",
+            "author": "Acme",
+            "description": "A sidebar section made with cmux ext new.",
+            "repo": "Acme/hello-ext",
+        })
+    );
     assert!(text.contains("cmux apps install github.com/Acme/hello-ext"), "{text}");
     let json = report.to_json();
     assert_eq!(json["ready"], true);
@@ -306,4 +327,36 @@ fn publish_refuses_a_bad_repository_and_a_missing_folder() {
     );
     let report = publish_check(root.path(), None, false);
     assert!(failing(&report).contains(&"manifest"), "{}", report.text());
+}
+
+/// `ext pack`: the manifest and the files it names (no sources), the same
+/// bytes for the same files, the manifest beside it as cmux-app.v2.json,
+/// and nothing of an earlier pack's output inside the next one.
+#[test]
+fn pack_writes_the_release_assets_and_the_same_archive_twice() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold_for(&dir, "hello", "section", Some(&acme())).unwrap();
+    add_icon(&dir);
+    let options = PackOptions { dir: dir.clone(), out: None };
+    let first = pack::pack(&options).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!((first.id.as_str(), first.version.as_str()), ("acme/hello", "0.1.0"));
+    assert_eq!(first.archive, dir.join("release/cmux-extension.tar.gz"));
+    assert_eq!(read_json(&first.manifest)["id"], "acme/hello");
+    let mut names = Vec::new();
+    let gz = flate2::read::GzDecoder::new(std::fs::File::open(&first.archive).unwrap());
+    let mut archive = tar::Archive::new(gz);
+    for entry in archive.entries().unwrap() {
+        let entry = entry.unwrap();
+        assert_eq!(entry.header().mtime().unwrap(), 0);
+        names.push(entry.path().unwrap().to_string_lossy().into_owned());
+    }
+    assert_eq!(names, vec!["cmux-app.json", "dist/main.js", "icon.png"]);
+    assert_eq!(first.sha256.len(), 64);
+    let again = pack::pack(&options).unwrap();
+    assert_eq!(again.sha256, first.sha256, "release/ stays out and the bytes are the same");
+    assert!(std::fs::read_to_string(dir.join(".gitignore")).unwrap().contains("release/"));
+
+    std::fs::write(dir.join("cmux-app.json"), "{").unwrap();
+    assert!(pack::pack(&options).is_err(), "an invalid manifest is not packed");
 }

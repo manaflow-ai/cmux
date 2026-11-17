@@ -22,9 +22,10 @@ id becomes `owner/NAME`, the manifest gets `repository`, and the README carries 
 "Get it on cmux" badge and the install line `cmux apps install github.com/OWNER/REPO`.
 `cmux ext dev` still loads it as `local/NAME`. `cmux ext publish --json` (no network
 writes) checks it is ready to list (manifest, id, badge, repository, an icon or
-screenshot; `--write-badge` adds the badge) and prints the steps: push, add the GitHub
-topic `cmux-extension`, or submit at https://cmux.com/extensions. Pushing and listing are
-the person's to do; ask before running them.
+screenshot; `--write-badge` adds the badge) and prints the steps: push, `cmux ext pack`
+and a release tagged with the manifest's version carrying its two files, and a pull
+request to manaflow-ai/cmux-extensions adding the entry it prints. Pushing, releasing and
+the registry PR are the person's to do; ask before running them.
 
 ## Start from a template
 

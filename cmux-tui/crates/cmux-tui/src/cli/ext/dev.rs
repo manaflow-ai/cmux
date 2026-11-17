@@ -188,9 +188,6 @@ pub(super) struct Package {
     pub id: String,
     /// The folder name under the local apps folder (the id's name).
     pub name: String,
-    /// The manifest's own id when it is a published one (`OWNER/NAME`):
-    /// `id` is then `local/NAME`, the id it loads as in development.
-    pub published: Option<String>,
 }
 
 const V1: &str = "cmux-app.json";
@@ -245,55 +242,15 @@ pub(super) fn load_package_unbuilt(dir: &Path, builds: bool) -> Result<Package, 
         field: Some("/id".into()),
         ..Problem::message(message)
     };
-    // The daemon's local folder only holds `local/` apps (catalog.rs), and
-    // `local/customize` loads only from the customize folder.
-    // A published extension (`OWNER/NAME`, from its git repository; the
-    // validator checked the owner) loads as `local/NAME` while in development.
-    let (name, published) = match id.split_once('/') {
-        Some(("local", name)) => (name.to_string(), None),
-        Some((_, name)) if manifest.field("repository").is_string() => {
-            (name.to_string(), Some(id.clone()))
-        }
-        _ => {
-            return Err(vec![field(format!(
-                "{id}: an extension in development is a local/ app (or OWNER/NAME with its repository); use \"local/{}\"",
-                id.split('/').nth(1).unwrap_or("name")
-            ))]);
-        }
-    };
+    // The daemon's local folder holds only `local/` apps (catalog.rs), `local/customize` only from
+    // its own folder; a published `OWNER/NAME` (publish.rs) loads as `local/NAME`.
+    let name = super::publish::dev_name(&id, &manifest).map_err(|message| vec![field(message)])?;
     if name == "customize" {
         return Err(vec![field(
             "local/customize is your customize folder (~/.config/cmux/customize), which cmux already reloads on save; pick another name".into(),
         )]);
     }
-    let id = format!("local/{name}");
-    Ok(Package { dir: dir.to_path_buf(), manifest, id, name, published })
-}
-
-/// The bytes `ext dev` copies for `rel`: a published extension's manifest
-/// and catalog say `local/NAME` (and its namespace) instead of its own id,
-/// the only publisher the daemon's local folder holds. Everything else, and
-/// a `local/` extension's every file, as it is.
-fn as_loaded(pkg: &Package, rel: &Path, bytes: Vec<u8>) -> Vec<u8> {
-    let Some(published) = &pkg.published else { return bytes };
-    let catalog = pkg.manifest.field("catalog").as_str().map(Path::new);
-    let is_manifest = rel == Path::new(V1) || rel == Path::new(V2);
-    if !is_manifest && Some(rel) != catalog {
-        return bytes;
-    }
-    let Ok(text) = std::str::from_utf8(&bytes) else { return bytes };
-    if is_manifest {
-        return text
-            .replacen(&format!("\"{published}\""), &format!("\"{}\"", pkg.id), 1)
-            .into_bytes();
-    }
-    // The catalog: its ops' owner, the family (`"ns"`) and each op (`"ns.op"`).
-    let (from, to) =
-        (cmux_app_manifest::app_namespace(published), cmux_app_manifest::app_namespace(&pkg.id));
-    text.replace(&format!("app:{published}"), &format!("app:{}", pkg.id))
-        .replace(&format!("\"{from}\""), &format!("\"{to}\""))
-        .replace(&format!("\"{from}."), &format!("\"{to}."))
-        .into_bytes()
+    Ok(Package { dir: dir.to_path_buf(), manifest, id: format!("local/{name}"), name })
 }
 
 /// How the folder is built.
@@ -660,7 +617,7 @@ pub(super) fn sync(pkg: &Package, target: &Path) -> Result<bool, Problem> {
     for rel in &files {
         let from = pkg.dir.join(rel);
         let bytes = std::fs::read(&from).map_err(|e| io("cannot read", &from, e))?;
-        let bytes = as_loaded(pkg, rel, bytes);
+        let bytes = super::publish::as_loaded(pkg, rel, bytes);
         total += bytes.len() as u64;
         if total > MAX_BYTES {
             return Err(Problem::message(format!("the package is over {} MiB", MAX_BYTES >> 20)));

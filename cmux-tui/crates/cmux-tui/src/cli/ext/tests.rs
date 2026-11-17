@@ -221,7 +221,6 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
         manifest: json!({}),
         id: "local/hello".into(),
         name: "hello".into(),
-        published: None,
     };
     dev::build(&pkg, &dev::BuildPlan::Pack(bun), dev::BUILD_TIMEOUT)
         .unwrap_or_else(|problems| panic!("{problems:?}"));
