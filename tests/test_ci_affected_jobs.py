@@ -299,9 +299,19 @@ class TheRepository(unittest.TestCase):
                              and entries[path][0] in git_tree.REGULAR)
             sample = list({path.split("/", 1)[0]: path for path in reversed(outside)}.values())
             self.assertTrue(sample, "acpmux-tests has no file input outside cmux-tui to delete")
+            blobs: dict[str, bytes] = {}
+
+            def read_blob(path: str, oid: str) -> bytes:
+                # Each head tree reads its blobs through the base's (one cat-file process, one missing() scan, each
+                # blob once), not a GitTree of its own per sample: that made this test 168 s of the file's 180.
+                if oid not in blobs:
+                    blobs[oid] = base._blob(path, oid)
+                return blobs[oid]
+
             for path in sample:
                 head_entries = {p: e for p, e in entries.items() if p != path}
-                with self.subTest(path=path), git_tree.GitTree(ROOT, base.ref, entries=head_entries) as head:
+                with self.subTest(path=path), git_tree.GitTree(ROOT, base.ref, entries=head_entries,
+                                                                read_blob=read_blob) as head:
                     result = jobs.route(head, [path], map_text=(ROOT / jobs.MAP).read_text(), base_tree=base)
                     run = {key[1]: value for key, value in result.run.items()}
                     self.assertTrue(run["acpmux-tests"], result.lines())

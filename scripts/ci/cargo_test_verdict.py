@@ -260,6 +260,9 @@ class _Index:
             parent, _, _name = path.rpartition("/")
             self.children.setdefault(parent, set()).add(path)
         self.texts: dict[str, str] = {}
+        # (crate, source) -> (paths its compile reads, "../" paths it reads at run time): every job and crate that
+        # builds a source asks the same question, so each is scanned once per tree (a route asks about 30 times).
+        self.named: dict[tuple[str, str], tuple[frozenset[str], frozenset[str]]] = {}
 
     def rust_under(self, directory: str) -> list[str]:
         prefix = directory.rstrip("/") + "/"
@@ -277,6 +280,47 @@ def _index(tree) -> _Index:
         index = _Index(tree)
         tree._tested_inputs_index = index
     return index
+
+
+def _source_names(tree, index: "_Index", crate: str, source: str) -> tuple[frozenset[str], frozenset[str]]:
+    """What SOURCE (of CRATE) names: (the files its compile reads: include!/include_str!/include_bytes!, plain or
+    through concat!, #[path] modules, and a build script's "../" literals; the "../" paths it reads at run time,
+    which count only for the tested crate's own tests). Memoized on INDEX."""
+    key = (crate, source)
+    if key in index.named:
+        return index.named[key]
+    if source not in index.texts:
+        index.texts[source] = tree.text(source, errors="replace")
+    text = index.texts[source]
+    here = posixpath.dirname(source)
+    compiled: set[str] = set()
+    if "include" in text:  # most sources include nothing: skip the regexes, which dominate a route's time
+        for match in INCLUDE.finditer(text):
+            included = _follow(tree, here, match.group(1))
+            if included is not None:
+                compiled.add(included)
+        if "concat!" in text:
+            compiled.update(_concat_includes(tree, crate, source, text))
+    if "#[path" in text or "# [path" in text:
+        for match in PATH_ATTR.finditer(text):
+            named = _follow(tree, here, match.group(1))
+            if named is not None:
+                compiled.add(named)
+    at_run_time: set[str] = set()
+    if "../" in text:
+        for literal in RELATIVE_REF.findall(text):
+            for anchor in (here, crate):
+                named = _follow(tree, anchor, literal.lstrip("/"))
+                # An ancestor of the crate (cmux-tui/, cmux-tui/crates/) is a tree walk, not a fixture: counting it
+                # would make the crate an input of every file beside it (cargo_affected.py skips them too).
+                if named and not crate.startswith(f"{named}/") and tree.resolve(named) is not None:
+                    at_run_time.add(named)
+    # A build script reads its "../" paths when the crate builds (cargo:rerun-if-changed, codegen inputs), so they
+    # count for a compile-only job and for every dependency, not only for the tested crate's run-time fixtures.
+    if source == f"{crate}/build.rs":
+        compiled |= at_run_time
+    index.named[key] = (frozenset(compiled), frozenset(at_run_time))
+    return index.named[key]
 
 
 def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = True) -> list[str]:
@@ -339,30 +383,10 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
         scanned += [(crate, source, False) for source in index.rust_under(crate)
                     if source[len(prefix):].split("/", 1)[0] not in UNBUILT_TARGET_DIRS]
     for crate, source, references in scanned:
-        if source not in index.texts:
-            index.texts[source] = tree.text(source, errors="replace")
-        text = index.texts[source]
-        for match in INCLUDE.finditer(text):
-            included = _follow(tree, posixpath.dirname(source), match.group(1))
-            if included is not None:
-                inputs.add(included)
-        inputs.update(_concat_includes(tree, crate, source, text))
-        for match in PATH_ATTR.finditer(text):
-            named = _follow(tree, posixpath.dirname(source), match.group(1))
-            if named is not None:
-                inputs.add(named)
-        # A build script reads its "../" paths when the crate builds (cargo:rerun-if-changed, codegen inputs), so they
-        # count for a compile-only job and for every dependency, not only for the tested crate's run-time fixtures.
-        build_script = source == f"{crate}/build.rs"
-        if not (references or build_script) or "../" not in text:
-            continue
-        for literal in RELATIVE_REF.findall(text):
-            for anchor in (posixpath.dirname(source), crate):
-                named = _follow(tree, anchor, literal.lstrip("/"))
-                # An ancestor of the crate (cmux-tui/, cmux-tui/crates/) is a tree walk, not a fixture: counting it
-                # would make the crate an input of every file beside it (cargo_affected.py skips them too).
-                if named and not crate.startswith(f"{named}/") and tree.resolve(named) is not None:
-                    inputs.add(named)
+        compiled, at_run_time = _source_names(tree, index, crate, source)
+        inputs |= compiled
+        if references:
+            inputs |= at_run_time
     return sorted(inputs)
 
 
