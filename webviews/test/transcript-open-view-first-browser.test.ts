@@ -5,11 +5,10 @@
 // A 40-turn chat lands in an empty transcript, followed at its latest row, as an attach's page does.
 // Before: the commit that took the rows drew them at offset 0, so it built the chat's top rows (the
 // view, its scroll lead and the warm rows), and the placement pass that scrolled to the latest row
-// unmounted them again before the frame; the same commit also built four viewports of history above
-// the latest row. The open's first commit now builds the rows in view at the latest row, nothing it
-// takes back, and the history comes in the render right after it: three screens of rows are mounted
-// above the view within a few frames (Leo, 2026-11-12: "if you try to scroll up, you can't really
-// scroll much of anything up at all"), and no row on screen moves once painted.
+// unmounted them again before the frame. The open's first commit now builds the rows it paints: the
+// view at the latest row and the history above it, which the first frame keeps (three screens or more,
+// Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of anything up at all"),
+// nothing it takes back, and no row on screen moves once painted.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -141,7 +140,7 @@ await requireBrowserLane("transcript-open-view-first-browser.test.ts", async () 
       (window as unknown as { __seen: Seen }).__seen = seen;
     });
 
-  test("the open's first commit builds the rows in view at the latest row, then the history above", async () => {
+  test("the open's first commit builds the tail it paints, with the history above, and takes none back", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await installPaintedFrames(page);
@@ -168,11 +167,11 @@ await requireBrowserLane("transcript-open-view-first-browser.test.ts", async () 
     expect(first.visible.map(([id]) => id)).toContain("s40");
     // Nothing the open built went before its first frame: no top rows drawn and unmounted.
     expect(seen.removedBeforePaint).toEqual([]);
-    // Its first commit built the rows in view and the virtual list's few rows of overscan either side,
-    // not the history above them.
-    expect(seen.firstAdded.length).toBeLessThanOrEqual(first.visible.length + 10);
-    // The history comes right after: three screens mounted above the view within ten frames.
-    expect(seen.frames.slice(0, 10).some((frame) => frame.screensAbove >= 3)).toBe(true);
+    // Its first commit built the tail: none of the chat's first turns, which sit far above the view and
+    // its history (the 40 turns are well over ten screens).
+    expect(seen.firstAdded.filter((id) => /^[uasn][1-5]$/.test(id))).toEqual([]);
+    // The first painted frame already holds three screens of history above the view.
+    expect(first.screensAbove).toBeGreaterThanOrEqual(3);
     // And no row on screen in the first frame moved after it.
     const tops = new Map(first.visible);
     const moved = seen.frames.flatMap((frame) =>

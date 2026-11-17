@@ -5063,7 +5063,10 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
-        if (at < 0) node.scrollTop = top;
+        // At the latest row, written as a following view settles there (rounded up, its fraction
+        // kept): the floored offset rested a pixel short until a later pass settled it, and a first
+        // commit already drawn at the end (`opensAtEnd`) has no later pass.
+        if (at < 0) settleFollowBottom(node, top);
         else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
