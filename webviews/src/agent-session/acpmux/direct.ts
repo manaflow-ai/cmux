@@ -726,6 +726,17 @@ const SWITCH_HOLD_MS = 1_500;
 /// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
 /// ends as soon as both are in or either fails; this limit is only for a read that never answers.
 const GAP_HOLD_MS = 30_000;
+/// The widest hole between the records the pane holds and an attach's page that is read to bridge
+/// them: one `_acpmux/events` page. A wider one (a long chat that ran on for hours while the pane
+/// was away, or while its gap read kept failing) is not read at all: the held records before the
+/// page go, as a kept tail's do (`attachWatched`), and the history above the page comes from the
+/// older pages when the reader scrolls up. Reading it forward page by page drew every page in turn
+/// above the newest turn, so the transcript there was swapped for later and later stretches of the
+/// past while the open (and its "Waiting for the agent service" line) waited on all of them, and
+/// the turn's Thinking clock and the subsession chip read the stretch being drawn (Leo, 2026-11-17:
+/// "THIS KIND OF RERENDER RESHIFT RE-MOVING EVERYTHING IS UNACCEPTABLE"). Constant cost, whatever
+/// the chat's length.
+export const BRIDGE_MAX_SEQS = 5_000;
 /// Reading ahead (``AcpmuxDirectClient.readAhead``): the user, 2026-10-21, "switching between
 /// different chiefs and messages/conversations needs instant loading of messages". A chat the page
 /// never read waited on its attach behind the hold above; the recent ones are read while the pane is
@@ -2958,6 +2969,12 @@ const PROCESS_LIST_PAGE = 1_000;
 /// is naming new cursors without end.
 const PROCESS_LIST_MAX_PAGES = 100;
 
+/// Whether records held whole through `heldThrough` are too far behind an attach's page that starts
+/// at `pageOldest` to bridge with a read (`BRIDGE_MAX_SEQS`).
+export function bridgeTooWide(heldThrough: number, pageOldest: number): boolean {
+  return heldThrough > 0 && pageOldest > heldThrough + 1 + BRIDGE_MAX_SEQS;
+}
+
 /// The chat a client held when its connection was lost, handed to the client the page connects
 /// next (`carriedChat`, `connect`). Leo, 2026-11-11: "it keeps showing and then hiding, and then
 /// showing and then hiding your responses, or my responses". In the app every lost connection
@@ -3521,6 +3538,10 @@ export class AcpmuxDirectClient {
   /// How far the records carried from a lost client run (`resumeCarried`), for the attach's check of
   /// their session (`drawnGeneration`) only: they are merged as a reconnect's, not as a kept tail.
   private carriedThrough = 0;
+  /// How far the records the pane holds are whole when an open or a copy's reattach asks its attach
+  /// (`wholeSeq`), for the attach's check of the hole between them and its page (`bridgeTooWide`);
+  /// 0 when there is nothing to bridge.
+  private bridgeFrom = 0;
   /// The segment acpmux stamped on the reply row streaming now (`replySegment`), by that row.
   private streamingSegment?: { row: string; segment: string };
   /// The seq a fork's rows drawn before the attach were taken through from the chat it forked
@@ -4467,6 +4488,7 @@ export class AcpmuxDirectClient {
           // attach asked with the list asked it already (`sendAttachAfterSwitch`).
           if (!adopted && this.chatRows.asks(this.capabilities))
             await this.chatRows.choose(sessionId, this.capabilities);
+          this.bridgeFrom = keptThrough === 0 ? resumeAfter : 0;
           page = await this.attach(sessionId, generation, keptThrough, 1, adopted);
         } catch (error) {
           // A newer attach of the chat (a select, a switch) took it over while this one was out:
@@ -4505,7 +4527,9 @@ export class AcpmuxDirectClient {
         if (oldest > 0)
           for (const [key, gap] of this.gapReads)
             if (gap.sessionId === sessionId && oldest <= gap.seq + 1) this.gapReads.delete(key);
-        if (resumeAfter > 0 && oldest > resumeAfter + 1)
+        // Only records still held at or before the hole are bridged: a hole too wide to read dropped
+        // them with the attach (`bridgeTooWide`), and the page alone is the chat.
+        if (resumeAfter > 0 && oldest > resumeAfter + 1 && (this.events[0]?.seq ?? Infinity) <= resumeAfter)
           await this.fetchMissedEvents(sessionId, generation, resumeAfter, false).catch((error: unknown) => {
             // The gap stays: usage before the new page is no longer whole (the turn's tokens hide).
             if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
@@ -5048,9 +5072,15 @@ export class AcpmuxDirectClient {
     // transcript with a hole in it between them.
     const hold = copy.own ? this.holdSnapshots(GAP_HOLD_MS) : undefined;
     try {
+      this.bridgeFrom = copy.own ? copy.lastSeq : 0;
       const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
       const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
-      if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration)
+      if (
+        copy.own &&
+        oldest > copy.lastSeq + 1 &&
+        (this.events[0]?.seq ?? Infinity) <= copy.lastSeq &&
+        generation === this.selectionGeneration
+      )
         await this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
     } catch (error) {
       // A reconnect's attach took the copy over meanwhile: its outcome decides.
@@ -5730,22 +5760,29 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     const key = ++this.gapReadKeys;
+    // The hole stays open from `afterSeq` until every page is in: a read that fails part way leaves
+    // none of it drawn, and the next read starts from the same place.
+    this.gapReads.set(key, { sessionId, seq: afterSeq });
+    // Every page is read before any is drawn, then folded once. Drawn page by page, the rows above
+    // the newest turn were swapped for each page's stretch in turn, and the live state was replayed
+    // onto each page's last record (a Thinking clock from hours before, the subsessions of then).
+    const missed: EventRecord[] = [];
     for (let cursor = afterSeq; ;) {
-      this.gapReads.set(key, { sessionId, seq: cursor });
       const result = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: cursor,
         limit: 5_000,
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-      const missed = records(result?.events);
-      mergeIntoHeld(this.events, missed);
-      this.sawPrompts(missed);
-      // Only what this page changed is folded again (`rebuild`'s `changedFrom`): past the cursor.
-      this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined, cursor + 1);
-      if (result?.hasMore !== true || missed.length === 0) break;
-      cursor = Math.max(cursor, ...missed.map((event) => event.seq));
+      const page = records(result?.events);
+      for (const event of page) missed.push(event);
+      if (result?.hasMore !== true || page.length === 0) break;
+      cursor = Math.max(cursor, ...page.map((event) => event.seq));
     }
+    mergeIntoHeld(this.events, missed);
+    this.sawPrompts(missed);
+    // Only what the hole changed is folded again (`rebuild`'s `changedFrom`): past its start.
+    this.rebuildKeepingLiveState(replayLiveState ? afterSeq : undefined, afterSeq + 1);
     // Read through: this read's hole is filled, and so is any older failed read's that starts at
     // or past this one's start (everything after `afterSeq` is in now).
     for (const [other, gap] of this.gapReads)
@@ -7463,6 +7500,12 @@ export class AcpmuxDirectClient {
           : typeof drawnOf === "number" && typeof createdAt === "number" && drawnOf !== createdAt));
     const replaced =
       otherSession || (drawnThrough > 0 && peerChat && hostLast !== undefined && hostLast < drawnThrough);
+    // Held records the page is too far past to bridge go before the page draws, as a kept tail's
+    // that the page does not meet: never a read of the whole hole drawn page by page.
+    const bridge = this.bridgeFrom;
+    this.bridgeFrom = 0;
+    const tooFar = !replaced && bridgeTooWide(bridge, oldest);
+    if (tooFar) for (const [key, gap] of this.gapReads) if (gap.sessionId === sessionId) this.gapReads.delete(key);
     this.drawnGeneration = undefined;
     // Rows of another session: everything of it goes, its queue and unsent prompts too, as for a
     // switch; the live records held for this attach are the new session's and stay.
@@ -7475,7 +7518,7 @@ export class AcpmuxDirectClient {
       this.lastSeq = this.events.at(-1)?.seq ?? 0;
       this.firstSeq = this.events[0]?.seq;
     }
-    if (replaced || (keptThrough > 0 && oldest > keptThrough + 1)) {
+    if (replaced || tooFar || (keptThrough > 0 && oldest > keptThrough + 1)) {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
       this.historyExhausted = false;
