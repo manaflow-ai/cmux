@@ -31,7 +31,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   const BUSY = "0190a000-0000-7000-8000-0000000000f1";
   const QUIET = "0190a000-0000-7000-8000-0000000000f2";
-  // Recent, so the line reads seconds or minutes.
+  // Recent, so the line reads seconds or minutes. On a whole minute the clock drops its seconds ("2m"), so the
+  // checks below take a clock ending in m or s (it failed once reading "Read app.ts 2m").
   const START = Date.now() - 90_000;
   const update = (update: Record<string, unknown>, meta?: Record<string, unknown>) => ({
     method: "session/update",
@@ -229,11 +230,11 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     // The Linter finished and the watcher stopped: neither counts. The turn's clock stands beside the
     // label with no "total" (#34866): "Read app.ts 2m 9s · 2 subagents · 1 command".
     expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
-      /^Read [^·]+ \d+s · 2 subagents · 1 command$/,
+      /^Read [^·]+ \d+[sm] · 2 subagents · 1 command$/,
     );
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+s$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+[sm]$/);
     await plain.close();
   });
 
@@ -250,7 +251,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       .allInnerTexts();
     expect(lines).toEqual(["Tester", "Reviewer", "npm run dev"]);
     expect(await tray.locator("li[data-finished] .acpmux-summary-agent__name").allInnerTexts()).toEqual(["Linter"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+s$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+[sm]$/);
     await page.close();
   });
 
@@ -278,8 +279,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         }, token);
       const page = await open(BUSY, width);
       try {
-        // This line follows subagent steps. Counts must not change that 22px context.
-        const withCounts = await measure(page, "--cv-tool-row-height");
+        // This line follows subagent steps: the footer's slot, as under a reply (transcriptGrid.ts MARK_LIVE_STEP).
+        // Counts must not change it.
+        const withCounts = await measure(page, "--cv-footer-row");
         expect(withCounts.height).toBe(withCounts.oneLine);
         expect(withCounts.labelHeight).toBe(20);
         expect(withCounts.labelLeft).toBe(0);
@@ -288,13 +290,13 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         await counts.evaluateAll((nodes) => {
           for (const node of nodes) (node as HTMLElement).style.display = "none";
         });
-        expect(await measure(page, "--cv-tool-row-height")).toEqual(withCounts);
+        expect(await measure(page, "--cv-footer-row")).toEqual(withCounts);
       } finally {
         await page.close();
       }
       const quiet = await open(QUIET, width);
       try {
-        // With no preceding step, the live line occupies the 32px footer slot.
+        // With no preceding step, the live line occupies the same 32px footer slot.
         const box = await measure(quiet, "--cv-footer-row");
         expect(box.height).toBe(box.oneLine);
         expect(box.labelHeight).toBe(20);
