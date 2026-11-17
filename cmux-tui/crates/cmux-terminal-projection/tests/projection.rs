@@ -140,6 +140,15 @@ fn assert_same(host: &Projection, phone: &Phone, context: &str) {
     }
 }
 
+/// A projection whose phone lines are the host's exactly: right-anchored
+/// rows are re-wrapped like any line, not laid out at the phone's width
+/// (that layout has its own golden tests, `tests/golden.rs`).
+fn exact(host_cols: usize, host_rows: usize, history_limit: usize) -> Projection {
+    let mut projection = Projection::new(host_cols, host_rows, history_limit);
+    let _ = projection.set_compact(false);
+    projection
+}
+
 fn feed(host: &mut Projection, phone: &mut Phone, bytes: &[u8]) {
     let segments = host.feed(bytes, true);
     phone.apply(segments);
@@ -147,7 +156,7 @@ fn feed(host: &mut Projection, phone: &mut Phone, bytes: &[u8]) {
 
 #[test]
 fn a_shell_session_reflows_at_the_phone_width() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     feed(&mut host, &mut phone, b"\x1b[32m~/src\x1b[0m $ ls\r\n");
@@ -169,7 +178,7 @@ fn a_shell_session_reflows_at_the_phone_width() {
 /// lines join again and fill the phone's 54 columns.
 #[test]
 fn a_host_narrower_than_the_phone_fills_the_phones_width() {
-    let mut host = Projection::new(39, 26, 10_000);
+    let mut host = exact(39, 26, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     let long = "the agent wrote a sentence long enough to wrap twice on a 39 column pane and once on the phone";
@@ -186,7 +195,7 @@ fn a_host_narrower_than_the_phone_fills_the_phones_width() {
 
 #[test]
 fn streaming_output_scrolls_into_the_phones_scrollback() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     for i in 0..400 {
@@ -206,7 +215,7 @@ fn streaming_output_scrolls_into_the_phones_scrollback() {
 
 #[test]
 fn an_inline_tui_redraws_its_live_region_in_place() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     let border = "─".repeat(118);
@@ -239,7 +248,7 @@ fn an_inline_tui_redraws_its_live_region_in_place() {
 
 #[test]
 fn clear_with_scrollback_starts_the_phone_over() {
-    let mut host = Projection::new(80, 24, 10_000);
+    let mut host = exact(80, 24, 10_000);
     let mut phone = Phone::new(40, 20);
     phone.apply(host.set_viewport(40, 20));
     for i in 0..100 {
@@ -253,7 +262,7 @@ fn clear_with_scrollback_starts_the_phone_over() {
 
 #[test]
 fn ctrl_l_keeps_the_prompt_at_the_top() {
-    let mut host = Projection::new(80, 24, 10_000);
+    let mut host = exact(80, 24, 10_000);
     let mut phone = Phone::new(40, 20);
     phone.apply(host.set_viewport(40, 20));
     for i in 0..10 {
@@ -267,7 +276,7 @@ fn ctrl_l_keeps_the_prompt_at_the_top() {
 
 #[test]
 fn the_alternate_screen_passes_through_and_the_primary_comes_back() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     feed(&mut host, &mut phone, format!("$ {}\r\n$ vim\r\n", "x".repeat(150)).as_bytes());
@@ -287,11 +296,11 @@ fn a_viewport_change_repaints_as_if_fresh() {
     let script: Vec<u8> = (0..80)
         .flat_map(|i| format!("{i}: {}\r\n", "abc def ghi ".repeat(i % 13)).into_bytes())
         .collect();
-    let mut host = Projection::new(100, 30, 10_000);
+    let mut host = exact(100, 30, 10_000);
     let _ = host.set_viewport(40, 30);
     let _ = host.feed(&script, true);
     let rotated = host.set_viewport(70, 20);
-    let mut fresh = Projection::new(100, 30, 10_000);
+    let mut fresh = exact(100, 30, 10_000);
     let _ = fresh.feed(&script, true);
     let direct = fresh.set_viewport(70, 20);
     assert_eq!(rotated, direct, "wrapping at 40 then 70 equals wrapping at 70");
@@ -308,7 +317,7 @@ fn numbered(lines: usize) -> Vec<u8> {
 
 #[test]
 fn a_rotation_repaints_a_window_and_older_rows_come_on_demand() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     feed(&mut host, &mut phone, &numbered(3_000));
@@ -347,7 +356,7 @@ fn a_rotation_repaints_a_window_and_older_rows_come_on_demand() {
 
 #[test]
 fn a_rotation_keeps_the_lines_being_read() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     feed(&mut host, &mut phone, &numbered(3_000));
@@ -371,7 +380,7 @@ fn a_rotation_keeps_the_lines_being_read() {
 
 #[test]
 fn wide_and_combining_glyphs_keep_their_cells() {
-    let mut host = Projection::new(20, 10, 10_000);
+    let mut host = exact(20, 10, 10_000);
     let mut phone = Phone::new(7, 10);
     phone.apply(host.set_viewport(7, 10));
     feed(&mut host, &mut phone, "日本語のテキストと e\u{301}t\u{e9} 🎉 done\r\n$ ".as_bytes());
@@ -380,7 +389,7 @@ fn wide_and_combining_glyphs_keep_their_cells() {
 
 #[test]
 fn on_the_alternate_screen_the_phone_answers_reports_alone() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     let segments = host.feed(b"\x1b[?1049h\x1b[6n\x1b[?6n\x1b[18t", true);
@@ -399,7 +408,7 @@ fn on_the_alternate_screen_the_phone_answers_reports_alone() {
 #[test]
 fn the_alternate_screen_is_entered_with_the_programs_own_mode() {
     for mode in [47, 1047, 1049] {
-        let mut host = Projection::new(80, 24, 10_000);
+        let mut host = exact(80, 24, 10_000);
         let _ = host.set_viewport(40, 20);
         let segments = host.feed(format!("$ \x1b[?{mode}hfull").as_bytes(), true);
         let entry = format!("\x1b[?{mode}h").into_bytes();
@@ -416,7 +425,7 @@ fn the_alternate_screen_is_entered_with_the_programs_own_mode() {
 
 #[test]
 fn cursor_reports_are_in_host_cells() {
-    let mut host = Projection::new(120, 40, 10_000);
+    let mut host = exact(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);
     phone.apply(host.set_viewport(54, 38));
     feed(&mut host, &mut phone, b"\x1b[3;100H\x1b[6n\x1b[18t");
@@ -445,7 +454,7 @@ fn random_streams_keep_the_phone_identical() {
         let host_rows = 5 + rng.below(40) as usize;
         let phone_cols = 10 + rng.below(60) as usize;
         let phone_rows = 5 + rng.below(40) as usize;
-        let mut host = Projection::new(host_cols, host_rows, 100_000);
+        let mut host = exact(host_cols, host_rows, 100_000);
         let mut phone = Phone::new(phone_cols, phone_rows);
         phone.apply(host.set_viewport(phone_cols, phone_rows));
         for step in 0..300 {

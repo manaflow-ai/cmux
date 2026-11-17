@@ -40,6 +40,7 @@ pub fn wrap_line(
     host_cols: usize,
     cols: usize,
     cursor: Option<(usize, usize)>,
+    compact: bool,
 ) -> Wrapped {
     let cols = cols.max(2);
     // Glyphs with their offset in the host line.
@@ -72,6 +73,9 @@ pub fn wrap_line(
         } else {
             break;
         }
+    }
+    if compact {
+        compact_anchored(rows, host_cols, cols, &mut units);
     }
     let cursor_offset = cursor_cell.map(|c| c - cursor_spacers);
     let mut out = vec![ProjectedRow::default()];
@@ -116,6 +120,192 @@ pub fn wrap_line(
     Wrapped { rows: out, cursor: cursor_at, empty }
 }
 
+/// Horizontal rules a program pads a frame with (`─` in `╭────╮`). Box
+/// drawing only: ASCII runs (`===`, `---`) can be content.
+fn is_rule(ch: u32) -> bool {
+    matches!(char::from_u32(ch), Some('─' | '━' | '═' | '┄' | '┅' | '┈' | '┉' | '╌' | '╍'))
+}
+
+/// A frame's right edge (`│`, `╮`, `╯` and their kin).
+fn is_right_edge(ch: u32) -> bool {
+    matches!(
+        char::from_u32(ch),
+        Some(
+            '│' | '┃'
+                | '║'
+                | '╮'
+                | '╯'
+                | '┐'
+                | '┘'
+                | '╗'
+                | '╝'
+                | '┤'
+                | '┫'
+                | '╣'
+                | '┓'
+                | '┛'
+                | '╢'
+                | '╡'
+        )
+    )
+}
+
+/// A blank cell (never written, or a space).
+fn is_blank(cell: Cell) -> bool {
+    cell.ch == 0 || cell.ch == u32::from(b' ')
+}
+
+/// Runs shorter than this are word spacing, not padding, and stay.
+const MIN_PAD_RUN: usize = 3;
+
+/// A program lays some rows out by the host's width: a right prompt or
+/// status at the last column, a header box whose border is padded to the
+/// edge (Claude Code's welcome box, Codex's header). Re-wrapped, such a row
+/// breaks in two and its right part lands on the left. Laid out at the
+/// phone's width instead, as the program would draw it for that width:
+/// the row's padding (runs of blanks, or of one rule glyph such as `─`)
+/// shrinks until the row fits, so left content stays left and right
+/// content ends at the phone's edge.
+///
+/// A title centered on the host is centered on the phone ([`recenter`]).
+///
+/// Only a single hard host row (not soft-wrapped) that is wider than the
+/// phone, ends within two cells of the host's edge or at a frame's right edge,
+/// and has enough padding: prose and column output (`ls`) have short runs
+/// and wrap as before. Each run keeps at least two cells (one for a rule).
+fn compact_anchored(rows: &[&Row], host_cols: usize, cols: usize, units: &mut Vec<(usize, Cell)>) {
+    let [row] = rows else { return };
+    if row.wrapped {
+        return;
+    }
+    let Some(&(last_offset, last)) = units.last() else { return };
+    let end = last_offset + last.width();
+    if end <= cols {
+        return;
+    }
+    if is_blank(last) {
+        return;
+    }
+    let anchored = end + 3 >= host_cols || is_right_edge(last.ch);
+    if !anchored {
+        recenter(host_cols, cols, end, units);
+        return;
+    }
+    let need = end - cols;
+    // Runs: (first unit index, length, cells it keeps at least).
+    let mut runs: Vec<(usize, usize, usize)> = Vec::new();
+    let mut i = 0;
+    while let Some(&(_, cell)) = units.get(i) {
+        let blank = is_blank(cell);
+        if cell.width() != 1 || !(blank || is_rule(cell.ch)) {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while let Some(&(_, next)) = units.get(j) {
+            let same = next.width() == 1
+                && next.style == cell.style
+                && if blank { is_blank(next) } else { next.ch == cell.ch };
+            if !same {
+                break;
+            }
+            j += 1;
+        }
+        if j - i >= MIN_PAD_RUN {
+            runs.push((i, j - i, if blank { 2 } else { 1 }));
+        }
+        i = j;
+    }
+    let spare: usize = runs.iter().map(|&(_, len, keep)| len - keep).sum();
+    if spare < need {
+        right_part_on_its_own_row(&runs, cols, units);
+        return;
+    }
+    // The rightmost run shrinks first, down to what it keeps, then the one
+    // before it: the padding before a right part or a frame's edge goes,
+    // and the spacing inside the content (`model:     gpt`) stays as long
+    // as it can.
+    let mut cut = vec![0usize; runs.len()];
+    let mut left = need;
+    for (k, &(_, len, keep)) in runs.iter().enumerate().rev() {
+        if left == 0 {
+            break;
+        }
+        let n = (len - keep).min(left);
+        if let Some(c) = cut.get_mut(k) {
+            *c = n;
+        }
+        left -= n;
+    }
+    let mut drop = vec![false; units.len()];
+    for (&(start, len, _), &n) in runs.iter().zip(&cut) {
+        // A run keeps its first cells; the cut comes off its end.
+        for d in drop.iter_mut().skip(start + len - n).take(n) {
+            *d = true;
+        }
+    }
+    let mut k = 0;
+    units.retain(|_| {
+        k += 1;
+        !drop.get(k - 1).copied().unwrap_or(false)
+    });
+}
+
+/// A row centered on the host (a title: as many blanks before it as after
+/// it, give or take one) that fits the phone without its leading blanks is
+/// centered on the phone instead of pushed past its edge.
+fn recenter(host_cols: usize, cols: usize, end: usize, units: &mut Vec<(usize, Cell)>) {
+    let lead = units.iter().take_while(|&&(_, c)| c.width() == 1 && is_blank(c)).count();
+    if lead < MIN_PAD_RUN {
+        return;
+    }
+    let rest = end - lead;
+    if rest > cols || lead.abs_diff(host_cols.saturating_sub(end)) > 1 {
+        return;
+    }
+    let keep = (cols - rest) / 2;
+    units.drain(keep..lead);
+}
+
+/// A row whose left and right parts cannot share the phone's row (zsh's
+/// right prompt beside a long left one, a frame row whose text is wider
+/// than the phone): the gap before the right part is set so the right part
+/// ends at the phone's edge, on the left part's last row when there is
+/// room for both with two cells between them, else on the row after it.
+/// The right part stays whole and right-aligned, never split by the wrap.
+fn right_part_on_its_own_row(
+    runs: &[(usize, usize, usize)],
+    cols: usize,
+    units: &mut Vec<(usize, Cell)>,
+) {
+    let Some(&(start, len, _)) = runs
+        .iter()
+        .rev()
+        .find(|&&(start, _, _)| units.get(start).is_some_and(|&(_, cell)| is_blank(cell)))
+    else {
+        return;
+    };
+    let width = |part: &[(usize, Cell)]| part.iter().map(|(_, c)| c.width()).sum::<usize>();
+    let left = width(units.get(..start).unwrap_or_default());
+    let right = width(units.get(start + len..).unwrap_or_default());
+    if right == 0 || right > cols {
+        return;
+    }
+    // Where the left part ends on its last phone row (0: it fills it).
+    let rem = if left == 0 { 0 } else { (left - 1) % cols + 1 };
+    let rem = if rem == cols { 0 } else { rem };
+    let blanks =
+        if rem + 2 + right <= cols { cols - rem - right } else { (cols - rem) + (cols - right) };
+    // The run's own cells first (their offsets place the cursor), then
+    // copies of its last cell when the gap must be longer than the run.
+    let Some(&last) = units.get(start + len - 1) else { return };
+    let keep = blanks.min(len);
+    let extra = blanks - keep;
+    let tail: Vec<(usize, Cell)> = units.drain(start + keep..).skip(len - keep).collect();
+    units.extend(std::iter::repeat_n(last, extra));
+    units.extend(tail);
+}
+
 /// Phone screens of scrollback a reset paints above the host's screen
 /// (the reader's first flick up); older rows come on demand.
 pub const TAIL_SCREENS: usize = 2;
@@ -132,13 +322,13 @@ pub fn line_start(term: &Terminal, index: usize) -> usize {
 
 /// Walks back from history index `end` (exclusive, at a line start) over
 /// whole logical lines until they fill `want` rows at `cols`; their start.
-pub fn rows_back(term: &Terminal, end: usize, cols: usize, want: usize) -> usize {
+pub fn rows_back(term: &Terminal, end: usize, cols: usize, want: usize, compact: bool) -> usize {
     let mut start = line_start(term, end);
     let mut rows = 0;
     while start > 0 && rows < want {
         let first = line_start(term, start - 1);
         let line: Vec<&Row> = term.history.iter().take(start).skip(first).collect();
-        rows += wrap_line(term, &line, term.cols, cols, None).rows.len();
+        rows += wrap_line(term, &line, term.cols, cols, None, compact).rows.len();
         start = first;
     }
     start
@@ -182,6 +372,9 @@ pub struct View {
     /// Bytes painted since creation (for benches).
     pub bytes_out: u64,
     pub resets: u64,
+    /// Right-anchored rows wider than the phone are laid out at its width
+    /// ([`compact_anchored`]). Set before the first paint.
+    pub compact: bool,
 }
 
 impl View {
@@ -201,6 +394,7 @@ impl View {
             line_cache: HashMap::new(),
             bytes_out: 0,
             resets: 0,
+            compact: true,
         }
     }
 
@@ -232,7 +426,8 @@ impl View {
     /// older ones kept by [`View::keep_from`]. A width change costs this
     /// window, not the whole scrollback.
     fn window_start(&self, term: &Terminal) -> usize {
-        let tail = rows_back(term, term.history.len(), self.cols, TAIL_SCREENS * self.rows);
+        let tail =
+            rows_back(term, term.history.len(), self.cols, TAIL_SCREENS * self.rows, self.compact);
         match self.keep_from {
             Some(keep) => {
                 let keep = keep.saturating_sub(term.history_dropped) as usize;
@@ -296,6 +491,7 @@ impl View {
             self.line_cache.retain(|start, _| *start >= base);
             self.phone_style = Some(Style::default());
             let cols = self.cols;
+            let compact = self.compact;
             let mut count = 0;
             loop {
                 let mut last = first;
@@ -309,7 +505,7 @@ impl View {
                     self.line_cache.entry(base + first as u64).or_insert_with(|| {
                         let rows: Vec<&Row> =
                             term.history.iter().take(last + 1).skip(first).collect();
-                        encode_line(term, &rows, cols)
+                        encode_line(term, &rows, cols, compact)
                     });
                 out.extend_from_slice(bytes);
                 count += *rows;
@@ -328,7 +524,7 @@ impl View {
                 break;
             }
             let rows: Vec<&Row> = term.history.iter().take(last + 1).skip(first).collect();
-            newly.extend(wrap_line(term, &rows, term.cols, self.cols, None).rows);
+            newly.extend(wrap_line(term, &rows, term.cols, self.cols, None, self.compact).rows);
             first = last + 1;
         }
         let settled_rows = newly.len();
@@ -350,7 +546,7 @@ impl View {
             let in_line =
                 (start..=end).contains(&cursor_row).then(|| (cursor_row - start, cursor_x));
             let line = live_rows.get(start..=end).unwrap_or_default();
-            let wrapped = wrap_line(term, line, term.cols, self.cols, in_line);
+            let wrapped = wrap_line(term, line, term.cols, self.cols, in_line, self.compact);
             if let Some((row, col)) = wrapped.cursor {
                 cursor = Some((live.len() + row, col));
             }
@@ -595,8 +791,8 @@ impl View {
 
 /// A settled line as a reset writes it: from the default style, back to
 /// it, then a line break. Its bytes and its rows at `cols`.
-fn encode_line(term: &Terminal, rows: &[&Row], cols: usize) -> (Vec<u8>, u64) {
-    let wrapped = wrap_line(term, rows, term.cols, cols, None);
+fn encode_line(term: &Terminal, rows: &[&Row], cols: usize, compact: bool) -> (Vec<u8>, u64) {
+    let wrapped = wrap_line(term, rows, term.cols, cols, None, compact);
     let mut out = Vec::new();
     let mut style = Style::default();
     for row in &wrapped.rows {
@@ -648,7 +844,7 @@ mod tests {
             term.advance(b);
         }
         let rows: Vec<&Row> = term.primary_rows()[..2].iter().collect();
-        let wrapped = wrap_line(&term, &rows, 10, 4, Some((1, 5)));
+        let wrapped = wrap_line(&term, &rows, 10, 4, Some((1, 5)), false);
         let text: Vec<String> = wrapped
             .rows
             .iter()
@@ -666,7 +862,7 @@ mod tests {
             term.advance(b);
         }
         let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
-        let wrapped = wrap_line(&term, &rows, 10, 3, None);
+        let wrapped = wrap_line(&term, &rows, 10, 3, None, false);
         assert_eq!(wrapped.rows.len(), 3);
         assert_eq!(wrapped.rows[0].width(), 2);
         assert_eq!(wrapped.rows[1].cells[0].kind, WIDE);
