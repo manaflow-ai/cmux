@@ -192,6 +192,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.signIn {key}`: signs in, keeping the click for the Cloud start `key`; the page sends
     /// that start again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
     case cloudSignIn(key: String)
+    /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button (Continue with ChatGPT, Set
+    /// up Claude, Add an API key, Open Settings), on its click. Runs that way in, waits for a
+    /// connection serving `family`, and keeps the click for the start `key` like `cloud.signIn`.
+    case cloudSetUp(key: String, action: String, family: String)
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)
@@ -212,9 +216,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// Cloud repository discovery and attachment, forwarded to the authenticated daemon.
     case cloudRepository(AgentPaneCloudRepositoryRequest)
+    /// The new chat folder picker's GitHub section (``AgentPaneGitHubRequest``, ``AgentPaneModel/gitHub``).
+    case gitHub(AgentPaneGitHubRequest)
     case cloudEnvironment(AgentPaneCloudEnvironmentRequest)
-    /// A user-confirmed provider credential transfer for one Cloud chat.
-    case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
     /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
