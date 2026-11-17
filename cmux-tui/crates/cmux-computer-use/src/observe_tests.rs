@@ -1030,3 +1030,35 @@ fn a_table_column_made_anew_each_read_keeps_its_id_by_its_identifier() {
     assert_eq!(a.root.children[0].children[0].id, b.root.children[0].children[0].id);
     assert_eq!(a.root.children[0].children[1].id, b.root.children[0].children[1].id);
 }
+
+#[test]
+fn a_file_list_shows_each_row_once_with_its_texts() {
+    // Finder: a sidebar row that only holds its cell, an icon beside the
+    // item's text, a list row whose date and kind cells each hold one text.
+    let mut open = el("3", "cell", "");
+    open.actions = vec!["open".into()];
+    open.children = vec![el("4", "text", "Recents"), el("5", "image", "clock")];
+    let sidebar = with(el("2", "outline_row", ""), vec![open]);
+    let mut name = el("8", "text_field", "");
+    name.value = "notes.txt".into();
+    let mut tri = el("9", "disclosure_triangle", "");
+    tri.value = "0".into();
+    let mut first = el("7", "cell", "");
+    first.actions = vec!["open".into()];
+    first.children = vec![name, tri];
+    let row = with(
+        el("6", "outline_row", ""),
+        vec![
+            first,
+            with(el("10", "cell", ""), vec![el("11", "text", "Today at 9:25 PM")]),
+            with(el("12", "cell", ""), vec![el("13", "text", "Folder")]),
+        ],
+    );
+    let root = with(el("1", "window", "admin"), vec![sidebar, row]);
+    let text =
+        outline::render(&outline::build(&root, false, &Options::default()), &Options::default());
+    assert_eq!(
+        text,
+        "[1] window \"admin\"\n  [3] cell actions: open\n    [4] text \"Recents\"\n  [6] outline row\n    [7] cell actions: open\n      [8] text field = \"notes.txt\"\n      [9] disclosure triangle = off\n    [11] text \"Today at 9:25 PM\"\n    [13] text \"Folder\"\nFocus: no element of this window has keyboard focus"
+    );
+}

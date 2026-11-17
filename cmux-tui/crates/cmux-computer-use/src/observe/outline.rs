@@ -148,6 +148,8 @@ fn is_toggle(role: &str) -> bool {
             | "toggle button"
             | "tab_button"
             | "tab button"
+            | "disclosure_triangle"
+            | "disclosure triangle"
     )
 }
 
@@ -371,10 +373,23 @@ fn folds(
     {
         return true;
     }
+    // A row that only holds one cell (Finder's sidebar): the cell stands for it.
+    if bare
+        && is_row(&e.role)
+        && e.children.len() == 1
+        && is_cell(&e.children[0].role)
+        && (!e.selected || e.children[0].selected)
+    {
+        return true;
+    }
     if e.selected {
         return false;
     }
     if bare && STRUCTURAL.contains(&e.role.as_str()) {
+        return true;
+    }
+    // A cell that only holds one element (a list's date or size column).
+    if bare && is_cell(&e.role) && e.children.len() == 1 {
         return true;
     }
     // A label inside a control that says what the control is named.
@@ -382,12 +397,21 @@ fn folds(
         let text = if e.name.trim().is_empty() { e.value.trim() } else { e.name.trim() };
         return text.is_empty() || text == parent_label.trim();
     }
-    // A picture with nothing to do: unnamed, or inside a control (a tab's
-    // favicon, a button's icon).
+    // A picture with nothing to do: unnamed, inside a control (a tab's
+    // favicon, a button's icon), or beside the text of its item (a sidebar
+    // row's icon).
     e.role == "image"
         && e.children.is_empty()
         && actions.is_empty()
-        && (bare || parent.is_some_and(|p| is_control(&p.role)))
+        && (bare
+            || parent.is_some_and(|p| {
+                is_control(&p.role)
+                    || (is_item(&p.role)
+                        && p.children.iter().any(|c| {
+                            is_static_text(&c.role)
+                                && !(c.name.trim().is_empty() && c.value.trim().is_empty())
+                        }))
+            }))
 }
 
 pub fn build(root: &Element, truncated: bool, opts: &Options) -> Outline {
