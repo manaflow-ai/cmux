@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44112930938",
+  "recorded_at": "2026-11-17T15:26:28Z",
+  "reason": "cmux-tui 1e6527f65d36 changes the image's cmux-tui (pinned 552378baa193)",
+  "dry_run": false,
+  "cmux_tui": "1e6527f65d360bf16ccbc13500b53edd97b4792a",
+  "fixes": [
+    {
+      "sha": "1e6527f65d360bf16ccbc13500b53edd97b4792a",
+      "mergedAt": "2026-11-17T07:06:23-08:00",
+      "subject": "cmux-rd-core: a screen share on a LAN starts at the LAN rate (fast start) (#45150)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-17T15:26:28Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
