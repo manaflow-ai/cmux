@@ -2,6 +2,8 @@
 // The pricing card's hold on a Cloud send (App `sendToCloud`, cloudPlanSubscribe.ts) ends with the start it held, and a
 // plan bought meanwhile is read fresh, never from the app's kept read:
 //  - held, the plan turns active, the page becomes the key one again: the held prompt starts exactly once;
+//  - held, the person sends again once the plan is on and that start goes: the page becoming key again starts nothing
+//    more and the start's progress card stays (a failed start never runs the held prompt a second time);
 //  - a last read of `none` (a minute old) never holds a Send by itself: the plan is read fresh first
 //    (`cloudMachine.list {fresh: true}`), and the return from checkout reads it fresh too.
 //
@@ -234,6 +236,30 @@ test("held, the plan turns active, the page becomes key again: the held prompt s
   // Even after that start fails, coming back again starts nothing more.
   await pane.fail();
   await comeBack();
+  await comeBack();
+  expect(pane.starts).toHaveLength(1);
+}, 60_000);
+
+test("held, then a Send that goes: coming back starts nothing more and the progress card stays", async () => {
+  const pane = await mount();
+  await installKey();
+  await holdAndSubscribe(pane);
+  // A later read says the plan is on (the page's copy follows it); the person presses Send and the start goes.
+  pane.setPlan(PRO);
+  (await import("../src/agent-session/acpmux/cloudMachines")).setCloudPlanForTest({
+    state: "active",
+    id: "pro",
+    maxSize: "lg",
+  });
+  await typeAndSend();
+  await until(() => pane.starts.length === 1, "the Send starts");
+  await until(() => startCard()?.dataset.state === "starting", "the progress card shows");
+  await comeBack();
+  expect(startCard()?.dataset.state).toBe("starting");
+  expect(pane.starts).toHaveLength(1);
+  // The start fails: the held prompt never goes a second time.
+  await pane.fail();
+  await until(() => startCard()?.dataset.state === "failed", "the card shows the failure");
   await comeBack();
   expect(pane.starts).toHaveLength(1);
 }, 60_000);

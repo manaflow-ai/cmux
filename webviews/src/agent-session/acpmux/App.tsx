@@ -5312,6 +5312,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : startCloud(request, key);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return undefined;
+    // A start went: no prompt held for the plan may go again after it (the pricing card's wait ends with it).
+    dropCloudPlanWait();
     // What the chat composer holds for this start: the page's draft once it is put back there.
     let expectedDraft = preservedDraft;
     cloudSignInSend.current = () => {
