@@ -66,6 +66,17 @@ let package = Package(
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
             ]
         ),
+        // Push registration (Sources/CmuxiOSAuth/Push): the iPhone app is its
+        // only caller, so it lives here rather than in the shared
+        // CmuxAuthRuntime the Mac app links.
+        .testTarget(
+            name: "CmuxiOSAuthTests",
+            dependencies: [
+                "CmuxiOSAuth",
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxHomeUI",
             dependencies: [
