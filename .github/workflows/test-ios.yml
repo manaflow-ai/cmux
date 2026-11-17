@@ -146,6 +146,9 @@ jobs:
       # The ios-simulator matrix: runs_on, or a simulator mini's sim-first label
       # alone when the pool's simulator runners are full (ios_runner_pool.py).
       sim_runs_on: ${{ steps.pool.outputs.sim_runs_on }}
+      # ios-simulator-build: runs_on, or the sim-first label once glaeda admits
+      # the build there (ios_runner_pool.py, Simulator slots).
+      build_runs_on: ${{ steps.pool.outputs.build_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
@@ -668,7 +671,7 @@ jobs:
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}
     # No secret and no environment here: the pick above can be a reused owned
     # Mac, or whatever MACOS_RUNNER_TESTS names. The R2 restore reads the
     # public URL; the seed_cache preflight that checks the R2 write keys runs
@@ -1072,8 +1075,9 @@ jobs:
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which
-        # an owned Mac would otherwise keep.
-        if: ${{ always() && env.SIMULATOR_ID != '' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
+        # an owned Mac would otherwise keep, but never a simulator slot device
+        # (SIMULATOR_KEEP=1), which stays booted for the slot's next job.
+        if: ${{ always() && env.SIMULATOR_ID != '' && env.SIMULATOR_KEEP != '1' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
         run: |
           xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl delete "$SIMULATOR_ID"
@@ -1431,8 +1435,9 @@ jobs:
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which
-        # an owned Mac would otherwise keep.
-        if: ${{ always() && env.SIMULATOR_ID != '' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
+        # an owned Mac would otherwise keep, but never a simulator slot device
+        # (SIMULATOR_KEEP=1), which stays booted for the slot's next job.
+        if: ${{ always() && env.SIMULATOR_ID != '' && env.SIMULATOR_KEEP != '1' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
         run: |
           xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl delete "$SIMULATOR_ID"

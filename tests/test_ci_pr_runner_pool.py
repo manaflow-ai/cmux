@@ -3893,6 +3893,7 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(outputs, {"label": MINI, "retry_label": SMALL,
                                    "runs_on": json.dumps([MINI, IOS_SIM]), "package_runs_on": json.dumps(MINI),
                                    "sim_runs_on": json.dumps([MINI, IOS_SIM]),
+                                   "build_runs_on": json.dumps([MINI, IOS_SIM]),
                                    "retry_runs_on": json.dumps(SMALL), "persistent": "true", "jobs": "2",
                                    "sim_jobs": "1"})
         err = io.StringIO()
@@ -4060,6 +4061,93 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(live(2, 0, 2, variable="blacksmith-12vcpu-macos-26").persistent)
         self.assertFalse(live(2, 0, 2, ios_version="26.4").persistent)
         self.assertFalse(live(2, 0, 2, fork=True).persistent)
+        # Without the slots label on a sim-first runner the build never leaves the pool.
+        self.assertEqual(json.loads(route.build_runs_on), [MINI, IOS_SIM])
+
+    def test_slots_label_sends_the_build_to_the_sim_first_runner(self):
+        def live(pool_free, sim_free, sim_first, builds=True, **kwargs):
+            load = ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=pool_free, sim=sim_free, sim_first=sim_first,
+                                                                 sim_first_builds=builds))
+            return ios_route(measure=lambda: load, **kwargs)[0]
+
+        # 2026-11: ios-simulator-build waited 16 min p50 on the simulator minis while the package job
+        # waited under 2. Once glaeda admits the build there, only the package job needs the pool.
+        route = live(1, 0, 2)
+        self.assertEqual((route.label, route.persistent, route.sim_build), (MINI, True, True))
+        self.assertEqual(json.loads(route.build_runs_on), [self.SIM_FIRST])
+        self.assertEqual(json.loads(route.sim_runs_on), [self.SIM_FIRST])
+        self.assertEqual(json.loads(route.package_runs_on), MINI)
+        self.assertEqual(json.loads(route.retry_runs_on), SMALL)
+        # Not advertised: one free pool runner is too few, as before.
+        self.assertFalse(live(1, 0, 2, builds=False).persistent)
+        # No pool runner for the package job, or too few sim-first runners: the default.
+        self.assertFalse(live(0, 0, 2).persistent)
+        self.assertFalse(live(1, 0, 1).persistent)
+        # The usual route still wins when it fits: the build keeps runs_on.
+        usual = live(2, 2, 2)
+        self.assertEqual(json.loads(usual.build_runs_on), [MINI, IOS_SIM])
+        # The capture lane is unchanged.
+        self.assertEqual(ios_route(lane="screenshots", requested=ios_pool.OWNED_CHOICE)[0].build_runs_on,
+                         json.dumps([MINI, IOS_SIM]))
+
+    def test_live_free_counts_simulator_slots_per_mini(self):
+        def runner(host, k, *labels, busy=False):
+            return {"name": f"{host}-glaeda" + (f"-{k}" if k else ""), "status": "online", "busy": busy,
+                    "labels": [{"name": label} for label in labels]}
+
+        slots2 = "glaeda-sim-slots-2"
+        # mini-a advertises two slots on one of its runners; mini-b none (one slot).
+        runners = [runner("mini-a", 0, MINI, IOS_SIM, slots2), runner("mini-a", 1, MINI, IOS_SIM),
+                   runner("mini-b", 0, MINI, IOS_SIM)]
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=8).sim, 3)
+        # The capacity entry still caps the simulator jobs at once.
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=2).sim, 2)
+        # Without any slots label: one per mini, as before.
+        plain = [runner("mini-a", 0, MINI, IOS_SIM), runner("mini-a", 1, MINI, IOS_SIM),
+                 runner("mini-b", 0, MINI, IOS_SIM)]
+        self.assertEqual(ios_pool.live_free(plain, MINI, [], now=NOW, capacity=8).sim, 2)
+        self.assertFalse(ios_pool.live_free(plain, MINI, [], now=NOW, capacity=8).sim_first_builds)
+        # One simulator job running on mini-a leaves its second slot free.
+        title = "iOS tests · main · simulator · all · iphone · default · on auto"
+        run = {"id": 7, "display_title": title, "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+        picker = {"name": "runner", "status": "completed", "conclusion": "success",
+                  "labels": ["blacksmith-4vcpu-ubuntu-2404"]}
+        jobs = {7: [picker, {"name": "ios-simulator-build", "status": "completed", "conclusion": "success",
+                             "labels": [MINI, IOS_SIM], "runner_name": "mini-b-glaeda"},
+                    {"name": "ios-simulator (iphone)", "status": "in_progress", "labels": [MINI, IOS_SIM],
+                     "runner_name": "mini-a-glaeda-1"}]}
+        placed = ios_pool.Placements(frozenset({7}))
+        busy = [runner("mini-a", 0, MINI, IOS_SIM, slots2), runner("mini-a", 1, MINI, IOS_SIM, busy=True),
+                runner("mini-b", 0, MINI, IOS_SIM)]
+        self.assertEqual(ios_pool.live_free(busy, MINI, [run], now=NOW, capacity=8, jobs=jobs,
+                                            placements=placed).sim, 2)
+        self.assertEqual(ios_pool.live_free(plain, MINI, [run], now=NOW, capacity=8, jobs=jobs,
+                                            placements=placed).sim, 1)
+        # A sim-first runner with the label: the build may go there, and a mini with a free slot
+        # stays listed while one of its simulator jobs runs.
+        first = self.sim_first_runner("mini-a", label=self.SIM_FIRST)
+        first["labels"].append({"name": slots2})
+        free = ios_pool.live_free(busy + [first], MINI, [run], now=NOW, capacity=8, jobs=jobs,
+                                  placements=placed, sim_first_label=self.SIM_FIRST)
+        self.assertTrue(free.sim_first_builds)
+        self.assertEqual(free.sim_first, 1)
+        self.assertEqual(ios_pool.sim_slots({"labels": [{"name": "glaeda-sim-slots-0"}]}), None)
+        self.assertEqual(ios_pool.sim_slots({"labels": [{"name": IOS_SIM}]}), None)
+
+    def test_a_build_on_the_sim_first_label_holds_a_slot_but_no_pool_machine(self):
+        title = "iOS tests · main · simulator · all · iphone · default · on auto"
+        run = {"id": 7, "display_title": title, "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+        picker = {"name": "runner", "status": "completed", "conclusion": "success",
+                  "labels": ["blacksmith-4vcpu-ubuntu-2404"]}
+        placed = ios_pool.Placements(frozenset({7}))
+        running = [picker, {"name": "ios-simulator-build", "status": "in_progress", "labels": [self.SIM_FIRST],
+                            "runner_name": "mini-a-glaeda-3"}]
+        held = ios_pool.hold(run, running, MINI, placed, NOW)
+        self.assertEqual((held.machines, held.sims, held.sim_jobs_on), (0, 1, ("mini-a",)))
+        # A failed build there means no simulator matrix will follow.
+        failed = [picker, {"name": "ios-simulator-build", "status": "completed", "conclusion": "failure",
+                           "labels": [self.SIM_FIRST]}]
+        self.assertEqual(ios_pool.hold(run, failed, MINI, placed, NOW), ios_pool.Hold())
 
     def test_main_reads_runners_with_the_route_token_and_falls_back_on_error(self):
         idle = [{"name": f"mini-{n}-glaeda", "status": "online", "busy": False,
@@ -4245,9 +4333,11 @@ class IOSWiring(unittest.TestCase):
         jobs = self.workflow("test-ios.yml")["jobs"]
         self.assertEqual(jobs["mobile-core-package"]["runs-on"], self.RUNS_ON.replace(
             "needs.runner.outputs.runs_on", "needs.runner.outputs.package_runs_on"))
-        # ios-simulator-build keeps runs_on; the simulator matrix alone may take glaeda's sim-first
-        # label (sim_runs_on), the only jobs that runner takes.
-        self.assertEqual(jobs["ios-simulator-build"]["runs-on"], self.RUNS_ON)
+        # ios-simulator-build takes build_runs_on (runs_on until glaeda admits the build on its
+        # sim-first runner); the simulator matrix may take the sim-first label (sim_runs_on).
+        self.assertEqual(jobs["ios-simulator-build"]["runs-on"], self.RUNS_ON.replace(
+            "needs.runner.outputs.runs_on", "needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on"))
+        self.assertEqual(jobs["runner"]["outputs"]["build_runs_on"], "${{ steps.pool.outputs.build_runs_on }}")
         self.assertEqual(jobs["ios-simulator"]["runs-on"], self.RUNS_ON.replace(
             "needs.runner.outputs.runs_on", "needs.runner.outputs.sim_runs_on || needs.runner.outputs.runs_on"))
         self.assertEqual(jobs["runner"]["outputs"]["sim_runs_on"], "${{ steps.pool.outputs.sim_runs_on }}")
