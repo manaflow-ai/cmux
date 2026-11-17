@@ -78,6 +78,9 @@ pub(super) struct LocalFile {
     /// read refuses another file found at its path since (a folder above it
     /// swapped for a symlink), see [`open_listed`].
     pub id: Option<(u64, u64)>,
+    /// A [`Source::File`]'s stat when it was listed: a push does not read one whose stat is
+    /// the one it last hashed ([`super::stat_cache`]).
+    pub stat: Option<super::stat_cache::Stat>,
 }
 
 /// The files to push and what was skipped.
@@ -811,7 +814,7 @@ fn add_git(
         let bytes = clean_config(&text).into_bytes();
         let size = bytes.len() as u64;
         let source = Source::Bytes(bytes);
-        set.add(target, LocalFile { source, permissions: 0o644, id: None }, size)?;
+        set.add(target, LocalFile { source, permissions: 0o644, id: None, stat: None }, size)?;
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
@@ -820,7 +823,7 @@ fn add_git(
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         let size = cleaned.len() as u64;
         let source = Source::Bytes(cleaned.into_bytes());
-        set.add(target, LocalFile { source, permissions: 0o644, id: None }, size)?;
+        set.add(target, LocalFile { source, permissions: 0o644, id: None, stat: None }, size)?;
         return Ok(());
     }
     add_entry(set, target, path, dir, name, entry)

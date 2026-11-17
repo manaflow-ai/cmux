@@ -16,7 +16,8 @@
 //! and a file the manifest lists but the folder no longer has is deleted
 //! while the machine still has it as this push left it. Files the machine
 //! made or changed itself are never deleted. This Mac keeps a copy of the
-//! manifest ([`base`]); a pull trusts only that copy.
+//! manifest ([`base`]); a pull trusts only that copy. A file whose stat is
+//! the one this Mac last hashed it with is not read again ([`stat_cache`]).
 //!
 //! A symlink whose target stays inside the folder is kept as a symlink both
 //! ways, its text in the manifest's `links` ([`links`]); one pointing
@@ -68,6 +69,7 @@ mod fresh;
 mod remote;
 mod seed_pull;
 mod small_writes;
+mod stat_cache;
 mod timings;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
@@ -220,6 +222,8 @@ struct Job {
     /// What is at the target, from its folder's listing, when every write
     /// is no-follow; None: asked right before the write.
     found: Option<Option<String>>,
+    /// Its store chunks when the hash cut them or the stat cache kept them.
+    pieces: Option<Vec<store::Piece>>,
 }
 
 /// What a push needs to save its record partway.
@@ -716,6 +720,7 @@ fn upload_through_store(
         sha256: hash(&file)?,
         size: meta.len(),
         file: &file,
+        pieces: None,
     };
     match store::send(remote, folder, std::slice::from_ref(&pending), progress) {
         Ok(sent) => Ok(sent.written.contains_key(target)),
@@ -811,6 +816,7 @@ pub(super) fn copy_folder_with_progress(
             }),
             permissions: file.permissions,
             id: None,
+            stat: None,
         };
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
@@ -822,7 +828,15 @@ pub(super) fn copy_folder_with_progress(
             remote.mkdir_all(parent)?;
         }
         let bytes = size(&file)?;
-        let job = Job { relative, target: at, file, sha256: String::new(), bytes, found: None };
+        let job = Job {
+            relative,
+            target: at,
+            file,
+            sha256: String::new(),
+            bytes,
+            found: None,
+            pieces: None,
+        };
         if bytes > ALONE_BYTES { alone.push(job) } else { small.push(job) }
     }
     let mut written = 0u64;
@@ -1110,6 +1124,9 @@ fn push_inner(
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
+    // Before the listing: every stat it takes is from this moment on (the racy-timestamp rule).
+    let mut known = stat_cache::Pass::begin(&local);
+    let opened_before = stat_cache::OPENED.load(std::sync::atomic::Ordering::Relaxed);
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
     let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
@@ -1157,7 +1174,7 @@ fn push_inner(
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
     let done = Progress {
         files_total: set.files.len() as u64,
-        bytes_total: set.files.values().map(|file| size(file).unwrap_or(0)).sum(),
+        bytes_total: set.files.values().map(listed_size).sum(),
         ..Progress::default()
     };
     if let Some(report) = progress.as_mut() {
@@ -1218,7 +1235,7 @@ fn push_inner(
         .files
         .iter()
         .filter(|(relative, _)| !previous.files.contains_key(*relative))
-        .map(|(_, file)| size(file).unwrap_or(0))
+        .map(|(_, file)| listed_size(file))
         .fold(0, u64::saturating_add);
     if let Some(free) = remote
         .stat(remote_root)?
@@ -1285,8 +1302,9 @@ fn push_inner(
         }
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
-        let sha256 = stages.hashing(|| hash(file))?;
-        let bytes = size(file)?;
+        // A file whose stat is the one this Mac last hashed is not read ([`stat_cache`]).
+        let stat_cache::Hashed { sha256, bytes, pieces } =
+            stages.hashing(|| known.hash(relative, file, via_store))?;
         if let Some(pushed) = previous.files.get(relative)
             && pushed.sha256 == sha256
             && pushed.permissions == file.permissions
@@ -1318,8 +1336,15 @@ fn push_inner(
         if made.insert(parent.to_string()) {
             fresh.make(&mut remote, parent)?;
         }
-        let job =
-            Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found };
+        let job = Job {
+            relative: relative.clone(),
+            target,
+            file: file.clone(),
+            sha256,
+            bytes,
+            found,
+            pieces,
+        };
         if via_store {
             deferred.push(job);
         } else if bytes > ALONE_BYTES {
@@ -1328,6 +1353,10 @@ fn push_inner(
             small.push(job);
         }
     }
+    // Every file is hashed: the stat cache is whole. It is about this Mac's files only, so it
+    // is kept whatever becomes of the writes.
+    stages.hashed(known.hashed, known.hashed_bytes, known.cached);
+    known.finish();
     // The new folders, several to a round trip, before anything is written in them.
     fresh.flush(&mut remote)?;
     stages.mark("prepare");
@@ -1448,6 +1477,8 @@ fn push_inner(
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
     }
     stages.mark("finish");
+    let opened = stat_cache::OPENED.load(std::sync::atomic::Ordering::Relaxed);
+    stages.opened(opened.saturating_sub(opened_before));
     stages.print();
     Ok(summary)
 }
@@ -1476,6 +1507,7 @@ fn send_through_store(
             file: &job.file,
             sha256: job.sha256.clone(),
             size: job.bytes,
+            pieces: job.pieces.clone(),
         })
         .collect();
     let sent = if pending.is_empty() {
@@ -1917,6 +1949,15 @@ fn size(file: &LocalFile) -> anyhow::Result<u64> {
     })
 }
 
+/// A file's size as listed, for totals: its stat's when it has one (nothing is opened), else
+/// [`size`]'s.
+fn listed_size(file: &LocalFile) -> u64 {
+    match (&file.source, file.stat) {
+        (Source::File(_), Some(stat)) => stat.size,
+        _ => size(file).unwrap_or(0),
+    }
+}
+
 fn hash(file: &LocalFile) -> anyhow::Result<String> {
     let mut hasher = Sha256::new();
     let mut reader = open(file)?;
@@ -1961,6 +2002,7 @@ mod checked_source_tests {
             }),
             permissions: 0o644,
             id: None,
+            stat: None,
         };
         assert!(open(&file).is_ok());
         std::fs::rename(&inside, dir.path().join("moved")).unwrap();

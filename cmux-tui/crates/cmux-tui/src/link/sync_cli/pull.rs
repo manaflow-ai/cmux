@@ -918,7 +918,7 @@ fn local_side(root: &Dir, relative: &str) -> anyhow::Result<Side> {
     };
     match dir.entry(&name)? {
         Entry::Missing => Ok(Side::Missing),
-        Entry::File { mode } => {
+        Entry::File { mode, .. } => {
             let mut file = dir.open_file(&name)?;
             let mut hasher = Sha256::new();
             std::io::copy(&mut file, &mut hasher)?;

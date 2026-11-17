@@ -75,14 +75,23 @@ pub(super) fn pack_loose(
         for extension in ["pack", "idx"] {
             let file = format!("{name}.{extension}");
             let target = format!(".git/objects/pack/{file}");
-            files.entry(target).or_insert_with(|| LocalFile {
-                source: Source::File(kept.join(&file)),
-                // Only the owner reads a made pack: it may hold objects
-                // that were private here (git makes them 0400 under
-                // `umask 077`), including ones no longer loose when it is
-                // reused.
-                permissions: 0o600,
-                id: None,
+            files.entry(target).or_insert_with(|| {
+                let path = kept.join(&file);
+                // A kept pack is hashed once while it stays as it is ([`super::stat_cache`]).
+                let stat = std::fs::symlink_metadata(&path)
+                    .ok()
+                    .filter(std::fs::Metadata::is_file)
+                    .map(|meta| super::stat_cache::Stat::of(&meta));
+                LocalFile {
+                    source: Source::File(path),
+                    // Only the owner reads a made pack: it may hold objects
+                    // that were private here (git makes them 0400 under
+                    // `umask 077`), including ones no longer loose when it is
+                    // reused.
+                    permissions: 0o600,
+                    id: stat.map(|stat| (stat.dev, stat.ino)),
+                    stat,
+                }
             });
         }
     }

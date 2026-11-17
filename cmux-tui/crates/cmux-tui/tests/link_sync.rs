@@ -1953,3 +1953,6 @@ fn a_folder_turned_into_a_symlink_mid_push_is_not_written_through() {
 
 #[path = "link_sync/git_index.rs"]
 mod git_index;
+
+#[path = "link_sync/stat_cache.rs"]
+mod stat_cache;

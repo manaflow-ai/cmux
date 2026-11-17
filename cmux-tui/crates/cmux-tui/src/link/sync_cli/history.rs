@@ -451,7 +451,7 @@ fn held_here(root: &Dir, relative: &str) -> anyhow::Result<Result<Option<Held>, 
     };
     Ok(match dir.entry(&name)? {
         Entry::Missing => Ok(None),
-        Entry::File { mode } => {
+        Entry::File { mode, .. } => {
             let mut file = dir.open_file(&name)?;
             let mut hasher = Sha256::new();
             std::io::copy(&mut file, &mut hasher)?;
