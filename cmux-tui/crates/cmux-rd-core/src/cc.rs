@@ -33,7 +33,10 @@ pub struct CcConfig {
     /// Cap applied on [`PathKind::DoRelay`] (`remoteDesktop.relay.maxBitrateMbps`).
     pub relay_max_bps: u64,
     /// Start on a path whose measured round trip is under `lan_rtt_us`, until the
-    /// first overuse (a LAN carries this at once; a rising delay still cuts it).
+    /// first overuse (a LAN carries this at once; a rising delay still cuts it). The
+    /// round trip is the carrier's ([`CongestionController::on_rtt`]) or, on a carrier
+    /// without one, the first feedback's: a datagram's departure to the feedback that
+    /// reports it.
     pub lan_start_bps: u64,
     pub lan_rtt_us: u64,
 }
@@ -507,6 +510,12 @@ impl CongestionController {
     /// The path's measured round trip. Under `lan_rtt_us`, before any overuse, the
     /// target starts at `lan_start_bps`.
     pub fn on_rtt(&mut self, rtt_us: u64) {
+        self.lan_start(rtt_us);
+        self.outage.on_rtt(rtt_us);
+    }
+
+    /// Under `lan_rtt_us`, before any overuse, the target jumps to `lan_start_bps`.
+    fn lan_start(&mut self, rtt_us: u64) {
         if rtt_us < self.config.lan_rtt_us
             && self.path != PathKind::DoRelay
             && self.capacity_bps.is_none()
@@ -516,7 +525,6 @@ impl CongestionController {
             self.target_bps = self.config.lan_start_bps;
             self.clamp();
         }
-        self.outage.on_rtt(rtt_us);
     }
 
     fn unwrap_arrival(&mut self, raw: u32) -> i64 {
@@ -575,6 +583,15 @@ impl CongestionController {
             })
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
+        // A carrier without a round trip of its own (the plain UDP socket) left the start
+        // at `start_bps`, and the frame-ack round trip the engine falls back to counts the
+        // pacing of a frame sent at that start rate, so it never read as a LAN: a motion
+        // share sat at 8 to 14 Mbit/s for its first second and the encoder at 30 fps for
+        // seconds after. A datagram's departure to the feedback that reports it is at most
+        // the round trip plus the viewer's wait, never less, so a short one is a LAN.
+        if let Some(rtt_us) = samples.iter().map(|s| now_us.saturating_sub(s.0)).min() {
+            self.lan_start(rtt_us);
+        }
         let mut evidence = false;
         for (sent_us, raw_arrival, bytes) in samples {
             let arrival = self.unwrap_arrival(raw_arrival as u32);
