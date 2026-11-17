@@ -460,6 +460,9 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
+    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off.
+    #[command(subcommand)]
+    ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
