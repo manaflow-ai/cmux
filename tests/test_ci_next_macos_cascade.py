@@ -2354,6 +2354,18 @@ class DeadLabel(unittest.TestCase):
                 self.assertEqual(result.retry_runner, "", result.why)
         self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0},
                                              stall=tuple(cascade.dead(both, NOW))), "")
+        # A snapshot too old for counts or waits (90 min): only the dead labels keep a feed's compile, or a
+        # saturated run's overflow, off 6 vCPU, the last resort it otherwise takes blind.
+        late = dict(both, generated_at=(NOW - dt.timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile",
+                   SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux")
+        _, waiting, seen = cascade.read(feed, mock.Mock(GitHub=mock.Mock(return_value=mock.Mock(
+            snapshot=mock.Mock(return_value=late)))), now=NOW, log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertEqual(seen.dead if seen else frozenset(), frozenset({LARGE, SMALL}))
+        self.assertEqual(cascade.place(feed, (), None, None, seen).jobs, none_placed())
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=self.RUNS), (), None, None, seen, saturated=True).jobs,
+                         none_placed())
         # Only the label holding a job left waiting is proven dead; the other may just be idle.
         one = observed_dead(**{LARGE: {"queued": 3, "oldest_queued_minutes": 90}, SMALL: {"running": 0}})
         one["label_started"] = {}
