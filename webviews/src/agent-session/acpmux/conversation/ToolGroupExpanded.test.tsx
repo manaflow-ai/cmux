@@ -123,8 +123,9 @@ for (const [kind, toolKind] of GROUP_KINDS.slice(1))
     for (const item of items) expect(container.textContent).toContain(item.text);
   });
 
+// Reads draw as flat rows (readPath.ts), so their case streams the rows, not a group.
 for (const [kind, toolKind] of GROUP_KINDS)
-  test(`streaming a ${kind} group renders only its changed item`, async () => {
+  test(`streaming ${kind === "reads" ? "flat read rows" : `a ${kind} group`} renders only its changed item`, async () => {
     // rowFailed runs once inside each real CommandRow/ToolRow render, never in the group summary.
     const rendered: string[] = [];
     const rowFailed = toolFailure.rowFailed;
@@ -177,7 +178,8 @@ for (const [kind, toolKind] of GROUP_KINDS)
     }
   });
 
-for (const [kind, toolKind] of GROUP_KINDS)
+// Reads stay flat rows since the 2026-11-14 change, so they form no group to stream into.
+for (const [kind, toolKind] of GROUP_KINDS.filter(([kind]) => kind !== "reads"))
   test(`a nested subagent's ${kind} stream keeps its completed item snapshots and skips their renders`, async () => {
     const fold = new SubagentFold();
     const nestedId = `nested-${kind}`;
