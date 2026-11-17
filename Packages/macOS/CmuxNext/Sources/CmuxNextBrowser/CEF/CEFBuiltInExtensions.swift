@@ -36,7 +36,13 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
 
     func plan(resources: URL?, profiles: URL?,
               fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> Plan {
-        let person = profiles.map { Self.personAdBlocker(profiles: $0) } ?? nil
+        plan(resources: resources, person: profiles.map { Self.personAdBlocker(profiles: $0) } ?? nil, fileExists: fileExists)
+    }
+
+    /// The plan for a `person` read ahead (`personAdBlocker(profiles:)` reads and parses each profile's
+    /// preference files: a launch reads it off the main thread before the first frame, `CEFRuntime.beginLaunchPrep`).
+    func plan(resources: URL?, person: Int?,
+              fileExists: (String) -> Bool) -> Plan {
         guard adBlockerEnabled, person == nil, let resources else { return Plan(folders: [], keepsUnpackedEnabled: person == 4) }
         let manifest = resources.appendingPathComponent(Self.adBlockerFolder).appendingPathComponent("manifest.json").path
         let folder = resources.appendingPathComponent(Self.adBlockerFolder).path
