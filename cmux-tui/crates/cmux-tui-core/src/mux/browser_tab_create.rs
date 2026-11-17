@@ -5,9 +5,9 @@
 //! of that pane, as Chrome places a link's tab next to its opener
 //! (`frontend-browser-insert-after-v1`). A tab put after a grouped tab
 //! joins that tab group in its slot, as Chrome groups a link's tab with its
-//! opener (cx-d0d.55).
+//! opener (cx-d0d.55). `place` of the create request wins over `after`
+//! (`tab-create-place-v1`, [`tab_strip::tab_place`]).
 
-use super::tab_strip::StripRequest;
 use super::*;
 use crate::resource::BrowserPublicId;
 
@@ -128,21 +128,22 @@ impl Mux {
             after: fields.get(AFTER_FIELD).and_then(Value::as_u64),
             index: tab_strip::tab_slot::effect_index(fields),
         };
-        let transaction = effect_transaction(fields);
+        let placed = tab_strip::tab_place::Placed::of(fields);
         // `pinned-dock-v1`: a pinned column that takes no tabs refuses
         // before the page starts, and again when the tab attaches.
         let operation = ResourceOperation::TabCreateBrowser.wire_name();
         self.with_state(|state| ensure_pane_takes_tabs(operation, state, pane))?;
-        self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, transaction)
+        self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, placed)
     }
 
     /// A browser tab under a reserved identity. With `activate` false
     /// (`frontend-browser-activate-v1`) a tab added to an existing pane does
     /// not become its active tab and does not bump the pane's focus order;
-    /// with `after` it lands right after that tab of the pane. A client
-    /// `transaction` rides on the tab's one `tab-added`; a tab that arrives
-    /// inside a new workspace or screen delta gets a `tab-added` carrying it
-    /// after that delta.
+    /// with `after` it lands right after that tab of the pane. The client
+    /// transaction of `placed` rides on the tab's one `tab-added`; a tab that
+    /// arrives inside a new workspace or screen delta gets a `tab-added`
+    /// carrying it after that delta. The `place` of `placed` is for a tab of
+    /// an existing pane.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_browser_tab_reserved(
         self: &Arc<Self>,
@@ -152,7 +153,7 @@ impl Mux {
         resource_identity: TabResourceIdentity,
         workspace_key: Option<String>,
         placement: FrontendTabPlacement,
-        transaction: Option<Arc<str>>,
+        placed: tab_strip::tab_place::Placed,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_browser_tab_with_resource_identity(
             url,
@@ -161,7 +162,7 @@ impl Mux {
             Some(resource_identity),
             workspace_key,
             placement,
-            transaction,
+            placed,
         )
     }
 
@@ -174,9 +175,10 @@ impl Mux {
         resource_identity: Option<TabResourceIdentity>,
         workspace_key: Option<String>,
         placement: FrontendTabPlacement,
-        transaction: Option<Arc<str>>,
+        placed: tab_strip::tab_place::Placed,
     ) -> anyhow::Result<Arc<Surface>> {
         let FrontendTabPlacement { activate, after, index: strip_index } = placement;
+        let transaction = placed.transaction.clone();
         let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -366,6 +368,9 @@ impl Mux {
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
         let mut active_index_moved = false;
+        // A tab that asks for the active tab does not take it from the tab
+        // of a create request that arrived after its own (`tab_place`).
+        let mut takes_active = activate;
         let joins;
         let attached = {
             let mut state = self.state.lock().unwrap();
@@ -377,14 +382,30 @@ impl Mux {
                 surface.kill();
                 return Err(error);
             }
-            let slot = match strip_index {
-                Some(_) => {
+            let presentation = &notifications.presentation;
+            // With no `place`, the older `after` field places the tab, also
+            // when its creation took a slot (a `transaction`).
+            let by_after = after.is_some() && placed.place.is_none();
+            let landing = match strip_index {
+                None if !by_after => {
+                    placed.land(&state, presentation, target, surface.id, activate)
+                }
+                _ => None,
+            };
+            let slot = match (strip_index, landing) {
+                (Some(_), _) => {
                     joins = None;
                     None
                 }
-                None => {
-                    joins = joined_group(&state, &notifications.presentation, target, after);
-                    insertion_index(&state, &notifications.presentation, target, after)
+                (None, Some(landing)) => {
+                    joins = landing.joins;
+                    takes_active = landing.active;
+                    Some(landing.index)
+                }
+                (None, None) => {
+                    takes_active = activate && placed.takes_active(&state, target);
+                    joins = joined_group(&state, presentation, target, after);
+                    insertion_index(&state, presentation, target, after)
                 }
             };
             match state.panes.get_mut(&target) {
@@ -392,14 +413,16 @@ impl Mux {
                     let end = pane.tabs.len();
                     let index = match strip_index {
                         Some(index) => tab_strip::tab_slot::slot(Some(index), end),
-                        None => slot.unwrap_or(end),
+                        None => slot.unwrap_or(end).min(end),
                     };
                     pane.tabs.insert(index, surface.id);
-                    if activate {
+                    if takes_active {
                         pane.active_tab = index;
                         pane.active_at = active_at;
-                    } else if pane.active_tab >= index {
+                    } else if end > 0 && pane.active_tab >= index {
                         // The active tab stays active one slot to the right.
+                        // A pane that had no tab has no active tab to move:
+                        // its index stays 0.
                         pane.active_tab += 1;
                         active_index_moved = true;
                     }
@@ -439,18 +462,8 @@ impl Mux {
         };
         // A background tab changes no pane's selection; one inserted before
         // the active tab moves its index, so index-based clients resync.
-        self.emit_tree_delta(delta, activate || active_index_moved);
-        if let Some((group, index)) = joins {
-            let added = surface.id;
-            let request = StripRequest::local(&Actor::Daemon, "tab.group.add");
-            match self.tab_group_add(request, &group, move |_| Ok(vec![added]), Some(index)) {
-                Ok(_) => self.emit_tab_group_members(&[added], None),
-                // The tab stays, ungrouped after the group's run.
-                Err(error) => {
-                    eprintln!("cmux-tui: browser tab {added} did not join {group}: {error:#}");
-                }
-            }
-        }
+        self.emit_tree_delta(delta, takes_active || active_index_moved);
+        self.join_new_tab(surface.id, joins);
         self.reap_if_dead(&surface);
         Ok(surface)
     }

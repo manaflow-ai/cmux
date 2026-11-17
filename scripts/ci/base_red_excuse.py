@@ -1532,7 +1532,7 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         return STEP_NAMES_UNKNOWN
     # The workflow job named like JOB, and every job whose name is not read (an expression may render as JOB's): each
     # that fits the jobs API's steps must give the same marks, so only one way of reading the steps is possible.
-    named, unread = [], []
+    named, rendered, unread = [], [], []
     for job_id, spec in jobs.items():
         if not isinstance(spec, dict):
             return STEP_NAMES_UNKNOWN
@@ -1541,11 +1541,21 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         except Refused:
             # A name _check_matcher does not read (two expressions: 'Reviewer path (${{ needs.plan.outputs.lane }},
             # ${{ matrix.family }})') still names JOB when JOB's name is its text with each expression rendered.
-            (named if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
+            (rendered if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
             continue
         if (job.get("name") in matcher["exact"] or any(str(job.get("name", "")).startswith(start)
                                                        for start in matcher["prefixes"])):
             named.append(spec)
+    # A name that only renders as JOB's names it only when no workflow job is named JOB outright; beside one that is,
+    # it is a job whose name is not read, like any other (its steps, if they fit, must give the same marks). A name
+    # that is one expression and no text (cmux-next.yml's cmux-scheme-compile, `${{ inputs.dev_daily == true && ...
+    # || 'cmux app scheme compile (Debug)' }}`) renders as anything: read as a second job named JOB, it left every log
+    # of 'cmux-next checks (god files, concurrency, crash safety, l10n)' with no headers and unplaced (cmux#44442 at
+    # 656af9e3, #44349, #44164 on 2026-11-16), so each of its reds was compared whole.
+    if named:
+        unread += rendered
+    else:
+        named = rendered
     # A matrix leg is read like any job: its steps are the workflow's, in order, whatever the matrix values, and a
     # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
@@ -5851,6 +5861,27 @@ def infra(name: str, job: dict, why: str) -> Infra:
 # steps keeps the refusal below.
 RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 
+# A job whose failed steps printed nothing but GitHub's API rate-limit refusal decided nothing about the PR either:
+# cmux#44387 at cf31af39 (2026-11-16, job 133700254405), whose push-only `re-run the runs that deferred to the
+# published tree` could not list the tree's deferred markers ("gh: API rate limit exceeded for installation ID ...",
+# HTTP 403) on either token. Its base runs were green, so it was refused "not red on feat-cmux-next ...; fix it on this
+# head", and merge_hold named an update-branch that reruns every check for a quota red. Such a red is Infra too, with
+# or without a base verdict: refused (never excused: the job did not run), named as the re-run it needs. Any other
+# error line beside it, or a failing test, keeps the comparison.
+GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
+
+
+def github_quota_only(view: "FailedView | Unplaced") -> str | None:
+    """The error line VIEW's failed steps printed when each of them is GitHub's API rate-limit refusal (GITHUB_QUOTA)
+    and no test failed, else None."""
+    sig = signature(view)
+    if sig is UNPLACED:
+        return None
+    steps, tests, errors = sig
+    if not steps or tests or not errors or not all(GITHUB_QUOTA.search(error) for error in errors):
+        return None
+    return sorted(errors)[0].strip()
+
 
 def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
     """The error line VIEW's failed steps printed when each of them only asks for a re-run (RERUN_ASK), else None."""
@@ -7353,6 +7384,177 @@ def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdict
     return iter(found)
 
 
+# A red from the pull request's old base (2026-11-17, cmux#44908 at e19e1487): opened into feat-cmux-next, then
+# retargeted to main. 'cmux-next defaults guard' ran at 00:41Z under the old base (pull_request_target, run
+# 43989567080) and failed on a main-based tree; its workflow on main runs only for `branches: [feat-cmux-next]`, so no
+# run for base main will ever replace that red, and closing and reopening fires none either. It was refused as "no main
+# run of its workflow has a verdict" for good. A red job with no base verdict is excused here only when all hold:
+#   (a) its run's event is pull_request or pull_request_target;
+#   (b) the pull request's base when the run fired is not its base now: the run's pull_requests[].base.ref when GitHub
+#       records another base there, else a base_ref_changed event in the pull request's timeline after the run was
+#       created (GitHub's run record lists the current base, and its REST timeline event names no refs);
+#   (c) the workflow file at the current base has an `on.<event>.branches` (or `branches-ignore`) filter that excludes
+#       the current base; for pull_request, which reads the workflow from the merge commit, the head's copy too.
+#       In place of a filter, only a job `if:` that is exactly `github.event.pull_request.base.ref == 'X'`, X not the
+#       current base, counts; any other job `if:` excuses nothing.
+# Any part unread or of another shape (a glob with `?`, `+` or `[`, a file absent or not YAML) excuses nothing.
+RETARGET_EVENTS = ("pull_request", "pull_request_target")
+BASE_REF_IF = re.compile(r"(?:\$\{\{\s*)?github\.event\.pull_request\.base\.ref\s*==\s*'([^'\s]+)'(?:\s*\}\})?")
+
+
+def branch_pattern(pattern: object) -> re.Pattern | None:
+    """A GitHub branch filter PATTERN as a regex: `*` any run of characters but `/`, `**` any run at all. None for a
+    pattern with `?`, `+`, `[` or `\\` (not modelled here) or of another type."""
+    if not isinstance(pattern, str) or not pattern or re.search(r"[?+\[\]\\]", pattern):
+        return None
+    parts = re.split(r"(\*\*|\*)", pattern)
+    return re.compile("".join(".*" if part == "**" else "[^/]*" if part == "*" else re.escape(part)
+                              for part in parts))
+
+
+def filter_excludes(doc: object, event: str, base: str) -> str | None:
+    """The `on.EVENT` branch filter of workflow DOC, as `branches: [...]`, when it excludes BASE; None when it admits
+    BASE, has no branch filter, or has a shape this does not read. `branches` patterns apply in order, the last one
+    matching deciding, a `!` one excluding (GitHub's rule); `branches-ignore` excludes what any pattern matches."""
+    triggers = doc.get(True, doc.get("on")) if isinstance(doc, dict) else None
+    spec = triggers.get(event) if isinstance(triggers, dict) else None
+    if not isinstance(spec, dict):
+        return None  # `on: [pull_request]`, `on: pull_request` or `pull_request:` alone: every branch
+    for key in ("branches", "branches-ignore"):
+        patterns = spec.get(key)
+        if patterns is None:
+            continue
+        patterns = [patterns] if isinstance(patterns, str) else patterns
+        if not isinstance(patterns, list) or not patterns:
+            return None
+        admitted = key == "branches-ignore"
+        for pattern in patterns:
+            negated = key == "branches" and isinstance(pattern, str) and pattern.startswith("!")
+            regex = branch_pattern(pattern[1:] if negated else pattern)
+            if regex is None:
+                return None
+            if regex.fullmatch(base):
+                admitted = key == "branches" and not negated
+        if admitted:
+            return None
+        return f"{key}: [{', '.join(str(pattern) for pattern in patterns)}]"
+    return None
+
+
+def single_branch(doc: object, event: str) -> str | None:
+    """The branch of workflow DOC's `on.EVENT.branches` when it is one literal name (no glob, no `!`), else None."""
+    triggers = doc.get(True, doc.get("on")) if isinstance(doc, dict) else None
+    spec = triggers.get(event) if isinstance(triggers, dict) else None
+    patterns = spec.get("branches") if isinstance(spec, dict) else None
+    patterns = [patterns] if isinstance(patterns, str) else patterns
+    if isinstance(patterns, list) and len(patterns) == 1 and isinstance(patterns[0], str) \
+            and re.fullmatch(r"[\w./-]+", patterns[0]) and not patterns[0].startswith("!"):
+        return patterns[0]
+    return None
+
+
+def job_base_condition(doc: object, name: str) -> str | None:
+    """The branch X of the one job of workflow DOC named NAME when its `if:` is exactly
+    `github.event.pull_request.base.ref == 'X'`; None for any other `if:`, or when no one job is NAME."""
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        return None
+    found = []
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        try:
+            matcher = _check_matcher(str(job_id), job, "")
+        except Refused:
+            continue
+        if matches(matcher, name):
+            found.append(job)
+    condition = found[0].get("if") if len(found) == 1 else None
+    match = BASE_REF_IF.fullmatch(condition.strip()) if isinstance(condition, str) else None
+    return match.group(1) if match else None
+
+
+def workflow_doc(repo: str, ref: str, path: str, github) -> object:
+    """Workflow PATH at REF, parsed (source_text, read once per judgement); None when it is unread, absent there or
+    not YAML, or no YAML parser imports. A rate-limited read is raised (RateLimitedRead is no Refused)."""
+    try:
+        yaml = yaml_module()
+        text = source_text(repo, ref, path, github)
+    except Refused:
+        return None
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError:
+        return None
+
+
+def base_at_run(repo: str, base: str, sha: str, run: dict, github, seen: dict) -> tuple[int, str | None, str] | None:
+    """(pull request number, its base when RUN fired or None when unnamed, how that is known) when that base was not
+    BASE; None when it was BASE or cannot be told. The pull request is the one RUN lists for head SHA; its timeline is
+    read once per judge call (SEEN)."""
+    listed = [entry for entry in run.get("pull_requests") or []
+              if isinstance(entry, dict) and isinstance(entry.get("number"), int)
+              and (entry.get("head") or {}).get("sha") in (None, sha)]
+    if len(listed) != 1:
+        return None
+    number = listed[0]["number"]
+    recorded = (listed[0].get("base") or {}).get("ref")
+    if isinstance(recorded, str) and recorded and recorded != base:
+        return number, recorded, f"run {run.get('id')} records base {recorded}"
+    fired = created(run)
+    if fired is None:
+        return None
+    key = ("timeline", number)
+    if key not in seen:
+        pages = github.json(f"repos/{repo}/issues/{number}/timeline?per_page=100", paginate=True)
+        pages = pages if isinstance(pages, list) else [pages]
+        seen[key] = [event for page in pages for event in (page if isinstance(page, list) else [page])
+                     if isinstance(event, dict)]
+    changed = sorted(when for event in seen[key] if event.get("event") == "base_ref_changed"
+                     and (when := created(event)) is not None and when > fired)
+    if not changed:
+        return None
+    return number, None, f"#{number}'s base was changed at {changed[0].isoformat().replace('+00:00', 'Z')}, after it"
+
+
+def retargeted_red(repo: str, base: str, sha: str, name: str, job: dict, run: dict, github, seen: dict) -> str | None:
+    """The audit line excusing red job NAME of RUN (its REST record) as a red from the pull request's old base by the
+    rule above, or None so it is judged as before. The workflow is read before the timeline: a red whose workflow
+    still runs for BASE costs no timeline read."""
+    event, path = run.get("event"), str(run.get("path") or "").split("@", 1)[0]
+    if event not in RETARGET_EVENTS or not path.startswith(".github/workflows/"):
+        return None
+    docs = [workflow_doc(repo, base, path, github)]
+    if event == "pull_request":
+        docs.append(workflow_doc(repo, sha, path, github))  # the merge commit's copy is the one GitHub reads
+    if any(doc is None for doc in docs):
+        return None
+    filters = [filter_excludes(doc, event, base) for doc in docs]
+    conditions = [job_base_condition(doc, name) for doc in docs]
+    if all(filters):
+        why = f"its workflow does not run for base {base} ({filters[0]})"
+    elif all(condition not in (None, base) for condition in conditions):
+        why = f"its job does not run for base {base} (if: github.event.pull_request.base.ref == '{conditions[0]}')"
+    else:
+        return None
+    try:
+        then = base_at_run(repo, base, sha, run, github, seen)
+    except Refused:
+        return None  # an unread timeline excuses nothing
+    if then is None:
+        return None
+    number, old, how = then
+    if old is None and conditions[0] not in (None, base):
+        # The job ran (it is red), so its `base.ref == 'X'` held when the run fired.
+        old, how = conditions[0], f"{how}; the job ran, so its if: held for {conditions[0]}"
+    elif old is None and (only := single_branch(docs[0], event)) not in (None, base):
+        # The run fired, so its base was the one branch the filter runs for.
+        old, how = only, f"{how}; the run fired, so its base was the one branch its filter runs for"
+    ran_for = f"ran for base {old}" if old else f"ran for #{number}'s earlier base"
+    return (f"excused '{name}': run {run.get('id')} ({event}, job {job.get('id')}) {ran_for}, not {base} ({how}); "
+            f"{why}, so no run will replace this red")
+
+
 def one_judgement(function):
     """FUNCTION (judge) run in one judgement's read memo (JUDGEMENT_READS): every source is read once, however many
     excuse paths ask it. A judgement inside another (a derived status's parts) shares the outer one's."""
@@ -7508,7 +7710,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if pushed_run is not None and (
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
                 base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
+        # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
+        # its comparison below, which may excuse it as the base's.
+        quota = github_quota_only(view) if base_run is None or base_job.get("conclusion") != "failure" else None
+        if quota is not None:
+            raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:
+            if (old_base := retargeted_red(repo, base, sha, name, job, workflow_info, github, run_reads)) is not None:
+                audit.append(old_base)  # a red from the pull request's old base (retargeted_red)
+                continue
             if (asked := asks_only_rerun(view)) is not None:
                 raise infra(name, job, f"its check could not run and printed only {asked!r}")
             shared, why_not = other_pr_setup_verdict(repo, base, name, job, got, workflow_info, workflow, github,
