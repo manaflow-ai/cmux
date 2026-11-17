@@ -1,4 +1,4 @@
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
+import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -230,9 +230,13 @@ import {
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 
+/// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
+/// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
+const LIVE_STEP_VARS = transcriptLiveVars();
+
 /// How soon after the last width step's work finished a new width counts as the same live resize,
-/// and how long a width holds before the whole chat is measured at it
-/// (conversation/liveResizeStep.ts, which owns the rule and its reason).
+/// and how long a width holds before the whole chat is measured at it, come from
+/// conversation/liveResizeStep.ts, which owns the rule and its reason (LIVE_RESIZE_MS above).
 
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
@@ -7035,6 +7039,8 @@ function TranscriptView({
                 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+              // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
+              ...LIVE_STEP_VARS,
             } as React.CSSProperties
           }
         >

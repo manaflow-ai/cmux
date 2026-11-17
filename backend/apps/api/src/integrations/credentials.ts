@@ -61,15 +61,24 @@ const kmsFailure = (e: unknown, what: string) =>
 /** Like sealCredential, and says whether KMS failed and the KEK sealed it instead. */
 export const sealCredentialWithInfo = async (env: Env, http: Http, a: CredentialAddress, credential: Credential, allowFallback = true): Promise<{ sealed: Sealed; fallback: boolean }> => {
   let fallback = false
-  const sealed = await sealInner(env, http, a, credential, () => (fallback = true), allowFallback)
+  const sealed = await sealInner(env, http, a, JSON.stringify(credential), () => (fallback = true), allowFallback)
   return { sealed, fallback }
 }
 
-export const sealCredential = (env: Env, http: Http, a: CredentialAddress, credential: Credential): Promise<Sealed> => sealInner(env, http, a, credential, () => undefined)
+export const sealCredential = (env: Env, http: Http, a: CredentialAddress, credential: Credential): Promise<Sealed> => sealInner(env, http, a, JSON.stringify(credential), () => undefined)
 
-const sealInner = async (env: Env, http: Http, a: CredentialAddress, credential: Credential, onFallback: () => void, allowFallback = true): Promise<Sealed> => {
+/**
+ * Seals any secret text the way credentials are sealed (KMS when configured, else the KEK; the same
+ * AAD and context), never falling back from a failed KMS call: the caller still has the secret and
+ * the person retries. Team shared agent keys use it (team-agent-keys.ts).
+ */
+export const sealSecretText = (env: Env, http: Http, a: CredentialAddress, plaintext: string): Promise<Sealed> => sealInner(env, http, a, plaintext, () => undefined, false)
+
+/** Opens what sealSecretText sealed at the same address. */
+export const openSecretText = (env: Env, http: Http, a: CredentialAddress, sealedJson: string): Promise<string> => openInner(env, http, a, sealedJson)
+
+const sealInner = async (env: Env, http: Http, a: CredentialAddress, plaintext: string, onFallback: () => void, allowFallback = true): Promise<Sealed> => {
   const kms = kmsConfig(env)
-  const plaintext = JSON.stringify(credential)
   if (!kms) {
     if (!env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", "integrations are not configured (no INTEGRATIONS_KEK)")
     return seal(env.INTEGRATIONS_KEK, plaintext, aadOf(a))
@@ -96,11 +105,13 @@ const sealInner = async (env: Env, http: Http, a: CredentialAddress, credential:
   }
 }
 
-export const openCredential = async (env: Env, http: Http, a: CredentialAddress, sealedJson: string): Promise<Credential> => {
+export const openCredential = async (env: Env, http: Http, a: CredentialAddress, sealedJson: string): Promise<Credential> => JSON.parse(await openInner(env, http, a, sealedJson)) as Credential
+
+const openInner = async (env: Env, http: Http, a: CredentialAddress, sealedJson: string): Promise<string> => {
   const sealed = JSON.parse(sealedJson) as Sealed
   if (sealed.v === 1) {
     if (!env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", "integrations are not configured (no INTEGRATIONS_KEK)")
-    return JSON.parse(await open(env.INTEGRATIONS_KEK, sealed, aadOf(a))) as Credential
+    return open(env.INTEGRATIONS_KEK, sealed, aadOf(a))
   }
   if (sealed.v !== 2) throw new ProviderError("integration.unavailable", "unknown stored credential shape")
   const kms = kmsConfig(env)
@@ -113,7 +124,7 @@ export const openCredential = async (env: Env, http: Http, a: CredentialAddress,
   })
   try {
     const dek = await crypto.subtle.importKey("raw", dekRaw, "AES-GCM", false, ["decrypt"])
-    return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(sealed.iv), additionalData: aadOf(a) }, dek, unb64(sealed.ct)))) as Credential
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(sealed.iv), additionalData: aadOf(a) }, dek, unb64(sealed.ct)))
   } finally {
     dekRaw.fill(0)
   }
