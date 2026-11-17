@@ -78,6 +78,8 @@ const browser = await chromium.launch()
 const rows: string[] = []
 for (const scheme of ["light", "dark"] as const) {
   const page = await browser.newPage({ viewport: { width: 1360, height: 860 }, colorScheme: scheme, deviceScaleFactor: 1 })
+  page.on("console", (m) => m.type() !== "log" && console.log(`page ${m.type()}: ${m.text()}`))
+  page.on("pageerror", (e) => console.log(`page error: ${e.message}`))
   // cmux sets these from the theme; the preview mimics a light and a dark theme.
   const theme =
     scheme === "dark"
@@ -88,8 +90,9 @@ for (const scheme of ["light", "dark"] as const) {
     await page.goto(url)
     await page.addStyleTag({ content: `:root{${theme}}` })
     await page.waitForSelector(s.rfd ? ".dochead" : "li.row")
-    if (s.rfd) await page.waitForSelector("#comment-count:not(:empty)")
-    if (s.act) await s.act(page)
+    if (s.rfd) await page.waitForSelector("#comment-count:not(:empty)", { timeout: 5000 }).catch(() => console.log(`${s.name}: no comment count`))
+    console.log(`${s.name}: status ${await page.textContent("#status", { timeout: 1000 }).catch(() => "-")} · count ${await page.textContent("#comment-count", { timeout: 1000 }).catch(() => "-")}`)
+    if (s.act) await s.act(page).catch((e) => console.log(`${s.name}: step failed: ${String(e).split("\n")[0]}`))
     await page.waitForTimeout(350)
     const file = `${s.name}-${scheme}.png`
     await page.screenshot({ path: join(out, file) })
