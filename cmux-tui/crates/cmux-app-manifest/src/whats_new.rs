@@ -169,9 +169,10 @@ pub fn person_line(subject: &str) -> Option<WhatsNewItem> {
     if INTERNAL_TERMS.iter().any(|term| lower.contains(term)) {
         return None;
     }
-    let open = subject.strip_suffix(')')?.rfind(" (#")?;
-    let pr = subject[open + 3..subject.len() - 1].parse::<u64>().ok()?;
-    let mut title = subject[..open].trim_end();
+    let inside = subject.strip_suffix(')')?;
+    let open = inside.rfind(" (#")?;
+    let pr = inside.get(open + 3..)?.parse::<u64>().ok()?;
+    let mut title = inside.get(..open)?.trim_end();
     while let Some(rest) = strip_tracker_tag(title) {
         title = rest;
     }
@@ -192,11 +193,13 @@ pub fn person_line(subject: &str) -> Option<WhatsNewItem> {
 /// (`(F11)`, `(C1)`, `(R73 S1)`, `(cx-034r)`); a parenthetical a person
 /// reads (`(warning, pause, refusals)`) stays.
 fn strip_tracker_tag(title: &str) -> Option<&str> {
-    let open = title.strip_suffix(')')?.rfind(" (")?;
-    let inner = &title[open + 2..title.len() - 1];
+    let inside = title.strip_suffix(')')?;
+    let open = inside.rfind(" (")?;
+    let inner = inside.get(open + 2..)?;
+    let head = inside.get(..open)?;
     let tag = !inner.is_empty()
         && inner.split_whitespace().all(|word| word.chars().any(|c| c.is_ascii_digit()));
-    tag.then(|| title[..open].trim_end())
+    tag.then(|| head.trim_end())
 }
 
 enum Prefix<'a> {
