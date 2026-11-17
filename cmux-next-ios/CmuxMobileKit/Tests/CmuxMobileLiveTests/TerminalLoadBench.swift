@@ -46,10 +46,10 @@ import UIKit
 @Suite(.serialized, .enabled(if: ["CMUX_TERMINAL_LOAD_BENCH", "CMUX_TICK_HARNESS"].contains { ProcessInfo.processInfo.environment[$0] == "1" },
                              "opt-in bench: CMUX_TERMINAL_LOAD_BENCH=1"))
 struct TerminalLoadBench {
-    static let macColumns = 120
-    static let macRows = 40
-    static let phoneColumns = 54
-    static let phoneRows = 38
+    nonisolated static let macColumns = 120
+    nonisolated static let macRows = 40
+    nonisolated static let phoneColumns = 54
+    nonisolated static let phoneRows = 38
 
     // MARK: The Mac
 
@@ -225,12 +225,12 @@ struct TerminalLoadBench {
             switch event {
             case .output(let data):
                 pending += 1
-                surface.feed(data) { [weak self] in
+                surface.feed(data, completion: { [weak self] in
                     guard let self else { return }
                     self.pending -= 1
                     self.lastParsed = CFAbsoluteTimeGetCurrent()
                     self.lastActivity = self.lastParsed
-                }
+                })
             case .connection(let state):
                 attached = state.isAttached
             case .alternateScreen(let on):
@@ -250,9 +250,12 @@ struct TerminalLoadBench {
 
     // MARK: Measuring
 
+    /// The main thread's Mach port, taken on the main thread when the test starts.
+    nonisolated(unsafe) static var mainThreadPort: mach_port_t = 0
+
     /// The main thread's CPU time so far (user + system), in ms.
     nonisolated static func mainThreadCPU() -> Double {
-        let port = pthread_mach_thread_np(pthread_main_thread_np())
+        let port = mainThreadPort
         var info = thread_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<integer_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
@@ -418,6 +421,7 @@ struct TerminalLoadBench {
     }
 
     @Test func loadingATerminalTab() async throws {
+        Self.mainThreadPort = mach_thread_self()
         var out: [String] = []
         let projecting = Self.rig(Mac(history: 0), rtt: 0).session is DaemonTerminalSession ? "bytes mirror" : "phone projection"
         out.append("TERMINAL-LOAD-SIM session: \(projecting); Mac pane \(Self.macColumns)x\(Self.macRows), phone \(Self.phoneColumns)x\(Self.phoneRows)")
