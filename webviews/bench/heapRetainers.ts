@@ -196,10 +196,12 @@ export function retainers(s: Snapshot, { minBytes = 512 * 1024, depth = 14 } = {
         continue;
       }
       const at = prefix[v] ?? "";
-      // HEAP_PLACE_DEPTH (default 1): how many collections a place goes through before it ends.
+      // A place ends at its first collection's element, or with HEAP_PLACE_DEPTH=2 at the field of that element
+      // its node is reached by (`rows[].activity`), so what grows inside a collection's items is named too.
       const element = elementLike.has(edges[e]!);
-      const through = element ? at.split("[]").length : 0;
-      if ((element && through >= PLACE_DEPTH) || at.split(".").length > 14) placeOf[w] = placeId(`${at}[]`);
+      if (at.endsWith("[]")) placeOf[w] = placeId(`${at}.${element ? "[]" : edgeName(e).slice(0, 30)}`);
+      else if (element && PLACE_DEPTH < 2) placeOf[w] = placeId(`${at}[]`);
+      else if (at.split(".").length > 10) placeOf[w] = placeId(at);
       else prefix[w] = element ? `${at}[]` : `${at}.${edgeName(e).slice(0, 30)}`;
     }
     prefix[v] = undefined;
