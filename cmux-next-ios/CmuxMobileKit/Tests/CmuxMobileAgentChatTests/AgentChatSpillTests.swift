@@ -137,6 +137,9 @@ import Testing
     /// as the list does at rest, then without. Measured as live heap bytes (malloc's size in
     /// use, with the store alive), which allocator reuse between the runs does not skew.
     @Test func memoryStaysFlatWithTheWindow() async {
+        // The heap reading is the whole process's: no hybrid proof allocates while it runs.
+        let quiet = await HeapQuiet.measuring()
+        defer { quiet.release() }
         func run(windowed: Bool) -> (live: Int, held: Int) {
             let store = Self.store()
             let start = Self.heapInUse()

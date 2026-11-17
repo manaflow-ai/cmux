@@ -117,6 +117,9 @@ import Testing
     /// bytes (malloc's size in use) with and without the spill stay about the same: the
     /// spill keeps at most one partial page in memory.
     @Test func memoryWithSpill() async {
+        // The heap reading is the whole process's: no hybrid proof allocates while it runs.
+        let quiet = await HeapQuiet.measuring()
+        defer { quiet.release() }
         func run(spilling: Bool) -> (live: Int, onDisk: Int) {
             let store = FeedStore(items: [])
             let spill = Self.spill()

@@ -8,9 +8,16 @@ import Foundation
 /// replay and the 6,000-case fuzz are tens of seconds of CPU in a debug build; on the main actor
 /// they stalled the whole `swift test` run for 43 to 54 s in CI (6 vCPU), and on the pool they
 /// would take most of its threads. On a plain thread the kernel shares the cores with everyone.
+/// It holds `HeapQuiet` shared, so it never runs while a test measures the heap.
 func onProofThread<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
     await withCheckedContinuation { continuation in
-        let thread = Thread { continuation.resume(returning: work()) }
+        let thread = Thread {
+            // Not while a heap measurement reads malloc's process-wide bytes (HeapQuiet).
+            let quiet = HeapQuiet.allocatingOnThisThread()
+            let result = work()
+            quiet.release()
+            continuation.resume(returning: result)
+        }
         thread.name = "HYBRID_PROOF"
         thread.qualityOfService = .utility
         thread.stackSize = 8 << 20
