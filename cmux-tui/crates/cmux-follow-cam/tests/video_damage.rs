@@ -4,7 +4,7 @@
 
 use cmux_follow_cam::damage::{DamageConfig, FrameDiff, thumbnail};
 use cmux_follow_cam::video::{Aspect, Y4mHeader, crop_plane, fit_trace};
-use cmux_follow_cam::{Camera, Config, Event, Rect, STEP_US, Signal, read_trace};
+use cmux_follow_cam::{Camera, Config, Event, Rect, Signal, read_trace};
 
 /// Thumbnails 320x180 of a 2560x1440 screen: 8 screen pixels a pixel.
 const W: usize = 320;
@@ -97,7 +97,8 @@ fn a_line_of_typing_is_one_rect_not_one_per_block() {
 fn a_scene_change_is_a_cut_and_no_damage() {
     let mut diff = FrameDiff::new(DamageConfig::default(), W, H);
     diff.push(&blank(), SCALE);
-    let other: Vec<u8> = (0..W * H).map(|i| if (i / W) % 2 == 0 { 200 } else { 120 }).collect();
+    let other: Vec<u8> =
+        (0..W * H).map(|i| if (i / W).is_multiple_of(2) { 200 } else { 120 }).collect();
     let signals = diff.push(&other, SCALE);
     assert_eq!(signals, vec![Signal::Cut]);
     // The frame after the cut compares with the new scene.
@@ -124,13 +125,13 @@ fn a_recording_without_a_trace_gets_a_camera_that_follows_the_typing() {
     let config = Config::default();
     let mut camera = Camera::new(config, 2560.0, 1440.0);
     let mut frame = blank();
-    let fps = 30;
+    let fps: usize = 30;
     let mut last = camera.advance(0);
     for i in 0..(fps * 3) {
-        let t = i as u64 * 1_000_000 / fps as u64;
+        let t = (i * 1_000_000 / fps) as u64;
         // A character every other frame, from x = 250 rightward on y = 120.
-        if i % 2 == 0 && i > 0 {
-            let col = 250 + (i as usize / 2) % 60;
+        if i.is_multiple_of(2) && i > 0 {
+            let col = 250 + (i / 2) % 60;
             frame = with_box(&frame, col.min(W - 2), 120, 1, 4);
         }
         for signal in diff.push(&frame, SCALE) {
@@ -143,8 +144,8 @@ fn a_recording_without_a_trace_gets_a_camera_that_follows_the_typing() {
         last.x <= typing_x && typing_x <= last.x + last.w,
         "crop {last:?} does not frame the typing at x {typing_x}"
     );
-    assert!(last.x > 0.0, "the camera never moved: {last:?}");
-    let _ = STEP_US;
+    let start_x = (2560.0 - 1440.0 * 9.0 / 16.0) / 2.0;
+    assert!(last.x > start_x, "the camera never moved right: {last:?}");
 }
 
 #[test]
