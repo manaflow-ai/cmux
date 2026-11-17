@@ -422,6 +422,7 @@
       "export-layout",
       "feed-local-list",
       "feed-local-read",
+      "float-pane",
       "focus-direction",
       "focus-pane",
       "forget-session",

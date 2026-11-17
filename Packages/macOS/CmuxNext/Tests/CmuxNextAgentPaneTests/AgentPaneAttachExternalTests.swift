@@ -114,6 +114,32 @@ struct AgentPaneAttachExternalTests {
 
     /// Send to cmux Chat takes the image files Finder selected, and keeps a picture's bytes under
     /// Chat Uploads as a file the route can hand on.
+    /// A file another app names is read only when it is a regular file within the limit: a symlink
+    /// (to a file cmux may read and the other app may not), a folder or a file over the limit gives
+    /// nothing (Daybreak nightly cmux-app-41).
+    @Test nonisolated func anExternalFileIsReadOnlyWhenItIsARegularFileNotASymlink() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("external-\(UUID().uuidString)")
+        let folder = base.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let png = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        let image = base.appendingPathComponent("Screenshot.png")
+        try png.write(to: image)
+        #expect(AgentPaneModel.readExternalRegularFile(image, limit: 64) == png)
+        #expect(AgentPaneModel.externalFile(image)?.type == "image/png")
+        let secret = image.deletingLastPathComponent().appendingPathComponent("secret.txt")
+        try Data("secret".utf8).write(to: secret)
+        let link = image.deletingLastPathComponent().appendingPathComponent("Looks Like.png")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
+        #expect(AgentPaneModel.readExternalRegularFile(link, limit: 64) == nil)
+        #expect(AgentPaneModel.externalFile(link) == nil)
+        #expect(AgentPaneModel.readExternalRegularFile(folder, limit: 64) == nil)
+        #expect(AgentPaneModel.readExternalRegularFile(image, limit: png.count - 1) == nil)
+        let empty = image.deletingLastPathComponent().appendingPathComponent("Empty.png")
+        try Data().write(to: empty)
+        #expect(AgentPaneModel.readExternalRegularFile(empty, limit: 64) == Data())
+    }
+
     @Test func theServiceTakesImageFilesAndKeepsAPicture() async throws {
         #expect(AgentPaneDroppedPaths.imageFiles(["/tmp/a.png", "/tmp/b.txt", "/tmp/c.HEIC", "/tmp/docs"]).map(\.path)
             == ["/tmp/a.png", "/tmp/c.HEIC"])
