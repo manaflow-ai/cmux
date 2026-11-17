@@ -258,6 +258,8 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
+  currentCloudPlan,
+  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
@@ -585,6 +587,7 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
+  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
@@ -592,6 +595,8 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
+import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
+import { cloudPlanHoldsSend } from "./cloudPlans";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
 import { retryWithSetUpPick, waitForCloudSetUp, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
@@ -4848,6 +4853,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
   /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
   const cloudStartPending = useRef(false);
+  /// A Cloud send held back because the account has no Cloud plan (`sendToCloud`): what it was, and the composer's
+  /// draft as it was held (unchanged, the start takes it out once it goes). Its turn keys the held card.
+  const cloudPlanHeld = useRef<
+    | {
+        text: string;
+        attachments: ComposerAttachment[];
+        start: Omit<CloudStart, "task" | "attachments">;
+        fromPage: boolean;
+        shown?: { text: string; attachments: ComposerAttachment[] };
+      }
+    | undefined
+  >(undefined);
+  const cloudPlanHeldTurn = useRef(0);
+  /// The pricing card's Subscribe (cloudPlanSubscribe.ts): back from the browser with the plan on, the held send or
+  /// the refused start goes again, once (`cloudPlanReady`, set after each commit).
+  const cloudPlanReady = useRef<() => void>(() => undefined);
+  const [cloudPlanStore] = useState(() => createCloudPlanSubscribe({ onReady: () => cloudPlanReady.current() }));
+  /// The pricing card went (Not now, Run on This Mac, another chat or place): nothing waits on the plan any more.
+  const dropCloudPlanWait = () => {
+    cloudPlanHeld.current = undefined;
+    cloudPlanStore.reset();
+  };
   /// The cap card answered Run on This Mac (cloudRunsHere): the prompt sends here once the mode switched.
   const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
@@ -5040,6 +5067,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       lastCloudAttempt.current = undefined;
     }
     cloudSignInRetry.reset();
+    if (expectedKey === undefined) dropCloudPlanWait();
     setCloudStart((current) => (expectedKey && current?.key !== expectedKey ? current : undefined));
     runModePicked.current = true;
     runHereSend.current = true;
@@ -5050,6 +5078,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudRetryFolder = useRef<ReturnType<typeof cloudStartFolder> | undefined>(undefined);
   const dismissCloudFailure = () => {
     cloudRetryFolder.current = undefined;
+    dropCloudPlanWait();
     setCloudStart(undefined);
   };
   /// Set up Cloud's button: its way in runs on this Mac, and the prompt goes again once a connection
@@ -5091,6 +5120,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudHeldOnPage = useRef(false);
   const cloudPageHeld = cloudWaitsForCheck && cloudHeldOnPage.current && !sandbox.unread;
   const sendToCloudLatest = useRef<typeof sendToCloud>(() => false);
+  /// The send held for the plan goes now (the plan read fresh admits it), once: the prompt taken from the composer as a
+  /// Send that went at once would, unless the person changed it meanwhile.
+  const sendHeldForPlan = (held: NonNullable<typeof cloudPlanHeld.current>) => {
+    cloudPlanHeld.current = undefined;
+    const handle = composerHandle.current;
+    const stillShown = !held.fromPage && heldPromptShown(handle?.draft(), held.shown);
+    setCloudStart(undefined);
+    const went = sendToCloudLatest.current(held.text, held.attachments, held.start, held.fromPage, stillShown, true);
+    if (went === true && stillShown) handle?.take();
+  };
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
@@ -5099,6 +5138,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// A held send going (`cloudAfterCheck`): whether the chat composer still shows the prompt as it
     /// was held. Edited meanwhile, the composer keeps the edit and the start takes nothing from it.
     heldStillShown?: boolean,
+    /// The plan was just read fresh and does not hold this send (`cloudPlanHeld`): it goes without another read.
+    planRead = false,
   ): string | boolean => {
     const refused = cloudPageRefusal({ offerable: cloudOfferable, checked: sandbox.checked });
     if (refused === "cloud_chat_starting") return translate("cloudStart.chatStartingHere");
@@ -5133,6 +5174,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return false;
     }
     if (cloudStartPending.current) return false;
+    // The last read says the account has no Cloud plan (`cloudMachine.list` `plan.state` `none`; `unknown` and an
+    // older app's reply never hold): nothing goes yet, the prompt stays where it was typed, and the plan is read again
+    // fresh (it may have been bought since, here or on the website). Still `none`: the pricing card shows in the
+    // start's place, and the prompt goes by itself once the plan is on (`cloudPlanReady`). Anything else, a failed
+    // read included: the send goes now.
+    if (!planRead && cloudPlanHoldsSend(currentCloudPlan())) {
+      const turn = ++cloudPlanHeldTurn.current;
+      const held = {
+        text,
+        attachments,
+        start,
+        fromPage,
+        ...(fromPage ? {} : { shown: composerHandle.current?.draft() }),
+      };
+      cloudPlanHeld.current = held;
+      void readCloudPlanFresh().then((plan) => {
+        // The card went, another chat shows, or a newer Send replaced this one: nothing to do.
+        if (cloudPlanHeld.current !== held) return;
+        if (cloudPlanHoldsSend(plan)) setCloudStart(cloudStartPlanHeld(`plan-held-${turn}`, text, start.cwd));
+        else sendHeldForPlan(held);
+      });
+      return false;
+    }
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
     const reservationKey = cloudReservation.handoff(environment);
@@ -5157,6 +5221,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The held send runs the render's latest `sendToCloud` (its offerable and checked), set after commit, not during render.
   useLayoutEffect(() => {
     sendToCloudLatest.current = sendToCloud;
+    cloudPlanReady.current = () => {
+      // The page's own hold (no plan at Send): that send goes now, the prompt taken from the composer as a Send that
+      // went at once would, unless the person changed it meanwhile.
+      const held = cloudPlanHeld.current;
+      if (held) {
+        sendHeldForPlan(held);
+        return;
+      }
+      // The platform's refusal (no plan, or a machine larger than the plan includes): the same start again, once.
+      if (
+        cloudStart?.state === "failed" &&
+        (cloudStart.code === "cloud_plan_required" || cloudStart.code === "cloud_size_locked")
+      )
+        retryCloudStart();
+    };
   });
   // The held send goes once Cloud is offered here; leaving Cloud, a chat opening here or another
   // New Tab drops it.
@@ -5233,6 +5312,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : startCloud(request, key);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return undefined;
+    // A start went: no prompt held for the plan may go again after it (the pricing card's wait ends with it).
+    dropCloudPlanWait();
     // What the chat composer holds for this start: the page's draft once it is put back there.
     let expectedDraft = preservedDraft;
     cloudSignInSend.current = () => {
@@ -5361,6 +5442,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     cloudReservation.reset();
     cloudSwitchTeam.reset();
+    cloudPlanHeld.current = undefined;
+    cloudPlanStore.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     cancelCloudSignIn();
     cloudSignInRetry.reset();
@@ -5382,6 +5465,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (sandbox.mode !== "cloud") {
       cloudReservation.abandon();
       cloudSwitchTeam.reset();
+      cloudPlanHeld.current = undefined;
+      cloudPlanStore.reset();
       cancelCloudSignIn();
       cloudSignInRetry.reset();
       setCloudStart((current) => (current?.state === "failed" ? undefined : current));
@@ -10346,6 +10431,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (cloudChat) void refreshCloudMachines();
   }, [cloudChat, snapshot.sessionId]);
+  // Cloud picked for a new chat: the plan is read now (`cloudMachine.list` `plan`), so a Send without one shows the
+  // pricing card at once instead of a start the platform refuses.
+  useEffect(() => {
+    if (cloudPicked) void refreshCloudMachines();
+  }, [cloudPicked]);
   // Stop and Pause waits for the chat's turn to end before it pauses (cloudMachineMenu.ts): its
   // own turn state, which a forced stop's cleared working indicator does not end.
   const stopWaiter = useMemo(createStopWaiter, []);
@@ -13527,7 +13617,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onAnswer={answerCloudStart}
                                   onRetry={retryCloudStart}
                                   onSignIn={cloudSignInRetry}
-                                  onUpgrade={access.addCredits}
+                                  planStore={cloudPlanStore}
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
@@ -14085,7 +14175,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onAnswer={answerCloudStart}
                     onRetry={retryCloudStart}
                     onSignIn={cloudSignInRetry}
-                    onUpgrade={access.addCredits}
+                    planStore={cloudPlanStore}
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
