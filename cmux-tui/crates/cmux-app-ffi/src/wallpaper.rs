@@ -98,7 +98,7 @@ pub struct CmuxWallpaperFrameInput {
     /// Seconds since the last frame.
     pub delta: f32,
     pub frame_number: f32,
-    /// Backdrop size in backing pixels.
+    /// Backdrop size in rendered pixels.
     pub width: f32,
     pub height: f32,
     pub backing_scale: f32,
@@ -468,7 +468,7 @@ pub unsafe extern "C" fn cmux_wallpaper_pointer_reset(state: *mut CmuxWallpaperP
     with_pointer(state, |p| *p = PointerState::default());
 }
 
-/// A pointer move to (`x`, `y`) backing pixels (top left origin) at time `t`
+/// A pointer move to (`x`, `y`) rendered pixels (top left origin) at time `t`
 /// seconds: the smoothed velocity takes the sample in and presence heads to 1.
 ///
 /// # Safety

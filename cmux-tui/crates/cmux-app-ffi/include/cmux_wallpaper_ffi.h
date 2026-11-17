@@ -121,7 +121,7 @@ typedef struct {
     float delta;
     float frame_number;
     /*
-     Backdrop size in backing pixels.
+     Backdrop size in rendered pixels.
      */
     float width;
     float height;
@@ -284,7 +284,7 @@ float cmux_wallpaper_srgb_to_linear(float c);
 void cmux_wallpaper_pointer_reset(CmuxWallpaperPointer *state);
 
 /*
- A pointer move to (`x`, `y`) backing pixels (top left origin) at time `t`
+ A pointer move to (`x`, `y`) rendered pixels (top left origin) at time `t`
  seconds: the smoothed velocity takes the sample in and presence heads to 1.
 
  # Safety

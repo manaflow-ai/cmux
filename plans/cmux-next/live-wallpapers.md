@@ -36,7 +36,7 @@ grain-silk/
 fn wallpaper(px: vec2<f32>) -> vec4<f32>
 ```
 
-`px` is the pixel's position in backing pixels, origin top left. It returns a premultiplied color in
+`px` is the pixel's position in rendered pixels, origin top left. It returns a premultiplied color in
 linear light. The host adds the rest: the `Frame` uniform below, the entry points (a full-screen
 triangle and `fs_main`, which calls `wallpaper`) and the color encoding. A program may not declare a
 binding, an entry point, a texture, a sampler, a storage buffer, `var<workgroup>` or `var<private>`
@@ -46,7 +46,7 @@ state. Every frame is a pure function of `frame` and `px`.
 struct Frame {
     time: vec4<f32>,      // x seconds since shown, y seconds since the last frame, z frame number, w still (1 in a still)
     size: vec4<f32>,      // x, y size in rendered pixels; z rendered pixels per point (screen backing scale x manifest scale: 1.0 on a 2x screen at scale 0.5); w seed (0..1, per window)
-    pointer: vec4<f32>,   // xy position in backing pixels (top left origin); zw velocity in backing pixels per second, smoothed
+    pointer: vec4<f32>,   // xy position in rendered pixels (top left origin); zw velocity in rendered pixels per second, smoothed
     presence: vec4<f32>,  // x pointer inside the window (0 or 1, eased), y seconds since it last moved, z button down, w dark appearance (0 or 1)
     ink: vec4<f32>,       // theme text color, linear, a = 1
     paper: vec4<f32>,     // theme window background, linear, a = 1

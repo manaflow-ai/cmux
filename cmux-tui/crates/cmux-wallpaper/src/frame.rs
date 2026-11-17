@@ -95,7 +95,7 @@ pub fn srgb_to_linear(c: f32) -> f32 {
 
 impl FrameInput {
     /// A still of `manifest` at its `still` time and pointer, `width` x
-    /// `height` backing pixels. The caller sets colors, params and seed.
+    /// `height` rendered pixels. The caller sets colors, params and seed.
     pub fn still(manifest: &Manifest, width: f32, height: f32, backing_scale: f32) -> Self {
         Self {
             time: manifest.still.time,
