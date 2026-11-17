@@ -1,0 +1,108 @@
+name: Production extension registry crawl
+
+# One-off diagnosis and index run for cmux-platform-production's extension registry (cmux-platform
+# src/server/extensions). Production's /v1/extensions answered {"items":[]} while development, at the same commit,
+# listed the reviewed entries of manaflow-ai/cmux-extensions. Its indexer has no EXTENSIONS_GITHUB_TOKEN, so it calls
+# GitHub without a token from Cloudflare's shared addresses.
+# This run:
+# 1. prints the Worker's cron schedules and its secret names (never a value);
+# 2. mints a cmux-bot installation token scoped to contents:read and metadata:read and puts it on the Worker as
+#    EXTENSIONS_GITHUB_TOKEN, only when the Worker has none;
+# 3. puts a one-time EXTENSIONS_REVIEW_TOKEN, calls POST /internal/v1/extensions/crawl and prints its answer (the
+#    indexer's own errors), then reads /v1/extensions;
+# 4. always deletes EXTENSIONS_REVIEW_TOKEN, and deletes the EXTENSIONS_GITHUB_TOKEN this run put. An installation
+#    token lives one hour; left on the Worker it would turn every later crawl into a 401. A lasting token needs a
+#    credential that does not expire (a read-only GitHub App the Worker mints from), which this run does not add.
+# Every value goes through stdin or a masked variable only: none is printed, echoed or written outside RUNNER_TEMP.
+# Dispatch-only, from feat-cmux-next (internal-token-prod.yml's pattern).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extensions-prod-crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment: cmux-next-production
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+      W: cmux-platform-production
+      WR: npx -y wrangler@4.156.0
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Print the Worker's cron schedules and secret names
+        run: |
+          set +x
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sS -H @<(printf 'authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN") \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$W/schedules" \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const r=JSON.parse(d);if(!r.success){console.log("::error::schedules: "+JSON.stringify(r.errors));process.exit(1)}const s=r.result.schedules||[];console.log("cron schedules: "+(s.length?s.map(x=>x.cron).join(", "):"none"))})'
+          $WR secret list --name "$W" --format json \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for (const s of JSON.parse(d)) console.log("secret: "+s.name)})' \
+            | tee secret-names.txt
+      - name: Mint a read-only cmux-bot token
+        id: bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-contents: read
+          permission-metadata: read
+      - name: Put the GitHub token and a one-time review token, crawl, read the list
+        env:
+          GITHUB_READ: ${{ steps.bot.outputs.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          if grep -qx 'secret: EXTENSIONS_GITHUB_TOKEN' secret-names.txt; then
+            echo "::notice::$W already has EXTENSIONS_GITHUB_TOKEN; left as is"
+          else
+            printf '%s' "$GITHUB_READ" | $WR secret put EXTENSIONS_GITHUB_TOKEN --name "$W" >/dev/null
+            touch put-github-token
+          fi
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          printf '%s' "$token" > review-token
+          printf '%s' "$token" | $WR secret put EXTENSIONS_REVIEW_TOKEN --name "$W" >/dev/null
+          # A new secret can take a few seconds to serve everywhere: a 401 is asked again.
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -sS -o answer.json -w '%{http_code}' -X POST \
+              -H @<(printf 'authorization: Bearer %s\n' "$token") \
+              "https://$W.debussy.workers.dev/internal/v1/extensions/crawl") || code=000
+            echo "crawl attempt $i: HTTP $code"
+            [ "$code" != 401 ] && [ "$code" != 000 ] && break
+            sleep 10
+          done
+          echo "crawl answer:"; cat answer.json; echo
+          echo "/v1/extensions:"
+          curl -sS "https://$W.debussy.workers.dev/v1/extensions" \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const r=JSON.parse(d);for (const i of r.items||[]) console.log(i.ref+" "+i.kind+" "+i.status);console.log((r.items||[]).length+" listed")})'
+          [ "$code" = 200 ]
+      - name: Delete the tokens this run put
+        if: always()
+        run: |
+          set -uo pipefail
+          cd "$RUNNER_TEMP"
+          rc=0
+          if [ -f review-token ]; then
+            $WR secret delete EXTENSIONS_REVIEW_TOKEN --name "$W" </dev/null >/dev/null 2>&1 \
+              || { echo "::error::EXTENSIONS_REVIEW_TOKEN was not deleted from $W; delete it by hand or rerun"; rc=1; }
+          fi
+          if [ -f put-github-token ]; then
+            $WR secret delete EXTENSIONS_GITHUB_TOKEN --name "$W" </dev/null >/dev/null 2>&1 \
+              || { echo "::error::EXTENSIONS_GITHUB_TOKEN was not deleted from $W; delete it by hand or rerun"; rc=1; }
+          fi
+          rm -f review-token
+          exit $rc
