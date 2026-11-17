@@ -86,6 +86,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .environment: "environment"
         case .cloudMachine: "cloudMachine"
         case .cloudRepository: "cloudRepository"
+        case .gitHub(let request): request.method
         case .cloudEnvironment: "cloudEnvironment"
         case .tryAnotherApproach: "tryAnotherApproach"
         case .cloudTurnRewind(let request): request.method

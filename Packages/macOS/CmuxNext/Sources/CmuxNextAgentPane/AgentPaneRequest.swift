@@ -216,6 +216,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// Cloud repository discovery and attachment, forwarded to the authenticated daemon.
     case cloudRepository(AgentPaneCloudRepositoryRequest)
+    /// The new chat folder picker's GitHub section (``AgentPaneGitHubRequest``, ``AgentPaneModel/gitHub``).
+    case gitHub(AgentPaneGitHubRequest)
     case cloudEnvironment(AgentPaneCloudEnvironmentRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)

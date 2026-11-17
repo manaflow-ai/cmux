@@ -181,6 +181,9 @@ public final class AgentPaneModel {
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
     /// there), never this Mac's (cx-k21v).
     @ObservationIgnored public var onListRemoteProjects: ((String?) async -> [String])?
+    /// The new chat folder picker's GitHub section (`github.status`, `github.connect`, `github.repos.list`);
+    /// nil: the picker shows none.
+    @ObservationIgnored public var gitHub: AgentPaneGitHub?
     /// A chat on another machine (set by the host when it makes the page, and by a handshake that
     /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
     /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
@@ -521,7 +524,7 @@ public final class AgentPaneModel {
              .sandboxState, .subagentShown, .dictationSources: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
-        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
+        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects, .gitHub(.status), .gitHub(.repos): break
         // Every page reads its tip records on mount (featureTipsModel.ts); counted as a touch, it
         // kept every subagent, side chat and sender open off the prewarmed page ("touched by
         // featureTips"), each one making a cold page instead.
@@ -911,6 +914,7 @@ public final class AgentPaneModel {
             return await stageHeld(stage, stager)
         case .uploadStageForSend(let stage, let ticket):
             return await beginSendUpload(stage, ticket: ticket)
+        case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

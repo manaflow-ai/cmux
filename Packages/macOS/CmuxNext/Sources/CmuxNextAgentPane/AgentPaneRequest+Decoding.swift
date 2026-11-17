@@ -102,6 +102,10 @@ extension AgentPaneRequest {
             self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
             return
         }
+        if AgentPaneGitHubRequest.methods.contains(method) {
+            self = AgentPaneGitHubRequest(method: method, params: params).map(Self.gitHub) ?? .unsupported(method)
+            return
+        }
         switch method {
         case "uiPointer.report":
             guard let params, JSONSerialization.isValidJSONObject(params),

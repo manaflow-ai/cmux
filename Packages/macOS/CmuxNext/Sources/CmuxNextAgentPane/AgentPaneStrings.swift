@@ -343,3 +343,20 @@ extension AgentPaneLoadingView {
         String(localized: "agentPane.loading", defaultValue: "Loading agent chat", bundle: .module)
     }
 }
+
+extension AgentPaneModel {
+    /// `github.repos.list` for a team with no cmux GitHub App installation (`github.not_connected`).
+    static var gitHubNotConnectedMessage: String {
+        String(localized: "agentPane.github.notConnected", defaultValue: "Connect GitHub to see your repositories.", bundle: .module)
+    }
+
+    /// A GitHub method that could not be answered (signed out, offline, or no App here).
+    static var gitHubUnavailableMessage: String {
+        String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .module)
+    }
+
+    /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.
+    static var gitHubFolderCloudOnlyMessage: String {
+        String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .module)
+    }
+}
