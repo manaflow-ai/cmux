@@ -77,8 +77,15 @@ import CmuxNextWakeups
     /// Calls made (tests).
     private(set) var calls = 0
     /// Told each time whether anybody can see the pane changes (``AgentPaneTransport/paneHidden``):
-    /// a hidden pane's socket holds its stream within a bound and sheds past it.
-    public var onHiddenChange: (@MainActor (Bool) -> Void)?
+    /// a hidden pane's socket holds its stream within a bound and sheds past it. Installing it tells
+    /// it the current state at once: the probe may have reported before anyone listened, and a pane
+    /// that is never put in a window (a restored tab nobody showed) reports nothing until a frame.
+    public var onHiddenChange: (@MainActor (Bool) -> Void)? {
+        didSet {
+            reportedHidden = nil
+            reportHidden(isHidden())
+        }
+    }
     private var reportedHidden: Bool?
 
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
