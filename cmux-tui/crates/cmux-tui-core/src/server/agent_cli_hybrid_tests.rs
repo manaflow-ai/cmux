@@ -527,16 +527,54 @@ fn a_full_screen_shell_attaches_with_its_bytes() {
     disconnect_client(&mux, viewer.client, false);
 }
 
-/// Any other program, and a shell's viewer that did not declare the lines, keep the bytes.
+/// Every terminal is calculated, not only a shell's (Leo, 2026-11-17: "Surely we can just
+/// calculate a fucking terminal and resize whatever needs exceptions when it comes Fall back if
+/// need be"): a program that is neither a shell nor an agent CLI reaches a lines viewer as lean
+/// frames, and only its full-screen part falls back to PTY bytes.
 #[test]
-fn other_programs_and_viewers_without_the_lines_keep_the_byte_stream() {
+fn any_program_reaches_a_lines_viewer_as_frames_and_falls_back_only_when_full_screen() {
+    let (mux, surface) = terminal("hybrid-any-program", None);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let program = surface.process_id().and_then(crate::platform::process_executable);
+        if program.as_deref().is_some_and(|program| program.ends_with("sleep")) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "sleep did not start: {program:?}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    surface.inject_output_for_test(b"build: 1/3\r\nbuild: 2/3\r\n");
+    let viewer = declaring(&mux, SHELL_LINES);
+    viewer.attach(&mux, &surface, json!({}));
+    let mut skipped = Vec::new();
+    let first = viewer.next("agent-cli-lean", &mut skipped);
+    assert!(!skipped.iter().any(|event| event == "vt-state"), "no vt-state: {skipped:?}");
+    let mut phone = LinesPhone { decoder: LeanDecoder::new(), phone: None };
+    phone.apply(&first);
+    assert_eq!(phone.text(), screen_text(&surface));
+
+    surface.inject_output_for_test(b"build: 3/3\r\ndone\r\n");
+    let lines = drain_until_same(&viewer, &mut phone, &surface);
+    assert!(lines.iter().all(|event| event == "agent-cli-lean"), "lines as frames: {lines:?}");
+
+    surface.inject_output_for_test(b"\x1b[?1049h\x1b[H\x1b[2Jtop");
+    let full = drain_until_same(&viewer, &mut phone, &surface);
+    assert_eq!(full.last().map(String::as_str), Some("output"), "{full:?}");
+    surface.inject_output_for_test(b"\x1b[?1049l");
+    drain_until_same(&viewer, &mut phone, &surface);
+    surface.inject_output_for_test(b"after\r\n");
+    let back = drain_until_same(&viewer, &mut phone, &surface);
+    assert!(back.iter().all(|event| event == "agent-cli-lean"), "frames again: {back:?}");
+    disconnect_client(&mux, viewer.client, false);
+}
+
+/// A viewer that did not declare the lines keeps the bytes, for a shell and for any program.
+#[test]
+fn viewers_without_the_lines_keep_the_byte_stream() {
     let (mux, sleep) = terminal("hybrid-shell-other", None);
     let (shell_mux, shell) = shell_terminal("hybrid-shell-no-lines");
-    for (mux, surface, capabilities) in [
-        (&mux, &sleep, SHELL_LINES),
-        (&shell_mux, &shell, &["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"][..]),
-    ] {
-        let viewer = declaring(mux, capabilities);
+    for (mux, surface) in [(&mux, &sleep), (&shell_mux, &shell)] {
+        let viewer = declaring(mux, &["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"]);
         viewer.attach(mux, surface, json!({}));
         let mut skipped = Vec::new();
         viewer.next("vt-state", &mut skipped);

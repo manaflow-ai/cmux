@@ -275,8 +275,8 @@ pub(super) fn attach_surface(
         return snapshot.attach(mux, client, surface, writer, initial_size);
     }
     // `agent-cli-hybrid-v1`: a plain byte attach of an agent CLI's terminal gets cell
-    // deltas instead of its bytes, and with `terminal-shell-lines-v1` so does a plain shell's
-    // (server/agent_cli_hybrid.rs).
+    // deltas instead of its bytes, and with `terminal-shell-lines-v1` so does every other
+    // terminal, PTY bytes only while it is full-screen (server/agent_cli_hybrid.rs).
     let adapter = if hybrid_declared
         && surface.kind() == SurfaceKind::Pty
         && mode.as_deref().unwrap_or("bytes") == "bytes"
@@ -285,7 +285,7 @@ pub(super) fn attach_surface(
     } else {
         Adapter::Pty
     };
-    let shell_viewer = shell_lines && adapter == Adapter::Shell;
+    let shell_viewer = shell_lines && adapter == Adapter::Lines;
     let hybrid = adapter == Adapter::Agent || shell_viewer;
     // Only the plain byte attach coalesces; render mode keeps its own frames.
     let coalesce_interval = if !hybrid
