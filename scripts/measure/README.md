@@ -33,6 +33,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `launch-ready.sh` | Time from Dock launch to a usable window, measured from outside the app. | CMUX-629, CMUX-631 | 2026-11-15 | active |
 | `launch-ready.swift` | Swift probe that launches one app copy like the Dock and records every mark. | CMUX-629 | 2026-11-15 | active |
+| `fresh-install-launch.sh` | A new user's first launch: quarantined DMG download, mount, drag to /Applications, Gatekeeper's dialog, onboarding; also cold (purged) and warm relaunch and load=N, for any DMG (Rex beside NIGHTLY). | CMUX-629 | 2026-11-17 | active |
+| `fresh-install-launch.swift` | Probe for fresh-install-launch.sh: LaunchServices open, Gatekeeper dialog seen and pressed, exec, window, CPU-settled, page-ins. | CMUX-629 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
