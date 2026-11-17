@@ -72,7 +72,6 @@ function GalleryEmptyState({ state = "recents", direction = "ltr", many }: Props
           <EmptyState
             kind="diff"
             title="Open a repository"
-            subtitle="Choose a folder, open a recent repository, or drop one here."
             dropText="Drop a repository to open it"
             onDrop={(item) => setReceipt(`Dropped ${item.name}`)}
             error={error}
