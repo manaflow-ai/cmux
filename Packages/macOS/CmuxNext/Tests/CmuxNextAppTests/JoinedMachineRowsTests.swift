@@ -404,11 +404,6 @@ import CmuxNextWakeups
         #expect(ran.map { $0.2 } == ["ssh-1"], "the row it opened on goes with it (where Check records)")
     }
 
-    /// The catalog's rows of `ids` as the Rust catalog has them: picking a joined machine (`joined`).
-    static func joinedDescriptors(_ ids: [ActionID]) -> [ActionDescriptor] {
-        ids.compactMap { ActionRegistry.standard().descriptor(for: $0) }.map { var row = $0; row.paletteTargetSource = "joined"; return row }
-    }
-
     /// No target kind of its own: what the joined machines' sources pass the other actions to.
     final class NoTargets: PaletteTargetSource {
         func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] { [] }
@@ -423,15 +418,18 @@ import CmuxNextWakeups
         let store = fake.store()
         await store.refresh()
         let ids = JoinedMachineAction.allCases.map(MachineSectionHostView.actionID)
-        let source = store.paletteTargets(Self.joinedDescriptors(ids), next: NoTargets())
+        var ran: [(JoinedMachineAction, String, String)] = []
+        let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
+        for id in ids {
+            let descriptor = registry.descriptor(for: id)
+            #expect(descriptor?.isPaletteVisible == true, "\(id)")
+            #expect(descriptor?.paletteTarget == .machine && descriptor?.paletteTargetSource == "joined", "\(id)")
+        }
+        let source = store.paletteTargets(registry.descriptors, next: NoTargets())
         #expect(source.targets(of: .machine, for: "machine.joined.check").map(\.id) == ["m_1", "m_2"])
         #expect(source.targets(of: .machine, for: "machine.joined.rotate").map(\.id) == ["m_1"], "a revoked machine is not offered")
         #expect(source.targets(of: .machine, for: "machine.joined.revoke").map(\.title) == ["lane-vm-3"])
         #expect(source.targets(of: .machine, for: "workspace.newOnMachine").isEmpty, "a connected machine's action is not theirs")
-        let unclaimed = store.paletteTargets(ActionRegistry.standard().descriptors.filter { ids.contains($0.id) && $0.paletteTargetSource != "joined" }, next: NoTargets())
-        #expect(unclaimed.targets(of: .machine, for: "machine.joined.rotate").isEmpty, "only the catalog's joined rows")
-        var ran: [(JoinedMachineAction, String, String)] = []
-        let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
         for id in ids {
             #expect(registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: "m_1"))))
         }

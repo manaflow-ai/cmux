@@ -281,16 +281,14 @@ test("a deferred chat's later command publication reaches New Tab and a supersed
 });
 
 test("deferred command reads request the newest publication", async () => {
-  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { directClientStub } = await import("./support/directClientStub");
   const calls: Record<string, unknown>[] = [];
-  const client = Object.create(AcpmuxDirectClient.prototype) as {
-    sessionCommands(sessionId: string): Promise<unknown>;
-    typed(method: string, params: Record<string, unknown>): Promise<unknown>;
-  };
-  client.typed = async (_method, params) => {
-    calls.push(params);
-    return { events: [] };
-  };
+  const client = directClientStub<{ sessionCommands(sessionId: string): Promise<unknown> }>({
+    typed: async (_method: string, params: Record<string, unknown>) => {
+      calls.push(params);
+      return { events: [] };
+    },
+  });
   await client.sessionCommands("deferred-session");
   expect(calls[0]).toMatchObject({ sessionId: "deferred-session", beforeSeq: Number.MAX_SAFE_INTEGER, limit: 1 });
 });
