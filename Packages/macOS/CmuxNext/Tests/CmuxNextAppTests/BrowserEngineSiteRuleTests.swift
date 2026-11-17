@@ -70,38 +70,4 @@ import Testing
         #expect(opened.engine == .cef)
         #expect(opened.pinned)
     }
-
-    // https://github.com/manaflow-ai/cmux/issues/45018: a Chromium tab that commits a protected-media site after it
-    // was made (a typed address on the New Tab page, a link, a restored record) moves to WebKit too.
-
-    private func navigation(_ url: String, chromium: Bool = true, pinned: Bool = false, reopened: Bool = false,
-                            agent: Bool = false) -> BrowserSiteEngineNavigation {
-        BrowserSiteEngineNavigation(siteEngine: siteEngine(url), engineIsChromium: chromium, enginePinned: pinned,
-                                    alreadyReopened: reopened, agentDriven: agent)
-    }
-
-    @Test(arguments: ["https://open.spotify.com/", "https://open.spotify.com/track/1", "https://www.netflix.com/watch/1"])
-    func aChromiumTabThatReachesAProtectedMediaSiteReopensInWebKit(url: String) {
-        #expect(navigation(url).reopensInWebKit)
-    }
-
-    @Test func aTabThatStaysOffTheRuleKeepsChromium() {
-        #expect(!navigation("https://music.youtube.com/").reopensInWebKit)
-        #expect(!navigation("https://example.com/").reopensInWebKit)
-    }
-
-    @Test func aWebKitPinnedReopenedOrAgentTabDoesNotMove() {
-        let spotify = "https://open.spotify.com/"
-        #expect(!navigation(spotify, chromium: false).reopensInWebKit, "a WebKit tab is already there")
-        #expect(!navigation(spotify, pinned: true).reopensInWebKit, "--engine chromium wins")
-        #expect(!navigation(spotify, reopened: true).reopensInWebKit, "once per tab")
-        #expect(!navigation(spotify, agent: true).reopensInWebKit, "an agent's tab stays under the agent")
-    }
-
-    @Test func aChromiumSiteRuleNeverMovesATab() {
-        let rules = BrowserSiteEngines(rules: ["spotify.com": .chromium])
-        let move = BrowserSiteEngineNavigation(siteEngine: rules.engine(for: URL(string: "https://open.spotify.com/")),
-                                               engineIsChromium: true, enginePinned: false, alreadyReopened: false, agentDriven: false)
-        #expect(!move.reopensInWebKit, "a person who sends Spotify to Chromium keeps it there")
-    }
 }

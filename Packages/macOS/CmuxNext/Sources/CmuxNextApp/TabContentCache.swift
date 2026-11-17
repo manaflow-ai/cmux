@@ -416,7 +416,6 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
         pageRequests.routeOmnibarOpens(of: entry.state, page: page)
-        pageRequests.followSiteEngines(of: entry.state, page: page)
         mount(entry, as: key)
         return entry
     }
@@ -440,7 +439,7 @@ final class TabContentCache {
         }
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
-        pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)  // a chat's sign-in page (ChatMachineSignInTab)
+        pageRequests.services?.remoteLocalhost.adoptPage(page, key: key); pageRequests.siteEngines.follow(entry.state, page: page) // #45018  // a chat's sign-in page (ChatMachineSignInTab)
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)

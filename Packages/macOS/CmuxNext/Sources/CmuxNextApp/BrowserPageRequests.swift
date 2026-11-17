@@ -141,6 +141,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             default: break
             }
         }
+        if case .adoptTab(let child, _) = intent { siteEngines.keepsOpener(child) } // `window.opener` lives in one engine
         // Chromium's password manager asked for as a new tab (an omnibar
         // modified commit) is cmux's Passwords page (ChromiumPageRoute). A tab
         // Chromium makes itself (`.adoptTab`) has no URL yet here.
@@ -234,56 +235,34 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// in WebKit at the same address, right after it, once, with a note; the
     /// Chromium tab closes. A tab whose engine someone asked for stays.
     private func reopenInWebKit(_ page: any BrowserTab, for media: BrowserProtectedMedia, tab: TabModel, pane: PaneModel) {
-        guard let services, let url = page.state.url else { return }
+        guard let services else { return }
         let browserTabs = services.cache.browserTabs
         guard media.reopensInWebKit(engineIsChromium: page.engineKind == .cef, enginePinned: browserTabs.isEnginePinned(tab),
-                                    alreadyReopened: browserTabs.reopenedForProtectedMedia(tab)) else { return }
-        reopenInWebKit(tab, pane: pane, url: url)
+                                    alreadyReopened: browserTabs.reopenedForProtectedMedia(tab)), let url = page.state.url else { return }
+        reopenInWebKit(tab, pane: pane, url: url, background: false)
     }
 
-    /// Follows each page `page` commits for its `browser.siteEngines` rule
-    /// (``BrowserSiteEngineNavigation``): a Chromium tab that reaches a site
-    /// the rules send to WebKit (Spotify, Netflix: a typed address, a link,
-    /// a redirect, a restored tab) reopens there, the way a tab made at that
-    /// address opens there. Its current page is checked now.
-    func followSiteEngines(of chrome: BrowserChromeTabState, page: any BrowserTab) {
-        guard page.engineKind == .cef else { return }
-        chrome.onPageCommitted = { [weak self, weak page] url in
-            guard let page else { return }
-            self?.pageCommitted(url, page: page)
-        }
-        if let url = page.state.url, page.state.phase == .committed || page.state.phase == .finished {
-            // task-owner: the check runs after the install that mounts the page (its tab key is set then).
-            Task { [weak self, weak page] in
-                guard let page else { return }
-                self?.pageCommitted(url, page: page)
-            }
-        }
-    }
+    /// `browser.siteEngines` for the pages a Chromium tab reaches after it opens (Spotify typed on the New Tab page, #45018).
+    private(set) lazy var siteEngines = BrowserSiteEngineFollower(
+        rules: { [weak self] in self?.services?.cache.browserTabs.preference.siteEngines ?? .fallback },
+        tab: { [weak self] page in
+            guard let self, let services, let (key, _) = home(of: page), !key.hasPrefix(ProvisionalTab.idPrefix), let tab = services.cache.tabModel(key) else { return nil }
+            return .init(enginePinned: services.cache.browserTabs.isEnginePinned(tab), alreadyReopened: services.cache.browserTabs.reopenedForProtectedMedia(tab),
+                         shown: services.cache.existingBrowser(key)?.state.chrome != nil)
+        },
+        reopen: { [weak self] page, url, background in
+            guard let self, let (key, pane) = home(of: page), let tab = services?.cache.tabModel(key) else { return }
+            reopenInWebKit(tab, pane: pane, url: url, background: background)
+        })
 
-    private func pageCommitted(_ url: URL, page: any BrowserTab) {
-        guard let services, let (key, pane) = home(of: page), let tab = services.cache.tabModel(key) else { return }
-        let browserTabs = services.cache.browserTabs
-        let move = BrowserSiteEngineNavigation(siteEngine: browserTabs.preference.siteEngines.engine(for: url),
-                                               engineIsChromium: page.engineKind == .cef,
-                                               enginePinned: browserTabs.isEnginePinned(tab),
-                                               alreadyReopened: browserTabs.reopenedForProtectedMedia(tab),
-                                               agentDriven: page.isAgentDriven)
-        guard move.reopensInWebKit else { return }
-        reopenInWebKit(tab, pane: pane, url: url)
-    }
-
-    /// Opens `url` in a WebKit tab right after `tab`, on its browser profile,
-    /// with the protected-media note, and closes `tab` once the new one exists.
-    private func reopenInWebKit(_ tab: TabModel, pane: PaneModel, url: URL) {
+    /// `url` in a WebKit tab right after `tab` (its browser profile, the protected-media note), once per tab; `tab` then closes.
+    private func reopenInWebKit(_ tab: TabModel, pane: PaneModel, url: URL, background: Bool) {
         guard let services, let controller = services.paneController(for: pane) else { return }
-        let browserTabs = services.cache.browserTabs
-        browserTabs.noteProtectedMediaReopen(tab)
-        let key = tab.id
-        let profile = services.browserProfiles.profileID(ofTab: tab)
-        controller.newBrowserTab(url: url, engine: BrowserEngineTag.webkit.rawValue, profile: profile,
+        services.cache.browserTabs.noteProtectedMediaReopen(tab)
+        let key = tab.id, machine = services.cache.browserTabs.daemon(for: tab).machineID
+        controller.newBrowserTab(url: url, engine: BrowserEngineTag.webkit.rawValue, background: background, profile: services.browserProfiles.profileID(ofTab: tab),
                                  notice: BrowserProtectedMedia.reopenedNotice, opener: tab.surface) { [weak services] _ in
-            services?.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .script)) // replaced: never asks
+            services?.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .script).onMachine(machine)) // replaced: never asks
         }
     }
 
@@ -306,6 +285,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         chrome.onTypedCommit = { [weak self, weak page] in
             guard let self, let page else { return }
             openers.typedNavigation(onNewTabPageAtEnd: isNewTabPageAtEnd(page))
+            siteEngines.typedCommit(page)
             if let (key, pane) = home(of: page) { services?.paneController(for: pane)?.state?.selection.closeRule.typedNavigation(in: key, pane: pane.id) }
         }
     }
