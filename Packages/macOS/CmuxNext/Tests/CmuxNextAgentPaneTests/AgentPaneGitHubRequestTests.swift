@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCloud
 import Foundation
 import Testing
@@ -70,6 +71,16 @@ struct AgentPaneGitHubRequestTests {
         #expect((notConnected["error"] as? [String: Any])?["code"] as? String == "github.not_connected")
         let unavailable = await AgentPaneGitHubRequest.repos(query: nil).reply(Self.gitHub(repos: .failure(.unavailable))) { false }
         #expect((unavailable["error"] as? [String: Any])?["code"] as? String == "github.unavailable")
+    }
+
+    /// Settings > Accounts' Connect GitHub (`connectResult()`), as the picker and Set Up GitHub read it.
+    @Test func theSharedConnectsResultSaysWhatHappened() {
+        #expect(AgentPaneGitHubConnect(.success(["status": .string("pending"), "detail": .string("Finish connecting in your browser, then refresh.")])) == .opened)
+        #expect(AgentPaneGitHubConnect(.success(["status": .string("connected"), "detail": .string("Connected")])) == .alreadyConnected)
+        #expect(AgentPaneGitHubConnect(.success(["status": .string("needs-action"), "detail": .string("Sign in to cmux to connect GitHub.")]))
+                == .failed("Sign in to cmux to connect GitHub."))
+        #expect(AgentPaneGitHubConnect(.failure(ActionWorkFailure("GitHub could not be updated. Refresh to try again.")))
+                == .failed("GitHub could not be updated. Refresh to try again."))
     }
 
     @Test(arguments: [
