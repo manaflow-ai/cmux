@@ -89,13 +89,8 @@ pub fn install_openh264(opts: &crate::args::Opts) -> Res<()> {
 
 /// The host enable flow's OpenH264 step without a separate command (`windows-host enable`):
 /// Cisco's library in the per-user data directory, downloaded from Cisco when it is not there
-/// yet. Its path.
-#[cfg(feature = "openh264")]
-pub fn ensure_openh264() -> Res<PathBuf> {
-    ensure_openh264_in(cmux_encode::cisco::default_dir())
-}
-
-/// [`ensure_openh264`] with the installer's directory given (`None`: there is none).
+/// yet. Its path. `dir` is the installer's directory (`cmux_encode::cisco::default_dir()`;
+/// `None`: there is none).
 #[cfg(feature = "openh264")]
 pub fn ensure_openh264_in(dir: Option<PathBuf>) -> Res<PathBuf> {
     let platform = Platform::current().ok_or("Cisco publishes no OpenH264 for this platform")?;
