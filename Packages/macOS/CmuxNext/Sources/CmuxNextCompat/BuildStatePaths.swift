@@ -211,3 +211,13 @@ extension BuildIdentity {
     /// tagged staging build (``needsBuildSpace``).
     public var isolatesSharedState: Bool { kind == .dev || needsBuildSpace }
 }
+
+extension BuildIdentity {
+    /// The folder name of the state a build keeps under its bundle id (`<Application Support>/<name>`,
+    /// `<Caches>/<name>`): the Chief home, the mobile host's state and the browser profiles. `bundleID` names
+    /// the build the caller resolves for; nil when it is blank.
+    public func stateFolderName(for bundleID: String?) -> String? {
+        guard let bundleID, !bundleID.isEmpty else { return nil }
+        return bundleID
+    }
+}

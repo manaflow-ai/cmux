@@ -707,3 +707,52 @@ fn classic_import_replies_match_the_embedded_catalog() {
     );
     assert_eq!(error_code(bad), "validation.invalid");
 }
+
+/// A DEV build never imports the person's classic data: its launch names its own folder
+/// (`CMUX_NEXT_CLASSIC_IMPORT_DIR`, BuildStatePaths), which stands for classic's Application Support. Classic's
+/// files there (none until someone puts a test session in) are the only ones read, and the ledger goes there too.
+#[test]
+fn dev_build_own_classic_import_never_reads_the_persons_classic() {
+    let mux = Mux::new_for_test("classic-import-dev-build", SurfaceOptions::default());
+    let home = home(true);
+    let own = home.0.join("dev-build/classic-import");
+    let (home_path, own_path) = (home.0.clone(), own.clone());
+    let places = Places::from_vars(|name| match name {
+        "HOME" => Some(home_path.clone().into_os_string()),
+        "CMUX_NEXT_CLASSIC_IMPORT_DIR" => Some(own_path.clone().into_os_string()),
+        _ => None,
+    })
+    .expect("places");
+    let empty = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
+    assert_eq!(
+        empty["source"],
+        Value::Null,
+        "a DEV build read the person's classic session: {empty}"
+    );
+    assert_eq!(empty["plan"], Value::Null);
+
+    // A classic session put in the build's own folder is the one it imports.
+    let session = own.join("cmux/session-com.cmuxterm.app.json");
+    std::fs::create_dir_all(session.parent().unwrap()).unwrap();
+    std::fs::copy(home.session(), &session).unwrap();
+    let own_plan = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
+    assert_eq!(own_plan["source"]["path"], session.to_string_lossy().as_ref(), "{own_plan}");
+
+    let fields = json!({"event": "seen", "bundle_id": BUNDLE});
+    let record = Record::parse(fields.as_object().unwrap()).unwrap();
+    let mutation = WorkspaceMutation::new(
+        "dev-build-seen".to_string(),
+        "resource-api",
+        crate::workspace_registry::Actor::Daemon,
+    )
+    .unwrap();
+    mux.classic_import_record(Some(&places), &mutation, &record).unwrap();
+    assert!(
+        own.join("cmux-next/com.cmuxterm.app/classic-migration/ledger.json").is_file(),
+        "the ledger is not in the build's own folder"
+    );
+    assert!(
+        !home.ledger().exists(),
+        "the DEV build wrote a ledger beside the person's classic data"
+    );
+}

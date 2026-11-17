@@ -28,6 +28,10 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         return SettingsBuildDefaults(values: values)
     }
 
+    /// The value of `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS` (``BuildStatePaths/settingsBuildDefaultsKey``) for this
+    /// build's Rust children: nil when the build has none.
+    public var childEnvironmentValue: String? { nil }
+
     /// `root` with every build default whose key it leaves unset.
     func filling(_ root: JSONValue) -> JSONValue {
         values.reduce(root) { root, entry in root.value(at: entry.key) == nil ? root.setting(entry.value, at: entry.key) : root }

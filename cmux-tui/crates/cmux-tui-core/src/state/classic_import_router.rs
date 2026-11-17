@@ -76,11 +76,16 @@ pub(crate) struct Places {
 
 impl Places {
     fn from_env() -> Option<Self> {
-        let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-        let home = std::env::var_os(var).filter(|value| !value.is_empty())?;
+        Self::from_vars(|name| std::env::var_os(name))
+    }
+
+    /// The places of a process with the environment `var`.
+    pub(crate) fn from_vars(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<Self> {
+        let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let home = var(home_var).filter(|value| !value.is_empty())?;
         Some(Self {
             home: PathBuf::from(home),
-            xdg_state_home: std::env::var("XDG_STATE_HOME").ok(),
+            xdg_state_home: var("XDG_STATE_HOME").and_then(|value| value.into_string().ok()),
             tmp: PathBuf::from("/tmp"),
         })
     }

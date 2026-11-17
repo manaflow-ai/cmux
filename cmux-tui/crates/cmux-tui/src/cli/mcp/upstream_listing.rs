@@ -29,9 +29,14 @@ pub(super) struct Listing {
     pub instructions: Option<String>,
 }
 
-/// The person's folder: `~/.cache/cmux/mcp-upstreams`.
+/// The folder of this process ([`dir_from`] its environment).
 pub(super) fn default_dir() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").filter(|h| !h.is_empty())?;
+    dir_from(|name| std::env::var_os(name))
+}
+
+/// The person's folder, `~/.cache/cmux/mcp-upstreams`, for the environment `env`.
+pub(super) fn dir_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let home = env("HOME").filter(|h| !h.is_empty())?;
     Some(Path::new(&home).join(".cache").join("cmux").join("mcp-upstreams"))
 }
 
@@ -177,6 +182,26 @@ pub(super) fn store(dir: &Path, spec: &Spec, key: &str, listing: &Listing) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A DEV build's `cmux mcp serve` keeps its tool lists in the build's own caches
+    /// (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, BuildStatePaths), never in `~/.cache/cmux`, which NIGHTLY shares.
+    #[test]
+    fn dev_build_own_mcp_upstreams_dir() {
+        let env = |name: &str| match name {
+            "HOME" => Some("/Users/me".into()),
+            "CMUX_NEXT_MCP_UPSTREAMS_DIR" => Some("/tmp/dev-build/mcp-upstreams".into()),
+            _ => None,
+        };
+        assert_eq!(dir_from(env), Some(PathBuf::from("/tmp/dev-build/mcp-upstreams")));
+        let shared = |name: &str| (name == "HOME").then(|| "/Users/me".into());
+        assert_eq!(dir_from(shared), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+        let blank = |name: &str| match name {
+            "HOME" => Some("/Users/me".into()),
+            "CMUX_NEXT_MCP_UPSTREAMS_DIR" => Some("".into()),
+            _ => None,
+        };
+        assert_eq!(dir_from(blank), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+    }
 
     fn spec(command: &Path, token: &str) -> Spec {
         Spec {

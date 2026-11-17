@@ -251,4 +251,38 @@ mod tests {
         };
         assert_eq!(error.exit_code(), crate::exit::UNAUTHENTICATED);
     }
+
+    /// A cmux DEV build names its own default config (`CMUX_VM_DEFAULT_CONFIG`): the person's
+    /// `~/.config/cmux/vm.json` is never read for it, and a missing own file is no error.
+    #[test]
+    fn dev_build_own_default_config_replaces_the_shared_file() {
+        let base =
+            std::env::temp_dir().join(format!("cmux-vm-default-config-{}", std::process::id()));
+        std::fs::create_dir_all(base.join("home/.config/cmux")).unwrap();
+        std::fs::write(
+            base.join("home/.config/cmux/vm.json"),
+            r#"{"apiKey":"cmuxvm_sk_person"}"#,
+        )
+        .unwrap();
+        let home = base.join("home").to_string_lossy().into_owned();
+        let own = base.join("own-vm.json");
+        let own_text = own.to_string_lossy().into_owned();
+        let env = |name: &str| match name {
+            "HOME" => Some(home.clone()),
+            "CMUX_VM_DEFAULT_CONFIG" => Some(own_text.clone()),
+            _ => None,
+        };
+        let missing = Settings::resolve_with_token(None, None, None, &env, None, 0);
+        assert!(
+            missing
+                .as_ref()
+                .map_or(true, |settings| settings.api_key != "cmuxvm_sk_person"),
+            "the person's vm.json was read for a DEV build"
+        );
+        std::fs::write(&own, r#"{"apiKey":"cmuxvm_sk_dev"}"#).unwrap();
+        let settings =
+            Settings::resolve_with_token(None, None, None, &env, None, 0).expect("resolve");
+        assert_eq!(settings.api_key, "cmuxvm_sk_dev");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
