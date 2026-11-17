@@ -2589,7 +2589,7 @@
       return HStack({ spacing: 12, alignment: "top" }, [
         column([header, nothingToday ? noMore : null, ...left.map((item) => itemView(item, twelve, true))]),
         column(right)
-      ]);
+      ]).frame({ maxWidth: "infinity", alignment: "topLeading" });
     }
     const more = (count) => count > 0 ? Text(t("more", "{count} more", { count })).font(TYPE.label).weight("semibold").color("secondary") : null;
     const tomorrowColumn = [dayLabel(t("tomorrow", "TOMORROW")).padding({ top: 4, bottom: 14 })];
@@ -2606,7 +2606,7 @@
         more(todayItems.length - blocks.left)
       ]),
       column(tomorrowColumn)
-    ]);
+    ]).frame({ maxWidth: "infinity", alignment: "topLeading" });
   }
   function column(children) {
     return VStack({ spacing: 6, alignment: "leading" }, [...children, Spacer()]).frame({ maxWidth: "infinity", maxHeight: "infinity", alignment: "topLeading" });

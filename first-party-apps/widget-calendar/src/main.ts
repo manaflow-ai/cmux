@@ -182,7 +182,7 @@ function layout(size: Size, header: View, day: ReturnType<typeof agenda>, twelve
     return HStack({ spacing: 12, alignment: "top" }, [
       column([header, nothingToday ? noMore : null, ...left.map((item) => itemView(item, twelve, true))]),
       column(right)
-    ])
+    ]).frame({ maxWidth: "infinity", alignment: "topLeading" })
   }
 
   // large: the rest of today on the left, tomorrow on the right.
@@ -200,7 +200,7 @@ function layout(size: Size, header: View, day: ReturnType<typeof agenda>, twelve
       more(todayItems.length - blocks.left)
     ]),
     column(tomorrowColumn)
-  ])
+  ]).frame({ maxWidth: "infinity", alignment: "topLeading" })
 }
 
 type Item = { kind: "allDay" | "timed"; e: CalendarEvent }
