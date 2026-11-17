@@ -96,8 +96,8 @@ pub(super) fn settle_new_pane(screen: &mut Screen, pane: PaneId, previous: PaneI
 #[derive(Debug)]
 struct PlanLost;
 
-impl std::fmt::Display for PlanLost {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for PlanLost {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .write_str("the quick terminal changed between the plan of the request and its act")
     }
