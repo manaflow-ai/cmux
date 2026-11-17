@@ -116,10 +116,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # A merged PR that already has a look receipt (any head) needs no look at its merge commit.
+          # A merged PR that already has a look receipt (any head) needs no look at its merge commit. Only a receipt
+          # read as there skips: an unreadable answer (the token out of quota) looks: a second look costs one fleet look
+          # and at most one comment (post edits the bot's own receipt comment), and skipping lost #45098's look (run 44033383427, 2026-11-17).
           if [[ "$MERGED" == true ]]; then
             receipt="$(python3 scripts/cmux-next/hot-verify-receipt.py --pr "$PR" --repo "$GITHUB_REPOSITORY")" || receipt="receipt=unknown"
-            if [[ "$receipt" != receipt=false ]]; then
+            if [[ "$receipt" == receipt=unknown ]]; then
+              echo "hot verify: #$PR's look receipt could not be read; looking at its merge commit anyway" | tee -a "$GITHUB_STEP_SUMMARY"
+            elif [[ "$receipt" != receipt=false ]]; then
               echo "eligible=false" >> "$GITHUB_OUTPUT"
               echo "hot verify: #$PR merged with a look receipt already ($receipt); no look at its merge commit" | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
