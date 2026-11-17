@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
+import { auditRequestId, recordAdminAudit, withAdminAudit } from "../../../../services/admin/auditLog";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -8,11 +8,16 @@ import {
 } from "../../../../services/admin/routeAuth";
 import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import { applySubscriptionAction } from "../../../../services/billing/subscriptionManagement";
+import {
+  AdminGrantConflictError,
+  AdminUserNotFoundError,
+  revokeFounderPurchaseAccess,
+} from "../../../../services/admin/proGrants";
 import { captureBillingError } from "../../../../services/errors";
 import { enforceBrowserMutationProtection } from "../../../../services/vms/routeHelpers";
 
 /**
- * POST /api/admin/subscriptions { scope: "user" | "team", ownerId, action: "cancel" | "resume" }
+ * POST /api/admin/subscriptions { scope: "user" | "team", ownerId, action: "cancel" | "resume" | "revoke-founder" }
  *
  * Manual downgrade for paying customers: cancel at period end (access stays
  * until the paid period ends) or resume a scheduled cancellation. Uses the
@@ -30,7 +35,11 @@ export async function POST(request: NextRequest) {
   return withAdminAudit(
     {
       actor: gate.admin,
-      action: parsed?.action === "resume" ? "subscription_resume" : "subscription_cancel",
+      action: parsed?.action === "resume"
+        ? "subscription_resume"
+        : parsed?.action === "revoke-founder"
+          ? "founder_access_revoke"
+          : "subscription_cancel",
       targetKind: parsed?.scope ?? "subscription",
       targetId: parsed?.ownerId ?? null,
       details: parsed ? { action: parsed.action, scope: parsed.scope } : null,
@@ -38,15 +47,27 @@ export async function POST(request: NextRequest) {
     },
     async () => {
       if (!parsed) return adminJsonResponse({ error: "invalid_body" }, 400);
-      if (!isStripeBillingConfigured()) {
+      if (parsed.action !== "revoke-founder" && !isStripeBillingConfigured()) {
         return adminJsonResponse({ error: "billing_unavailable" }, 503);
       }
-      return applySubscription(parsed, gate.admin.id);
+      if (parsed.action === "revoke-founder") {
+        return revokeFounderAccess(parsed, gate.admin, auditRequestId(request));
+      }
+      return applySubscription(
+        { scope: parsed.scope, ownerId: parsed.ownerId, action: parsed.action },
+        gate.admin.id,
+      );
     },
   );
 }
 
 type SubscriptionBody = {
+  scope: "user" | "team";
+  ownerId: string;
+  action: "cancel" | "resume" | "revoke-founder";
+};
+
+type RecurringSubscriptionBody = {
   scope: "user" | "team";
   ownerId: string;
   action: "cancel" | "resume";
@@ -57,12 +78,60 @@ function parseSubscriptionBody(body: unknown): SubscriptionBody | null {
   const { scope, ownerId, action } = body as { scope?: unknown; ownerId?: unknown; action?: unknown };
   if (scope !== "user" && scope !== "team") return null;
   if (typeof ownerId !== "string" || !ownerId.trim()) return null;
-  if (action !== "cancel" && action !== "resume") return null;
+  if (action !== "cancel" && action !== "resume" && action !== "revoke-founder") return null;
+  if (action === "revoke-founder" && scope !== "user") return null;
   return { scope, ownerId: ownerId.trim(), action };
 }
 
+/**
+ * Revokes the user's Founder's Edition purchase access (see
+ * revokeFounderPurchaseAccess). The revoked row ids are recorded in a
+ * `founders_revoke` audit row as soon as they commit; the surrounding
+ * `founder_access_revoke` row records the request outcome.
+ */
+async function revokeFounderAccess(
+  { ownerId }: SubscriptionBody,
+  admin: { id: string; primaryEmail: string | null },
+  requestId: string | null,
+): Promise<Response> {
+  try {
+    const { revokedFounderPurchaseIds } = await revokeFounderPurchaseAccess({
+      targetUserId: ownerId,
+      admin,
+      // recordAdminAudit never throws.
+      onFounderPurchasesRevoked: (rowIds) =>
+        recordAdminAudit({
+          actor: admin,
+          action: "founders_revoke",
+          targetKind: "user",
+          targetId: ownerId,
+          details: { subscriptionIds: [...rowIds] },
+          outcome: "ok",
+          requestId,
+        }),
+    });
+    if (revokedFounderPurchaseIds.length === 0) {
+      return adminJsonResponse({ error: "no_founder_entitlement" }, 404);
+    }
+    return adminJsonResponse({ ok: true, action: "revoke-founder" });
+  } catch (error) {
+    if (error instanceof AdminUserNotFoundError) {
+      return adminJsonResponse({ error: "user_not_found" }, 404);
+    }
+    if (error instanceof AdminGrantConflictError) {
+      return adminJsonResponse({ error: "mutation_in_progress" }, 409);
+    }
+    captureBillingError(error, {
+      route: "/api/admin/subscriptions",
+      action: "revoke-founder",
+      scope: "user",
+    });
+    return adminJsonResponse({ error: "billing_error" }, 502);
+  }
+}
+
 async function applySubscription(
-  { scope, ownerId, action }: SubscriptionBody,
+  { scope, ownerId, action }: RecurringSubscriptionBody,
   adminUserId: string,
 ): Promise<Response> {
   try {

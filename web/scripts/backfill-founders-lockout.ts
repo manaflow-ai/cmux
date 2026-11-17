@@ -227,7 +227,7 @@ export async function runFoundersLockoutBackfill(
       );
     }
 
-    await (dependencies.provision ?? recordFoundersCheckoutCompletion)(
+    const provisioned = await (dependencies.provision ?? recordFoundersCheckoutCompletion)(
       {
         session: resolved.session,
         subscription: resolved.subscription,
@@ -236,10 +236,15 @@ export async function runFoundersLockoutBackfill(
       },
       billingDependencies,
     );
+    // The recorder skips a purchase an admin revoked (or one it cannot
+    // provision); report that instead of claiming success.
+    const skipped = provisioned && typeof provisioned === "object" && "skipped" in provisioned
+      ? String(provisioned.skipped)
+      : null;
     const summary = {
       email: target.email,
-      status: "did" as const,
-      reason: "provisioned",
+      status: skipped ? ("skipped" as const) : ("did" as const),
+      reason: skipped ?? "provisioned",
       targetUserId: user.id,
       ...(duplicateUserIds.length > 0 ? { duplicateUserIds } : {}),
     };
