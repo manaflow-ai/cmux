@@ -104,7 +104,7 @@ impl Samples {
             let i = ((v.len() - 1) as f64 * q).round() as usize;
             (v[i] * 10.0).round() / 10.0
         };
-        json!({ "n": v.len(), "p50": at(0.5), "p90": at(0.9), "max": at(1.0) })
+        json!({ "n": v.len(), "p50": at(0.5), "p90": at(0.9), "p95": at(0.95), "max": at(1.0) })
     }
 }
 
