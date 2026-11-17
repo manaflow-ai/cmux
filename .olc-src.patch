@@ -1,0 +1,642 @@
+diff --git a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+index d200caafcc4..8ede2db16ab 100644
+--- a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
++++ b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+@@ -20,6 +20,7 @@ import { entranceAllowed, pageAway } from "../shared/pageReveal";
+ import { holdEntranceForFirstFrame } from "./conversation/entranceClock";
+ import {
+   layoutConversation,
++  LayoutBuffers,
+   type ConversationLayout,
+   type PlacedLayout,
+   type RowHeights,
+@@ -2481,6 +2482,9 @@ function TranscriptView({
+   const [drawn, setDrawn] = useState(LayeredMap.empty<DrawnHeight>);
+   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
++  // This transcript's layout arrays, reused from one estimate to the next (model.ts LayoutBuffers).
++  const layoutBuffers = useRef<LayoutBuffers | null>(null);
++  layoutBuffers.current ??= new LayoutBuffers();
+   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
+   /// The last estimate, whose unchanged leading rows the next one keeps.
+   const lastEstimate = useRef<LastEstimate | undefined>(undefined);
+@@ -3817,6 +3821,7 @@ function TranscriptView({
+       sessionId,
+       resizing,
+       nearView(lastPlaced.current, rows, sessionId),
++      layoutBuffers.current ?? undefined,
+     );
+     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
+     // Prepared text is kept for the PREPARED_ROWS most recently measured rows (model.ts), whatever the
+diff --git a/webviews/src/agent-session/acpmux/chips/replyFolders.ts b/webviews/src/agent-session/acpmux/chips/replyFolders.ts
+index fa34665aeb8..824b113196d 100644
+--- a/webviews/src/agent-session/acpmux/chips/replyFolders.ts
++++ b/webviews/src/agent-session/acpmux/chips/replyFolders.ts
+@@ -46,6 +46,42 @@ export function replyFolders(source: string): readonly string[] {
+   return folders.length ? folders : NONE;
+ }
+ 
++/// replyFolders for a text that grows at its end (a streaming reply, revealed a frame at a time).
++/// No path, link or code span the scan reads crosses a line break, so the folders of a text are its
++/// complete lines' folders, then its last line's, in order: complete lines are scanned once, as they
++/// complete, and only the line still arriving is scanned again. Once MAX_REPLY_FOLDERS are found in
++/// complete lines nothing more is scanned. A text that is not the last one grown starts over.
++export class ReplyFolderScan {
++  private source = "";
++  /// Where the complete lines end (after the last line break scanned).
++  private done = 0;
++  private settled: string[] = [];
++  private folders: readonly string[] = NONE;
++  // perf-hot: O(new text) per reveal frame chat-100k-flat
++  update(source: string): readonly string[] {
++    if (source === this.source) return this.folders;
++    if (!(source.length > this.source.length && source.startsWith(this.source))) {
++      this.done = 0;
++      this.settled = [];
++    }
++    this.source = source;
++    if (this.settled.length < MAX_REPLY_FOLDERS) {
++      const end = source.lastIndexOf("\n") + 1;
++      if (end > this.done) {
++        for (const folder of replyFolders(source.slice(this.done, end)))
++          if (this.settled.length < MAX_REPLY_FOLDERS && !this.settled.includes(folder)) this.settled.push(folder);
++        this.done = end;
++      }
++    }
++    const all = [...this.settled];
++    if (all.length < MAX_REPLY_FOLDERS)
++      for (const folder of replyFolders(source.slice(this.done)))
++        if (all.length < MAX_REPLY_FOLDERS && !all.includes(folder)) all.push(folder);
++    this.folders = all.length ? all : NONE;
++    return this.folders;
++  }
++}
++
+ /// A file name with no folder, as an agent writes one: a name and an extension of letters and
+ /// digits (`chromium-fixed-opaque.png`, `notes_v2.md`). Not a version (`4.5`), a host
+ /// (`example.com` has no file extension we know of below) or a sentence's last word.
+diff --git a/webviews/src/agent-session/acpmux/conversation/Markdown.tsx b/webviews/src/agent-session/acpmux/conversation/Markdown.tsx
+index 81acb51af45..6e5df796b0a 100644
+--- a/webviews/src/agent-session/acpmux/conversation/Markdown.tsx
++++ b/webviews/src/agent-session/acpmux/conversation/Markdown.tsx
+@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
+ // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
+ // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
+ // and `\[…\]` math typeset by KaTeX (see Math.tsx).
+-import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
++import { Fragment, memo, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+ 
+ import { CodeBlock } from "./CodeBlock";
+ import { InlinePreview } from "./InlinePreview";
+@@ -26,7 +26,7 @@ import type { Reveal } from "./revealedMarkdownModel";
+ import { installSelectionCopy } from "./selectionCopy";
+ 
+ import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
+-import { ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
++import { ReplyFolderScan, ReplyFoldersContext } from "../chips/replyFolders";
+ 
+ import "../../../markdown-task-checkbox.css";
+ import { TaskCheckbox } from "../../../ui/TaskCheckbox";
+@@ -35,7 +35,7 @@ import { acpmuxPerf } from "../perf";
+ import { useStartedMentions } from "../started/startedSessionCardModel";
+ import { entranceAllowed } from "../../shared/pageReveal";
+ 
+-import { type MdBlock, parseMarkdown, footnoteOrder, MAX_REPLY_DATA_URLS, dataUrlsOverBudget } from "./markdownModel";
++import { type MdBlock, parseMarkdown, FootnoteScan, MAX_REPLY_DATA_URLS, dataUrlsOverBudget } from "./markdownModel";
+ import { type InlineOptions, renderInline, InlineImage } from "./inlineMarkdown";
+ 
+ /// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
+@@ -475,12 +475,14 @@ export function Markdown({
+   const awayBlocks = useRef(new Set<string>());
+   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
+   // same object until a new reference arrives.
+-  // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
+-  // full footnote scan on source changes instead of repeating it for each animation frame.
+-  const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
++  // A revealing reply's source grows every frame: both scans read only what is new
++  // (FootnoteScan, ReplyFolderScan), not the whole reply each frame.
++  const [noteScan] = useState(() => new FootnoteScan());
++  const [folderScan] = useState(() => new ReplyFolderScan());
++  const noteIds = useMemo(() => noteScan.update(children).join(" "), [noteScan, children]);
+   // The folders this reply's paths are in, joined so a streaming reply keeps the same value (and
+   // its memoized blocks) until a new folder arrives; its bare file names may be files there.
+-  const folderKey = useMemo(() => replyFolders(children).join("\n"), [children]);
++  const folderKey = useMemo(() => folderScan.update(children).join("\n"), [folderScan, children]);
+   const folders = useMemo(() => (folderKey ? folderKey.split("\n") : []), [folderKey]);
+   // The reply's data URL budget; only a reply longer than the budget can pass it.
+   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
+diff --git a/webviews/src/agent-session/acpmux/conversation/markdownModel.tsx b/webviews/src/agent-session/acpmux/conversation/markdownModel.tsx
+index 19ab0c78ee2..96f82b5b71c 100644
+--- a/webviews/src/agent-session/acpmux/conversation/markdownModel.tsx
++++ b/webviews/src/agent-session/acpmux/conversation/markdownModel.tsx
+@@ -320,13 +320,42 @@ function parseList(lines: string[], start: number, depth: number, commonmark = f
+   return [{ type: "list", ordered, start: startNum, items }, i];
+ }
+ 
++/// Whether `source` can hold a footnote reference. A reference is "[^" in the text left once code
++/// is cut out. A fence starts at a line's start, so cutting one never puts a "[" next to anything
++/// but the line break before it; only a code span can join "[" to a "^" (`[` + "`x`" + `^1]`), and
++/// then the source has "[`". Without either pair there is no reference.
++export function mayHaveFootnote(source: string, from = 0): boolean {
++  return source.includes("[^", from) || source.includes("[`", from);
++}
++
++/// footnoteOrder for a text that grows at its end (a streaming reply, revealed a frame at a time):
++/// the pairs mayHaveFootnote looks for are searched in the new text only (and the character before
++/// it), so a reply with no footnote costs its new characters per frame, not its whole length. Once
++/// one may be there, each new text is scanned whole, as footnoteOrder always did.
++export class FootnoteScan {
++  private source = "";
++  private ids: readonly string[] = [];
++  private possible = false;
++  // perf-hot: O(new text) per reveal frame chat-100k-flat
++  update(source: string): readonly string[] {
++    if (source === this.source) return this.ids;
++    const grew = source.length > this.source.length && source.startsWith(this.source);
++    this.possible = grew
++      ? this.possible || mayHaveFootnote(source, Math.max(0, this.source.length - 1))
++      : mayHaveFootnote(source);
++    this.source = source;
++    this.ids = this.possible ? footnoteOrder(source) : [];
++    return this.ids;
++  }
++}
++
+ /// Footnotes are numbered in the order the reply first refers to them, so a number never
+ /// changes as the reply streams (a note's definition usually arrives last). Code is skipped, and
+ /// so is a label shaped like a regex class (`[^a-z]`), which prose writes outside code too.
+ export function footnoteOrder(source: string): string[] {
+   // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
+   // A streaming reply runs this on every reveal frame, and most replies have no footnote.
+-  if (!source.includes("^") || !source.includes("[")) return [];
++  if (!mayHaveFootnote(source)) return [];
+   const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
+   const ids: string[] = [];
+   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
+diff --git a/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts b/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts
+index 17d9cc149d3..19185c92c6e 100644
+--- a/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts
++++ b/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts
+@@ -53,17 +53,132 @@ const COMMIT_MS = 1000 / 60;
+ /// seven there, each a frame the reply did not grow while text waited.
+ const FAST_FRAME_MS = COMMIT_MS * 0.75;
+ 
+-/// A row's reveal loop: the frame it waits for (0 when idle), the display's frame time, and the
+-/// length of the text when it last grew, and when.
+-type Loop = {
+-  handle: number;
+-  lastFrame?: number;
+-  lastCommit?: number;
+-  frameMs: number;
+-  grownTo?: number;
+-  grewAt?: number;
++/// A row's reveal state: the length of the text when it last grew, and when.
++type Loop = { grownTo?: number; grewAt?: number };
++
++/// One row's work for a display frame: true while it has more to reveal or fade.
++/// `fadeMs` is the host's fade token, read once a frame for every row (a computed-style read each).
++type RevealTick = (now: number, away: boolean, fadeMs: number) => boolean;
++
++/// The longest run of frames the clock gives to pending input before it reveals anyway, so a
++/// stream of keys can never hold a reply back for more than a few frames.
++const MAX_INPUT_YIELDS = 3;
++
++/// Whether a key or pointer event waits for the main thread (Chromium's `isInputPending`). The
++/// reveal yields its frame to it; the next frame catches up to the same target.
++const inputPending = (): boolean => {
++  const scheduling = (globalThis.navigator as { scheduling?: { isInputPending?: () => boolean } } | undefined)
++    ?.scheduling;
++  try {
++    return scheduling?.isInputPending?.() === true;
++  } catch {
++    return false;
++  }
++};
++
++/// The one clock every revealing row runs on (chat-instant-under-load.md, piece 4). One display
++/// frame callback for the whole page, however many rows reveal: each due row advances in it, and
++/// React batches their state into one render and one commit. It holds a frame only while some row
++/// has more to reveal or fade, and stops when none has (its stop condition). Before it, each row
++/// ran its own frame loop and committed on its own.
++export const revealClock = {
++  rows: new Set<RevealTick>(),
++  handle: 0,
++  /// Which requested frame is the clock's: a frame callback the clock no longer waits for (cancelled,
++  /// or superseded) does nothing when it runs.
++  frame: 0,
++  running: false,
++  lastFrame: undefined as number | undefined,
++  lastCommit: undefined as number | undefined,
++  frameMs: COMMIT_MS,
++  yields: 0,
++  /// Rows taken off during the current frame's run (an unmount in a flushed render): not put back.
++  gone: new Set<RevealTick>(),
++  /// Runs `tick` from the next display frame on, until it returns false.
++  add(tick: RevealTick): void {
++    this.rows.add(tick);
++    if (!this.handle && !this.running) this.request();
++  },
++  /// Takes `tick` off the clock; the clock stops when no row is left.
++  remove(tick: RevealTick): void {
++    this.rows.delete(tick);
++    if (this.running) this.gone.add(tick);
++    if (this.rows.size || this.running) return;
++    this.stop();
++  },
++  request(): void {
++    const frame = (this.frame += 1);
++    this.handle = revealFrames.request((now) => {
++      if (frame === this.frame) revealFrame(now);
++    });
++  },
++  /// No row left: the frame is given back and the clock's timing starts over with the next row.
++  stop(): void {
++    if (this.handle) revealFrames.cancel(this.handle);
++    this.handle = 0;
++    this.frame += 1;
++    this.lastFrame = undefined;
++    this.lastCommit = undefined;
++  },
+ };
+ 
++function revealFrame(now: number): void {
++  const clock = revealClock;
++  clock.handle = 0;
++  if (!clock.rows.size) {
++    clock.stop();
++    return;
++  }
++  // Every tick is a display frame; a gap (a hidden page, a long task) counts as two at most.
++  if (clock.lastFrame !== undefined && now >= clock.lastFrame)
++    clock.frameMs = clock.frameMs * 0.8 + Math.min(now - clock.lastFrame, 2 * COMMIT_MS) * 0.2;
++  clock.lastFrame = now;
++  // Text that arrived while the page was hidden shows at once, with no fade; nobody watched it
++  // arrive. WebKit runs no frames while a page is hidden, so this tick usually runs as the page
++  // shows again: until its first frame back has passed, the backlog counts as away too
++  // (shared/pageReveal.ts), and its blocks draw in place (Markdown's awayBlocks).
++  const away = pageAway();
++  // A key waiting for the thread goes first; the reveal catches up to the same target next frame.
++  if (!away && clock.yields < MAX_INPUT_YIELDS && inputPending()) {
++    clock.yields += 1;
++    clock.request();
++    return;
++  }
++  clock.yields = 0;
++  if (
++    !away &&
++    clock.frameMs < FAST_FRAME_MS &&
++    clock.lastCommit !== undefined &&
++    now >= clock.lastCommit &&
++    now - clock.lastCommit < FAST_FRAME_MS
++  ) {
++    clock.request();
++    return;
++  }
++  clock.lastCommit = now;
++  const due = [...clock.rows];
++  clock.rows.clear();
++  clock.running = true;
++  const run = () => {
++    const fadeMs = freshFadeMs();
++    for (const tick of due)
++      if (!clock.gone.has(tick) && tick(now, away, fadeMs) && !clock.gone.has(tick)) clock.rows.add(tick);
++  };
++  try {
++    // The backlog commits in this frame, before it paints, for every row at once: a state update
++    // from a frame callback renders in a later task, so the first frame back showed the reply as
++    // the user left it and the next one grew it and moved the transcript (Leo 2026-10-20, "no
++    // layout shifts"). Only a page coming back takes this path; a streaming frame never does.
++    if (away) flushSync(run);
++    else run();
++  } finally {
++    clock.running = false;
++    clock.gone.clear();
++  }
++  if (clock.rows.size) clock.request();
++  else clock.stop();
++}
++
+ /// The part of `text` to show this frame, and the steps still fading in.
+ export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
+   const reveal = useRef<StreamReveal | null>(null);
+@@ -81,14 +196,49 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
+   const latest = useRef({ text: displayText, streaming, shown });
+   latest.current = { text: displayText, streaming, shown };
+   const nextId = useRef(0);
+-  const loop = useRef<Loop>({ handle: 0, frameMs: COMMIT_MS });
+-  // One loop per row, running while anything is left to reveal or fade. A new snapshot (once a
+-  // frame while the reply streams) starts it only if it is idle; it reads the latest text itself.
+-  // Restarting it on every snapshot re-requested its frame each time and threw away its timing.
++  const loop = useRef<Loop>({});
++  // This row's work on the page's one reveal clock (revealClock), made once: it reads the latest
++  // text and state itself, so a new snapshot (once a frame while the reply streams) only puts it on
++  // the clock when it is off, never restarts it.
++  const [tick] = useState<RevealTick>(() => (now, away, fadeMs) => {
++    const current = reveal.current!;
++    const state = loop.current;
++    const before = latest.current.shown;
++    const { text: target, streaming: live } = latest.current;
++    if (state.grownTo !== target.length) {
++      state.grownTo = target.length;
++      state.grewAt = now;
++    }
++    const raw = current.advance(target, now, !live);
++    // A word shows once it is whole, never a letter at a time (#22339); the reveal's own count
++    // runs on, so a word that completes shows at once. The last word counts as whole once text
++    // stops arriving: before a tool call it has no space after it, and the agent may work on the
++    // call for seconds.
++    const paused = now - state.grewAt! >= StreamReveal.stallMs;
++    let length = reduce.current ? raw : wordEdge(target, raw, !live || paused, before.length);
++    // After `advance`, which takes in the text received meanwhile: all of it shows.
++    if (away) {
++      current.flush();
++      length = latest.current.text.length;
++    }
++    // Nothing fades in on return, including the steps that were fading as the page hid.
++    const fresh = away ? [] : before.fresh.filter((step) => now - step.born < fadeMs);
++    if (length > before.length && !reduce.current && !away)
++      fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
++    // A frame that only waits out a held last word commits nothing. Every row's update in a frame
++    // lands in the clock's one callback, so React renders and commits them together.
++    if (length !== before.length || fresh.length || before.fresh.length) {
++      const next = { length, fresh, now };
++      latest.current.shown = next;
++      setShown(next);
++    }
++    const held = length < target.length;
++    return !current.settled || fresh.length > 0 || held;
++  });
+   useLayoutEffect(() => {
+     const current = reveal.current!;
+     // A completed historical row is already settled when it is published. If a page swap gives
+-    // it a fuller body, paint that body in the same commit; waiting for the reveal loop would show
++    // it a fuller body, paint that body in the same commit; waiting for the reveal clock would show
+     // the old prefix and animate the restored suffix as if it were new text.
+     if (historicalReplacement) {
+       current.replace(displayText);
+@@ -97,69 +247,10 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
+       setShown(next);
+       return;
+     }
+-    if (loop.current.handle) return;
++    if (revealClock.rows.has(tick)) return;
+     if (current.settled && shown.length >= displayText.length && !shown.fresh.length) return;
+-    loop.current.lastFrame = undefined;
+-    const tick = (now: number) => {
+-      const state = loop.current;
+-      state.handle = 0;
+-      // Every tick is a display frame; a gap (a hidden page, a long task) counts as two at most.
+-      if (state.lastFrame !== undefined)
+-        state.frameMs = state.frameMs * 0.8 + Math.min(now - state.lastFrame, 2 * COMMIT_MS) * 0.2;
+-      state.lastFrame = now;
+-      // Text that arrived while the page was hidden shows at once, with no fade; nobody watched it
+-      // arrive. WebKit runs no frames while a page is hidden, so this tick usually runs as the page
+-      // shows again: until its first frame back has passed, the backlog counts as away too
+-      // (shared/pageReveal.ts), and its blocks draw in place (Markdown's awayBlocks).
+-      const away = pageAway();
+-      if (
+-        !away &&
+-        state.frameMs < FAST_FRAME_MS &&
+-        state.lastCommit !== undefined &&
+-        now - state.lastCommit < FAST_FRAME_MS
+-      ) {
+-        state.handle = revealFrames.request(tick);
+-        return;
+-      }
+-      state.lastCommit = now;
+-      const before = latest.current.shown;
+-      const { text: target, streaming: live } = latest.current;
+-      if (state.grownTo !== target.length) {
+-        state.grownTo = target.length;
+-        state.grewAt = now;
+-      }
+-      const raw = current.advance(target, now, !live);
+-      // A word shows once it is whole, never a letter at a time (#22339); the reveal's own count
+-      // runs on, so a word that completes shows at once. The last word counts as whole once text
+-      // stops arriving: before a tool call it has no space after it, and the agent may work on the
+-      // call for seconds.
+-      const paused = now - state.grewAt! >= StreamReveal.stallMs;
+-      let length = reduce.current ? raw : wordEdge(target, raw, !live || paused, before.length);
+-      // After `advance`, which takes in the text received meanwhile: all of it shows.
+-      if (away) {
+-        current.flush();
+-        length = latest.current.text.length;
+-      }
+-      // Nothing fades in on return, including the steps that were fading as the page hid.
+-      const fadeMs = freshFadeMs();
+-      const fresh = away ? [] : before.fresh.filter((step) => now - step.born < fadeMs);
+-      if (length > before.length && !reduce.current && !away)
+-        fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
+-      // A frame that only waits out a held last word commits nothing.
+-      if (length !== before.length || fresh.length || before.fresh.length) {
+-        const next = { length, fresh, now };
+-        latest.current.shown = next;
+-        // The backlog commits in this frame, before it paints: a state update from a frame callback
+-        // renders in a later task, so the first frame back showed the reply as the user left it and
+-        // the next one grew it and moved the transcript (Leo 2026-10-20, "no layout shifts").
+-        if (away) flushSync(() => setShown(next));
+-        else setShown(next);
+-      }
+-      const held = length < target.length;
+-      if (!current.settled || fresh.length || held) state.handle = revealFrames.request(tick);
+-    };
+-    loop.current.handle = revealFrames.request(tick);
+-    // `shown` is read only to skip a loop that has nothing to do.
++    revealClock.add(tick);
++    // `shown` is read only to skip a row that has nothing to do.
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [displayText, historicalReplacement, shown, streaming]);
+   useLayoutEffect(() => {
+@@ -169,13 +260,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
+   useLayoutEffect(() => {
+     setPrevious({ text, streaming });
+   }, [text, streaming]);
+-  useLayoutEffect(() => {
+-    const state = loop.current;
+-    return () => {
+-      revealFrames.cancel(state.handle);
+-      state.handle = 0;
+-    };
+-  }, []);
++  useLayoutEffect(() => () => revealClock.remove(tick), [tick]);
+   // Reduce Motion can change while the row is mounted, and the stylesheet follows it at once.
+   // Turned on, the whole reply shows now: the pending frame is cancelled and no step is left
+   // fading; later text shows as it arrives. Turned off, later text is paced again.
+@@ -188,9 +273,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
+       reduce.current = on;
+       reveal.current!.setReduceMotion(on, latest.current.text);
+       if (!on) return;
+-      const state = loop.current;
+-      revealFrames.cancel(state.handle);
+-      state.handle = 0;
++      revealClock.remove(tick);
+       const { text: target, shown: before } = latest.current;
+       if (before.length === target.length && !before.fresh.length) return;
+       const next = { length: target.length, fresh: [], now: before.now };
+@@ -200,7 +283,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
+     changed();
+     query.addEventListener("change", changed);
+     return () => query.removeEventListener("change", changed);
+-  }, []);
++  }, [tick]);
+   return {
+     visible: historicalReplacement ? displayText : displayText.slice(0, Math.min(shown.length, displayText.length)),
+     fresh: historicalReplacement ? [] : shown.fresh,
+diff --git a/webviews/src/agent-session/acpmux/model.ts b/webviews/src/agent-session/acpmux/model.ts
+index 0f3dbfe2192..5c0acd6a330 100644
+--- a/webviews/src/agent-session/acpmux/model.ts
++++ b/webviews/src/agent-session/acpmux/model.ts
+@@ -3250,6 +3250,105 @@ export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edg
+ /// like chatgpt").
+ export const isOverlayFooter = (row: AcpmuxRow) => row.kind === "turnSummary" && isEmptyFooter(row);
+ 
++type LayoutArrays = { gaps: Float64Array; marks: Uint8Array; tops: Float64Array; heights: Float64Array };
++
++/// New arrays of `length` rows holding `previous`'s first `start` rows.
++function freshLayoutArrays(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
++  const arrays = {
++    gaps: new Float64Array(length),
++    marks: new Uint8Array(length),
++    tops: new Float64Array(length),
++    heights: new Float64Array(length),
++  };
++  if (previous && start > 0) copyLayoutRows(arrays, previous, 0, start);
++  return arrays;
++}
++
++function copyLayoutRows(into: LayoutArrays, from: ConversationLayout, begin: number, end: number): void {
++  if (end <= begin) return;
++  if (from.gaps) into.gaps.set(from.gaps.subarray(begin, end), begin);
++  else into.gaps.fill(0, begin, end);
++  if (from.marks) into.marks.set(from.marks.subarray(begin, end), begin);
++  else into.marks.fill(0, begin, end);
++  into.tops.set(from.tops.subarray(begin, end), begin);
++  into.heights.set(from.heights.subarray(begin, end), begin);
++}
++
++/// How many layouts' arrays a transcript keeps before it writes over the oldest. The transcript
++/// reads the newest estimate and the placement made from the one before it (a placement keeps the
++/// estimate's `marks` and `gaps`; PlacedHeightIndex copies what it keeps), so three leave one spare.
++const LAYOUT_BUFFER_SETS = 3;
++
++/// A transcript's layout arrays, kept from one layout to the next (chat-instant-under-load.md piece
++/// 4). Before, every new rows array (a streamed token) allocated four arrays of the chat's row count
++/// and copied every unchanged row into them: about 128 KB of garbage a token in a 4,000-row chat, the
++/// god chat's extra collector time. Now a set's capacity grows by doubling, and a layout writes
++/// into the set written longest ago, copying only the rows that changed since that set was written.
++export class LayoutBuffers {
++  private sets: { arrays?: LayoutArrays; generation: number }[] = Array.from({ length: LAYOUT_BUFFER_SETS }, () => ({
++    generation: -1,
++  }));
++  private generation = 0;
++  /// Per generation: the first row its layout may differ from the one before it in.
++  private written = new Map<number, number>();
++  private last: { layout?: ConversationLayout; set: number } = { set: -1 };
++  private pending?: { set: number; from: number };
++
++  // perf-hot: O(changed rows) per streamed token chat-100k-flat
++  take(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
++    const index = (this.last.set + 1) % LAYOUT_BUFFER_SETS;
++    const set = this.sets[index]!;
++    let arrays = set.arrays;
++    const lineal = previous !== undefined && previous === this.last.layout;
++    if (!arrays || arrays.tops.length < length) {
++      const capacity = Math.max(length, (arrays?.tops.length ?? 0) * 2, 64);
++      arrays = {
++        gaps: new Float64Array(capacity),
++        marks: new Uint8Array(capacity),
++        tops: new Float64Array(capacity),
++        heights: new Float64Array(capacity),
++      };
++      set.arrays = arrays;
++      set.generation = -1;
++    }
++    // Rows this set already holds as `previous` does: those before the first row any layout written
++    // since this set changed. Anything else is copied from `previous`.
++    let agree = 0;
++    if (lineal && set.generation >= 0) {
++      agree = start;
++      for (let generation = set.generation + 1; generation < this.generation; generation += 1)
++        agree = Math.min(agree, this.written.get(generation) ?? 0);
++    }
++    if (previous && start > agree) copyLayoutRows(arrays, previous, agree, start);
++    // Rows a layout leaves alone (a row that draws nothing keeps no gap) read 0, as in new arrays.
++    arrays.gaps.fill(0, start, length);
++    // Until `wrote`, the set holds no generation's layout whole (a layout that throws leaves it so).
++    set.generation = -1;
++    this.pending = { set: index, from: lineal ? start : 0 };
++    return {
++      gaps: arrays.gaps.subarray(0, length),
++      marks: arrays.marks.subarray(0, length),
++      tops: arrays.tops.subarray(0, length),
++      heights: arrays.heights.subarray(0, length),
++    };
++  }
++
++  /// Records the layout `take`'s arrays went into.
++  wrote(layout: ConversationLayout): void {
++    const pending = this.pending;
++    if (!pending) return;
++    this.pending = undefined;
++    this.written.set(this.generation, pending.from);
++    this.sets[pending.set]!.generation = this.generation;
++    this.generation += 1;
++    // A set reads the generations after its own: older ones are dropped, so at most a few are kept.
++    let oldest = this.generation;
++    for (const each of this.sets) if (each.generation >= 0) oldest = Math.min(oldest, each.generation);
++    for (const generation of this.written.keys()) if (generation <= oldest) this.written.delete(generation);
++    this.last = { layout, set: pending.set };
++  }
++}
++
+ /** DOM-free row geometry. Only visible rows need their React elements painted. */
+ export function layoutConversation(
+   rows: readonly AcpmuxRow[],
+@@ -3275,17 +3374,16 @@ export function layoutConversation(
+   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
+   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
+   near?: { from: number; to: number },
++  /// The caller's reusable arrays (LayoutBuffers): one per transcript, never shared between two.
++  buffers?: LayoutBuffers,
+ ): ConversationLayout {
+-  const gaps = new Float64Array(rows.length);
+-  const marks = new Uint8Array(rows.length);
+-  const tops = new Float64Array(rows.length);
+-  const heights = new Float64Array(rows.length);
+   const messages = new MessagePlacement(rows, previous?.layout);
+   const scale = gridScale();
+   chromeScale = scale;
+   let start = 0;
+   // Kept rows keep their gaps only at the scale they were placed at.
+-  if (previous && (previous.layout.scale ?? 1) === scale) {
++  const keeps = previous !== undefined && (previous.layout.scale ?? 1) === scale;
++  if (keeps) {
+     const limit = Math.min(rows.length, previous.rows.length);
+     while (start < limit && rows[start] === previous.rows[start]) start += 1;
+     // A row after the kept ones can change the height of the last kept row that draws (a footer
+@@ -3298,11 +3396,13 @@ export function layoutConversation(
+         rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
+     )
+       start = drawn;
+-    if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
+-    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
+-    tops.set(previous.layout.tops.subarray(0, start));
+-    heights.set(previous.layout.heights.subarray(0, start));
+   }
++  // The rows before `start` keep the last layout's places. With `buffers` (the transcript's own), the
++  // arrays are reused and only what changed since they were last written is copied: a delta to the
++  // last row writes O(1) entries and allocates nothing. Without, new arrays as before.
++  const { gaps, marks, tops, heights } = buffers
++    ? buffers.take(keeps ? previous.layout : undefined, start, rows.length)
++    : freshLayoutArrays(keeps ? previous.layout : undefined, start, rows.length);
+   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+   // Kept rows may hold a remembered height of their own.
+   let remembered = start > 0 && previous?.layout.remembered === true;
+@@ -3399,6 +3499,7 @@ export function layoutConversation(
+   };
+   trimPreparedRows(cache);
+   messages.finish(rows, layout);
++  buffers?.wrote(layout);
+   return layout;
+ }
+ 

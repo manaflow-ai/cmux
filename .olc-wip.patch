@@ -1,0 +1,878 @@
+diff --git a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+index 8ede2db16ab..8fc8b4fed15 100644
+--- a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
++++ b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+@@ -53,7 +53,7 @@ import {
+   SINCE_DIVIDER,
+ } from "./model";
+ import { RowFrameCache } from "./conversation/rowFrameCache";
+-import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
++import { ThreadMinimapRail, useMinimapSource } from "./threadMinimap/ThreadMinimap";
+ import { railOwnsWheel } from "./threadMinimap/railWheel";
+ import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
+ import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
+@@ -119,6 +119,7 @@ import {
+ import { stopReadingAloud } from "./conversation/readAloud";
+ import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
+ import { FoldRide } from "./conversation/foldRide";
++import { inputPending } from "./conversation/revealedMarkdownModel";
+ import { deliberateClick } from "./conversation/useAnchoredCollapse";
+ import { isRegroupHold } from "./conversation/keepOpenedLineModel";
+ import {
+@@ -299,7 +300,16 @@ type ReportDrawn = (
+ ) => void;
+ 
+ /// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
+-type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boolean, status?: string) => () => void;
++/// `versionOnly`: only the row's version changed since its last queue (a streamed token), which the
++/// row's ResizeObserver reports if it changed the row's size (queueDrawn).
++type QueueDrawn = (
++  node: HTMLElement,
++  id: string,
++  version: number,
++  actions?: boolean,
++  status?: string,
++  versionOnly?: boolean,
++) => () => void;
+ 
+ /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
+ /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
+@@ -307,6 +317,9 @@ type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boo
+ /// that never came) is 0 high, and is placed at 0. Dropping that 0 as "not laid out" kept the row's
+ /// estimate, 26px for each of its items, as blank space in the transcript (Leo, 2026-10-21: a
+ /// screen-tall gap under "Worked for" and under an opened fold's last command).
++/// The cleanup of a row whose commit queued no measure.
++const noQueue = () => {};
++
+ function drawnHeightOf(node: HTMLElement): number | undefined {
+   const height = node.getBoundingClientRect().height;
+   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
+@@ -599,9 +612,32 @@ const RowFrame = React.memo(function RowFrame({
+     observer.observe(node);
+     return () => observer.unobserve(node);
+   }, [observer]);
++  // What the last queue was for, but the version: a commit that changed only the version (a streamed
++  // token) is one the row's observer reports when it changed the row's size (queueDrawn).
++  const queuedFor = useRef<readonly unknown[] | undefined>(undefined);
+   useLayoutEffect(() => {
+     const node = ref.current;
+-    if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
++    if (!node) return;
++    const was = queuedFor.current;
++    const now = [
++      row.id,
++      replyActions,
++      status,
++      rowWidth,
++      expanded,
++      joinsPrevious,
++      joinsNext,
++      beforeFooter,
++      lastFooter,
++      continuationFooter,
++      lastTurn,
++      queueDrawn,
++      // The observer sees the content box: a class that moves the padding is read here.
++      node.className,
++    ];
++    queuedFor.current = now;
++    const versionOnly = was !== undefined && now.every((value, at) => value === was[at]);
++    return queueDrawn(node, row.id, row.version, replyActions, status, versionOnly);
+   }, [
+     row.id,
+     row.version,
+@@ -1031,16 +1067,27 @@ function holdUnderStack(
+ /// while it rounds the content's height, so the end as written rested a pixel short of the
+ /// scroller's own; past it, the browser clamps the offset to that end.
+ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
++  return settleFollowBottomAt(node, latest).moved;
++}
++
++/// `settleFollowBottom`, and the physical offset it left the scroller at: every read is before its
++/// style write, and the caller takes the offset from here, never from the scroller after this pass
++/// wrote to the page (each such read lays the page out again, per streamed token).
++function settleFollowBottomAt(node: HTMLElement, latest: number): { moved: boolean; top: number } {
+   const end = Math.ceil(latest - 0.01);
++  const current = node.scrollTop;
+   // Where the write lands: a scroller already clamped there is at its end.
+   const lands = Math.min(end, Math.max(0, node.scrollHeight - node.clientHeight));
+-  const moved = Math.abs(lands - node.scrollTop) > 0.5;
++  const moved = Math.abs(lands - current) > 0.5;
+   if (moved) node.scrollTop = end;
++  // Where the browser put it, read right after the scroll write and before the origin's style write
++  // below: a scroll write leaves the page laid out, so this read lays nothing out again.
++  const top = moved ? node.scrollTop : current;
+   // Measurements above the view can move the logical end by half a pixel while the physical
+   // end stays rounded. Keep that fraction even when the browser already clamped to the end,
+   // so releasing follow before the next wheel does not inherit a half-pixel row jump.
+   retainScrollOrigin(node, latest);
+-  return moved;
++  return { moved, top };
+ }
+ 
+ /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
+@@ -2119,6 +2166,10 @@ function TranscriptView({
+     tailGlide.current?.stop();
+     chaseAnchor.current = undefined;
+   }, []);
++  /// The scroller's physical offset and height as the placement pass last read or wrote them, while
++  /// that pass runs: its chase takes them from here instead of reading the scroller after the pass
++  /// wrote to the page. Undefined outside it (a send's chase reads).
++  const pinView = useRef<{ top: number; height: number } | undefined>(undefined);
+   /// The followed view's pass moved the rows (or may have): how far the row in view the last pass
+   /// noted moved on screen is one move of the chase, which draws the thread back by it and chases
+   /// home; then the row now in view is noted for the next pass. O(1): one row looked up by id, one
+@@ -2140,7 +2191,8 @@ function TranscriptView({
+       return row ? row.getBoundingClientRect().top - chase.outstanding() : undefined;
+     };
+     const before = chaseAnchor.current;
+-    const now = before ? rowTop(before.id) : undefined;
++    // Read only for a move it chases: a pass that moves at once never uses it.
++    const now = before && !moveAtOnce ? rowTop(before.id) : undefined;
+     // Followed again after the reader's input held it: it goes on home from where it is drawn.
+     resumeFollowMotion();
+     chase.fit(below);
+@@ -2148,7 +2200,13 @@ function TranscriptView({
+     const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
+     if (before && now !== undefined && !moveAtOnce && !turnEnding)
+       chase.shift(thread.current, now - before.top, below, held, arrived, sent);
+-    const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
++    const view = pinView.current;
++    const first = visibleLayoutRange(
++      placed,
++      view ? view.top - scrollOrigin(node) : layoutScrollTop(node),
++      view ? view.height : node.clientHeight,
++      0,
++    ).first;
+     const id = shown[Math.min(first, shown.length - 1)]?.id;
+     const top = id === undefined ? undefined : rowTop(id);
+     chaseAnchor.current = id !== undefined && top !== undefined ? { id, top } : undefined;
+@@ -2619,7 +2677,9 @@ function TranscriptView({
+   /// of comparing the rows again (model.ts minimapTurns).
+   const rowsChange = useRef<RowsChange | undefined>(undefined);
+   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
+-  const minimapPlaced = useRef<(() => void) | undefined>(undefined);
++  const minimapPlaced = useRef<((top?: number) => void) | undefined>(undefined);
++  /// The minimap's handle on the rows, layout and offset: it renders only when what it draws changes.
++  const minimapSource = useMinimapSource();
+   const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
+   /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
+   const [rowFrameCache] = useState(() => new RowFrameCache());
+@@ -2775,7 +2835,23 @@ function TranscriptView({
+     [sessionId],
+   );
+   const queueDrawn = useCallback<QueueDrawn>(
+-    (node, id, version, actions, status) => {
++    (node, id, version, actions, status, versionOnly) => {
++      // A streamed token: no height read in the commit (a forced layout after React's writes, the top
++      // one per token in a long chat). A row it resized is reported by the row's observer, in the
++      // browser's own layout pass, before the frame paints (`observer` below); one it left at its
++      // height keeps the height already placed, whose version differs only in a field placement
++      // never reads. Read here only when no height is kept for the row as it is drawn now.
++      if (versionOnly && typeof ResizeObserver !== "undefined") {
++        const known = drawnRef.current.get(id);
++        if (
++          known &&
++          known.sessionId === sessionId &&
++          known.width === rowWidthRef.current &&
++          Boolean(known.actions) === Boolean(actions) &&
++          known.status === (status || undefined)
++        )
++          return noQueue;
++      }
+       const measure = () => {
+         if (!node.isConnected || node.dataset.rowId !== id) return;
+         reportDrawn(
+@@ -2792,7 +2868,7 @@ function TranscriptView({
+         if (pendingMeasures.current.get(node) === measure) pendingMeasures.current.delete(node);
+       };
+     },
+-    [reportDrawn],
++    [reportDrawn, sessionId],
+   );
+   // All of a commit's reports land in one update, before the frame paints.
+   /// Rows whose drawn height changed since the last placement, which places again from the first.
+@@ -3126,12 +3202,15 @@ function TranscriptView({
+             // it's lagging, there's a breif moment where ther'es overlapping text between the sent
+             // out text (from you) and the subequent tool calls/thinking"). A row in sight is placed
+             // before paint, as a followed view's is.
++            // Not while a key or pointer event waits: a synchronous render here holds the typed
++            // character behind it, so the frame's own commit places the rows instead.
+             else if (
+-              rode ||
+-              followingRef.current ||
+-              targets.some(heightFoldInFlight) ||
+-              foldHolding(foldAnchor.current) ||
+-              inSight(ref.current, targets)
++              !inputPending() &&
++              (rode ||
++                followingRef.current ||
++                targets.some(heightFoldInFlight) ||
++                foldHolding(foldAnchor.current) ||
++                inSight(ref.current, targets))
+             ) {
+               for (let pass = 0; pass < 3; pass += 1) {
+                 if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+@@ -4509,6 +4588,13 @@ function TranscriptView({
+     const old = switched ? null : previousLayout.current;
+     const oldRows = previousRows.current;
+     const node = ref.current;
++    // The scroller's physical offset and height as this pass read or wrote them last (the read
++    // phase in the branch that places the view), so the pass never reads the scroller back after
++    // it wrote to the page: each such read laid the whole page out again, per streamed token.
++    // Undefined where a branch moved the offset without keeping it here: the pass reads then.
++    let passTop: number | undefined;
++    let passHeight: number | undefined;
++    pinView.current = undefined;
+     // Code that scrolled the view since the last pass wins over a held line (releaseFoldHold).
+     if (old && node) releaseFoldHold(node);
+     // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
+@@ -4530,7 +4616,8 @@ function TranscriptView({
+     if (old && node) releaseBottomStackFold(node);
+     const stack = bottomStackFold.current;
+     const bottomStacking = Boolean(old && node && stack && foldAnchor.current?.toggle === stack.toggle);
+-    const heldFrom = node?.scrollTop ?? 0;
++    // Only a held line reads it: a pass with none (each streamed token's) never does.
++    const heldFrom = !bottomStacking && old && node && foldAnchor.current ? node.scrollTop : 0;
+     // Under load the click's change reaches this pass late (the row's ResizeObserver runs after the
+     // browser lays out what opened, and no pass may run in between): the hold waits for it, then runs
+     // its span (foldAnchor.ts `notePlacement`), so a slow render never finds it over and follows the
+@@ -4551,8 +4638,8 @@ function TranscriptView({
+       // difference on the compositor. A late measure updates that same effect on its original clock,
+       // never starts another animation or drives a per-frame layout/scroll loop.
+       const latest = Math.max(0, layout.totalHeight - height);
+-      settleFollowBottom(node, latest);
+-      const delta = layoutScrollTop(node) - stack.beforeTop;
++      const pinned = settleFollowBottomAt(node, latest).top;
++      const delta = pinned - scrollOrigin(node) - stack.beforeTop;
+       const host = thread.current;
+       // A control with no height fold of its own (a shell block's Show all output, a failure's
+       // Details, Raw, Wrap lines) lays out in one step: the thread slides to it, as whole rows do.
+@@ -4597,9 +4684,10 @@ function TranscriptView({
+       // Every pass takes the offset it pinned as its base, a height fold's frames too: a late measure
+       // after that fold ends slides only by what it adds, never by the whole fold again.
+       stack.delta = delta;
+-      stack.pinned = node.scrollTop;
++      stack.pinned = pinned;
++      passTop = pinned;
+       scrollPacer.current?.cancel();
+-      setScrollAt(node.scrollTop);
++      setScrollAt(pinned);
+     } else if (
+       folding &&
+       node &&
+@@ -4654,6 +4742,9 @@ function TranscriptView({
+       // The live extent may already have shrunk and clamped the offset before reconciliation.
+       // Keep that boundary as well as the old total so the clamp never reads as upward input.
+       const end = Math.min(node.scrollHeight, old.totalHeight) - viewHeight;
++      // The pass's read phase ends here: from now on it knows the offset and height it reads below.
++      passTop = live;
++      passHeight = liveHeight;
+       const recentUp = readerUpPending.current && live < scrolledTo.current.top;
+       const clamped = !recentUp && live < scrolledTo.current.top - 0.5 && live >= end - 1;
+       // A reader's move can reach the live offset before its scroll event. Layout changes alone
+@@ -4710,7 +4801,11 @@ function TranscriptView({
+         // Retargeting a native smooth-scroll here restarted its easing at every measurement.
+         if (jumping) jumpTarget.current = latest;
+         followDeferred.current = !jumping && userScrollIntent(node).isHeld() && !followRequest.current?.();
+-        const settled = jumping ? clamped : (!followDeferred.current && settleFollowBottom(node, latest)) || clamped;
++        const settle = jumping || followDeferred.current ? undefined : settleFollowBottomAt(node, latest);
++        if (settle) passTop = settle.top;
++        // The chase below reads where the view is from here, not from the scroller it just wrote.
++        pinView.current = { top: passTop, height: liveHeight };
++        const settled = jumping ? clamped : settle?.moved || clamped;
+         if (settled) followTrace.set(latest);
+         // The rise this pass took, eased on screen (followGlide.ts): the same rows, the reply's
+         // new line landing in the room the live line keeps under it. Anything else (a row that came
+@@ -4718,7 +4813,7 @@ function TranscriptView({
+         // In layout coordinates: the sub-pixel origin a settle keeps (scrollCoordinates.ts) moves the
+         // rows on screen too, so a rise that only re-rounds the physical offset is no rise.
+         const box = previousViewport.current;
+-        const rose = layoutScrollTop(node) - (scrolledTo.current.top - previousOrigin);
++        const rose = passTop - scrollOrigin(node) - (scrolledTo.current.top - previousOrigin);
+         const room = followRoom(rows, layout);
+         // A resize (a window edge dragged, the dock growing) rewraps the rows, and they settle to
+         // their drawn heights over the next passes at the same size: those are the resize too, not
+@@ -4965,16 +5060,23 @@ function TranscriptView({
+         if (held?.found || (held && !canLoadOlder)) heldPlace.current = undefined;
+         const nextTop = held ? held.top : kept;
+         if (nextTop !== undefined && (clamped || held !== undefined || nextTop !== logicalTop)) {
+-          writeAnchorScrollTop(node, nextTop);
++          // The anchor's write, read back before its origin's style write (a scroll write alone
++          // leaves the page laid out): nothing after it reads the scroller.
++          node.scrollTop = nextTop;
++          passTop = node.scrollTop;
++          retainScrollOrigin(node, nextTop);
+           // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
+           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
+           scrollPacer.current?.cancel();
+-          setScrollAt(node.scrollTop, 0);
++          setScrollAt(passTop, 0);
+         }
+       }
+     }
+     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
+     if (!didOpenAtLatest.current && node) {
++      // The open writes the offset its own way: the pass reads it after.
++      passTop = undefined;
++      pinView.current = undefined;
+       const latest = Math.max(0, layout.totalHeight - height);
+       // A chat reopened where the reader left it (cx-6bgzj), else at the latest message, as it is
+       // once the reader sent a prompt into it. Only a row the pane already holds counts: a chat opens
+@@ -5122,15 +5224,21 @@ function TranscriptView({
+     } else if (!holding) clearTimeout(floorTimer.current);
+     floor.current = { height: holding ? floorHeight : 0, width, sessionId, rows: measured.layout.totalHeight };
+     if (!holding && !queueLeft.current) heldFor.current.clear();
+-    if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
+-      scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
++    if (node && (passHeight ?? node.clientHeight) > 0 && height > 0 && didOpenAtLatest.current) {
++      const settledTop = passTop ?? node.scrollTop;
++      scrolledTo.current = { top: settledTop, atLatest: followingRef.current };
+       // While the reader's place is held, it is the place to reopen at, not where the view waits.
+       seenAnchor.current =
+-        heldPlace.current ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
++        heldPlace.current ?? restingAnchor(settledTop - scrollOrigin(node), scrolledTo.current.atLatest, layout, rows);
+     }
+     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
+-    // The minimap's band reads the offset this pass settled on.
+-    minimapPlaced.current?.();
++    pinView.current = undefined;
++    // The minimap's band reads the offset this pass settled on (`scrolledTo`, when this pass took it).
++    minimapPlaced.current?.(
++      node && (passHeight ?? node.clientHeight) > 0 && height > 0 && didOpenAtLatest.current
++        ? scrolledTo.current.top - scrollOrigin(node)
++        : undefined,
++    );
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
+   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
+   // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
+@@ -6866,16 +6974,21 @@ function TranscriptView({
+           }
+         >
+           {showMinimap && (
+-            <ThreadMinimap
+-              rows={rows}
++            <ThreadMinimapRail
++              source={minimapSource}
++              version={minimapSource.update({
++                rows,
++                layout,
++                scrollTop: renderScroll.top - origin,
++                scrolls: layout.totalHeight - height > 0.5,
++                change: rowsChange.current,
++              })}
+               earlier={earlier}
+               promptCount={promptCount}
+               loadThrough={loadThrough}
+               loadPromptIndex={loadPromptIndex}
+               sessionId={sessionId}
+-              layout={layout}
+               scroller={ref}
+-              scrollTop={renderScroll.top - origin}
+               // Above the room under the last row, so a composer that grows while the reader is scrolled
+               // up leaves the map as it was, as it does the scrollbar.
+               viewportHeight={height - room}
+@@ -6883,11 +6996,9 @@ function TranscriptView({
+               // rail's rows stay above its bottom band.
+               foot={height - dockSpace}
+               railBox={railBox}
+-              scrolls={layout.totalHeight - height > 0.5}
+               width={paneWidth}
+               columnWidth={width}
+               placed={minimapPlaced}
+-              change={rowsChange.current}
+               topInset={topInset}
+             />
+           )}
+diff --git a/webviews/src/agent-session/acpmux/conversation/Thinking.tsx b/webviews/src/agent-session/acpmux/conversation/Thinking.tsx
+index 2fde817ccf8..1733858a5b8 100644
+--- a/webviews/src/agent-session/acpmux/conversation/Thinking.tsx
++++ b/webviews/src/agent-session/acpmux/conversation/Thinking.tsx
+@@ -135,16 +135,92 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
+   return roll;
+ }
+ 
++/// Whether the live line's boxes may have moved since its last commit: the two hooks below read
++/// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
++/// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
++/// what the line draws changes (`drawn`: its words, time, counts and look, compared as effect deps
++/// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
++/// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
++/// its boxes marks for the next commit. Read in layout effects only, after this hook's own.
++function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly unknown[]): RefObject<boolean> {
++  const moved = useRef(true);
++  const seen = useRef<{
++    node?: HTMLDivElement;
++    drawn?: readonly unknown[];
++    resized: boolean;
++    observer?: ResizeObserver;
++    boxes: Map<Element, string>;
++  }>({ resized: false, boxes: new Map() });
++  // One observer for the line's life, disconnected when it unmounts.
++  useLayoutEffect(() => {
++    const state = seen.current;
++    if (typeof ResizeObserver === "undefined") return;
++    const observer = new ResizeObserver((entries) => {
++      for (const entry of entries) {
++        const box = entry.borderBoxSize?.[0];
++        const size = box
++          ? `${box.inlineSize}x${box.blockSize}`
++          : `${entry.contentRect.width}x${entry.contentRect.height}`;
++        const before = state.boxes.get(entry.target);
++        state.boxes.set(entry.target, size);
++        // A box's first report is its size when observed, already read in that commit.
++        if (before !== undefined && before !== size) state.resized = true;
++      }
++    });
++    state.observer = observer;
++    return () => {
++      observer.disconnect();
++      state.observer = undefined;
++      state.boxes = new Map();
++      // A remount (Strict Mode's second pass) reads and observes again.
++      state.drawn = undefined;
++    };
++  }, []);
++  useLayoutEffect(() => {
++    const state = seen.current;
++    const node = line.current ?? undefined;
++    const changed =
++      node !== state.node ||
++      state.drawn === undefined ||
++      state.drawn.length !== drawn.length ||
++      drawn.some((value, index) => !Object.is(value, state.drawn![index]));
++    moved.current = changed || state.resized;
++    state.resized = false;
++    state.node = node;
++    state.drawn = drawn;
++    // What is drawn changed, so the boxes may be new: observe the line, its direct boxes (whose
++    // sizes place the counts) and the words' own box; let go of those gone.
++    if (!changed || !state.observer) return;
++    const boxes = new Set<Element>();
++    if (node) {
++      boxes.add(node);
++      for (const child of node.children) boxes.add(child);
++      const words = node.querySelector("output.cv-thinking");
++      if (words) boxes.add(words);
++    }
++    for (const box of state.boxes.keys())
++      if (!boxes.has(box)) {
++        state.observer.unobserve(box);
++        state.boxes.delete(box);
++      }
++    for (const box of boxes) if (!state.boxes.has(box)) state.observer.observe(box);
++  });
++  return moved;
++}
++
+ /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
+ /// (ellipsis and all), their time and counts from where they sat, never the full words running their
+-/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
+-/// roll's copies in the commit that makes them, before paint; refs only in the effect.
+-function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
++/// tail on past it. The width as last committed, one read of the line's own box a commit that moved
++/// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
++/// only in the effect.
++function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: RefObject<boolean>) {
+   const drawn = useRef<{ turns: number; width?: number }>({ turns });
+   useLayoutEffect(() => {
+     const node = line.current;
+     if (!node) return;
+     const last = drawn.current;
++    // Nothing drawn moved: the width read last still holds.
++    if (turns === last.turns && !moved.current) return;
+     if (turns !== last.turns && last.width !== undefined) {
+       const px = `${last.width}px`;
+       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
+@@ -162,11 +238,13 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number)
+ /// time grows a digit, its words change width under one key) slides from where it was drawn on the
+ /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
+ /// (`useRoll`), and the gates that stop the roll stop this too.
+-function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number) {
++function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: RefObject<boolean>) {
+   const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
+   useLayoutEffect(() => {
+     const node = line.current;
+     if (!node) return;
++    // Nothing drawn moved: the counts sit where they were read last, so none glides.
++    if (turns === drawn.current.turns && !moved.current) return;
+     const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
+     const lefts = counts.map((count) => count.offsetLeft);
+     const before = drawn.current;
+@@ -534,8 +612,30 @@ export function Thinking({
+   const lineRef = useRef<HTMLDivElement>(null);
+   // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
+   const calm = compactLook === "calm" || silent;
+-  useRollOutWidth(lineRef, roll.turns);
+-  useCountGlide(lineRef, roll.turns);
++  // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
++  // none of it (its `quietKey` and `heardKey` only time the line).
++  const moved = useLineMoved(lineRef, [
++    below,
++    waiting,
++    asked,
++    answered,
++    calm,
++    decorative,
++    compacting,
++    label,
++    lead?.lead,
++    lead?.rest,
++    verbs,
++    elapsed,
++    own,
++    turnClock,
++    timesLook,
++    tail,
++    roll.out?.tail,
++    command && !done && doing !== undefined ? doingAt : undefined,
++  ]);
++  useRollOutWidth(lineRef, roll.turns, moved);
++  useCountGlide(lineRef, roll.turns, moved);
+   // The question card already asks for an answer above the composer.
+   if (waiting === "question") return null;
+   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
+diff --git a/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts b/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts
+index 19185c92c6e..c67bf7ce6cf 100644
+--- a/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts
++++ b/webviews/src/agent-session/acpmux/conversation/revealedMarkdownModel.ts
+@@ -66,7 +66,7 @@ const MAX_INPUT_YIELDS = 3;
+ 
+ /// Whether a key or pointer event waits for the main thread (Chromium's `isInputPending`). The
+ /// reveal yields its frame to it; the next frame catches up to the same target.
+-const inputPending = (): boolean => {
++export const inputPending = (): boolean => {
+   const scheduling = (globalThis.navigator as { scheduling?: { isInputPending?: () => boolean } } | undefined)
+     ?.scheduling;
+   try {
+diff --git a/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx b/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx
+index 8989cb83b0b..ea889d27426 100644
+--- a/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx
++++ b/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx
+@@ -76,6 +76,7 @@ import {
+   type MinimapTurns,
+   type RailFilter,
+   type RowsChange,
++  type RowTops,
+   WAVE_SHAPES,
+   replyMore,
+ } from "./model";
+@@ -143,27 +144,101 @@ const within = (element: Element | null, to: EventTarget | null) =>
+ 
+ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElement>(".cv-user__bubble");
+ 
++/// What the transcript hands the rail on each of its renders: every one of these changes with a
++/// streamed token (VirtualTranscript).
++export type MinimapSourceValues = {
++  rows: readonly AcpmuxRow[];
++  layout: TranscriptLayout;
++  /// The transcript's offset as it renders (layout coordinates).
++  scrollTop: number;
++  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
++  scrolls: boolean;
++  /// Where `rows` first differs from the last snapshot (model.ts minimapTurns).
++  change?: RowsChange;
++};
++
++/// The rail's stable handle on the transcript's rows, layout and offset (ThreadMinimap `source`). The
++/// transcript writes each render's values into it and passes `update`'s version beside it: the version
++/// moves only when the rail would draw something else (a prompt, a tick, the band of prompts on screen,
++/// the full-height map's proportions), so a token that only grows the live reply renders no rail. The
++/// rail reads the latest values from it when it draws, and its handlers when they run.
++export class MinimapSource {
++  current: MinimapSourceValues | undefined;
++  private version = 0;
++  /// The mounted rail's check: whether `next` changes what it drew last commit. Absent while no rail is
++  /// mounted, when every render is a new version.
++  probe: ((next: MinimapSourceValues) => boolean) | undefined;
++  /// Takes this render's values; the version the rail renders at.
++  update(next: MinimapSourceValues): number {
++    const was = this.current;
++    this.current = next;
++    if (
++      !was ||
++      was.rows !== next.rows ||
++      was.layout !== next.layout ||
++      was.scrollTop !== next.scrollTop ||
++      was.scrolls !== next.scrolls ||
++      was.change !== next.change
++    )
++      if (!this.probe || this.probe(next)) this.version += 1;
++    return this.version;
++  }
++}
++
++/// One MinimapSource for the transcript's life.
++export function useMinimapSource(): MinimapSource {
++  const [source] = useState(() => new MinimapSource());
++  return source;
++}
++
++type ThreadMinimapProps = Parameters<typeof ThreadMinimapView>[0];
++/// The rail's props compare by value, its box by its numbers (the transcript builds a new one per render).
++function sameMinimapProps(prev: ThreadMinimapProps, next: ThreadMinimapProps): boolean {
++  for (const key of Object.keys(next) as (keyof ThreadMinimapProps)[])
++    if (key !== "railBox" && !Object.is(prev[key], next[key])) return false;
++  if (Object.keys(prev).length !== Object.keys(next).length) return false;
++  const a = prev.railBox;
++  const b = next.railBox;
++  return a === b || (!!a && !!b && a.height === b.height && a.foot === b.foot && a.live === b.live);
++}
++
++/// The rail renders when its version or another prop changes, never for a streamed token alone.
++export const ThreadMinimapRail = memo(ThreadMinimapView, sameMinimapProps);
++
++/// The rail given its values as props (a mount outside the transcript): a handle of its own.
+ export function ThreadMinimap({
+   rows,
++  layout,
++  scrollTop,
++  scrolls,
++  change,
++  ...rest
++}: Omit<ThreadMinimapProps, "source" | "version"> & MinimapSourceValues) {
++  const source = useMinimapSource();
++  const version = source.update({ rows, layout, scrollTop, scrolls, change });
++  return <ThreadMinimapRail source={source} version={version} {...rest} />;
++}
++
++function ThreadMinimapView({
++  source,
+   earlier = EMPTY_EARLIER,
+   promptCount,
+   loadThrough,
+   loadPromptIndex,
+   sessionId,
+-  layout,
+   scroller,
+-  scrollTop,
+   viewportHeight,
+   foot,
+   railBox,
+-  scrolls,
+   width,
+   columnWidth = width,
+   placed,
+-  change,
+   topInset = 0,
+ }: {
+-  rows: readonly AcpmuxRow[];
++  /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
++  source: MinimapSource;
++  /// MinimapSource.update's version: a new one renders the rail.
++  version: number;
+   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
+   earlier?: readonly AcpmuxRow[];
+   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
+@@ -177,9 +252,7 @@ export function ThreadMinimap({
+   /// `loadPromptIndex`): a hover or a click on a pending tick. True once it named them.
+   loadPromptIndex?: () => Promise<boolean>;
+   sessionId?: string;
+-  layout: TranscriptLayout;
+   scroller: React.RefObject<HTMLElement | null>;
+-  scrollTop: number;
+   viewportHeight: number;
+   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
+   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
+@@ -192,16 +265,12 @@ export function ThreadMinimap({
+   /// shortens the rail from its foot (model.ts railClearHeight), and the card stays above it too.
+   /// Without one, `viewportHeight` and `foot`.
+   railBox?: { height: number; foot: number; live?: number };
+-  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
+-  scrolls: boolean;
+   width: number;
+   columnWidth?: number;
+   /// The transcript calls what the rail puts here once each commit's placement pass has set its
+-  /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
+-  placed?: React.MutableRefObject<(() => void) | undefined>;
+-  /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
+-  /// reads only the rows from there (model.ts minimapTurns).
+-  change?: RowsChange;
++  /// offset (VirtualTranscript), so the band reads where the transcript put the reader. It passes
++  /// that offset (layout coordinates) when it knows it, so the rail reads no layout for it.
++  placed?: React.MutableRefObject<((top?: number) => void) | undefined>;
+   /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
+   /// its prompt LANDING_OFFSET below the row, not under it.
+   topInset?: number;
+@@ -228,11 +297,58 @@ export function ThreadMinimap({
+   /// The turns of the last commit: the next render reads from them and leaves them as they are, so
+   /// a render React drops before it commits changes nothing (#24058 review round 6).
+   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
++  /// The transcript's values this render draws (MinimapSource): the latest it rendered.
++  const values = source.current!;
++  const { rows, layout, change, scrollTop, scrolls } = values;
++  /// The last turns read, by the probe or a render, and what they were read from. The next read
++  /// goes on from them while their turns are the committed ones (a token that changes no turn), so a
++  /// token the rail does not render for still reads only the live turn; one whose turns changed and
++  /// were not committed yet is not built on, since its spare list is the committed turns.
++  const probed = useRef<
++    | {
++        rows: readonly AcpmuxRow[];
++        change?: RowsChange;
++        sessionId?: string;
++        earlier: readonly AcpmuxRow[];
++        promptCount?: number;
++        read: MinimapTurns;
++      }
++    | undefined
++  >(undefined);
++  const readTurns = useRef(
++    (
++      rows: readonly AcpmuxRow[],
++      change: RowsChange | undefined,
++      session: string | undefined,
++      earlier: readonly AcpmuxRow[],
++      count: number | undefined,
++    ): MinimapTurns => {
++      const cached = probed.current;
++      if (
++        cached &&
++        cached.rows === rows &&
++        cached.change === change &&
++        cached.sessionId === session &&
++        cached.earlier === earlier &&
++        cached.promptCount === count
++      )
++        return cached.read;
++      const committed = lastTurns.current;
++      const chain = cached?.read;
++      const previous =
++        chain && committed && chain.turns === committed.turns && chain.loadedTurns === committed.loadedTurns
++          ? chain
++          : committed;
++      const read = minimapTurns(rows, session, previous, change, earlier, count);
++      probed.current = { rows, change, sessionId: session, earlier, promptCount: count, read };
++      return read;
++    },
++  ).current;
+   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
+   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
+   const read = useMemo(
+-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount),
+-    [rows, sessionId, change, earlierRows, promptCount],
++    () => readTurns(rows, change, sessionId, earlierRows, promptCount),
++    [readTurns, rows, sessionId, change, earlierRows, promptCount],
+   );
+   useLayoutEffect(() => {
+     lastTurns.current = read;
+@@ -460,10 +576,27 @@ export function ThreadMinimap({
+   const overflow = turns.length * rowPitch > height;
+ 
+   /// What the handlers below read: the turns and layout as of the last commit.
++  /// The handlers' tops: the transcript's latest layout (MinimapSource), which a streamed token
++  /// changes without rendering the rail (its total height is kept by `placed` below).
++  const sourceNow = useRef(source);
++  sourceNow.current = source;
++  const [sourceTops] = useState(() => {
++    let from: TranscriptLayout | undefined;
++    let read: RowTops = () => undefined;
++    return (index: number) => {
++      const now = sourceNow.current.current?.layout;
++      if (!now) return undefined;
++      if (now !== from) {
++        from = now;
++        read = rowTopsOf(layoutGeometry(now));
++      }
++      return read(index);
++    };
++  });
+   const live = useRef({
+     turns,
+     ticks,
+-    tops,
++    tops: sourceTops,
+     total: layout.totalHeight,
+     marks,
+     viewportHeight,
+@@ -478,7 +611,7 @@ export function ThreadMinimap({
+     live.current = {
+       turns,
+       ticks,
+-      tops,
++      tops: sourceTops,
+       total: layout.totalHeight,
+       marks,
+       viewportHeight,
+@@ -598,16 +731,26 @@ export function ThreadMinimap({
+   // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
+   // this commit: restored the reader's place over older turns, or left it. The band reads that
+   // offset before the frame paints, whether or not a scroll event follows.
++  // The offset is the one the transcript passes (it read it in that pass), else read once here.
+   useLayoutEffect(() => {
+     if (!placed) return;
+-    placed.current = () => {
++    placed.current = (settled) => {
+       const node = scroller.current;
+       if (!node) return;
++      const top = settled ?? layoutScrollTop(node);
++      // The chat's height as this commit laid it out, which a token the rail did not render for changed.
++      const layoutNow = sourceNow.current.current?.layout;
++      if (layoutNow) live.current.total = layoutNow.totalHeight;
+       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+-      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
++      domTop.current = { sessionId: session, top };
+       restoring.current = undefined;
++      // The band's first prompt as this layout places it, which a token the rail did not render for
++      // may have moved (rows above it measured): older turns arriving later shift the band by it.
++      const held = anchor.current;
++      const first = held && all.at(held.index);
++      if (held && first) held.layoutTop = tops(first.index) ?? 0;
+       if (!live.current.shown) return;
+-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
++      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart);
+       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
+     };
+     return () => {
+@@ -615,6 +758,52 @@ export function ThreadMinimap({
+     };
+   }, [placed, scroller]);
+ 
++  // What the rail drew at its last commit, for the transcript's next values to be checked against
++  // (MinimapSource.probe): the turns read, the arm, and the props the read took.
++  const committedDraw = useRef<
++    | {
++        read: MinimapTurns;
++        full: boolean;
++        sessionId?: string;
++        earlier: readonly AcpmuxRow[];
++        promptCount?: number;
++      }
++    | undefined
++  >(undefined);
++  useLayoutEffect(() => {
++    committedDraw.current = { read, full, sessionId, earlier: earlierRows, promptCount };
++  });
++  // Whether the transcript's next values change what the rail draws: its turns or ticks, or the band
++  // of prompts on screen, read as a render would (`top` above). The full-height map draws the chat's
++  // proportions, so any new layout or offset renders it, as before. A token growing the live reply
++  // under a still band changes neither, and the rail does not render for it.
++  useLayoutEffect(() => {
++    source.probe = (next) => {
++      const was = committedDraw.current;
++      if (!was || was.full) return true;
++      const now = readTurns(next.rows, next.change, was.sessionId, was.earlier, was.promptCount);
++      const then = was.read;
++      if (
++        now.turns !== then.turns ||
++        now.ticks !== then.ticks ||
++        now.loadedTurns !== then.loadedTurns ||
++        now.loadedTicks !== then.loadedTicks ||
++        now.loadedStart !== then.loadedStart ||
++        now.pendingCount !== then.pendingCount
++      )
++        return true;
++      const { turns: all, viewportHeight: height, onScreen: band, sessionId: session, loadedStart: start } = live.current;
++      const seen = domTop.current && domTop.current.sessionId === session ? domTop.current.top : undefined;
++      const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
++      const tops = rowTopsOf(layoutGeometry(next.layout));
++      const at = visibleTurns(all, tops, next.layout.totalHeight, (seen ?? next.scrollTop) + shift, height, start);
++      return at.first !== band.first || at.last !== band.last;
++    };
++    return () => {
++      source.probe = undefined;
++    };
++  }, [source, readTurns]);
++
+   // A jump still under way belongs to the chat it started in: another chat in the reused scroller,
+   // or the rail going away, ends it. In the commit itself, before the jump's next frame can run.
+   useLayoutEffect(() => {

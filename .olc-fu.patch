@@ -1,0 +1,1950 @@
+diff --git a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+index 6a02e0b6d18..41c0680cf89 100644
+--- a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
++++ b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+@@ -52,7 +52,7 @@ import {
+   SINCE_DIVIDER,
+ } from "./model";
+ import { RowFrameCache } from "./conversation/rowFrameCache";
+-import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
++import { ThreadMinimapRail, useMinimapSource } from "./threadMinimap/ThreadMinimap";
+ import { railOwnsWheel } from "./threadMinimap/railWheel";
+ import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
+ import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
+@@ -118,6 +118,7 @@ import {
+ import { stopReadingAloud } from "./conversation/readAloud";
+ import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
+ import { FoldRide } from "./conversation/foldRide";
++import { inputPending } from "./inputPending";
+ import { deliberateClick } from "./conversation/useAnchoredCollapse";
+ import { isRegroupHold } from "./conversation/keepOpenedLineModel";
+ import {
+@@ -298,7 +299,16 @@ type ReportDrawn = (
+ ) => void;
+ 
+ /// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
+-type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boolean, status?: string) => () => void;
++/// `versionOnly`: only the row's version changed since its last queue (a streamed token), which the
++/// row's ResizeObserver reports if it changed the row's size (queueDrawn).
++type QueueDrawn = (
++  node: HTMLElement,
++  id: string,
++  version: number,
++  actions?: boolean,
++  status?: string,
++  versionOnly?: boolean,
++) => () => void;
+ 
+ /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
+ /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
+@@ -306,6 +316,9 @@ type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boo
+ /// that never came) is 0 high, and is placed at 0. Dropping that 0 as "not laid out" kept the row's
+ /// estimate, 26px for each of its items, as blank space in the transcript (Leo, 2026-10-21: a
+ /// screen-tall gap under "Worked for" and under an opened fold's last command).
++/// The cleanup of a row whose commit queued no measure.
++const noQueue = () => {};
++
+ function drawnHeightOf(node: HTMLElement): number | undefined {
+   const height = node.getBoundingClientRect().height;
+   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
+@@ -598,9 +611,32 @@ const RowFrame = React.memo(function RowFrame({
+     observer.observe(node);
+     return () => observer.unobserve(node);
+   }, [observer]);
++  // What the last queue was for, but the version: a commit that changed only the version (a streamed
++  // token) is one the row's observer reports when it changed the row's size (queueDrawn).
++  const queuedFor = useRef<readonly unknown[] | undefined>(undefined);
+   useLayoutEffect(() => {
+     const node = ref.current;
+-    if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
++    if (!node) return;
++    const was = queuedFor.current;
++    const now = [
++      row.id,
++      replyActions,
++      status,
++      rowWidth,
++      expanded,
++      joinsPrevious,
++      joinsNext,
++      beforeFooter,
++      lastFooter,
++      continuationFooter,
++      lastTurn,
++      queueDrawn,
++      // The observer sees the content box: a class that moves the padding is read here.
++      node.className,
++    ];
++    queuedFor.current = now;
++    const versionOnly = was !== undefined && now.every((value, at) => value === was[at]);
++    return queueDrawn(node, row.id, row.version, replyActions, status, versionOnly);
+   }, [
+     row.id,
+     row.version,
+@@ -1029,17 +1065,24 @@ function holdUnderStack(
+ /// the last row under the stack. A fractional end is rounded up: WebKit floors a fractional offset
+ /// while it rounds the content's height, so the end as written rested a pixel short of the
+ /// scroller's own; past it, the browser clamps the offset to that end.
+-function settleFollowBottom(node: HTMLElement, latest: number): boolean {
++/// Returns whether it moved, and the physical offset it left the scroller at: every read is before
++/// its style write, and the caller takes the offset from here, never from the scroller after this
++/// pass wrote to the page (each such read lays the page out again, per streamed token).
++function settleFollowBottomAt(node: HTMLElement, latest: number): { moved: boolean; top: number } {
+   const end = Math.ceil(latest - 0.01);
++  const current = node.scrollTop;
+   // Where the write lands: a scroller already clamped there is at its end.
+   const lands = Math.min(end, Math.max(0, node.scrollHeight - node.clientHeight));
+-  const moved = Math.abs(lands - node.scrollTop) > 0.5;
++  const moved = Math.abs(lands - current) > 0.5;
+   if (moved) node.scrollTop = end;
++  // Where the browser put it, read right after the scroll write and before the origin's style write
++  // below: a scroll write leaves the page laid out, so this read lays nothing out again.
++  const top = moved ? node.scrollTop : current;
+   // Measurements above the view can move the logical end by half a pixel while the physical
+   // end stays rounded. Keep that fraction even when the browser already clamped to the end,
+   // so releasing follow before the next wheel does not inherit a half-pixel row jump.
+   retainScrollOrigin(node, latest);
+-  return moved;
++  return { moved, top };
+ }
+ 
+ /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
+@@ -2118,6 +2161,10 @@ function TranscriptView({
+     tailGlide.current?.stop();
+     chaseAnchor.current = undefined;
+   }, []);
++  /// The scroller's physical offset and height as the placement pass last read or wrote them, while
++  /// that pass runs: its chase takes them from here instead of reading the scroller after the pass
++  /// wrote to the page. Undefined outside it (a send's chase reads).
++  const pinView = useRef<{ top: number; height: number } | undefined>(undefined);
+   /// The followed view's pass moved the rows (or may have): how far the row in view the last pass
+   /// noted moved on screen is one move of the chase, which draws the thread back by it and chases
+   /// home; then the row now in view is noted for the next pass. O(1): one row looked up by id, one
+@@ -2139,7 +2186,8 @@ function TranscriptView({
+       return row ? row.getBoundingClientRect().top - chase.outstanding() : undefined;
+     };
+     const before = chaseAnchor.current;
+-    const now = before ? rowTop(before.id) : undefined;
++    // Read only for a move it chases: a pass that moves at once never uses it.
++    const now = before && !moveAtOnce ? rowTop(before.id) : undefined;
+     // Followed again after the reader's input held it: it goes on home from where it is drawn.
+     resumeFollowMotion();
+     chase.fit(below);
+@@ -2147,7 +2195,13 @@ function TranscriptView({
+     const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
+     if (before && now !== undefined && !moveAtOnce && !turnEnding)
+       chase.shift(thread.current, now - before.top, below, held, arrived, sent);
+-    const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
++    const view = pinView.current;
++    const first = visibleLayoutRange(
++      placed,
++      view ? view.top - scrollOrigin(node) : layoutScrollTop(node),
++      view ? view.height : node.clientHeight,
++      0,
++    ).first;
+     const id = shown[Math.min(first, shown.length - 1)]?.id;
+     const top = id === undefined ? undefined : rowTop(id);
+     chaseAnchor.current = id !== undefined && top !== undefined ? { id, top } : undefined;
+@@ -2615,7 +2669,9 @@ function TranscriptView({
+   /// of comparing the rows again (model.ts minimapTurns).
+   const rowsChange = useRef<RowsChange | undefined>(undefined);
+   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
+-  const minimapPlaced = useRef<(() => void) | undefined>(undefined);
++  const minimapPlaced = useRef<((top?: number) => void) | undefined>(undefined);
++  /// The minimap's handle on the rows, layout and offset: it renders only when what it draws changes.
++  const minimapSource = useMinimapSource();
+   const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
+   /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
+   const [rowFrameCache] = useState(() => new RowFrameCache());
+@@ -2771,7 +2827,23 @@ function TranscriptView({
+     [sessionId],
+   );
+   const queueDrawn = useCallback<QueueDrawn>(
+-    (node, id, version, actions, status) => {
++    (node, id, version, actions, status, versionOnly) => {
++      // A streamed token: no height read in the commit (a forced layout after React's writes, the top
++      // one per token in a long chat). A row it resized is reported by the row's observer, in the
++      // browser's own layout pass, before the frame paints (`observer` below); one it left at its
++      // height keeps the height already placed, whose version differs only in a field placement
++      // never reads. Read here only when no height is kept for the row as it is drawn now.
++      if (versionOnly && typeof ResizeObserver !== "undefined") {
++        const known = drawnRef.current.get(id);
++        if (
++          known &&
++          known.sessionId === sessionId &&
++          known.width === rowWidthRef.current &&
++          Boolean(known.actions) === Boolean(actions) &&
++          known.status === (status || undefined)
++        )
++          return noQueue;
++      }
+       const measure = () => {
+         if (!node.isConnected || node.dataset.rowId !== id) return;
+         reportDrawn(
+@@ -2788,7 +2860,7 @@ function TranscriptView({
+         if (pendingMeasures.current.get(node) === measure) pendingMeasures.current.delete(node);
+       };
+     },
+-    [reportDrawn],
++    [reportDrawn, sessionId],
+   );
+   // All of a commit's reports land in one update, before the frame paints.
+   /// Rows whose drawn height changed since the last placement, which places again from the first.
+@@ -3122,20 +3194,25 @@ function TranscriptView({
+             // it's lagging, there's a breif moment where ther'es overlapping text between the sent
+             // out text (from you) and the subequent tool calls/thinking"). A row in sight is placed
+             // before paint, as a followed view's is.
++            // Not while a key or pointer event waits: a synchronous render here holds the typed
++            // character behind it, so the frame's own commit places the rows instead.
+             else if (
+-              rode ||
+-              followingRef.current ||
+-              targets.some(heightFoldInFlight) ||
+-              foldHolding(foldAnchor.current) ||
+-              inSight(ref.current, targets)
++              !inputPending() &&
++              (rode ||
++                followingRef.current ||
++                targets.some(heightFoldInFlight) ||
++                foldHolding(foldAnchor.current) ||
++                inSight(ref.current, targets))
+             ) {
+-              for (let pass = 0; pass < 3; pass += 1) {
+-                if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+-                  pendingDrawn.current = new Map();
+-                  break;
+-                }
++              // One synchronous placement per callback (one flush, one read of what it placed). A
++              // height that changed again under that placement goes in the next commit, not in
++              // another synchronous render and forced layout in this task.
++              if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
++              else {
+                 acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
+                 measure();
++                if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
++                else pendingDrawn.current = new Map();
+               }
+             } else flushDrawn();
+           }),
+@@ -4504,6 +4581,13 @@ function TranscriptView({
+     const old = switched ? null : previousLayout.current;
+     const oldRows = previousRows.current;
+     const node = ref.current;
++    // The scroller's physical offset and height as this pass read or wrote them last (the read
++    // phase in the branch that places the view), so the pass never reads the scroller back after
++    // it wrote to the page: each such read laid the whole page out again, per streamed token.
++    // Undefined where a branch moved the offset without keeping it here: the pass reads then.
++    let passTop: number | undefined;
++    let passHeight: number | undefined;
++    pinView.current = undefined;
+     // Code that scrolled the view since the last pass wins over a held line (releaseFoldHold).
+     if (old && node) releaseFoldHold(node);
+     // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
+@@ -4525,7 +4609,8 @@ function TranscriptView({
+     if (old && node) releaseBottomStackFold(node);
+     const stack = bottomStackFold.current;
+     const bottomStacking = Boolean(old && node && stack && foldAnchor.current?.toggle === stack.toggle);
+-    const heldFrom = node?.scrollTop ?? 0;
++    // Only a held line reads it: a pass with none (each streamed token's) never does.
++    const heldFrom = !bottomStacking && old && node && foldAnchor.current ? node.scrollTop : 0;
+     // Under load the click's change reaches this pass late (the row's ResizeObserver runs after the
+     // browser lays out what opened, and no pass may run in between): the hold waits for it, then runs
+     // its span (foldAnchor.ts `notePlacement`), so a slow render never finds it over and follows the
+@@ -4546,8 +4631,8 @@ function TranscriptView({
+       // difference on the compositor. A late measure updates that same effect on its original clock,
+       // never starts another animation or drives a per-frame layout/scroll loop.
+       const latest = Math.max(0, layout.totalHeight - height);
+-      settleFollowBottom(node, latest);
+-      const delta = layoutScrollTop(node) - stack.beforeTop;
++      const pinned = settleFollowBottomAt(node, latest).top;
++      const delta = pinned - scrollOrigin(node) - stack.beforeTop;
+       const host = thread.current;
+       // A control with no height fold of its own (a shell block's Show all output, a failure's
+       // Details, Raw, Wrap lines) lays out in one step: the thread slides to it, as whole rows do.
+@@ -4592,9 +4677,10 @@ function TranscriptView({
+       // Every pass takes the offset it pinned as its base, a height fold's frames too: a late measure
+       // after that fold ends slides only by what it adds, never by the whole fold again.
+       stack.delta = delta;
+-      stack.pinned = node.scrollTop;
++      stack.pinned = pinned;
++      passTop = pinned;
+       scrollPacer.current?.cancel();
+-      setScrollAt(node.scrollTop);
++      setScrollAt(pinned);
+     } else if (
+       folding &&
+       node &&
+@@ -4649,6 +4735,9 @@ function TranscriptView({
+       // The live extent may already have shrunk and clamped the offset before reconciliation.
+       // Keep that boundary as well as the old total so the clamp never reads as upward input.
+       const end = Math.min(node.scrollHeight, old.totalHeight) - viewHeight;
++      // The pass's read phase ends here: from now on it knows the offset and height it reads below.
++      passTop = live;
++      passHeight = liveHeight;
+       const recentUp = readerUpPending.current && live < scrolledTo.current.top;
+       const clamped = !recentUp && live < scrolledTo.current.top - 0.5 && live >= end - 1;
+       // A reader's move can reach the live offset before its scroll event. Layout changes alone
+@@ -4705,7 +4794,11 @@ function TranscriptView({
+         // Retargeting a native smooth-scroll here restarted its easing at every measurement.
+         if (jumping) jumpTarget.current = latest;
+         followDeferred.current = !jumping && userScrollIntent(node).isHeld() && !followRequest.current?.();
+-        const settled = jumping ? clamped : (!followDeferred.current && settleFollowBottom(node, latest)) || clamped;
++        const settle = jumping || followDeferred.current ? undefined : settleFollowBottomAt(node, latest);
++        if (settle) passTop = settle.top;
++        // The chase below reads where the view is from here, not from the scroller it just wrote.
++        pinView.current = { top: passTop, height: liveHeight };
++        const settled = jumping ? clamped : settle?.moved || clamped;
+         if (settled) followTrace.set(latest);
+         // The rise this pass took, eased on screen (followGlide.ts): the same rows, the reply's
+         // new line landing in the room the live line keeps under it. Anything else (a row that came
+@@ -4713,7 +4806,7 @@ function TranscriptView({
+         // In layout coordinates: the sub-pixel origin a settle keeps (scrollCoordinates.ts) moves the
+         // rows on screen too, so a rise that only re-rounds the physical offset is no rise.
+         const box = previousViewport.current;
+-        const rose = layoutScrollTop(node) - (scrolledTo.current.top - previousOrigin);
++        const rose = passTop - scrollOrigin(node) - (scrolledTo.current.top - previousOrigin);
+         const room = followRoom(rows, layout);
+         // A resize (a window edge dragged, the dock growing) rewraps the rows, and they settle to
+         // their drawn heights over the next passes at the same size: those are the resize too, not
+@@ -4960,16 +5053,23 @@ function TranscriptView({
+         if (held?.found || (held && !canLoadOlder)) heldPlace.current = undefined;
+         const nextTop = held ? held.top : kept;
+         if (nextTop !== undefined && (clamped || held !== undefined || nextTop !== logicalTop)) {
+-          writeAnchorScrollTop(node, nextTop);
++          // The anchor's write, read back before its origin's style write (a scroll write alone
++          // leaves the page laid out): nothing after it reads the scroller.
++          node.scrollTop = nextTop;
++          passTop = node.scrollTop;
++          retainScrollOrigin(node, nextTop);
+           // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
+           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
+           scrollPacer.current?.cancel();
+-          setScrollAt(node.scrollTop, 0);
++          setScrollAt(passTop, 0);
+         }
+       }
+     }
+     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
+     if (!didOpenAtLatest.current && node) {
++      // The open writes the offset its own way: the pass reads it after.
++      passTop = undefined;
++      pinView.current = undefined;
+       const latest = Math.max(0, layout.totalHeight - height);
+       // A chat reopened where the reader left it (cx-6bgzj), else at the latest message, as it is
+       // once the reader sent a prompt into it. Only a row the pane already holds counts: a chat opens
+@@ -5117,15 +5217,21 @@ function TranscriptView({
+     } else if (!holding) clearTimeout(floorTimer.current);
+     floor.current = { height: holding ? floorHeight : 0, width, sessionId, rows: measured.layout.totalHeight };
+     if (!holding && !queueLeft.current) heldFor.current.clear();
+-    if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
+-      scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
++    if (node && (passHeight ?? node.clientHeight) > 0 && height > 0 && didOpenAtLatest.current) {
++      const settledTop = passTop ?? node.scrollTop;
++      scrolledTo.current = { top: settledTop, atLatest: followingRef.current };
+       // While the reader's place is held, it is the place to reopen at, not where the view waits.
+       seenAnchor.current =
+-        heldPlace.current ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
++        heldPlace.current ?? restingAnchor(settledTop - scrollOrigin(node), scrolledTo.current.atLatest, layout, rows);
+     }
+     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
+-    // The minimap's band reads the offset this pass settled on.
+-    minimapPlaced.current?.();
++    pinView.current = undefined;
++    // The minimap's band reads the offset this pass settled on (`scrolledTo`, when this pass took it).
++    minimapPlaced.current?.(
++      node && (passHeight ?? node.clientHeight) > 0 && height > 0 && didOpenAtLatest.current
++        ? scrolledTo.current.top - scrollOrigin(node)
++        : undefined,
++    );
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
+   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
+   // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
+@@ -5675,7 +5781,7 @@ function TranscriptView({
+     // The placement pass already has the latest estimated total and measured viewport. Reusing
+     // those values avoids forcing a style/layout flush from the send effect before the new row
+     // paints; the following placement pass reconciles any drawn-height correction. A fractional
+-    // end is rounded up, as settleFollowBottom does, so WebKit's floor never rests a pixel short.
++    // end is rounded up, as settleFollowBottomAt does, so WebKit's floor never rests a pixel short.
+     clearScrollOrigin(node);
+     const latest = Math.max(0, Math.ceil(layout.totalHeight - height - 0.01));
+     const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+@@ -5875,8 +5981,8 @@ function TranscriptView({
+       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
+     if (layoutDriven) {
+       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+-      settleFollowBottom(node, latest);
+-      const resting = node.scrollTop;
++      // The offset it settled on, read before its origin's style write (never after it).
++      const resting = settleFollowBottomAt(node, latest).top;
+       scrolledTo.current = { top: resting, atLatest: true };
+       followTrace.set(resting);
+       queueScroll(resting, true, immediate);
+@@ -6292,17 +6398,21 @@ function TranscriptView({
+       const physical = node.scrollTop;
+       const was = layoutScrollTop(node);
+       node.scrollTop = physical - held;
++      // Where the browser put it, read right after the scroll write and before the origin's style
++      // write: a scroll write leaves the page laid out, so this read lays nothing out again, and
++      // nothing below reads the scroller after the style write (each such read laid the page out).
++      const landed = node.scrollTop;
+       retainScrollOrigin(node, top);
+       // A write the scroller did not take (a scroll of its own still easing in), or a chase that is
+       // not held after all, keeps the chase drawn where it is and the offset where it was.
+-      if (Math.abs(layoutScrollTop(node) - top) > 1 || !chase.release(held)) {
++      if (Math.abs(landed - scrollOrigin(node) - top) > 1 || !chase.release(held)) {
+         node.scrollTop = physical;
+         retainScrollOrigin(node, was);
+         return;
+       }
+-      scrolledTo.current = { top: node.scrollTop, atLatest: false };
++      scrolledTo.current = { top: landed, atLatest: false };
+       scrollPacer.current?.cancel();
+-      setScrollAt(node.scrollTop, 0);
++      setScrollAt(landed, 0);
+     };
+     const unsubscribeQuiet = intent.subscribeQuiet(() => {
+       if (olderDragPending.current) {
+@@ -6863,16 +6973,21 @@ function TranscriptView({
+           }
+         >
+           {showMinimap && (
+-            <ThreadMinimap
+-              rows={rows}
++            <ThreadMinimapRail
++              source={minimapSource}
++              version={minimapSource.update({
++                rows,
++                layout,
++                scrollTop: renderScroll.top - origin,
++                scrolls: layout.totalHeight - height > 0.5,
++                change: rowsChange.current,
++              })}
+               earlier={earlier}
+               promptCount={promptCount}
+               loadThrough={loadThrough}
+               loadPromptIndex={loadPromptIndex}
+               sessionId={sessionId}
+-              layout={layout}
+               scroller={ref}
+-              scrollTop={renderScroll.top - origin}
+               // Above the room under the last row, so a composer that grows while the reader is scrolled
+               // up leaves the map as it was, as it does the scrollbar.
+               viewportHeight={height - room}
+@@ -6880,11 +6995,9 @@ function TranscriptView({
+               // rail's rows stay above its bottom band.
+               foot={height - dockSpace}
+               railBox={railBox}
+-              scrolls={layout.totalHeight - height > 0.5}
+               width={paneWidth}
+               columnWidth={width}
+               placed={minimapPlaced}
+-              change={rowsChange.current}
+               topInset={topInset}
+             />
+           )}
+diff --git a/webviews/src/agent-session/acpmux/conversation/Thinking.layoutReads.test.tsx b/webviews/src/agent-session/acpmux/conversation/Thinking.layoutReads.test.tsx
+new file mode 100644
+index 00000000000..cdcc7531043
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/conversation/Thinking.layoutReads.test.tsx
+@@ -0,0 +1,121 @@
++// l10n-allow-file: the status copy is supplied by the pane's string table.
++// The live line reads layout (its words' width for a roll, its counts' places for their glide) only
++// when what it draws can have moved: a streamed chunk re-renders it with a new `quietKey` and
++// `heardKey` and nothing else, and once read its boxes cost no forced layout per chunk.
++import { afterEach, beforeEach, expect, test } from "bun:test";
++import { act } from "react";
++import { createRoot, type Root } from "react-dom/client";
++import { JSDOM } from "jsdom";
++import { Thinking } from "./Thinking";
++import { type WorkingCounts, WorkingCountsContext } from "./workingForModel";
++import { settleReact } from "../../../../test/support/domTeardown";
++
++let dom: JSDOM | undefined;
++let root: Root | undefined;
++let container: HTMLElement;
++const scope = globalThis as Record<string, unknown>;
++const saved = new Map<string, unknown>();
++const reads = { rect: 0, left: 0 };
++const WIDTH = 123;
++
++beforeEach(() => {
++  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
++  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
++    saved.set(key, scope[key]);
++  Object.assign(scope, {
++    window: dom.window,
++    document: dom.window.document,
++    navigator: dom.window.navigator,
++    Node: dom.window.Node,
++    HTMLElement: dom.window.HTMLElement,
++    Element: dom.window.Element,
++    IS_REACT_ACT_ENVIRONMENT: true,
++  });
++  reads.rect = 0;
++  reads.left = 0;
++  dom.window.Element.prototype.getBoundingClientRect = function () {
++    reads.rect += 1;
++    return { x: 0, y: 0, top: 0, left: 0, right: WIDTH, bottom: 20, width: WIDTH, height: 20 } as DOMRect;
++  };
++  Object.defineProperty(dom.window.HTMLElement.prototype, "offsetLeft", {
++    configurable: true,
++    get() {
++      reads.left += 1;
++      return 0;
++    },
++  });
++  container = dom.window.document.getElementById("root")!;
++  root = createRoot(container);
++});
++
++afterEach(async () => {
++  act(() => root?.unmount());
++  root = undefined;
++  await settleReact();
++  for (const [key, value] of saved) {
++    if (value === undefined) delete scope[key];
++    else scope[key] = value;
++  }
++  saved.clear();
++  dom?.window.close();
++  dom = undefined;
++});
++
++const counts: WorkingCounts = {
++  agents: 0,
++  commands: 2,
++  sessions: 0,
++  openAgents: () => {},
++  openCommands: () => {},
++  openSessions: () => {},
++};
++
++const TOKENS = 40;
++
++function writing(index: number) {
++  return (
++    <WorkingCountsContext.Provider value={counts}>
++      <Thinking
++        since={0}
++        now={() => 2_400}
++        liveState="writing"
++        quietKey={`assistant:${index}`}
++        quietAt={2_400}
++        heardAt={2_400}
++        heardKey={`3:assistant:${index}`}
++        turnTotal
++      />
++    </WorkingCountsContext.Provider>
++  );
++}
++
++test("streamed chunks under an unchanged line read no layout after the first commit", () => {
++  act(() => root!.render(writing(0)));
++  expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
++  expect(container.querySelectorAll(".cv-worked__count").length).toBe(1);
++  expect(reads.rect).toBe(1);
++  expect(reads.left).toBe(1);
++  for (let index = 1; index <= TOKENS; index++) act(() => root!.render(writing(index)));
++  // One read each at the mount; none for the TOKENS chunks after it (one per chunk before).
++  expect(reads.rect).toBe(1);
++  expect(reads.left).toBe(1);
++});
++
++function step(doing: string, index: number) {
++  return (
++    <WorkingCountsContext.Provider value={counts}>
++      <Thinking since={0} now={() => 2_400} doing={doing} doingAt={1} heardKey={`k:${index}`} turnTotal />
++    </WorkingCountsContext.Provider>
++  );
++}
++
++test("a change of words reads the line again, and the old words still roll out at their drawn width", () => {
++  act(() => root!.render(step("Read a.ts", 0)));
++  for (let index = 1; index <= TOKENS; index++) act(() => root!.render(step("Read a.ts", index)));
++  expect(reads.rect).toBe(1);
++  act(() => root!.render(step("Read b.ts", TOKENS + 1)));
++  expect(reads.rect).toBeGreaterThan(1);
++  const out = container.querySelector<HTMLElement>(".cv-roll-out");
++  expect(out).not.toBeNull();
++  expect(out!.style.width).toBe(`${WIDTH}px`);
++});
+diff --git a/webviews/src/agent-session/acpmux/conversation/Thinking.tsx b/webviews/src/agent-session/acpmux/conversation/Thinking.tsx
+index 2fde817ccf8..874f734ebd2 100644
+--- a/webviews/src/agent-session/acpmux/conversation/Thinking.tsx
++++ b/webviews/src/agent-session/acpmux/conversation/Thinking.tsx
+@@ -135,16 +135,115 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
+   return roll;
+ }
+ 
++/// Whether the live line's boxes may have moved since its last commit: the two hooks below read
++/// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
++/// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
++/// what the line draws changes (`drawn`: its words, time, counts and look, compared as effect deps
++/// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
++/// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
++/// its boxes marks for the next commit. Read in layout effects only, after this hook's own.
++/// The line's boxes as last observed (`useLineMoved`): one ResizeObserver from `connect` to its
++/// cleanup, which disconnects it, and the boxes it watches, kept to the line's current ones.
++class LineBoxes {
++  /// Whether the last commit's `check` found the boxes may have moved. Read in layout effects only.
++  moved = true;
++  private node: HTMLDivElement | undefined;
++  private drawn: readonly unknown[] | undefined;
++  private resized = false;
++  private observer: ResizeObserver | undefined;
++  private boxes = new Map<Element, string>();
++
++  /// One observer for the line's life; the returned cleanup disconnects it.
++  connect(): () => void {
++    if (typeof ResizeObserver === "undefined") return () => {};
++    const observer = new ResizeObserver((entries) => {
++      for (const entry of entries) {
++        const box = entry.borderBoxSize?.[0];
++        const size = box
++          ? `${box.inlineSize}x${box.blockSize}`
++          : `${entry.contentRect.width}x${entry.contentRect.height}`;
++        const before = this.boxes.get(entry.target);
++        this.boxes.set(entry.target, size);
++        // A box's first report is its size when observed, already read in that commit.
++        if (before !== undefined && before !== size) this.resized = true;
++      }
++    });
++    this.observer = observer;
++    return () => {
++      observer.disconnect();
++      if (this.observer === observer) this.observer = undefined;
++      this.boxes = new Map();
++      // A remount (Strict Mode's second pass) reads and observes again.
++      this.drawn = undefined;
++    };
++  }
++
++  /// This commit's check: sets `moved`, and observes the line's boxes again when what it draws changed.
++  check(node: HTMLDivElement | undefined, drawn: readonly unknown[]) {
++    const was = this.drawn;
++    const changed =
++      node !== this.node ||
++      was === undefined ||
++      was.length !== drawn.length ||
++      drawn.some((value, index) => !Object.is(value, was[index]));
++    this.moved = changed || this.resized;
++    this.resized = false;
++    this.node = node;
++    this.drawn = drawn;
++    if (changed) this.track(node);
++  }
++
++  /// Observe the line, its direct boxes (whose sizes place the counts) and the words' own box; let go
++  /// of those gone. Only while connected: the observer's cleanup lets go of every box.
++  private track(node: HTMLDivElement | undefined) {
++    const observer = this.observer;
++    if (!observer) return;
++    const boxes = new Set<Element>();
++    if (node) {
++      boxes.add(node);
++      for (const child of node.children) boxes.add(child);
++      const words = node.querySelector("output.cv-thinking");
++      if (words) boxes.add(words);
++    }
++    for (const box of this.boxes.keys())
++      if (!boxes.has(box)) {
++        observer.unobserve(box);
++        this.boxes.delete(box);
++      }
++    for (const box of boxes) if (!this.boxes.has(box)) observer.observe(box);
++  }
++}
++
++/// Whether the live line's boxes may have moved since its last commit: the two hooks below read
++/// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
++/// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
++/// what the line draws changes (`drawn`: its words, time, counts and look, compared as effect deps
++/// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
++/// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
++/// its boxes marks for the next commit. Read `moved` in layout effects only, after this hook's own.
++function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly unknown[]): LineBoxes {
++  const [boxes] = useState(() => new LineBoxes());
++  // One observer for the line's life, disconnected when it unmounts.
++  useLayoutEffect(() => boxes.connect(), [boxes]);
++  useLayoutEffect(() => {
++    boxes.check(line.current ?? undefined, drawn);
++  });
++  return boxes;
++}
++
+ /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
+ /// (ellipsis and all), their time and counts from where they sat, never the full words running their
+-/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
+-/// roll's copies in the commit that makes them, before paint; refs only in the effect.
+-function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
++/// tail on past it. The width as last committed, one read of the line's own box a commit that moved
++/// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
++/// only in the effect.
++function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
+   const drawn = useRef<{ turns: number; width?: number }>({ turns });
+   useLayoutEffect(() => {
+     const node = line.current;
+     if (!node) return;
+     const last = drawn.current;
++    // Nothing drawn moved: the width read last still holds.
++    if (turns === last.turns && !moved.moved) return;
+     if (turns !== last.turns && last.width !== undefined) {
+       const px = `${last.width}px`;
+       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
+@@ -162,11 +261,13 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number)
+ /// time grows a digit, its words change width under one key) slides from where it was drawn on the
+ /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
+ /// (`useRoll`), and the gates that stop the roll stop this too.
+-function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number) {
++function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
+   const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
+   useLayoutEffect(() => {
+     const node = line.current;
+     if (!node) return;
++    // Nothing drawn moved: the counts sit where they were read last, so none glides.
++    if (turns === drawn.current.turns && !moved.moved) return;
+     const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
+     const lefts = counts.map((count) => count.offsetLeft);
+     const before = drawn.current;
+@@ -534,8 +635,30 @@ export function Thinking({
+   const lineRef = useRef<HTMLDivElement>(null);
+   // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
+   const calm = compactLook === "calm" || silent;
+-  useRollOutWidth(lineRef, roll.turns);
+-  useCountGlide(lineRef, roll.turns);
++  // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
++  // none of it (its `quietKey` and `heardKey` only time the line).
++  const moved = useLineMoved(lineRef, [
++    below,
++    waiting,
++    asked,
++    answered,
++    calm,
++    decorative,
++    compacting,
++    label,
++    lead?.lead,
++    lead?.rest,
++    verbs,
++    elapsed,
++    own,
++    turnClock,
++    timesLook,
++    tail,
++    roll.out?.tail,
++    command && !done && doing !== undefined ? doingAt : undefined,
++  ]);
++  useRollOutWidth(lineRef, roll.turns, moved);
++  useCountGlide(lineRef, roll.turns, moved);
+   // The question card already asks for an answer above the composer.
+   if (waiting === "question") return null;
+   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
+diff --git a/webviews/src/agent-session/acpmux/inputPending.ts b/webviews/src/agent-session/acpmux/inputPending.ts
+new file mode 100644
+index 00000000000..6876641077d
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/inputPending.ts
+@@ -0,0 +1,11 @@
++/// Whether a key or pointer event waits for the main thread (Chromium's `isInputPending`; false
++/// where the browser has none). Work that could wait a frame checks it so input goes first.
++export const inputPending = (): boolean => {
++  const scheduling = (globalThis.navigator as { scheduling?: { isInputPending?: () => boolean } } | undefined)
++    ?.scheduling;
++  try {
++    return scheduling?.isInputPending?.() === true;
++  } catch {
++    return false;
++  }
++};
+diff --git a/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx b/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx
+index 8989cb83b0b..1a51f47cc05 100644
+--- a/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx
++++ b/webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx
+@@ -76,6 +76,7 @@ import {
+   type MinimapTurns,
+   type RailFilter,
+   type RowsChange,
++  type RowTops,
+   WAVE_SHAPES,
+   replyMore,
+ } from "./model";
+@@ -143,27 +144,178 @@ const within = (element: Element | null, to: EventTarget | null) =>
+ 
+ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElement>(".cv-user__bubble");
+ 
++/// What the transcript hands the rail on each of its renders: every one of these changes with a
++/// streamed token (VirtualTranscript).
++export type MinimapSourceValues = {
++  rows: readonly AcpmuxRow[];
++  layout: TranscriptLayout;
++  /// The transcript's offset as it renders (layout coordinates).
++  scrollTop: number;
++  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
++  scrolls: boolean;
++  /// Where `rows` first differs from the last snapshot (model.ts minimapTurns).
++  change?: RowsChange;
++};
++
++/// The rail's turns read from the transcript's rows (model.ts minimapTurns), by its renders and by
++/// MinimapSource's probe. `committed` is the turns of the last commit: the next read goes on from
++/// them and leaves them as they are, so a render React drops before it commits changes nothing
++/// (#24058 review round 6). The last read, and what it was read from, is kept too: the next read
++/// goes on from it while its turns are the committed ones (a token that changes no turn), so a token
++/// the rail does not render for still reads only the live turn; one whose turns changed and were not
++/// committed yet is not built on, since its spare list is the committed turns.
++class TurnReader {
++  private committed: MinimapTurns | undefined;
++  private last:
++    | {
++        rows: readonly AcpmuxRow[];
++        change?: RowsChange;
++        sessionId?: string;
++        earlier: readonly AcpmuxRow[];
++        promptCount?: number;
++        read: MinimapTurns;
++      }
++    | undefined;
++
++  read(
++    rows: readonly AcpmuxRow[],
++    change: RowsChange | undefined,
++    session: string | undefined,
++    earlier: readonly AcpmuxRow[],
++    count: number | undefined,
++  ): MinimapTurns {
++    const cached = this.last;
++    if (
++      cached &&
++      cached.rows === rows &&
++      cached.change === change &&
++      cached.sessionId === session &&
++      cached.earlier === earlier &&
++      cached.promptCount === count
++    )
++      return cached.read;
++    const committed = this.committed;
++    const chain = cached?.read;
++    const previous =
++      chain && committed && chain.turns === committed.turns && chain.loadedTurns === committed.loadedTurns
++        ? chain
++        : committed;
++    const read = minimapTurns(rows, session, previous, change, earlier, count);
++    this.last = { rows, change, sessionId: session, earlier, promptCount: count, read };
++    return read;
++  }
++
++  /// The turns a commit drew.
++  commit(read: MinimapTurns) {
++    this.committed = read;
++  }
++}
++
++/// The rail's stable handle on the transcript's rows, layout and offset (ThreadMinimap `source`). The
++/// transcript writes each render's values into it and passes `update`'s version beside it: the version
++/// moves only when the rail would draw something else (a prompt, a tick, the band of prompts on screen,
++/// the full-height map's proportions), so a token that only grows the live reply renders no rail. The
++/// rail reads the latest values from it when it draws, and its handlers when they run.
++export class MinimapSource {
++  current: MinimapSourceValues | undefined;
++  private version = 0;
++  /// The mounted rail's check: whether `next` changes what it drew last commit. Absent while no rail is
++  /// mounted, when every render is a new version.
++  private probe: ((next: MinimapSourceValues) => boolean) | undefined;
++  /// The mounted rail's probe, from its commit until `clearProbe`.
++  setProbe(probe: (next: MinimapSourceValues) => boolean) {
++    this.probe = probe;
++  }
++  clearProbe(probe: (next: MinimapSourceValues) => boolean) {
++    if (this.probe === probe) this.probe = undefined;
++  }
++  /// Takes this render's values; the version the rail renders at.
++  update(next: MinimapSourceValues): number {
++    const was = this.current;
++    this.current = next;
++    if (
++      !was ||
++      was.rows !== next.rows ||
++      was.layout !== next.layout ||
++      was.scrollTop !== next.scrollTop ||
++      was.scrolls !== next.scrolls ||
++      was.change !== next.change
++    )
++      if (!this.probe || this.probe(next)) this.version += 1;
++    return this.version;
++  }
++}
++
++/// The row tops of `source`'s latest layout, read when asked: a streamed token's new layout is read
++/// without rendering the rail. Kept per layout, so its geometry is wrapped once.
++function latestTopsOf(source: MinimapSource): RowTops {
++  let from: TranscriptLayout | undefined;
++  let read: RowTops = () => undefined;
++  return (index) => {
++    const now = source.current?.layout;
++    if (!now) return undefined;
++    if (now !== from) {
++      from = now;
++      read = rowTopsOf(layoutGeometry(now));
++    }
++    return read(index);
++  };
++}
++
++/// One MinimapSource for the transcript's life.
++export function useMinimapSource(): MinimapSource {
++  const [source] = useState(() => new MinimapSource());
++  return source;
++}
++
++type ThreadMinimapProps = Parameters<typeof ThreadMinimapView>[0];
++/// The rail's props compare by value, its box by its numbers (the transcript builds a new one per render).
++function sameMinimapProps(prev: ThreadMinimapProps, next: ThreadMinimapProps): boolean {
++  for (const key of Object.keys(next) as (keyof ThreadMinimapProps)[])
++    if (key !== "railBox" && !Object.is(prev[key], next[key])) return false;
++  if (Object.keys(prev).length !== Object.keys(next).length) return false;
++  const a = prev.railBox;
++  const b = next.railBox;
++  return a === b || (!!a && !!b && a.height === b.height && a.foot === b.foot && a.live === b.live);
++}
++
++/// The rail renders when its version or another prop changes, never for a streamed token alone.
++export const ThreadMinimapRail = memo(ThreadMinimapView, sameMinimapProps);
++
++/// The rail given its values as props (a mount outside the transcript): a handle of its own.
+ export function ThreadMinimap({
+   rows,
++  layout,
++  scrollTop,
++  scrolls,
++  change,
++  ...rest
++}: Omit<ThreadMinimapProps, "source" | "version"> & MinimapSourceValues) {
++  const source = useMinimapSource();
++  const version = source.update({ rows, layout, scrollTop, scrolls, change });
++  return <ThreadMinimapRail source={source} version={version} {...rest} />;
++}
++
++function ThreadMinimapView({
++  source,
+   earlier = EMPTY_EARLIER,
+   promptCount,
+   loadThrough,
+   loadPromptIndex,
+   sessionId,
+-  layout,
+   scroller,
+-  scrollTop,
+   viewportHeight,
+   foot,
+   railBox,
+-  scrolls,
+   width,
+   columnWidth = width,
+   placed,
+-  change,
+   topInset = 0,
+ }: {
+-  rows: readonly AcpmuxRow[];
++  /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
++  source: MinimapSource;
++  /// MinimapSource.update's version: a new one renders the rail.
++  version: number;
+   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
+   earlier?: readonly AcpmuxRow[];
+   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
+@@ -177,9 +329,7 @@ export function ThreadMinimap({
+   /// `loadPromptIndex`): a hover or a click on a pending tick. True once it named them.
+   loadPromptIndex?: () => Promise<boolean>;
+   sessionId?: string;
+-  layout: TranscriptLayout;
+   scroller: React.RefObject<HTMLElement | null>;
+-  scrollTop: number;
+   viewportHeight: number;
+   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
+   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
+@@ -192,16 +342,12 @@ export function ThreadMinimap({
+   /// shortens the rail from its foot (model.ts railClearHeight), and the card stays above it too.
+   /// Without one, `viewportHeight` and `foot`.
+   railBox?: { height: number; foot: number; live?: number };
+-  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
+-  scrolls: boolean;
+   width: number;
+   columnWidth?: number;
+   /// The transcript calls what the rail puts here once each commit's placement pass has set its
+-  /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
+-  placed?: React.MutableRefObject<(() => void) | undefined>;
+-  /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
+-  /// reads only the rows from there (model.ts minimapTurns).
+-  change?: RowsChange;
++  /// offset (VirtualTranscript), so the band reads where the transcript put the reader. It passes
++  /// that offset (layout coordinates) when it knows it, so the rail reads no layout for it.
++  placed?: React.MutableRefObject<((top?: number) => void) | undefined>;
+   /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
+   /// its prompt LANDING_OFFSET below the row, not under it.
+   topInset?: number;
+@@ -225,18 +371,20 @@ export function ThreadMinimap({
+   const [incomingLook] = useState(() => INCOMING_LOOK[experimentArm(threadMinimapIncoming)]);
+   const full = arm === "full";
+   const marks = usePromptMarks(sessionId);
+-  /// The turns of the last commit: the next render reads from them and leaves them as they are, so
+-  /// a render React drops before it commits changes nothing (#24058 review round 6).
+-  const lastTurns = useRef<MinimapTurns | undefined>(undefined);
++  /// The turns read for the transcript's rows (TurnReader): the last commit's, and the last read.
++  const [turnReader] = useState(() => new TurnReader());
++  /// The transcript's values this render draws (MinimapSource): the latest it rendered.
++  const values = source.current!;
++  const { rows, layout, change, scrollTop, scrolls } = values;
+   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
+   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
+   const read = useMemo(
+-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount),
+-    [rows, sessionId, change, earlierRows, promptCount],
++    () => turnReader.read(rows, change, sessionId, earlierRows, promptCount),
++    [turnReader, rows, sessionId, change, earlierRows, promptCount],
+   );
+   useLayoutEffect(() => {
+-    lastTurns.current = read;
+-  }, [read]);
++    turnReader.commit(read);
++  }, [turnReader, read]);
+   const loadedTurns = read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0);
+   /// Whose prompts the rail shows (model.ts `RailFilter`), picked from its right-click menu.
+   const [filter, setFilter] = useState<RailFilter>("all");
+@@ -460,10 +608,19 @@ export function ThreadMinimap({
+   const overflow = turns.length * rowPitch > height;
+ 
+   /// What the handlers below read: the turns and layout as of the last commit.
++  /// The handlers' tops: the transcript's latest layout (MinimapSource), which a streamed token
++  /// changes without rendering the rail (its total height is kept by `placed` below).
++  const sourceTops = useMemo(() => latestTopsOf(source), [source]);
++  /// `source` for the placement effect below, set in the commit (the prop is one handle for the
++  /// transcript's life).
++  const sourceNow = useRef(source);
++  useLayoutEffect(() => {
++    sourceNow.current = source;
++  }, [source]);
+   const live = useRef({
+     turns,
+     ticks,
+-    tops,
++    tops: sourceTops,
+     total: layout.totalHeight,
+     marks,
+     viewportHeight,
+@@ -478,7 +635,7 @@ export function ThreadMinimap({
+     live.current = {
+       turns,
+       ticks,
+-      tops,
++      tops: sourceTops,
+       total: layout.totalHeight,
+       marks,
+       viewportHeight,
+@@ -598,16 +755,26 @@ export function ThreadMinimap({
+   // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
+   // this commit: restored the reader's place over older turns, or left it. The band reads that
+   // offset before the frame paints, whether or not a scroll event follows.
++  // The offset is the one the transcript passes (it read it in that pass), else read once here.
+   useLayoutEffect(() => {
+     if (!placed) return;
+-    placed.current = () => {
++    placed.current = (settled) => {
+       const node = scroller.current;
+       if (!node) return;
++      const top = settled ?? layoutScrollTop(node);
++      // The chat's height as this commit laid it out, which a token the rail did not render for changed.
++      const layoutNow = sourceNow.current.current?.layout;
++      if (layoutNow) live.current.total = layoutNow.totalHeight;
+       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+-      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
++      domTop.current = { sessionId: session, top };
+       restoring.current = undefined;
++      // The band's first prompt as this layout places it, which a token the rail did not render for
++      // may have moved (rows above it measured): older turns arriving later shift the band by it.
++      const held = anchor.current;
++      const first = held && all.at(held.index);
++      if (held && first) held.layoutTop = tops(first.index) ?? 0;
+       if (!live.current.shown) return;
+-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
++      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart);
+       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
+     };
+     return () => {
+@@ -615,6 +782,57 @@ export function ThreadMinimap({
+     };
+   }, [placed, scroller]);
+ 
++  // What the rail drew at its last commit, for the transcript's next values to be checked against
++  // (MinimapSource.probe): the turns read, the arm, and the props the read took.
++  const committedDraw = useRef<
++    | {
++        read: MinimapTurns;
++        full: boolean;
++        sessionId?: string;
++        earlier: readonly AcpmuxRow[];
++        promptCount?: number;
++      }
++    | undefined
++  >(undefined);
++  useLayoutEffect(() => {
++    committedDraw.current = { read, full, sessionId, earlier: earlierRows, promptCount };
++  });
++  // Whether the transcript's next values change what the rail draws: its turns or ticks, or the band
++  // of prompts on screen, read as a render would (`top` above). The full-height map draws the chat's
++  // proportions, so any new layout or offset renders it, as before. A token growing the live reply
++  // under a still band changes neither, and the rail does not render for it.
++  useLayoutEffect(() => {
++    const probe = (next: MinimapSourceValues) => {
++      const was = committedDraw.current;
++      if (!was || was.full) return true;
++      const now = turnReader.read(next.rows, next.change, was.sessionId, was.earlier, was.promptCount);
++      const then = was.read;
++      if (
++        now.turns !== then.turns ||
++        now.ticks !== then.ticks ||
++        now.loadedTurns !== then.loadedTurns ||
++        now.loadedTicks !== then.loadedTicks ||
++        now.loadedStart !== then.loadedStart ||
++        now.pendingCount !== then.pendingCount
++      )
++        return true;
++      const {
++        turns: all,
++        viewportHeight: height,
++        onScreen: band,
++        sessionId: session,
++        loadedStart: start,
++      } = live.current;
++      const seen = domTop.current && domTop.current.sessionId === session ? domTop.current.top : undefined;
++      const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
++      const tops = rowTopsOf(layoutGeometry(next.layout));
++      const at = visibleTurns(all, tops, next.layout.totalHeight, (seen ?? next.scrollTop) + shift, height, start);
++      return at.first !== band.first || at.last !== band.last;
++    };
++    source.setProbe(probe);
++    return () => source.clearProbe(probe);
++  }, [source, turnReader]);
++
+   // A jump still under way belongs to the chat it started in: another chat in the reused scroller,
+   // or the rail going away, ends it. In the commit itself, before the jump's next frame can run.
+   useLayoutEffect(() => {
+diff --git a/webviews/test/thread-minimap-token-renders.test.tsx b/webviews/test/thread-minimap-token-renders.test.tsx
+new file mode 100644
+index 00000000000..d9b2065c2e2
+--- /dev/null
++++ b/webviews/test/thread-minimap-token-renders.test.tsx
+@@ -0,0 +1,195 @@
++// cmux-web-test-timeout: 300
++// The prompt rail while a reply streams: a token that only grows the live reply renders no rail.
++// Every token gives the transcript new rows and a new layout (the reply's row grows), and the rail
++// used to take both as props, so it rendered once per token (~0.7 ms each in a 100k-row chat
++// profile) though it drew the same ticks and band. It now holds a stable handle on them
++// (MinimapSource) and renders only when a prompt, a tick or the band of prompts on screen changes,
++// and draws what a fresh rail of the same chat draws.
++import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
++import { JSDOM, VirtualConsole } from "jsdom";
++import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
++import { turnView } from "../src/agent-session/acpmux/conversation/turns";
++import { teardownDom } from "./support/domTeardown";
++(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
++setDefaultTimeout(120_000);
++
++const dom = new JSDOM("<!doctype html><div id=root></div>", {
++  url: "http://localhost/",
++  pretendToBeVisual: true,
++  virtualConsole: new VirtualConsole(),
++});
++const scope = globalThis as Record<string, unknown>;
++const replacements: Record<string, unknown> = {
++  window: dom.window,
++  document: dom.window.document,
++  navigator: dom.window.navigator,
++  HTMLElement: dom.window.HTMLElement,
++  Element: dom.window.Element,
++  customElements: dom.window.customElements,
++  Node: dom.window.Node,
++  MutationObserver: dom.window.MutationObserver,
++  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
++  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
++  IntersectionObserver: class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  },
++  ResizeObserver: class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  },
++  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
++  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
++  IS_REACT_ACT_ENVIRONMENT: true,
++};
++for (const key of Object.getOwnPropertyNames(dom.window))
++  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
++    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
++const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
++Object.assign(scope, replacements);
++
++// jsdom has no layout: a 600 px viewport in a 1040 px pane, and a scroll offset.
++const VIEWPORT = 600;
++const paneWidth = 1040;
++Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
++Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => paneWidth });
++const offsets = new WeakMap<object, number>();
++Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
++  configurable: true,
++  get(this: object) {
++    return offsets.get(this) ?? 0;
++  },
++  set(this: object, value: number) {
++    offsets.set(this, value);
++  },
++});
++dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
++  this.scrollTop = typeof options === "number" ? 0 : (options?.top ?? 0);
++} as typeof HTMLElement.prototype.scrollTo;
++
++// The rail's right-click menu labels its filters on every render of the rail: reading the first
++// filter's string counts the rail's renders.
++let renders = 0;
++const english: Record<string, string> = {
++  "minimap.label": "Messages",
++  "minimap.moveRight": "",
++  "minimap.moveLeft": "",
++  "minimap.tick": "Message {index} of {count}: {prompt}",
++  "minimap.tickBookmarked": "Message {index} of {count}: {prompt}",
++};
++Object.defineProperty(english, "minimap.filterAll", {
++  enumerable: true,
++  get: () => {
++    renders += 1;
++    return "All";
++  },
++});
++const strings = globalThis as { __cmuxPaneStrings?: Record<string, Record<string, string>> };
++const stringsBefore = strings.__cmuxPaneStrings;
++strings.__cmuxPaneStrings = { en: english };
++
++const { act } = await import("react");
++const { createRoot } = await import("react-dom/client");
++const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
++const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
++setBookmarkTransport({
++  get: async (sessionId) => ({ sessionId, bookmarks: [] }),
++  set: async (sessionId) => ({ sessionId, bookmarks: [] }),
++});
++
++afterAll(async () => {
++  setBookmarkTransport(undefined);
++  await teardownDom(saved, { window: dom.window, scope });
++  if (stringsBefore) strings.__cmuxPaneStrings = stringsBefore;
++  else delete strings.__cmuxPaneStrings;
++  delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
++});
++
++const document = dom.window.document;
++const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
++const PROMPTS = 300;
++/// A last reply long enough to fill the card's preview and the view, so the tokens after it change
++/// neither the preview nor the band of prompts on screen: only the reply's height and the chat's.
++const LONG_REPLY = Array.from(
++  { length: 40 },
++  (_, index) => `Paragraph ${index} of the live reply, long enough to wrap across the column a few times over.`,
++).join("\n\n");
++const chat = (reply: string) =>
++  Array.from({ length: PROMPTS }, (_, index) => {
++    const last = index === PROMPTS - 1;
++    const answer = last ? reply : `Answer ${index}.\n\nWith a second paragraph so the turn has height.`;
++    return [
++      row(`user-${index + 1}`, "user", `Question ${index}`),
++      row(`t${index}-answer`, "assistant", answer),
++      ...(last ? [] : [{ ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 }]),
++    ];
++  }).flat();
++
++/// What the rail draws: its box, and each drawn tick's row, label, tone and marks.
++const drawnRail = (host: HTMLElement) => {
++  const rail = host.querySelector<HTMLElement>(".acpmux-minimap");
++  const list = host.querySelector<HTMLElement>(".acpmux-minimap__list");
++  return {
++    box: rail
++      ? { top: list?.parentElement?.style.top, height: list?.parentElement?.style.height, side: rail.dataset.side }
++      : undefined,
++    listTop: list?.scrollTop,
++    ticks: [...host.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => ({
++      tick: tick.dataset.tick,
++      label: tick.getAttribute("aria-label"),
++      tone: tick.dataset.tone,
++      bookmarked: tick.dataset.bookmarked,
++      incoming: tick.dataset.incoming,
++    })),
++  };
++};
++
++test("30 tokens into the last reply of a 300-prompt chat render the rail no more than what it draws changes", async () => {
++  const host = document.createElement("div");
++  document.body.append(host);
++  const root = createRoot(host);
++  const base = chat(LONG_REPLY);
++  const at = base.findIndex((item) => item.id === `t${PROMPTS - 1}-answer`);
++  const rowsFor = (reply: string) => {
++    const rows = base.slice();
++    rows[at] = { ...base[at]!, text: reply, version: reply.length };
++    return rows;
++  };
++  const view = (rows: AcpmuxRow[], sessionId: string) => (
++    <VirtualTranscript
++      rows={turnView(rows, new Set())}
++      sessionId={sessionId}
++      onToggleActivity={() => {}}
++      expanded={new Set()}
++    />
++  );
++  let reply = LONG_REPLY;
++  let mounted = root;
++  try {
++    await act(async () => root.render(view(rowsFor(reply), "minimap-token-renders")));
++    expect(host.querySelectorAll("[data-tick]").length).toBeGreaterThan(0);
++    const before = drawnRail(host);
++    renders = 0;
++    for (let token = 0; token < 30; token += 1) {
++      reply += ` word${token}`;
++      await act(async () => root.render(view(rowsFor(reply), "minimap-token-renders")));
++    }
++    const after = drawnRail(host);
++    // The band of prompts on screen stayed on the live turn and no prompt changed, so the rail draws
++    // what it drew before the tokens, and nothing called for a render of it (base: one per token).
++    expect(after).toEqual(before);
++    expect(renders).toBe(0);
++
++    // A fresh rail of the final chat draws the same ticks and box.
++    await act(async () => root.unmount());
++    mounted = createRoot(host);
++    const fresh = mounted;
++    await act(async () => fresh.render(view(rowsFor(reply), "minimap-token-renders")));
++    expect(drawnRail(host)).toEqual(after);
++  } finally {
++    await act(async () => mounted.unmount());
++    host.remove();
++  }
++});
+diff --git a/webviews/test/transcript-pin-pass-no-forced-read.test.tsx b/webviews/test/transcript-pin-pass-no-forced-read.test.tsx
+new file mode 100644
+index 00000000000..6f281b89ae1
+--- /dev/null
++++ b/webviews/test/transcript-pin-pass-no-forced-read.test.tsx
+@@ -0,0 +1,201 @@
++// "the dream is infinite chats of infinite length with flat or no growth in cpu/memory" and "typing
++// under load is not good enough" (Leo). Under load the placement pass's top self cost was
++// `layoutScrollTop`: the pass wrote the follow offset (and its sub-pixel origin) and then read the
++// scroller back, so each streamed token laid the whole page out again (21.9 ms per key at 1,500 rows
++// with a stream). The pass takes the offset and height from what it read before it wrote and from
++// what it wrote: no read of the scroller after a write, and the same offset as before.
++import { afterAll, expect, test } from "bun:test";
++import { JSDOM, VirtualConsole } from "jsdom";
++import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
++import { turnView } from "../src/agent-session/acpmux/conversation/turns";
++import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
++import { settleReact } from "./support/domTeardown";
++
++const dom = new JSDOM("<!doctype html><div id=root></div>", {
++  url: "http://localhost/",
++  pretendToBeVisual: true,
++  virtualConsole: new VirtualConsole(),
++});
++dom.window.document.documentElement.dataset.agentMotion = "off";
++const scope = globalThis as Record<string, unknown>;
++const observers = new Map<Element, (entries: { target: Element }[]) => void>();
++const replacements: Record<string, unknown> = {
++  window: dom.window,
++  document: dom.window.document,
++  navigator: dom.window.navigator,
++  HTMLElement: dom.window.HTMLElement,
++  Element: dom.window.Element,
++  customElements: dom.window.customElements,
++  Node: dom.window.Node,
++  MutationObserver: dom.window.MutationObserver,
++  IntersectionObserver: class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  },
++  // Each element's ResizeObserver callback, which the test fires as a redrawn row would.
++  ResizeObserver: class {
++    constructor(private readonly callback: (entries: { target: Element }[]) => void) {}
++    observe(target: Element) {
++      observers.set(target, this.callback);
++    }
++    unobserve(target: Element) {
++      observers.delete(target);
++    }
++    disconnect() {}
++  },
++  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
++  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
++  IS_REACT_ACT_ENVIRONMENT: true,
++};
++for (const key of Object.getOwnPropertyNames(dom.window))
++  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
++    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
++const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
++Object.assign(scope, replacements);
++
++const VIEWPORT = 600;
++Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
++installJsdomScroller(dom.window as never, () => VIEWPORT);
++// jsdom has no layout: the streamed reply draws at a fractional height, as text does, so each token
++// moves the view's sub-pixel origin (a style write); every other row places by its estimate.
++const LIVE = "live-answer";
++let liveHeight = 0;
++dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
++  const height = this.dataset.rowId === LIVE ? liveHeight : 0;
++  return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() {} } as DOMRect;
++};
++
++// The order of the scroller's reads and of the style writes to the page (a property that changed),
++// cut at the end of each placement pass (`followTrace.update`, its last step). A scroll write is
++// noted too, but it leaves the page laid out (the browser lays out before it scrolls and the scroll
++// moves nothing in layout): a read after it alone lays nothing out. A read after a style write does.
++type Step = { kind: "read" | "write" | "scroll"; what: string };
++let log: Step[] = [];
++const passes: Step[][] = [];
++let scroller: HTMLElement | undefined;
++const proto = dom.window.HTMLElement.prototype;
++for (const name of ["scrollTop", "clientHeight", "scrollHeight"] as const) {
++  const real = Object.getOwnPropertyDescriptor(proto, name)!;
++  Object.defineProperty(proto, name, {
++    configurable: true,
++    get(this: HTMLElement) {
++      if (this === scroller) log.push({ kind: "read", what: name });
++      return real.get!.call(this);
++    },
++    set(this: HTMLElement, value: number) {
++      if (this === scroller) log.push({ kind: "scroll", what: name });
++      real.set?.call(this, value);
++    },
++  });
++}
++const style = dom.window.CSSStyleDeclaration.prototype;
++const setProperty = style.setProperty;
++const removeProperty = style.removeProperty;
++style.setProperty = function (this: CSSStyleDeclaration, name: string, value: string | null, priority?: string) {
++  const was = this.getPropertyValue(name);
++  setProperty.call(this, name, value, priority ?? "");
++  if (this.getPropertyValue(name) !== was) log.push({ kind: "write", what: `style ${name}` });
++};
++style.removeProperty = function (this: CSSStyleDeclaration, name: string) {
++  const was = removeProperty.call(this, name);
++  if (was) log.push({ kind: "write", what: `style -${name}` });
++  return was;
++};
++
++const { act } = await import("react");
++const { createRoot } = await import("react-dom/client");
++const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
++const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
++const update = followTrace.update.bind(followTrace);
++followTrace.update = (...args: Parameters<typeof followTrace.update>) => {
++  update(...args);
++  passes.push(log);
++  log = [];
++};
++
++afterAll(async () => {
++  followTrace.update = update;
++  await settleReact();
++  dom.window.close();
++  for (const [key, had, value] of saved) {
++    if (had) scope[key] = value;
++    else delete scope[key];
++  }
++});
++
++/// The scroller's reads that come after a style write in the same pass: each lays the page out again.
++const readsAfterWrite = (steps: readonly Step[]) => {
++  const written = steps.findIndex((step) => step.kind === "write");
++  return written < 0 ? [] : steps.slice(written + 1).filter((step) => step.kind === "read");
++};
++
++const row = (id: string, kind: string, text?: string, version = 1): AcpmuxRow => ({ id, kind, text, version, at: 1 });
++const TURNS = 500;
++const history = Array.from({ length: TURNS }, (_, index) => [
++  row(`t${index}-user`, "user", `Question ${index}`),
++  row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
++  { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
++]).flat();
++const lines = (tokens: number) => tokens + 1;
++const streaming = (tokens: number) => [
++  ...history,
++  row("live-user", "user", "Stream a long reply"),
++  row(
++    "live-answer",
++    "assistant",
++    Array.from({ length: lines(tokens) }, (_, line) => `Streamed line ${line} with enough words to wrap.`).join("\n\n"),
++    tokens + 1,
++  ),
++];
++
++test("a streamed token's placement pass reads the scroller only before it writes, and follows the bottom", async () => {
++  const root = createRoot(dom.window.document.getElementById("root")!);
++  const render = (tokens: number) =>
++    root.render(
++      <VirtualTranscript
++        rows={turnView(streaming(tokens), new Set())}
++        onToggleActivity={() => {}}
++        expanded={new Set()}
++      />,
++    );
++  // The reply drawn at its new height, as its row's ResizeObserver reports it.
++  const redraw = async (tokens: number) => {
++    liveHeight = 30.37 + lines(tokens) * 47.41;
++    const node = dom.window.document.querySelector(`[data-row-id="${LIVE}"]`)!;
++    await act(async () => observers.get(node)?.([{ target: node }]));
++  };
++  try {
++    await act(async () => render(0));
++    await redraw(0);
++    scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
++    expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
++    const TOKENS = 8;
++    const forced: number[] = [];
++    let scrolled = 0;
++    let styled = 0;
++    for (let token = 1; token <= TOKENS; token += 1) {
++      const before = scroller.scrollTop;
++      passes.length = 0;
++      log = [];
++      await act(async () => render(token));
++      await redraw(token);
++      const after = passes.flatMap(readsAfterWrite);
++      forced.push(after.length);
++      if (passes.some((steps) => steps.some((step) => step.kind === "scroll"))) scrolled += 1;
++      if (passes.some((steps) => steps.some((step) => step.kind === "write"))) styled += 1;
++      // Followed: the view rests at the scroller's end, which moved down with the reply.
++      expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
++      expect(scroller.scrollTop).toBeGreaterThan(before);
++    }
++    // Each token's passes wrote the new end and its sub-pixel origin (the case that read back), and
++    // read nothing after that.
++    console.log(`pin pass: scroller reads after a style write, per streamed token: ${forced.join(", ")}`);
++    expect(scrolled).toBe(TOKENS);
++    expect(styled).toBe(TOKENS);
++    expect(forced).toEqual(Array.from({ length: TOKENS }, () => 0));
++  } finally {
++    scroller = undefined;
++    await act(async () => root.unmount());
++  }
++});
+diff --git a/webviews/test/transcript-row-height-input-pending.test.tsx b/webviews/test/transcript-row-height-input-pending.test.tsx
+new file mode 100644
+index 00000000000..49d66bc9979
+--- /dev/null
++++ b/webviews/test/transcript-row-height-input-pending.test.tsx
+@@ -0,0 +1,217 @@
++// "typing under load is not good enough" (Leo): a row that changes size in a followed view is placed
++// by a synchronous render inside the row ResizeObserver's callback, so a streamed line paints in the
++// frame that delivered it. While a key or pointer event waits (Chromium's `isInputPending`), that
++// synchronous render holds the typed character behind it: the frame's own commit places the row
++// instead, by the next frame. With no input waiting the placement stays synchronous, as before.
++import { afterAll, expect, test } from "bun:test";
++import { JSDOM, VirtualConsole } from "jsdom";
++import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
++import { turnView } from "../src/agent-session/acpmux/conversation/turns";
++import { installJsdomScroller } from "./support/jsdomScroller";
++import { teardownDom } from "./support/domTeardown";
++
++const dom = new JSDOM("<!doctype html><div id=root></div>", {
++  url: "http://localhost/",
++  pretendToBeVisual: true,
++  virtualConsole: new VirtualConsole(),
++});
++dom.window.document.documentElement.dataset.agentMotion = "off";
++
++/// Every ResizeObserver the transcript makes, with what it observes: the test delivers its entries.
++type Observed = { callback: (entries: ResizeObserverEntry[]) => void; targets: Set<Element> };
++const observers: Observed[] = [];
++class RecordingResizeObserver {
++  private readonly observed: Observed;
++  constructor(callback: (entries: ResizeObserverEntry[]) => void) {
++    this.observed = { callback, targets: new Set() };
++    observers.push(this.observed);
++  }
++  observe(target: Element) {
++    this.observed.targets.add(target);
++  }
++  unobserve(target: Element) {
++    this.observed.targets.delete(target);
++  }
++  disconnect() {
++    this.observed.targets.clear();
++  }
++}
++
++const scope = globalThis as Record<string, unknown>;
++const replacements: Record<string, unknown> = {
++  window: dom.window,
++  document: dom.window.document,
++  navigator: dom.window.navigator,
++  HTMLElement: dom.window.HTMLElement,
++  Element: dom.window.Element,
++  customElements: dom.window.customElements,
++  Node: dom.window.Node,
++  MutationObserver: dom.window.MutationObserver,
++  IntersectionObserver: class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  },
++  ResizeObserver: RecordingResizeObserver,
++  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
++  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
++  IS_REACT_ACT_ENVIRONMENT: true,
++};
++for (const key of Object.getOwnPropertyNames(dom.window))
++  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
++    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
++const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
++Object.assign(scope, replacements);
++
++// Chromium's input-pending signal, set by the test.
++let pending = false;
++Object.defineProperty(dom.window.navigator, "scheduling", {
++  configurable: true,
++  value: { isInputPending: () => pending },
++});
++
++// jsdom has no layout: a row the test sizes lays out at that height; every other box is not laid out
++// (no client rects), so it keeps its estimate.
++const VIEWPORT = 600;
++Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
++installJsdomScroller(dom.window as never, () => VIEWPORT);
++const sized = new WeakMap<Element, number>();
++const rect = (height: number) =>
++  ({ top: 0, bottom: height, left: 0, right: 760, width: 760, height, x: 0, y: 0, toJSON() {} }) as DOMRect;
++dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
++  return rect(sized.get(this) ?? 0);
++};
++dom.window.HTMLElement.prototype.getClientRects = function (this: HTMLElement) {
++  const height = sized.get(this);
++  return (height === undefined ? [] : [rect(height)]) as unknown as DOMRectList;
++};
++
++const { act } = await import("react");
++const { createRoot } = await import("react-dom/client");
++const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
++
++afterAll(async () => {
++  await teardownDom(saved, { window: dom.window, scope });
++});
++
++const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
++const turns = Array.from({ length: 3 }, (_, index) => [
++  row(`t${index}-user`, "user", `Question ${index}`),
++  row(`t${index}-answer`, "assistant", `Answer ${index}.`),
++  { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
++]).flat();
++const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
++const spacerHeight = () =>
++  dom.window.document.querySelector<HTMLElement>(".acpmux-scroll > .acpmux-spacer")!.style.height;
++
++/// Mounts a followed transcript, grows the last answer to `height` and delivers its observer entry.
++/// Returns the spacer's height before, right after the delivery (in the callback's task) and a frame later.
++async function growLastAnswer(inputPending: boolean, height: number) {
++  observers.length = 0;
++  pending = false;
++  const root = createRoot(dom.window.document.getElementById("root")!);
++  try {
++    await act(async () =>
++      root.render(
++        <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
++      ),
++    );
++    await act(nextFrame);
++    const answer = dom.window.document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t2-answer"]')!;
++    expect(answer).not.toBeNull();
++    const rowObserver = observers.find((observer) => observer.targets.has(answer));
++    expect(rowObserver).toBeDefined();
++    const before = spacerHeight();
++    let delivered = "";
++    await act(async () => {
++      sized.set(answer, height);
++      pending = inputPending;
++      rowObserver!.callback([{ target: answer } as unknown as ResizeObserverEntry]);
++      // What a synchronous render committed in the observer's own task.
++      delivered = spacerHeight();
++      pending = false;
++      await nextFrame();
++    });
++    return { before, delivered, after: spacerHeight() };
++  } finally {
++    await act(async () => root.unmount());
++    pending = false;
++  }
++}
++
++test("with no input waiting, a followed row's new height commits in the observer's task", async () => {
++  const { before, delivered, after } = await growLastAnswer(false, 900);
++  expect(delivered).not.toBe(before);
++  expect(after).toBe(delivered);
++});
++
++test("with input waiting, a followed row's new height waits for the frame's commit, then lands", async () => {
++  const { before, delivered, after } = await growLastAnswer(true, 900);
++  // No synchronous render in the observer's task: the typed key goes first.
++  expect(delivered).toBe(before);
++  // The frame's commit places it.
++  expect(after).not.toBe(before);
++  // The same place a synchronous placement gives.
++  const synchronous = await growLastAnswer(false, 900);
++  expect(after).toBe(synchronous.after);
++});
++
++// One placement per frame (chat-render-pipeline R5): the observer's callback places the rows once,
++// with one synchronous render and one read of what it placed. A row whose height moves again under
++// that placement (its text rewraps) used to be flushed and read up to three times in the one task,
++// a forced layout each; its next height now goes in the next commit.
++test("a followed row whose height moves under its placement is placed once in the observer's task", async () => {
++  observers.length = 0;
++  pending = false;
++  const root = createRoot(dom.window.document.getElementById("root")!);
++  try {
++    await act(async () =>
++      root.render(
++        <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
++      ),
++    );
++    await act(nextFrame);
++    const answer = dom.window.document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t2-answer"]')!;
++    const rowObserver = observers.find((observer) => observer.targets.has(answer));
++    expect(rowObserver).toBeDefined();
++    const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll > .acpmux-spacer")!;
++    // Every height the spacer is given in the callback's task: one per synchronous placement.
++    const placed: string[] = [];
++    let counting = false;
++    const style = spacer.style;
++    const proto = Object.getPrototypeOf(style) as object;
++    const descriptor =
++      Object.getOwnPropertyDescriptor(proto, "height") ??
++      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(proto) as object, "height")!;
++    Object.defineProperty(style, "height", {
++      configurable: true,
++      get() {
++        return descriptor.get!.call(style);
++      },
++      set(value: string) {
++        if (counting && value !== descriptor.get!.call(style)) placed.push(value);
++        descriptor.set!.call(style, value);
++      },
++    });
++    let height = 900;
++    await act(async () => {
++      // Each read of the row finds it taller: every placement rewraps it again.
++      Object.defineProperty(answer, "getBoundingClientRect", {
++        configurable: true,
++        value: () => rect((height += 24)),
++      });
++      sized.set(answer, height);
++      counting = true;
++      rowObserver!.callback([{ target: answer } as unknown as ResizeObserverEntry]);
++      counting = false;
++      await nextFrame();
++    });
++    expect(placed.length).toBe(1);
++    // The height read after that placement still lands, in the next commit.
++    expect(spacerHeight()).not.toBe(placed[0]);
++    delete (style as unknown as Record<string, unknown>).height;
++  } finally {
++    await act(async () => root.unmount());
++    pending = false;
++  }
++});
+diff --git a/webviews/test/transcript-stream-no-commit-height-read.test.tsx b/webviews/test/transcript-stream-no-commit-height-read.test.tsx
+new file mode 100644
+index 00000000000..ab3427e6c68
+--- /dev/null
++++ b/webviews/test/transcript-stream-no-commit-height-read.test.tsx
+@@ -0,0 +1,182 @@
++// "the dream is infinite chats of infinite length with flat or no growth in cpu/memory" (Leo): a
++// streamed token reads no row's height in its commit. That read (drawnHeightOf after React's DOM
++// writes) forced a layout per token, the top one in a long chat's profile. A token that resized the
++// reply is reported by the row's ResizeObserver from the browser's own layout pass; one that did not
++// keeps the height already placed. The placed heights are the same as when the commit read them.
++import { afterAll, expect, test } from "bun:test";
++import { JSDOM, VirtualConsole } from "jsdom";
++import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
++import { turnView } from "../src/agent-session/acpmux/conversation/turns";
++import { installJsdomScroller } from "./support/jsdomScroller";
++import { teardownDom } from "./support/domTeardown";
++
++const dom = new JSDOM("<!doctype html><div id=root></div>", {
++  url: "http://localhost/",
++  pretendToBeVisual: true,
++  virtualConsole: new VirtualConsole(),
++});
++dom.window.document.documentElement.dataset.agentMotion = "off";
++
++/// Every ResizeObserver the transcript makes, with what it observes: the test delivers its entries.
++type Observed = { callback: (entries: ResizeObserverEntry[]) => void; targets: Set<Element> };
++const observers: Observed[] = [];
++class RecordingResizeObserver {
++  private readonly observed: Observed;
++  constructor(callback: (entries: ResizeObserverEntry[]) => void) {
++    this.observed = { callback, targets: new Set() };
++    observers.push(this.observed);
++  }
++  observe(target: Element) {
++    this.observed.targets.add(target);
++  }
++  unobserve(target: Element) {
++    this.observed.targets.delete(target);
++  }
++  disconnect() {
++    this.observed.targets.clear();
++  }
++}
++
++const scope = globalThis as Record<string, unknown>;
++const replacements: Record<string, unknown> = {
++  window: dom.window,
++  document: dom.window.document,
++  navigator: dom.window.navigator,
++  HTMLElement: dom.window.HTMLElement,
++  Element: dom.window.Element,
++  customElements: dom.window.customElements,
++  Node: dom.window.Node,
++  MutationObserver: dom.window.MutationObserver,
++  IntersectionObserver: class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  },
++  ResizeObserver: RecordingResizeObserver,
++  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
++  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
++  IS_REACT_ACT_ENVIRONMENT: true,
++};
++for (const key of Object.getOwnPropertyNames(dom.window))
++  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
++    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
++const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
++Object.assign(scope, replacements);
++
++// jsdom has no layout: a row the test sizes lays out at that height; every other box is not laid out
++// (no client rects), so it keeps its estimate. Each read of the streamed reply's box is counted while
++// a commit runs (`inCommit`). The follow chase's read of the row above it is another pass's (chaseFollow).
++const VIEWPORT = 600;
++const TURNS = 40;
++const LAST = `t${TURNS - 1}-answer`;
++Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
++installJsdomScroller(dom.window as never, () => VIEWPORT);
++const sized = new WeakMap<Element, number>();
++let inCommit = false;
++let commitReads = 0;
++const countRead = (element: HTMLElement) => {
++  if (inCommit && element.dataset.rowId === LAST) commitReads += 1;
++};
++const rect = (height: number) =>
++  ({ top: 0, bottom: height, left: 0, right: 760, width: 760, height, x: 0, y: 0, toJSON() {} }) as DOMRect;
++dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
++  countRead(this);
++  return rect(sized.get(this) ?? 0);
++};
++dom.window.HTMLElement.prototype.getClientRects = function (this: HTMLElement) {
++  countRead(this);
++  const height = sized.get(this);
++  return (height === undefined ? [] : [rect(height)]) as unknown as DOMRectList;
++};
++Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", {
++  configurable: true,
++  get(this: HTMLElement) {
++    countRead(this);
++    return sized.get(this) ?? 0;
++  },
++});
++
++const { act } = await import("react");
++const { createRoot } = await import("react-dom/client");
++const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
++
++afterAll(async () => {
++  await teardownDom(saved, { window: dom.window, scope });
++});
++
++const TOKENS = 30;
++const row = (id: string, kind: string, text?: string, version = 1): AcpmuxRow => ({ id, kind, text, version, at: 1 });
++/// A long chat whose last reply has streamed `tokens` tokens.
++const transcript = (tokens: number): AcpmuxRow[] =>
++  Array.from({ length: TURNS }, (_, index) => {
++    const last = index === TURNS - 1;
++    return [
++      row(`t${index}-user`, "user", `Question ${index}`),
++      last
++        ? row(LAST, "assistant", `Answer ${index}.${" word".repeat(tokens)}`, 1 + tokens)
++        : row(`t${index}-answer`, "assistant", `Answer ${index}.`),
++      ...(last ? [] : [{ ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 }]),
++    ];
++  }).flat();
++/// The reply's drawn height after `tokens` tokens: a new line every third token.
++const heightAt = (tokens: number) => 200 + 20 * Math.floor(tokens / 3);
++const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
++const spacerHeight = () =>
++  parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll > .acpmux-spacer")!.style.height);
++const answerNode = () => dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${LAST}"]`)!;
++
++test("streamed tokens read no row height in their commit, and place the reply as a read would", async () => {
++  observers.length = 0;
++  const root = createRoot(dom.window.document.getElementById("root")!);
++  const render = (tokens: number) =>
++    root.render(
++      <VirtualTranscript
++        rows={turnView(transcript(tokens), new Set())}
++        onToggleActivity={() => {}}
++        expanded={new Set()}
++      />,
++    );
++  /// Delivers the reply's observer entry, as the browser does after a layout that resized it.
++  const deliver = async () => {
++    const answer = answerNode();
++    const rowObserver = observers.find((observer) => observer.targets.has(answer));
++    expect(rowObserver).toBeDefined();
++    await act(async () => rowObserver!.callback([{ target: answer } as unknown as ResizeObserverEntry]));
++  };
++  try {
++    await act(async () => render(0));
++    await act(nextFrame);
++    const answer = answerNode();
++    expect(answer).not.toBeNull();
++    sized.set(answer, heightAt(0));
++    await deliver();
++    const start = spacerHeight();
++    const reads: number[] = [];
++    const placed: number[] = [];
++    for (let token = 1; token <= TOKENS; token += 1) {
++      // The DOM the token commits lays out at its new height.
++      const resized = heightAt(token) !== heightAt(token - 1);
++      sized.set(answerNode(), heightAt(token));
++      commitReads = 0;
++      inCommit = true;
++      try {
++        await act(async () => render(token));
++      } finally {
++        inCommit = false;
++      }
++      reads.push(commitReads);
++      expect(answerNode()).toBe(answer);
++      // The browser's layout after the commit: the observer reports only a size that changed.
++      if (resized) await deliver();
++      await act(nextFrame);
++      placed.push(spacerHeight() - start);
++    }
++    console.log(`stream commit row height reads: ${JSON.stringify({ tokens: TOKENS, reads })}`);
++    // Each token is placed at the height it drew: the reply's growth, exactly.
++    expect(placed).toEqual(Array.from({ length: TOKENS }, (_, index) => heightAt(index + 1) - heightAt(0)));
++    // No height read in any token's commit.
++    expect(reads).toEqual(Array.from({ length: TOKENS }, () => 0));
++  } finally {
++    await act(async () => root.unmount());
++  }
++});

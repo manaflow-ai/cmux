@@ -1,0 +1,5 @@
+webviews/src/agent-session/acpmux/conversation/Thinking.layoutReads.test.tsx
+webviews/test/thread-minimap-token-renders.test.tsx
+webviews/test/transcript-pin-pass-no-forced-read.test.tsx
+webviews/test/transcript-row-height-input-pending.test.tsx
+webviews/test/transcript-stream-no-commit-height-read.test.tsx
