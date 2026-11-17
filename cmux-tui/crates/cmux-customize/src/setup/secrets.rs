@@ -10,14 +10,26 @@ use super::Setup;
 use crate::Error;
 use crate::redact::{find_secret, sensitive_value};
 
-/// Refuses `setup` when a setting, file, action or its own text holds
-/// something that looks like a credential.
+/// Refuses `setup` when a setting, file, action (name or value) or its own
+/// text holds something that looks like a credential.
 pub(super) fn check_secrets(setup: &Setup) -> Result<(), Error> {
     let refuse = |what: String, kind: &str| {
         Err(Error::Setup(format!(
             "{what} looks like it holds a credential ({kind}); a setup may not carry one"
         )))
     };
+    // Names first: they go into your settings and onto the card, and the
+    // messages below quote them.
+    let names = [
+        ("a setting's name", setup.profile.settings.keys().collect::<Vec<_>>()),
+        ("a file's name", setup.profile.files.keys().collect()),
+        ("an action's name", setup.manifest.actions.keys().collect()),
+    ];
+    for (what, keys) in names {
+        if let Some((_, kind)) = keys.into_iter().find_map(|key| find_secret(key)) {
+            return refuse(what.to_owned(), kind);
+        }
+    }
     let schema = Schema::embedded();
     for (key, value) in &setup.profile.settings {
         let url = schema.row(key).is_some_and(|row| matches!(row.kind, Kind::Url));

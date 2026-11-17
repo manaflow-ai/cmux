@@ -973,9 +973,10 @@ impl Customize {
         }
         let scan = tree::scan(self.roots())?;
         let mut in_the_way: Vec<_> = writes
-            .iter()
-            .filter(|(_, bytes)| bytes.is_some())
-            .filter_map(|(path, _)| tree::in_the_way(self.roots(), path, &scan.tree))
+            .keys()
+            // A removal too: a file on disk the scan kept no copy of (one
+            // edited past the size limit) is yours, never deleted unseen.
+            .filter_map(|path| tree::in_the_way(self.roots(), path, &scan.tree))
             .collect();
         let written: BTreeMap<String, Vec<u8>> = writes
             .iter()

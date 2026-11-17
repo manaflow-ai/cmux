@@ -65,17 +65,24 @@ impl Customize {
             files: BTreeMap::new(),
             actions: actions.clone(),
         };
-        std::fs::create_dir_all(dir)?;
-        // Exporting again into a setup repo: a file the last export wrote
-        // that this one leaves out (one that now holds a credential, a theme
-        // you deleted) goes, so the repo is exactly this export.
+        // Exporting again into a setup repo: a customization file already in
+        // it that this export leaves out (one that now holds a credential, a
+        // theme you deleted, one you keep there by hand) would still install
+        // with it. Nothing is deleted: the export stops and names them.
         if dir.join(SETUP_FILE).is_file() {
-            for path in repo_files(dir)?.keys() {
-                if !profile.files.contains_key(path) {
-                    std::fs::remove_file(dir.join(path))?;
-                }
+            let stale: Vec<String> = repo_files(dir)?
+                .into_keys()
+                .filter(|path| !profile.files.contains_key(path))
+                .collect();
+            if !stale.is_empty() {
+                return Err(Error::Setup(format!(
+                    "{} holds {} that this export leaves out, and they would install with it; move them out of the repo, or export into a new folder",
+                    dir.display(),
+                    stale.join(", ")
+                )));
             }
         }
+        std::fs::create_dir_all(dir)?;
         for (path, text) in &profile.files {
             if path.split('/').any(|piece| piece.is_empty() || piece == "." || piece == "..") {
                 continue;

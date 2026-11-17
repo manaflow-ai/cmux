@@ -418,6 +418,10 @@ fn consent(output: OutputMode, card: &Value, verb: &str, yes: bool) -> Result<()
 }
 
 pub(super) fn card_text(card: &Value) -> String {
+    // Everything on the card but its own layout comes from the repo: a
+    // terminal control or line break in it is shown inert, so a setup can
+    // neither drive the terminal nor fake a line of the card.
+    let card = &inert(card);
     let setup = &card["setup"];
     let mut lines = vec![format!(
         "{} ({}) from {} at {}",
@@ -730,6 +734,7 @@ fn export(customize: &Customize, dir: &Path, header: &ExportHeader) -> Result<Va
 
 /// The answer as a person reads it.
 fn human(value: &Value) -> String {
+    let value = &inert(value);
     if let Some(installed) = value.get("installed") {
         let mut lines = vec![format!(
             "{} {} ({} at {}).",
@@ -809,6 +814,31 @@ fn human(value: &Value) -> String {
         return lines.join("\n");
     }
     value.to_string()
+}
+
+/// `value` with every string (and key) made inert for a terminal: C0 and C1
+/// controls, DEL, and line and paragraph separators, line breaks included,
+/// become U+FFFD.
+pub(super) fn inert(value: &Value) -> Value {
+    fn text(text: &str) -> String {
+        text.chars()
+            .map(|c| {
+                if matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}') {
+                    '\u{fffd}'
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+    match value {
+        Value::String(s) => Value::String(text(s)),
+        Value::Array(items) => Value::Array(items.iter().map(inert).collect()),
+        Value::Object(map) => {
+            Value::Object(map.iter().map(|(key, item)| (text(key), inert(item))).collect())
+        }
+        other => other.clone(),
+    }
 }
 
 #[cfg(test)]
