@@ -180,7 +180,7 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
           Math.abs(gap - expected),
           `footer glyph to ${next}: ${gap.toFixed(1)}px, ${expected.toFixed(1)}px with no line; rows:\n${table}`,
         ).toBeLessThanOrEqual(LONE_SYSTEM_ROWS.tolerance);
-      } else if (/^Received/.test(rows.find((row) => row.id === next)?.text ?? "")) {
+      } else if ((rows.find((row) => row.id === next)?.text ?? "").startsWith("Received")) {
         expect(
           Math.abs(gap - LONE_SYSTEM_ROWS.footerToReceived),
           `footer glyph to ${next}: ${gap.toFixed(1)}px, spec ${LONE_SYSTEM_ROWS.footerToReceived}; rows:\n${table}`,
