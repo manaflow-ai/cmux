@@ -15,7 +15,8 @@
 #                them (a terminal each), shows Home in the front window and quits with Keep Sessions (LR-SEED). The
 #                default, session=small, measures the priming launch's session (one window on Home).
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
-#                and print its main thread from process start to the window on screen (launch-ready-profile.py)
+#                and print its main thread from process start to the window on screen (launch-ready-profile.py); its
+#                SIDE-run1.samples.json.gz in report.tgz names a nightly's stripped frames offline with --dsym
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
