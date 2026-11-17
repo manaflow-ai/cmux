@@ -41,6 +41,9 @@ public struct AgentCLIHybridBenchRoot: View {
     public var body: some View {
         NavigationStack {
             TerminalScreen(model: bench.model)
+                // On screen, as the app's page says it (`TerminalTabPage`): without it the
+                // page counts as hidden, and its Mac grid changes wait for it to come back.
+                .onAppear { bench.model.setPageShown(true) }
         }
         .overlay(alignment: .top) {
             // Only once the bench is done: the UI test waits for it to exist.
