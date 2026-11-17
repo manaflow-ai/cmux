@@ -311,7 +311,9 @@ jobs:
         working-directory: cmux-tui
         run: |
           cargo build --locked -p acpmux --bin acpmux
-          echo "ACPMUX_BIN=$PWD/target/debug/acpmux" >> "$GITHUB_ENV"
+          # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
+          target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+          echo "ACPMUX_BIN=$target_dir/debug/acpmux" >> "$GITHUB_ENV"
 
       - name: Cache Playwright's apt packages
         continue-on-error: true

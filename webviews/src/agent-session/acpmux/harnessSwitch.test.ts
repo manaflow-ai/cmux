@@ -222,9 +222,9 @@ function openedPort(calls: string[]): SwitchPort {
       return sessionId;
     },
     send: async (text) => void calls.push(`send ${text}`),
-    // The agent answers a model switch a moment later than an option pick.
+    // The agent answers a model switch a few turns later than an option pick.
     setModel: async (model) => {
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
       calls.push(`model ${model}`);
     },
     setMode: async (mode) => void calls.push(`mode ${mode}`),
