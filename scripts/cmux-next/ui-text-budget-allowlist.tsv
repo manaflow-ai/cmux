@@ -45,9 +45,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserProfiles.xcstrings	
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/ClipboardReads.xcstrings	clipboardRead.title	7	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.bootstrap.stillRunning	13	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.bootstrap.stopped	14	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.github.appConfirmNoIdentity	40	25
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.github.appReady	33	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.github.confirmNoIdentity	29	25
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.github.fallbackNotConnected	24	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.progress.machinePaused	15	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.progress.next.paused	14	12
