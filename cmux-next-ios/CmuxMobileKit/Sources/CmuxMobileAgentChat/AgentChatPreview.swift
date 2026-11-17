@@ -96,11 +96,33 @@ public struct AgentChatPreview: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(rows) { row in
                     ChatRowView(row: row, context: model.context(store))
+                        .modifier(PreviewRowProbe(id: row.id))
                         .padding(.top, row.gap)
                 }
             }
             .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
         }
+    }
+}
+
+/// Tests: each preview row's frame in window space (`AgentCardOpenGeometryTests` compares it with
+/// the live transcript's row at the same page size). Nothing is attached while no probe is set.
+struct PreviewRowProbe: ViewModifier {
+    let id: String
+    #if DEBUG
+    nonisolated(unsafe) static var report: ((String, CGRect) -> Void)?
+    #endif
+
+    func body(content: Content) -> some View {
+        #if DEBUG
+        if let report = Self.report {
+            content.onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { report(id, $0) }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
 
