@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextFocus
+import CmuxNextPages
 import Foundation
 
 /// The keys of one seed of the tab keys fuzz. Each key is a key-down event through the app's key router
@@ -20,6 +22,8 @@ import Foundation
     private let held: Bool
     /// What had the keyboard before the newest key or delivery: where a hold that ended in it gave its keys on.
     var before: NSResponder?
+    /// The page that the key router queued a letter for before the newest key (``queueingPage()``), nil for none.
+    private var queuedFor: String?
 
     init(router: KeyRouter, window: NSWindow, seed: UInt64, held: Bool) {
         self.router = router
@@ -60,8 +64,71 @@ import Foundation
     private mutating func keyDown(_ characters: String, code: UInt16, flags: NSEvent.ModifierFlags, repeats: Bool) -> NSEvent? {
         stamp += 0.03
         before = window.firstResponder
+        queuedFor = queueingPage()
         return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: stamp, windowNumber: window.windowNumber,
                                 context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: repeats,
                                 keyCode: code)
+    }
+
+    // MARK: A letter that the key router took again
+
+    /// What the check says of a letter key that the key router took again when the window's hold gave it on.
+    enum LetterVerdict {
+        /// The letter waits in the router's type-ahead queue for a page of its own tab.
+        case waits
+        /// A difference of the product, as text. `lost`: the letter went to no view; else it went to another tab.
+        case differs(String, lost: Bool)
+        /// The check does not see where the letter went.
+        case unseen
+    }
+
+    /// The name that the router's type-ahead queue has for the page of `tab` in `pane`; nil: no page with a field.
+    func page(of tab: String, in pane: PaneController) -> String? {
+        pane.existingContent(for: tab)?.inputReadiness.map { String(describing: ObjectIdentifier($0)) }
+    }
+
+    /// The page that the key router queues a letter for now: the page of the focused pane, when typing may wait for
+    /// it and its field is not ready. This is the router's own condition (`KeyRouter.typesAhead`), read from the
+    /// same state; the terminal case of that condition is not read. Nil: the router queues no letter now.
+    private func queueingPage() -> String? {
+        guard let controller = router.focus(for: window).0 else { return nil }
+        let resolved = controller.focus.state.resolved
+        guard resolved.mayQueueTyping, let pane = resolved.pane,
+              let readiness = controller.content?.paneController(key: pane)?.currentContent?.inputReadiness, !readiness.isReady
+        else { return nil }
+        return String(describing: ObjectIdentifier(readiness))
+    }
+
+    /// Where the letter key for `tab` went, that the router took again when the hold ended with `end`. `ids`: the
+    /// ids of `tab` in the strip of `pane`. With text in the queue the check reads the queue. With an empty queue
+    /// after a key with Command, the check reads the page that the router queued for before that key: the hold gives
+    /// its keys on in that key's call, and then the same call ends the queue. The check does not see the queue hold
+    /// the letter in that case.
+    func letterVerdict(tab: String, ids: [String], in pane: PaneController, end: String, atChord: Bool) -> LetterVerdict {
+        let pages = Set(ids.compactMap { page(of: $0, in: pane) })
+        let start = "the hold ended with no field ready (\(end)) and gave the letter key for \(tab) on; "
+        if !router.typeAhead.text.isEmpty, let queue = router.typeAhead.surface {
+            if pages.contains(queue) { return .waits }
+            return .differs(start + "the key router has it in its type-ahead queue for a page of another tab.", lost: false)
+        }
+        guard atChord, let queue = queuedFor else { return .unseen }
+        let whose = pages.contains(queue) ? "the page of \(tab)" : "a page of another tab"
+        return .differs("the letter key for \(tab) is lost: " + start + "the key router queued typing for \(whose), whose field was not "
+            + "ready, and this key with Command ended that queue in the same call, by the product's rule that a key that is not "
+            + "typing ends the type-ahead queue. The check read the page before the key and the empty queue after it.", lost: true)
+    }
+
+    /// The text for a letter that the router took again where the check reads no queue and no page.
+    static func unseen(_ tab: String, end: String) -> String {
+        "the hold ended with no field ready (\(end)) and the key router took the letter key for \(tab) again: the check does not "
+            + "see where it went."
+    }
+
+    /// The text for a letter that waited in the router's type-ahead queue for the page of `tab`, when that queue is empty.
+    static func lostInQueue(_ tab: String, end: String, atChord: Bool) -> String {
+        "the letter key for \(tab) is lost: the hold ended with no field ready (\(end)) and gave the letter key on, the key router "
+            + "held it in its type-ahead queue for the page of \(tab), and that queue ended "
+            + (atChord ? "at this key with Command, by the product's rule that a key that is not typing ends the type-ahead queue."
+                : "with no key with Command (the focus left the page, or the queue dropped its text).")
     }
 }

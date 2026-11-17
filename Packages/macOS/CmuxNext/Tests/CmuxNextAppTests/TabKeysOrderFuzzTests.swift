@@ -54,11 +54,13 @@ import Testing
 /// stays in the hold, and the check does not say where it went. Such a hold gives no key to what had the
 /// keyboard at its opening. The check counts that letter as lost, with that rule in its text: the letter was typed
 /// for the new tab. For a letter that the hold gave on, the check reads the view that had the keyboard before the
-/// key or the delivery in which the hold ended; it does not assert that the view took the key. When the key router
-/// took the letter again at the hold's end, the check does not see where it went, and says so as a difference of
-/// the letters' setup. The hold's time limit never passes in these seeds (its clock stands still). The letter comes
-/// directly after the key's call, before the app's next turn. The seeds with no letter keys have no probe view and
-/// the hold's own clock.
+/// key or the delivery in which the hold ended; it does not assert that the view took the key. The key router can
+/// take the letter again at the hold's end, for its type-ahead queue of a page that is not ready. A key with Command
+/// ends that queue: the check counts that letter as lost too, with that rule in its text. When the hold ends in the
+/// call of that same key, the check reads the page before the key and the empty queue after it, not the queue with
+/// the letter. In each other case of a letter that the router took again, the check says, as a difference of the
+/// letters' setup, that it does not see where the letter went. The hold's time limit never passes in these seeds. The
+/// letter comes directly after the key's call, before the app's next turn. The seeds with no letter keys have no probe.
 ///
 /// Limits of a seed that goes on. The next key of a seed depends on what is selected, so after a difference the keys
 /// of one seed can differ between two versions of the code. The oracle keeps each opener that the keys made; the
@@ -165,7 +167,8 @@ struct TabKeysOrderFuzzTests {
     }
 
     /// A test of the `typed` check itself. The run ends the window's hold as a failed opening does, directly after the
-    /// first letter key that the hold took. No field is ready then, so the check must report a difference.
+    /// first letter key that the hold took. No field is ready then, so the check must report a difference (at the
+    /// next key with Command, when the letter waited in the key router's queue until then).
     @Test func theLetterKeyCheckReportsAHoldThatEndsWithNoFieldReady() async throws {
         let seed = Self.holdEndsEarly
         let outcome = try await Self.outcome(seed)
@@ -214,6 +217,8 @@ final class TabKeysKeyProbe: NSView {
     /// The letter key that waits in the window's hold: its event, the tab that it is for, and the probe's count at
     /// the key.
     private var letter: (key: NSEvent, tab: String, probeKeys: Int)?
+    /// The letter that waits in the key router's type-ahead queue for the page of `tab`, after a hold that ended with `end`.
+    private var queued: (tab: String, end: String)?
 
     init(_ seed: TabKeysOrderFuzzTests.Seed, store: DaemonStore, controller: WindowController) throws {
         let services = controller.services
@@ -383,6 +388,13 @@ final class TabKeysKeyProbe: NSView {
     /// after the entry of that key. `atChord`: a key with Command came, which ends the hold. `closed`: the tab that
     /// this key closes.
     private func settleLetter(_ point: String, atChord: Bool = false, closed: String? = nil) {
+        if let (tab, end) = queued, keyboard.router.typeAhead.text.isEmpty {
+            queued = nil
+            if closed != tab, oracle.tabs.contains(tab) { // else the letter's own tab closed, and the letter goes with it
+                found.lettersLost += 1
+                fail(\.typed, "\(point): \(TabKeysKeyboard.lostInQueue(tab, end: end, atChord: atChord)) \(holdLog)")
+            }
+        }
         guard let waits = letter else { return }
         let log = input.log
         guard let held = log.lastIndex(where: { $0.hasPrefix("hold key #") }) else {
@@ -412,11 +424,16 @@ final class TabKeysKeyProbe: NSView {
             return fail(\.typed, "\(point): the letter key for \(waits.tab) is lost. The hold ended with no field ready (\(end)) and gave the key "
                 + "to no view, by the product's rule that such a hold gives no key to what had the keyboard at its opening. \(holdLog)")
         }
-        // The hold gave the key on, and the key router took it again (its queue for a page that is not ready, or a
-        // primary input): a key with Command ends that queue, and the check does not read it.
+        // The hold gave the key on, and the key router took it again (its queue for a page that is not ready, or a primary input).
         if !keyboard.router.menuMayClaim(waits.key) {
-            return fail(\.typedSetup, "\(point): the hold ended with no field ready (\(end)) and the key router took the letter key for "
-                + "\(waits.tab) again: the check does not see where it went. \(holdLog)")
+            switch keyboard.letterVerdict(tab: waits.tab, ids: names.filter { $0.value == waits.tab }.map(\.key), in: pane, end: end, atChord: atChord) {
+            case .waits: queued = (waits.tab, end)
+            case .differs(let text, let lost):
+                if lost { found.lettersLost += 1 } else { found.lettersElsewhere += 1 }
+                fail(\.typed, "\(point): \(text) \(holdLog)")
+            case .unseen: fail(\.typedSetup, "\(point): \(TabKeysKeyboard.unseen(waits.tab, end: end)) \(holdLog)")
+            }
+            return
         }
         // The hold gave the key on. The view that had the keyboard before the key or the delivery in which it ended:
         var view = keyboard.before as? NSView
