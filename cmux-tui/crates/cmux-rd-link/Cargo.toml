@@ -34,3 +34,11 @@ required-features = ["net"]
 [[test]]
 name = "dlink_turn"
 required-features = ["net"]
+
+[dev-dependencies]
+libc = "0.2"
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-proto = { path = "../cmux-rd-proto" }
+
+[[example]]
+name = "rd_send_batch_bench"
