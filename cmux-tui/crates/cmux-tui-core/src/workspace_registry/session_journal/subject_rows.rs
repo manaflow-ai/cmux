@@ -30,6 +30,42 @@ pub(super) const SUBJECT_PAGE_QUERY: &str = "SELECT DISTINCT indexed.sequence
      ORDER BY indexed.sequence ASC
      LIMIT ?3";
 
+/// Test code only: a smaller bound for the subject pages of the readers of
+/// one database file, and a call after each of those pages (`true`: the
+/// page had no record). The product has one bound, [`SUBJECT_PAGE_SCAN`].
+#[cfg(test)]
+pub(crate) struct SubjectPageProbe {
+    pub(crate) scan: u64,
+    pub(crate) after_page: Box<dyn Fn(bool) + Send + Sync>,
+}
+
+#[cfg(test)]
+type SubjectPageProbes = Vec<(std::path::PathBuf, Arc<SubjectPageProbe>)>;
+
+#[cfg(test)]
+static SUBJECT_PAGE_PROBES: std::sync::Mutex<SubjectPageProbes> = std::sync::Mutex::new(Vec::new());
+
+/// Test code only: the probe of the readers that open `database` from here
+/// on. `None` takes it away.
+#[cfg(test)]
+pub(crate) fn set_subject_page_probe(database: &Path, probe: Option<SubjectPageProbe>) {
+    let mut probes = SUBJECT_PAGE_PROBES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    probes.retain(|(path, _)| path != database);
+    if let Some(probe) = probe {
+        probes.push((database.to_path_buf(), Arc::new(probe)));
+    }
+}
+
+#[cfg(test)]
+pub(super) fn subject_page_probe(database: &Path) -> Option<Arc<SubjectPageProbe>> {
+    SUBJECT_PAGE_PROBES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|(path, _)| path == database)
+        .map(|(_, probe)| Arc::clone(probe))
+}
+
 /// Drops [`SUBJECT_INDEX_BY_SUBJECT`] from a store that has it.
 ///
 /// `secure_delete` is off for this one statement. With it on, the drop

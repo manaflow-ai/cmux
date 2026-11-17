@@ -11,7 +11,11 @@ impl SessionJournalReader {
         .with_context(|| format!("open session journal reader {}", database_path.display()))?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA query_only=ON; PRAGMA foreign_keys=ON;")?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            #[cfg(test)]
+            subject_page_probe: subject_rows::subject_page_probe(database_path),
+        })
     }
 
     /// One page after `sequence`. Like every multi-statement read on this
@@ -43,6 +47,15 @@ impl SessionJournalReader {
         limit: usize,
         subjects: &[JournalSubject],
     ) -> anyhow::Result<SessionJournalSubjectPage> {
+        #[cfg(test)]
+        if let Some(probe) = &self.subject_page_probe {
+            let page = {
+                let snapshot = self.connection.unchecked_transaction()?;
+                subject_rows::query_subject_page(&snapshot, sequence, limit, subjects, probe.scan)?
+            };
+            (probe.after_page)(page.records.is_empty());
+            return Ok(page);
+        }
         let snapshot = self.connection.unchecked_transaction()?;
         query_session_journal_after_subjects(&snapshot, sequence, limit, subjects)
     }

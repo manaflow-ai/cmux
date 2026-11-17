@@ -14,6 +14,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(test)]
+pub(crate) use subject_rows::{SubjectPageProbe, set_subject_page_probe};
 use subject_rows::{drop_journal_subject_index_by_subject, query_session_journal_after_subjects};
 use subjects::{collect_patch_subjects, collect_subjects};
 pub(crate) use subjects::{expand_topology_subjects, terminal_topology_subjects_batch};
@@ -176,6 +178,8 @@ pub(crate) struct TerminalOutputRecordsWindow {
 /// the registry writer connection or its mutex.
 pub(crate) struct SessionJournalReader {
     connection: Connection,
+    #[cfg(test)]
+    subject_page_probe: Option<Arc<SubjectPageProbe>>,
 }
 
 pub(crate) struct JournalRestoreCursor {

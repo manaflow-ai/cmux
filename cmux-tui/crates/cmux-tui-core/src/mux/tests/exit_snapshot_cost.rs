@@ -78,16 +78,21 @@ fn startup_prefetch_covers_every_page_a_terminal_end_writes() {
     mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
     let terminal =
         mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
-    let (keys, event_head) = {
+    let (keys, journal_head, event_head) = {
         let _registry = mux.workspace_registry.lock().unwrap();
         let connection = mux.registry_connection.get();
         let keys = terminal_end_prefetch_keys(&connection).unwrap();
+        let journal_head: i64 = connection
+            .query_row("SELECT COALESCE(MAX(sequence), 0) FROM session_journal", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
         let event_head: i64 = connection
             .query_row("SELECT COALESCE(MAX(revision), 0) FROM terminal_events", [], |row| {
                 row.get(0)
             })
             .unwrap();
-        (keys, event_head)
+        (keys, journal_head, event_head)
     };
 
     let exit = TerminalExit {
@@ -96,19 +101,28 @@ fn startup_prefetch_covers_every_page_a_terminal_end_writes() {
     };
     assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
 
-    let written = {
+    let (terminal_subjects, written) = {
         let _registry = mux.workspace_registry.lock().unwrap();
         let connection = mux.registry_connection.get();
+        let terminal_subjects: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_subject_index
+                 WHERE sequence > ?1 AND kind = 'terminal'",
+                [journal_head],
+                |row| row.get(0),
+            )
+            .unwrap();
         let mut statement = connection
             .prepare("SELECT DISTINCT terminal_id FROM terminal_events WHERE revision > ?1")
             .unwrap();
-        statement
+        let written = statement
             .query_map([event_head], |row| row.get::<_, String>(0))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
-            .unwrap()
+            .unwrap();
+        (terminal_subjects, written)
     };
-    assert!(!written.is_empty(), "the end appended no terminal event");
+    assert!(terminal_subjects > 0, "the end appended no terminal subject");
     let by_subject: i64 = {
         let _registry = mux.workspace_registry.lock().unwrap();
         let connection = mux.registry_connection.get();
