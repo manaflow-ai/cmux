@@ -81,6 +81,8 @@ final class HistoryWindowDaemon: @unchecked Sendable {
     private let lock = NSLock()
     private var attaches = 0
     private var held = 0
+    /// The terminal's grid: the last size an attach or `resize-surface` gave it.
+    private var grid = (columns: 80, rows: 40)
 
     var attachCount: Int { lock.withLock { attaches } }
     var maxHeldRows: Int { lock.withLock { held } }
@@ -103,6 +105,13 @@ final class HistoryWindowDaemon: @unchecked Sendable {
         return data
     }
 
+    /// The Mac's screen at `rows`: the rows after its history, then a prompt.
+    private func screen(rows: Int) -> String {
+        var text = ""
+        for row in historyRows..<(historyRows + max(1, rows) - 1) { text += Self.line(row) }
+        return text + "$ "
+    }
+
     private func request(_ line: Data, on channel: FloodChannel?) {
         guard let channel, let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let id = object["id"] as? String, let cmd = object["cmd"] as? String else { return }
@@ -111,12 +120,12 @@ final class HistoryWindowDaemon: @unchecked Sendable {
         case "identify":
             channel.push([reply(["capabilities": ["attach-replay-history-rows-v1", "attach-replay-history-window-v1"]])])
         case "attach-surface":
-            let cols = object["cols"] as? Int ?? 80
-            let screenRows = object["rows"] as? Int ?? 40
-            // The Mac's screen: the rows after its history, then a prompt.
-            var screen = ""
-            for row in historyRows..<(historyRows + screenRows - 1) { screen += Self.line(row) }
-            screen += "$ "
+            let (cols, screenRows): (Int, Int) = lock.withLock {
+                if let cols = object["cols"] as? Int, let rows = object["rows"] as? Int, cols > 0, rows > 0 {
+                    grid = (cols, rows)
+                }
+                return grid
+            }
             var state: [String: Any] = ["event": "vt-state", "surface": 1, "cols": cols, "rows": screenRows]
             let rows: Range<Int>
             if let allowance = object["replay_history_rows"] as? Int, let asked = object["replay_history_start"] as? Int {
@@ -140,16 +149,34 @@ final class HistoryWindowDaemon: @unchecked Sendable {
             var text = ""
             text.reserveCapacity((rows.count + screenRows) * 40)
             for row in rows { text += Self.line(row) }
-            text += screen
+            text += screen(rows: screenRows)
             state["data"] = Data(text.utf8).base64EncodedString()
             lock.withLock {
                 attaches += 1
                 held = max(held, rows.count)
             }
-            NSLog("[history-window-demo] attach rows=%@ start=%@ held=%ld",
+            NSLog("[history-window-demo] attach %ldx%ld rows=%@ start=%@ held=%ld", cols, screenRows,
                   String(describing: object["replay_history_rows"] ?? "all"),
                   String(describing: object["replay_history_start"] ?? "-"), rows.count)
             channel.push([Self.encode(state), reply(["lease": "l1"])])
+        case "resize-surface":
+            // As cmux-tui does for a viewer that declared the window: a new
+            // grid comes with a `resized` replay of the screen, naming the
+            // history rows it left out.
+            let cols = object["cols"] as? Int ?? 0
+            let rows = object["rows"] as? Int ?? 0
+            let changed: Bool = lock.withLock {
+                guard cols > 0, rows > 0, cols != grid.columns || rows != grid.rows else { return false }
+                grid = (cols, rows)
+                return true
+            }
+            channel.push([reply()])
+            if changed {
+                NSLog("[history-window-demo] resized %ldx%ld", cols, rows)
+                main.push([Self.encode(["event": "resized", "surface": 1, "cols": cols, "rows": rows,
+                                        "history_rows_omitted": historyRows,
+                                        "replay": Data(("\u{1B}c" + screen(rows: rows)).utf8).base64EncodedString()])])
+            }
         default:
             channel.push([reply()])
         }
