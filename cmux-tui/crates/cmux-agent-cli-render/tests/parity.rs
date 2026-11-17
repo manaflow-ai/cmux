@@ -1463,3 +1463,132 @@ fn the_phones_parity_fixtures_hold_and_are_current() {
         );
     }
 }
+
+#[test]
+fn diag_lean_on_a_taller_alternate_screen() {
+    let decode =
+        |v: &Value| base64::engine::general_purpose::STANDARD.decode(v.as_str().unwrap()).unwrap();
+    let sized = |cols: u16, rows: u16| {
+        let mut term =
+            ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.resize(cols, rows, 8, 16).unwrap();
+        term
+    };
+    for (dir_name, still) in [(OPENCODE, 22_819u64), (OPENCODE, 17_419), (CODEX, 25_195)] {
+        let out = export(&load(dir_name));
+        // (label, terminal rows, bytes after the switch)
+        for (label, rows, setup) in [
+            ("exact 32", 32u16, String::new()),
+            ("40 rows, margins 1;40", 40, "\x1b7\x1b[1;40r\x1b8".to_owned()),
+            ("150 rows, full margins", 150, String::new()),
+            ("150 rows, margins 1;32", 150, "\x1b7\x1b[1;32r\x1b8".to_owned()),
+            ("53x150 margins 1;32, then resized to 100x150", 150, "resize".to_owned()),
+        ] {
+            let mut phone = sized(if setup == "resize" { 53 } else { COLS }, rows);
+            let mut decoder = LeanDecoder::new();
+            let mut feed = |phone: &mut ghostty_vt::Terminal, event: &Value| {
+                if event["event"] == "output" {
+                    phone.vt_write(&decode(&event["data"]));
+                    return;
+                }
+                let lean = decode(&event["f"]);
+                let d = decoder.decode(&lean).unwrap();
+                phone.vt_write(&vt::frame_bytes(&d.frame, ROWS, d.cursor).unwrap());
+            };
+            if let Some(before) = out["attach"]["before"].as_str() {
+                phone.vt_write(&decode(&Value::String(before.to_owned())));
+            }
+            if setup == "resize" {
+                phone.vt_write(b"\x1b7\x1b[1;32r\x1b8");
+                phone.resize(COLS, rows, 8, 16).unwrap();
+            } else {
+                phone.vt_write(setup.as_bytes());
+            }
+            feed(&mut phone, &out["attach"]["lean"]);
+            for entry in out["lean_frames"].as_array().unwrap() {
+                if entry[0].as_u64().unwrap() > still {
+                    break;
+                }
+                feed(&mut phone, &entry[1]);
+            }
+            let text = phone.viewport_text().unwrap();
+            let top: Vec<&str> = text.lines().take(usize::from(ROWS)).collect();
+            println!("=== DIAG {dir_name} {still} {label}\n{}", top.join("\n"));
+        }
+    }
+}
+
+/// The bench's lean stream (`export`: the attach's switch to the alternate screen, its keyframe,
+/// every frame after it) drawn on terminals the phone's mirror can be, against the same stream
+/// drawn on a terminal of exactly the frame's grid, after every frame. The phone's Ghostty
+/// mirror is taller than the Mac's grid (scroll margins), and its scroll region on the
+/// alternate screen is whatever the mirror last had: the Mac's rows when the switch went
+/// through `TerminalRowShift` at the Mac's grid, the phone's own rows when the Mac's were not
+/// known yet, or the whole mirror after any resize (a resize resets the region). A frame that
+/// scrolls must scroll the frame's rows on every one of them: the pixel matrix's opencode and
+/// Codex stills came out garbled under load (#45266, the lean still's rows not rewritten stayed
+/// where they were while the frame's new ones were drawn as if they had moved).
+#[test]
+fn lean_frames_scroll_the_frames_rows_on_a_taller_mirror() {
+    let decode =
+        |v: &Value| base64::engine::general_purpose::STANDARD.decode(v.as_str().unwrap()).unwrap();
+    let sized = |cols: u16, rows: u16| {
+        let mut term =
+            ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.resize(cols, rows, 8, 16).unwrap();
+        term
+    };
+    let top = |term: &mut ghostty_vt::Terminal| {
+        let text = term.viewport_text().unwrap();
+        text.lines().take(usize::from(ROWS)).map(str::trim_end).collect::<Vec<_>>().join("\n")
+    };
+    // (what the mirror is, its rows, the scroll region it has when the stream starts)
+    let mirrors: [(&str, u16, Option<&[u8]>); 3] = [
+        ("the region at the phone's 40 rows", 150, Some(&b"\x1b7\x1b[1;40r\x1b8"[..])),
+        ("the whole mirror's region (after a resize)", 150, None),
+        ("a 40-row mirror", 40, None),
+    ];
+    let mut wrong = Vec::new();
+    for dir_name in [OPENCODE, CODEX] {
+        let out = export(&load(dir_name));
+        let mut stream = vec![out["attach"]["lean"].clone()];
+        stream.extend(out["lean_frames"].as_array().unwrap().iter().map(|e| e[1].clone()));
+        for (label, rows, region) in mirrors {
+            let mut exact = sized(COLS, ROWS);
+            let mut mirror = sized(COLS, rows);
+            for term in [&mut exact, &mut mirror] {
+                if let Some(before) = out["attach"]["before"].as_str() {
+                    term.vt_write(&decode(&json!(before)));
+                }
+            }
+            if let Some(region) = region {
+                mirror.vt_write(region);
+            }
+            let (mut exact_lean, mut mirror_lean) = (LeanDecoder::new(), LeanDecoder::new());
+            for (step, event) in stream.iter().enumerate() {
+                if event["event"] == "output" {
+                    exact.vt_write(&decode(&event["data"]));
+                    mirror.vt_write(&decode(&event["data"]));
+                    continue;
+                }
+                for (term, decoder) in
+                    [(&mut exact, &mut exact_lean), (&mut mirror, &mut mirror_lean)]
+                {
+                    let d = decoder.decode(&decode(&event["f"])).unwrap();
+                    term.vt_write(&vt::frame_bytes(&d.frame, ROWS, d.cursor).unwrap());
+                }
+                let (want, shown) = (top(&mut exact), top(&mut mirror));
+                if want != shown {
+                    println!(
+                        "{dir_name}, {label}: frame step {step} differs\n--- exact\n{want}\n--- mirror\n{shown}"
+                    );
+                    wrong.push(format!("{dir_name}: {label} from step {step}"));
+                    break;
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "lean frames draw another screen on a taller mirror: {wrong:?}");
+}
