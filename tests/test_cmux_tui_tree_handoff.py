@@ -59,7 +59,8 @@ if "-X" in args:
         print(state["delete_fails"], file=sys.stderr); sys.exit(1)
     sys.exit(0)
 if "/runs?" in path:
-    runs = [dict(value, id=int(key)) for key, value in state.get("runs", {}).items()]
+    run_ids = state.get("run_list_ids", list(state.get("runs", {}).keys()))
+    runs = [dict(state["runs"][str(key)], id=int(key)) for key in run_ids if str(key) in state.get("runs", {})]
     print(json.dumps({"total_count": len(runs), "workflow_runs": runs if path.endswith("page=1") else []}))
     sys.exit(0)
 if path.endswith("/logs"):
@@ -218,10 +219,22 @@ class CommandTests(unittest.TestCase):
         deletes = [c[-1] for c in calls if "-X" in c]
         self.assertEqual(sorted(deletes), [f"repos/o/r/actions/artifacts/{a}" for a in (31, 32, 33)])
         self.assertIn("Not re-running run 14", result.stdout)
-        run_lists = [c for c in calls if c[0] == "api" and "/actions/runs?" in " ".join(c)]
+        run_lists = [c for c in calls if c[0] == "api" and "/actions/workflows/cmux-tui-artifacts.yml/runs?" in " ".join(c)]
         self.assertEqual(len(run_lists), 1, "all deferred run records come from one bounded list")
         # The published hand-off does not read the owner's jobs: it re-runs whether or not the owner failed.
         self.assertFalse(any("/jobs?" in c[-1] for c in calls if c[0] == "api"))
+
+    def test_published_page_miss_reads_candidate_by_id_without_repository_paging(self):
+        other_ids = list(range(1000, 1100))
+        runs = {str(run_id): {"status": "completed", "run_attempt": 1} for run_id in other_ids}
+        runs["12"] = {"status": "completed", "run_attempt": 1}
+        state = {"artifacts": [marker(31, 12)], "runs": runs, "run_list_ids": other_ids}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Re-ran run 12", result.stdout)
+        self.assertEqual(sum(1 for call in calls if "/actions/workflows/cmux-tui-artifacts.yml/runs?" in " ".join(call)), 1)
+        self.assertIn(["api", "repos/o/r/actions/runs/12"], calls)
+        self.assertEqual(sum(1 for call in calls if "/actions/runs?" in " ".join(call)), 0)
 
     def test_published_rerun_failure_fails_the_step(self):
         state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},

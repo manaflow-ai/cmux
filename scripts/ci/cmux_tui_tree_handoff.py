@@ -39,8 +39,9 @@ it. A re-run that finds the tree published never defers again, so the markers
 A run still in progress is left with its marker: its own adopt step, after its
 marker, reads the tree this run already published.
 
-The published path spends one artifact-list call, one batched workflow-run list, and two calls per candidate
-(rerun plus marker deletion): 2+2N rather than the old 1+3N per-run reads.
+The published path spends one artifact-list call, one page of this workflow's run list, and two calls per candidate
+(rerun plus marker deletion): 2+2N when candidates are on that page. A candidate missing from the page gets one
+bounded run-by-id read, so the fallback is still fixed per candidate and never walks the repository's run history.
 
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
@@ -234,16 +235,23 @@ def _delete_marker(repo: str, artifact: int, deferred: int) -> None:
 
 
 def deferred_runs(repo: str, candidates: Sequence[tuple[int, int, str, Mapping[str, Any]]]) -> dict[int, Mapping[str, Any]]:
-    """Read all candidate run records in one bounded list call when artifact metadata lacks run state."""
+    """Read candidate run records from one workflow page, then one bounded id read for each page miss."""
     embedded = {deferred: run for _, deferred, _, run in candidates
                 if run.get("status") is not None or run.get("run_attempt") is not None}
     missing = [row for row in candidates if row[1] not in embedded]
     if not missing:
         return embedded
-    dates = [str(row[3].get("created_at") or "")[:10] for row in missing if row[3].get("created_at")]
-    created = f"&created=>={min(dates)}" if dates else ""
-    runs = _list(f"repos/{repo}/actions/runs?per_page=100{created}", "workflow_runs")
-    embedded.update({int(run["id"]): run for run in runs if run.get("id") is not None})
+    # Artifact workflow_run objects do not include status/run_attempt/created_at. Read one page scoped to this
+    # workflow, never the repository-wide run list (which is far past gh_pages.MAX_PAGES on this repository).
+    page = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=100&page=1")
+    if page.returncode == 0:
+        runs = json.loads(page.stdout).get("workflow_runs", [])
+        embedded.update({int(run["id"]): run for run in runs if run.get("id") is not None})
+    still_missing = [row for row in missing if row[1] not in embedded]
+    for _, deferred, _, _ in still_missing:
+        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
+        if result.returncode == 0 and result.stdout.strip():
+            embedded[deferred] = json.loads(result.stdout)
     return embedded
 
 
