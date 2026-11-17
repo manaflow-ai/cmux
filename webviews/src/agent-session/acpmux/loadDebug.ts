@@ -42,13 +42,17 @@ function afterRender(): Promise<number> {
 export async function loadSeed(
   host: { selectSession(sessionId: string): void; rowCount(): number },
   turns: number,
-  options: { light?: boolean } = {},
+  options: { light?: boolean; queued?: number } = {},
 ): Promise<Record<string, unknown>> {
   const mock = MockAcpmuxSocket.live;
   if (!mock) return { error: "the pane is not on the mock daemon (run the app with --showcase)" };
   acpmuxPerf.enable();
   const started = performance.now();
-  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)), options.light === true);
+  const session = mock.seedLoadSession(
+    Math.max(1, Math.floor(turns)),
+    options.light === true,
+    Math.max(0, Math.floor(options.queued ?? 0)),
+  );
   const seeded = performance.now();
   host.selectSession(session);
   // The transcript is in once its row count stops growing. Each frame also reads what is on

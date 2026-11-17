@@ -406,7 +406,9 @@ export class MockAcpmuxSocket {
   ///
   /// `light` turns are a prompt and a one-line reply each (two rows), and the session opens whole
   /// (attach ignores its page caps), so a bench can open a chat of an exact length in rows.
-  seedLoadSession(turns: number, light = false): string {
+  /// `queued` prompts wait in its queue after the last turn, as prompts sent while a turn runs do
+  /// (the composer typing bench's `--queue`).
+  seedLoadSession(turns: number, light = false, queued = 0): string {
     const now = Date.now();
     const id = `load-session-${this.sessions.length + 1}`;
     const created = {
@@ -419,6 +421,11 @@ export class MockAcpmuxSocket {
       const at = now - (turns - turn) * 60_000;
       for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
     }
+    for (let index = 0; index < queued; index += 1)
+      this.record(id, {
+        mux: "queued",
+        msg: { promptId: `${id}-queued-${index}`, text: `Queued prompt ${index + 1}` },
+      });
     if (light) this.openWhole.add(id);
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
