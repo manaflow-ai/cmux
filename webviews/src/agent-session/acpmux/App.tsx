@@ -187,8 +187,6 @@ import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import { composerReadback, takeExternalInto, type ComposerReadback } from "./composer/externalAttach";
-import { StuckBanner } from "./StuckBanner";
-import { prefillStuckNudge } from "./stuckNudge";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
@@ -650,7 +648,7 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
-import { liveAutoResume, stuckNotice, turnPhase } from "./turnPhase";
+import { liveAutoResume, turnPhase } from "./turnPhase";
 import { RulesNotice } from "./RulesNotice";
 import { type ForumRule, forumRules } from "./rulesNoticeModel";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -12077,10 +12075,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
   // id, task name and connected chat arrive or change later and would remount the composer empty.
   const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
-  // The live turn's notices read one phase (turnPhase.ts): never "stuck" beside "Reconnecting…",
-  // never a resumed attempt's line under a turn that ended.
+  // The live turn's notices read one phase (turnPhase.ts): never a resumed attempt's line under a
+  // turn that ended. The pane draws no "may be stuck" guess (#45162): a real failure has its card.
   const liveTurnPhase = turnPhase(snapshot);
-  const stuckDiagnosis = stuckNotice(liveTurnPhase, snapshot.summary, t("stuck.silentDiagnosis"));
   // The chat's goal, a row of the composer hat (TaskGoalStrip.tsx; goalHat.experiment.ts places it
   // at the hat's top, the default, or its foot over the composer). Its actions are Codex's own
   // `/goal` subcommands; an edit sends `/goal <text>`, which sets the new objective in its place.
@@ -12114,12 +12111,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
-        {stuckDiagnosis && (
-          <StuckBanner
-            diagnosis={stuckDiagnosis}
-            onNudge={() => prefillStuckNudge(composerHandle.current, stuckDiagnosis, t)}
-          />
-        )}
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
@@ -13104,7 +13095,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
-        <section className="acpmux-shell" data-surface="quick" data-stuck={stuckDiagnosis ? "" : undefined}>
+        <section className="acpmux-shell" data-surface="quick">
           <QuickSurface
             transcript={
               snapshot.rows.length > 0 || chatShellRuns.length > 0 || queuedRows.length > 0 ? transcript : undefined
@@ -13270,7 +13261,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ) : null}
         <div
           className="acpmux-main"
-          data-stuck={stuckDiagnosis ? "" : undefined}
           data-new-chat={freshView && !showNewTab ? "" : undefined}
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
