@@ -182,7 +182,7 @@ public final class LayoutModel {
     /// Each canvas screen's viewport, reported by its view: fitting and revealing read it.
     @ObservationIgnored var canvasViewports: [ScreenID: CGSize] = [:]
 
-    /// Receives every intent. Set by the App (or `MockLayoutSource`).
+    /// Receives every intent. Set by the App.
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
     @ObservationIgnored var splitOverrides: [SplitID: GestureOverride] = [:]
@@ -205,11 +205,6 @@ public final class LayoutModel {
     @ObservationIgnored var replies = TransactionReplies()
     /// Whether the app can send an ended value's command now (`EndedValues`); nil sends every one.
     @ObservationIgnored public var sendsNow: (@MainActor (LayoutIntent) -> Bool)?
-    /// A pane whose shown content the next structural change moves into the pane it adds, until an
-    /// uptime (`handOffContent(of:)`).
-    @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?
-    static let contentHandoffWindow: TimeInterval = 3
-
 
     /// The last daemon snapshot, without local overrides. Restored when a
     /// transaction is rejected.
