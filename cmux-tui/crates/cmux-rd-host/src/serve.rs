@@ -472,16 +472,24 @@ fn serve_session(
     let display = display.to_owned();
     // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
     let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    let max_kbps = opts.num_or("max-kbps", 50_000)?;
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+    // `--pin-kbps N` (bench builds) holds the controller at N: start, floor and ceiling.
+    let pin_kbps = crate::host::pin_kbps(opts)?;
+    let max_kbps = pin_kbps.map_or_else(|| opts.num_or("max-kbps", 50_000), Ok)?;
+    let start_kbps = pin_kbps.map_or_else(
+        || {
+            opts.num_or(
+                "start-kbps",
+                default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+            )
+        },
+        Ok,
     )?;
     let cfg = SessionCfg {
         display,
         max_fps,
         start_kbps,
         max_kbps,
+        pin_kbps,
         preset: String::new(),
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),

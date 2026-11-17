@@ -27,6 +27,9 @@ pub struct SessionCfg {
     pub max_fps: u32,
     pub start_kbps: u32,
     pub max_kbps: u32,
+    /// `--pin-kbps N` (bench builds): the controller's floor, equal to its start and ceiling,
+    /// so the target holds at N. `None` keeps the controller's own floor.
+    pub pin_kbps: Option<u32>,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
     pub preset: String,
     pub profile: String,
@@ -245,6 +248,9 @@ impl MediaSession {
                 max_fps: cfg.max_fps,
                 start_bps: u64::from(cfg.start_kbps) * 1000,
                 max_bps: u64::from(cfg.max_kbps) * 1000,
+                min_bps: cfg
+                    .pin_kbps
+                    .map_or(EngineConfig::default().min_bps, |k| u64::from(k) * 1000),
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
@@ -805,6 +811,7 @@ mod encode_off_loop_tests {
             max_fps: 60,
             start_kbps: 1000,
             max_kbps: 2000,
+            pin_kbps: None,
             preset: String::new(),
             profile: String::new(),
             codec: String::new(),
