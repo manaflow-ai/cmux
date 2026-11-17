@@ -31,6 +31,7 @@ import { addChatRowsHost, receiveChatRows, resetChatRowsReceiver } from "../src/
 import { createLanes, type LanesEnv } from "../src/agent-session/acpmux/schedule";
 import { STORE_MAX_BYTES, STORE_MAX_ROWS } from "../src/agent-session/acpmux/rows/store";
 import { changeSid, parseChange, type ChatChange, type ChatRow } from "../src/agent-session/acpmux/rows/wire";
+import { feedOnly } from "../test/support/chatRowsFeed";
 import { perfRow } from "./perfRow";
 
 const ROUNDS = Number(process.env.ROUNDS ?? 20);
@@ -56,12 +57,10 @@ function row(id: number): ChatRow {
 }
 const rows = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => row(from + index));
 
-/// The document's receiver (rows/receiver.ts) holding `host` alone, as the host feeds a page: each
-/// side's batches go through it and its `taken` to that side's post. Set before a sample's clock.
-function feedOnly(host: ChatRowsHost, post: ChatRowsPost): void {
-  resetChatRowsReceiver();
-  addChatRowsHost(host, post);
-}
+// `feedOnly`: the document's receiver (rows/receiver.ts) holding `host` alone, as the host feeds a
+// page, on lanes that apply each batch in the receiving task: each side's batches go through it and
+// its `taken` to that side's post. Set before a sample's clock. v2.frame_paced below runs its own
+// frame lanes.
 
 type Side = {
   name: "god" | "small";
