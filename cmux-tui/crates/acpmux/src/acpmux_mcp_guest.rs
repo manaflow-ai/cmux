@@ -341,23 +341,25 @@ pub(super) fn handoff_prompt(app: &str, args: &Value) -> Result<String, String> 
         ));
     }
     if let Some(recent) = arg(args, "recent").map(str::trim).filter(|r| !r.is_empty()) {
-        let room =
-            max.saturating_sub(text.len() + 1 + TRANSCRIPT_OPEN.len() + TRANSCRIPT_CLOSE.len());
-        if room > 0 {
+        let frame = TRANSCRIPT_OPEN.len() + TRANSCRIPT_CLOSE.len();
+        let cut_note = |kept: usize| {
+            format!("\nThe chat's last {kept} of {} bytes, the start cut:\n", recent.len())
+        };
+        // Whole when it fits; else cut, with room kept for the note that says so (its longest
+        // form: the kept count never has more digits than the total).
+        let (kept, note) = if text.len() + 1 + frame + recent.len() <= max {
+            (recent, "\n".to_owned())
+        } else {
+            let room = max.saturating_sub(text.len() + cut_note(recent.len()).len() + frame);
             let mut start = recent.len().saturating_sub(room);
             while !recent.is_char_boundary(start) {
                 start += 1;
             }
             let kept = &recent[start..];
-            if start > 0 {
-                text.push_str(&format!(
-                    "\nThe chat's last {} of {} bytes, the start cut:\n",
-                    kept.len(),
-                    recent.len()
-                ));
-            } else {
-                text.push('\n');
-            }
+            (kept, cut_note(kept.len()))
+        };
+        if !kept.is_empty() {
+            text.push_str(&note);
             text.push_str(TRANSCRIPT_OPEN);
             text.push_str(kept);
             text.push_str(TRANSCRIPT_CLOSE);
