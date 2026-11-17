@@ -49,6 +49,8 @@ final class TerminalTUIZoom: NSObject, @MainActor UIGestureRecognizerDelegate {
     private var pinchStart: TerminalZoomState?
     private var panStart: TerminalZoomState?
     let chrome = Chrome.current
+    /// Gallery screenshots: the chrome stays up once shown (`-CmuxMobileTerminalZoomChromePinned YES`).
+    private let chromePinned = UserDefaults.standard.bool(forKey: "CmuxMobileTerminalZoomChromePinned")
 
     private(set) lazy var pinch: UIPinchGestureRecognizer = {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
@@ -220,7 +222,7 @@ final class TerminalTUIZoom: NSObject, @MainActor UIGestureRecognizerDelegate {
         case .none:
             return
         case .ruler:
-            guard pinching else { return }
+            guard pinching || chromePinned else { return }
             ruler.isHidden = false
             ruler.alpha = 1
         case .minimap:
@@ -235,6 +237,7 @@ final class TerminalTUIZoom: NSObject, @MainActor UIGestureRecognizerDelegate {
     }
 
     private func scheduleHide() {
+        guard !chromePinned else { return }
         chromeHide?.cancel()
         chromeHide = Task { @MainActor [weak self] in
             try? await ContinuousClock().sleep(for: .milliseconds(900))

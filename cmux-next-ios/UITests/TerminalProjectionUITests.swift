@@ -220,6 +220,38 @@ final class TerminalProjectionUITests: XCTestCase {
         XCTAssertLessThan(again.columns, 120, "htop again is at the phone's columns")
     }
 
+    /// The zoom chrome's gallery: htop on the Mac's 120x40 grid zoomed past
+    /// fit width with each variant (none, a column ruler, a minimap strip),
+    /// its chrome kept up for the screenshot. Leo (rulebook): "3+ gallery variants".
+    @MainActor
+    func testZoomChromeGallery() throws {
+        for chrome in ["none", "ruler", "minimap"] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = XCUIApplication()
+            app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+            app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                    "-CmuxMobileTerminalDemoPhases", "altproj", "-CmuxMobileTerminalZoomChrome", chrome,
+                                    "-CmuxMobileTerminalZoomChromePinned", "YES"]
+            app.launch()
+            let probe = app.staticTexts["debug.terminal-demo"]
+            XCTAssertTrue(probe.waitForExistence(timeout: 30))
+            let deadline = Date().addingTimeInterval(60)
+            while Date() < deadline, !probe.label.hasPrefix("a.gestures.") {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            let terminal = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            terminal.doubleTap()
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            terminal.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.25)))
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "altproj-gallery-\(chrome)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            app.terminate()
+        }
+    }
+
     @MainActor
     private func run(macGrid: String?, name pane: String) {
         XCUIDevice.shared.orientation = .portrait
