@@ -177,7 +177,9 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
       // Leo, 2026-11-14, on a queued prompt's "Queued, sends when the current turn ends": "this is
       // misaligned". The clock sat on the words' baseline (the age's inline-block rule beat the note's
       // flex centring), 2px from them, and the note started wherever its right-anchored row put it.
-      test(`${theme}: a queued note's clock is centred on its words, one icon gap away, at the bubble's text`, async () => {
+      // Leo, 2026-11-17, on that note: "it's not really useful to see ever". A queued prompt draws no
+      // note now; the pending note that remains ("Sending") keeps the same alignment.
+      test(`${theme}: a pending note's clock is centred on its words, one icon gap away, at the bubble's text; a queued prompt has none`, async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
@@ -217,7 +219,19 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             };
           });
           console.log(`QUEUED_NOTE ${JSON.stringify({ theme, ...m })}`);
-          expect(m.text).toContain("Queued, sends when the current turn ends");
+          expect(m.text).toBe("Sending");
+          // The queued prompt keeps its time: no clock, no queued words.
+          const queued = await page.evaluate(() => {
+            const scope = document.querySelector("[data-queued-row]")!;
+            return {
+              notes: scope.querySelectorAll(".cv-user__pending-state").length,
+              ages: scope.querySelectorAll("time.cv-user__time").length,
+              text: scope.textContent ?? "",
+            };
+          });
+          expect(queued.notes).toBe(0);
+          expect(queued.ages).toBe(1);
+          expect(queued.text).not.toContain("Queued, sends when");
           expect(Math.abs(m.iconCenter - m.wordsCenter)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(m.gap - m.tokenPx)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(m.noteLeft - m.bubbleTextLeft)).toBeLessThanOrEqual(0.5);

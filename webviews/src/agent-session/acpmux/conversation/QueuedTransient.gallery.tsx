@@ -1,9 +1,10 @@
 // l10n-allow-file: deterministic gallery fixture labels, not shipped copy.
 // A Queued entry at a turn's boundary (Leo, 2026-11-17: "i also dont like seeing the flicker flash of
 // the Queued blah blah blah something"). Each arm plays the same timeline through the pane's own gate
-// (queuedMessages.ts `useShownQueue`, afterDelay.ts `useSettledItems`): a prompt sent as the turn ends
-// lives 180 ms in the queue, then a second one that really waits stays 1.2 s. The rows stand for the
-// composer's queue row and the transcript's waiting card, which read the one gated list.
+// (queuedMessages.ts `useShownQueue`, afterDelay.ts `useSettledItems`): another agent's message queued as
+// the turn ends lives 180 ms in the queue, then a second one that really waits stays 1.2 s. The rows
+// stand for the transcript's waiting card. The person's own sends are not gated: each is a whole
+// queued row in the frame the composer clears (Leo, 2026-11-11).
 //
 // Picked: `hold-200`. 200 ms is past the gap between a turn's end and the queue's drain, so the
 // short entry never paints at all, and a real wait shows within a beat of the send. `hold-150-fade`
@@ -18,8 +19,14 @@ import { useShownQueue } from "./queuedMessages";
 type Variant = "hold-200" | "hold-150-fade" | "fade-only";
 type Queue = AcpmuxSnapshot["queue"];
 
-const SHORT = { id: "q-short", prompt: "Also run the linter" };
-const LONG = { id: "q-long", prompt: "Then open the PR against feat-cmux-next" };
+/// Another agent's message: the person's own prompts show at once (queuedMessages.ts `showsAtOnce`).
+const message = (id: string, text: string): Queue[number] => ({
+  id,
+  prompt: text,
+  message: { name: "review-lane", sessionId: "s-review", text, raw: text },
+});
+const SHORT = message("q-short", "CI is green on the branch");
+const LONG = message("q-long", "Review passed; ready to land");
 
 /// The timeline, in ms from the start: [at, queue].
 const STEPS: [number, Queue][] = [
@@ -72,7 +79,7 @@ function Timeline({ variant }: { variant: Variant }) {
   const fades = variant !== "hold-200";
   return (
     <>
-      <ul className="queued-transient__queue" aria-label="Queued prompts">
+      <ul className="queued-transient__queue" aria-label="Queued messages">
         {rows.map(({ entry, leaving }) => (
           <li
             key={entry.id}
@@ -102,7 +109,7 @@ function QueuedTransientGallery({ variant }: { variant: Variant }) {
       <header className="queued-transient-gallery__header">
         <div>
           <h1>A Queued entry at a turn's end</h1>
-          <p>A prompt queued for 180 ms, then one that waits 1.2 s.</p>
+          <p>A message queued for 180 ms, then one that waits 1.2 s.</p>
         </div>
         <button type="button" className="ui-button" onClick={() => setRun((value) => value + 1)}>
           Replay
@@ -136,15 +143,15 @@ export default componentEntry<{ variant: Variant }>({
   variants: {
     "hold-200": {
       props: { variant: "hold-200" },
-      note: "Picked: an entry shows only once it has stayed 200 ms, with no fade. The 180 ms prompt never paints; the one that waits shows 200 ms after it came and goes at once when it runs.",
+      note: "Picked: an entry shows only once it has stayed 200 ms, with no fade. The 180 ms message never paints; the one that waits shows 200 ms after it came and goes at once when it runs.",
     },
     "hold-150-fade": {
       props: { variant: "hold-150-fade" },
-      note: "Held 150 ms, then a 120 ms fade-in: the 180 ms prompt still paints for 30 ms, faint. A softer flash, still a flash.",
+      note: "Held 150 ms, then a 120 ms fade-in: the 180 ms message still paints for 30 ms, faint. A softer flash, still a flash.",
     },
     "fade-only": {
       props: { variant: "fade-only" },
-      note: "No hold: every entry fades in and out over 120 ms. The 180 ms prompt reads as a blink, and the queue moves on each.",
+      note: "No hold: every entry fades in and out over 120 ms. The 180 ms message reads as a blink, and the queue moves on each.",
     },
   },
 });

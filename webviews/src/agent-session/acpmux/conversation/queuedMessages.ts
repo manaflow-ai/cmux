@@ -39,17 +39,17 @@ export function ownQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"
   return queue.some(inTranscript) ? queue.filter((entry) => !inTranscript(entry)) : queue;
 }
 
-/// Whether a queue entry waits on someone rather than on the turn: the folder's trust, a waking
-/// machine, a Stop's hold, a guest's prompt awaiting the owner. It never goes within a batch or two
-/// on its own, so it shows at once.
-const waitsOnSomeone = (entry: QueuedEntry) =>
-  entry.held === true || entry.waking === true || entry.heldByStop === true || entry.awaitingOwner === true;
+/// Whether a queue entry shows at once. A person's prompt does: one the person just sent is a whole
+/// queued row in the frame the composer clears (Leo, 2026-11-11; test/agent-pane-queue-collapse),
+/// and a held one waits on someone (the folder's trust, a waking machine, the owner), never on the
+/// turn. So does another agent's message a Stop holds: it waits for the person, not for a batch.
+const showsAtOnce = (entry: QueuedEntry) => !isAgentEntry(entry) || entry.heldByStop === true;
 
 const entryKey = (entry: QueuedEntry) => entry.id;
 
 /// The queue as the pane draws it, the composer's queue rows and the transcript's waiting card
-/// alike (App.tsx): an entry that comes and goes within TRANSIENT_SHOW_MS (a prompt sent as the
-/// turn ended, a message acpmux queued and started in the next batch) never paints (Leo,
+/// alike (App.tsx): another agent's message or acpmux's inbox notice that comes and goes within
+/// TRANSIENT_SHOW_MS (queued at a turn's end and started in the next batch) never paints (Leo,
 /// 2026-11-17: "i also dont like seeing the flicker flash of the Queued blah blah blah something").
 /// The queue there when chat `scope` first draws shows at once; the same array comes back while
 /// nothing shown changed.
@@ -58,7 +58,7 @@ export function useShownQueue(
   scope: unknown,
   ms: number = TRANSIENT_SHOW_MS,
 ): AcpmuxSnapshot["queue"] {
-  return useSettledItems(queue, entryKey, scope, ms, waitsOnSomeone) as AcpmuxSnapshot["queue"];
+  return useSettledItems(queue, entryKey, scope, ms, showsAtOnce) as AcpmuxSnapshot["queue"];
 }
 
 /// The transcript row id of queued message `promptId`.

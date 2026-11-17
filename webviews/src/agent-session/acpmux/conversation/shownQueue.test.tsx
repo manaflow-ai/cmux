@@ -78,27 +78,28 @@ const agent = (id: string, text: string, extra: Partial<Queue[number]> = {}): Qu
 
 const everRow = (id: string) => rowLists.some((rows) => rows.some((row) => row.id === queuedMessageRowId(id)));
 
-test("a message queued for 150 ms never reaches the transcript's rows, nor the composer's queue", async () => {
+test("a message queued for 150 ms never reaches the transcript's rows", async () => {
   jest.useFakeTimers();
   rowLists.length = 0;
-  composerQueues.length = 0;
   const container = installDom();
   await draw(container, []);
-  await draw(container, [agent("a1", "CI is green"), { id: "p1", prompt: "Then open a PR" }]);
+  await draw(container, [agent("a1", "CI is green")]);
   await wait(150);
   await draw(container, []);
   await wait(500);
   expect(everRow("a1")).toBe(false);
-  expect(composerQueues.some((queue) => queue.length > 0)).toBe(false);
 });
 
-test("a message that waits shows 200 ms after it came, in the rows and the composer's queue in one draw", async () => {
+// The person's own send is a whole queued row in the frame the composer clears (Leo, 2026-11-11;
+// test/agent-pane-queue-collapse.test.ts): only messages the person did not type wait.
+test("the person's own prompt shows at once; a message beside it shows 200 ms after it came", async () => {
   jest.useFakeTimers();
   rowLists.length = 0;
   composerQueues.length = 0;
   const container = installDom();
   await draw(container, []);
   await draw(container, [agent("a1", "CI is green"), { id: "p1", prompt: "Then open a PR" }]);
+  expect(composerQueues.at(-1)!.map((entry) => entry.id)).toEqual(["p1"]);
   await wait(199);
   expect(everRow("a1")).toBe(false);
   await wait(1);
