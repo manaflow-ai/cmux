@@ -2151,6 +2151,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/device_hello",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine.tunnel.attach",
       "params": true,
       "result": true

@@ -16,7 +16,8 @@ mod to_revoke;
 
 pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, LeaveOutcome, enroll_self,
-    finish_leave_at_start, leave_if_auto, leave_pending, record_leave_intent, relay_may_start,
+    finish_leave_at_start, leave_if_auto, leave_pending, mint_join_token, record_leave_intent,
+    relay_may_start,
 };
 pub(crate) use self_capabilities::{
     state_after_leave as state_capabilities_after_leave,

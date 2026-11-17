@@ -898,6 +898,14 @@ pub mod method {
     /// account signing out, leaves its sign-in join and enrolls the next person, with its retry.
     /// Local socket only.
     pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
+    /// A browser on the web listener presents its own enrolled device credential
+    /// (`server/web_device.rs`): `{credential}` -> `{auth: "webDevice"}`. Once per connection;
+    /// the connection's hub reads and prompts then go with that credential only. Web only.
+    pub const MUX_DEVICE_HELLO: &str = "_acpmux/device_hello";
+    /// A browser on the web listener enrolls as its own device on the mesh hub, as a new machine
+    /// joins (`server/web_device.rs`): `{accessToken, publicKey}` -> `{credential, machineId,
+    /// userId}`, to that connection only. Nothing is written to disk. Web only.
+    pub const MUX_DEVICE_ENROLL: &str = "_acpmux/device_enroll";
     // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
     // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
     // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's

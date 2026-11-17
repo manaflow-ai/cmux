@@ -52,6 +52,13 @@ pub enum ConnAuth {
     /// The Cloud carrier socket, for a teammate of the VM's team (`carrier.rs`).
     /// Served as Web, and every request goes through the teammate matrix.
     CarrierTeam,
+    /// A browser on the WebSocket listener (its listener token proven at the upgrade) that then
+    /// presented its own enrolled device credential (`web_device.rs`, `_acpmux/device_hello`).
+    /// Served as Web, under every Web rule (`remote_guard.rs`). It is what the connection
+    /// reports (`Conn::proof`); the guard and the mode rule read [`ConnAuth::ListenerToken`],
+    /// which `Conn::auth` keeps. Its hub reads go with that device credential only, never with
+    /// this daemon's identity (`mesh_read.rs` `read_hub`).
+    WebDevice,
 }
 
 impl ConnAuth {
@@ -72,6 +79,7 @@ impl ConnAuth {
             ConnAuth::ReadOnlyDevice => "readOnlyDevice",
             ConnAuth::CarrierOwner => "carrierOwner",
             ConnAuth::CarrierTeam => "carrierTeam",
+            ConnAuth::WebDevice => "webDevice",
         }
     }
 

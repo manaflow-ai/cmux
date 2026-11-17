@@ -77,9 +77,42 @@ pub struct HttpHub {
     credential: Option<String>,
     http: reqwest::Client,
     token: tokio::sync::Mutex<Option<Token>>,
+    /// A browser's own enrolled device credential (`server/web_device.rs`): the one token this
+    /// client ever sends. It is never refreshed, and no command runs.
+    device: bool,
+    /// The hub answered 401 to the device credential: it is revoked or was never the hub's, and
+    /// no later call is sent.
+    refused: std::sync::atomic::AtomicBool,
 }
 
 impl HttpHub {
+    /// A client that sends only `credential`, a browser's own enrolled device credential, to the
+    /// hub at `origin` (a [`MeshRelayConfig::origin`]). It never runs a token command and never
+    /// reads this machine's join credential. After the hub refuses the credential (401) it sends
+    /// nothing more ([`HttpHub::refused`]).
+    pub fn with_credential(origin: String, credential: Zeroizing<String>) -> Result<Self, String> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            origin,
+            command: Vec::new(),
+            credential: None,
+            http,
+            token: tokio::sync::Mutex::new(Some((Arc::new(credential), 0))),
+            device: true,
+            refused: Default::default(),
+        })
+    }
+
+    /// The hub refused this client's device credential: it is revoked, or not the hub's.
+    pub fn refused(&self) -> bool {
+        self.refused.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     async fn team_receipt(&self, id: &str, action: &str) -> Result<Receipt, HubError> {
         if !crate::mesh::is_message_id(id) {
             return Err(HubError::refused("the message id is not valid"));
@@ -109,6 +142,8 @@ impl HttpHub {
             credential: config.credential.clone(),
             http,
             token: Default::default(),
+            device: false,
+            refused: Default::default(),
         })
     }
 
@@ -134,6 +169,13 @@ impl HttpHub {
     /// A token: the one held while it is good, else a new one from the command.
     pub(crate) async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
+        if self.device {
+            // The device credential is the only token: never refreshed, never another's.
+            return match held.as_ref() {
+                Some((token, _)) if !self.refused() => Ok(Arc::clone(token)),
+                _ => Err(device_refused()),
+            };
+        }
         if self.credential.as_deref() == Some("join") {
             let value = crate::cli::cloud_join::read_join_credential(&self.origin)
                 .map_err(|_| HubError::refused("machine credential is unavailable"))?;
@@ -249,6 +291,11 @@ impl HttpHub {
                 }
                 bytes.extend_from_slice(&chunk);
             }
+            if status == 401 && self.device {
+                // No other token to try: the device is cut off, and nothing more is sent.
+                self.refused.store(true, std::sync::atomic::Ordering::SeqCst);
+                return answer(status, &bytes);
+            }
             if status == 401 && !retry {
                 continue;
             }
@@ -256,6 +303,14 @@ impl HttpHub {
         }
         Err(HubError::unavailable("the hub refused two tokens"))
     }
+}
+
+/// The refusal of a device credential the hub already refused: sent nowhere.
+fn device_refused() -> HubError {
+    let mut error = HubError::refused("the hub answered 401 machine.revoked");
+    error.status = Some(401);
+    error.code = Some("machine.revoked".into());
+    error
 }
 
 /// Whether the joined credential on disk (`now`) replaced the one a refused request sent.
