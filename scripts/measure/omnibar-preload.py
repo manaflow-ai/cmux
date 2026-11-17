@@ -15,7 +15,10 @@ no activation and an empty config, opens one browser tab, and for every URL:
   cold        in a second launch with a new profile, types the URL with a fresh query (?cmuxcold=N):
               no hit, connection or cache entry for it, so nothing is prerendered.
 
-Each arm starts with the tag's data cleared (its own Application Support folder; a tagged Debug app only).
+Each arm starts with the tag's data cleared (a tagged Debug app only): its own Application Support folder (browser
+profile, predictor database) and its daemon's state (`cmux-next/tags/TAG`, which holds the omnibox history: a URL
+typed in an earlier run would otherwise autocomplete the typed text to that URL), moved aside by
+bench_launch.start_fresh_state once no process of the bundle runs.
 
 Between samples the tab goes to about:blank. Enter is the wall clock just before the Return call (this script
 runs on the same Mac as the app); paint is the page's own `performance.timeOrigin + FCP`, and for a page that
@@ -40,6 +43,9 @@ import sys
 import tempfile
 import time
 from urllib.parse import urlsplit
+
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next"))
+import bench_launch  # noqa: E402  the tag's daemon state (its omnibox history) moved aside per arm
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--app", required=True)
@@ -153,8 +159,17 @@ if ".debug." not in info["CFBundleIdentifier"]:
     sys.exit(f"{info['CFBundleIdentifier']} is not a tagged Debug app; refusing to clear its data")
 
 
-def launch(name):
+def fresh_state():
+    """The tag's browser profile removed and its daemon state moved aside, once the bundle's processes (the app and
+    its daemon, which can outlive the app by a few seconds) are gone; it waits, it never signals them."""
+    if not wait(lambda: not bench_launch.bundle_pids(opts.app), 60, 0.5):
+        sys.exit(f"{opts.app} still runs (pids {bench_launch.bundle_pids(opts.app)}); quit it before the bench")
     shutil.rmtree(PROFILE, ignore_errors=True)
+    bench_launch.start_fresh_state(opts.tag)
+
+
+def launch(name):
+    fresh_state()
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     app = subprocess.Popen([BINARY], env={
@@ -208,7 +223,7 @@ try:
             print(json.dumps(samples[-1]), flush=True)
 finally:
     quit_app(app)
-shutil.rmtree(PROFILE, ignore_errors=True)
+fresh_state()
 
 summary = {}
 for arm in ("cold", "prerendered"):
