@@ -75,7 +75,7 @@ extension AppsClient {
     }
 
     /// Runs `operation` after every earlier mount, unmount and user event.
-    private func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
+    func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
         let previous = tail
         // task-owner: one transport call chained after the previous one (mount, unmount and event order)
         tail = Task { [transport] in
