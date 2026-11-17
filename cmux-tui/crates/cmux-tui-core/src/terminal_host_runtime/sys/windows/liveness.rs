@@ -8,15 +8,18 @@
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::AsRawHandle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
+use std::ptr;
 
-use windows_sys::Win32::Foundation::{ERROR_LOCK_VIOLATION, HANDLE};
+use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_LOCK_VIOLATION, HANDLE};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, LOCKFILE_EXCLUSIVE_LOCK,
     LOCKFILE_FAIL_IMMEDIATELY, LockFileEx, UnlockFileEx,
 };
-use windows_sys::Win32::System::IO::OVERLAPPED;
+use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
+use windows_sys::Win32::System::Threading::CreateEventW;
+use windows_sys::core::BOOL;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LeaseKind {
@@ -82,27 +85,66 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     if !wait {
         flags |= LOCKFILE_FAIL_IMMEDIATELY;
     }
-    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
-    // SAFETY: a valid file handle; a synchronous handle, so the zeroed
-    // OVERLAPPED only names offset 0.
-    let ok = unsafe {
-        LockFileEx(file.as_raw_handle() as HANDLE, flags, 0, u32::MAX, u32::MAX, &mut overlapped)
-    };
-    if ok != 0 {
-        return Ok(true);
+    // SAFETY: a valid file handle, and an OVERLAPPED `completed` keeps alive until the kernel
+    // is done with it.
+    let locked = completed(file, |handle, overlapped| unsafe {
+        LockFileEx(handle, flags, 0, u32::MAX, u32::MAX, overlapped)
+    });
+    match locked {
+        Ok(()) => Ok(true),
+        Err(e) if e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) => Ok(false),
+        Err(e) => Err(e),
     }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) {
-        return Ok(false);
-    }
-    Err(error)
 }
 
 /// Releases this handle's whole-file lock.
 pub fn unlock_file(file: &File) {
+    // SAFETY: a valid handle; the whole range `lock_file` locked. `UnlockFileEx` is
+    // synchronous on every handle (`NtUnlockFile` takes no event or completion context and
+    // finishes in the call), so the OVERLAPPED is read and written only during it.
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
-    // SAFETY: a valid handle; the whole range `lock_file` locked.
     unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, u32::MAX, u32::MAX, &mut overlapped) };
+}
+
+/// Runs one `LockFileEx` call on `file` with an OVERLAPPED on this frame and returns only
+/// once the kernel is done with it. Any `&File` may come here, including one opened with
+/// `FILE_FLAG_OVERLAPPED`: there the call can answer `ERROR_IO_PENDING` and the kernel writes
+/// its result into the OVERLAPPED later, so this waits for that before the frame (and the
+/// OVERLAPPED) goes away. A handle bound to an I/O completion port would also get a
+/// completion packet naming the OVERLAPPED, read after this returned; the event's low bit set
+/// tells the kernel to post none.
+fn completed(file: &File, call: impl FnOnce(HANDLE, *mut OVERLAPPED) -> BOOL) -> io::Result<()> {
+    let handle = file.as_raw_handle() as HANDLE;
+    // A manual-reset event of its own: with none, the wait would be on the file handle, which
+    // any other I/O on it also signals, and the low-bit tag needs a real handle.
+    // SAFETY: no security attributes, no name.
+    let event = unsafe { CreateEventW(ptr::null(), 1, 0, ptr::null()) };
+    if event.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a fresh handle nothing else owns; it closes when this returns, after the wait.
+    let _event = unsafe { OwnedHandle::from_raw_handle(event) };
+    // SAFETY: all-zero is a valid OVERLAPPED (offset 0).
+    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+    overlapped.hEvent = (event as usize | 1) as HANDLE;
+    // One raw pointer for the call and the wait: no reference to the OVERLAPPED exists while
+    // the kernel may write it.
+    let overlapped = ptr::addr_of_mut!(overlapped);
+    if call(handle, overlapped) != 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() != Some(ERROR_IO_PENDING as i32) {
+        return Err(error);
+    }
+    let mut transferred = 0;
+    // SAFETY: the OVERLAPPED the pending call holds. bWait = TRUE returns only when the call
+    // is done, so the kernel writes nothing into it after this.
+    if unsafe { GetOverlappedResult(handle, overlapped, &mut transferred, 1) } != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
 }
 
 /// Whether a lease file's holder lives: tries an exclusive lock without
@@ -136,12 +178,33 @@ mod tests {
         dir.join("lease")
     }
 
+    /// Whether this runs under Wine, whose `NtLockFile` does not implement an asynchronous
+    /// wait: it answers `STATUS_PENDING` and never finishes the lock, so a waiting lock on an
+    /// overlapped handle there tests Wine, not this code.
+    fn under_wine() -> bool {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetModuleHandleA(name: *const u8) -> HANDLE;
+            fn GetProcAddress(module: HANDLE, name: *const u8) -> *const std::ffi::c_void;
+        }
+        // SAFETY: NUL-terminated names; ntdll is loaded in every process.
+        unsafe {
+            let ntdll = GetModuleHandleA(c"ntdll.dll".as_ptr().cast());
+            !ntdll.is_null()
+                && !GetProcAddress(ntdll, c"wine_get_version".as_ptr().cast()).is_null()
+        }
+    }
+
     /// A handle opened with `FILE_FLAG_OVERLAPPED`: `LockFileEx` answers `ERROR_IO_PENDING`
     /// while another handle holds the lock and the kernel finishes the call later, writing
     /// into its OVERLAPPED. `lock_file` must wait for that, not return with the OVERLAPPED
     /// still in the kernel's hands.
     #[test]
     fn a_waiting_lock_on_an_overlapped_handle_returns_holding_the_lock() {
+        if under_wine() {
+            eprintln!("skipped under Wine: its NtLockFile cannot wait on an overlapped handle");
+            return;
+        }
         let path = lease_path("overlapped");
         let holder = acquire(&path, LeaseKind::Exclusive, false).unwrap().expect("first lease");
         let file = OpenOptions::new()
