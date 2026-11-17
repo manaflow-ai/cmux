@@ -742,8 +742,16 @@ impl MediaEngine {
                 self.ack_rtts.pop_front();
             }
         }
+        // While the path is away (D12) only the newest frame is repaired, as an outage
+        // end sends only the newest frame: an older frame's resend lands in the hold's
+        // burst behind it, while the newest one is what the viewer waits on (a key press's
+        // echo lost in the hold would otherwise wait for the path to be proven back).
+        let away = self.cc.frozen();
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
+            if away && nack.frame != state.last_frame {
+                continue;
+            }
             let Some(datagrams) = state.history.get(&nack.frame) else { continue };
             for &i in &nack.indexes {
                 if budget == 0 {
@@ -761,7 +769,9 @@ impl MediaEngine {
         let idr_allowed = state
             .last_forced_idr_us
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
-        if fb.need_recovery && idr_allowed {
+        // While the path is away (D12) a keyframe would only join the hold; the viewer
+        // keeps asking until a frame it can decode arrives, so the ask waits for the path.
+        if fb.need_recovery && idr_allowed && !self.cc.frozen() {
             // Set the keyframe up before the gate polls, so the one poll below hands it out.
             // Polling twice (ack, then damage) let the ack hand pending damage a frame number
             // and the second poll answer Wait over it: that frame was never encoded.
@@ -789,6 +799,12 @@ impl MediaEngine {
             }
             let Some(from) = state.probe_from_us else { continue };
             if now_us < from.saturating_add(TAIL_PROBE_US) {
+                continue;
+            }
+            if self.cc.frozen() {
+                // The path is away (D12): a probe would only join the hold. The wait
+                // starts over when it is back, and a long hold spends no probes.
+                state.probe_from_us = Some(now_us);
                 continue;
             }
             if state.probes < TAIL_PROBES {
