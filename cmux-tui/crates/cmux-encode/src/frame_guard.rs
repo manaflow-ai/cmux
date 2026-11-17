@@ -170,6 +170,41 @@ mod tests {
     }
 
     #[test]
+    fn a_still_screen_keeps_what_the_session_last_sent() {
+        let mut guard = FrameGuard::default();
+        guard.before(PX, 8_333);
+        guard.after(PX, 41_665);
+        let k = guard.k();
+        let next = guard.before(PX, 8_333);
+        // A still screen's frames carry no damage: no floor, and nothing learned from them,
+        // so the change after it is sized from the content the session last sent.
+        for _ in 0..30 {
+            assert_eq!(guard.before(0, 8_333), 0);
+            guard.after(0, 20);
+        }
+        assert_eq!(guard.k(), k);
+        assert_eq!(guard.before(PX, 8_333), next);
+    }
+
+    #[test]
+    fn standards_scroll_budgets_get_a_floor_and_rich_rates_none() {
+        const P1080: u64 = 1920 * 1080;
+        // Standard's one-frame budgets at 1080p60 (the bench's 400-2000 kbps): 833 to 4166 B.
+        // Scrolled text (about 0.15 B per changed pixel at QP 0) over the whole screen needs
+        // a floor at either end of that range.
+        let mut guard = FrameGuard::default();
+        guard.after(P1080, 36_000);
+        let low = guard.before(P1080, 833);
+        let high = guard.before(P1080, 4_166);
+        assert!(high >= MIN_FLOOR && high < low && low <= MAX_QP, "{low} {high}");
+        // The predicted frame at that floor fits the budget.
+        let predicted = |qp: i32| P1080 as f64 * guard.k() * 2f64.powf(-f64::from(qp) / 6.0);
+        assert!(predicted(high) <= 4_166.0, "{}", predicted(high));
+        // A small change (a cursor line) at the same rate needs none.
+        assert_eq!(guard.before(64 * 16, 4_166), 0);
+    }
+
+    #[test]
     fn the_floor_never_passes_51() {
         let mut guard = FrameGuard::default();
         guard.after(PX, 10_000_000);

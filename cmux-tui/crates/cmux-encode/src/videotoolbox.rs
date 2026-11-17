@@ -197,6 +197,11 @@ fn ultra_min_qp(env: Option<&str>) -> i32 {
         .unwrap_or(ULTRA_MIN_QP)
 }
 
+/// Whether a profile runs the frame-size guard: on unless its env var says `off` (a sweep).
+fn guard_enabled(env: Option<&str>) -> bool {
+    env.map(str::trim) != Some("off")
+}
+
 /// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
 /// framework or symbol is missing.
 // Each module's `available` also arrives through its glob import; the path names which one.
@@ -241,12 +246,15 @@ pub struct VideoToolbox {
     ultra_min_qp: i32,
     /// The next frame is ultra's refinement of a still screen ([`ULTRA_REFINE_BUDGETS`]).
     refine_next: bool,
-    /// Ultra's frame-size guard: each frame's QP floor from its damage and budget.
+    /// The frame-size guard, both profiles: each frame's QP floor from its damage and budget.
     guard: FrameGuard,
     /// Pixels of damage in the next frame (the whole picture until the caller says).
     changed_next: Option<u64>,
     /// Ultra runs the frame-size guard (`CMUX_RD_VT_ULTRA_GUARD=off` turns it off for a sweep).
-    guard_on: bool,
+    ultra_guard_on: bool,
+    /// Standard runs the frame-size guard (`CMUX_RD_VT_STANDARD_GUARD=off` turns it off for a
+    /// sweep).
+    standard_guard_on: bool,
     /// Ultra's keyframe floor: [`ULTRA_IDR_MIN_QP`], raised after a keyframe over
     /// [`keyframe_max_bytes`] ([`next_keyframe_floor`]).
     idr_floor: i32,
@@ -521,9 +529,9 @@ impl VideoToolbox {
             guard: FrameGuard::default(),
             changed_next: None,
             idr_floor: ULTRA_IDR_MIN_QP,
-            guard_on: !matches!(
-                std::env::var("CMUX_RD_VT_ULTRA_GUARD").as_deref().map(str::trim),
-                Ok("off")
+            ultra_guard_on: guard_enabled(std::env::var("CMUX_RD_VT_ULTRA_GUARD").ok().as_deref()),
+            standard_guard_on: guard_enabled(
+                std::env::var("CMUX_RD_VT_STANDARD_GUARD").ok().as_deref(),
             ),
             applied_min_qp: NO_MIN_QP,
             session_low_latency: true,
@@ -572,18 +580,19 @@ impl VideoToolbox {
         self.name = session_name(self.baseline, on);
     }
 
-    /// Pixels of damage in the next frame, for ultra's frame-size guard. Without it the guard
+    /// Pixels of damage in the next frame, for the frame-size guard. Without it the guard
     /// takes the whole picture as changed.
     pub fn set_changed_pixels(&mut self, pixels: u64) {
         self.changed_next = Some(pixels);
     }
 
-    /// Turns ultra's frame-size guard on (the default) or off, for a measurement.
+    /// Turns the frame-size guard on (the default) or off on both profiles, for a measurement.
     pub fn set_guard(&mut self, on: bool) {
-        self.guard_on = on;
+        self.ultra_guard_on = on;
+        self.standard_guard_on = on;
     }
 
-    /// Ultra's frame-size guard: the floor it set for the last frame and its learned bytes per
+    /// The frame-size guard: the floor it set for the last frame and its learned bytes per
     /// changed pixel at QP 0.
     pub fn guard(&self) -> &FrameGuard {
         &self.guard
@@ -595,7 +604,13 @@ impl VideoToolbox {
         self.refine_next = on && self.ultra;
     }
 
-    /// The QP floor in effect, `None` when there is none (standard, and ultra by default).
+    /// The configured QP floor: ultra's [`ULTRA_MIN_QP`] or its override, none on standard.
+    fn configured_min_qp(&self) -> i32 {
+        if self.ultra { self.ultra_min_qp } else { NO_MIN_QP }
+    }
+
+    /// The configured QP floor, `None` when there is none (standard, and ultra by default).
+    /// The frame-size guard's per-frame floor is apart ([`Self::guard`]).
     pub fn min_qp(&self) -> Option<i32> {
         (self.ultra && self.ultra_min_qp != NO_MIN_QP).then_some(self.ultra_min_qp)
     }
@@ -783,21 +798,32 @@ impl VideoToolbox {
         let refine = std::mem::take(&mut self.refine_next) && self.ultra && !idr;
         let pixels = self.session_size.0 * self.session_size.1;
         let changed = self.changed_next.take().unwrap_or(pixels as u64).min(pixels as u64);
-        // Every other ultra frame: the floor the guard picks from its damage and budget (it
-        // only ever makes a frame smaller), never under a configured floor.
-        let guarded = self.ultra && self.guard_on && !idr && !refine;
+        // Every other frame, on either profile: the floor the guard picks from its damage and
+        // one frame's budget, never under a configured floor. A floor only ever makes a frame
+        // smaller. It is never a QP ceiling, which made the low-latency encoder drop frames
+        // instead of shrinking them. Standard's low-latency encoder refuses DataRateLimits, so
+        // without the guard a change after a still screen spends the saved-up rate (257/199/148
+        // KB against an 8.3 KB budget at 512x256, 2 Mbps, 30 fps on a fleet Mac).
+        let guard_on = if self.ultra { self.ultra_guard_on } else { self.standard_guard_on };
+        let guarded = guard_on && !force_idr && !refine;
         let floor = if idr {
             self.idr_floor.max(self.ultra_min_qp)
         } else if refine {
             self.apply_rate(self.kbps, ULTRA_REFINE_BUDGETS);
             NO_MIN_QP
         } else if guarded {
-            let budget = ultra_frame_budget(self.kbps, self.fps, pixels, 1).0 as usize;
-            self.guard.before(changed, budget).max(self.ultra_min_qp)
+            let budget = if self.ultra {
+                ultra_frame_budget(self.kbps, self.fps, pixels, 1).0
+            } else {
+                frame_budget(self.kbps, self.fps).0
+            };
+            self.guard.before(changed, budget as usize).max(self.configured_min_qp())
         } else {
-            self.applied_min_qp
+            // Standard's keyframe, and any frame with the guard off: the configured floor (none
+            // on standard, as before the guard).
+            self.configured_min_qp()
         };
-        if self.ultra && floor != self.applied_min_qp {
+        if floor != self.applied_min_qp {
             self.apply_min_qp(floor);
         }
         let result = self.encode_buffer_at(pixel_buffer, force_idr, pts, out);
@@ -901,6 +927,15 @@ mod tests {
         assert_eq!(ultra_frame_budget(150_000, 120, P1080, 4).0, 625_000);
         assert_eq!(ultra_frame_budget(400_000, 120, P1080, 4).0, 777_600);
         assert!(ultra_frame_budget(100, 120, 0, 1).0 > 0, "never zero");
+    }
+
+    #[test]
+    fn the_frame_guard_is_on_unless_a_sweep_says_off() {
+        assert!(guard_enabled(None));
+        assert!(guard_enabled(Some("on")));
+        assert!(guard_enabled(Some("")));
+        assert!(!guard_enabled(Some("off")));
+        assert!(!guard_enabled(Some(" off\n")));
     }
 
     #[test]

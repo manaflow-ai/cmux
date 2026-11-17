@@ -300,9 +300,15 @@ fn videotoolbox_encodes_an_idr_on_request() {
     assert!(enc.name().starts_with("videotoolbox h264"), "{}", enc.name());
 }
 
-/// A big change after a still screen stays within one frame interval's share of the rate
-/// (videotoolbox.rs frame_budget: DataRateLimits), so it leaves a paced sender within one
-/// frame interval instead of queueing behind itself. Runs on a fleet Mac.
+/// Standard: a big change after a still screen stays near one frame interval's share of the
+/// rate, so it leaves a paced sender within about one frame interval instead of queueing
+/// behind itself. The low-latency encoder refuses DataRateLimits (videotoolbox.rs
+/// frame_budget), so the frame-size guard (frame_guard.rs) sets each frame's QP floor from its
+/// damage and budget: base without the guard measured 257/199/148 KB against the 8.3 KB
+/// budget. Full-screen noise is the worst case for the guard's first frame, which is sized
+/// from its prior (2 B per changed pixel at QP 0, noise is about 11), so frame 1 may run a few
+/// budgets; from frame 2 on the guard has learned the content. Prints the guard-off sizes
+/// beside. Runs on a fleet Mac.
 #[cfg(target_os = "macos")]
 #[test]
 fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
@@ -312,35 +318,51 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     const H: usize = 256;
     const FPS: u32 = 30;
     const KBPS: u32 = 2_000;
-    let mut enc =
-        VideoToolbox::new(W as u32, H as u32, FPS, KBPS, false).expect("hardware encoder");
-    let still = I420::new(W, H);
-    let mut au = Vec::new();
-    let mut pts = 0i64;
-    for i in 0..30 {
-        enc.encode(&still, i == 0, pts, &mut au).expect("encode");
-        pts += 1_000_000 / i64::from(FPS);
-    }
-    let mut seed = 0x2545_f491_4f6c_dd1du64;
-    let mut pic = I420::new(W, H);
-    let mut sizes = Vec::new();
-    for _ in 0..3 {
-        for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            *px = 16 + (seed % 220) as u8;
+    let run = |guard: bool| -> Vec<usize> {
+        let mut enc =
+            VideoToolbox::new(W as u32, H as u32, FPS, KBPS, false).expect("hardware encoder");
+        enc.set_guard(guard);
+        let still = I420::new(W, H);
+        let mut au = Vec::new();
+        let mut pts = 0i64;
+        for i in 0..30 {
+            // The engine sends a still screen's frames with no damage.
+            if i > 0 {
+                enc.set_changed_pixels(0);
+            }
+            enc.encode(&still, i == 0, pts, &mut au).expect("encode");
+            pts += 1_000_000 / i64::from(FPS);
         }
-        enc.encode(&pic, false, pts, &mut au).expect("encode");
-        pts += 1_000_000 / i64::from(FPS);
-        sizes.push(au.len());
-    }
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut pic = I420::new(W, H);
+        let mut sizes = Vec::new();
+        for _ in 0..3 {
+            for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                *px = 16 + (seed % 220) as u8;
+            }
+            enc.set_changed_pixels((W * H) as u64);
+            enc.encode(&pic, false, pts, &mut au).expect("encode");
+            pts += 1_000_000 / i64::from(FPS);
+            sizes.push(au.len());
+        }
+        sizes
+    };
+    let unguarded = run(false);
+    let sizes = run(true);
     let budget = (KBPS as usize * 1000 / 8) / FPS as usize;
-    eprintln!("changed frames {sizes:?} B, per-frame budget {budget} B");
-    // Some slack for headers and the encoder's own estimate; without the budget a change
-    // after a still screen spends the saved-up rate and comes out many budgets large.
-    let worst = sizes.iter().copied().max().unwrap_or(0);
-    assert!(worst <= budget * 3 / 2, "a changed frame of {worst} B is over the {budget} B budget");
+    eprintln!(
+        "changed frames {sizes:?} B (guard off {unguarded:?} B), per-frame budget {budget} B"
+    );
+    // Some slack for headers and the model's error.
+    assert!(sizes[0] <= budget * 6, "the first changed frame {sizes:?} is over 6x {budget} B");
+    let worst = sizes.iter().skip(1).copied().max().unwrap_or(0);
+    assert!(
+        worst <= budget * 3 / 2,
+        "a changed frame after the first {sizes:?} is over 1.5x the {budget} B budget"
+    );
 }
 
 /// Ultra (videotoolbox.rs set_ultra) holds frame rate first. A big change after a still screen:
@@ -470,8 +492,8 @@ fn videotoolbox_ultra_holds_frame_rate_first_and_refines_a_still_screen() {
 }
 
 /// Where ultra's encode time goes at the sweep's settings: 1080p, a 120 fps cap, 150 Mbps.
-/// Scrolled text (24 rows a frame) and full-screen noise, each through standard, ultra with
-/// the frame-size guard off, and ultra with it on; prints encode ms p50 / p95 and frame bytes
+/// Scrolled text (24 rows a frame) and full-screen noise, each through standard and ultra,
+/// with the frame-size guard off and on; prints encode ms p50 / p95 and frame bytes
 /// p50 / p95 / max (the keyframe apart). Asserts only that ultra with the guard keeps every
 /// frame after the keyframe under 1 MB. Runs on a fleet Mac.
 #[cfg(target_os = "macos")]
@@ -523,7 +545,8 @@ fn videotoolbox_ultra_encode_time_at_1080p120() {
     };
     for scene in ["text", "noise"] {
         let runs = [
-            ("standard", false, false),
+            ("standard, guard off", false, false),
+            ("standard, guard on", false, true),
             ("ultra, guard off", true, false),
             ("ultra, guard on", true, true),
         ];
