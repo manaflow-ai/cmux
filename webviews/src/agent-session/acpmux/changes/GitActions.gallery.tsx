@@ -96,7 +96,7 @@ export default componentEntry<Props>({
       checks: {
         layoutShiftMax: {
           value: 0.0005,
-          reason: "Scope controls and both hint translations reserve their space before switching to All.",
+          reason: "Scope controls and Include new files reserve their space before switching to All.",
         },
       },
     },
@@ -107,7 +107,7 @@ export default componentEntry<Props>({
       checks: {
         layoutShiftMax: {
           value: 0.0005,
-          reason: "Scope controls and both hint translations reserve their space before switching to All.",
+          reason: "Scope controls and Include new files reserve their space before switching to All.",
         },
       },
     },
