@@ -483,6 +483,26 @@ impl OpenH264 {
         }
     }
 
+    /// Sets the live instance's target and caps to `bps` bit/s, below what
+    /// [`H264Encoder::set_bitrate`] allows (see [`floors_first_p_frame`]); `self.kbps` stays the
+    /// target to go back to. It stops at the first setter OpenH264 refuses.
+    fn set_rate_bps(&self, bps: u32) {
+        let Some(set) = self.vtbl().SetOption else { return };
+        let bps = c_int::try_from(bps).unwrap_or(c_int::MAX);
+        // Lowering: the target first, then the caps, so the target never exceeds a cap.
+        for (option, layer) in [
+            (ENCODER_OPTION_BITRATE, SPATIAL_LAYER_ALL),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_0),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_ALL),
+        ] {
+            let mut info = SBitrateInfo { iLayer: layer, iBitrate: bps };
+            // SAFETY: each option accepts SBitrateInfo and the encoder is live.
+            if unsafe { set(self.enc, option, (&mut info as *mut SBitrateInfo).cast()) } != 0 {
+                return;
+            }
+        }
+    }
+
     fn vtbl(&self) -> &ISVCEncoderVtbl {
         // SAFETY: `enc` points at a live encoder whose first field is its vtable pointer.
         unsafe { &**self.enc }
@@ -601,6 +621,36 @@ fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
     opts.frame_skip && fresh
 }
 
+/// The QP of the keyframe after a move to camera usage, and so of the P-frame after it
+/// (see [`floors_first_p_frame`]).
+pub const FIRST_P_FRAME_QP: u8 = 36;
+
+/// Whether this frame is the keyframe of a camera instance a move made (screen content in
+/// [`Usage::Switch`]): it codes with the rate set to one bit a frame, so the P-frame after it
+/// codes at [`FIRST_P_FRAME_QP`] instead of 28 to 30.
+///
+/// OpenH264 v2.6.0 codes a new instance's first P-frame at its keyframe's QP
+/// (`RcCalculatePictureQp`: `iPFrameNum == 0` takes `iInitialQp`), whatever the picture costs
+/// as a P-frame, and only the frames after it move by 2 to 5 QP from there. A move to camera
+/// usage happens because most of the picture moves, so that first P-frame is about as large
+/// as the keyframe: 769 KB on the netem rig's full-screen motion, against 135 to 140 KB once
+/// rate control settles, and the frames after it were dropped while frame skipping repaid it.
+/// The keyframe's QP comes from a bits-per-pixel table (`RcCalculateIdrQp`), and the table's
+/// lowest bucket (at most 0.01 bit a pixel) is QP 36 at any picture size above 90 lines. Its
+/// QP range for that bucket is 28 to 40, so the camera range (12 to 42) keeps it at 36.
+///
+/// The rate goes back to the target before the next frame. One bit a frame is what keeps the
+/// rest of the session's rate control as it was: when the rate changes, OpenH264 rescales the
+/// eight-frame budget's balance by new / old bits a frame (`RcUpdateBitrateFps`), unless old
+/// is at most one (`REMAIN_BITS_TH`). From any higher keyframe rate the keyframe's overshoot
+/// grew by that ratio (1.2 Mbit/s to 30: 25 times) and steady motion stayed at every other
+/// frame, 30 fps, for the 12 s measured. From one bit a frame it is carried as is, the size
+/// of the keyframe, as a keyframe at the target rate carries its own. OpenH264 refuses a rate
+/// under the frame rate, so the rate is the frame rate in bit/s.
+fn floors_first_p_frame(cfg: &EncCfg, opts: &OpenH264Options, screen: bool, fresh: bool) -> bool {
+    cfg.screen_content && opts.usage == Usage::Switch && !screen && fresh
+}
+
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
@@ -628,6 +678,11 @@ impl H264Encoder for OpenH264 {
         if skip_off {
             self.set_frame_skip(false);
         }
+        let floor = floors_first_p_frame(&self.cfg, &self.opts, self.screen, self.motion.fresh);
+        if floor {
+            // A refusal leaves the keyframe at the target, as before.
+            self.set_rate_bps(self.cfg.fps.max(1));
+        }
         // SAFETY: the encoder reads the planes (kept alive by `pic`) and writes into self.info.
         let coded = unsafe {
             if force_idr { ok(force(self.enc, true), "force idr") } else { Ok(()) }
@@ -635,6 +690,10 @@ impl H264Encoder for OpenH264 {
         };
         if skip_off {
             self.set_frame_skip(true);
+        }
+        if floor {
+            // Back to the target: `set_bitrate` reads the live rate, so it restores it.
+            self.set_bitrate(self.kbps);
         }
         coded?;
         let info = &*self.info;
