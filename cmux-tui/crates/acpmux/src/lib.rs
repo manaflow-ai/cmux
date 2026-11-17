@@ -305,6 +305,7 @@ mod test_stack;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
 pub(crate) mod time_breakdown;
+pub(crate) mod tool_env;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;

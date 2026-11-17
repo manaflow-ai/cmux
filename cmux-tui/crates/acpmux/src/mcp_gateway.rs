@@ -18,8 +18,17 @@
 //! same tokens, and finds each chat's launch in `run/mcp/<session>.gateway.json` (0600), so a
 //! harness it adopts keeps its tools.
 //!
+//! acpmux's own tool servers (`tools_mcp.rs` `SERVERS`) run in the daemon too, at
+//! `/mcp/<session>/tools` with the same token: each of their upstream specs in the chat's
+//! `cmux mcp serve` names it (`http`, [`tools_endpoint`]), so that server starts no
+//! `acpmux tools-mcp` either. A request there runs the servers in-process, in a
+//! [`crate::tool_env`] scope with the env the chat's `tools-mcp` would have had and this daemon
+//! run's caller token for the session in the url; their calls go to the daemon's own socket over
+//! one connection per chat, as the chat's `tools-mcp` did.
+//!
 //! Only loopback, only a request whose `Host` names this listener and that carries no `Origin`
-//! (no page in a browser reaches it), only `/mcp/<session>` with that session's token.
+//! (no page in a browser reaches it), only `/mcp/<session>` and `/mcp/<session>/tools` with that
+//! session's token.
 
 use anyhow::{Context as _, Result, anyhow};
 use cmux_process::{Child, Command};
@@ -90,6 +99,8 @@ pub struct Gateway {
     port: u16,
     key: Vec<u8>,
     home: PathBuf,
+    /// The daemon socket the tool servers' calls go to.
+    socket: PathBuf,
     idle: Duration,
     /// Every task of the gateway and its servers' readers.
     scope: Arc<cmux_scope::Scope>,
@@ -103,6 +114,10 @@ struct Chat {
     scope: Arc<cmux_scope::Scope>,
     kept: Mutex<Kept>,
     server: tokio::sync::Mutex<Option<Arc<Server>>>,
+    /// Its tool servers' daemon connection, made by their first call.
+    tools_daemon: Arc<crate::tools_mcp::Daemon>,
+    /// Its tool servers, made by their first request for the launch they were made from.
+    tools: Mutex<Option<(Launch, Arc<Vec<crate::tools_mcp::Served>>)>>,
     last: Mutex<Instant>,
     inflight: AtomicUsize,
 }
@@ -139,12 +154,7 @@ pub fn active() -> Option<Arc<Gateway>> {
 /// gets the stdio server). A launch that differs from the kept one stops the running server, so
 /// the next request starts the new one.
 pub fn register(session: &str, launch: Launch) -> Option<Endpoint> {
-    let gateway = active()?;
-    gateway
-        .keep(session, launch)
-        .map_err(|e| tracing::warn!("mcp gateway: {session}: {e:#}"))
-        .ok()?;
-    Some(gateway.endpoint(session))
+    active()?.register(session, launch)
 }
 
 /// The chat ended: its server stops and its launch file goes.
@@ -170,6 +180,16 @@ pub async fn start(home: &Path) -> Result<Arc<Gateway>> {
 /// Binds a gateway (the kept port when it is free), keeps its port and key, and serves it,
 /// stopping a chat's server after `idle` with no request, looked for every `reap_every`.
 pub async fn bind(home: &Path, idle: Duration, reap_every: Duration) -> Result<Arc<Gateway>> {
+    bind_at(home, crate::config::socket_path(), idle, reap_every).await
+}
+
+/// [`bind`], its tool servers' calls going to the daemon at `socket`.
+pub async fn bind_at(
+    home: &Path,
+    socket: PathBuf,
+    idle: Duration,
+    reap_every: Duration,
+) -> Result<Arc<Gateway>> {
     let path = home.join("run").join("mcp-gateway.json");
     let kept: Option<Listener> =
         std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok());
@@ -200,6 +220,7 @@ pub async fn bind(home: &Path, idle: Duration, reap_every: Duration) -> Result<A
         port,
         key,
         home: home.to_owned(),
+        socket,
         idle,
         scope: Arc::new(cmux_scope::Scope::new("mcp gateway")),
         chats: Mutex::new(HashMap::new()),
@@ -251,6 +272,66 @@ impl Gateway {
         }
     }
 
+    /// Where the chat's `cmux mcp serve` reaches acpmux's own tool servers: the chat's endpoint
+    /// and token, at `/tools`.
+    pub fn tools_endpoint(&self, session: &str) -> Endpoint {
+        let Endpoint { url, authorization } = self.endpoint(session);
+        Endpoint { url: format!("{url}/tools"), authorization }
+    }
+
+    /// [`register`] on this gateway.
+    pub fn register(&self, session: &str, launch: Launch) -> Option<Endpoint> {
+        self.keep(session, launch)
+            .map_err(|e| tracing::warn!("mcp gateway: {session}: {e:#}"))
+            .ok()?;
+        Some(self.endpoint(session))
+    }
+
+    /// The env the chat's `acpmux tools-mcp` would have had, for its servers run here: the
+    /// `cmux` server's launch env, then each of acpmux's own upstream specs' env, then this daemon
+    /// run's caller token for `session`, sent only to this gateway's daemon socket. Each server's
+    /// session is `session`.
+    fn tools_env(&self, session: &str, launch: &Launch) -> HashMap<String, String> {
+        let upstreams_key = crate::agent_tools::UPSTREAMS_ENV;
+        let mut env: HashMap<String, String> = launch.env.iter().cloned().collect();
+        let specs: Vec<Value> = env
+            .remove(upstreams_key)
+            .and_then(|specs| serde_json::from_str(&specs).ok())
+            .unwrap_or_default();
+        for spec in &specs {
+            let name = spec["name"].as_str().unwrap_or_default();
+            let args: Vec<String> = spec["args"]
+                .as_array()
+                .map(|args| args.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            if !crate::tools_mcp::owns(name, &args) {
+                continue;
+            }
+            for (key, value) in spec["env"].as_object().into_iter().flatten() {
+                if let Some(value) = value.as_str() {
+                    env.insert(key.clone(), value.to_owned());
+                }
+            }
+        }
+        let socket = self.socket.to_string_lossy().into_owned();
+        env.insert("ACPMUX_SOCKET".to_owned(), socket.clone());
+        env.insert(
+            crate::person_tokens::CALLER_TOKEN_ENV.to_owned(),
+            crate::person_tokens::caller_token(session),
+        );
+        env.insert(crate::person_tokens::CALLER_SOCKET_ENV.to_owned(), socket);
+        for key in [
+            crate::acpmux_mcp_names::SESSION_ENV,
+            crate::secret_mcp::SESSION_ENV,
+            crate::offer_mcp::SESSION_ENV,
+        ] {
+            if let Some(value) = env.get_mut(key) {
+                *value = session.to_owned();
+            }
+        }
+        env
+    }
+
     fn token(&self, session: &str) -> String {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &self.key);
         encode_hex(ring::hmac::sign(&key, session.as_bytes()).as_ref())
@@ -300,7 +381,7 @@ impl Gateway {
                 }
             }
             None => {
-                let chat = Chat::new(session, path, kept, self.scope.clone());
+                let chat = Chat::new(session, path, kept, self);
                 chats.insert(session.to_owned(), Arc::new(chat));
             }
         }
@@ -315,7 +396,7 @@ impl Gateway {
         }
         let file = launch_path(&self.home, session);
         let kept: Kept = serde_json::from_slice(&std::fs::read(&file).ok()?).ok()?;
-        let chat = Arc::new(Chat::new(session, file, kept, self.scope.clone()));
+        let chat = Arc::new(Chat::new(session, file, kept, self));
         chats.insert(session.to_owned(), chat.clone());
         Some(chat)
     }
@@ -331,16 +412,46 @@ impl Gateway {
 }
 
 impl Chat {
-    fn new(id: &str, file: PathBuf, kept: Kept, scope: Arc<cmux_scope::Scope>) -> Self {
+    fn new(id: &str, file: PathBuf, kept: Kept, gateway: &Gateway) -> Self {
         Chat {
             id: id.to_owned(),
             file,
-            scope,
+            scope: gateway.scope.clone(),
             kept: Mutex::new(kept),
             server: tokio::sync::Mutex::new(None),
+            tools_daemon: Arc::new(crate::tools_mcp::Daemon::at(gateway.socket.clone())),
+            tools: Mutex::new(None),
             last: Mutex::new(Instant::now()),
             inflight: AtomicUsize::new(0),
         }
+    }
+
+    /// Its tool servers for the env `env` ([`Gateway::tools_env`]) of `launch`: the ones made
+    /// for that launch, else made now in that env (each reads its session and its tool list
+    /// from it, as its own process reads them at its start).
+    fn tools(
+        &self,
+        launch: &Launch,
+        env: &HashMap<String, String>,
+    ) -> Arc<Vec<crate::tools_mcp::Served>> {
+        let mut held = self.tools.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((made_for, servers)) = held.as_ref()
+            && made_for == launch
+        {
+            return servers.clone();
+        }
+        let servers = Arc::new(crate::tool_env::sync_scope(env.clone(), || {
+            crate::tools_mcp::servers(&self.tools_daemon)
+        }));
+        *held = Some((launch.clone(), servers.clone()));
+        servers
+    }
+
+    /// An idle chat's tool servers go with their daemon connection; its next request makes them
+    /// again.
+    fn release_tools(&self) {
+        self.tools.lock().unwrap_or_else(PoisonError::into_inner).take();
+        self.tools_daemon.release();
     }
 
     fn touch(&self) {
@@ -537,6 +648,7 @@ async fn reap(gateway: Arc<Gateway>, every: Duration) {
             .collect();
         for chat in chats {
             if chat.inflight.load(Ordering::SeqCst) == 0 && chat.idle_for() >= gateway.idle {
+                chat.release_tools();
                 let server = match chat.server.try_lock() {
                     Ok(mut slot) => slot.take(),
                     Err(_) => None,
@@ -584,10 +696,15 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
         return;
     }
     let path = request.path.split_once('?').map_or(request.path.as_str(), |(p, _)| p);
-    let Some(session) = path.strip_prefix("/mcp/").filter(|s| valid_session(s)) else {
+    let rest = path.strip_prefix("/mcp/").unwrap_or_default();
+    let (session, tools) = match rest.strip_suffix("/tools") {
+        Some(session) => (session, true),
+        None => (rest, false),
+    };
+    if !valid_session(session) {
         let _ = respond(&mut stream, "404 Not Found", "text/plain", b"not found").await;
         return;
-    };
+    }
     if !gateway.authorized(session, request.header("authorization")) {
         let _ = respond(&mut stream, "401 Unauthorized", "text/plain", b"unauthorized").await;
         return;
@@ -597,7 +714,11 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
         return;
     };
     match request.method.as_str() {
+        "POST" if tools => post_tools(&gateway, &chat, &request, &mut stream).await,
         "POST" => post(&chat, &request, &mut stream).await,
+        "DELETE" if tools => {
+            let _ = respond(&mut stream, "200 OK", "text/plain", b"").await;
+        }
         // No server-sent stream of its own: a notice with no request to answer is dropped.
         "GET" => {
             let _ = respond(&mut stream, "405 Method Not Allowed", "text/plain", b"").await;
@@ -612,9 +733,10 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
     }
 }
 
-async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
-    let message: Value = match serde_json::from_slice(&request.body) {
-        Ok(v @ Value::Object(_)) => v,
+/// The request's one JSON-RPC message, or None once it answered that there is none.
+async fn message_of(request: &Request, stream: &mut TcpStream) -> Option<Value> {
+    match serde_json::from_slice(&request.body) {
+        Ok(v @ Value::Object(_)) => Some(v),
         _ => {
             let error = json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "one JSON-RPC message per request"}});
             let _ = respond(
@@ -624,9 +746,51 @@ async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
                 error.to_string().as_bytes(),
             )
             .await;
-            return;
+            None
         }
+    }
+}
+
+/// A request to acpmux's own tool servers of the chat, answered here (`tools_mcp::answer`) in
+/// the chat's tool env. A call runs in this request's own task, so a card that waits on the
+/// person for up to an hour holds no other request.
+async fn post_tools(
+    gateway: &Gateway,
+    chat: &Arc<Chat>,
+    request: &Request,
+    stream: &mut TcpStream,
+) {
+    let Some(message) = message_of(request, stream).await else { return };
+    chat.touch();
+    if message.get("id").is_none() {
+        // `initialized` and the like: the servers here keep no state for them.
+        let _ = respond(stream, "202 Accepted", "text/plain", b"").await;
+        return;
+    }
+    let launch = chat.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
+    let env = gateway.tools_env(&chat.id, &launch);
+    let servers = chat.tools(&launch, &env);
+    chat.inflight.fetch_add(1, Ordering::SeqCst);
+    let answer = crate::tool_env::scope(env, async {
+        match crate::tools_mcp::answer(&servers, &message) {
+            crate::tools_mcp::Answer::None => None,
+            crate::tools_mcp::Answer::Now(answer) => Some(answer),
+            crate::tools_mcp::Answer::Call(call) => Some(call.await),
+        }
+    })
+    .await;
+    chat.inflight.fetch_sub(1, Ordering::SeqCst);
+    chat.touch();
+    let _ = match answer {
+        Some(answer) => {
+            respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await
+        }
+        None => respond(stream, "202 Accepted", "text/plain", b"").await,
     };
+}
+
+async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
+    let Some(message) = message_of(request, stream).await else { return };
     chat.touch();
     let method = message.get("method").and_then(Value::as_str).unwrap_or("").to_owned();
     let Some(id) = message.get("id").cloned() else {

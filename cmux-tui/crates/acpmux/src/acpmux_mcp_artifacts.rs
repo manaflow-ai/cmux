@@ -196,7 +196,7 @@ pub fn from_config() -> Option<Arc<Artifacts>> {
     }
     let relay = relay?;
     let hub = crate::mesh_http::HttpHub::new(&relay).ok()?;
-    let env = std::env::var(API_ENV).ok();
+    let env = crate::tool_env::var(API_ENV);
     let base = base_url(env.as_deref(), &config, Some(&relay));
     Artifacts::new(base, Bearer::Hub(Box::new(hub))).ok().map(Arc::new)
 }
@@ -901,8 +901,8 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
             }
             let files = files(args, kind)?;
             let mut trailers = json!({});
-            if let (Ok(session), Some(map)) =
-                (std::env::var(super::SESSION_ENV), trailers.as_object_mut())
+            if let (Some(session), Some(map)) =
+                (crate::tool_env::var(super::SESSION_ENV), trailers.as_object_mut())
                 && !session.is_empty()
                 && session.len() <= 256
                 && !session.chars().any(char::is_control)
