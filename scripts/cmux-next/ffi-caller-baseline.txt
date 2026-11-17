@@ -12,11 +12,9 @@ cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_age
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_free
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_new
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_observe
-# Held until step B (hq#12220): base re-pinned the app FFI (1734e2ba) after #44351 added these exports but before
-# their Swift callers landed. cmux#44495 calls cmux_launch_record_write; cmux_launch_record_front_window has no
-# caller PR yet. `--update` drops each line once its caller lands.
+# Held until step B (hq#12220): cmux_launch_record_front_window gets its Swift caller with the stage-0 launch
+# window (the reader PR after cmux#44495). `--update` drops the line once its caller lands.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_front_window
-cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_write
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_machine_init
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_reduce
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_room
