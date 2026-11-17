@@ -3341,6 +3341,16 @@ class SideLanes(unittest.TestCase):
         self.assertNotIsInstance(target, str)
         self.assertIs(target.refusals_only, True)
         self.assertEqual(rescue.next_attempt(target), "attempt 4 takes Blacksmith: a mini refused attempt 3")
+        # cmux#45612 item 4, 2026-11-17: with vars.CI_BLACKSMITH_MACOS off, run 44067209239's attempt 4 was logged as
+        # taking Blacksmith and queued on glaeda-side-std-xcode-26.6 again; the line names the label it rejoins.
+        off = dataclasses.replace(target, rerun_side=SIDE)
+        self.assertEqual(rescue.next_attempt(off),
+                         f"attempt 4 rejoins {SIDE}: vars.CI_BLACKSMITH_MACOS is not on, so cmux-next.yml's Mac "
+                         "fallback is the side label")
+        self.assertEqual(rescue.next_attempt(dataclasses.replace(off, attempt=2)),
+                         f"attempt 3 rejoins {SIDE}: vars.CI_BLACKSMITH_MACOS is not on, so cmux-next.yml's Mac "
+                         "fallback is the side label")
+        self.assertNotIn("Blacksmith:", rescue.next_attempt(off))
         self.assertEqual(rescue.sweep_target({**run, "run_attempt": 4}, "manaflow-ai/cmux", late=False),
                          "attempt 4")
         # ci.yml's placement moves only github-actions[bot]'s attempt 3 to Blacksmith (pr_runner_pool), so a
@@ -3401,7 +3411,8 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(api.attempt, 3)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn("cancel", api.calls)
-        self.assertIn("attempt 3 takes the side lane's Blacksmith overflow", summary)
+        # vars.CI_BLACKSMITH_MACOS is unset here (off), so attempt 3 rejoins the side label (cmux#45612 item 4)
+        self.assertIn("attempt 3 rejoins glaeda-side-std-xcode-26.6: vars.CI_BLACKSMITH_MACOS is not on", summary)
 
     def test_a_failed_cmux_next_pull_request_or_tip_suite_run_is_watched_when_it_completes(self):
         # A pull request's swift test the runner hook refused (run 40671913126) and the tip Swift suite's
@@ -9893,7 +9904,7 @@ class StallMove(unittest.TestCase):
     def test_only_an_open_same_repository_pull_request_run_on_the_minis_is_a_target(self):
         clock = Clock()
         api = StallAPI(clock, lambda attempt, seconds: [], attempt=4, actor=CMUX_BOT)
-        self.assertEqual(stall_target(api), "attempt 4 takes Blacksmith")
+        self.assertEqual(stall_target(api), "attempt 4 is a bot's re-run past attempt 3")
         api.actor = "teamleaderleo"  # a person's attempt 4 goes back to the minis
         target = stall_target(api)
         self.assertIsInstance(target, rescue.Target)
