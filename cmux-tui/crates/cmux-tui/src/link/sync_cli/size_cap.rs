@@ -113,7 +113,9 @@ impl Cap {
             return Err(FileLimit);
         }
         // The clock is read once every 1,024 files, so the bound adds nothing to the walk's cost.
-        if self.files % 1024 == 0 && self.until.is_some_and(|until| Instant::now() >= until) {
+        if self.files.is_multiple_of(1024)
+            && self.until.is_some_and(|until| Instant::now() >= until)
+        {
             self.timed_out = true;
             return Err(FileLimit);
         }
