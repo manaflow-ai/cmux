@@ -20,6 +20,13 @@
 //! end does (`stalled_turn.rs`): the agent gets the cancel, the turn ends
 //! failed with the 401 (`sign_in_refused_error`), and `finish_turn` gives it
 //! the sign-in's kind and recovery text (`claude_auth.rs`, `recovery.rs`).
+//!
+//! Codex does the same with a refused sign-in, and never stops: its app-server reconnects with
+//! no bound ("Reconnecting... 1", "... 2", ...), so its turn ran for hours with no answer and the
+//! pane showed "Agent may be stuck" instead of the sign-in error (cmux#44987: a fork onto Codex
+//! whose subrouter account needed a re-login, 9055 retries of a 403 "credential needs re-login").
+//! A Codex retry of a 401, or of a 403 whose detail says the sign-in or credential is refused,
+//! ends its turn the same way, failed with Codex's own words.
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -105,11 +112,40 @@ fn http_status(info: &Value) -> Option<u64> {
 /// The retry at which a model request refused for its sign-in ends the turn (module docs).
 const SIGN_IN_REFUSED_END_ATTEMPT: u64 = 2;
 
-/// Whether `retry` ([`claude_retry`]'s fields) is Claude Code retrying a request the model API
-/// refused for its sign-in: a 401, or Claude's `authentication_failed`.
+/// Whether `retry` ([`claude_retry`] or [`codex_retry`]'s fields) is the harness retrying a
+/// request the model API refused for its sign-in: Claude's 401 or `authentication_failed`; Codex's
+/// 401, or a 403 whose detail says the sign-in or credential is refused (a 403 alone can be a
+/// region or policy block, which a sign-in does not fix).
 fn sign_in_refused(retry: &Value) -> bool {
-    retry["source"] == "claude"
-        && (retry["errorStatus"] == 401 || retry["error"] == "authentication_failed")
+    match retry["source"].as_str() {
+        Some("claude") => retry["errorStatus"] == 401 || retry["error"] == "authentication_failed",
+        Some("codex") => {
+            let detail = retry["error"].as_str().unwrap_or("");
+            retry["errorStatus"] == 401
+                || (retry["errorStatus"] == 403 && says_sign_in_refused(detail))
+        }
+        _ => false,
+    }
+}
+
+/// Whether a refusal's text says the sign-in is the reason: a login or credential to renew.
+fn says_sign_in_refused(detail: &str) -> bool {
+    let d = detail.to_lowercase();
+    crate::claude_auth::is_sign_in_failure(detail)
+        || crate::claude_auth::is_expired_credential(detail)
+        || [
+            "re-login",
+            "relogin",
+            "log in again",
+            "sign in again",
+            "refresh token",
+            "unauthorized",
+            "invalid_api_key",
+            "token_expired",
+            "not signed in",
+        ]
+        .iter()
+        .any(|needle| d.contains(needle))
 }
 
 impl Hub {
@@ -141,7 +177,8 @@ impl Hub {
         }
         tracing::warn!(session = %session.id, turn = %turn.turn_id, attempt, "the model API refused the agent's sign-in: ending its turn");
         let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused": {
-            "attempt": attempt, "errorStatus": retry.get("errorStatus"), "error": retry.get("error")}}}});
+            "attempt": attempt, "errorStatus": retry.get("errorStatus"), "error": retry.get("error"),
+            "source": retry.get("source")}}}});
         let session = session.clone();
         let turn_id = turn.turn_id;
         // Off the tap, as the stalled end: the agent of this very turn gets the cancel (bounded),
@@ -175,15 +212,21 @@ impl Hub {
     }
 
     /// The error a turn ended for a refused sign-in fails with (`finish_turn`), from its forced
-    /// answer: Claude's own 401 words, which `claude_auth` explains and `recovery` types.
+    /// answer: Claude's own 401 words, which `claude_auth` explains and `recovery` types, with
+    /// the harness's own refusal after them when it gave one (Codex's "needs re-login ...").
     pub(super) fn sign_in_refused_error(answer: &Value) -> Option<RpcError> {
         let refused = answer.pointer("/_meta/acpmux/signInRefused")?;
         let attempt = refused["attempt"].as_u64().unwrap_or(0);
         let status = refused["errorStatus"].as_u64().unwrap_or(401);
+        let said = refused["error"]
+            .as_str()
+            .filter(|e| refused["source"] == "codex" && !e.is_empty())
+            .map(|e| format!(": {e}"))
+            .unwrap_or_default();
         let text = format!(
             "Failed to authenticate. API Error: {status} authentication_error (the model API \
              refused the agent's sign-in {attempt} times; acpmux ended the turn instead of waiting \
-             out the agent's retries)"
+             out the agent's retries){said}"
         );
         Some(
             RpcError::new(-32000, text)
@@ -219,9 +262,33 @@ mod tests {
         assert!(sign_in_refused(&claude(403, "authentication_failed")));
         assert!(!sign_in_refused(&claude(503, "server_error")));
         assert!(!sign_in_refused(&claude(429, "rate_limit")));
-        let codex = codex_retry(&json!({"message": "Reconnecting... 3/5",
-            "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": 401}}}));
-        assert!(!sign_in_refused(&codex), "Codex's own retries are its to end");
+    }
+
+    /// Codex retries a refused sign-in with no bound (cmux#44987): a 401, or a 403 that says the
+    /// login is the reason, ends its turn. A 403 that does not (a region block) and a 5xx do not.
+    #[test]
+    fn a_codex_retry_of_a_refused_sign_in_ends_its_turn() {
+        let codex = |status: u64, detail: &str| {
+            codex_retry(&json!({"message": "Reconnecting... 3", "willRetry": true,
+                "additionalDetails": detail,
+                "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": status}}}))
+        };
+        assert!(sign_in_refused(&codex(401, "unexpected status 401 Unauthorized")));
+        assert!(sign_in_refused(&codex(
+            403,
+            "unexpected status 403 Forbidden: subrouter: pinned account \"a@b.c\" is unusable: \
+             its credential needs re-login (refresh token invalid or expired); re-add it with \
+             'sr add codex'."
+        )));
+        assert!(!sign_in_refused(&codex(403, "unsupported_country_region_territory")));
+        assert!(!sign_in_refused(&codex(502, "bad gateway")));
+        let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused":
+            {"attempt": 2, "errorStatus": 403, "source": "codex",
+             "error": "its credential needs re-login"}}}});
+        let mut e = Hub::sign_in_refused_error(&answer).unwrap();
+        assert!(e.message.ends_with(": its credential needs re-login"), "{}", e.message);
+        crate::recovery::annotate(&mut e, None);
+        assert_eq!(e.data.as_ref().unwrap()["errorKind"], crate::recovery::kind::AUTH_SIGNED_OUT);
     }
 
     /// A session of a test hub whose turn `turn-1` runs, and a refused retry at `attempt`.

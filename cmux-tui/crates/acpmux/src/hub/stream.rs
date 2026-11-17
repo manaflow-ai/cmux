@@ -254,8 +254,13 @@ impl Hub {
                 }
             }
         }
-        // The model request failed and Codex tries again (`turn_retry.rs`).
+        // The model request failed and Codex tries again (`turn_retry.rs`). A sign-in the model
+        // API refuses ends the turn at its second retry: Codex's own retries never end.
         if let Some(retry) = retrying {
+            let shared = self.sessions.lock().ok().and_then(|s| s.get(&session.id).cloned());
+            if let Some(shared) = shared {
+                self.end_sign_in_refused(&shared, &retry);
+            }
             self.turn_retrying(session, retry);
         }
         if let Some((old, new, notice)) = superseded {
