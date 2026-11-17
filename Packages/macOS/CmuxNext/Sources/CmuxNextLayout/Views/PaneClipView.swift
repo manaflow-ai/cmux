@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 /// The rounded clip around a pane's content. `masksToBounds` with a corner
@@ -18,6 +19,14 @@ final class PaneClipView: NSView {
     }
 
     nonisolated override var isFlipped: Bool { true }
+
+    /// A floating pane with a see-through background: its card paints the one ground under the content, and the
+    /// views inside paint none (`PaneGroundOwning`). A change tells those views in the same turn.
+    var ownsContentGround = false {
+        didSet { if ownsContentGround != oldValue { tellPaneGroundFollowers() } }
+    }
+    /// The content has another ground to give to the card.
+    var onContentGroundChange: (() -> Void)?
 
     func setCornerRadius(_ radius: CGFloat) {
         guard let layer, layer.cornerRadius != radius else { return }
@@ -112,6 +121,10 @@ final class PaneClipView: NSView {
         }
         return rects
     }
+}
+
+extension PaneClipView: PaneGroundOwning {
+    func contentGroundDidChange() { onContentGroundChange?() }
 }
 
 /// A part of a pane's ground beside its held content (``PaneClipView/showHeldGround(_:around:header:footer:leading:)``): a color, no clicks.

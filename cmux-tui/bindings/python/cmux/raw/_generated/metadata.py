@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8'
+IR_SHA256 = '2af31c262a69fb04e4ff08392894bbd40633f598acbe41829263f954228d2d02'
 
 
 @dataclass(frozen=True)
@@ -2802,6 +2802,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'app_permissions': CommandFieldMetadata(None, None),
             'computer_use': CommandFieldMetadata(None, None),
             'headless': CommandFieldMetadata(None, None),
             'screen_sharing': CommandFieldMetadata(None, None),

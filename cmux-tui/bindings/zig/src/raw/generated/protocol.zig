@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8";
+pub const ir_sha256 = "2af31c262a69fb04e4ff08392894bbd40633f598acbe41829263f954228d2d02";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1748,6 +1748,11 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
+};
+
+pub const RemoteHostAppPermissions = struct {
+    accessibility: wire.Field(bool) = .absent,
+    screen_recording: wire.Field(bool) = .absent,
 };
 
 pub const RemoteHostAppResult = struct {
@@ -8653,6 +8658,7 @@ pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Dec
 }
 
 pub const RemoteHostConfigRequest = struct {
+    app_permissions: wire.Field(RemoteHostAppPermissions) = .absent,
     computer_use: wire.Field(bool) = .absent,
     headless: wire.Field(bool) = .absent,
     screen_sharing: wire.Field(bool) = .absent,

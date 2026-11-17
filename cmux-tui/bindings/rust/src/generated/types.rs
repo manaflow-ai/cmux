@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8.
+// cmux-tui mux protocol 12, IR 2af31c262a69fb04e4ff08392894bbd40633f598acbe41829263f954228d2d02.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1529,6 +1529,15 @@ pub struct ReadScrollbackResult {
 pub struct ReattachViewResult {
     pub participant: String,
     pub state: SizeState,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostAppPermissions {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub accessibility: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_recording: Optional<bool>,
 }
 
 #[rustfmt::skip]

@@ -10314,6 +10314,36 @@
    },
    "additional_properties": false
   },
+  "RemoteHostAppPermissions": {
+   "kind": "object",
+   "fields": {
+    "screen_recording": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "CGPreflightScreenCaptureAccess() in the cmux app."
+     ]
+    },
+    "accessibility": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "AXIsProcessTrusted() in the cmux app."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
   "RemoteHostAppResult": {
    "kind": "object",
    "fields": {
@@ -26686,6 +26716,14 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "app_permissions": {
+      "type": {
+       "kind": "ref",
+       "name": "RemoteHostAppPermissions"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -26697,7 +26735,8 @@
    "stream": null,
    "constraints": [
     "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-    "The verified app connection only; the daemon saves the switches and starts or stops the host."
+    "The verified app connection only; the daemon saves the switches and starts or stops the host.",
+    "app_permissions is the app's own Screen Recording and Accessibility: kept in memory only and shown as remote-host-status app.permissions; a call with no switch set never saves, starts or stops anything."
    ]
   },
   "remote-host-app": {

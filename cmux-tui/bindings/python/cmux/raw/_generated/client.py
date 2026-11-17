@@ -624,8 +624,8 @@ class GeneratedClientMixin:
     def remote_host_call(self, method: str, *, params: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('remote-host-call', RemoteHostCallRequest(method=method, params=params))
 
-    def remote_host_config(self, *, computer_use: Union[bool, None, MissingType] = MISSING, headless: Union[bool, None, MissingType] = MISSING, screen_sharing: Union[bool, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('remote-host-config', RemoteHostConfigRequest(computer_use=computer_use, headless=headless, screen_sharing=screen_sharing))
+    def remote_host_config(self, *, app_permissions: Union[RemoteHostAppPermissions, None, MissingType] = MISSING, computer_use: Union[bool, None, MissingType] = MISSING, headless: Union[bool, None, MissingType] = MISSING, screen_sharing: Union[bool, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('remote-host-config', RemoteHostConfigRequest(app_permissions=app_permissions, computer_use=computer_use, headless=headless, screen_sharing=screen_sharing))
 
     def remote_host_status(self) -> JsonValue:
         return self._invoke_command('remote-host-status', RemoteHostStatusRequest())

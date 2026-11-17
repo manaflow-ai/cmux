@@ -11575,6 +11575,18 @@
       }
     },
     "request:remote-host-config": {
+      "/app_permissions": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/app_permissions/accessibility": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/app_permissions/screen_recording": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/computer_use": {
         "ty": "boolean",
         "nullable": true

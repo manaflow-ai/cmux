@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "892876dfa6b8bd122f11049a81bdd7db0425f9f828ba70421a386c9e58d07ca8";
+inline constexpr std::string_view kProtocolIrSha256 = "2af31c262a69fb04e4ff08392894bbd40633f598acbe41829263f954228d2d02";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -143,6 +143,7 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
+struct RemoteHostAppPermissions;
 struct RemoteHostAppResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
@@ -4711,6 +4712,12 @@ struct ReloadConfigResult {
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
 };
 
+struct RemoteHostAppPermissions {
+    Field<bool> accessibility{};
+    Field<bool> screen_recording{};
+    friend bool operator==(const RemoteHostAppPermissions&, const RemoteHostAppPermissions&) = default;
+};
+
 struct RemoteHostAppRequest {
     friend bool operator==(const RemoteHostAppRequest&, const RemoteHostAppRequest&) = default;
 };
@@ -4729,6 +4736,7 @@ struct RemoteHostCallRequest {
 };
 
 struct RemoteHostConfigRequest {
+    Field<RemoteHostAppPermissions> app_permissions{};
     Field<bool> computer_use{};
     Field<bool> headless{};
     Field<bool> screen_sharing{};
@@ -7445,6 +7453,12 @@ template <>
 struct Codec<ReattachViewResult> {
     static Result<Json> encode(const ReattachViewResult& value);
     static Result<ReattachViewResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostAppPermissions> {
+    static Result<Json> encode(const RemoteHostAppPermissions& value);
+    static Result<RemoteHostAppPermissions> decode(const Json& value);
 };
 
 template <>

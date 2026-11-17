@@ -119,8 +119,9 @@ fn dispatch_command(
         Command::RemoteHostCall { method, params } => {
             remote_host_command::call(mux, client, &method, params)
         }
-        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
-            remote_host_command::config(mux, client, computer_use, screen_sharing, headless)
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless, app_permissions } => {
+            let update = json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless});
+            remote_host_command::config(mux, client, update, app_permissions)
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
