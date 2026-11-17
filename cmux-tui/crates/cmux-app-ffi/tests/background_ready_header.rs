@@ -1,4 +1,4 @@
-//! `cmux-background-ready/include/cmux_background_ready.h` is cbindgen's
+//! `cmux-app-ffi/include/cmux_background_ready.h` is cbindgen's
 //! output for that crate's `src/ffi.rs` (its cbindgen.toml), so the header
 //! Swift imports (module CCmuxBackgroundReadyFFI) cannot drift from the Rust
 //! `extern "C"` signatures, and the packaged library exports every function it
@@ -21,7 +21,7 @@ const FUNCTIONS: [&str; 7] = [
 #[test]
 fn committed_background_ready_header_is_cbindgen_output() {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmux-background-ready");
-    let header = crate_dir.join("include/cmux_background_ready.h");
+    let header = Path::new(env!("CARGO_MANIFEST_DIR")).join("include/cmux_background_ready.h");
     let config =
         cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).expect("cbindgen.toml");
     let mut generated = Vec::new();
@@ -49,7 +49,7 @@ fn committed_background_ready_header_is_cbindgen_output() {
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_else(|_| String::from_utf8_lossy(&generated).into_owned());
     panic!(
-        "cmux-background-ready/include/cmux_background_ready.h is not cbindgen's output for src/ffi.rs. \
+        "cmux-app-ffi/include/cmux_background_ready.h is not cbindgen's output for src/ffi.rs. \
          Regenerate it with `CMUX_APP_FFI_HEADER_BLESS=1 cargo test --test background_ready_header` \
          (cmux-tui/crates/cmux-app-ffi) and commit it.\n{diff}"
     );

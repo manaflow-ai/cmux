@@ -8,7 +8,7 @@
 //! registered, what a launch does, when the hidden copy exits for an update
 //! and whether Chromium warms up. Swift is only the window and AppKit glue: it
 //! reads its inputs, calls these rules through the C ABI in [`ffi`]
-//! (include/cmux_background_ready.h, module CCmuxBackgroundReadyFFI in the app
+//! (cmux-app-ffi/include/cmux_background_ready.h, module CCmuxBackgroundReadyFFI in the app
 //! FFI library) and carries out the answer. With the mode Off every rule gives
 //! the answer the app had before the setting existed.
 
