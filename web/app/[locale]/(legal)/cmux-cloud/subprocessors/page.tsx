@@ -26,7 +26,7 @@ const subprocessors: readonly Subprocessor[] = [
   {
     category: "Cloud hosting and storage",
     name: "Cloudflare, Inc.",
-    purpose: "Runs the cmux.cloud service, stores files and conversation archives, and serves the web app.",
+    purpose: "Runs the cmux.cloud service, stores files and conversation archives, serves the web app, and runs open AI models (Workers AI).",
     location: "United States and global edge network",
   },
   {
@@ -110,8 +110,20 @@ const subprocessors: readonly Subprocessor[] = [
   {
     category: "Error monitoring",
     name: "Functional Software, Inc. (Sentry)",
-    purpose: "Error and crash reports for the cmux.com website and apps.",
+    purpose: "Error reports and performance traces for cmux.cloud, the cmux.com website, and the apps.",
     location: "United States",
+  },
+  {
+    category: "Logs and traces",
+    name: "Axiom, Inc.",
+    purpose: "Stores service logs and traces of cmux.cloud.",
+    location: "United States [confirm]",
+  },
+  {
+    category: "Secrets vault",
+    name: "Microsoft Corporation (Azure)",
+    purpose: "Runs the vault that stores encrypted access credentials for connected tools.",
+    location: "United States (West US)",
   },
   {
     category: "Email delivery",
@@ -132,15 +144,21 @@ export default function CmuxCloudSubprocessorsPage() {
         Manaflow, Inc. uses the service providers below to provide cmux Cloud:
         the hosted service at <a href="https://cmux.cloud">cmux.cloud</a> and
         the cloud machines that you create from the cmux app or the cmux.com
-        dashboard. They process personal data only for us, to provide their
-        service, under written contracts. Our{" "}
+        dashboard. Except for AI model providers, they process personal data
+        only for us, to provide their service, under written contracts. Our{" "}
         <a href="https://cmux.com/privacy-policy#cmux-cloud">Privacy Policy</a>{" "}
         and our{" "}
         <a href="https://cmux.com/cmux-cloud/dpa">Data Processing Addendum</a>{" "}
         describe how we use them.
       </p>
       <p>
-        AI model providers operate their models under their own terms. Tools
+        AI model providers operate their models under their own terms. These
+        terms can let a provider keep prompts and answers for a time. For most
+        models, cmux Cloud asks the route to use only providers that do not
+        train on the requests; for some models no such provider exists, and
+        their providers can use prompts and answers to improve their models.
+        [LEGAL REVIEW: owner decision on these models; see the PR comments.]
+        Tools
         that you connect, such as Slack, Google, GitHub, and Linear, are not our
         subprocessors: you choose them, and their own terms apply to the data
         that agents send to them for you. When your team uses its own AI model

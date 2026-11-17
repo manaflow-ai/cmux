@@ -17,7 +17,7 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
   heading: "X. cmux Cloud",
   paragraphs: [
     "This section applies to cmux Cloud, our hosted services: the service at [cmux.cloud](https://cmux.cloud), with its web app, command-line tools, Slack app, meeting notetaker, and the AI agents that run in cloud machines for you; and the cloud machines (cloud VMs) that you create from the cmux app or the cmux.com dashboard. In this Privacy Policy, the Service includes cmux Cloud. If this section and another section of this policy differ, this section applies to cmux Cloud.",
-    "Teams use cmux Cloud. Your team's administrators decide which tools to connect, which conversations cmux can read, and which people can use it. For the content that a team and its users put into or create with cmux Cloud, the team is the controller and we process that content for the team as its processor, under our [Data Processing Addendum](https://cmux.com/cmux-cloud/dpa). If your organization gave you access to cmux Cloud, your organization's own policies also apply to your data, and you can send requests about that content to your organization. For account, billing, security, and usage data, we are the controller, as this policy describes.",
+    "Teams use cmux Cloud. Your team's administrators decide which tools to connect, which conversations cmux can read, and which people can use it. For the content that a team and its users put into or create with cmux Cloud, the team is the controller (the party that decides how the data is used) and we process that content for the team as its processor (a service provider that follows the controller's instructions), under our [Data Processing Addendum](https://cmux.com/cmux-cloud/dpa). If you use cmux Cloud on your own and not for an organization, there is no separate team: you are the customer, and this policy applies to your content. If your organization gave you access to cmux Cloud, your organization's own policies also apply to your data, and you can send requests about that content to your organization. For account, billing, security, and usage data, we are the controller, as this policy describes.",
   ],
   subsections: [
     {
@@ -30,8 +30,8 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
         "Google Calendar data: if you connect Google Calendar, we read events in your primary calendar as described in \"Google user data\" below.",
         "Data from connected tools: when you or your team connect a tool such as GitHub or Linear, we store the access credentials and process the data that agents read from or write to that tool, such as repositories, code, issues, pull requests, and comments.",
         "Agent work and cloud machines: your prompts and conversations, instructions, the actions agents take and their results, the code, files, programs, terminal sessions, command output, and web pages in cloud machines, and the screenshots and artifacts agents make.",
-        "Model call records: a record of the requests to and answers from AI models, and an archive copy of agent conversations, for usage, billing, debugging, and replay.",
-        "Memory: facts and notes that agents save about your team, projects, and preferences so that later work can use them.",
+        "Model call records: a record of the requests to and answers from AI models, and an archive copy of agent conversations, for usage records, billing, and replay of a conversation for your team.",
+        "Memory: facts and notes that agents save about your team, projects, and preferences so that later work can use them. Memory can include information about people.",
         "Usage, cost, and billing data: the AI models used, token counts, machine time, costs, credits, spend limits, invoices, and payment status. Our payment processor handles card details; we do not store full card numbers.",
         "Technical and security data: IP addresses, browser and device information, logs, and an audit log of actions, approvals, and policy decisions.",
       ],
@@ -44,17 +44,19 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
         "Measure usage, charge credits, send invoices, and enforce the spend limits that people on your team set.",
         "Keep cmux Cloud secure, prevent abuse and fraud, find and fix errors, and keep an audit log.",
         "Give support when you ask for it.",
+        "Understand how cmux Cloud is used and improve it. For this we use usage and technical data, not your content.",
+        "Send you service messages, such as receipts, security notices, and changes to our terms.",
         "Comply with the law.",
       ],
       afterBullets: [
-        "We do not sell cmux Cloud data. We do not use it for advertising. We do not use your content, Slack data, meeting data, or Google user data to train generalized AI models. The AI models in cmux Cloud are operated by AI model providers under their own terms. When your team uses its own AI model provider keys or endpoints, that provider's terms apply.",
-        "Our staff do not read your content, except when you ask us for help and give permission, when it is necessary for security (for example, to investigate abuse), when the law requires it, or when the data is aggregated and de-identified for internal operations.",
+        "We do not sell cmux Cloud data, and we do not share it for cross-context behavioral advertising. We do not use it for advertising. We do not use your content, Slack data, meeting data, or Google user data to train generalized AI models. The AI models in cmux Cloud are operated by AI model providers under their own terms, as \"AI model providers and other service providers\" below says. When your team uses its own AI model provider keys or endpoints, that provider's terms apply.",
+        "Our staff do not read your content, except when you ask us for help and give permission, when it is necessary for security (for example, to investigate abuse or a security error), when the law requires it, or when the data is aggregated and de-identified for internal operations. We keep de-identified data in that form and do not try to identify people from it.",
       ],
     },
     {
       heading: "3. AI model providers and other service providers",
       paragraphs: [
-        "We use service providers to operate cmux Cloud. They process data only for us, to provide their service, under contracts that limit how they use it. The categories are:",
+        "We use service providers to operate cmux Cloud. Except for AI model providers, they process data only for us, to provide their service, under contracts that limit how they use it. The categories are:",
       ],
       bullets: [
         "AI model providers, which process prompts, content, and tool results to produce model answers, and which turn speech into text.",
@@ -66,7 +68,11 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
         "Email delivery, error monitoring, and product analytics providers.",
       ],
       afterBullets: [
+        "AI model providers: your team chooses the AI models that cmux Cloud uses. Each model is run by its provider under that provider's terms. Some providers keep prompts and answers for a limited time, for example to find abuse. For most models, we ask the route to use only providers that do not train their models on the requests. For some models no such provider exists, and their providers can use prompts and answers to improve their models; when your team chooses such a model, your team directs us to send the data to that provider. [LEGAL REVIEW: owner decision on these models before publication; see the PR comments.]",
         "The names of these service providers are on our [subprocessor page](https://cmux.com/cmux-cloud/subprocessors).",
+        "Your team: administrators and members of your team can see content as your team's settings and the Slack conversation allow.",
+        "Authorities and other people, when the law requires it or when it is necessary to protect rights and safety.",
+        "A buyer or successor, if we are part of a merger, acquisition, financing, or sale of assets. The buyer must follow this policy for your data. For Google user data, the stricter rule in \"Google user data\" applies.",
         "The tools that you connect, such as Slack, Google, GitHub, and Linear, receive the data that agents send to them when they act for you. Their own privacy policies apply to that data.",
       ],
     },
@@ -74,10 +80,10 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
       heading: "4. Meeting notetaker and notice to participants",
       paragraphs: [
         "The notetaker joins a meeting only when a person on your team sends it to a meeting link, or when the meeting matches a rule that the person turned on for their connected calendar. After you connect a calendar, no meeting is joined until you turn on a rule.",
-        "On Google Meet, Zoom, and Microsoft Teams, the notetaker posts a notice in the meeting chat when it joins (on Google Meet the notice is also pinned). The notice says that it is an AI notetaker from Manaflow and which team uses it, who it is there for, that it records the meeting's audio (no video) to make a transcript and notes for their team, that the audio is deleted within 24 hours after the meeting and the transcript and notes are kept until deleted, how to object, and where this policy is. When a person joins later, on Zoom the notetaker sends the notice to that person as a private chat message, and on Google Meet and Microsoft Teams it posts a short notice to everyone. Nobody can turn these notices off. On Webex, where the notetaker cannot post in the chat, its name is \"cmux AI notetaker (records audio)\". The notetaker's video tile shows \"AI notetaker\" and whether it is recording. Some participants cannot see a chat notice, for example people who join by phone, so the team member who sends the notetaker must tell them.",
-        "Any participant who objects can ask the host to remove the notetaker, and the host can remove it from the meeting. The notetaker then stops recording, but the audio it recorded before it was removed is still used to make the transcript and notes. To ask for deletion of that data, see the last paragraph of this subsection.",
-        "Notes and the transcript go to the team members the notetaker was sent for. For a notetaker sent from a cmux conversation, they also go to that conversation, which can be a Slack channel that other team members can read. cmux does not send a notetaker from, or deliver notes to, a Slack conversation that is shared with another organization or that cmux knows has guests. A team member who was in the meeting can later post the notes in a channel of the team's Slack workspace. Invitees from outside the team do not get notes from cmux. The team member who sends the notetaker must get the consent that the law requires from the other participants before the notetaker records (see our [Terms of Service](https://cmux.com/terms-of-service)).",
-        "If you were in a meeting with a cmux notetaker and you are not a cmux Cloud user, you can ask for deletion of your data at [founders@cmux.com](mailto:founders@cmux.com). We may send your request to the team that used the notetaker.",
+        "On Google Meet, Zoom, and Microsoft Teams, the notetaker tries to post a notice in the meeting chat when it joins (on Google Meet the notice is also pinned). The notice says that it is an AI notetaker from Manaflow, which team uses it (when cmux knows the team's name), who it is there for, that it records the meeting's audio (no video) to make a transcript and notes for their team, that the audio is deleted within 24 hours after the meeting and the transcript and notes are kept for their team with no set time limit, how to object, and where this policy is. When a person joins later, on Zoom the notetaker sends the notice to that person as a private chat message, and on Google Meet and Microsoft Teams it posts the same facts to everyone. Team members cannot turn these notices off. A notice can fail to appear, for example when the host turned off or limited the meeting chat. On Webex, where the notetaker cannot post in the chat, its name is \"cmux AI notetaker (records audio)\". The notetaker's video tile shows \"AI notetaker\" and whether it is recording. Some participants cannot see a chat notice, for example people who join by phone. The team member who sends the notetaker must check that the notice is there and must tell the people who cannot see it; cmux tells that team member so when the notetaker is sent.",
+        "Any participant who objects can ask the host to remove the notetaker, and the host can remove it from the meeting. The notetaker then stops recording, but the notes of what it heard before it was removed are still made. To ask for deletion of that data, see \"If you are not a cmux Cloud user\" below.",
+        "Notes and the transcript go to the team members the notetaker was sent for. For a notetaker sent from a cmux conversation, they also go to that conversation, which can be a Slack channel that other team members can read. cmux does not send a notetaker from, or deliver notes to, a Slack conversation that Slack marks as shared beyond the team's workspace or as having guests. Slack does not always tell cmux that a conversation has guests, so a guest of your Slack workspace who is in a channel can read notes that are posted there. A team member who was in the meeting can later post the notes in a channel of the team's Slack workspace. cmux does not send notes to invitees from outside the team. The team member who sends the notetaker must get the consent that the law requires from the other participants before the notetaker records (see our [Terms of Service](https://cmux.com/terms-of-service)).",
+        "If you are not a cmux Cloud user: cmux Cloud can process data about people who do not use it, such as people in a meeting that a notetaker joined, members of a Slack workspace where the app is installed, and people whose names or email addresses are in calendar events, files, or connected tools. We get this data from the team that uses cmux Cloud, from the tools that the team connected, and from the meeting. That team is the controller of this data and we process it for the team; the team decides why the data is used and how long it is kept. You can send a request (for example for access or deletion) to that team, or to us at [founders@cmux.com](mailto:founders@cmux.com). We send your request to the team and help the team to answer it. cmux does not identify speakers by their voice: speaker names in a transcript come from the meeting platform. [LEGAL REVIEW: confirm with the meeting recording service that it makes no voiceprint.]",
       ],
     },
     {
@@ -85,9 +91,9 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
       paragraphs: [
         "If you connect Google Calendar, cmux Cloud asks Google, where the app is shown with the name \"cmux\", for read-only access to your calendar events (the calendar.events.readonly scope) and for your email address, which we use to confirm that the Google account is yours. We cannot change or delete your calendar events.",
         "What we read: we read your primary calendar's name and time zone, and, for events from 1 hour ago to 48 hours ahead, the event identifier, status, type, title, start and end times, recurrence, video meeting links, location, description, the organizer's email address, and the attendees' email addresses, responses, and whether an attendee is a room. We read the location and description only to find the video meeting link. We read the organizer's and attendees' email addresses only to decide whether a meeting is internal (everyone has your email domain) or external.",
-        "What we store: your Google account email address and calendar time zone, and, for each event with a Google Meet, Zoom, Microsoft Teams, or Webex link, the event identifier, title, start and end times, the meeting link, the platform, whether you organize the event, your response, whether the meeting is internal, the recurrence identifier, and your join or skip choices for that meeting or its series. We do not store the description, the location, or the organizer's or attendees' email addresses. We store your Google access credential encrypted in our secrets vault. It is never shown to you, written to logs, or given to an AI model.",
+        "What we store: your Google account email address and calendar time zone, and, for each event with a Google Meet, Zoom, Microsoft Teams, or Webex link, the event identifier, title, start and end times, the meeting link, the platform, whether you organize the event, your response, whether the meeting is internal, the recurrence identifier, and your join or skip choices for that meeting or its series. We do not store the description, the location, or the organizer's or attendees' email addresses. We store your Google access credential encrypted in our secrets vault. We do not show it to you, write it to logs, or give it to an AI model.",
         "How we use it: only to provide features that you can see and control. We use it to decide which meetings the notetaker joins for you under your rules, to schedule the notetaker, to show you your upcoming meetings and what the notetaker will do, and to put the meeting title on your notes.",
-        "Who receives it: we give the meeting link and start time to our meeting recording service so that the notetaker can join. Our AI model providers process event titles and times when cmux lists your meetings or writes your notes. We send the event title to Slack when we post your notes there, and it goes to the team members who receive or are shown those notes. We do not transfer Google user data to anyone else, except when necessary to comply with the law, or as part of a merger, acquisition, or sale of assets with your prior consent.",
+        "Who receives it, with your consent when you connect your calendar and turn on a rule: we give the meeting link and start time to our meeting recording service so that the notetaker can join. Our AI model providers process event titles and times when cmux lists your meetings or writes your notes. We send the event title to Slack when we post your notes there, and it goes to the team members who receive or are shown those notes. We do not transfer Google user data to anyone else, except when necessary to comply with the law, or as part of a merger, acquisition, or sale of assets with your prior consent.",
         limitedUseStatement,
       ],
       bullets: [
@@ -95,29 +101,32 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
         "We do not use Google user data for advertising, including retargeting and personalized or interest-based advertising.",
         "We do not transfer or sell Google user data to third parties such as advertising platforms, data brokers, or information resellers.",
         "We do not use or transfer Google user data to determine credit-worthiness or for lending purposes.",
-        "We do not use Google user data to develop, improve, or train generalized AI or machine-learning models.",
+        "We do not use Google user data, and we do not transfer it to anyone who uses it, to develop, improve, or train generalized AI or machine-learning models. [LEGAL REVIEW: true only after the owner decision on models whose providers can train; see the PR comments.]",
         "Our staff do not read Google user data unless you give permission for specific data, it is necessary for security (for example, to investigate abuse), it is necessary to comply with the law, or the data is aggregated and anonymized for internal operations.",
       ],
       afterBullets: [
-        "Retention: we delete events that are no longer in your calendar at the next read of your calendar (normally within about 10 minutes), and we delete stored events no later than 4 days after they start. When a notetaker joined an event, the title, time, and link stay with that meeting's record and notes until they are deleted. Event titles that cmux showed in a conversation stay with that conversation.",
-        "Disconnect: ask cmux to disconnect your calendar. We then revoke our access at Google, delete your Google credential, and delete your stored calendar data. You can also remove cmux's access on your [Google Account permissions page](https://myaccount.google.com/permissions); when cmux finds that its access was removed, it deletes your stored calendar data. The audit log keeps a record that you connected and disconnected the calendar, with the Google account email address.",
+        "Retention: we delete events that are no longer in your calendar at the next read of your calendar (normally within about 10 minutes), and we delete stored events no later than 4 days after they start. When a notetaker joined an event, the title, time, and link stay with that meeting's record and notes until they are deleted. Event titles that cmux showed in a conversation stay with that conversation. Event titles and times that were sent to an AI model are also in the model call records, which we keep as \"Retention and deletion\" says.",
+        "Disconnect: ask cmux to disconnect your calendar. We then revoke our access at Google, delete your Google credential, and delete your stored calendar data. You can also remove cmux's access on your [Google Account permissions page](https://myaccount.google.com/permissions); when cmux finds that its access was removed, it deletes your stored events, your join and skip choices, and your Google credential. It keeps your Google account email address and the rules you set, so that it can tell you why no meeting is joined and keep your rules if you connect again, until you ask cmux to disconnect your calendar. The audit log keeps a record that you connected and disconnected the calendar, with the Google account email address.",
       ],
     },
     {
       heading: "6. Retention and deletion",
       bullets: [
-        "Meeting recordings: the notetaker records audio only. The meeting recording service deletes the audio, its copy of the transcript, and its records of participants and the meeting chat within 24 hours after the meeting: we ask it to delete them about 10 minutes after the notes are delivered, we ask again 20 hours after the meeting if they are still there, and the service deletes them by itself 24 hours after the recording ends. We do not keep a copy of meeting audio.",
-        "Meeting transcripts and notes: kept in the cmux conversation that received them until you or your team delete them, or until your team's account is deleted.",
+        "Meeting recordings: the notetaker records audio only. The meeting recording service deletes the audio, its copy of the transcript, and its records of participants and the meeting chat within 24 hours after the meeting: we ask it to delete them about 10 minutes after the notes are delivered, we ask again 20 hours after the meeting if they are still there, and the service deletes them by itself before 24 hours. After that, the service keeps a record that a notetaker joined (the meeting link for a few days, the times, and our reference number). We do not keep a copy of meeting audio.",
+        "Meeting transcripts and notes: kept for the team in the cmux conversation that received them, with no set time limit, until you or your team delete them or your team's account ends. A deletion of the conversation does not delete the copies in the model call records (below).",
         "Voice and video clips recorded in Slack: we delete the audio and video when the transcript is stored. The transcript is kept with the conversation.",
         "Other files, including uploaded audio and video files: kept as files of the conversation until you or your team delete them, the Slack message that carried them is deleted, or your team's account ends. Their transcripts are kept with the conversation.",
         "Google Calendar data: as described in \"Google user data\" above.",
         "Memory: kept until you, your team, or an agent removes it. Earlier versions of a memory file are deleted about 30 days after they are replaced. When you tell cmux to forget something, cmux keeps a record of what it was told to forget so that it does not save it again.",
-        "Slack data, agent conversations, agent work, cloud machines, and model call records: kept while your team's account is active, until you or your team delete them or ask us to delete them.",
-        "Usage, cost, and billing records: kept as long as tax, accounting, and legal duties require.",
-        "Security logs and audit logs: kept as long as necessary for security and to comply with the law.",
+        "Slack data: we keep the Slack messages and files that cmux needs to answer and to do the work you ask for, with the conversation, until you or your team delete the conversation, your team removes the cmux app from the Slack workspace, or your team's account ends. [LEGAL REVIEW: confirm the uninstall deletion before publication.]",
+        "Agent conversations, agent work, and cloud machines: kept while your team's account is active, until you or your team delete them or ask us to delete them.",
+        "Model call records and the archive copy of agent conversations: kept while your team's account is active. They are not deleted when you delete a conversation or a memory. To delete them, contact [founders@cmux.com](mailto:founders@cmux.com). [LEGAL REVIEW: owner decision on a fixed limit.]",
+        "Account and sign-in data: kept while your account is active, then deleted or de-identified within 30 days, except where security, legal, billing, or fraud-prevention duties require us to keep it.",
+        "Usage, cost, and billing records: kept for [LEGAL REVIEW: proposed 7] years, as tax and accounting law requires.",
+        "Technical data and security logs: kept for [LEGAL REVIEW: number of] months. Audit logs: kept while the team's account is active and for [LEGAL REVIEW: number of] months after.",
       ],
       afterBullets: [
-        "When a team's account ends, we delete its cmux Cloud data from our live systems within 30 days and from backups within 35 days, except records that we must keep to comply with the law or to resolve disputes. To ask for deletion or for a copy of your data, contact [founders@cmux.com](mailto:founders@cmux.com).",
+        "A team's account ends when the team deletes it or when we close it under our Terms. Until we delete the data from our live systems, the team can ask for a copy. We delete the team's cmux Cloud data from our live systems 30 days after the account ends, or sooner if the team asks, and from backups within 35 days after the account ends. We keep only the records that the law requires us to keep and, for data where we are the controller, records that we need for a legal claim. To ask for deletion or for a copy of your data, contact [founders@cmux.com](mailto:founders@cmux.com). [LEGAL REVIEW: effective when the deletion job ships; until then, deletion is on request.]",
       ],
     },
     {
@@ -130,31 +139,45 @@ export const cmuxCloudPrivacySection: PrivacyPolicySection = {
         "Disconnect GitHub, Linear, and other connected tools.",
         "Tell cmux to forget a memory, and delete conversations and files.",
         "Your team's admins can set spend limits for the team, a person, a channel, an agent, an environment, or a project, and you can set a lower limit for your own work.",
-        "Ask for access to, a copy of, correction of, or deletion of your data at [founders@cmux.com](mailto:founders@cmux.com).",
+      ],
+      afterBullets: [
+        "Your rights. Where the law gives you these rights, you can ask us for access to your data, a copy that you can move to another service, correction, deletion, or restriction of processing, and you can object to processing that we base on our legitimate interests. We do not make decisions about you that are only automated and that have a legal or similar effect. Contact [founders@cmux.com](mailto:founders@cmux.com). We answer within one month, or within 45 days where US state law applies, and we tell you if we need more time. We can ask for information that proves who you are. A person that you authorize in writing can make a request for you. We do not treat you differently because you used a right. If we refuse a request, you can appeal by a reply to our answer. You can also complain to the data protection authority where you live or work. For content that we process for a team, we send your request to that team and help the team to answer it.",
       ],
     },
     {
-      heading: "8. Security",
+      heading: "8. Legal bases (European Economic Area, United Kingdom, Switzerland)",
       paragraphs: [
-        "We encrypt cmux Cloud data in transit. We keep access credentials for connected tools, including Google and Slack credentials, encrypted in a secrets vault. Only the services that need a credential can use it, and we do not give credentials to AI models. Agents work in isolated cloud machines. Text from outside your team, such as meeting transcripts and web pages, is treated as untrusted and cannot start work by itself. We keep an audit log of actions and policy decisions. No method of storage or transmission is completely secure.",
+        "Where we are the controller, we rely on: our contract with you or your team (accounts, sign-in, the features you use, billing, support); our legitimate interests in keeping cmux Cloud secure, preventing abuse and fraud, fixing errors, and understanding how cmux Cloud is used so that we can improve it; our legal duties (tax, accounting, requests from authorities); and your consent where we ask for it, which you can withdraw at any time. For content that we process for a team, the team decides the legal basis.",
       ],
     },
     {
-      heading: "9. Children",
+      heading: "9. US state privacy notice",
       paragraphs: [
-        "cmux Cloud is not for anyone under 18, and we do not knowingly collect personal information from children under 13. Teams must not send the notetaker to meetings with children unless the law allows it and the required consent was given. If you believe that we collected information from a child, contact [founders@cmux.com](mailto:founders@cmux.com).",
+        "Where we are the controller, we collect these categories of personal information: identifiers (name, email address, IP address, account identifiers); commercial information (credits, invoices, payment status); internet or network activity (usage, logs, device and browser information); professional information (team and role); and sensitive personal information (the credentials that let cmux Cloud reach your connected accounts). We collect them from you, your team, your sign-in provider, and your device. We use and disclose them for the purposes in \"How we use cmux Cloud data\", to the categories of service providers in \"AI model providers and other service providers\". We use sensitive personal information only to provide the service you ask for and to keep it secure. We do not sell personal information and do not share it for cross-context behavioral advertising. Retention is in \"Retention and deletion\". Your rights are in \"Your controls\". Content that we process for a team, such as Slack messages and meeting audio, is processed as that team's service provider.",
       ],
     },
     {
-      heading: "10. International transfers",
+      heading: "10. Security",
       paragraphs: [
-        "We are in the United States. We and our service providers process and store cmux Cloud data in the United States and in other countries.",
+        "We encrypt cmux Cloud data in transit. We keep access credentials for connected tools, including Google and Slack credentials, encrypted in a secrets vault. Our systems are designed so that only the services that need a credential can use it and so that credentials are not given to AI models. Agents work in isolated cloud machines. Text from outside your team, such as meeting transcripts and web pages, is marked as untrusted, and cmux Cloud is designed so that this text cannot start work by itself. These controls lower the risk of attacks on AI systems; they do not remove it. We keep an audit log of actions and policy decisions. No method of storage or transmission is completely secure.",
       ],
     },
     {
-      heading: "11. Contact",
+      heading: "11. Children",
       paragraphs: [
-        "For questions about cmux Cloud and your data, contact [founders@cmux.com](mailto:founders@cmux.com).",
+        "cmux Cloud is only for people who are 18 or older. We do not knowingly collect personal information from children. Teams must not send the notetaker to meetings with children unless the law allows it and the required consent was given. If you believe that we collected information from a child, contact [founders@cmux.com](mailto:founders@cmux.com).",
+      ],
+    },
+    {
+      heading: "12. International transfers",
+      paragraphs: [
+        "We are in the United States. We and our service providers process and store cmux Cloud data in the United States and in other countries. These countries can have data protection laws that are different from the laws where you live. [LEGAL REVIEW: owner decision on the transfer mechanism for the European Economic Area, the United Kingdom, and Switzerland (Standard Contractual Clauses in the DPA, the EU-US Data Privacy Framework, or no offer there yet); add the matching sentence here.]",
+      ],
+    },
+    {
+      heading: "13. Contact",
+      paragraphs: [
+        "cmux Cloud is provided by Manaflow, Inc., 18428 Vantage Pointe Dr, Rowland Heights, CA 91748-5142, United States. For questions about cmux Cloud and your data, contact [founders@cmux.com](mailto:founders@cmux.com) or write to that address.",
       ],
     },
   ],
