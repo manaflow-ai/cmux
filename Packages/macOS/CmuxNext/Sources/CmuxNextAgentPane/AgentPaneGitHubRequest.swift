@@ -1,6 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextCloud
-import Foundation
+public import Foundation
 
 /// The new chat folder picker's GitHub section: `github.status {}`, `github.connect {}` and
 /// `github.repos.list {query?}` (``AgentPaneGitHub`` answers them). The section lists the person's
@@ -62,8 +62,10 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         case .repos(let query):
             switch await gitHub.repos(query) {
             case .success(let listed):
+                gitHub.sizes.note(listed.repos)
                 let repos: [[String: Any]] = listed.repos.map { repo in
-                    ["full_name": repo.fullName, "private": repo.isPrivate, "default_branch": repo.defaultBranch.map { $0 as Any } ?? NSNull()]
+                    ["full_name": repo.fullName, "private": repo.isPrivate, "default_branch": repo.defaultBranch.map { $0 as Any } ?? NSNull(),
+                     "size_kb": repo.sizeKb.map { $0 as Any } ?? NSNull()]
                 }
                 return AgentPaneReply.success(["repos": repos, "truncated": listed.truncated])
             case .failure(.notConnected):
@@ -75,23 +77,28 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     }
 }
 
-/// What answers the picker's GitHub methods for every pane: the signed-in person's session and team
-/// (``CloudGitHubPicker``) and Settings > Accounts' Connect GitHub. The App sets it.
+/// What answers the picker's GitHub methods for every pane: the signed-in person's session, in the team a
+/// Cloud start's machine is made in (``CloudGitHubPicker``). The App sets it.
 public struct AgentPaneGitHub {
     /// `state` (`ready`, `not_connected`, `unavailable`) and `repos_scope` (`all`, `selected`, nil).
     public var status: @MainActor () async -> (state: String, reposScope: String?)
     public var connect: @MainActor () async -> AgentPaneGitHubConnect
     public var repos: @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>
+    /// The sizes the repos list gave, shared by every pane's copy: a Cloud start in a picked repository is sized from them.
+    public let sizes: AgentPaneGitHubRepoSizes
 
     public init(status: @escaping @MainActor () async -> (state: String, reposScope: String?),
                 connect: @escaping @MainActor () async -> AgentPaneGitHubConnect,
-                repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>) {
-        (self.status, self.connect, self.repos) = (status, connect, repos)
+                repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>,
+                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes()) {
+        (self.status, self.connect, self.repos, self.sizes) = (status, connect, repos, sizes)
     }
 
-    /// The App's: `picker` reads as the person, `connect` is the shared Connect GitHub.
-    @MainActor public static func live(_ picker: CloudGitHubPicker, connect: @escaping @MainActor () async -> AgentPaneGitHubConnect) -> AgentPaneGitHub {
-        AgentPaneGitHub(status: { await picker.status() }, connect: connect, repos: { await picker.repos(query: $0) })
+    /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, and `open`
+    /// opens the page its Connect GitHub answers in the person's browser.
+    @MainActor public static func live(_ picker: CloudGitHubPicker, open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
+        AgentPaneGitHub(status: { await picker.status() }, connect: { AgentPaneGitHubConnect(await picker.connect(), open: open) },
+                        repos: { await picker.repos(query: $0) })
     }
 }
 
@@ -114,11 +121,22 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
         case .failure(let failure): self = .failed(failure.message)
         }
     }
+
+    /// The picker's own Connect GitHub (``CloudGitHubPicker/connect()``): its page opened with `open`, or why none.
+    @MainActor public init(_ connect: CloudGitHubPicker.Connect, open: (URL) -> Void) {
+        switch connect {
+        case .open(let url): open(url); self = .opened
+        case .connected: self = .alreadyConnected
+        case .pending: self = .failed(AgentPaneModel.gitHubConnectPendingMessage)
+        case .unavailable: self = .failed("")
+        }
+    }
 }
 
 /// A chat folder that names a GitHub repository instead of a folder on this Mac: `github:owner/name`.
 /// Only a Cloud start takes one (its machine clones the repository); a chat here is refused.
-public nonisolated enum AgentPaneGitHubFolder {
+public nonisolated struct AgentPaneGitHubFolder {
+    public nonisolated init() {}
     public static let prefix = "github:"
     /// The refusal's code for a chat here that names one (`session/new`'s `cwd`, `workspace.useFolder`).
     public static let cloudOnlyReason = "github.cloud_only"

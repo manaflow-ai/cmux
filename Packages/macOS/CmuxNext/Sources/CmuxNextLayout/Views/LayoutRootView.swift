@@ -302,12 +302,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         return width > 0 ? width : nil
     }
 
-    /// Displayed frame of `pane` in this view's coordinates (active screen only).
-    public func frame(of pane: PaneID) -> CGRect? {
-        guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
-        return convert(rect, from: view)
-    }
-
     // MARK: Observation
 
     private func snapshot() -> Snapshot { Snapshot(model) }
@@ -386,7 +380,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
 
-        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes)) }
+        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.panes)) }
         // Only a screen whose inputs changed reconciles (I7): a divider drag
         // frame rewrites one screen, and the others (shown or hidden) keep
         // their frames, chrome and scroll.
@@ -418,7 +412,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if let existing = screenViews[screen.id] {
                 view = existing
             } else if defersHiddenScreens, !isActive, screen.id != mountingScreen,
-                      before[screen.id]?.layout == screen.layout || !screen.layout.panes.contains(where: { context.hosts[$0] != nil }) {
+                      before[screen.id]?.layout == screen.layout && before[screen.id]?.floating == screen.floating
+                        || !screen.panes.contains(where: { context.hosts[$0] != nil }) {
                 // Made when it first shows, or at idle (`deferredScreens`). One that takes a pane another screen
                 // mounts is made now, so that pane moves to it inside the window, as it did.
                 continue
@@ -456,12 +451,14 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
             view.hiddenDividers = screen.hiddenDividers
+            view.floatState.list = screen.floating
+            view.zoomDim.presentsPage = screen.presented
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
-            let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
+            let layoutChanged = isNew || old?.layout != screen.layout || old?.floating != screen.floating || old?.zoomed != screen.zoomed || sharedChanged
                 || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
             if layoutChanged {
-                let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
+                let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) || $0.floatingPanes != screen.floatingPanes } ?? true
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
@@ -572,10 +569,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // A drag's newest pointer first, as in a frame (its window went out of sight mid-drag): it lands in this one pass.
         let input = LayoutFrameInput(root: self)
         input.apply()
-        for view in screenViews.values {
-            if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
-            view.settleCanvasCamera()
-        }
+        for view in screenViews.values { view.zoomDim.land(view) }
         let snapWaits = input.presentWaiting(waitsForContent: waitsForContent)
         highlight.settle()
         updateVisibility()
@@ -611,6 +605,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
+            view.zoomDim.step(dt)
         }
         let snapWaits = input.presentWaiting()
         if highlight.step(dt) { moving = true }
@@ -624,7 +619,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
-        return moving || panning || dragging || snapWaits
+        return moving || panning || dragging || snapWaits || screenViews.values.contains(where: \.zoomDim.goes)
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.
@@ -662,7 +657,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
         // first key after a reopen was lost in 10 of 15 cycles).
         let focused = reads.focusedPane
-        let order = Dictionary((reads.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let order = Dictionary((reads.activeScreen?.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
         for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)
