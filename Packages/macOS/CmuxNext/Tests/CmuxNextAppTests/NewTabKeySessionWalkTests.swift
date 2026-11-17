@@ -22,6 +22,10 @@ import Testing
 /// (826 workspaces, 1,600 tabs) with no daemon. The count is read directly after the key's call returns, in the same
 /// turn of the main actor: no wait, and no time is a condition.
 ///
+/// The app starts its places feed after its first frame (`NewTabPlacesFeed.wire`). The fixture's window has no first
+/// frame, so the setup starts that feed as the app does, before a test's first key. One test here does not: it holds
+/// what a page gets when it opens before the feed gave anything.
+///
 /// The prints are a report, not a condition: the time of the walk as it was at the decision's date, the bytes of the
 /// two lists as the places event carries them, the whole lists that 10 keys of one turn build, and three counters of
 /// the sidebar for one key. Limit of the walk's time: a browser tab of this fixture has no favicon, so the walk here
@@ -37,7 +41,12 @@ struct NewTabKeySessionWalkTests {
         private var otherTabs = 0
         private var byWorkspace: [String: Int] = [:]
 
+        /// The time of the first map and of the last one since the last `takeSpan()`.
+        private var span: (first: ContinuousClock.Instant, last: ContinuousClock.Instant)?
+
         func source(_ workspace: WorkspaceModel) -> NewTabPlaces.Source {
+            let now = ContinuousClock.now
+            span = (span?.first ?? now, now)
             let source = NewTabPlaces.Source(workspace)
             workspaces += 1
             otherTabs += source.tabs.filter { !own.contains($0.id) }.count
@@ -50,6 +59,14 @@ struct NewTabKeySessionWalkTests {
             let counts = byWorkspace
             byWorkspace = [:]
             return counts
+        }
+
+        /// The time from the first map to the last one since the last call, in milliseconds, then none.
+        func takeSpan() -> Double? {
+            guard let taken = span else { return nil }
+            span = nil
+            let elapsed = taken.last - taken.first
+            return Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1e3
         }
 
         /// The counts since the last call, then zero.
@@ -94,8 +111,9 @@ struct NewTabKeySessionWalkTests {
     }
 
     /// Runs `body` on the focused pane of a whole window of the `real` session. The New Tab key makes a New Tab page
-    /// there, and the daemon's side of its creation waits until `body` ends.
-    private static func withPane(_ body: @MainActor (Start) async throws -> Void) async throws {
+    /// there, and the daemon's side of its creation waits until `body` ends. With `feed`, the app's places feed runs
+    /// before `body`, as it does after the app's first frame.
+    private static func withPane(feed: Bool = true, _ body: @MainActor (Start) async throws -> Void) async throws {
         _ = NSApplication.shared
         let visits = Visits()
         // An inert address for each New Tab page: the pages load nothing.
@@ -115,8 +133,23 @@ struct NewTabKeySessionWalkTests {
                 throw CancellationError()
             }
             visits.own = Set(pane.pane.tabs.map(\.id))
-            // What the window's own start mapped is not a key's.
+            // What the window's own start mapped is not the feed's, and not a key's.
             _ = visits.take()
+            _ = visits.takeByWorkspace()
+            _ = visits.takeSpan()
+            if feed {
+                // The feed lives as long as the process (the app's rule): each test leaves one feed behind.
+                NewTabPlacesFeed.wire(tabs, services: services)
+                await LargeSessionWindowFixture.drainMain()
+                await LargeSessionWindowFixture.drainMain()
+                let first = visits.takeByWorkspace()
+                let span = visits.takeSpan()
+                // A report, not a condition: a feed that gave a page nothing leaves the walk to the key, which a test counts.
+                print("new tab key, \(store.workspaces.count) workspaces: before a key, the places feed mapped \(first.count) different "
+                    + "workspaces in \(first.values.reduce(0, +)) maps, \(span.map { String(format: "%.2f", $0) } ?? "no") ms from the first "
+                    + "map to the last")
+                _ = visits.take()
+            }
             var failure: (any Error)?
             do {
                 try await body(Start(pane: pane, services: services, visits: visits, workspaces: store.workspaces.count))
@@ -212,16 +245,13 @@ struct NewTabKeySessionWalkTests {
     /// a New Tab key and a title change of one tab map one workspace at most after them (the one that changed).
     ///
     /// Before the decision, each change of a workspace's rows started one whole walk of the session for each New Tab
-    /// page that has a view. The feed is the app's own (`NewTabPlacesFeed.wire`). The app starts it after its first
-    /// frame and the fixture does not, so this test starts it. The feed lives as long as the process (the app's rule):
-    /// this test leaves one feed behind.
+    /// page that has a view. The feed is the app's own (`NewTabPlacesFeed.wire`), which the setup starts.
     ///
     /// The sign that the feed ran is a condition of the setup: after the title change, the tab rows of a page are not
     /// the rows of before. Without the sign, a feed that did not run in the drain reads as `no map`.
     @Test func aChangeWithThreeOpenPagesMapsOneWorkspaceAtMostAfterIt() async throws {
         try await Self.withPane { start in
             let tabs = start.services.agentTabs
-            NewTabPlacesFeed.wire(tabs, services: start.services)
             for _ in 0..<3 {
                 let opened = Self.newTab(start)
                 try #require(opened.ran && opened.made == 1,
@@ -262,6 +292,34 @@ struct NewTabKeySessionWalkTests {
             try #require(after != before, "setup: no New Tab page got the changed row in the drain, so the feed did not run")
             #expect(afterTitle.count <= 1,
                     "a title change of one tab mapped \(afterTitle.count) workspaces in \(titleMaps) maps, want the tab's own at most")
+        }
+    }
+
+    /// A New Tab page that opens before the places feed gave anything (the app's time before its first frame; a
+    /// restored New Tab tab) gets its open tabs, its other workspaces and its folders in the key's call. This holds
+    /// before the decision of 2026-11-16 and after it: a page refresh carries the two lists and never the folders, so
+    /// a page that opened with none would keep none.
+    @Test func aPageThatOpensBeforeThePlacesFeedGetsItsListsAndItsFolders() async throws {
+        try await Self.withPane(feed: false) { start in
+            // The fixture's tabs have no folder: one terminal of the session gets one.
+            let store = start.services.machines.local.store
+            let all = store.workspaces.flatMap { $0.screens.flatMap(\.panes).flatMap(\.tabs) }
+            let terminal = try #require(all.first(where: { $0.kind == .pty && !start.visits.own.contains($0.id) }),
+                                        "setup: the session has no terminal in another pane")
+            let folder = NSHomeDirectory() + "/src/before-the-feed"
+            terminal.cwd = folder
+            let tabs = start.services.agentTabs
+            let before = Set(tabs.newTabPages.keys.map(\.key))
+            let key = Self.newTab(start)
+            try #require(key.ran && key.made == 1, "setup: the New Tab key \(key.ran ? "ran" : "was refused") and the strip has \(key.made) new tabs")
+            let opened = tabs.newTabPages.entries.filter { !before.contains($0.key.key) }
+            try #require(opened.count == 1, "setup: the key opened \(opened.count) New Tab pages")
+            let bar = opened[0].value.page.omnibar
+            print("new tab key, \(start.workspaces) workspaces, no places feed: the page of the key has \(bar.tabs.count) tab rows, "
+                + "\(bar.workspaces.count) workspace rows and \(bar.folders.count) folders in the key's call")
+            #expect(!bar.tabs.isEmpty, "a page that opened before the places feed has no open tabs in its bar")
+            #expect(!bar.workspaces.isEmpty, "a page that opened before the places feed has no other workspaces in its bar")
+            #expect(bar.folders == [folder], "a page that opened before the places feed has the folders \(bar.folders), want the one of the session")
         }
     }
 }
