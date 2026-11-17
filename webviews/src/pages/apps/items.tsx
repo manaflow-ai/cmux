@@ -454,7 +454,7 @@ export function InfoFacts({ detail, strings }: { detail: AppDetail; strings: Str
   const rows: [string, ReactNode][] = [
     [
       t("store.detail.developer"),
-      <span className="apps-listing-publisher">
+      <span key="developer" className="apps-listing-publisher">
         {detail.publisher}
         {detail.publisher_verified && (
           <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
