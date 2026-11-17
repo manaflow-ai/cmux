@@ -387,7 +387,7 @@ fn share_without_github_keeps_the_folder_and_names_the_step() {
     assert_eq!(shared.to_json(&dir)["kept"], true);
 
     let missing = share::share(&ShareOptions {
-        dir: dir.clone(),
+        dir,
         name: None,
         private: false,
         gh: root.path().join("no-such-gh"),

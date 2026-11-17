@@ -149,7 +149,7 @@ impl SourceRef {
 
 /// `ext remix`'s options.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RemixOptions {
+pub(in crate::cli) struct RemixOptions {
     pub source: String,
     /// `--dir`: the new folder; none picks `~/Projects/NAME` (or `NAME-2`, ...).
     pub dir: Option<PathBuf>,
@@ -182,6 +182,7 @@ impl Remix {
                 "commit": self.commit,
                 "ref": self.source.display(Some(&self.commit)),
                 "url": self.source.web_url(&self.commit),
+                "page": self.source.page_url(),
             },
             "dir": self.dir,
             "name": self.name,
