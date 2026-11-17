@@ -88,6 +88,26 @@ class Changed(unittest.TestCase):
             self.assertEqual(before, after)
 
 
+class Safety(unittest.TestCase):
+    def test_the_root_daemon_line_keeps_every_path_one_word(self):
+        import shlex
+        hostile = Path("/var/tmp/x; touch /tmp/owned #/bin")
+        line = sb.daemon_script(hostile / "up", hostile / "wk", hostile / "home", hostile, hostile / "cmux",
+                                "s$(id)", Path("/tmp/a b/m.sock"))
+        words = shlex.split(line)
+        self.assertIn(str(hostile / "cmux"), words)
+        self.assertIn("s$(id)", words)
+        self.assertIn("/tmp/a b/m.sock", words)
+        self.assertNotIn("touch", words)
+        self.assertEqual(words.count("&&"), 1)
+
+    def test_b_and_c_bring_the_cold_push_they_re_push_into(self):
+        self.assertEqual(sb.chosen_scenarios("b"), "ab")
+        self.assertEqual(sb.chosen_scenarios("c,d"), "acd")
+        self.assertEqual(sb.chosen_scenarios("d"), "d")
+        self.assertEqual(sb.chosen_scenarios(""), sb.SCENARIOS)
+
+
 class Tables(unittest.TestCase):
     def test_a_run_table_has_a_row_per_scenario_and_says_what_was_not_run(self):
         text = sb.table(record("a" * 40, {"a": pushed(60_000, 20_000, 400_000, 0), "e": {"not_run": "no store"}}))

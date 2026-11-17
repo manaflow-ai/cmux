@@ -54,6 +54,7 @@ import os
 import random
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -333,6 +334,20 @@ def build_here(commit: str) -> Path:
 # ---------------------------------------------------------------- the machine and the link
 
 
+def daemon_script(etc_up, etc_work, home, work, binary, session, socket) -> str:
+    """The root shell line that mounts the overlay /etc and starts the daemon as this user: every value quoted, since
+    it runs as root and the paths come from SYNC_BENCH_ROOT and --binary."""
+    q = lambda value: shlex.quote(str(value))  # noqa: E731
+    overlay = f"lowerdir=/etc,upperdir={etc_up},workdir={etc_work}"
+    return " ".join([
+        "mount -t overlay overlay -o", q(overlay), "/etc", "&&",
+        "exec setpriv", q(f"--reuid={os.getuid()}"), q(f"--regid={os.getgid()}"), "--init-groups env",
+        q(f"HOME={home}"), q(f"CMUX_TUI_STATE_DIR={work}/vm/state"), q(f"CMUX_TUI_CONFIG={work}/vm/config.json"),
+        "CMUX_VM_ID=vm-sync-bench CMUX_CODEROUTER_URL=http://127.0.0.1:9",
+        q(binary), "server ensure --json --session", q(session), "--socket", q(socket),
+    ])
+
+
 class Machine:
     """A headless cmux daemon with a Cloud machine's identity, in a private mount namespace (module docs)."""
 
@@ -354,15 +369,9 @@ class Machine:
                 run(["sudo", "tee", str(etc_up / "cmux" / name)], input=text.encode(), stdout=subprocess.DEVNULL)
             run(["sudo", "chown", "-R", "root:root", str(ROOT / "etc")])
             run(["sudo", "chmod", "755", str(ROOT / "etc"), str(etc_up), str(etc_up / "cmux")])
-            run(["sudo", "sh", "-c", f"chmod 644 {etc_up}/cmux/*"])
-        inner = (
-            f"mount -t overlay overlay -o lowerdir=/etc,upperdir={etc_up},workdir={etc_work} /etc && "
-            f"exec setpriv --reuid={os.getuid()} --regid={os.getgid()} --init-groups env "
-            f"HOME={self.home} CMUX_TUI_STATE_DIR={self.work}/vm/state CMUX_TUI_CONFIG={self.work}/vm/config.json "
-            f"CMUX_VM_ID=vm-sync-bench CMUX_CODEROUTER_URL=http://127.0.0.1:9 "
-            f"{self.binary} server ensure --json --session {self.session} --socket {self.socket}"
-        )
-        run(["sudo", "unshare", "--mount", "--propagation", "private", "--", "sh", "-c", inner],
+            run(["sudo", "chmod", "644", str(etc_up / "cmux/image-stamp"), str(etc_up / "cmux/vm-kind")])
+        run(["sudo", "unshare", "--mount", "--propagation", "private", "--", "sh", "-c", daemon_script(
+            etc_up, etc_work, self.home, self.work, self.binary, self.session, self.socket)],
             stdout=subprocess.DEVNULL)
 
     def stop(self):
@@ -442,9 +451,14 @@ def push(binary: Path, socket: Path, local: Path, remote: Path, state: Path, ext
     env = dict(os.environ, CMUX_SYNC_PUSH_TIMINGS="1", CMUX_TUI_STATE_DIR=str(state))
     cmd = [str(binary), "link", "sync", "push", "--socket", str(socket), *extra, str(local), str(remote)]
     logs = state.parent / "push-logs"
-    logs.mkdir(parents=True, exist_ok=True)
+    logs.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(logs, 0o700)
     out_path, err_path, in_path = logs / "stdout", logs / "stderr", logs / "stdin"
-    in_path.write_bytes(stdin or b"")
+    # stdin may carry the store credential: owner-only, and gone once the push has read it.
+    with contextlib.suppress(FileNotFoundError):
+        in_path.unlink()
+    with os.fdopen(os.open(in_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as given:
+        given.write(stdin or b"")
     with open(out_path, "wb") as out, open(err_path, "wb") as err, open(in_path, "rb") as given:
         started = time.monotonic()
         child = subprocess.Popen(cmd, env=env, stdin=given, stdout=out, stderr=err)
@@ -567,11 +581,19 @@ def host_facts() -> dict:
     return facts
 
 
+def chosen_scenarios(spec: str) -> str:
+    """The scenarios to run, in order. b and c re-push into a's machine folder, so either brings a with it."""
+    chosen = {s for s in spec.replace(",", "") if s in SCENARIOS} or set(SCENARIOS)
+    if chosen & {"b", "c"}:
+        chosen.add("a")
+    return "".join(s for s in SCENARIOS if s in chosen)
+
+
 def cmd_run(args):
     commit = args.commit
     if not HEX40.fullmatch(commit):
         raise SystemExit("sync-bench: --commit takes a full 40-character sha")
-    scenarios = "".join(s for s in args.scenario.replace(",", "") if s in SCENARIOS) or SCENARIOS
+    scenarios = chosen_scenarios(args.scenario)
     rtts = [int(x) for x in str(args.rtt_ms).split(",") if x != ""]
     layouts = ["projects", "flat"] if args.layout == "all" else [args.layout]
     with bench_lock(f"run {commit[:12]} {''.join(layouts)} rtt {rtts}"):
