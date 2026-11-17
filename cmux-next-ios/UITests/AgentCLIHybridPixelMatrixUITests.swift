@@ -28,7 +28,7 @@ final class AgentCLIHybridPixelMatrixUITests: XCTestCase {
     static let channelTolerance = 24
     static let maxGridShare = 0.0005
     static let maxBandShare = 0.001
-    static var warmedUp = false
+    @MainActor static var warmedUp = false
 
     override func setUp() {
         continueAfterFailure = true
