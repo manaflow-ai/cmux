@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8";
+inline constexpr std::string_view kProtocolIrSha256 = "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -417,6 +417,7 @@ struct FeedLocalHandoffBeginRequest;
 struct FeedLocalHandoffDoneRequest;
 struct FeedLocalListRequest;
 struct FeedLocalReadRequest;
+struct FloatPaneRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -3054,6 +3055,17 @@ struct FeedViewChangedEvent {
     std::vector<std::string> changed{};
     std::uint64_t revision{};
     friend bool operator==(const FeedViewChangedEvent&, const FeedViewChangedEvent&) = default;
+};
+
+struct FloatPaneRequest {
+    Field<double> h{};
+    Field<std::string> mode{};
+    Id pane{};
+    Field<std::uint64_t> transaction{};
+    Field<double> w{};
+    Field<double> x{};
+    Field<double> y{};
+    friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
 };
 
 enum class PaneDirection {
@@ -9066,6 +9078,12 @@ template <>
 struct Codec<FeedLocalReadRequest> {
     static Result<Json> encode(const FeedLocalReadRequest& value);
     static Result<FeedLocalReadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FloatPaneRequest> {
+    static Result<Json> encode(const FloatPaneRequest& value);
+    static Result<FloatPaneRequest> decode(const Json& value);
 };
 
 template <>

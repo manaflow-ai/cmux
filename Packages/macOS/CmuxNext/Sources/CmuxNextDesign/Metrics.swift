@@ -261,7 +261,8 @@ public struct Metrics {
         // A set corner (`layout.cornerPadding`, `layout.paneCornerRadius`) keeps the first pill `cornerPadding` in from
         // the card, so its corner stays concentric with the card's (ConcentricCornerSettingTests).
         if DesignSettings.shared.paneChrome.cornerPadding != nil || cornerRadiusIsSet { return paneChromeInset }
-        return scale(4)
+        // A density's own end gap (the Density Playground's Strip end insets).
+        return densityToken("tabStripEndGap") ?? scale(4)
     }
     /// Where the first tab's icon starts in a pane's strip: the strip's end gap plus the icon's inset in its pill.
     /// The browser's back arrow starts its ink there (`OmnibarStyle.toolbarInset`).

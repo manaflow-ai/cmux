@@ -1,29 +1,19 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-// The chat's finish moments (finishMoments.ts) on the real "Worked for" row and header PR chip, three
-// looks each. The shipped look is `check` for a turn's end, `ring` for green checks and `burst` for a
-// merge; the others are the looks it was chosen over. Light and dark come from the stage.
+// The chat's finish moments (finishMoments.ts) on the real header PR chip, three looks each. The
+// shipped look is `ring` for green checks and `burst` for a merge; the others are the looks it was
+// chosen over. A turn's end draws nothing on "Worked for" (Lucas, 2026-11-14: Codex has no flash).
+// Light and dark come from the stage.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { WorkedFor } from "../conversation/TurnRows";
 import type { HeaderPullRequest } from "../header/headerState";
 import { PullRequestChip } from "../header/PullRequestChip";
-import type { AcpmuxRow } from "../model";
 import { endFinishMoment, startFinishMoment, type FinishKind } from "./finishMoments";
 
-type Look = "check" | "tint" | "shine" | "ring" | "dot-check" | "burst" | "glow" | "stamp";
-type Props = { kind: FinishKind; look: Look; reduced?: boolean };
+type Look = "tint" | "ring" | "dot-check" | "burst" | "glow" | "stamp";
+type Props = { kind: Exclude<FinishKind, "turn">; look: Look; reduced?: boolean };
 
-const STARTED = 1_700_000_000_000;
-const row = {
-  id: "turn-1",
-  version: 1,
-  at: STARTED,
-  kind: "worked",
-  durationMs: 134_000,
-  status: "completed",
-} as unknown as AcpmuxRow;
-const pullRequest = (kind: FinishKind): HeaderPullRequest => ({
+const pullRequest = (kind: Props["kind"]): HeaderPullRequest => ({
   url: "https://github.com/example/app/pull/482",
   number: 482,
   title: "Retry uploads that time out",
@@ -49,25 +39,15 @@ function FinishMomentsGallery({ kind, look, reduced = false }: Props) {
   }, [reduced]);
   // Plays on open and on each Replay; the moment's own timer ends it.
   useEffect(() => {
-    startFinishMoment(
-      kind === "turn"
-        ? { kind, session: "gallery", turnStartedAt: STARTED }
-        : { kind, session: "gallery", url: pullRequest(kind).url },
-    );
+    startFinishMoment({ kind, session: "gallery", url: pullRequest(kind).url });
     return endFinishMoment;
   }, [kind, plays]);
   return (
     <div className="acpmux-finish-stage" data-finish-look={look} data-gallery-capture="">
-      {kind === "turn" ? (
-        <div className="acpmux-finish-stage__row">
-          <WorkedFor row={row} expanded={false} onToggle={() => undefined} />
-        </div>
-      ) : (
-        <div className="acpmux-finish-stage__header">
-          <span className="acpmux-finish-stage__title">Retry uploads that time out</span>
-          <PullRequestChip pullRequest={pullRequest(kind)} />
-        </div>
-      )}
+      <div className="acpmux-finish-stage__header">
+        <span className="acpmux-finish-stage__title">Retry uploads that time out</span>
+        <PullRequestChip pullRequest={pullRequest(kind)} />
+      </div>
       <button type="button" className="acpmux-finish-stage__replay" onClick={() => setPlays((n) => n + 1)}>
         Replay
       </button>
@@ -85,11 +65,7 @@ export default componentEntry<Props>({
   title: "Finish moments",
   area: "Agent pane",
   height: 180,
-  covers: [
-    "agent-session/acpmux/finish/finishMoments.ts",
-    "agent-session/acpmux/finish/FinishCheck.tsx#FinishCheck",
-    "agent-session/acpmux/finish/FinishBurst.tsx#FinishBurst",
-  ],
+  covers: ["agent-session/acpmux/finish/finishMoments.ts", "agent-session/acpmux/finish/FinishBurst.tsx#FinishBurst"],
   load: async () => FinishMomentsGallery,
   styles: () =>
     Promise.all([
@@ -100,23 +76,6 @@ export default componentEntry<Props>({
       import("./FinishMoments.gallery.css"),
     ]),
   variants: {
-    "turn-check": {
-      props: { kind: "turn", look: "check" },
-      note: "Shipped. The chevron's slot draws a check in the row's own quiet ink and gives the chevron back in 700 ms; the label never changes color.",
-      play: replay,
-    },
-    "turn-tint": {
-      props: { kind: "turn", look: "tint" },
-      note: 'Rejected: the label turns green. A turn that ended is no success state (Leo, 2026-11-14: "why ... does worked for turn green after it\'s done").',
-    },
-    "turn-shine": {
-      props: { kind: "turn", look: "shine" },
-      note: "One light sweep across the row: reads as loading, not as done.",
-    },
-    "turn-reduced": {
-      props: { kind: "turn", look: "check", reduced: true },
-      note: "Reduce Motion: the check, still, in the row's ink.",
-    },
     "ci-ring": {
       props: { kind: "ci", look: "ring" },
       note: "Shipped. The checks dot turns green and sends out one ring.",

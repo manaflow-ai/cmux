@@ -441,6 +441,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-begin",
     "feed-local-handoff-done",
     "feed-local-list",
+    "float-pane",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
