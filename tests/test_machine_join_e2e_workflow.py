@@ -222,6 +222,10 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         # nothing of the host is run directly.
         self.assertLess(prep.index('sudo loginctl enable-linger "$JOIN_USER"'), prep.index('systemctl start "$manager"'))
         self.assertIn('private="/run/user/$JOIN_UID/systemd/private"', prep)
+        # /run/user/UID is the joined user's 0700 directory: every look inside it runs as root, or the runner
+        # sees nothing there and the step fails with the manager running.
+        self.assertNotRegex(prep, r'\[ !? ?-[eSsfd] "?\$?\{?(private|bus)|\[ !? ?-[eSsfd] "?/run/user/')
+        self.assertIn('sudo test -S "$private"', prep)
         self.assertNotIn("linux-host", prep)
         # The development device hub only, in the workflow and the script.
         document = load()
