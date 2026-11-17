@@ -40,8 +40,11 @@ public actor AcpmuxConnection {
 
     /// `held`: a channel opened before this phone checked the Mac (``AcpmuxHub/bind(_:requestTimeout:until:)``).
     /// Until ``admit()``, nothing reaches `notifications`: at most ``heldNotificationLimit``
-    /// notifications and ``heldByteLimit`` bytes wait here, and a Mac that sends more is cut off
+    /// notifications of at most ``heldByteLimit`` bytes in all wait here, a compressed message
+    /// inflates to at most what is left of those bytes, and a Mac that sends more is cut off
     /// (the channel closes), so a peer that never passes the check cannot fill the phone's memory.
+    /// The answers to this phone's own requests are kept whole, as on any connection: one each,
+    /// at most ``MessageJoiner/maxMessage``, so an older Mac's whole chat list still arrives.
     public init(channel: any LinkChannel, held: Bool = false) {
         self.channel = channel
         (notifications, continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
@@ -51,14 +54,16 @@ public actor AcpmuxConnection {
     /// Notifications kept before ``admit()``: a watch reports changes as soon as it answers,
     /// which can be before this phone's own check of the Mac finished.
     static let heldNotificationLimit = 256
-    /// Bytes read before ``admit()``: the answers to `initialize` and the first page (100 rows,
-    /// compressed) with room to spare.
+    /// Bytes of the notifications kept before ``admit()``, and the most a compressed message
+    /// may inflate to then (a paged first page, 100 rows, is far less).
     static let heldByteLimit = 8 << 20
     /// Non-nil until ``admit()``.
     private var held: [Notification]?
     private var heldBytes = 0
     /// Bytes counted against ``heldByteLimit`` so far (tests).
     var heldByteCount: Int { heldBytes }
+    /// Why the Mac is cut off before ``admit()`` (nil: within the limits).
+    private var cutOff: String?
 
     /// This phone checked the Mac: what waited goes out on `notifications`, and from now on
     /// everything does.
@@ -240,7 +245,7 @@ public actor AcpmuxConnection {
         do {
             while let message = try await channel.receive() {
                 route(message)
-                if let cutOff = overHeldLimit {
+                if held != nil, let cutOff {
                     rpcLog.error("acpmux: \(cutOff, privacy: .public) before this phone checked the Mac; closing")
                     finish(LinkError(code: "refused", message: "The Mac sent too much before pairing finished"))
                     await channel.close(code: "eof", reason: "too much before pairing")
@@ -257,33 +262,30 @@ public actor AcpmuxConnection {
     /// full-size frames (PROTOCOL.md "Link"), so frames join until they parse
     /// as one JSON value: a transcript record carrying an image arrives whole.
     func route(_ data: Data) {
-        if held != nil {
-            heldBytes += data.count
-            guard heldBytes <= Self.heldByteLimit else { return }
-        }
+        guard cutOff == nil else { return }
         var joiner = frames
-        // Before the check, a compressed message counts at its inflated length, and one longer
-        // than what is left of the budget is refused before it is inflated.
-        joiner.limit = held == nil ? MessageJoiner.maxMessage : Self.heldByteLimit - heldBytes
+        // Before the check, a compressed message may inflate to at most what is left of the
+        // budget: one whose header says more is refused before it is inflated. Plain text is read
+        // at the usual limit, since its bytes came over the link.
+        joiner.inflateLimit = held == nil ? MessageJoiner.maxMessage : max(0, Self.heldByteLimit - heldBytes)
         let message = joiner.push(data)
-        if held != nil {
-            heldBytes += joiner.takeInflated()
-            if joiner.refusedLarge { heldBytes = Self.heldByteLimit + 1 }
-        } else {
-            _ = joiner.takeInflated()
-        }
+        let refused = joiner.takeRefused()
         frames = joiner
-        if heldBytes > Self.heldByteLimit { return }
+        if held != nil, let refused {
+            cutOff = "a message of \(refused) bytes"
+            return
+        }
         guard let value = message else {
             rpcLog.debug("frame of \(data.count) bytes is not a whole JSON message yet")
             return
         }
-        dispatch(value)
+        dispatch(value, bytes: joiner.lastBytes)
     }
 
     private var frames = MessageJoiner()
 
-    private func dispatch(_ value: JSONValue) {
+    /// `bytes`: the message's length as read (inflated, for a compressed one).
+    private func dispatch(_ value: JSONValue, bytes: Int) {
         if let id = value["id"]?.numberValue, value["method"] == nil {
             let outcome: Result<JSONValue, any Error>
             if let error = value["error"] {
@@ -312,22 +314,19 @@ public actor AcpmuxConnection {
         } else if let method = value["method"]?.stringValue {
             let notification = Notification(method: method, params: value["params"] ?? .null)
             if held != nil {
-                // Past the limit nothing more is kept: `overHeldLimit` closes the channel.
-                if (held?.count ?? 0) < Self.heldNotificationLimit { held?.append(notification) } else { heldOverflow = true }
+                // Past either limit nothing more is kept, and the read loop closes the channel.
+                heldBytes += bytes
+                if (held?.count ?? 0) >= Self.heldNotificationLimit {
+                    cutOff = "more than \(Self.heldNotificationLimit) notifications"
+                } else if heldBytes > Self.heldByteLimit {
+                    cutOff = "more than \(Self.heldByteLimit) bytes of notifications"
+                } else {
+                    held?.append(notification)
+                }
                 return
             }
             continuation.yield(notification)
         }
-    }
-
-    private var heldOverflow = false
-
-    /// Why the Mac is cut off before ``admit()`` (nil: within the limits).
-    private var overHeldLimit: String? {
-        guard held != nil else { return nil }
-        if heldOverflow { return "more than \(Self.heldNotificationLimit) notifications" }
-        if heldBytes > Self.heldByteLimit { return "more than \(Self.heldByteLimit) bytes" }
-        return nil
     }
 
     /// Joins the data frames of one JSON message. The link writes a message in
@@ -342,18 +341,19 @@ public actor AcpmuxConnection {
         static let fullFrame = 256 * 1024
         static let maxMessage = 64 << 20
         private var pending = Data()
-        /// The largest message read: ``maxMessage``, or what is left of the bytes a connection
-        /// keeps before the pairing check (``AcpmuxConnection/heldByteLimit``). A compressed
-        /// message is refused by its header's length, before it is inflated.
-        var limit = Self.maxMessage
-        /// Text bytes of the compressed messages inflated since the last ``takeInflated()``.
-        private var inflated = 0
-        /// A compressed message longer than `limit` was refused.
-        private(set) var refusedLarge = false
+        /// The longest a compressed message may inflate to: ``maxMessage``, or before the pairing
+        /// check what is left of ``AcpmuxConnection/heldByteLimit``. One whose header says more
+        /// is refused by that length, before it is inflated.
+        var inflateLimit = Self.maxMessage
+        /// The length of the last message returned (its text, inflated for a compressed one).
+        private(set) var lastBytes = 0
+        /// The length of a message refused since the last ``takeRefused()``: compressed past
+        /// `inflateLimit`, or plain past ``maxMessage``.
+        private var refused: Int?
 
-        mutating func takeInflated() -> Int {
-            defer { inflated = 0 }
-            return inflated
+        mutating func takeRefused() -> Int? {
+            defer { refused = nil }
+            return refused
         }
 
         /// The message once complete, else nil (waiting, or a frame that was dropped).
@@ -366,25 +366,28 @@ public actor AcpmuxConnection {
             // A whole JSON message ends with `}` or `]` (acpmux sends objects): parse only
             // then, so a large message is not parsed again on each of its chunks.
             if Self.mayEnd(pending), let value = Self.decode(pending) {
+                lastBytes = pending.count
                 pending = Data()
                 return value
             }
-            if frame.count >= Self.chunk, pending.count <= limit {
+            if frame.count >= Self.chunk, pending.count <= Self.maxMessage {
                 return nil
             }
+            if pending.count > Self.maxMessage { refused = pending.count }
             let stale = pending.count > frame.count
             pending = Data()
+            lastBytes = frame.count
             return stale && Self.mayEnd(frame) ? Self.decode(frame) : nil
         }
 
         private mutating func pushDeflated(_ frame: Data) -> JSONValue? {
             pending.append(frame)
-            if let header = DeflatedMessage(header: pending), header.textBytes > limit { refusedLarge = true }
-            switch DeflatedMessage.state(pending, limit: limit) {
+            if let header = DeflatedMessage(header: pending), header.textBytes > inflateLimit { refused = header.textBytes }
+            switch DeflatedMessage.state(pending, limit: inflateLimit) {
             case .waiting:
                 return nil
             case .whole(let text, let used):
-                inflated += text.count
+                lastBytes = text.count
                 // A frame never holds two messages, so bytes past the envelope that came with an
                 // earlier frame mean one of its frames was lost: this frame starts the next.
                 let lost = pending.count > used && pending.count > frame.count
