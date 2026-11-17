@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Button } from "../../../ui/Button";
+import { focusRoute } from "../../../ui/focusRoute";
 import { Input } from "../../../ui/Input";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -95,11 +96,13 @@ function usable(state: RowState): boolean {
  */
 /** Focuses the grab handle of the chip at `at` inside the editor `root`. */
 function focusChip(root: HTMLElement | null, at: Place) {
-  root
-    ?.querySelector<HTMLElement>(
+  focusRoute(
+    root?.querySelector<HTMLElement>(
       `[data-layout-line="${at.line}"] [data-chip][data-index="${at.index}"] .row-layout-chip-grab`,
-    )
-    ?.focus();
+    ),
+    "person",
+    "row layout: the chip an arrow key, move or Delete lands on",
+  );
 }
 
 export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {

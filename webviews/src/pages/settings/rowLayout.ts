@@ -220,7 +220,7 @@ export const PREVIEW_SAMPLE: Record<TextToken, string> = {
   tabCount: "3",
   ports: ":3000",
   lastActivity: "2m",
-  pullRequest: "#128",
+  pullRequest: "#128", // colour-allow: a pull request number, not a colour
   log: "build ✓",
 };
 
