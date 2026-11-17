@@ -85,20 +85,26 @@ final class ApprovalBanner {
             return
         }
         let panel = self.panel ?? Self.makePanel()
+        let entering = !panel.isVisible
         self.panel = panel
+        let hadKeys = panel.isKeyWindow
         let content = ApprovalView(request: request, error: error, enabled: !answering) { [weak self] in self?.answer($0) }
         panel.contentView = content
+        content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600)
-        panel.setFrame(CGRect(x: area.maxX - size.width - 16, y: area.maxY - size.height - 16, width: size.width, height: size.height),
-                       display: true)
+        panel.setFrame(CGRect(x: area.maxX - size.width - ApprovalLook.screenMargin, y: area.maxY - size.height - ApprovalLook.screenMargin,
+                              width: size.width, height: size.height), display: true)
+        if hadKeys { panel.makeFirstResponder(content) }
+        panel.invalidateShadow()
         // Over every app, without activating this one or taking the keyboard.
         panel.orderFrontRegardless()
+        if entering { ApprovalLook.enter(content) }
     }
 
     static func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: ApprovalView.width, height: 200),
-                            styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: true)
+        let panel = ApprovalPanel(contentRect: CGRect(x: 0, y: 0, width: ApprovalView.width, height: 200),
+                                  styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: true)
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
@@ -108,6 +114,7 @@ final class ApprovalBanner {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
         return panel
     }
 
@@ -115,116 +122,353 @@ final class ApprovalBanner {
     var frame: CGRect? { panel?.isVisible == true ? panel?.frame : nil }
 }
 
-/// The banner's content (AppKit): a rounded popup surface with the request
-/// and its four answers. Only a press on these buttons answers it.
+/// The banner's window: it shows without taking the keyboard or the frontmost app, and a click into the card gives
+/// it the keys (Return allows once, Escape denies), as the keycaps say. A Return typed into another app as the
+/// banner appears answers nothing.
+@MainActor
+final class ApprovalPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, !isKeyWindow, let content = contentView {
+            makeKey()
+            makeFirstResponder(content)
+        }
+        super.sendEvent(event)
+    }
+}
+
+/// The banner's look: the cmux dialog card's (CmuxNext's `CmuxDialogView` on `CmuxDialogCardSurface`), drawn here
+/// with AppKit alone because this worker links no cmux design module. Keep the numbers in step with
+/// `CmuxDialogMetrics`: a 16 pt padding, buttons 26 pt tall rounding 8 pt, the card rounding 24 pt (concentric: the
+/// button's corner plus the padding), 4 pt between buttons, 12 pt above them.
+@MainActor
+enum ApprovalLook {
+    static let padding: CGFloat = 16
+    static let spacing: CGFloat = 8
+    static let subtitleGap: CGFloat = 4
+    static let buttonsGap: CGFloat = 12
+    static let buttonGap: CGFloat = 4
+    static let buttonHeight: CGFloat = 26
+    static let buttonCorner: CGFloat = 8
+    static var cardCorner: CGFloat { buttonCorner + padding }
+    static let iconSize: CGFloat = 40
+    static let iconGap: CGFloat = 12
+    static let keycapInset: CGFloat = 3
+    static let keycapPadding: CGFloat = 5
+    static let screenMargin: CGFloat = 12
+    static let titleFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    static let bodyFont = NSFont.systemFont(ofSize: 13)
+    static let captionFont = NSFont.systemFont(ofSize: 11)
+    static let codeFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    static let keycapFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+
+    /// The card's material: Liquid Glass on macOS 26 and later, the popover blur before; both turn opaque under
+    /// Reduce Transparency on their own.
+    static func card(content: NSView) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = cardCorner
+            glass.contentView = content
+            return glass
+        }
+        let blur = NSVisualEffectView()
+        blur.material = .popover
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.wantsLayer = true
+        blur.layer?.cornerRadius = cardCorner
+        blur.layer?.cornerCurve = .continuous
+        blur.layer?.masksToBounds = true
+        blur.layer?.borderWidth = 0.5
+        blur.layer?.borderColor = NSColor.separatorColor.cgColor
+        content.translatesAutoresizingMaskIntoConstraints = false
+        blur.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: blur.leadingAnchor), content.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
+            content.topAnchor.constraint(equalTo: blur.topAnchor), content.bottomAnchor.constraint(equalTo: blur.bottomAnchor),
+        ])
+        return blur
+    }
+
+    /// Fades the card in, a short ease-out, as a cmux overlay card opens; at once under Reduce Motion.
+    @MainActor
+    static func enter(_ view: NSView) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, let layer = view.layer else { return }
+        // motion: allow this worker links no cmux motion gate; Reduce Motion is honored above
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.18
+        fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+        layer.add(fade, forKey: "enter")
+    }
+}
+
+/// The banner's content (AppKit), as the cmux dialog card draws a request: the app icon at the left; the title, the
+/// scope, the asking device's key fingerprint on an inset well, a failed answer; then the four answers stacked the
+/// card's width: Allow Once (Return), Always Allow View Only, Always Allow Full Control, and Deny last as quiet red
+/// text (Escape). Only a press on these buttons, or those keys once the person clicked into the card, answers it.
 @MainActor
 final class ApprovalView: NSView {
-    static let width: CGFloat = 380
+    static let width: CGFloat = 432
+    private let answer: (ApprovalChoice) -> Void
     private let stack = NSStackView()
+    private(set) var buttons: [ApprovalButton] = []
 
     init(request: SessionRequest, error: String?, enabled: Bool, answer: @escaping (ApprovalChoice) -> Void) {
+        self.answer = answer
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
-        let surface = NSVisualEffectView()
-        surface.material = .popover
-        surface.state = .active
-        surface.wantsLayer = true
-        surface.layer?.cornerRadius = 12
-        surface.layer?.masksToBounds = true
-        surface.setAccessibilityElement(true)
-        surface.setAccessibilityRole(.group)
-        surface.setAccessibilityIdentifier("macScreen.approval")
-        surface.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(surface)
+        wantsLayer = true
+        let look = ApprovalLook.self
+        let textWidth = Self.width - look.padding * 2 - look.iconSize - look.iconGap
+        let content = NSView()
+        let card = look.card(content: content)
+        card.setAccessibilityElement(true)
+        card.setAccessibilityRole(.group)
+        card.setAccessibilityIdentifier("macScreen.approval")
+        card.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(card)
+        let icon = NSImageView(image: NSApp.applicationIconImage ?? NSImage())
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.setAccessibilityElement(false)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(icon)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        stack.spacing = look.spacing
         stack.translatesAutoresizingMaskIntoConstraints = false
-        surface.addSubview(stack)
+        content.addSubview(stack)
         NSLayoutConstraint.activate([
-            surface.leadingAnchor.constraint(equalTo: leadingAnchor), surface.trailingAnchor.constraint(equalTo: trailingAnchor),
-            surface.topAnchor.constraint(equalTo: topAnchor), surface.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor), stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: surface.topAnchor), stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor), card.trailingAnchor.constraint(equalTo: trailingAnchor),
+            card.topAnchor.constraint(equalTo: topAnchor), card.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(equalToConstant: Self.width),
+            icon.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: look.padding),
+            icon.topAnchor.constraint(equalTo: content.topAnchor, constant: look.padding),
+            icon.widthAnchor.constraint(equalToConstant: look.iconSize), icon.heightAnchor.constraint(equalToConstant: look.iconSize),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: look.iconGap),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: look.padding),
+            stack.widthAnchor.constraint(equalToConstant: textWidth),
+            content.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: look.padding),
         ])
-        let textWidth = Self.width - 32
-        let glyph = NSImageView(image: NSImage(systemSymbolName: request.scope == .full ? "cursorarrow.and.square.on.square.dashed" : "eye",
-                                               accessibilityDescription: nil) ?? NSImage())
-        glyph.symbolConfiguration = .init(textStyle: .title3)
-        glyph.contentTintColor = .controlAccentColor
         let title = Self.label(String(format: request.scope == .full
                 ? RemoteText.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
                 : RemoteText.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName),
-            style: .headline, wraps: true, width: textWidth - 34)
-        let header = NSStackView(views: [glyph, title])
-        header.orientation = .horizontal
-        header.spacing = 10
-        header.alignment = .centerY
-        stack.addArrangedSubview(header)
+            font: look.titleFont, width: textWidth)
+        stack.addArrangedSubview(title)
+        stack.setCustomSpacing(look.subtitleGap, after: title)
         stack.addArrangedSubview(Self.label(String(format: RemoteText.t("macScreen.approval.scope", "Asks for %@."), request.scope.remoteTitle),
-                                            style: .body, color: .secondaryLabelColor))
+                                            font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
         if let fingerprint = request.viewerKeyFingerprint {
-            let caption = Self.label(RemoteText.t("macScreen.approval.fingerprint", "Device key fingerprint"), style: .caption1,
-                                     color: .secondaryLabelColor)
-            let code = Self.label(DeviceIdentity.displayFingerprint(fingerprint), style: .body)
-            code.font = .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
-            code.isSelectable = true
-            let column = NSStackView(views: [caption, code])
-            column.orientation = .vertical
-            column.alignment = .leading
-            column.spacing = 2
-            stack.addArrangedSubview(column)
+            stack.addArrangedSubview(Self.label(RemoteText.t("macScreen.approval.fingerprint", "Device key fingerprint"), font: look.captionFont,
+                                                color: .secondaryLabelColor, width: textWidth))
+            stack.addArrangedSubview(CodeWell(Self.fingerprintLines(fingerprint), width: textWidth))
         }
         if let error {
-            stack.addArrangedSubview(Self.label(error, style: .caption1, color: .systemRed, wraps: true, width: textWidth))
+            let line = Self.label(error, font: look.captionFont, color: .systemRed, width: textWidth)
+            line.setAccessibilityIdentifier("macScreen.approval.error")
+            stack.addArrangedSubview(line)
         }
-        func button(_ choice: ApprovalChoice, primary: Bool = false, destructive: Bool = false) -> NSButton {
-            let button = NSButton(title: choice.title, target: nil, action: nil)
-            button.bezelStyle = .push
+        if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(look.buttonsGap, after: last) }
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = look.buttonGap
+        let order: [(ApprovalChoice, ApprovalButton.Role, String?)] = [
+            (.once, .primary, "↩"), (.alwaysView, .secondary, nil), (.alwaysFull, .secondary, nil), (.deny, .quietDestructive, "esc"),
+        ]
+        for (choice, role, key) in order {
+            let button = ApprovalButton(choice.title, role: role, key: key) { answer(choice) }
             button.isEnabled = enabled
             button.setAccessibilityIdentifier("macScreen.approval.\(choice.rawValue)")
-            if primary { button.keyEquivalent = "\r" }
-            if destructive { button.hasDestructiveAction = true }
-            let target = ApprovalButtonTarget { answer(choice) }
-            button.target = target
-            button.action = #selector(ApprovalButtonTarget.press)
-            targets.append(target)
-            return button
+            column.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: textWidth).isActive = true
+            buttons.append(button)
         }
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let first = NSStackView(views: [button(.deny, destructive: true), spacer, button(.once, primary: true)])
-        first.orientation = .horizontal
-        first.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(first)
-        first.widthAnchor.constraint(equalToConstant: textWidth).isActive = true
-        let second = NSStackView(views: [button(.alwaysView), button(.alwaysFull)])
-        second.orientation = .horizontal
-        stack.addArrangedSubview(second)
+        stack.addArrangedSubview(column)
     }
-
-    private var targets: [ApprovalButtonTarget] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override var fittingSize: NSSize { NSSize(width: Self.width, height: ceil(stack.fittingSize.height)) }
+    override var acceptsFirstResponder: Bool { true }
 
-    static func label(_ text: String, style: NSFont.TextStyle, color: NSColor = .labelColor, wraps: Bool = false,
-                      width: CGFloat? = nil) -> NSTextField {
-        let field = wraps ? NSTextField(wrappingLabelWithString: text) : NSTextField(labelWithString: text)
-        field.font = .preferredFont(forTextStyle: style)
+    /// Return allows once and Escape denies, once the person clicked into the card (the panel then has the keys).
+    override func keyDown(with event: NSEvent) {
+        guard buttons.first?.isEnabled == true else { return super.keyDown(with: event) }
+        switch event.keyCode {
+        case 36, 76: answer(.once)
+        case 53: answer(.deny)
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        if buttons.first?.isEnabled == true { answer(.deny) }
+    }
+
+    override var fittingSize: NSSize {
+        layoutSubtreeIfNeeded()
+        return NSSize(width: Self.width, height: ceil(stack.fittingSize.height) + ApprovalLook.padding * 2)
+    }
+
+    /// The fingerprint in two lines of four groups, to compare group by group against the other device's.
+    static func fingerprintLines(_ fingerprint: String) -> String {
+        let groups = DeviceIdentity.displayFingerprint(fingerprint).split(separator: " ")
+        let half = (groups.count + 1) / 2
+        return [groups.prefix(half), groups.dropFirst(half)].filter { !$0.isEmpty }
+            .map { $0.joined(separator: " ") }.joined(separator: "\n")
+    }
+
+    static func label(_ text: String, font: NSFont, color: NSColor = .labelColor, width: CGFloat) -> NSTextField {
+        let field = NSTextField(wrappingLabelWithString: text)
+        field.font = font
         field.textColor = color
-        if let width { field.preferredMaxLayoutWidth = width }
+        field.preferredMaxLayoutWidth = width
+        field.isSelectable = false
         return field
     }
 }
 
-/// An NSButton's target that runs a closure.
+/// A code to compare (the fingerprint): monospaced digits on a faint well of the text's own ink with a hairline edge,
+/// rounded as the buttons are; selectable, so it can be copied.
 @MainActor
-final class ApprovalButtonTarget: NSObject {
-    let run: () -> Void
-    init(_ run: @escaping () -> Void) { self.run = run }
-    @objc func press() { run() }
+final class CodeWell: NSView {
+    init(_ text: String, width: CGFloat) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+        let code = ApprovalView.label(text, font: ApprovalLook.codeFont, width: width - 20)
+        code.isSelectable = true
+        code.setAccessibilityLabel(text.replacingOccurrences(of: "\n", with: " "))
+        code.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(code)
+        NSLayoutConstraint.activate([
+            code.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            code.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            bottomAnchor.constraint(equalTo: code.bottomAnchor, constant: 7),
+            widthAnchor.constraint(equalToConstant: width),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.cornerRadius = ApprovalLook.buttonCorner
+            layer?.cornerCurve = .continuous
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+            layer?.borderWidth = contrast ? 1 : 1 / max(window?.backingScaleFactor ?? 2, 1)
+            layer?.borderColor = NSColor.labelColor.withAlphaComponent(contrast ? 0.5 : 0.12).cgColor
+        }
+    }
+}
+
+/// One answer, as the cmux dialog's button draws it: the primary a solid fill of the label color (Return on its
+/// keycap), a secondary a faint gray, Deny red text with no fill at rest (Escape). A held button changes only its
+/// fill. The keyboard focus ring is the system's.
+@MainActor
+final class ApprovalButton: NSButton {
+    enum Role { case primary, secondary, quietDestructive }
+    let role: Role
+    private let run: () -> Void
+    private let keycap: NSTextField?
+    private let plate = CALayer()
+    private var hovering = false { didSet { needsDisplay = true } }
+
+    init(_ title: String, role: Role, key: String?, run: @escaping () -> Void) {
+        self.role = role
+        self.run = run
+        keycap = key.map { NSTextField(labelWithString: $0) }
+        super.init(frame: .zero)
+        self.title = title
+        isBordered = false
+        bezelStyle = .regularSquare
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+        target = self
+        action = #selector(press)
+        setAccessibilityLabel(title)
+        heightAnchor.constraint(equalToConstant: ApprovalLook.buttonHeight).isActive = true
+        if let keycap {
+            keycap.font = ApprovalLook.keycapFont
+            keycap.alignment = .center
+            keycap.setAccessibilityElement(false)
+            addSubview(keycap)
+            layer?.addSublayer(plate)
+            setAccessibilityHelp(key == "↩" ? "Return" : "Escape")
+        }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    @objc private func press() { run() }
+
+    override var isEnabled: Bool { didSet { needsDisplay = true } }
+    override var isHighlighted: Bool { didSet { needsDisplay = true } }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+    override var wantsUpdateLayer: Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    private var ink: NSColor {
+        switch role {
+        case .primary: .textBackgroundColor
+        case .secondary: .labelColor
+        case .quietDestructive: .systemRed
+        }
+    }
+
+    override func updateLayer() {
+        let step: CGFloat = isHighlighted ? 2 : hovering ? 1 : 0
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let fill: NSColor = switch role {
+            case .primary: NSColor.labelColor.blended(withFraction: step * 0.08, of: .textBackgroundColor) ?? .labelColor
+            case .secondary: NSColor.labelColor.withAlphaComponent(0.08 + step * 0.04)
+            case .quietDestructive: NSColor.systemRed.withAlphaComponent(step * 0.08)
+            }
+            layer?.backgroundColor = fill.cgColor
+            layer?.cornerRadius = ApprovalLook.buttonCorner
+            layer?.cornerCurve = .continuous
+            plate.backgroundColor = ink.withAlphaComponent(0.12).cgColor
+            plate.cornerRadius = ApprovalLook.buttonCorner - ApprovalLook.keycapInset
+            plate.cornerCurve = .continuous
+            keycap?.textColor = ink.withAlphaComponent(0.75)
+            attributedTitle = NSAttributedString(string: title, attributes: [
+                .foregroundColor: ink, .font: role == .primary ? NSFont.systemFont(ofSize: 13, weight: .semibold) : ApprovalLook.bodyFont,
+            ])
+        }
+        alphaValue = isEnabled ? 1 : 0.45
+    }
+
+    override func layout() {
+        super.layout()
+        guard let keycap else { return }
+        let inset = ApprovalLook.keycapInset
+        let size = keycap.intrinsicContentSize
+        let height = bounds.height - inset * 2
+        let width = max(height, ceil(size.width) + ApprovalLook.keycapPadding * 2)
+        let frame = NSRect(x: bounds.maxX - inset - width, y: inset, width: width, height: height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        plate.frame = frame
+        CATransaction.commit()
+        keycap.frame = NSRect(x: frame.minX, y: frame.midY - ceil(size.height) / 2, width: width, height: ceil(size.height))
+    }
 }
