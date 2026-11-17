@@ -857,3 +857,22 @@ fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
     let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &stale);
     assert_eq!(body, json!({"keys": null}));
 }
+
+/// cmuxterm-hq#12660: the app's facts after the live tree applied, the snapshot's standing back.
+#[test]
+fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
+    let other = json!({"snapshotSession": "4cd043ac", "liveSession": "9e1f", "shown": "home-a",
+                       "listed": ["home-a"], "live": []});
+    assert_eq!(
+        call_json(c"window_launch_snapshot_verdict", &other),
+        (OK, json!({"verdict": "otherSession"}))
+    );
+    let gone = json!({"snapshotSession": "s1", "liveSession": "s1", "shown": "w1", "listed": ["w1"], "live": []});
+    assert_eq!(
+        call_json(c"window_launch_snapshot_verdict", &gone).1,
+        json!({"verdict": "unknownWorkspaces"})
+    );
+    let own = json!({"snapshotSession": "s1", "liveSession": "s1", "shown": "w1", "listed": ["w1"], "live": ["w1"]});
+    assert_eq!(call_json(c"window_launch_snapshot_verdict", &own).1, json!({"verdict": "current"}));
+    assert_eq!(call(c"window_launch_snapshot_verdict", b"[").0, ERR_INVALID);
+}

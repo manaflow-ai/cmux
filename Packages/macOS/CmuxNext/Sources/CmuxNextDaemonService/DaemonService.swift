@@ -87,6 +87,9 @@ public final class DaemonService {
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
+    /// The registry id (session) of the tree the launch snapshot drew, kept past the live tree that replaces the
+    /// store's: the launch compares it with the daemon's (`LaunchSnapshotStaleness`). Nil without a snapshot.
+    @ObservationIgnored public var launchSnapshotRegistryID: String?
     /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
     @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
     /// Takes the launch snapshot's sidebar document when the snapshot is applied after the sidebar document

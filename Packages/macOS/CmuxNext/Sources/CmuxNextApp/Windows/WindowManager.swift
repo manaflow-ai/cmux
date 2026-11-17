@@ -10,6 +10,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
+import CmuxNextWindowRules
 import Observation
 import CmuxNextCloudUI
 
@@ -248,6 +249,10 @@ final class WindowManager {
             services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
         }
+        // A launch snapshot the daemon does not know (WindowRules+Launch): the window drops it, as a launch with nothing to restore.
+        if let launch = launchWindowID, let state = controller(for: launch)?.state, WindowRules().launchSnapshotIsStale(snapshot: services.daemon.launchSnapshotRegistryID,
+            live: services.daemon.store.registryID, shown: state.workspaceID, listed: registry.provisional[launch], isLive: { self.services.machines.workspace(id: $0) != nil }) {
+            services.daemon.launchSnapshotWindows = nil; registry.provisional[launch] = nil; state.adopt(WindowRecord(id: launch)) }
         registry.clearProvisional()
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         let saved = await readSavedWindows()
