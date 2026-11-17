@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43993237330",
+  "recorded_at": "2026-11-17T01:17:10Z",
+  "reason": "cmux-tui 560e1fddc370 changes the image's cmux-tui (pinned 2f45cc6296e3)",
+  "dry_run": false,
+  "cmux_tui": "560e1fddc370d26d10286d6b79bd4e6b8e5b7d47",
+  "fixes": [
+    {
+      "sha": "560e1fddc370d26d10286d6b79bd4e6b8e5b7d47",
+      "mergedAt": "2026-11-16T16:45:42-08:00",
+      "subject": "cmux-rd linux-host: a joined machine signs itself in with its machine credential; the virtual display starts on demand (#44830)"
+    },
+    {
+      "sha": "099e3badcb3a1bfae1b0dda69015442756c66557",
+      "mergedAt": "2026-11-16T16:17:48-08:00",
+      "subject": "chore(cmux NEXT): action exports from the re-pinned app FFI, and drop the 20 awaiting-repin markers it carries"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T01:17:10Z",
+    "snapshot_id": "sh-ae9432c31e22425297cb642d1bb05215",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43993237330): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "19c07ae1aae258d181de506d561954ae3e8c2a3b",
+    "image": "cloud-native-auto-560e1fdd-43993237330-1",
+    "revision": "ci-43993237330-1",
+    "at": "2026-11-17T01:17:10Z"
+  },
+  "rolled_back": false
+}
