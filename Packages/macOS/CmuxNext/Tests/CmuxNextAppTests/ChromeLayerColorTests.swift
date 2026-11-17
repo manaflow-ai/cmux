@@ -64,16 +64,45 @@ import Testing
         return (window, root)
     }
 
-    /// Where each region is sampled, in root coordinates: the sidebar list's leading inset halfway down (no row
-    /// fill or text reaches it), the footer band's leading inset, and the titlebar row over the main column.
+    /// Where each region is sampled, in root coordinates: the sidebar list's leading inset in its longest stretch no
+    /// row covers (``openSidebarY(_:)``), the footer band's leading inset, and the titlebar row over the main column.
     static func points(_ root: WindowRootView) -> [String: CGPoint] {
         let side = root.sidebar.frame
         let x = side.minX + 3
         return [
-            "sidebar": CGPoint(x: x, y: side.midY),
+            "sidebar": CGPoint(x: x, y: openSidebarY(root)),
             "footer": CGPoint(x: x, y: root.isFlipped ? side.maxY - 10 : side.minY + 10),
             "titlebar": CGPoint(x: root.contentHost.frame.midX, y: root.isFlipped ? root.bounds.minY + 1 : root.bounds.maxY - 1),
         ]
+    }
+
+    /// The middle of the sidebar's longest vertical stretch at its leading inset that no row covers, in root
+    /// coordinates: the list's own surface. A group header is a full-width bar in the group's colour, so a fixed
+    /// point is not the list's surface for long: from #44449 (every density Default scaled, Compact rows 20 to 27 pt)
+    /// the window's midpoint, the point this suite sampled first, fell on the cyan "Panes & layout" header and read
+    /// #116A6E (dark) and #A7E5E8 (light) where the list paints #1E1E1E and #FEFFFF.
+    static func openSidebarY(_ root: WindowRootView) -> CGFloat {
+        let side = root.sidebar.frame
+        let x = side.minX + 3
+        var covered: [ClosedRange<CGFloat>] = []
+        func walk(_ view: NSView) {
+            let name = String(describing: type(of: view))
+            if name.hasSuffix("RowView") || name.hasSuffix("HeaderView") {
+                let frame = view.convert(view.bounds, to: root)
+                if frame.minX <= x, frame.maxX >= x, frame.height > 0 { covered.append(frame.minY...frame.maxY); return }
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root.sidebar)
+        // The open stretches between the covered ones, inside the sidebar, past a row's own rounding.
+        var best = (length: CGFloat(-1), middle: side.midY)
+        var start = side.minY
+        for range in covered.sorted(by: { $0.lowerBound < $1.lowerBound }) + [side.maxY...side.maxY] {
+            let length = range.lowerBound - start
+            if length > best.length { best = (length, start + length / 2) }
+            start = max(start, range.upperBound)
+        }
+        return best.middle.rounded()
     }
 
     static func rgb(_ color: CGColor, opacity: Float) -> ThemeRGB? {
