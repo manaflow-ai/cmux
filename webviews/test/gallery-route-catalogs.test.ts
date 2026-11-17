@@ -150,6 +150,28 @@ test("a module the host frame loads touches every entry of that host", () => {
   expect(result.ranked[0]).toMatchObject({ why: "host-frame" });
 });
 
+test("a stage module many hosts share touches them through its static imports only", () => {
+  // pages.ts mounts every *-page host: its static imports load for each, a host's own page comes through a
+  // dynamic import() in that host's mount function.
+  const pageFiles: Record<string, string> = {
+    "gallery/frame/pages.ts": `import { MockApps } from "../../pages/apps/mockProvider";\nexport async function mountSettingsPage() { await import("../../pages/settings/main"); }`,
+    "pages/apps/mockProvider.ts": "export const MockApps = 1;",
+    "pages/settings/main.tsx": "export const main = 1;",
+    "pages/settings/Card.gallery.tsx": "export default {};",
+  };
+  const pageRead = (file: string) => (file.startsWith(`${SRC}/`) ? pageFiles[file.slice(SRC.length + 1)] : undefined);
+  const settings: EntryRoots[] = [
+    { id: "settings.card", host: "settings-page", file: `${SRC}/pages/settings/Card.gallery.tsx`, covers: [] },
+  ];
+  const opts = { src: SRC, repoRoot: ROOT, read: pageRead, paneStylesheets: () => [] };
+  expect(touchedEntries(settings, ["webviews/src/pages/apps/mockProvider.ts"], opts).ranked[0]).toMatchObject({
+    id: "settings.card",
+    why: "host-frame",
+  });
+  // The settings page itself is the same folder here, not the shared stage.
+  expect(touchedEntries(settings, ["webviews/src/pages/settings/main.tsx"], opts).ranked[0]?.why).toBe("same-folder");
+});
+
 test("the route check names a bundled file the paths or touched.ts miss", () => {
   const meta = {
     outputs: {

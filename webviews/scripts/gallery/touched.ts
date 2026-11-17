@@ -100,9 +100,53 @@ export function hostStylesheets(
  * import it, while every entry of the host renders it.
  */
 export function hostFrameModules(host: string, src: string, read: (file: string) => string | undefined): Set<string> {
-  const frame = HOST_FRAMES[host];
+  const frame = STAGE_MODULES[host];
   if (!frame) return new Set();
-  return new Set([...closure([path.join(src, frame)], read)].filter((file) => !file.endsWith(".css")));
+  const full = path.join(src, frame);
+  // A stage module that mounts one host loads all it reaches for each of its entries. One that mounts many
+  // (pages.ts: every *-page host) loads its static imports for each, and each host's own page through a
+  // dynamic import() inside that host's mount function, which is that host's alone.
+  const shared = Object.values(STAGE_MODULES).filter((module) => module === frame).length > 1;
+  const roots = shared ? [full, ...staticImportsOf(full, read)] : [full];
+  const reached = shared ? new Set([full, ...closure(roots.slice(1), read)]) : closure(roots, read);
+  return new Set([...reached].filter((file) => !file.endsWith(".css")));
+}
+
+/** The stage module (src/gallery/frame/main.ts's `mount`) each host's entries are mounted by. */
+const STAGE_MODULES: Record<string, string> = {
+  "agent-pane": "gallery/frame/agentPane.ts",
+  component: "gallery/frame/component.tsx",
+  ...Object.fromEntries(
+    [
+      "markdown-page",
+      "diff-page",
+      "apps-page",
+      "cloud-page",
+      "coderouter-page",
+      "changelog-page",
+      "icon-picker-page",
+      "editor-page",
+      "history-page",
+      "keybindings-page",
+      "settings-page",
+      "passwords-page",
+    ].map((host) => [host, "gallery/frame/pages.ts"]),
+  ),
+};
+
+const STATIC_IMPORT = /(?:\bfrom\s*|\bimport\s+)["']([^"']+)["']/g;
+
+/** The relative static imports (`import ... from`, `import "x"`) of one file, resolved. */
+function staticImportsOf(file: string, read: (file: string) => string | undefined): string[] {
+  const text = read(file) ?? "";
+  const out: string[] = [];
+  for (const match of text.matchAll(STATIC_IMPORT)) {
+    const spec = match[1]!.replace(/\?.*$/, "");
+    if (!spec.startsWith(".")) continue;
+    const resolved = resolveImport(path.resolve(path.dirname(file), spec), read);
+    if (resolved) out.push(resolved);
+  }
+  return out;
 }
 
 /** The relative imports of one source file, resolved to files that exist. */
