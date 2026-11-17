@@ -137,9 +137,6 @@ import Testing
     /// as the list does at rest, then without. Measured as live heap bytes (malloc's size in
     /// use, with the store alive), which allocator reuse between the runs does not skew.
     @Test func memoryStaysFlatWithTheWindow() async {
-        // The heap reading is the whole process's: no hybrid proof allocates while it runs.
-        let quiet = await HeapQuiet.measuring()
-        defer { quiet.release() }
         func run(windowed: Bool) -> (live: Int, held: Int) {
             let store = Self.store()
             let start = Self.heapInUse()
@@ -147,8 +144,11 @@ import Testing
                 Self.fill(store, count: 100, replyBytes: 16_384, from: chunk * 100)
                 if windowed, store.turns.count > AgentChatStore.windowTrigger { store.spillOlder(keeping: AgentChatStore.windowKeep) }
             }
+            // What another test (the hybrid proofs, say) holds meanwhile is not the chat's.
+            let neighbor = windowed ? [UInt8](repeating: 0xA5, count: 16 << 20) : []
             store.spill?.flush()
             let live = Self.heapInUse() - start
+            withExtendedLifetime(neighbor) {}
             let held = store.turns.count
             store.spill?.reset()
             return (live, held)

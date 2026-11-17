@@ -117,17 +117,17 @@ import Testing
     /// bytes (malloc's size in use) with and without the spill stay about the same: the
     /// spill keeps at most one partial page in memory.
     @Test func memoryWithSpill() async {
-        // The heap reading is the whole process's: no hybrid proof allocates while it runs.
-        let quiet = await HeapQuiet.measuring()
-        defer { quiet.release() }
         func run(spilling: Bool) -> (live: Int, onDisk: Int) {
             let store = FeedStore(items: [])
             let spill = Self.spill()
             if spilling { store.useSpill(spill) }
             let start = Self.heapInUse()
             for index in 0..<3000 { store.insert(Self.item(index, bytes: 8192), atTop: true) }
+            // What another test (the hybrid proofs, say) holds meanwhile is not the Feed's.
+            let neighbor = spilling ? Self.neighborAllocation() : []
             spill.flush()
             let live = Self.heapInUse() - start
+            withExtendedLifetime(neighbor) {}
             let onDisk = spill.storedCount()
             store.useSpill(nil)
             return (live, onDisk)
@@ -141,6 +141,11 @@ import Testing
         #expect(spilled.onDisk == 2500)
         // A partial page (under 100 events of 8 KB) and the spilled ids, at most.
         #expect(spilled.live < dropped.live + 2 << 20)
+    }
+
+    /// 16 MB that another test allocates and holds while this one measures.
+    static func neighborAllocation() -> [UInt8] {
+        [UInt8](repeating: 0xA5, count: 16 << 20)
     }
 
     static func heapInUse() -> Int {
