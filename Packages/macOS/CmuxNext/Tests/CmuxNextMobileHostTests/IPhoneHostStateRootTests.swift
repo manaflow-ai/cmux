@@ -14,10 +14,10 @@ import Testing
     }
 
     @Test func aDevCopyKeepsItsOwnPairing() {
-        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-a") == support.path + "/com.cmuxterm.app.debug--copy-a")
-        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-b") == support.path + "/com.cmuxterm.app.debug--copy-b")
-        #expect(Self.root("com.cmuxterm.app.debug.my-tag", tag: "my-tag") == support.path + "/com.cmuxterm.app.debug.my-tag")
-        #expect(Self.root("com.cmuxterm.app.nightly", tag: nil) == support.path + "/com.cmuxterm.app.nightly")
-        #expect(Self.root(nil, tag: nil) == support.path + "/com.cmuxterm.app.next")
+        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-a") == Self.support.path + "/com.cmuxterm.app.debug--copy-a")
+        #expect(Self.root("com.cmuxterm.app.debug", tag: "copy-b") == Self.support.path + "/com.cmuxterm.app.debug--copy-b")
+        #expect(Self.root("com.cmuxterm.app.debug.my-tag", tag: "my-tag") == Self.support.path + "/com.cmuxterm.app.debug.my-tag")
+        #expect(Self.root("com.cmuxterm.app.nightly", tag: nil) == Self.support.path + "/com.cmuxterm.app.nightly")
+        #expect(Self.root(nil, tag: nil) == Self.support.path + "/com.cmuxterm.app.next")
     }
 }
