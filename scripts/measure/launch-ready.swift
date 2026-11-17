@@ -137,6 +137,54 @@ func ownWindowOnScreen(_ pid: pid_t) -> Bool {
     }
 }
 
+// One request on the app's control socket (line JSON, release methods only): its result, or nil.
+func rpc(_ method: String) -> [String: Any]? {
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    defer { close(fd) }
+    var limit = timeval(tv_sec: 3, tv_usec: 0)
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+    var address = sockaddr_un()
+    address.sun_family = sa_family_t(AF_UNIX)
+    withUnsafeMutableBytes(of: &address.sun_path) { path in
+        for (index, byte) in socketPath.utf8.enumerated() { path[index] = byte }
+    }
+    let connected = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+    }
+    let message: [String: Any] = ["id": 1, "method": method, "params": [String: Any]()]
+    guard connected == 0, let body = try? JSONSerialization.data(withJSONObject: message) else { return nil }
+    let request = body + Data("\n".utf8)
+    guard request.withUnsafeBytes({ write(fd, $0.baseAddress, request.count) }) == request.count else { return nil }
+    var reply = Data(), chunk = [UInt8](repeating: 0, count: 1 << 16)
+    while !reply.contains(10) {
+        let count = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+        if count <= 0 { break }
+        reply.append(contentsOf: chunk[0..<count])
+    }
+    guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any], object["ok"] as? Bool == true else { return nil }
+    return object["result"] as? [String: Any]
+}
+
+// What is in front: the focused workspace (its model key, stable across launches), its tab, and the key window's top
+// page (`context.keys` topPage: "home" when Home is in front; snapshot.get has no top page). Read once, after the
+// settle and just before the quit, so nothing in the timed part of the launch waits on it. It is both what this
+// launch reopened and what the next launch with this home must reopen (Leo, 2026-11-17: "my recently opened thing").
+func front() -> [String: Any] {
+    guard let snapshot = rpc("snapshot.get"), let topology = snapshot["topology"] as? [String: Any] else {
+        return ["error": "snapshot.get did not answer"]
+    }
+    let focus = topology["focus"] as? [String: Any] ?? [:]
+    let focused = focus["workspace"] as? String
+    let workspace = (topology["workspaces"] as? [[String: Any]] ?? []).first { $0["id"] as? String == focused }?["key"] as? String ?? focused
+    let context = rpc("context.keys") ?? [:]
+    let keys = context["keys"] as? [String: Any] ?? context
+    return ["workspace": workspace.map { $0 as Any } ?? NSNull(), "tab": focus["tab"] ?? NSNull(), "top_page": keys["topPage"] ?? NSNull(),
+            "windows": (topology["windows"] as? [Any])?.count ?? 0]
+}
+var frontAtQuit: [String: Any]?
+
 let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     let t = now()
     if app == nil {
@@ -148,7 +196,7 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     if finished == nil, app.isFinishedLaunching { finished = t }
     if active == nil, app.isActive { active = t }
     if window == nil, ownWindowOnScreen(pid) { window = t; windowSeenAt = t }
-    if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 { quitSent = t; kill(pid, SIGTERM) }
+    if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 { frontAtQuit = front(); quitSent = now(); kill(pid, SIGTERM) }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
     if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
     if let sent = quitSent {
@@ -189,6 +237,7 @@ var row: [String: Any] = [
     // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
+if let frontAtQuit { row["front"] = frontAtQuit }
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
 print("LR-RUN", String(decoding: data, as: UTF8.self))
