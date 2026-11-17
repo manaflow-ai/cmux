@@ -182,6 +182,9 @@ final class CEFRuntime {
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     /// The keychain step of the first start (``CEFKeychainMigration``), off the main thread beside the framework load.
     private var keychainTask: Task<CEFKeychainMigration.Outcome?, Never>?
+    /// Whether the running Chromium keeps its key in the mock keychain (a public constant): set when it starts,
+    /// after the keychain item step, so it says what Chromium uses, not what the bundle suggests. Nil before.
+    private(set) var chromiumUsesMockKeychain: Bool?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -555,6 +558,7 @@ final class CEFRuntime {
         if !Self.applyKeychainItem(keychainItem, to: &switchSet, set: shim.setKeychainItem), !switchSet.useMockKeychain {
             logger.error("keychain item refused")
         }
+        chromiumUsesMockKeychain = switchSet.useMockKeychain
         noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
