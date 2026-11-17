@@ -1107,6 +1107,60 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "没有等待回答的云端启动 %1$@：它已被回答、已超时或已结束。`cmux agents dialog list` 会显示仍在等待的项目。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "沒有等待回答的雲端啟動 %1$@：它已被回答、已逾時或已結束。`cmux agents dialog list` 會顯示仍在等待的項目。"}}
       }
+    },
+    "cloud.startSession.sizeLocked": {
+      "comment": "Why a Cloud machine was not created (the reason inside createFailed): the folder needs a larger size than the plan. %1$@ size name (md, lg, xl), %2$@ vCPUs, %3$@ GB of memory, %4$@ plan name (Pro or Max, never translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يحتاج هذا المجلد إلى جهاز %1$@ (%2$@ vCPU، %3$@ GB ذاكرة)، وخطتك لا تتضمنه. رقِّ إلى cmux %4$@ لاستخدامه"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "ova mapa treba mašinu %1$@ (%2$@ vCPU, %3$@ GB memorije), koju vaš plan ne uključuje. Nadogradite na cmux %4$@ da je koristite"}},
+        "da": {"stringUnit": {"state": "translated", "value": "denne mappe kræver en %1$@-maskine (%2$@ vCPU, %3$@ GB hukommelse), som din plan ikke omfatter. Opgrader til cmux %4$@ for at bruge en"}},
+        "de": {"stringUnit": {"state": "translated", "value": "dieser Ordner braucht eine %1$@-Maschine (%2$@ vCPU, %3$@ GB Arbeitsspeicher), die dein Plan nicht enthält. Wechsle zu cmux %4$@, um eine zu nutzen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one"}},
+        "es": {"stringUnit": {"state": "translated", "value": "esta carpeta necesita una máquina %1$@ (%2$@ vCPU, %3$@ GB de memoria), que tu plan no incluye. Pasa a cmux %4$@ para usarla"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "ce dossier nécessite une machine %1$@ (%2$@ vCPU, %3$@ Go de mémoire), que votre forfait n'inclut pas. Passez à cmux %4$@ pour l'utiliser"}},
+        "it": {"stringUnit": {"state": "translated", "value": "questa cartella richiede una macchina %1$@ (%2$@ vCPU, %3$@ GB di memoria), non inclusa nel tuo piano. Passa a cmux %4$@ per usarla"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このフォルダには %1$@ マシン（%2$@ vCPU、メモリ %3$@ GB）が必要ですが、ご利用のプランには含まれていません。使うには cmux %4$@ にアップグレードしてください"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថតនេះត្រូវការម៉ាស៊ីន %1$@ (%2$@ vCPU, អង្គចងចាំ %3$@ GB) ដែលគម្រោងរបស់អ្នកមិនរួមបញ្ចូល។ ដំឡើងទៅ cmux %4$@ ដើម្បីប្រើវា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 폴더에는 %1$@ 머신(%2$@ vCPU, 메모리 %3$@ GB)이 필요하지만 현재 플랜에 포함되어 있지 않습니다. 사용하려면 cmux %4$@로 업그레이드하세요"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "denne mappen trenger en %1$@-maskin (%2$@ vCPU, %3$@ GB minne), som planen din ikke inkluderer. Oppgrader til cmux %4$@ for å bruke en"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "ten folder wymaga maszyny %1$@ (%2$@ vCPU, %3$@ GB pamięci), której Twój plan nie obejmuje. Przejdź na cmux %4$@, aby z niej korzystać"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "esta pasta precisa de uma máquina %1$@ (%2$@ vCPU, %3$@ GB de memória), que seu plano não inclui. Mude para o cmux %4$@ para usá-la"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "этой папке нужна машина %1$@ (%2$@ vCPU, %3$@ ГБ памяти), которой нет в вашем плане. Перейдите на cmux %4$@, чтобы её использовать"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โฟลเดอร์นี้ต้องใช้เครื่อง %1$@ (%2$@ vCPU, หน่วยความจำ %3$@ GB) ซึ่งแพ็กเกจของคุณไม่รวมไว้ อัปเกรดเป็น cmux %4$@ เพื่อใช้งาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bu klasör %1$@ makine (%2$@ vCPU, %3$@ GB bellek) gerektiriyor ve planınız bunu içermiyor. Kullanmak için cmux %4$@ planına geçin"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "цій папці потрібна машина %1$@ (%2$@ vCPU, %3$@ ГБ пам'яті), якої немає у вашому плані. Перейдіть на cmux %4$@, щоб її використати"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "thư mục này cần máy %1$@ (%2$@ vCPU, %3$@ GB bộ nhớ), gói của bạn không bao gồm. Nâng cấp lên cmux %4$@ để dùng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此文件夹需要 %1$@ 机器（%2$@ vCPU，%3$@ GB 内存），你的方案不包含。升级到 cmux %4$@ 即可使用"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此資料夾需要 %1$@ 機器（%2$@ vCPU，%3$@ GB 記憶體），你的方案不包含。升級至 cmux %4$@ 即可使用"}}
+      }
+    },
+    "cloud.startSession.sizeLockedNoUpgrade": {
+      "comment": "Why a Cloud machine was not created: the folder needs a larger size than any plan upgrade gives. %1$@ size name, %2$@ vCPUs, %3$@ GB of memory.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يحتاج هذا المجلد إلى جهاز %1$@ (%2$@ vCPU، %3$@ GB ذاكرة)، وهو أكبر مما تتضمنه خطتك"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "ova mapa treba mašinu %1$@ (%2$@ vCPU, %3$@ GB memorije), veću nego što vaš plan uključuje"}},
+        "da": {"stringUnit": {"state": "translated", "value": "denne mappe kræver en %1$@-maskine (%2$@ vCPU, %3$@ GB hukommelse), større end din plan omfatter"}},
+        "de": {"stringUnit": {"state": "translated", "value": "dieser Ordner braucht eine %1$@-Maschine (%2$@ vCPU, %3$@ GB Arbeitsspeicher), größer als dein Plan enthält"}},
+        "en": {"stringUnit": {"state": "translated", "value": "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes"}},
+        "es": {"stringUnit": {"state": "translated", "value": "esta carpeta necesita una máquina %1$@ (%2$@ vCPU, %3$@ GB de memoria), más grande de lo que incluye tu plan"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "ce dossier nécessite une machine %1$@ (%2$@ vCPU, %3$@ Go de mémoire), plus grande que ce qu'inclut votre forfait"}},
+        "it": {"stringUnit": {"state": "translated", "value": "questa cartella richiede una macchina %1$@ (%2$@ vCPU, %3$@ GB di memoria), più grande di quanto includa il tuo piano"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このフォルダには %1$@ マシン（%2$@ vCPU、メモリ %3$@ GB）が必要で、ご利用のプランの上限を超えています"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថតនេះត្រូវការម៉ាស៊ីន %1$@ (%2$@ vCPU, អង្គចងចាំ %3$@ GB) ដែលធំជាងគម្រោងរបស់អ្នករួមបញ្ចូល"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 폴더에는 %1$@ 머신(%2$@ vCPU, 메모리 %3$@ GB)이 필요하며 현재 플랜이 포함하는 것보다 큽니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "denne mappen trenger en %1$@-maskin (%2$@ vCPU, %3$@ GB minne), større enn planen din inkluderer"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "ten folder wymaga maszyny %1$@ (%2$@ vCPU, %3$@ GB pamięci), większej niż obejmuje Twój plan"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "esta pasta precisa de uma máquina %1$@ (%2$@ vCPU, %3$@ GB de memória), maior do que seu plano inclui"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "этой папке нужна машина %1$@ (%2$@ vCPU, %3$@ ГБ памяти), больше, чем включает ваш план"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โฟลเดอร์นี้ต้องใช้เครื่อง %1$@ (%2$@ vCPU, หน่วยความจำ %3$@ GB) ซึ่งใหญ่กว่าที่แพ็กเกจของคุณรวมไว้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bu klasör, planınızın içerdiğinden büyük bir %1$@ makine (%2$@ vCPU, %3$@ GB bellek) gerektiriyor"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "цій папці потрібна машина %1$@ (%2$@ vCPU, %3$@ ГБ пам'яті), більша, ніж включає ваш план"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "thư mục này cần máy %1$@ (%2$@ vCPU, %3$@ GB bộ nhớ), lớn hơn mức gói của bạn bao gồm"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此文件夹需要 %1$@ 机器（%2$@ vCPU，%3$@ GB 内存），超出你的方案所含"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此資料夾需要 %1$@ 機器（%2$@ vCPU，%3$@ GB 記憶體），超出你的方案所含"}}
+      }
     }
   },
   "version": "1.0"
