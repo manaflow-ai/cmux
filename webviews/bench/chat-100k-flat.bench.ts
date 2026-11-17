@@ -18,7 +18,8 @@
 // worst of the ratios a run measured (long and grown, each over empty; CASES below): the goal's number (NOW benches
 // row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
-// of noise.
+// of noise. An xN ratio's empty side is the mean of two empty xN launches, one before the xN launches it is compared
+// with and one after (empty_xN_after; see the bracket below the launches).
 // HIDDEN=0 keeps every chat shown.
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
@@ -1048,19 +1049,43 @@ try {
     });
     pairs.push(["running_x1", runningOne, emptyOne]);
   }
+  // The xN baseline brackets the launches it is compared with: empty xN runs before them and again after
+  // (empty_xN_after), and each xN ratio is taken over the two launches' mean. One empty xN launch's steady idle moved
+  // 2.4 % to 3.3 % between back-to-back runs of the same commit (each launch's own windows flat), which swung the
+  // long_x20 idle ratio 1.25x to 0.94x; drift over the run cancels in the bracket and launch noise averages. It costs
+  // one more empty xN launch, about 2.5 min. The long xN launch's settle (its mean bar) reads the first one only. Not
+  // chosen: alternating long and empty windows in one launch (a launch is one renderer and V8 isolate, so the two
+  // would share a heap and its collections), or a floor on the xN denominator (empty xN idles at 1.7-3.3 %, so a
+  // floor that steadied the ratio would sit on the values it compares and hide a real difference).
   const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
+  const many: [string, Launch][] = [];
   if (emptyMany && CASES !== "grown-many")
-    pairs.push([
+    many.push([
       `long_x${CHATS}`,
       await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE, match: emptyMany }),
-      emptyMany,
     ]);
   if (emptyMany && CASES !== "main" && CASES !== "long-many")
-    pairs.push([
+    many.push([
       `grown_x${CHATS}`,
       await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns, match: emptyMany }),
-      emptyMany,
     ]);
+  if (emptyMany && many.length) {
+    const after = await runLaunch(`empty_x${CHATS}_after`, small, CHATS);
+    const mean = (a: number, b: number) => (a + b) / 2;
+    const base: Launch = {
+      name: `empty_x${CHATS}`,
+      idlePct: mean(emptyMany.idlePct, after.idlePct),
+      streamPct: mean(emptyMany.streamPct, after.streamPct),
+      mb: mean(emptyMany.mb, after.mb),
+      renderers: emptyMany.renderers,
+      settleS: Math.max(emptyMany.settleS, after.settleS),
+      capped: emptyMany.capped || after.capped,
+    };
+    console.log(
+      `chat-100k-flat: empty_x${CHATS} baseline idle ${base.idlePct.toFixed(2)} % (before ${emptyMany.idlePct.toFixed(2)}, after ${after.idlePct.toFixed(2)}); streaming ${base.streamPct.toFixed(2)} %; ${base.mb.toFixed(1)} MB`,
+    );
+    for (const [label, big] of many) pairs.push([label, big, base]);
+  }
   const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
   const ratios: [string, number][] = [];
   for (const [label, big, base] of pairs) {
