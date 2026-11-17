@@ -478,6 +478,69 @@ fn an_owner_that_keeps_its_session_says_what_of_it_still_lives() {
     );
 }
 
+/// The release signals the stop of the cleanup worker before it waits for
+/// the end of the journal writer. Here the writer is at an admitted commit,
+/// and only the worker's stop lets it commit: the worker opens the writer's
+/// gate when it sees its stop, and nothing else opens that gate before the
+/// release returned. So the writer can end in the release's wait only when
+/// the worker's stop came before that wait. The order of the 2 steps decides
+/// the result, not a time: with the stop after the wait, the wait ran out
+/// with the writer at its commit, and the owner keeps the session.
+#[test]
+fn the_cleanup_workers_stop_comes_before_the_releases_wait_for_the_writer() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-stop-order-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let session = "release-stop-order";
+    let held = HeldWriter::open(&root, session);
+    let folder = session_folder(&held.mux);
+    let writer_gate = held.resume.clone();
+    output_cleanup::tests::put_a_worker_that_ends_at_its_stop(&held.mux, move || {
+        let _ = writer_gate.send(());
+    });
+    let release = held.mux.release_ownership(&root.join("control.sock"));
+    drop(held.finish());
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        release == lifecycle::OwnershipRelease::Released,
+        "the release waited for the journal writer before it stopped the cleanup worker: a \
+         writer that only the worker's stop lets commit did not end in the release's wait: \
+         its release: {release:?}"
+    );
+}
+
+/// The journal writer at an admitted commit and a cleanup worker that lives
+/// past its stop: the owner that keeps its session names both.
+#[test]
+fn an_owner_that_keeps_its_session_names_its_writer_and_its_cleanup_worker() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-session-release-names-both-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let session = "release-names-both";
+    let held = HeldWriter::open(&root, session);
+    let folder = session_folder(&held.mux);
+    let lock = Arc::new(Mutex::new(()));
+    let worker_waits = lock.lock().unwrap();
+    output_cleanup::tests::put_a_worker_blocked_on(&held.mux, Arc::clone(&lock));
+    let release = held.mux.release_ownership(&root.join("control.sock"));
+    drop(worker_waits);
+    drop(held.finish());
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    let names = match &release {
+        lifecycle::OwnershipRelease::KeptUntilExit { alive, .. } => alive.clone(),
+        lifecycle::OwnershipRelease::Released => Vec::new(),
+    };
+    assert!(
+        names == ["session journal writer", "output cleanup worker"],
+        "an owner whose journal writer was at an admitted commit and whose cleanup worker \
+         lived past its stop did not name both: its release: {release:?}"
+    );
+}
+
 /// The same owner, and its journal writer commits after the owner released
 /// the session and before the next owner opens it. The next owner either is
 /// refused because the session still has an owner, or its store does not

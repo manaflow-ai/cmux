@@ -307,8 +307,47 @@ fn lower_thread_priority() {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+
+    /// Makes `worker` the cleanup worker of `mux`. The owner's own worker,
+    /// if it started one, ends at its stop first.
+    fn put_worker(mux: &Mux, worker: OutputCleanupWorker) {
+        mux.stop_output_cleanup();
+        let left_alive =
+            mux.output_cleanup.left_alive.lock().unwrap_or_else(PoisonError::into_inner).len();
+        assert_eq!(left_alive, 0, "setup: the owner's own cleanup worker did not end at its stop");
+        *mux.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner) = Some(worker);
+    }
+
+    /// Gives `mux` a cleanup worker that can stop: its thread waits for the
+    /// stop on the stop's condition variable, with no bound, then it runs
+    /// `at_its_stop` and ends.
+    pub(in crate::mux) fn put_a_worker_that_ends_at_its_stop(
+        mux: &Mux,
+        at_its_stop: impl FnOnce() + Send + 'static,
+    ) {
+        let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
+        let worker_control = control.clone();
+        let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let _exited = exited_sender;
+            let mut stopped = worker_control.stopped.lock().unwrap_or_else(PoisonError::into_inner);
+            while !*stopped {
+                stopped =
+                    worker_control.changed.wait(stopped).unwrap_or_else(PoisonError::into_inner);
+            }
+            drop(stopped);
+            at_its_stop();
+        });
+        put_worker(mux, OutputCleanupWorker { control, thread: Some(thread), exited });
+    }
+
+    /// Gives `mux` a cleanup worker that lives past its stop: its thread
+    /// waits on `lock`, as the real worker can at its last step.
+    pub(in crate::mux) fn put_a_worker_blocked_on(mux: &Mux, lock: Arc<Mutex<()>>) {
+        put_worker(mux, worker_blocked_on(lock));
+    }
 
     fn worker_blocked_on(lock: Arc<Mutex<()>>) -> OutputCleanupWorker {
         let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
@@ -376,10 +415,7 @@ mod tests {
             crate::workspace_registry::new_uuid_v4()
         ));
         let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
-        // The owner's own worker, if it started one, ends at this stop.
-        mux.stop_output_cleanup();
-        *mux.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some(worker_blocked_on(lock));
+        put_a_worker_blocked_on(&mux, lock);
         (root, mux)
     }
 
