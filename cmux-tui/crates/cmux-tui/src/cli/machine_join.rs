@@ -1470,6 +1470,7 @@ pub(super) fn merge_rows(
 }
 
 /// How long `machine list` waits for acpmux's own machines (`acp host ls`), a local read.
+// timeout: a local read of acpmux's own machines; past it `machine list` still answers its joined rows with a note on stderr (fails open)
 const PEER_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// `result` with the machines acpmux reaches itself added (`acpmux machine add HOST`), each a

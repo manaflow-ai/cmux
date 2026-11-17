@@ -468,6 +468,7 @@
         "Probe the cmux NEXT App ID and profile (read-only)": {"nightly_only": "reads App Store Connect API"},
         "Import signing cert": {"nightly_only": "imports Developer ID signing certificate"},
         "Embed channel provisioning profile": {"nightly_only": "embeds secret provisioning profile"},
+        "Fetch the published Chromium framework": {"nightly_only": "copies the Chromium framework out of the DMG the live nightly feed serves now, for Codesign apps (sign-cef.sh) to reuse when it is the same code and signer; a pull request publishes no nightly and signs nothing. Best effort: with no copy the build signs as before"},
         "Start the Computer Use helper notarization": {"nightly_only": "submits helper to Apple notary"},
         "Codesign apps": {"nightly_only": "codesigns with Developer ID identity"},
         "Verify the Computer Use helper signature": {"nightly_only": "verifies Developer ID signed helper"},

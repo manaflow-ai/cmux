@@ -19,6 +19,9 @@ import sys
 # Must equal hot-verify-ci.py's MARKER_PREFIX (test_hot_verify_ci.py checks it).
 MARKER_PREFIX = "<!-- cmux-hot-verify "
 REPO = "manaflow-ai/cmux"
+# gh_pages.py's page size and cap: 30 pages of 100 comments.
+PER_PAGE = 100
+MAX_PAGES = 30
 
 
 def read(*args: str) -> str:
@@ -32,10 +35,17 @@ def has_receipt(pr: int, repo: str = REPO) -> bool:
     body = read(f"repos/{repo}/pulls/{int(pr)}", "--jq", '.body // ""')
     if any(line.startswith(MARKER_PREFIX) for line in body.splitlines()):
         return True
-    # One line per comment: whether its body starts with the marker (gh follows the pages itself).
-    found = read(f"repos/{repo}/issues/{int(pr)}/comments?per_page=100", "--paginate", "--jq",
-                 f'.[] | (.body // "") | startswith("{MARKER_PREFIX}")')
-    return any(line.strip() == "true" for line in found.splitlines())
+    # One bounded page per call, as scripts/ci/gh_pages.py reads a list (gh's own paging is one unbounded call
+    # the gh quota wrapper refuses): one line per comment, whether its body starts with the marker. A short page
+    # is the last one; a list past the cap is an error, never "no receipt".
+    for page in range(1, MAX_PAGES + 1):
+        found = read(f"repos/{repo}/issues/{int(pr)}/comments?per_page={PER_PAGE}&page={page}", "--jq",
+                     f'.[] | (.body // "") | startswith("{MARKER_PREFIX}")').splitlines()
+        if any(line.strip() == "true" for line in found):
+            return True
+        if len(found) < PER_PAGE:
+            return False
+    raise RuntimeError(f"PR {pr} has more than {MAX_PAGES * PER_PAGE} comments; not read as having no receipt")
 
 
 def main(argv: list[str] | None = None) -> int:

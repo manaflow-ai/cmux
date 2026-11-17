@@ -514,6 +514,7 @@ pub(in crate::cli) fn with_answer(outcome: Outcome, answer: Value) -> Outcome {
 const WAIT_SLACK: Duration = Duration::from_secs(30);
 
 /// How long a wait that came back before the prompt's turn began pauses before it waits again.
+// timeout: a pause between two waits for a turn that has not begun, capped by the wait's own time left; it ends no request
 const NOT_STARTED_PAUSE: Duration = Duration::from_millis(500);
 
 /// Waits at most `timeout` for chat `target`'s (`HOST/NAME`) turn to end through acpmux (`acp

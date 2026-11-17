@@ -9,6 +9,7 @@ use crate::server::*;
 use std::time::Duration;
 
 /// What the design allows a cheap read under a flood (F18).
+// timeout: the latency the test asserts a cheap read meets under the flood (F18), not a deadline on any request
 const READ_BUDGET: Duration = Duration::from_millis(200);
 /// The bulk replays that hold the connection, and each one's lines.
 const REPLAYS: usize = 4;
@@ -72,6 +73,7 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
     )
     .await
     .unwrap();
+    // timeout: a test bound on the handshake answer, so a regression fails here instead of hanging the suite
     let first = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await.unwrap().unwrap();
     assert!(first.contains("\"id\":1"), "{first}");
     let conn = conn_named(&name).await;
