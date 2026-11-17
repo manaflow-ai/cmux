@@ -64,15 +64,15 @@ const CASES: [command: string, label: string][] = [
   // An assignment that runs real work names that work, never a fragment of the line.
   [
     `K=$(scripts/cmux-next/pin-cmux-tui.sh key 2>/dev/null | tail -1); echo "key=$K"; curl -fsS --max-time 15 https://files.example.com/cmux-tui/tree/$K/source.json; echo; ls scripts/cmux-next | grep -i tui`,
-    "Ran pin-cmux-tui.sh key …",
+    `Ran K=$(scripts/cmux-next/pin-cmux-tui.sh key 2>/dev/null | tail -1); echo "key=$K"; curl -fsS --max-time 15 https://files.example.com/cmux-tui/tree/$K/source.json; echo; ls scripts/cmux-next | grep -i tui`,
   ],
   [
     `cd ~/ux-owner; R=$(timeout 100 ~/Projects/leo-workspace/tools/repo-tools resolve manaflow-ai/cmux pr/28179 2>/dev/null | tail -1); echo "28179 ref $R"`,
-    "Ran repo-tools resolve manaflow-ai/cmux pr/28179 …",
+    `Ran cd ~/ux-owner; R=$(timeout 100 ~/Projects/leo-workspace/tools/repo-tools resolve manaflow-ai/cmux pr/28179 2>/dev/null | tail -1); echo "28179 ref $R"`,
   ],
   [
     `id=$(timeout 60 cmux-ci status --ref 2faef0a6ab5d 2>&1 | python3 -I -c "import sys,json\nprint(next(j['id'] for j in json.load(sys.stdin)))"); echo $id; timeout 6000 cmux-ci wait $id --timeout 5900 2>&1 | tail -2`,
-    "Ran cmux-ci status → python3 …",
+    `Ran id=$(timeout 60 cmux-ci status --ref 2faef0a6ab5d 2>&1 | python3 -I -c "import sys,json…`,
   ],
   // A pipeline into inline code: its programs, and the files they ran on when it names any.
   [
@@ -89,7 +89,7 @@ const CASES: [command: string, label: string][] = [
   ],
   [
     `until s=$(cmux-ci status c95330e27065 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["state"])'); [ "\${s%% *}" != "queued" ]; do sleep 60; done; echo "$s"`,
-    "Ran cmux-ci status → python3 …",
+    `Ran until s=$(cmux-ci status c95330e27065 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["state"])'); [ "\${s%% *}" != "queued" ]; do sleep 60; done; echo "$s"`,
   ],
   // Multi-line `-c` code on its own: its first line, never the whole script.
   [
@@ -104,11 +104,11 @@ const CASES: [command: string, label: string][] = [
   ],
   [
     `PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'\nfrom pathlib import Path\nprint(Path('.').resolve())\nPY\nrg -n 'ThreadPoolExecutor' tools/test_pr_overlap.py`,
-    "Ran a Python script …",
+    "Ran PYTHONDONTWRITEBYTECODE=1 python3 -…",
   ],
   [
     `cd webviews && grep -rn "text-control--line-height:" src/pages/shared/desktop.css | head -2; python3 - <<'EOF'\np='src/ui/popupSurface.css'\ns=open(p).read()\nEOF`,
-    "Searched for “text-control--line-height:” …",
+    `Ran grep -rn "text-control--line-height:" src/pages/shared/desktop.css | head -2; python3 -…`,
   ],
   [ALS, "Ran a Python script on als.json"],
   [`python3 <<EOF\nprint(sum(range(10)))\nEOF`, "Ran a Python script"],
@@ -125,7 +125,7 @@ const CASES: [command: string, label: string][] = [
   [`python3 <<< 'print(open("notes/todo.md").read())'`, "Ran a Python script on todo.md"],
   [
     `cat > /tmp/cmux-28139-close.txt <<'EOF'\nSuperseded by #28897, which carries this forward.\nEOF\ngh pr comment 28139 --repo manaflow-ai/cmux --body-file /tmp/cmux-28139-close.txt\ngh pr close 28139 --repo manaflow-ai/cmux`,
-    "Wrote cmux-28139-close.txt …",
+    "Ran cat > /tmp/cmux-28139-close.txt…",
   ],
   [`cat <<'EOF' > /tmp/brief.md\n# Brief\nEOF`, "Wrote brief.md"],
   // An append is not a write of the file: its line, without the marker.
@@ -134,10 +134,13 @@ const CASES: [command: string, label: string][] = [
   ["(cd cmux-tui && cargo test -p acpmux --lib 2>&1 | tail -60)", "Ran tests with cargo"],
   [
     `for f in /tmp/sidebar-first.log /tmp/sidebar-core.log; do echo "--- $f"; wc -c "$f"; tail -100 "$f"; done`,
-    `Ran wc -c "$f" …`,
+    `Ran for f in /tmp/sidebar-first.log /tmp/sidebar-core.log; do echo "--- $f"; wc -c "$f"; tail -100 "$f"; done`,
   ],
   // `cd X && …`, env prefixes and plumbing steps around the work.
-  ["cd ~/Projects/checkouts/cmux/x && git status | head -5; git log --oneline -1; ls", "Checked git status …"],
+  [
+    "cd ~/Projects/checkouts/cmux/x && git status | head -5; git log --oneline -1; ls",
+    "Ran git status | head -5; git log --oneline -1; ls",
+  ],
   [
     "CMUX_BROWSER_TESTS=1 bun test test/live-line-lead-tone-browser.test.ts 2>&1 | tail -20",
     "Ran tests in live-line-lead-tone-browser.test.ts",
@@ -145,10 +148,13 @@ const CASES: [command: string, label: string][] = [
   ["M=~/mirrors/cmux.git; git -C $M log --format='%h %cr %s' -2 origin/main 2>/dev/null", "Read git history"],
   [`echo "head: $(git rev-parse HEAD)"; git log --oneline -3`, "Read git history"],
   ["pwd && git status --short", "Checked git status"],
-  ["git diff --check && git diff --stat && git commit --amend --no-edit && git rev-parse HEAD", "Viewed the diff …"],
+  [
+    "git diff --check && git diff --stat && git commit --amend --no-edit && git rev-parse HEAD",
+    "Ran git diff --check && git diff --stat && git commit --amend --no-edit && git rev-parse HEAD",
+  ],
   [
     "git status --short --branch && git fetch origin feat-cmux-next && git rev-parse origin/feat-cmux-next",
-    "Checked git status …",
+    "Ran git status --short --branch && git fetch origin feat-cmux-next && git rev-parse origin/feat-cmux-next",
   ],
   // Codex's readers.
   [
@@ -164,9 +170,12 @@ const CASES: [command: string, label: string][] = [
   ],
   ["ls -l $(which pr-owner 2>/dev/null) 2>/dev/null", "Ran ls -l $(which pr-owner 2>/dev/null)"],
   ["ps -eo pid,ppid,args | rg 'git (fetch|gc)'", "Ran ps -eo pid,ppid,args | rg 'git (fetch|gc)'"],
-  [`which convert magick ffmpeg; python3 -c "import numpy" 2>&1`, "Ran which convert magick ffmpeg …"],
+  [
+    `which convert magick ffmpeg; python3 -c "import numpy" 2>&1`,
+    `Ran which convert magick ffmpeg; python3 -c "import numpy" 2>&1`,
+  ],
   // An assignment that runs something destructive is the step it names.
-  ["X=$(rm -rf build); ls", "Removed build …"],
+  ["X=$(rm -rf build); ls", "Ran X=$(rm -rf build); ls"],
 ];
 
 for (const [command, expected] of CASES)
