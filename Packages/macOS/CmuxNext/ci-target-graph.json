@@ -169,6 +169,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentList",
         "CmuxNextApps",
         "CmuxNextCloud",
         "CmuxNextCompat",
@@ -203,6 +204,7 @@
         "CmuxNextDictation",
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
+        "CmuxNextPalette",
         "CmuxNextRemoteFetch",
         "CmuxNextSettings",
         "CmuxNextTestSupport",
@@ -216,6 +218,7 @@
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "cmux-tui/spec/",
         "schemas/agent-bridge/contract.json",
+        "schemas/agent-pane/attach-params.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/src/agent-session/acpmux/flickerLog.ts"
       ]
@@ -429,6 +432,7 @@
         "CmuxNextAppCore",
         "CmuxNextAppHealth",
         "CmuxNextApps",
+        "CmuxNextBrowserCore",
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
@@ -449,6 +453,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDiff",
+        "CmuxNextFavicons",
         "CmuxNextFeedClient",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
@@ -576,9 +581,7 @@
       "packages": [
         "CmuxHomeRender"
       ],
-      "reads": [
-        "web/"
-      ]
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
@@ -1115,7 +1118,6 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
-        "CMUXMobileCore",
         "CmuxTheme"
       ],
       "reads": [
@@ -1206,7 +1208,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
       "targets": [
         "CmuxNextBrowser",
-        "CmuxNextTabs"
+        "CmuxNextTabs",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1642,6 +1645,7 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/crates/acpmux/src/share_approval_vectors.json",
         "cmux-tui/crates/cmux-rd-proto/tests/vectors/app_lines.json"
       ]
     },
@@ -1659,9 +1663,7 @@
         "CmuxNextDaemon",
         "CmuxNextWakeups"
       ],
-      "packages": [
-        "CMUXMobileCore"
-      ]
+      "packages": []
     },
     "CmuxNextMobileHost": {
       "kind": "regular",

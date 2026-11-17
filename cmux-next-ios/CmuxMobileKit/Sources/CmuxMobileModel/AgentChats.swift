@@ -147,12 +147,19 @@ public protocol TerminalChatBackend: AnyObject {
     func keptTerminalChat(harness: String, session: String, on macID: String) -> String?
     /// Keeps `chat` as the session's chat; nil forgets it.
     func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String)
+    /// The kept pairings were read from disk: until then `keptTerminalChat` answers nil for a
+    /// pairing that is kept.
+    var keptTerminalChatsLoaded: Bool { get }
+    /// Returns once the kept pairings are read (the read runs off the main thread).
+    func loadKeptTerminalChats() async
 }
 
 extension TerminalChatBackend {
     public func terminalChatListedWhole(on macID: String) -> Bool { false }
     public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? { nil }
     public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {}
+    public var keptTerminalChatsLoaded: Bool { true }
+    public func loadKeptTerminalChats() async {}
 }
 
 extension AgentChatsBackend {
