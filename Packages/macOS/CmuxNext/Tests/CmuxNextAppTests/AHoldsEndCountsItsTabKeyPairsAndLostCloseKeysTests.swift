@@ -10,7 +10,7 @@ import Testing
 /// (`creation_hold_tab_keys`): `cancelled_pairs`, the pairs of a kept New Tab key and the kept Close Tab key after it
 /// that an end of the hold let go together, and `lost_close_keys`, the kept Close Tab keys that a forced end dropped.
 ///
-/// Decision of 2026-11-16: an act never runs before the act of a key that the person pressed before it. A forced end
+/// An act never runs before the act of a key that the person pressed before it. A forced end
 /// runs the kept keys at the thing that has the focus then, so it drops a kept Close Tab key that has no New Tab key
 /// that it can cancel. That is a lost key: the person pressed it and the app did nothing for it. The count is the only
 /// sign of it.

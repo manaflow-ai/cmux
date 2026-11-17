@@ -284,7 +284,7 @@ public final class CreationInputBuffer {
     /// shows the workspace they run in that terminal, never in what has the keyboard instead (Home's message box beside
     /// the pinned dock). With no terminal found (nil) they are dropped, as for a workspace that never showed.
     /// `paneOf`: the pane that shows a tab (nil: not known). A key that the hold keeps for a new workspace's terminal is
-    /// a key of that terminal's pane, not of the pane that had the focus at its press (decision of 2026-11-17: a pane
+    /// a key of that terminal's pane, not of the pane that had the focus at its press (a pane
     /// that changes with no focus move of the person is not another place). So the tab keys' rule reads the keys that
     /// the person pressed before and after the window showed the workspace as keys of one pane
     /// (``reduceTabKeys(dropsLoneClose:kind:)``).
@@ -331,12 +331,12 @@ public final class CreationInputBuffer {
     }
 
     /// Whether a close key that is typed now is not held: the hold ends, and the key acts on what it closes after the held
-    /// keys. A close key is not held (held, it ran later with the other keys), with one case that waits (decision of
-    /// 2026-11-16: an act never runs before the act of a key that the person pressed before it): the Close Tab key while this
+    /// keys. A close key is not held (held, it ran later with the other keys), with one case that waits (an act
+    /// never runs before the act of a key that the person pressed before it): the Close Tab key while this
     /// hold keeps a key that makes or closes a tab and that the person pressed in the same pane (`pane`: the pane that has the focus now). That key is
     /// held behind it as any other key, and the hold's end pairs it with its New Tab key (``reduceTabKeys(dropsLoneClose:kind:)``).
     /// A Close Tab key of another pane is for that pane's tab, so it is not held. `key`: whether the typed key's action is a close action, and what it does to the tabs (``TabKey``). `kind`: what a held key does to the tabs.
-    /// The same pane also means this (decision of 2026-11-17: a pane that changes with no focus move of the person is
+    /// The same pane also means this (a pane that changes with no focus move of the person is
     /// not another place): the window shows the newest new workspace of this hold that the person did not leave
     /// (`shown`: the workspace that the window shows), and the hold keeps a key that makes or closes a tab for that
     /// workspace's terminal. The hold's end gives those keys that terminal's pane (``bindNewWorkspaceKeys(to:machine:paneOf:)``).
@@ -346,7 +346,7 @@ public final class CreationInputBuffer {
         return !events.contains { ($0.pane == pane || workspace != nil && $0.creation == workspace) && kind($0.event) != nil }
     }
 
-    /// Reduces the held keys by their own meaning before an end of the hold runs them (decision of 2026-11-16: an act
+    /// Reduces the held keys by their own meaning before an end of the hold runs them (an act
     /// never runs before the act of a key that the person pressed before it). This is the one rule for a held Close Tab
     /// key. The end that runs each held key uses it; the end of a closed window and a lane whose own view takes its keys early do not:
     /// - A Close Tab key cancels the newest New Tab key before it that the person pressed in the same pane and that is not cancelled yet, and the two go together:

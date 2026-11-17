@@ -12,7 +12,7 @@ import Testing
 /// A Close Tab key that comes after New Tab keys while a hold of the window's keys is open: the order of a person's
 /// keys.
 ///
-/// Decision of 2026-11-16: an act never runs before the act of a key that the person pressed before it. So a Close Tab
+/// An act never runs before the act of a key that the person pressed before it. So a Close Tab
 /// key that comes after New Tab keys closes the tab of the newest New Tab key: it waits in the hold behind the kept
 /// New Tab keys. It never closes a tab that was there before the keys, and it takes no other New Tab key's tab.
 ///
@@ -339,7 +339,7 @@ struct ACloseTabKeyAfterKeptNewTabKeysTests {
     /// but the two of that pair (the other kept New Tab key runs again), and `debug.focus` counts 1 pair and no lost
     /// key.
     ///
-    /// The check reads the tab actions that ran (`Keys.tabActs`). Until 2026-11-17 it read the replay log's count
+    /// The check reads the tab actions that ran (`Keys.tabActs`). An earlier form read the replay log's count
     /// (want 1). That count has two right values: a kept key that runs again comes through the replay log only when
     /// it runs through the key path. A kept key of a terminal that is not the focused one runs its action directly,
     /// with that terminal's tab as the target (`CreationInputCoordinator.runAgain`), and the count is then 0. The

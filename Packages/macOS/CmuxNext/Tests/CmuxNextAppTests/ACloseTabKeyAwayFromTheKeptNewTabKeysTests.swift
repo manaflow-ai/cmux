@@ -9,17 +9,17 @@ import Testing
 /// A Close Tab key that the person presses in another place than the New Tab keys that a hold of the window's keys
 /// keeps: in another pane of the window, or in a panel of the window.
 ///
-/// Decision of 2026-11-16: an act never runs before the act of a key that the person pressed before it. A hold's end
+/// An act never runs before the act of a key that the person pressed before it. A hold's end
 /// lets a kept Close Tab key and the kept New Tab key before it go together, because the Close Tab key closes the tab
 /// of that New Tab key (`ACloseTabKeyAfterKeptNewTabKeysTests`). That is true only when the two keys are for one pane.
 /// A Close Tab key in another pane is for the tab that the other pane shows, and a Close Tab key in a panel is the
 /// panel's key. So such a key is not kept behind the New Tab keys and makes no pair with one of them: the hold ends,
 /// each kept New Tab key makes its tab, and the Close Tab key acts where the person pressed it.
 ///
-/// Decision of 2026-11-17: a pane that changes with no focus move of the person is not another place. The window shows
+/// A pane that changes with no focus move of the person is not another place. The window shows
 /// the person's new workspace while a hold keeps New Tab keys: the pane of the keys' press is the old workspace's, and
 /// the Close Tab key after them comes in the new workspace's pane. The person made no move between those keys, so they
-/// are keys of one place, and the decision of 2026-11-16 is for them: Cmd-N, Cmd-T, Cmd-T, Cmd-W leaves 1 new tab of
+/// are keys of one place, and the rule above is for them: Cmd-N, Cmd-T, Cmd-T, Cmd-W leaves 1 new tab of
 /// the New Tab keys and closes no other tab. The two last rows expect that result and not a form (`checkOneNewTab`).
 /// The two rows are the two times where the Close Tab key can come: before the hold of the new workspace ends, and
 /// after it. The keys that a hold keeps for a new workspace's terminal are keys of that terminal's pane
@@ -184,7 +184,7 @@ struct ACloseTabKeyAwayFromTheKeptNewTabKeysTests {
         var failures: [String] = []
     }
 
-    /// The result that the two rows of the person's new workspace expect (decision of 2026-11-16: an act never runs
+    /// The result that the two rows of the person's new workspace expect (an act never runs
     /// before the act of a key that the person pressed before it), with the row's counts in one line:
     /// - 1 new tab of the New Tab keys at the end (two New Tab keys and one Close Tab key);
     /// - no tab of the start and no tab of the new workspace itself is closed;
@@ -220,7 +220,7 @@ struct ACloseTabKeyAwayFromTheKeptNewTabKeysTests {
     /// The person made no focus move between the keys, so they are keys of one place. The row expects the result and
     /// not a form (`checkOneNewTab`). The form when this row was made: the hold does not keep the Close Tab key; the
     /// key ends the hold, the second New Tab key runs again first and makes its tab, and then the Close Tab key closes
-    /// one new tab. The form after the mend of the first case (2026-11-17): the second New Tab key has the pane of
+    /// one new tab. The form after the mend of the first case: the second New Tab key has the pane of
     /// the new workspace's terminal, so the hold of the first New Tab key keeps the Close Tab key behind it, and its
     /// end lets the two go together.
     ///
@@ -302,7 +302,7 @@ struct ACloseTabKeyAwayFromTheKeptNewTabKeysTests {
     /// The row expects the same result as the row before it (`checkOneNewTab`): 1 new tab of the New Tab keys, no
     /// other tab closed, and no act of the Close Tab key before the act of a New Tab key that the person pressed
     /// before it. It also counts the New Tab keys: each of the two ran its action or went in a pair with the Close
-    /// Tab key. Before the mend of 2026-11-17 the second one did neither: the Close Tab key ended the hold, the
+    /// Tab key. Before the mend of this case the second one did neither: the Close Tab key ended the hold, the
     /// first New Tab key ran again and opened a hold of its own, the second went into that hold as a key of the first
     /// one's creation, and the Close Tab key cancelled that creation, which took the second key with it.
     ///

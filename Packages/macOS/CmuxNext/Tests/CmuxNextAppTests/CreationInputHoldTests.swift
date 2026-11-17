@@ -209,7 +209,7 @@ import Testing
         #expect(Set(page.map(ObjectIdentifier.init)).count == typed.count, "a held key went to the page twice")
     }
 
-    /// Decision of 2026-11-17: a pane that changes with no focus move of the person is not another place. The hold keeps
+    /// A pane that changes with no focus move of the person is not another place. The hold keeps
     /// two New Tab keys for the terminal of the person's new workspace; the pane of their press is the old workspace's.
     /// A Close Tab key in another pane acts now while the window shows the old workspace. When the window shows the new
     /// workspace, the Close Tab key waits behind those keys. The hold's end gives the kept keys the pane of the new

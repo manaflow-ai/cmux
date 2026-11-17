@@ -9,7 +9,7 @@ import Testing
 /// Text between a kept New Tab key and a Close Tab key: New Tab, text, Close Tab, while a hold of the window's keys is
 /// open and keeps the New Tab key.
 ///
-/// Decision of 2026-11-16: an act never runs before the act of a key that the person pressed before it. The text is for
+/// An act never runs before the act of a key that the person pressed before it. The text is for
 /// the tab of the New Tab key, and the Close Tab key is for that tab too. A hold's end lets a Close Tab key and the New
 /// Tab key before it go together when no other key is between them (`ACloseTabKeyAfterKeptNewTabKeysTests`). Text
 /// between them stops that: if the two keys went together, the text was left, and it ran in a tab that was there before

@@ -84,15 +84,15 @@ Allowed transitions, by event (the reducer, `FocusReducer.swift`):
 | K4 | Main-menu key equivalents follow the same tier rules (`allowsMenu`); over a text panel tier 2 never runs. |
 
 Tab keys that a creation hold keeps (`CreationInputBuffer.reduceTabKeys`, `CreationInputBuffer.closeKeyActsNow`;
-decision of 2026-11-16: an act never runs before the act of a key that the person pressed before it). While a hold
+the rule: an act never runs before the act of a key that the person pressed before it). While a hold
 of the window's keys keeps a New Tab key, a Close Tab key that the person presses in the same pane is kept behind it.
 At the hold's end the Close Tab key and the newest kept New Tab key of that pane before it go together as a pair: no
 tab is made and no tab is closed. A key of another kind between them stops the pairing for the New Tab keys before
 it. A kept Close Tab key with no New Tab key to pair with stays at a normal end and runs in its order; at a forced
 end (the reply bound, the hold's limit, the focus left the content) it is dropped, counted and logged, and it closes
 no tab that was there before the keys. The pane of a key is the pane that had the focus at its press: keys of two
-panes make no pair. A pane that changes with no focus move of the person is not another place (decision of
-2026-11-17): a key that the hold keeps for a new workspace's terminal is a key of that terminal's pane from the hold's
+panes make no pair. A pane that changes with no focus move of the person is not another place:
+a key that the hold keeps for a new workspace's terminal is a key of that terminal's pane from the hold's
 end on, and while the window shows that workspace a Close Tab key is kept behind such a key that makes or closes a
 tab. A Close Tab key in a pane with no kept tab key of that pane is not kept: the hold ends, the kept
 keys run first, then the key closes its own pane's tab. A Close Tab key in a panel of the window is the panel's key
