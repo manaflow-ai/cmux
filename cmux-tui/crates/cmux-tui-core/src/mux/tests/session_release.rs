@@ -1166,3 +1166,104 @@ fn a_bounded_join_leaves_a_thread_that_does_not_end_and_lists_it_until_its_end()
         "the join did not give the end of a thread that ended in its bound: {ended:?}"
     );
 }
+
+/// The names that a release of `_owner` reads, at this moment, from the list
+/// of the threads that a stop left alive. The read has no wait.
+fn left_for(_owner: &Mux) -> Vec<&'static str> {
+    stop_join::alive_at(Instant::now())
+}
+
+/// Two owners in one process, each with its own session folder. The stop of
+/// the first leaves its maintenance worker alive in a tick. That thread can
+/// write files of the first owner's session only, so it keeps that session
+/// only (decision of 2026-11-17): the second owner's release gives its
+/// session up while the thread lives, and the first owner keeps its session
+/// with the worker's name. A thread that a stop left with no owner to its
+/// name keeps each owner of the process: the release of the first owner and
+/// the release of the second both read it.
+///
+/// The thread with no owner lives for two reads of the list and ends then.
+/// A release that reads it in that time waits for its end, so the thread
+/// keeps no session of another test that runs in this process.
+#[test]
+fn a_thread_that_a_stop_left_keeps_the_session_of_its_own_owner_only() {
+    const NO_OWNER: &str = "a left thread with no owner";
+    let id = crate::workspace_registry::new_uuid_v4();
+    let [first_root, second_root] = ["first", "second"]
+        .map(|owner| std::env::temp_dir().join(format!("cmux-session-release-own-{owner}-{id}")));
+    let first = open_owner(&first_root, "release-own-first");
+    let second = open_owner(&second_root, "release-own-second");
+    let folders = [session_folder(&first), session_folder(&second)];
+    let (began, tick_began) = mpsc::sync_channel(1);
+    let (end_the_tick, tick_runs) = mpsc::sync_channel::<()>(1);
+    journal_maintenance::worker_tests::put_a_worker_in_a_tick(&first, move || {
+        let _ = began.send(());
+        // Until the test drops its end of the channel.
+        let _ = tick_runs.recv();
+    });
+    tick_began
+        .recv_timeout(OWNER_CALL_WAIT)
+        .expect("setup: the worker's thread did not begin its tick");
+    let (said, calls_said) = mpsc::sync_channel(1);
+    let caller = std::thread::spawn({
+        let (first, second) = (Arc::clone(&first), Arc::clone(&second));
+        let sockets = [&first_root, &second_root].map(|root| root.join("control.sock"));
+        move || {
+            first.shutdown();
+            second.shutdown();
+            // The first owner's worker lives here, and it lives to the end
+            // of these calls: the tick ends only after them.
+            let second_release = second.release_ownership(&sockets[1]);
+            let (end_the_thread, thread_runs) = mpsc::sync_channel::<()>(1);
+            let thread = std::thread::spawn(move || {
+                // Until the line below that drops the channel's other end.
+                let _ = thread_runs.recv();
+            });
+            // No wait: the thread cannot end before the channel closes.
+            let _ = stop_join::join_for(NO_OWNER, thread, Duration::ZERO);
+            let listed = [left_for(&first), left_for(&second)];
+            drop(end_the_thread);
+            let first_release = first.release_ownership(&sockets[0]);
+            let _ = said.send((first_release, second_release, listed));
+        }
+    });
+    let calls = calls_said.recv_timeout(OWNER_CALL_WAIT).ok();
+    drop(end_the_tick);
+    let _ = caller.join();
+    drop((first, second));
+    for folder in &folders {
+        crate::workspace_registry::owner_release::end_kept_owner_for_test(folder);
+    }
+    for root in [&first_root, &second_root] {
+        let _ = std::fs::remove_dir_all(root);
+    }
+    let Some((first_release, second_release, [for_first, for_second])) = calls else {
+        panic!(
+            "the stops and the releases of the two owners did not return while a tick of the \
+             first owner's maintenance worker ran (the test waited {} s for them)",
+            OWNER_CALL_WAIT.as_secs()
+        );
+    };
+    assert!(
+        second_release == lifecycle::OwnershipRelease::Released,
+        "a thread that the stop of one owner left alive kept the session of another owner of \
+         the process, which has another session folder: that owner's release: \
+         {second_release:?}"
+    );
+    assert!(
+        kept_names(Some(&first_release)) == [MAINTENANCE_WORKER],
+        "an owner whose stop went on without its maintenance worker did not keep its session \
+         with that worker's name while the tick ran: its release: {first_release:?}"
+    );
+    assert!(
+        for_first.contains(&NO_OWNER) && for_second.contains(&NO_OWNER),
+        "a left thread with no owner is not in what the release of each owner of the process \
+         reads: for the first owner: {for_first:?}; for the second owner: {for_second:?}"
+    );
+    assert!(
+        for_first.contains(&MAINTENANCE_WORKER) && !for_second.contains(&MAINTENANCE_WORKER),
+        "the maintenance worker that the first owner's stop left alive is not in what that \
+         owner's release reads, or it is in what the second owner's release reads: for the \
+         first owner: {for_first:?}; for the second owner: {for_second:?}"
+    );
+}
