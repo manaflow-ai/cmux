@@ -187,9 +187,11 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           await page.locator("[data-pending-row] .cv-user__pending-state svg").waitFor();
           await page.evaluate(() => document.fonts.ready);
           const m = await page.evaluate(() => {
-            // Copy's right edge against its bubble's: a pending row's and a sent row's are the same.
+            // The button row's right edge against its bubble's: a pending row's and a sent row's are
+            // the same, so Copy and the buttons after it sit where they always do. (The rows' button
+            // sets differ, so their end, not Copy itself, is what lines up.)
             const copyFromBubbleRight = (row: Element) =>
-              row.querySelector('button[aria-label="Copy"]')!.getBoundingClientRect().right -
+              row.querySelector(".cv-user__actions .cv-message-footer-row")!.getBoundingClientRect().right -
               row.querySelector(".cv-user__bubble")!.getBoundingClientRect().right;
             const scope = document.querySelector("[data-pending-row]")!;
             const note = scope.querySelector(".cv-user__pending-state")!;
