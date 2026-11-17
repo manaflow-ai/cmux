@@ -1442,15 +1442,15 @@ export default agentPaneEntry({
       },
     },
     "create-strip-narrow": {
-      note: "Creation commands appear only when searched in a narrow pane.",
+      note: "An address in the composer shows navigation matches without fixed creation buttons or unrelated creation commands.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        ctx.document.body.style.maxWidth = "300px";
-        await typedSuggestions(ctx, translateNewTab("create.browser"), (rows) =>
-          rows.some((row) => row.type === "create") ? undefined : "the browser creation command is missing",
-        );
+        await typePrompt(ctx, "localhost:3000");
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
         noFixedCreateButtons(ctx);
+        if (ctx.document.querySelector('.nt-popover [data-type="create"]'))
+          throw new Error("an unrelated creation command appears for an address");
       },
     },
     "suggestions-ff": {
