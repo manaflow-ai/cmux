@@ -110,7 +110,7 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 `acpmux ls` is compact by default: the live lanes someone named, as NAME, HOST (only while
 some row is on a peer), STATE, TURNS, AGE, STUCK and WARN. STUCK says in a few words why a
-lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
+lane needs someone (`permission`, `rate-limited until 04:30Z`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
 WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
 sub-sessions and sessions with only a generated name are hidden and counted on the last line;
 `--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
