@@ -271,9 +271,10 @@ async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
     let session = c.new_session().await;
     c.busy(&session, None).await;
     hub.shutdown_all().await;
-    // The stopped request future is dropped at the fence before `finish_turn` in
-    // `hub/turns.rs` can run. `Hub::end_sessions` in `hub/shutdown.rs` takes the turn under
-    // `settled_by_shutdown`; the next daemon therefore sees the cut prompt without an end.
+    // The stopped request's future is dropped when its task is next polled after the fence,
+    // unless its agent's end had already arrived: then `finish_turn` (`hub/turns.rs`) runs and
+    // writes nothing, because `Hub::end_sessions` (`hub/shutdown.rs`) took the turn and put its
+    // id in `settled_by_shutdown`. Either way the next daemon reads the cut prompt with no end.
     drop(c);
     drop(hub);
 
