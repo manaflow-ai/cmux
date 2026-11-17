@@ -529,8 +529,9 @@ smoltcp = { path = "vendor/smoltcp" }
 # cmux-tui-build-package.yml's `lto: fat` input means "this profile"; its
 # `lto: thin` is the machine channel's LTO-off build.
 [profile.release]
-lto = "thin"
-codegen-units = 1
+lto = "off"
+codegen-units = 16
+incremental = true
 
 [profile.release.package.cmux-tui]
 opt-level = "z"
