@@ -2678,6 +2678,10 @@ class Target:
     # (places_again()), and while its open head keeps it the watch looks again until the watch limit (follow()).
     # The watch still ends at its one rescue: a dispatch re-places a run at most once.
     dispatched: bool = False
+    # The owned side label a placement re-run of this run's Mac jobs falls back to (rerun_side_label(), follow()'s
+    # `side_label`), or "" (Blacksmith macOS on, or not known): open_head_failover() never re-places a long wait
+    # onto the label it waits on.
+    rerun_side: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -4593,6 +4597,17 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         # but only by a placement re-run (checked below, once the plan is read).
         long_wait = [] if dead else [(job, label) for job, label in waiting
                                      if long_owned_wait(target, job, label, at, seen.get(job_key(job)))]
+        # With Blacksmith macOS off the placement re-run finds no idle runner (side_lane_placement.rerun_main()) and
+        # defers the job to the side label again: re-placing a long wait on that label only puts it back in the same
+        # queue and resets its age. Measured 2026-11-17 16:22Z: 46-58 glaeda-side-std-xcode-26.6 joins an hour of
+        # such churn, 124 of its 222 queued jobs on attempt 3. The light move (light_wait()) still applies, as it
+        # names an idle light runner the re-run's placement uses.
+        same = [(job, label) for job, label in long_wait if target.rerun_side and label == target.rerun_side]
+        if same:
+            log(f"no long-wait re-placement for run {target.run_id}: "
+                f"{', '.join(sorted({str(job.get('name') or job.get('id')) for job, _ in same}))} waits on "
+                f"`{target.rerun_side}`, and its placement re-run would put it back on {target.rerun_side}")
+            long_wait = [pair for pair in long_wait if pair not in same]
         # A light-fit job waiting on the std side label while a light side runner listens: placed again sooner, by a
         # placement re-run whose light placement the job reads (checked below, once the plan is read).
         light_moves = [] if dead or long_wait else [
@@ -5847,6 +5862,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_sleep = rescue_sleep or sleep
     clock = now
     effective_seconds = side_seconds if target.path == CMUX_NEXT_WORKFLOW_PATH and side_seconds is not None else seconds
+    if side_label and not target.rerun_side:
+        target = dataclasses.replace(target, rerun_side=side_label)
     if (target.nightly and target.push_branch == "nightly-next" and target.event == "push"
             and target.attempt == 1):
         effective_seconds = max(effective_seconds, NIGHTLY_NEXT_BOOTSTRAP_SECONDS)
