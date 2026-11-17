@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44079327062",
+  "recorded_at": "2026-11-17T12:10:55Z",
+  "reason": "cmux-tui 21f6a48cf737 changes the image's cmux-tui (pinned 9485c0406411)",
+  "dry_run": false,
+  "cmux_tui": "21f6a48cf737a405223bbc1f903445861f92611c",
+  "fixes": [
+    {
+      "sha": "ba7e643b92bc70ada94c551f7400e9e796441112",
+      "mergedAt": "2026-11-17T03:50:03-08:00",
+      "subject": "Cloud start: size and time estimate of the folder copy before any machine is leased (#45324)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T12:10:55Z",
+    "snapshot_id": "sh-ca3ad4f9df7141cd9941b93f03efcd78",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44079327062): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cb670a1ae37ca5cf94abf6d226f7ab0ba0632391",
+    "image": "cloud-native-auto-21f6a48c-44079327062-1",
+    "revision": "ci-44079327062-1",
+    "at": "2026-11-17T12:10:55Z"
+  },
+  "rolled_back": false
+}
