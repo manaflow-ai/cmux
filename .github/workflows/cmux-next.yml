@@ -1,39 +1,6 @@
 name: cmux-next
 
-# Package tests and merge-gate checks for the cmux-next app package
-# (Packages/macOS/CmuxNext). `swift test` runs the package's Swift Testing
-# suites in-process; it never builds or launches a cmux DEV app. The checks
-# are the AGENT-BRIEF merge gate: god files, main-thread concurrency and the
-# string tables (the CmuxNext catalogs and InfoPlist).
-#
-# A pull request runs only the tiers its change can break
-# (scripts/ci/cmux_next_route.py, docs/ci/cmux-next-tiers.md):
-#   checks     always (Linux)
-#   generated  generated action contracts, the CI target graph and the settings exports are fresh;
-#              a stale file gets a bot fix commit on a same-repository PR
-#   native     the Release compile, for Swift and app sources
-#   scheme     the Debug app scheme compile, for the app host, Xcode project,
-#              webviews and local packages
-#   swift      the CmuxNext test targets the SwiftPM target graph says the
-#              change reaches (Packages/macOS/CmuxNext/ci-target-graph.json)
-#   daemon     the same-tree cmux-tui and the live-daemon suites, for daemon,
-#              Rust core, FFI and control paths
-# A same-repository pull request runs every tier the router picks on its own
-# branch, with no label (#22303), except the two heavy app compiles (native and
-# scheme), which need full-ci again (2026-10-21: the Mac queue was ~350 jobs
-# deep), and the swift tier, which needs full-ci too (2026-11-05: of 78 PR
-# swift-test check runs, 37 were cancelled by a merge, a newer push or a re-run
-# and none passed; the tip suite dispatch gives the base its verdict); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
-# native tier compiles the PR's head on the build fleet instead
-# (app-compile-fleet; the Mac Release compile only when it gives no verdict, and only for a PR
-# that changes an input only that xcodebuild sees: path_route's mac_release,
-# cmux_next_route.MAC_RELEASE_INPUTS). A fork pull
-# request runs the fast tier and,
-# for a CmuxNext .swift change, the Release compile, and the other Mac tiers
-# only with the full-ci label, on its hosted fallback. full-ci also makes the router
-# pick every tier. A feat-cmux-next push runs the Mac compiles but not swift
-# test (see the jobs comment below); a red push run names the pull requests in
-# its range.
+# Why: docs/ci/cmux-next-workflow-notes.md#note-389
 
 on:
   pull_request:
@@ -697,10 +664,7 @@ on:
         required: false
         default: false
         type: boolean
-      # cmux-next-base-tier-kick.yml (scripts/ci/cmux_next_base_tier.py): a feat-cmux-next push leaves
-      # its base Mac tier (daemon tests, generated files, the Debug app scheme compile) to this run,
-      # started at most once every 15 minutes on the tip (cmuxterm-hq#5424). Named
-      # `cmux-next base tier · <sha>`, which the kick, push attribution and base_red_excuse.py read.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-396
       base_tier:
         description: "Run only the base Mac tier (daemon tests, generated files, scheme compile) on the feat-cmux-next tip"
         required: false
@@ -1484,15 +1448,10 @@ jobs:
           # A feat-cmux-next push's Release compile gates the nightly-next request, so the cascade
           # places it ahead of the run's other jobs (next_macos_cascade.FIRST_JOBS).
           FIRST_JOBS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'release-compile' || '' }}
-          # The jobs a feed's freshness waits on: when the counts cannot be read (a 403 on the route token, a
-          # stale snapshot) they take Blacksmith 6 vCPU, the last resort, instead of an owned queue nobody
-          # measured (next_macos_cascade.unread_fresh_jobs()). A DEV daily's Release compile feeds the DEV
-          # channel, a feat-cmux-next push's gates nightly-next.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-397
           FRESH_JOBS: ${{ (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && 'release-compile' || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && 'cmux-scheme-compile') || '' }}
         run: |
-          # The rescue's re-run (any bot attempt from 2) is placed only by a trusted script that knows it
-          # (side_lane_placement.rerun_main()): an older one writes owned routes a re-run must not
-          # take, so the step writes nothing, the route every re-run had before.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-398
           if [ "$GITHUB_RUN_ATTEMPT" != 1 ] && ! grep -q '^def rerun_main' scripts/ci/side_lane_placement.py; then
             echo "side-lane placement: the trusted placement predates re-run placement; the re-run keeps its route"
             exit 0
@@ -1506,14 +1465,7 @@ jobs:
           if [ -z "$route" ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; then
             printf 'runner=glaeda-%s\n' "${SIDE_LABEL#glaeda-side-}" >> "$GITHUB_OUTPUT"
           fi
-          # An empty gui_runner is meaningful: no online runner carries the
-          # GUI label, so preserve the picker/placement fallback instead of
-          # synthesizing a label that may not exist in the fleet.
-          # A placement that names neither a GUI route nor a GUI overflow (a
-          # trusted base that predates the sized gui_overflow, or one whose
-          # runner read failed closed) vouches for no owned GUI queue: the GUI
-          # jobs take Blacksmith 6 vCPU, the last resort, as the synthesized
-          # runner above sent them before, never the owned GUI queue unmeasured.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-393
           gui="$(awk -F= '($1 == "gui_runner" || $1 == "gui_overflow") && substr($0, index($0, "=") + 1) != "" { found=1 } END { print found + 0 }' "$GITHUB_OUTPUT")"
           if [ "$gui" = 0 ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; then
             printf 'gui_overflow=%s\n' "$GUI_LAST_RESORT" >> "$GITHUB_OUTPUT"
@@ -1602,10 +1554,7 @@ jobs:
     needs: [portable-placement]
     if: ${{ !cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
-    # Fleet Linux, then a free mini (portable-placement), then Blacksmith 16 vCPU. The slow checks run
-    # concurrently, one per CPU or per core of the job's share on a mini ("Start the slow checks in the background", scripts/ci/run-checks-concurrently.sh). While the overflow
-    # switch has failed over it takes 8 vCPU, not 32 (.github/runners.json linux_sizes), hence 15 minutes.
-    # The checks are Python and bash; none needs Linux.
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-399
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-349
     timeout-minutes: ${{ github.repository_owner == 'manaflow-ai' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && !contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner != '' && 35 || 15 }}
@@ -2280,10 +2229,7 @@ jobs:
           python3 tests/test_cmux_next_ios_test_notes_retry.py
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
 
-      # The perf gate's source guard without an app (I5: a theme change captures no window and
-      # forces no commit): a source scan of seconds, so it stays here while the perf gate itself runs
-      # only in the perf cron (cmux-next-perf-budgets.yml); two hits once landed by direct push
-      # (36c5b4217488, 715f623c97e1).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-400
       - name: Perf source guard (no window capture or CATransaction.flush)
         id: perf-source-guard
         continue-on-error: true
@@ -2615,14 +2561,7 @@ jobs:
             fi
             failed+=("$name (${outcome:-not run})")
           done <<<"$OUTCOMES"
-          # A push names which reds it added and which the previous tip already had, but every
-          # red keeps the job red. Turning inherited reds into warnings (0150fc73e3e) made the
-          # tip's checks job green while its checks were red: base_red_checks.py excused every red
-          # while the previous tip was still pending, which on a branch with ~100 merges a day is
-          # nearly always, so new reds landed unseen; and the PR-side comparisons
-          # (pr_red_checks_comment.py, base_red_excuse.py, next-autoland) read the green tip as
-          # "green on the base" and charged the base's reds to every open pull request
-          # (2026-10-30: 252 of 660 open PRs red on four base reds, no autoland merge in 24 h).
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-391
           if [[ "$EVENT_NAME" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ && ${#failed[@]} -gt 0 ]]; then
             current="$RUNNER_TEMP/cmux-next-red-checks.txt"
             printf '%s\n' "${failed[@]}" | sed -E 's/ \((failure|timed_out|cancelled|not run)\)$//' >"$current"
@@ -2737,13 +2676,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      # The minis cannot read this cache: on Blacksmith it is Blacksmith's own
-      # cache, which a self-hosted Mac never sees (2026-10-26: swift test rebuilt
-      # the bundles on 14 of 25 sampled jobs, generated files on 12 of 44, 40 s
-      # of Mac time each). So a run that does not publish them to R2 (every
-      # event but a feat-cmux-next push) also hands them to its own Mac jobs as
-      # an artifact named after the source key; a Mac job whose sources give
-      # the same key installs it instead of building.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-401
       - name: Hand the web bundles to this run's Mac jobs
         if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
         continue-on-error: true
@@ -2755,12 +2688,7 @@ jobs:
           retention-days: 1
           overwrite: true
 
-      # The Mac jobs read the bundles from R2's CDN first: the minis download
-      # them from there much faster than from the GitHub cache, and every
-      # pull request whose web sources match feat-cmux-next's hits. The `any`
-      # namespace is shared by every OS (the bundles are platform-independent).
-      # A key that is already stored is not uploaded again. A DEV daily run does not publish:
-      # its DEV Release compile reads this run's GitHub cache entry when R2 has no copy.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-402
       - name: Publish the web bundles to R2 (feat-cmux-next push)
         if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         continue-on-error: true
@@ -2821,9 +2749,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$COMMIT" ]]; then
-            # The tree's publish record, read now: a re-run of this run (same inputs) after a later
-            # publication dispatches the ready tree jobs instead of repeating the old verdict. Not
-            # published: it writes this run's marker (reported), uploaded below for the key's next publish.
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-410
             marker="$RUNNER_TEMP/cmux-next-tree-wait/marker.json"
             if python3 scripts/ci/cmux_next_same_tree_failed.py --repo "$GITHUB_REPOSITORY" --ref "$REF_NAME" \
                 --ref-kind "$REF_KIND" --reason "$REASON" --key "$KEY" --commit "$COMMIT" --status-sha "$STATUS_SHA" \
@@ -3268,12 +3194,7 @@ jobs:
             # shellcheck disable=SC2317
             exit 1
           fi
-          # submit N PACKAGE SUITES: one fleet step that builds PACKAGE once and runs SUITES at REF.
-          # CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 keeps the Mac fast tier's 60-second limit per entry
-          # (package-test-lane.sh's suite default is 900 s); the build before the suites has no such limit.
-          # --no-supersede: a newer head never takes this run's step, so the verdict stays this commit's.
-          # --queue-timeout 1200: the light class's measured queue p90 (cmux-ci's warning: 746 s on
-          # 2026-11-08 12:07Z, 1314 s at 14:28Z), bounded at 20 minutes; past it the tier runs itself.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-394
           submit() {
             local status=0
             "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
@@ -3329,9 +3250,7 @@ jobs:
               if [[ "$json" =~ $code_re ]]; then code="${BASH_REMATCH[1]}"; fi
             fi
             if [[ -z "$why" ]]; then
-              # The controller's record decides: a pass is a step done at REF with exit 0 (and a client
-              # that exited 0); a step that ended with a nonzero exit is a fail whatever the client said;
-              # anything else (no worker, a queue or run timeout, a newer head, a cancel) is no verdict.
+              # Why: docs/ci/cmux-next-workflow-notes.md#note-403
               if [[ "$status" == 0 && "$state" == "done" && "$code" == 0 ]]; then
                 step=pass; why="$2: every suite passed at $REF (step $id)"
               elif [[ ( "$state" == "failed" || "$state" == "done" ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
@@ -3597,12 +3516,7 @@ jobs:
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
-      # Owned minis keep their builds on their own SSD (above). Blacksmith overflow
-      # restores the newest seed cmux-next-fast-tier-seed.yml saved from a
-      # feat-cmux-next push to cmux-ci-cache-next, through its public URL: no
-      # credential, and a pull request never writes. The swift directory comes by
-      # prefix; the home directory by that seed's exact commit, so both come from
-      # one seed and match the input-time manifest in the swift directory.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-404
       - name: Compute fast-tier cache keys
         id: fast-cache-key
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
@@ -4260,24 +4174,7 @@ jobs:
             fi
             priority_skip=(--skip "$SWIFT_PRIORITY_FILTER")
           fi
-          # The selected targets as several test processes at once, split by
-          # target and suite prefix (scripts/cmux-next/swift-test-shards.py), as
-          # many at a time as the runner's cores and memory hold. One process ran
-          # them all before: ~6,300 tests queued on its one main thread and the
-          # windows they left open piled up (3 -> 428), so throughput fell from
-          # ~2,000 to ~100 tests a minute and the pass hit its limit with 466
-          # tests unfinished (#26809, run 40705037968).
-          # The same-tree cmux-tui as it is when the broad pass starts, the same
-          # for every shard. In the one shared process the base runs, the
-          # live-daemon suites read the tree once, early, before any
-          # CmuxNextDaemonTests suite could fetch it (RealBinary.sameTree), so
-          # they ran only when the tree was already here (after the
-          # changed-suites pass fetched it, say) and skipped otherwise. As
-          # shards, those that started after a fetch ran them and the rest
-          # skipped (run 40932106119: 87 skipped, 315 on the base). Resolved
-          # once here, a missing tree is a path that is never a file: no shard
-          # fetches it, and every live-daemon suite skips as on the base. The
-          # daemon tests job fetches the tree and runs the daemon suites.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-392
           tree_path="$(../../../scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || tree_path=""
           if [[ -n "$tree_path" && -x "$tree_path" ]]; then
             echo "Broad pass same-tree cmux-tui: $tree_path"
@@ -4422,10 +4319,7 @@ jobs:
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
           fi
-          # A stale settings export was already written into the checkout by the
-          # check above.
-          # The defaults snapshot reads the action and settings exports, so it
-          # follows whichever of them was regenerated.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-412
           python3 scripts/ci/defaults_guard.py snapshot
           # The regenerated files themselves, at their repository paths, so
           # they copy onto the PR head. A diff would be against the merge
@@ -4838,10 +4732,7 @@ jobs:
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
           fi
-          # A stale settings export was already written into the checkout by the
-          # check above.
-          # The defaults snapshot reads the action and settings exports, so it
-          # follows whichever of them was regenerated.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-412
           python3 scripts/ci/defaults_guard.py snapshot
           # The regenerated files themselves, at their repository paths, so
           # they copy onto the PR head. A diff would be against the merge
@@ -4939,11 +4830,7 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-generated-files', github.sha) || format('cmux-next-run-{0}-generated-files', github.run_id) }}
       cancel-in-progress: false
-    # vars.CI_SESSION_LANE_RUNNER is generated files' own owned label (glaeda-session-light-xcode-26.6,
-    # the light minis' session runner: a logged-in session, no console token). It is set only after
-    # those runners are registered; while it is unset the route below is unchanged. The fork clause
-    # stays first, so a fork pull request never reaches it. Same-repository PRs use the
-    # generic side picker and its bounded overflow, never the console GUI label.
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-405
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.light_jobs, ' generated-files ') && needs.macos-placement.outputs.light_runner || github.event_name == 'pull_request' && ((github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.session_jobs, ' generated-files ') && needs.macos-placement.outputs.session_spill_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || ((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) || inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || inputs.no_reuse == true)) && vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || ((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) || inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || inputs.no_reuse == true)) && vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     permissions:
@@ -5247,10 +5134,7 @@ jobs:
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
           fi
-          # A stale settings export was already written into the checkout by the
-          # check above.
-          # The defaults snapshot reads the action and settings exports, so it
-          # follows whichever of them was regenerated.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-412
           python3 scripts/ci/defaults_guard.py snapshot
           # The regenerated files themselves, at their repository paths, so
           # they copy onto the PR head. A diff would be against the merge
@@ -5464,10 +5348,7 @@ jobs:
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Release admission must type-check Release-only conditionals. The
-          # private fleet client rolls this profile out independently; until a
-          # runner has it, use the Mac Release fallback instead of silently
-          # admitting on a Debug compile under the Release gate name.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-411
           if ! "$client" compile-check --help 2>/dev/null | grep -q -- '--release'; then
             echo "::warning title=Fast fleet compile check::the fleet client has no Release profile; the Mac fallback will run."
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
@@ -5848,10 +5729,7 @@ jobs:
           SHA: ${{ inputs.same_tree_sha || inputs.dev_daily_sha || github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
-          # With no owned runner idle the compile overflows to the Blacksmith macOS label whose queue moves
-          # (dev_landing_place.blacksmith_overflow(), the nightly signer's pick), not the busy DEV slot.
-          # The owner and fork branches only satisfy tests/test_ci_fork_runner_routing.py (this job runs only in
-          # manaflow-ai on dispatch); blacksmith_overflow() drops 'macos-26' and keeps the Blacksmith labels.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-406
           BLACKSMITH_CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
           GAP_REPO: ${{ runner.temp }}/dev-compile-history
           GAP_REMOTE: ${{ github.server_url }}/${{ github.repository }}
@@ -5975,12 +5853,7 @@ jobs:
           echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
           if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
-          # Readable complete captures of the key (unexpired, under 13 days old: the store keeps the
-          # packs 14 days). A rate limit is waited out; a lookup that still fails captures anyway and
-          # fails this step, so the run shows it (40428066457 lost its capture to a silent rate limit).
-          # compile=true skips the product reuse so there is a build to capture, unless a capture of
-          # this key came out incomplete in the last day (then only a build that compiles anyway
-          # captures, and a key that never captures whole cannot turn reuse off for every landing).
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-395
           if have="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py have --key "$key" --repo "$GITHUB_REPOSITORY" --budget 600)"; then
             complete="$(sed -n 's/^complete=//p' <<< "$have")" incomplete="$(sed -n 's/^recent_incomplete=//p' <<< "$have")"
             capture=false compile=false
@@ -6395,10 +6268,7 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
-          # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
-          # most) and its manifest upload (2) start only while the job, timed from its own start, is
-          # under 40 minutes; with no jobs read the decide step's start stands in, and an unknown
-          # start skips it. A skipped capture is taken by the next landing.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-407
           started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
             --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
           started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
@@ -7227,9 +7097,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)
           post() {  # state, description, target url[, seconds it may wait; POST_BUDGET (600) by default]
             local body code said pause min limited tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}})) cap
-            # A spent pool's x-ratelimit-reset (up to an hour away) is waited for until the step's own end (post_end),
-            # not POST_BUDGET: cmux#43659's passed compile stayed pending 2.5 h after one refused try. An explicit
-            # budget (the pending post's) still bounds every wait.
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-408
             cap=$until; [[ -z "${4:-}" ]] && (( ${post_end:-0} > until )) && cap=$post_end
             local out="$RUNNER_TEMP/status-post.out" hdr="$RUNNER_TEMP/status-post.hdr"
             body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
@@ -7242,9 +7110,7 @@ jobs:
                 "$API/statuses/$SHA" -d "$body")" || true
               [[ "${code:=000}" =~ ^2[0-9][0-9]$ ]] && return 0
               said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ' || true)"
-              # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
-              # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
-              # (a bad token, a missing permission) is final at once.
+              # Why: docs/ci/cmux-next-workflow-notes.md#note-409
               pause="" limited=""
               if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
                 said="$said (rate limited)" limited=1
@@ -7267,8 +7133,7 @@ jobs:
               sleep "$pause"
             done
           }
-          # A terminal post that GitHub still refuses leaves the job's own ::error line below (no verdict, NO_VERDICT).
-          # The pending status only shows the wait: a refused one is a warning, and the verdict below still posts or reds.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-413
           post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" "${PENDING_BUDGET:-30}" \
             || echo "::warning title=Compile check::no pending cmux-next/compile on $SHA; the verdict still posts"
           reply="$RUNNER_TEMP/compile-check.json"
@@ -7386,9 +7251,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)
           post() {  # state, description, target url[, seconds it may wait; POST_BUDGET (600) by default]
             local body code said pause min limited tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}})) cap
-            # A spent pool's x-ratelimit-reset (up to an hour away) is waited for until the step's own end (post_end),
-            # not POST_BUDGET: cmux#43659's passed compile stayed pending 2.5 h after one refused try. An explicit
-            # budget (the pending post's) still bounds every wait.
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-408
             cap=$until; [[ -z "${4:-}" ]] && (( ${post_end:-0} > until )) && cap=$post_end
             local out="$RUNNER_TEMP/status-post.out" hdr="$RUNNER_TEMP/status-post.hdr"
             body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
@@ -7401,9 +7264,7 @@ jobs:
                 "$API/statuses/$SHA" -d "$body")" || true
               [[ "${code:=000}" =~ ^2[0-9][0-9]$ ]] && return 0
               said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ' || true)"
-              # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
-              # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
-              # (a bad token, a missing permission) is final at once.
+              # Why: docs/ci/cmux-next-workflow-notes.md#note-409
               pause="" limited=""
               if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
                 said="$said (rate limited)" limited=1
