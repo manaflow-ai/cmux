@@ -106,8 +106,13 @@ patch path as an edit, so it shows in `live-code.log` and one `*.rollback` undoe
 ## What applies, and what needs a rebuild
 
 Applies: changes inside functions and computed properties of any CmuxNext module, and AppKit drawing and
-layout code, which runs again at once. Needs a rebuild: stored properties, enum cases, protocols,
-resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
+layout code, which runs again at once. Also applies: a type, extension or conformance added whole to an
+existing file, an added `static let` or global `let`, and a changed signature that no other Swift file
+names, unless a vtable, a witness table or the Objective-C runtime reaches it (an override, `@objc`,
+`dynamic`, `required`, a protocol requirement, or a member of a class that is not `final`).
+`scripts/cmux-next/live_apply.py` applies these rules, and `scripts/measure/live-code-app.sh`'s
+generation 5 applies one such patch to a running app. Needs a rebuild: stored instance properties, a
+changed `static let`, any `static var`, enum cases, protocols, resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
 has the numbers and what would make more of them live.
 
 ## Live mode: restart into the live code build and back

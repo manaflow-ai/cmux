@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The app half of scripts/measure/live-code-app.sh: launch, patch twice, take a bad patch and roll it
-back, time each and count pixels."""
+back, then a patch of what live_apply.py's T1 rules call live (a new type with a `static let`, and a
+changed signature only this file calls), time each and count pixels."""
 import argparse
 import json
 import os
@@ -21,6 +22,32 @@ ORIGINAL = "layer?.backgroundColor = nil"
 # first patch also insets it: the color then shows as a border around the chat (a fleet still of
 # try-pr-live-code.sh at 71936c52 counted 0 red pixels without it).
 FILL, INSET = "transcript.frame = bounds\n", "transcript.frame = bounds.insetBy(dx: 80, dy: 80)\n"
+# Generation 5 is what live_apply.py's T1 rules call live and the old rules called a rebuild: a type added
+# whole to an existing file, with a `static let`, that paints Home green, and a changed signature of a
+# private function only this file calls (its callers keep compiling through the default).
+PENDING = "private func openPendingSettings() {"
+PENDING_T1 = 'private func openPendingSettings(reason: String = "shown") {'
+PROBE_TINT = "layer?.backgroundColor = LiveCodeProbe.tint(alpha: 1)"
+LAST = "extension HomeHostView: ChiefPanelContent"
+PROBE_TYPE = ("private enum LiveCodeProbe {\n    static let green = NSColor.systemGreen.cgColor\n"
+              "    static func tint(alpha: CGFloat) -> CGColor { green.copy(alpha: alpha) ?? green }\n}\n\n")
+
+
+def live_verdict():
+    """live_apply.py's verdict and reasons for the view's edits, as try-pr.sh would read them."""
+    import live_apply  # noqa: PLC0415
+    rel = os.path.relpath(VIEW, ROOT)
+
+    def git(*args):
+        return subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True).stdout
+    sources = {rel: (git("show", f"HEAD:{rel}").splitlines(), open(VIEW).read().splitlines())}
+
+    def named_outside(name):
+        found = git("grep", "-l", "-w", "-F", "-e", name, "--", "*.swift").splitlines()
+        return any(path != rel for path in found)
+    result = live_apply.classify([("M", rel)], live_apply.parse_diff(git("diff", "-U0", "HEAD", "--", rel)),
+                                 sources, named_outside)
+    return {"verdict": result["verdict"], "reasons": result["reasons"]}
 
 
 def pixels(png):
@@ -33,7 +60,7 @@ def pixels(png):
     bpp, = struct.unpack_from("<H", data, 28)
     step = bpp // 8
     row = (width * step + 3) & ~3
-    red = blue = 0
+    red = blue = green = 0
     for y in range(abs(height)):
         base = offset + y * row
         for x in range(0, width * step, step):
@@ -42,7 +69,9 @@ def pixels(png):
                 red += 1
             elif b > 180 and r < 60 and g < 170:
                 blue += 1
-    return red, blue
+            elif g > 150 and r < 110 and b < 120:
+                green += 1
+    return red, blue, green
 
 
 def main():
@@ -55,7 +84,7 @@ def main():
     live = tempfile.mkdtemp(prefix="cmux-live-code.")
     live_log = os.path.join(live, "live-code.log")
     source = open(VIEW).read()
-    for needed in (ORIGINAL, FILL):
+    for needed in (ORIGINAL, FILL, PENDING, LAST):
         if needed not in source:
             sys.exit(f"live-code-app: {VIEW} no longer has {needed.strip()}")
     result = {"build_s": opts.build_seconds, "generations": []}
@@ -64,8 +93,8 @@ def main():
     def snap(generation):
         path = os.path.join(opts.out, f"generation-{generation}.png")
         reply = app.rpc("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
-        red, blue = pixels(path)
-        return {"generation": generation, "png": os.path.basename(path), "red_px": red, "blue_px": blue,
+        red, blue, green = pixels(path)
+        return {"generation": generation, "png": os.path.basename(path), "red_px": red, "blue_px": blue, "green_px": green,
                 "snapshot": reply.get("method") if isinstance(reply, dict) else None}
 
     def wait_line(pattern, seconds):
@@ -134,6 +163,9 @@ def main():
         # A bad patch (red again, standing in for one a probe fails), then its rollback: blue again.
         result["generations"].append(patch(3, blue, red))
         result["generations"].append(roll_back(4))
+        # T1: the file still says red (the rolled-back patch's edit), so that line takes the probe's tint.
+        result["generations"].append(patch(5, red, PROBE_TINT, (PENDING, PENDING_T1), (LAST, PROBE_TYPE + LAST)))
+        result["t1_live_apply"] = live_verdict()
         # Live means the same process all along (cmuxterm-hq#7149 L3: same pid).
         result["same_pid"] = app.process.poll() is None and app.process.pid in app.running_pids()
     finally:
@@ -158,6 +190,12 @@ def main():
         # Red back to where it was before any patch (within 1000 px), not merely less of it.
         and rollback.get("red_px", 0) <= base.get("red_px", 0) + 1000
         and rollback.get("rollback_to_redraw_s", 99) < 2)
+    # T1: the new type's green shows in the same process, and live_apply.py calls that edit live.
+    t1 = gens.get(5, {})
+    result["t1_shown"] = bool(
+        result.get("same_pid")
+        and t1.get("green_px", 0) > base.get("green_px", 0) + 1000
+        and result.get("t1_live_apply", {}).get("verdict") == "swift-live")
     with open(os.path.join(opts.out, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
     print(json.dumps(result))
@@ -173,7 +211,7 @@ def main():
         if os.path.exists(app.log_path):
             lines = [line for line in open(app.log_path, errors="replace") if "live" in line.lower()]
             print("live-code-app: the app's log lines naming live code:\n" + "".join(lines[-20:]))
-    sys.exit(0 if result["shown"] and result["rolled_back"] else 1)
+    sys.exit(0 if result["shown"] and result["rolled_back"] and result["t1_shown"] else 1)
 
 
 if __name__ == "__main__":

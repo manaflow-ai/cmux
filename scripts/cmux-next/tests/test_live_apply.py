@@ -72,6 +72,8 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", VIEW)], changed), "rebuild")
         added = {VIEW: [("+", "    func helper() -> Int {"), ("+", "        1"), ("+", "    }")]}
         self.assertEqual(self.verdict([("M", VIEW)], added), "swift-live")
+        one_line = {VIEW: [("-", "    func gap() -> CGFloat { 8 }"), ("+", "    func gap() -> CGFloat { 10 }")]}
+        self.assertEqual(self.verdict([("M", VIEW)], one_line), "swift-live")
 
     def test_new_types_enum_cases_and_resources_need_a_rebuild(self):
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "struct Chip: View {")]}), "rebuild")
@@ -116,6 +118,68 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("D", VIEW)]), "swift-live")
         self.assertEqual(self.verdict([("M", "cmux-next-ios/App/Root.swift")]), "ios-only")
 
+    def test_a_type_extension_or_conformance_added_whole_is_live(self):
+        # T1 (research/2026-11-04-hot-swap-architecture.md): new symbols the patch carries.
+        added = [("@", "@@ -40,0 +41,6 @@"), ("+", "private struct Chip: View {"), ("+", "    let title: String"),
+                 ("+", "    case odd"), ("+", "    var body: some View { Text(\"}\") }"), ("+", "}"),
+                 ("+", "extension HomeHostView: Sendable {}")]
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: added}), "swift-live")
+        one_line = [("+", "private enum Tint { static let red = NSColor.systemRed }")]
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: one_line}), "swift-live")
+        # Not whole in its hunk: a header that changed, or a type whose body has a removed line.
+        header = [("-", "final class A: B {"), ("+", "final class A: B, C {")]
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: header}), "rebuild")
+        split = [("+", "struct Chip {"), ("+", "    let a: Int"), ("@", "@@"), ("+", "}")]
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: split}), "rebuild")
+        # The diff slid an appended type by one brace: the brace above it shows as added instead of its own.
+        old = ["struct A {", "    let a = 1", "}"]
+        new = old + ["", "struct B {", "    let b = 2", "}"]
+        slid = [("+", "}", 3), ("+", "", 4), ("+", "struct B {", 5), ("+", "    let b = 2", 6)]
+        self.assertEqual(live_apply.classify([("M", VIEW)], {VIEW: slid}, {VIEW: (old, new)})["verdict"], "swift-live")
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: slid}), "rebuild")  # without the file, unknown
+        # The same type removed and added again (rewritten): its layout may differ.
+        rewritten = [("-", "struct Chip {"), ("-", "    let a: Int"), ("-", "}"),
+                     ("+", "struct Chip {"), ("+", "    let a: Int"), ("+", "    let b: Int"), ("+", "}")]
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: rewritten}), "rebuild")
+
+    def test_an_added_static_or_global_let_is_live_a_changed_one_is_not(self):
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "    private static let gap: CGFloat = 8")]}), "swift-live")
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "let homeGap: CGFloat = 8")]}), "swift-live")
+        changed = [("-", "    static let gap: CGFloat = 8"), ("+", "    static let gap: CGFloat = 10")]
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: changed}), "rebuild")
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "    static var count = 0")]}), "rebuild")
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "    let title: String")]}), "rebuild")
+
+    def test_a_changed_signature_is_live_when_only_the_patch_calls_it_directly(self):
+        old = ["final class HomeHostView: NSView {", "    func layoutChips(_ a: Int) {", "    }",
+               "    private func tint() {", "    }", "}", "class Base {", "    func draw() {", "    }", "}"]
+        new = ["final class HomeHostView: NSView {", "    func layoutChips(_ a: Int, b: Int = 0) {", "    }",
+               "    private func tint(alpha: Double) {", "    }", "}", "class Base {", "    func draw(_ a: Int) {", "    }",
+               "    func added() {", "    }", "}"]
+
+        def reasons(pairs, named=False):
+            return live_apply.classify([("M", VIEW)], {VIEW: pairs}, {VIEW: (old, new)},
+                                       lambda name: named)["reasons"]
+        member = [("-", old[1], 2), ("+", new[1], 2)]
+        self.assertEqual(reasons(member), {})
+        self.assertEqual(reasons(member, named=True), {"signature": [VIEW]})
+        private = [("-", old[3], 4), ("+", new[3], 4)]
+        self.assertEqual(reasons(private, named=True), {})
+        # A class that is not final reaches its members through a vtable: changed or new, a rebuild.
+        self.assertEqual(reasons([("-", old[7], 8), ("+", new[7], 8)]), {"signature": [VIEW]})
+        self.assertEqual(reasons([("+", new[9], 10)]), {"signature": [VIEW]})
+        override = [("-", "    override func layout() {", 2), ("+", "    override func layout(_ x: Int) {", 2)]
+        self.assertEqual(reasons(override), {"signature": [VIEW]})
+        init = [("-", "    init(a: Int) {", 2), ("+", "    init(a: Int, b: Int) {", 2)]
+        self.assertEqual(reasons(init), {"signature": [VIEW]})
+
+    def test_parse_diff_numbers_lines_and_marks_hunks(self):
+        text = ("diff --git a/V.swift b/V.swift\n--- a/V.swift\n+++ b/V.swift\n@@ -3,0 +4,2 @@\n+a\n+b\n"
+                "@@ -9 +11 @@\n--- old\n+new\n")
+        self.assertEqual(live_apply.parse_diff(text)["V.swift"],
+                         [("@", "@@ -3,0 +4,2 @@"), ("+", "a", 4), ("+", "b", 5), ("@", "@@ -9 +11 @@"),
+                          ("-", "-- old", 9), ("+", "new", 11)])
+
     def test_the_heaviest_file_wins(self):
         diffs = {VIEW: [("+", "    var x = 1")]}
         self.assertEqual(self.verdict([("M", "webviews/src/a.tsx"), ("M", VIEW)], diffs), "rebuild")
@@ -140,6 +204,24 @@ class GitRangeTests(unittest.TestCase):
             view.write_text("struct V {\n    var pinned = false\n    var body: some View {\n        Text(\"new\")\n    }\n}\n")
             git("commit", "-qam", "stored")
             self.assertEqual(live_apply.classify_range(repo, "HEAD~1", "HEAD")["verdict"], "rebuild")
+            # A new type and a changed signature of a final class's member that only this file calls.
+            other = Path(repo, VIEW).with_name("Other.swift")
+            view.write_text("final class V {\n    func tint(_ a: Int) -> Int { a }\n    func draw() -> Int { tint(1) }\n}\n")
+            other.write_text("struct W { let v = V() }\n")
+            git("add", "-A")
+            git("commit", "-qm", "class")
+            view.write_text("final class V {\n    func tint(_ a: Int, b: Int = 2) -> Int { a + b }\n"
+                            "    func draw() -> Int { tint(1) + Chip().x }\n}\n\nstruct Chip {\n    let x = 1\n}\n")
+            git("commit", "-qam", "t1")
+            result = live_apply.classify_range(repo, "HEAD~1", "HEAD")
+            self.assertEqual((result["verdict"], result["reasons"]), ("swift-live", {}))
+            # Another file calls it: that call the patch does not compile may reach the old one.
+            other.write_text("struct W { let v = V(); func f() -> Int { v.tint(3) } }\n")
+            git("commit", "-qam", "caller")
+            view.write_text("final class V {\n    func tint(_ a: Int, c: Int = 2) -> Int { a + c }\n"
+                            "    func draw() -> Int { tint(1) + Chip().x }\n}\n\nstruct Chip {\n    let x = 1\n}\n")
+            git("commit", "-qam", "t1 again")
+            self.assertEqual(live_apply.classify_range(repo, "HEAD~1", "HEAD")["reasons"], {"signature": [VIEW]})
 
 
 if __name__ == "__main__":
