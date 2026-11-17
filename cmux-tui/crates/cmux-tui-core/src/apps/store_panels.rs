@@ -266,9 +266,10 @@ impl Supervisor {
             .cloned()
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
         let missing = || ApiError::new("apps.asset.missing", "the package has no such file");
-        let screenshot = package.manifest["screenshots"]
-            .as_array()
-            .is_some_and(|paths| paths.iter().any(|path| path.as_str() == Some(p.path.as_str())));
+        let screenshot =
+            package.manifest.get("screenshots").and_then(Value::as_array).is_some_and(|paths| {
+                paths.iter().any(|path| path.as_str() == Some(p.path.as_str()))
+            });
         let (max, limit) = if screenshot {
             (MAX_SCREENSHOT_BYTES, "the screenshot is larger than 4 MiB")
         } else {

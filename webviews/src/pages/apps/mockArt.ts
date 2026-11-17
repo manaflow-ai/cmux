@@ -29,7 +29,7 @@ const MARKS: Record<string, string> = {
 };
 
 /** An app icon: a rounded tile in `from`→`to` with a white mark. */
-export function iconArt(mark: keyof typeof MARKS | string, from: string, to: string): string {
+export function iconArt(mark: string, from: string, to: string): string {
   return svg(
     128,
     128,
