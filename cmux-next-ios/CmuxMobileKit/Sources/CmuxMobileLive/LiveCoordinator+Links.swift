@@ -244,6 +244,10 @@ extension LiveCoordinator {
     private func finishServing(_ session: MacSession, _ link: any MacLink, passed: Task<Bool, Never>?) async {
         guard let passed else { return }
         let macID = session.macID
+        // The chats' channel opens now, behind `auth`: the Mac holds it until the pairing passes,
+        // so `initialize` and the first page of chats ride beside the pairing's last round trip
+        // instead of after it (ask-48f698fc26). The hub applies nothing before `passed`.
+        let chats = Task { [weak self] in await self?.bindChats(session, link, passed: passed) }
         guard await passed.value else {
             // Nothing on this link is served now: terminals, files and uploads say
             // "not connected" instead of `unpaired`, and Retry pairs again.
@@ -281,6 +285,16 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        await chats.value
+        guard session.currentLink === link else { return }
+        // A failed chat channel is shown, not only logged.
+        session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+        phaseChanged(session)
+        if session === focused { await startChief(link) }
+    }
+
+    /// Opens `link`'s `acpmux` channel and binds the chats to it, gated on `passed`.
+    private func bindChats(_ session: MacSession, _ link: any MacLink, passed: Task<Bool, Never>) async {
         do {
             let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
             // The link closed while the channel opened: nothing more on it.
@@ -288,16 +302,11 @@ extension LiveCoordinator {
                 await channel.close(code: "eof", reason: "link replaced")
                 return
             }
-            await session.acpmux.bind(channel)
+            await session.acpmux.bind(channel, until: { await passed.value })
             if session.acpmux.isReady { feedStore.syncState = .live }
         } catch {
             log.error("acpmux channel: \(String(describing: error), privacy: .public)")
         }
-        guard session.currentLink === link else { return }
-        // A failed chat channel is shown, not only logged.
-        session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
-        phaseChanged(session)
-        if session === focused { await startChief(link) }
     }
 
     /// `session`'s link once its pairing passed, for channels that may overtake

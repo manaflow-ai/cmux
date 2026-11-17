@@ -368,6 +368,12 @@ allowlist. Corner drag 1100x720 to 860x560 on cmux-lawrence-2 with a toast shown
 `debug.frames` main_total_ms: 81e9526 1111 and 1057, 3ede87f 1096, press fix 1141 and 1096
 (noise); missed frames 61-63 in every build.
 
-Open: on aws-m4pro-8 (macOS 26) `ParkedPageCatcherPanelsTests`, `DividerCatcherHoldsPressTests`
-and `OverlayTakesThePointerTests` leave `DividerMousePanel` windows alive (0 on screen) at the
-suite's window-leak check; the macOS 27 minis pass.
+Closed (2026-11-16): on aws-m4pro-8 (macOS 26) `ParkedPageCatcherPanelsTests`,
+`DividerCatcherHoldsPressTests` and `OverlayTakesThePointerTests` left `DividerMousePanel` windows
+open (0 on screen) at the suite's window-leak check; the macOS 27 minis passed. The leak predates
+this change: 81e9526 and 4d53203 leak the same panels there. Cause: a catcher panel was never
+closed, only ordered out, so it stayed open while anything held the closed parent window, and
+macOS 26 keeps a closed window alive past the test. Fix (`DividerMouseCatchers.remove`): a panel
+that leaves for good closes, so `WindowController.teardown` -> `WindowOverlayLayer.teardown`
+closes every panel with its window. The three suites now tear their window down the same way
+before they close it. Test: `DividerCatcherPanelsCloseTests` red/green (cmux-ci).

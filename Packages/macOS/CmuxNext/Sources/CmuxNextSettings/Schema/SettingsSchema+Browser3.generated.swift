@@ -96,7 +96,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.vimKeys", "Vim Keys in Pages"),
-                help: SettingsText.keyed("settings.browser.vimKeys.help", "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."),
+                help: SettingsText.keyed("settings.browser.vimKeys.help", "Outside text fields: f clicks a link, j and k scroll, gg and Shift-G jump to the ends."),
                 kind: .toggle,
                 default: .bool(BrowserVimKeysSetting.fallback),
                 keywords: ["vim", "vimium", "link hints", "keyboard", "scroll", "hjkl"]
@@ -114,7 +114,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.enabled", "Enable cmux Browser"),
-                help: SettingsText.keyed("settings.browser.enabled.help", "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."),
+                help: SettingsText.keyed("settings.browser.enabled.help", "Off: every link opens in your default browser."),
                 kind: .toggle,
                 default: .bool(LinkRouting.enabledDefault),
                 keywords: ["browser", "disable", "turn off", "default browser", "web"]
@@ -124,7 +124,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.openLinks", "Open Links in cmux Browser"),
-                help: SettingsText.keyed("settings.browser.openLinks.help", "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."),
+                help: SettingsText.keyed("settings.browser.openLinks.help", "Off: links open in your default browser. Shift-Cmd-click opens the other one."),
                 kind: .toggle,
                 default: .bool(LinkRouting.openDefault),
                 keywords: ["link", "url", "click", "default browser", "terminal", "chat"]
@@ -134,7 +134,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.openSignInPages", "Open Sign-In Pages in cmux Browser"),
-                help: SettingsText.keyed("settings.browser.openSignInPages.help", "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."),
+                help: SettingsText.keyed("settings.browser.openSignInPages.help", "Sign-in pages open in cmux even when other links open in your default browser."),
                 kind: .toggle,
                 default: .bool(LinkRouting.signInPagesDefault),
                 keywords: ["sign in", "login", "device code", "oauth", "auth", "passkey", "default browser", "gh auth login"]
@@ -144,7 +144,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.openPullRequestsInGitHubPage", "Open Pull Requests in cmux GitHub Page"),
-                help: SettingsText.keyed("settings.browser.openPullRequestsInGitHubPage.help", "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."),
+                help: SettingsText.keyed("settings.browser.openPullRequestsInGitHubPage.help", "Pull request links in agent chats open cmux's GitHub page. Off: github.com in a tab."),
                 kind: .toggle,
                 default: .bool(LinkRouting.pullRequestsInGitHubPageDefault),
                 keywords: ["github", "github.com", "pull request", "pr", "link", "native page"]
@@ -164,7 +164,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.hostWhitelist", "Hosts to Open in Embedded Browser"),
-                help: SettingsText.keyed("settings.browser.hostWhitelist.help", "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."),
+                help: SettingsText.keyed("settings.browser.hostWhitelist.help", "Only these hosts open in cmux, such as *.example.com. Empty opens all."),
                 kind: .hostList,
                 default: .array(LinkRouting.hostsDefault.map { .string($0) }),
                 keywords: ["allowlist", "whitelist", "domain", "link"]
@@ -174,7 +174,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.externalPatterns", "URLs to Always Open Externally"),
-                help: SettingsText.keyed("settings.browser.externalLinkPatterns.help", "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."),
+                help: SettingsText.keyed("settings.browser.externalLinkPatterns.help", "Text matches anywhere; * and ? are wildcards; re: starts a regular expression."),
                 summary: SettingsText.keyed("settings.browser.externalLinkPatterns.summary", "Links that open in your default browser"),
                 kind: .stringList,
                 default: .array(LinkRouting.rulesDefault.map { .string($0) }),
@@ -194,7 +194,7 @@ extension BrowserSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.files.textEditor", "Text Editor"),
-                help: SettingsText.keyed("settings.files.textEditor.help", "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."),
+                help: SettingsText.keyed("settings.files.textEditor.help", "An app name, bundle ID or app path. Empty uses your source code app."),
                 kind: .text,
                 default: .string(TextEditorSetting.fallback),
                 keywords: ["editor", "open with", "app", "path", "file", "code"]
@@ -233,7 +233,7 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.passwords.allowExport", "Allow Password Export"),
-                help: SettingsText.keyed("settings.browser.passwords.allowExport.help", "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."),
+                help: SettingsText.keyed("settings.browser.passwords.allowExport.help", "The Passwords page can export every password to a plain-text CSV, after Touch ID."),
                 kind: .toggle,
                 default: .bool(BrowserPasswordsSetting.allowExportDefault),
                 keywords: ["password", "export", "csv", "backup"]
@@ -252,10 +252,22 @@ extension BrowserSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.browser.verificationAutofill.enabled", "Fill Codes from Verification Emails"),
-                help: SettingsText.keyed("settings.browser.verificationAutofill.enabled.help", "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."),
+                help: SettingsText.keyed("settings.browser.verificationAutofill.enabled.help", "Offers emailed codes on the sender's own site. Never filled without your click."),
                 kind: .toggle,
                 default: .bool(BrowserVerificationAutofillSetting.enabledDefault),
                 keywords: ["email", "verification", "code", "one-time", "otp", "2fa", "autofill", "magic link"]
+            ),
+            SettingDescriptor(
+                BrowserVerificationAutofillSetting.accountsPath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.verificationAutofill.accounts", "Email Accounts for Codes"),
+                help: SettingsText.keyed("settings.browser.verificationAutofill.accounts.help", "Codes come only from these addresses. Mail is read on this Mac, never stored or sent."),
+                summary: SettingsText.keyed("settings.browser.verificationAutofill.accounts.summary", "Addresses cmux may read codes from"),
+                kind: .stringList,
+                default: .array(BrowserVerificationAutofillSetting.accountsDefault.map { .string($0) }),
+                keywords: ["email", "gmail", "mail", "account", "verification", "code"],
+                placeholder: SettingText(key: nil, text: "you@example.com")
             ),
         ]
     }
