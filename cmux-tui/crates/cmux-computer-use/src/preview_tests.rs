@@ -150,3 +150,17 @@ fn old_done_cards_go_first_beyond_the_limit() {
     assert!(hub.card(&format!("s{MAX_CARDS}")).is_some());
     assert!(lines.lock().unwrap().iter().any(|l| l["session"] == "s0" && l["card"].is_null()));
 }
+
+#[test]
+fn the_same_frame_again_sends_nothing() {
+    let (hub, _, lines) = hub();
+    hub.activate("s1", "Codex");
+    hub.note_window("s1", "Codex", "42", RECT, "Notes");
+    hub.frame("42", b"one");
+    let count = lines.lock().unwrap().len();
+    hub.frame("42", b"one");
+    hub.frame("42", b"one");
+    assert_eq!(lines.lock().unwrap().len(), count);
+    hub.frame("42", b"two");
+    assert_eq!(lines.lock().unwrap().len(), count + 1);
+}

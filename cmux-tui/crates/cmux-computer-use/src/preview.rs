@@ -296,6 +296,11 @@ impl PreviewHub {
             sessions.sort();
             for session in sessions {
                 let Some(card) = state.cards.get_mut(&session) else { continue };
+                // A window that did not change can still send a frame (ScreenCaptureKit
+                // calls a frame complete when anything over it moved): no line for it.
+                if card.frame.as_deref() == Some(&*url) {
+                    continue;
+                }
                 card.frame = Some(url.clone());
                 out.lines.push(line(&session, Some(card)));
             }
@@ -340,7 +345,9 @@ impl PreviewHub {
     }
 }
 
-/// The windows to stream: every card's, while the preview is on and watched.
+/// The windows to stream: every card's, while the preview is on and watched. A
+/// done card's window streams too, so the card goes when its window closes (a
+/// still window sends no frames).
 fn wanted_windows(state: &State) -> Vec<String> {
     if !state.enabled || state.watchers.is_empty() {
         return Vec::new();

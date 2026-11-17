@@ -1106,10 +1106,11 @@ impl AgentTools {
                     ),
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
-                if let Some(socket) =
-                    std::env::var_os(crate::computer_use::client::DAEMON_SOCKET_ENV)
-                        .filter(|s| !s.is_empty())
-                {
+                let socket = std::env::var_os(crate::computer_use::client::DAEMON_SOCKET_ENV)
+                    .filter(|s| !s.is_empty())
+                    .map(std::path::PathBuf::from)
+                    .or_else(app_daemon_socket);
+                if let Some(socket) = socket {
                     server.env.push((
                         crate::computer_use::client::DAEMON_SOCKET_ENV.to_owned(),
                         socket.to_string_lossy().into_owned(),
@@ -1517,4 +1518,57 @@ mod tests;
 #[cfg(all(test, unix))]
 pub(crate) mod tests_support {
     pub(crate) use super::tests::{codex_answers, fake_codex};
+}
+
+/// The cmux-tui daemon socket of the cmux app that started this acpmux
+/// (`CMUX_BUNDLE_ID`, `CMUX_TAG` in its environment), for an agent chat's
+/// Computer Use bridge when the app named none (`CMUX_TUI_SOCKET`): the app's
+/// daemon runs session [`BuildIdentity::app_session`]
+/// (`cmux-app`, `cmux-app-<tag>`, ...), or the old shared `cmux-app` once the
+/// build adopted it (its legacy marker), in cmux-tui's default runtime folder.
+/// Without it the bridge asked the `main` session, which no app runs, so an
+/// agent chat's Computer Use never reached the worker. `None` outside an app.
+fn app_daemon_socket() -> Option<std::path::PathBuf> {
+    let var = |key: &str| std::env::var(key).ok().filter(|v| !v.trim().is_empty());
+    let build = cmux_agent_pane_policy::build_identity::BuildIdentity::new(
+        var("CMUX_BUNDLE_ID").as_deref(),
+        var("CMUX_TAG").as_deref(),
+    );
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    app_daemon_socket_for(&build, home.as_deref())
+}
+
+fn app_daemon_socket_for(
+    build: &cmux_agent_pane_policy::build_identity::BuildIdentity,
+    home: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    let session = build.app_session()?;
+    let adopted = home.is_some_and(|home| {
+        [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
+            .into_iter()
+            .flatten()
+            .any(|marker| marker.is_file())
+    });
+    let session = if adopted { "cmux-app".to_owned() } else { session };
+    Some(cmux::raw::default_socket_path(&session))
+}
+
+#[cfg(test)]
+mod app_daemon_socket_tests {
+    use cmux_agent_pane_policy::build_identity::BuildIdentity;
+
+    use super::app_daemon_socket_for;
+
+    /// An agent chat's Computer Use bridge reaches its own app's daemon, never `main`.
+    #[test]
+    fn a_chat_bridge_names_its_apps_daemon() {
+        let tagged =
+            BuildIdentity::new(Some("com.cmuxterm.app.debug.cu.preview2"), Some("cu-preview2"));
+        let path = app_daemon_socket_for(&tagged, None).expect("a tagged build has a daemon");
+        assert!(path.ends_with("cmux-app-cu-preview2.sock"), "{}", path.display());
+        let release = BuildIdentity::new(Some("com.cmuxterm.app"), None);
+        let path = app_daemon_socket_for(&release, None).expect("release has a daemon");
+        assert!(path.ends_with("cmux-app.sock"), "{}", path.display());
+        assert!(app_daemon_socket_for(&BuildIdentity::new(None, None), None).is_none());
+    }
 }

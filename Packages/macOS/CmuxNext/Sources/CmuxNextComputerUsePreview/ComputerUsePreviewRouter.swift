@@ -2,6 +2,9 @@ public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextDaemon
 public import CmuxNextTerminal
+import os
+
+private let logger = Logger(subsystem: "com.cmuxterm.next", category: "computer-use-preview")
 
 /// Computer Use's live preview in the cmux surface its agent runs in: each `computer-use-preview`
 /// event of the local daemon (the worker's preview hub, cmux-computer-use preview.rs, relayed by
@@ -23,6 +26,8 @@ public final class ComputerUsePreviewRouter {
     /// The terminal cards made, by tab id.
     private var terminalCards: [String: TerminalComputerUsePreview] = [:]
     private var subscription: UInt64?
+    /// What the last line of each session did, so the log says each change once.
+    private var outcomes: [String: String] = [:]
 
     public init(chat: @escaping @MainActor (String) -> AgentPaneView?,
                 terminal: @escaping @MainActor (String) -> (tab: String, host: TerminalHostView)?) {
@@ -33,6 +38,7 @@ public final class ComputerUsePreviewRouter {
     /// Follows `store`'s `computer-use-preview` events (pushed, never polled).
     public func follow(_ store: DaemonStore) {
         guard subscription == nil else { return }
+        logger.notice("preview follows the local daemon's computer-use-preview events")
         subscription = store.sideEvents.subscribe { [weak self] event in
             guard case .unknown(name: "computer-use-preview", let payload) = event else { return }
             self?.take(payload)
@@ -43,14 +49,25 @@ public final class ComputerUsePreviewRouter {
         guard case .object(let line) = payload, case .string(let session)? = line["session"],
               case .object(let surface)? = line["surface"] else { return }
         let card: [String: JSONValue]? = if case .object(let card)? = line["card"], !hidden.contains(session) { card } else { nil }
+        let state = card == nil ? "none" : (card?["done"] == .bool(true) ? "done" : "running")
         if case .string(let id)? = surface["chat"] {
-            guard let view = chat(id) else { return }
+            guard let view = chat(id) else { return note(session, "\(state), no chat view") }
             AgentPaneComputerUsePreview.show(Self.chatCard(card), on: view) { [weak self] session, action in
                 if action == .close { self?.hide(session) }
             }
-        } else if case .string(let id)? = surface["terminal"], let (tab, host) = terminal(id) {
+            note(session, "\(state) in its chat")
+        } else if case .string(let id)? = surface["terminal"] {
+            guard let (tab, host) = terminal(id) else { return note(session, "\(state), no terminal view") }
             show(Self.terminalCard(card), tab: tab, host: host)
+            note(session, "\(state) in terminal tab \(tab)")
         }
+    }
+
+    private func note(_ session: String, _ outcome: String) {
+        guard outcomes[session] != outcome else { return }
+        if outcomes.count > 64 { outcomes.removeAll() }
+        outcomes[session] = outcome
+        logger.notice("preview \(session, privacy: .public): \(outcome, privacy: .public)")
     }
 
     private func show(_ card: TerminalComputerUsePreview.Card?, tab: String, host: TerminalHostView) {
