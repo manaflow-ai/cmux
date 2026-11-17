@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import {
   AdminGrantConflictError,
+  AdminGrantPlanFamilyConflictError,
   type AdminGrantablePlanId,
   AdminInvalidEmailError,
   createPendingEmailGrant,
@@ -23,7 +24,7 @@ import { enforceBrowserMutationProtection } from "../../../../services/vms/route
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * POST /api/admin/email-grants { email, plan: "pro" | "founders" }
+ * POST /api/admin/email-grants { email, plan: "pro" | "max" | "founders" | "next_pro" | "next_max" }
  *
  * Grants directly when exactly one non-anonymous Stack user owns the email
  * with a verified mailbox. Otherwise records a pending grant that is applied
@@ -85,6 +86,10 @@ async function createEmailGrant(
       // lease; the users route answers the same conflict with 409.
       if (error instanceof AdminGrantConflictError) {
         return adminJsonResponse({ error: "mutation_in_progress" }, 409);
+      }
+      if (error instanceof AdminGrantPlanFamilyConflictError) {
+        // Remove the existing classic or cmux NEXT grant first.
+        return adminJsonResponse({ error: "plan_family_conflict", currentPlan: error.currentPlan }, 409);
       }
       throw error;
     }
