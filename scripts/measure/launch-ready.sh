@@ -17,15 +17,20 @@
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
 #                and print its main thread from process start to the window on screen (launch-ready-profile.py); its
 #                SIDE-run1.samples.json.gz in report.tgz names a nightly's stripped frames offline with --dsym
+#   prerun=S     before each measured launch, one full run of the same copy and home that stays up S seconds after its
+#                window shows (1 to 600; 60 for "a launch after a 60 s full run"), then quits as the measured ones do.
+#                The time before main differs by case: 30 to 80 ms when launches follow each other closely, 600 to 1170
+#                ms when about 60 s have passed since a full run began. Default prerun=0: launches back to back.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
 # on-screen window, and the app's own marks. Prints LR-RUN per launch, LR-MEDIAN per side, LR-PROFILE with profile=1.
+# Each launch's row carries load_1m, the Mac's 1-minute load average just before it (LR-MEDIAN: the side's highest).
 set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
@@ -35,10 +40,12 @@ main() {
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
+      prerun=*) prerun="${arg#prerun=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
+  [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
@@ -47,7 +54,7 @@ main() {
     || { echo "LR probe build failed"; cat "$out/swiftc.log"; exit 3; }
   cp scripts/measure/launch-ready-profile.py "$out/profile.py"
   cp scripts/measure/launch-ready-seed.py "$out/seed.py"
-  echo "LR session $session"
+  echo "LR session $session prerun $prerun"
   local sides=(head)
   if [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
@@ -97,6 +104,7 @@ main() {
   done
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
+      if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
@@ -108,8 +116,9 @@ import json, statistics, sys
 from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 for side in dict.fromkeys(r["side"] for r in rows):
-    done = [r for r in rows if r["side"] == side and r["label"] not in ("prime", "seed") and r.get("window_on_screen") is not None]
-    med = {"n": len(done)}
+    done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
+    loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
+    med = {"n": len(done), "max_load_1m": max(loads) if loads else None}
     for key in ("finished_launching", "window_on_screen", "active", "request_to_start"):
         vals = [r[key] for r in done if r.get(key) is not None]
         med[key] = round(statistics.median(vals), 1) if vals else None
@@ -128,11 +137,12 @@ PY
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
 # PROFILE 1 under an all-processes Time Profiler recording.
 probe() {
-  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line recorder="" trace
+  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line load recorder="" trace
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
   quiesce "$app" "$side" "$label"
+  load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
@@ -145,7 +155,8 @@ probe() {
   fi
   [[ -n "$line" ]] || { echo "LR-RUN $side $label no result"; return 1; }
   echo "$line" | sed "s/^LR-RUN /LR-RUN $side /"
-  echo "${line#LR-RUN }" | python3 -I -c 'import json,sys; r=json.load(sys.stdin); r["side"]=sys.argv[1]; print(json.dumps(r))' "$side" >>"$out/runs.jsonl"
+  echo "LR-LOAD $side $label load_1m=$load"
+  echo "${line#LR-RUN }" | python3 -I -c 'import json,sys; r=json.load(sys.stdin); r["side"]=sys.argv[1]; r["load_1m"]=float(sys.argv[2]) if sys.argv[2] else None; print(json.dumps(r))' "$side" "$load" >>"$out/runs.jsonl"
   if [[ -n "$recorder" && -d "$trace" ]]; then
     python3 -I "$out/profile.py" "$trace" "${line#LR-RUN }" "$side" 2>>"$out/xctrace.log" || echo "LR-PROFILE $side no profile (xctrace.log)"
   fi
@@ -192,6 +203,11 @@ quiesce() {
 quiesce_left() {
   ps -axo command= | LR_MACOS="$1/Contents/MacOS/" LR_FRAMEWORKS="$1/Contents/Frameworks/" \
     awk 'index($0, ENVIRON["LR_MACOS"]) || index($0, ENVIRON["LR_FRAMEWORKS"]) { n++ } END { print n + 0 }'
+}
+
+# load_1m: the Mac's 1-minute load average (`sysctl -n vm.loadavg` prints "{ 1.92 2.10 2.31 }"), empty if unread.
+load_1m() {
+  sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }'
 }
 
 # Sourced (tests/launch-ready-quiesce.test.sh), it only defines its functions.
