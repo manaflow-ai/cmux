@@ -183,6 +183,44 @@ class Routes(unittest.TestCase):
         self.assertEqual(jobs.output_key("acpmux-protocol-ir"), "acpmux_protocol_ir")
 
 
+def built_crates(tree, root: str) -> set[str]:
+    """The crate directories `cargo test -p ROOT` (default features) builds: normal and build dependencies of every
+    crate, dev-dependencies of ROOT only, an optional one only when the depending crate's defaults turn it on.
+    Walked here, not through tested_crate_inputs, so the test does not check the router against itself."""
+    import tomllib
+    shared = tomllib.loads(tree.text(f"{verdict.WORKSPACE}/Cargo.toml")).get("workspace", {}).get("dependencies", {})
+    seen, queue = set(), [root]
+    while queue:
+        crate = queue.pop()
+        if crate in seen or not tree.is_file(f"{crate}/Cargo.toml"):
+            continue
+        seen.add(crate)
+        manifest = tomllib.loads(tree.text(f"{crate}/Cargo.toml"))
+        on = verdict._default_optional(manifest)
+        kinds = [k for k in verdict.DEPENDENCY_TABLES if crate == root or k != "dev-dependencies"]
+        tables = [manifest.get(k, {}) for k in kinds]
+        tables += [target.get(k, {}) for target in manifest.get("target", {}).values() for k in kinds]
+        for table in tables:
+            for name, spec in table.items():
+                if not isinstance(spec, dict) or (spec.get("optional") and name not in on):
+                    continue
+                if "path" in spec:
+                    queue.append(posixpath.normpath(posixpath.join(crate, spec["path"])))
+                elif spec.get("workspace") and isinstance(shared.get(name), dict) and "path" in shared[name]:
+                    queue.append(posixpath.normpath(posixpath.join(verdict.WORKSPACE, shared[name]["path"])))
+    return seen
+
+
+def built_source(source: str, built: set[str], root: str) -> bool:
+    """SOURCE is compiled by `cargo test -p ROOT`: in a built crate, and outside tests/, benches/, examples/ unless
+    it is ROOT's."""
+    owners = [crate for crate in built if crate != verdict.WORKSPACE and source.startswith(crate + "/")]
+    if not owners:
+        return False
+    crate = max(owners, key=len)
+    return crate == root or source[len(crate) + 1:].split("/", 1)[0] not in verdict.UNBUILT_TARGET_DIRS
+
+
 class TheRepository(unittest.TestCase):
     """The routed workflows, as they are in this commit."""
 
@@ -192,16 +230,29 @@ class TheRepository(unittest.TestCase):
         self.assertEqual(problems, [], "\n".join(problems))
 
     def test_the_acpmux_job_inputs_hold_what_the_old_scope_step_held(self):
-        # The job routes by tested_crate_inputs now; every crate directory the old crate_inputs walked (minus the
-        # workspace root, read as its targets) is still an input of the acpmux tests job.
+        # The job routes by tested_crate_inputs now. The old crate_inputs walked every crate's dev-dependencies;
+        # cargo builds only the tested crate's (cmux-wg's dev-dependency cmux-rd-core never builds for acpmux's
+        # tests). So every crate directory and named file the old walk held is still an input, unless only a crate
+        # `cargo test -p acpmux` never builds reaches it (built_crates, walked here apart from the router's code).
+        root = "cmux-tui/crates/acpmux"
         _, all_jobs = jobs.load_map((ROOT / jobs.MAP).read_text())
         job = next(j for j in all_jobs if j.id == "acpmux-tests")
         with git_tree.GitTree(ROOT) as tree:
             inputs = jobs.Graph(tree, [], all_jobs).inputs(job)
-            dirs, files = verdict.crate_inputs(ROOT, "cmux-tui/crates/acpmux", tree)
+            dirs, files = verdict.crate_inputs(ROOT, root, tree)
+            built = built_crates(tree, root)
+            namers = {}
+            for path in files:
+                name = posixpath.basename(path)
+                namers[path] = [source for source in tree.files(verdict.WORKSPACE, ".rs")
+                                if name in tree.text(source, errors="replace")]
         for path in [*dirs, *files]:
             if path == verdict.WORKSPACE or posixpath.basename(posixpath.dirname(path)) in verdict.UNBUILT_TARGET_DIRS:
                 continue
+            if path in dirs and path not in built:
+                continue  # reached only through a crate cargo does not build for these tests
+            if path in namers and not any(built_source(source, built, root) for source in namers[path]):
+                continue  # named only by sources cargo does not build for these tests
             with self.subTest(path=path):
                 self.assertTrue(any(jobs.under(path, entry) or jobs.under(entry, path) for entry in inputs), path)
 
