@@ -559,6 +559,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The main actor's time in `reload`, in all (the scroll-up bench, `chat_scroll_fill_ui`: a
     /// page that lands between two frames costs the frame after it).
     private(set) var reloadTime: Duration = .zero
+    /// The first reloads' main-actor times (ms), in order (tests: which reload of an open is long).
+    private(set) var reloadLog: [Double] = []
     /// Older history is read ahead as the reader scrolls (`readAheadIfNear`). Off, only the oldest
     /// row coming into view asks (`willDisplay`): the trigger before the read-ahead, which the
     /// scroll-up bench measures as its before.
@@ -836,7 +838,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     func reload() {
         let reloadStart = ContinuousClock.now
-        defer { reloadTime += reloadStart.duration(to: .now) }
+        defer {
+            let took = reloadStart.duration(to: .now)
+            reloadTime += took
+            if reloadLog.count < 64 { reloadLog.append(Double(took.components.seconds) * 1000 + Double(took.components.attoseconds) / 1e15) }
+        }
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision
