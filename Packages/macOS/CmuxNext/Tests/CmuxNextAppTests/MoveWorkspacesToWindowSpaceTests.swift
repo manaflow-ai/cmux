@@ -66,7 +66,8 @@ struct MoveWorkspacesToWindowSpaceTests {
             #expect(services.registry.perform("moveWorkspaceToWindow", invocation: Self.moveInvocation("k0", to: target, origin: .cli)))
         }
 
-        #expect(services.windows.registry.value.window(source.state.id)?.workspaceIDs == ["k1"])
+        // What the source owns: since #44275 it also lists, as guests, its space's workspaces another window owns.
+        #expect(services.windows.registry.value.window(source.state.id)?.ownedIDs == ["k1"])
         #expect(target.state.profileID == GatherWindowsTests.rooms[1], "the run switched the window's space")
         #expect(target.state.workspaceID == "k3", "the run changed the window's selection")
     }
