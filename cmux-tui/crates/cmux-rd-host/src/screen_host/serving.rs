@@ -1,4 +1,3 @@
-
 //! The running host of `windows-host run`: holds the account's hub socket (online for the
 //! account's devices), records viewers waiting for the person, serves one approved session at
 //! a time under this desktop's consent (read again for every ticket and every second), and stops
