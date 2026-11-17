@@ -1105,7 +1105,9 @@ export async function runStartBench(args: {
   const platformRemove = (machine: string) => args.api.deleteMachine(machine, `${args.tag}-start-delete-${machine}`).then(() => undefined);
   const platformExec = (machine: string) => directExec(args.api, machine, args.journey);
 
-  // The warm pool: the warm the app sends names a ready spare (as runPreclaimBurst's), no login copy.
+  // The warm pool: the warm the app sends names a ready spare (as runPreclaimBurst's), no login copy. At most 180 s:
+  // twice the refill p50 (hq#12332); run 43951741299's warm named no spare in 300 s while its claims took one, so the
+  // claim answer, not the warm, says whether a sample took a spare.
   const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-start-bench-"));
   const platform = clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
   const scope = { platform, team: args.accountTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
@@ -1119,7 +1121,7 @@ export async function runStartBench(args: {
         await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, ready: spare });
       }
       return { spare };
-    }, 600_000);
+    }, 180_000);
     return { spare_named: prepared.spare !== null, spare_wait_ms: wait?.waited_ms ?? null, cold_after_wait: wait?.cold_after_wait ?? null };
   };
   const platformCreate = (asked: "spare" | "cold") => async (run: number) => {
