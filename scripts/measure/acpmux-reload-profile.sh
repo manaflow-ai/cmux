@@ -41,10 +41,10 @@ build() {
   if [[ "$profile" == devbuild ]]; then
     env_args+=(CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_PROFILE_RELEASE_INCREMENTAL=true)
   fi
-  started=$(python3 -c 'import time; print(time.monotonic())')
+  started=$(date +%s)
   "${env_args[@]}" CMUX_NEXT_ACPMUX_CACHE="$work/cache-$profile-$label" \
     scripts/cmux-next/build-acpmux.sh --output "$work/out-$profile-$label/acpmux" >"$work/$profile-$label.log" 2>&1 || rc=$?
-  python3 -c 'import sys, time; print(f"{time.monotonic() - float(sys.argv[1]):.1f}")' "$started"
+  echo "$(( $(date +%s) - started ))"
   if (( rc != 0 )); then
     tail -n 30 "$work/$profile-$label.log" | sed "s/^/RELOAD-PROFILE-LOG $profile /" >&2
     return 1
@@ -79,8 +79,8 @@ for i in "${!profile_list[@]}"; do
 import statistics, sys
 profile, cold, *edits = sys.argv[1:]
 xs = [float(x) for x in edits]
-print(f"RELOAD-PROFILE profile={profile} cold_s={cold} edit_p50_s={statistics.median(xs):.1f} "
-      f"edit_min_s={min(xs):.1f} edit_max_s={max(xs):.1f} n={len(xs)}")
+print(f"RELOAD-PROFILE profile={profile} cold_s={cold} edit_p50_s={statistics.median(xs):.0f} "
+      f"edit_min_s={min(xs):.0f} edit_max_s={max(xs):.0f} n={len(xs)}")
 PY
 done
 exit "$status"
