@@ -15,7 +15,8 @@
 #                them (a terminal each), shows Home in the front window and quits with Keep Sessions (LR-SEED). The
 #                default, session=small, measures the priming launch's session (one window on Home).
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
-#                and print its main thread from process start to the window on screen (launch-ready-profile.py)
+#                and print its main thread from process start to the window on screen (launch-ready-profile.py); its
+#                SIDE-run1.samples.json.gz in report.tgz names a nightly's stripped frames offline with --dsym
 #   state=bare   every launch, the priming one included, starts with an empty home: nothing to restore, as a fresh
 #                install's window after its copy's first exec (the priming launch pays that exec). Default state=kept:
 #                the priming launch makes the home's state and every measured launch relaunches into it. With state=bare
