@@ -10,8 +10,11 @@
 use std::io::Write as _;
 
 use cmux_apps::cli::{Output, Parsed};
+#[cfg(unix)]
 use cmux_apps::platform::PlatformClient;
+#[cfg(unix)]
 use cmux_apps::publish::Host;
+#[cfg(unix)]
 use cmux_apps::system::{AgentSocket, GitCli, LoopbackProbe, RealFs, RealProcs, SystemClock};
 
 use super::super::{GlobalArgs, OutputMode};
@@ -25,6 +28,15 @@ pub(super) fn parse(rest: &[String]) -> Result<Parsed, String> {
     cmux_apps::cli::parse(rest)
 }
 
+/// Published apps run on a Linux Cloud machine; elsewhere every verb says so.
+#[cfg(not(unix))]
+pub(super) fn run(global: &GlobalArgs, parsed: &Parsed) -> i32 {
+    let json = parsed.json || matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
+    let message = "cmux app publish, versions, rollback and ls run on a cmux Cloud machine";
+    print(&cmux_apps::cli::usage_output(json, message), global)
+}
+
+#[cfg(unix)]
 pub(super) fn run(global: &GlobalArgs, parsed: &Parsed) -> i32 {
     let json = parsed.json || matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
     let parsed = Parsed { command: parsed.command.clone(), json };
@@ -38,6 +50,7 @@ pub(super) fn run(global: &GlobalArgs, parsed: &Parsed) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_else(|_| apps_root.clone());
     let agent = AgentSocket::default();
     let platform = PlatformClient::new(&agent);
+    // The agent starts every version as its app user; this process never runs one.
     let procs = RealProcs::new();
     let host = Host {
         fs: &RealFs,

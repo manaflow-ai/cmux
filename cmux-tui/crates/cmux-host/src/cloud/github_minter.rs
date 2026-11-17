@@ -57,6 +57,8 @@ pub enum Ask {
     /// The process on a port, for `cmux app publish --port` (`apps_call.rs`), read under the
     /// machine's `proc` directory.
     AppsListener(Result<u16, String>, std::path::PathBuf),
+    /// Start, check or stop a published version as the app user (`apps_spawn.rs`).
+    AppsRun(Result<super::apps_spawn::AppsRun, String>, super::apps_spawn::RunPaths),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -194,6 +196,15 @@ fn run<H: Http>(
                         Ask::AppsListener(port, proc_root) => {
                             let peer = super::apps_call::peer_uid(&stream);
                             super::apps_call::listener_reply(&proc_root, port, peer)
+                        }
+                        Ask::AppsRun(ask, paths) => {
+                            let peer = super::apps_call::peer_uid(&stream);
+                            super::apps_spawn::answer(
+                                &paths,
+                                ask,
+                                peer,
+                                &super::apps_spawn::SystemUsers,
+                            )
                         }
                         Ask::Handoff(report) => {
                             answer_report(client.as_deref_mut(), report, now(), log)

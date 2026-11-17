@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_apps::io::Unanswered;
-use cmux_apps::publish::{PublishRequest, publish, rollback};
+use cmux_apps::publish::{PublishRequest, publish, rollback, settle};
 use cmux_apps::state::{self, VersionState};
 use common::{HEAD, SNAPSHOT, World, proc_entry, tcp_table};
 use serde_json::json;
@@ -54,7 +54,7 @@ fn a_failed_probe_leaves_live_unchanged_and_never_promotes() {
     let before = world.changes().len();
 
     world.probe.status.set(502);
-    world.fs.file("/state/apps/web/v2/app.log", b"listening...\nError: boom\n");
+    world.fs.file("/var/lib/cmux-apps/1000/web/v2/app.log", b"listening...\nError: boom\n");
     let failure = world.with(|host| publish(host, &request())).unwrap_err();
 
     assert_eq!(failure.code, "app.probe_failed");
@@ -94,8 +94,12 @@ fn a_successful_publish_promotes_commit_command_machine_and_port() {
     assert_eq!((inferred.pid, inferred.command.as_str()), (77, "node server.js"));
     let spawned = world.procs.spawned.borrow();
     assert_eq!(spawned[0].command, "node server.js");
-    assert_eq!(spawned[0].dir, PathBuf::from("/state/apps/site/v1/src/site"));
-    assert_eq!(spawned[0].log, PathBuf::from("/state/apps/site/v1/app.log"));
+    assert_eq!(spawned[0].version_dir, PathBuf::from("/state/apps/site/v1"));
+    assert_eq!((spawned[0].subdir.as_str(), spawned[0].port), ("site", 41000));
+    // The agent started it as the app user, and the record keeps the pid's start time.
+    assert_eq!(done.version.run_as.as_deref(), Some("cmux-app"));
+    assert_eq!(done.version.start_time, Some(5000));
+    assert_eq!(done.version.run_dir, Some(PathBuf::from("/var/lib/cmux-apps/1000/site/v1")));
 
     let sent = world.changes();
     assert_eq!(sent[0].method, "POST");
@@ -192,15 +196,13 @@ fn the_app_process_gets_only_the_allowlisted_environment() {
         ("ANTHROPIC_API_KEY".into(), "sk-secret".into()),
     ];
     world.with(|host| publish(host, &request())).unwrap();
-    let mut env = world.procs.spawned.borrow()[0].env.clone();
-    env.sort();
+    // What the agent is asked for; it adds HOME (the run directory) and PORT only.
+    let env = world.procs.spawned.borrow()[0].env.clone();
     assert_eq!(
         env,
         [
-            ("HOME".to_owned(), "/state/apps/web/v1".to_owned()),
             ("LANG".to_owned(), "C.UTF-8".to_owned()),
             ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
-            ("PORT".to_owned(), "41000".to_owned()),
             ("TZ".to_owned(), "UTC".to_owned()),
         ]
     );
@@ -215,12 +217,12 @@ fn service_env_literals_and_setup_come_from_app_json() {
         br#"{"service": {"setup": "npm ci", "env": {"NODE_ENV": "production", "PORT": "1", "SECRET": {"ref": "x"}}}}"#,
     );
     world.with(|host| publish(host, &request())).unwrap();
-    let ran = world.procs.ran.borrow();
-    assert_eq!(ran[0].command, "npm ci");
-    assert!(ran[0].env.iter().all(|(k, _)| k != "GITHUB_TOKEN" && k != "PORT"));
-    let env = &world.procs.spawned.borrow()[0].env;
+    let spawned = world.procs.spawned.borrow();
+    // The setup runs in the agent's start, as the app user, never here.
+    assert_eq!(spawned[0].setup.as_deref(), Some("npm ci"));
+    let env = &spawned[0].env;
     assert!(env.contains(&("NODE_ENV".to_owned(), "production".to_owned())));
-    assert!(env.contains(&("PORT".to_owned(), "41000".to_owned())), "app.json may not move PORT");
+    assert!(env.iter().all(|(k, _)| k != "PORT"), "app.json may not move PORT");
     assert!(env.iter().all(|(k, _)| k != "SECRET" && k != "GITHUB_TOKEN"));
 }
 
@@ -236,7 +238,8 @@ fn rollback_restarts_the_retired_version_on_its_port_and_moves_live() {
     assert_eq!(done.version.n, 1);
     let spawned = world.procs.spawned.borrow();
     assert_eq!(spawned.len(), 3);
-    assert!(spawned[2].env.contains(&("PORT".to_owned(), "41000".to_owned())));
+    assert_eq!((spawned[2].version, spawned[2].port), (1, 41000));
+    assert_eq!(spawned[2].setup, None);
     let sent = world.agent.sent.borrow();
     let last = sent.last().unwrap();
     assert_eq!(last.path, "/v1/cloud/apps/web/rollback");
@@ -261,4 +264,59 @@ fn rollback_to_a_failed_version_is_refused() {
     // v1 is the platform's version 1, v3 its version 2: a rollback names the platform's number.
     world.with(|host| rollback(host, "web", Some(1), Duration::from_secs(60))).unwrap();
     assert_eq!(world.agent.sent.borrow().last().unwrap().body, Some(json!({"to": 1})));
+}
+
+#[test]
+fn no_app_user_refuses_the_publish_with_no_fallback() {
+    let world = World::new();
+    *world.procs.refusal.borrow_mut() = Some("useradd made no cmux-app account".to_owned());
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+    assert_eq!(failure.code, "app.start");
+    assert!(failure.message.contains("cmux-app"), "{}", failure.message);
+    assert!(world.promotes().is_empty(), "a version that never started was promoted");
+    let app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert_eq!(app.version(1).unwrap().state, VersionState::Failed);
+}
+
+#[test]
+fn a_promote_whose_answers_are_all_lost_stays_pending_and_running() {
+    let world = World::new();
+    world.agent.lose_answers.set(3);
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+    assert_eq!(failure.code, "app.promote_pending");
+    assert_eq!(world.promotes().len(), 3);
+    assert!(world.procs.stopped.borrow().is_empty(), "a pending version was stopped");
+    let app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert_eq!(app.version(1).unwrap().state, VersionState::Pending);
+    assert_eq!(app.live, None);
+}
+
+#[test]
+fn versions_settles_a_pending_version_from_the_platforms_record() {
+    let world = World::new();
+    world.agent.lose_answers.set(3);
+    world.with(|host| publish(host, &request())).unwrap_err();
+    // The platform took it after all.
+    *world.agent.app_versions.borrow_mut() = vec![json!({
+        "n": 4, "commit": HEAD, "command": "npm start", "machine": "vm_self", "port": 41000,
+        "state": "live", "createdAt": "2026-11-17T00:00:00Z"
+    })];
+    let mut app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert!(world.with(|host| settle(host, &mut app)));
+    assert_eq!(app.live, Some(1));
+    let v1 = app.version(1).unwrap();
+    assert_eq!((v1.state, v1.platform_n), (VersionState::Live, Some(4)));
+    assert_eq!(app.url.as_deref(), Some("https://a-web--team_abc.preview.example"));
+}
+
+#[test]
+fn a_pending_version_the_platform_never_got_settles_failed_and_stops() {
+    let world = World::new();
+    world.agent.lose_answers.set(3);
+    world.with(|host| publish(host, &request())).unwrap_err();
+    let mut app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert!(world.with(|host| settle(host, &mut app)));
+    assert_eq!(app.version(1).unwrap().state, VersionState::Failed);
+    assert_eq!(*world.procs.stopped.borrow(), [500]);
+    assert_eq!(app.live, None);
 }

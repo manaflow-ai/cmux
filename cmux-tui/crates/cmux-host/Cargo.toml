@@ -31,8 +31,10 @@ zeroize.workspace = true
 # cmux-server-core, never the reverse.
 cmux-server = { path = "../cmux-server" }
 cmux-server-core = { path = "../cmux-server-core" }
-# `cmux app` through the agent socket (`cloud/apps_call.rs`): the listener inference.
+# `cmux app` through the agent socket (`cloud/apps_call.rs`): the listener inference and slugs.
 cmux-apps = { path = "../cmux-apps" }
+# `apps.spawn` (`cloud/apps_spawn.rs`): app processes as owned children.
+cmux-process.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true

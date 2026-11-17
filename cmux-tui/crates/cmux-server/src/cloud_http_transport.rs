@@ -24,6 +24,13 @@ pub(super) struct Transport {
     epoch: u64,
 }
 
+/// A request's bearer and extra headers (an `Idempotency-Key`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Sign<'a> {
+    pub bearer: Option<&'a str>,
+    pub headers: &'a [(&'a str, &'a str)],
+}
+
 impl Transport {
     pub(super) fn new(allow_http: bool, epoch: u64) -> Result<Self, String> {
         let client = reqwest::Client::builder()
@@ -50,8 +57,7 @@ impl Transport {
         method: reqwest::Method,
         url: &str,
         body: Option<&Value>,
-        bearer: Option<&str>,
-        headers: &[(&str, &str)],
+        sign: Sign<'_>,
         deadline: &RequestDeadline,
         network: &mut watch::Receiver<u64>,
     ) -> Result<super::Response, String> {
@@ -64,7 +70,7 @@ impl Transport {
                 }
                 // The connection under this request may be dead: fail now rather than at the deadline.
                 Ok(()) = network.changed() => Err("Cloud request unavailable".to_owned()),
-                response = self.send_reconnecting(method, url, body, bearer, headers, deadline) => response,
+                response = self.send_reconnecting(method, url, body, sign.bearer, sign.headers, deadline) => response,
             }
         })?;
         deadline.remaining().ok_or("Cloud response unavailable")?;

@@ -108,7 +108,8 @@ pub fn parse(words: &[String]) -> Result<Parsed, String> {
         |name: &str| values.iter().rev().find(|(flag, _)| *flag == name).map(|(_, v)| v.clone());
     let max_positional = if verb == "ls" { 0 } else { 1 };
     if positional.len() > max_positional {
-        return Err(usage(format!("unexpected argument {}", positional[max_positional])));
+        let extra = positional.get(max_positional).cloned().unwrap_or_default();
+        return Err(usage(format!("unexpected argument {extra}")));
     }
     let name = positional.into_iter().next();
     let named = |name: Option<String>| name.ok_or_else(|| usage(format!("app {verb} needs NAME")));
@@ -198,7 +199,7 @@ pub fn run(host: &Host<'_>, parsed: &Parsed, cwd: PathBuf) -> Output {
                 Err(failure) => failed(json, &failure),
             }
         }
-        Command::Versions { name } => match load(host, name) {
+        Command::Versions { name } => match load(host, name).and_then(|app| settled(host, app)) {
             Ok(app) => {
                 let versions: Vec<&Version> = app.newest_first();
                 let mut line = String::new();
@@ -235,7 +236,11 @@ pub fn run(host: &Host<'_>, parsed: &Parsed, cwd: PathBuf) -> Output {
                 Err(failure) => failed(json, &failure),
             }
         }
-        Command::Ls => match state::list(host.fs, &host.apps_root) {
+        Command::Ls => match state::list(host.fs, &host.apps_root).and_then(|apps| {
+            apps.into_iter()
+                .map(|app| settled(host, app).map_err(|f| f.message))
+                .collect::<Result<Vec<_>, _>>()
+        }) {
             Ok(apps) => {
                 let mut line = String::new();
                 for app in &apps {
@@ -252,6 +257,18 @@ pub fn run(host: &Host<'_>, parsed: &Parsed, cwd: PathBuf) -> Output {
             Err(e) => failed(json, &Failure { code: "app.state", message: e, version: None }),
         },
     }
+}
+
+/// `app` with its pending versions settled from the platform, saved when that changed one.
+fn settled(host: &Host<'_>, mut app: AppState) -> Result<AppState, Failure> {
+    if publish::settle(host, &mut app) {
+        state::save(host.fs, &host.apps_root, &app).map_err(|e| Failure {
+            code: "app.state",
+            message: e,
+            version: None,
+        })?;
+    }
+    Ok(app)
 }
 
 fn load(host: &Host<'_>, name: &str) -> Result<AppState, Failure> {

@@ -1,5 +1,6 @@
-//! The version store: `~/.cmux/apps/<slug>/state.json`, and each version's directory
-//! `~/.cmux/apps/<slug>/v<n>/` (`src/` is the archived tree, `app.log` and `setup.log` its logs).
+//! The version store: `<state root>/apps/<slug>/state.json`, and each version's staged
+//! directory `<state root>/apps/<slug>/v<n>/` (`src.tar`, the archive this machine's agent
+//! copies, and `src/`, the tree it came from). The version runs from the agent's copy.
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,9 @@ use crate::io::Fs;
 #[serde(rename_all = "lowercase")]
 pub enum VersionState {
     Starting,
+    /// Probed, and promoted with no answer back: the next `versions` or `ls` settles it from
+    /// the platform's own record. Its process keeps running.
+    Pending,
     Live,
     Failed,
     Retired,
@@ -21,6 +25,7 @@ impl VersionState {
     pub fn word(self) -> &'static str {
         match self {
             VersionState::Starting => "starting",
+            VersionState::Pending => "pending",
             VersionState::Live => "live",
             VersionState::Failed => "failed",
             VersionState::Retired => "retired",
@@ -43,7 +48,14 @@ pub struct Version {
     pub port: u16,
     #[serde(default)]
     pub pid: Option<u32>,
-    /// The user the process runs as; `None` is the publishing user.
+    /// The process's start time (`/proc/<pid>/stat` field 22): a pid with another start
+    /// time is another process.
+    #[serde(default)]
+    pub start_time: Option<u64>,
+    /// The agent's run directory of this version (owned by the app user), with `app.log`.
+    #[serde(default)]
+    pub run_dir: Option<PathBuf>,
+    /// The user the process runs as.
     #[serde(default)]
     pub run_as: Option<String>,
     pub state: VersionState,
@@ -80,7 +92,7 @@ impl AppState {
     }
 
     pub fn next_n(&self) -> u32 {
-        self.versions.iter().map(|v| v.n).max().unwrap_or(0) + 1
+        self.versions.iter().map(|v| v.n).max().unwrap_or(0).saturating_add(1)
     }
 
     pub fn version(&self, n: u32) -> Option<&Version> {
@@ -117,7 +129,7 @@ impl AppState {
     /// Versions, newest first.
     pub fn newest_first(&self) -> Vec<&Version> {
         let mut out: Vec<&Version> = self.versions.iter().collect();
-        out.sort_by(|a, b| b.n.cmp(&a.n));
+        out.sort_by_key(|v| std::cmp::Reverse(v.n));
         out
     }
 }
@@ -181,5 +193,5 @@ pub fn list(fs: &dyn Fs, root: &Path) -> Result<Vec<AppState>, String> {
 pub fn tail(fs: &dyn Fs, path: &Path, max: usize) -> String {
     let bytes = fs.read(path).unwrap_or_default();
     let start = bytes.len().saturating_sub(max);
-    String::from_utf8_lossy(&bytes[start..]).into_owned()
+    String::from_utf8_lossy(bytes.get(start..).unwrap_or_default()).into_owned()
 }

@@ -1,22 +1,20 @@
 //! The real [`crate::io`] implementations: std files, the `git` CLI, app processes, the wall
 //! clock, a loopback HTTP probe, and this machine's agent socket for the platform and listeners.
 
-use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{self, BufRead as _, Read as _, Write as _};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use cmux_process::{Child, Command, Stdio};
+use cmux_process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
 use crate::infer::Inferred;
 use crate::io::{
-    Answered, AppsTransport, Clock, Fs, Git, Launch, Listeners, Probe, Procs, Unanswered,
+    Answered, AppsTransport, Clock, Fs, Git, Listeners, Probe, Procs, Start, Started, Unanswered,
 };
 
 pub struct RealFs;
@@ -115,68 +113,21 @@ impl Git for GitCli {
                     "tar",
                 )
             });
-        let _ = fs::remove_file(&tar);
+        // `src.tar` stays: it is what this machine's agent copies the version from.
         result.map(|_| ())
     }
 }
 
-/// The unprivileged account app processes run as when the publisher is root.
-pub const APP_USER: &str = "cmux-app";
-
-/// The app processes started here. Each is detached (a version outlives the command that
-/// published it), and kept so its exit is reaped and seen by [`Procs::alive`].
+/// App processes through this machine's agent (`apps.spawn`, `apps.status`, `apps.stop`):
+/// the agent starts them as its unprivileged app user, so this process never does, and
+/// ports on loopback.
 pub struct RealProcs {
-    children: Mutex<HashMap<u32, Child>>,
-    user: Option<(u32, u32)>,
+    pub agent: AgentSocket,
 }
 
 impl RealProcs {
     pub fn new() -> RealProcs {
-        RealProcs { children: Mutex::new(HashMap::new()), user: app_user() }
-    }
-
-    fn command(&self, launch: &Launch<'_>) -> Result<Command, String> {
-        if let Some(parent) = launch.log.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("cannot make {}: {e}", parent.display()))?;
-        }
-        let log = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(launch.log)
-            .map_err(|e| format!("cannot open {}: {e}", launch.log.display()))?;
-        let err = log.try_clone().map_err(|e| e.to_string())?;
-        let mut command = match self.user {
-            // The version's directory (HOME) becomes the app user's so it can write there, and
-            // setpriv drops to that user before the shell starts.
-            Some((uid, gid)) => {
-                if let Some((_, home)) = launch.env.iter().find(|(k, _)| k == "HOME") {
-                    let owner = format!("{uid}:{gid}");
-                    run_output(Command::new("chown").args(["-R", &owner, home]), "chown")?;
-                }
-                let mut command = Command::new("setpriv");
-                command.args([
-                    format!("--reuid={uid}"),
-                    format!("--regid={gid}"),
-                    "--clear-groups".to_owned(),
-                    "--".to_owned(),
-                    "/bin/sh".to_owned(),
-                ]);
-                command
-            }
-            None => Command::new("/bin/sh"),
-        };
-        command
-            .arg("-c")
-            .arg(launch.command)
-            .current_dir(launch.dir)
-            .env_clear()
-            .envs(launch.env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::null())
-            .stdout(log)
-            .stderr(err)
-            .new_session();
-        Ok(command)
+        RealProcs { agent: AgentSocket::default() }
     }
 }
 
@@ -186,60 +137,47 @@ impl Default for RealProcs {
     }
 }
 
-/// `cmux-app`'s uid and gid when this process is root and the account exists.
-fn app_user() -> Option<(u32, u32)> {
-    // SAFETY: geteuid has no preconditions; getpwnam's entry is read before any other call.
-    unsafe {
-        if libc::geteuid() != 0 {
-            return None;
-        }
-        let name = std::ffi::CString::new(APP_USER).ok()?;
-        let entry = libc::getpwnam(name.as_ptr());
-        if entry.is_null() || (*entry).pw_uid == 0 {
-            return None;
-        }
-        Some(((*entry).pw_uid, (*entry).pw_gid))
-    }
-}
-
 impl Procs for RealProcs {
-    fn spawn_detached(&self, launch: &Launch<'_>) -> Result<u32, String> {
-        let mut child = self.command(launch)?.spawn().map_err(|e| e.to_string())?;
-        child.detach("a published app version outlives the cmux app command that started it");
-        let pid = child.id();
-        self.children.lock().unwrap_or_else(|e| e.into_inner()).insert(pid, child);
-        Ok(pid)
+    fn start(&self, start: &Start<'_>) -> Result<Started, String> {
+        let env: serde_json::Map<String, Value> =
+            start.env.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
+        let line = json!({"apps.spawn": {
+            "slug": start.slug,
+            "version": start.version,
+            "versionDir": start.version_dir.display().to_string(),
+            "subdir": start.subdir,
+            "cmd": start.command,
+            "setup": start.setup,
+            "port": start.port,
+            "env": env,
+        }});
+        let reply = self.agent.ask(&line, SPAWN_BOUND).map_err(|e| e.message)?;
+        let text =
+            |key: &str| reply.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let pid = reply
+            .get("pid")
+            .and_then(Value::as_u64)
+            .and_then(|p| u32::try_from(p).ok())
+            .ok_or_else(|| "the agent's answer has no pid".to_owned())?;
+        Ok(Started {
+            pid,
+            start_time: reply.get("startTime").and_then(Value::as_u64).unwrap_or_default(),
+            run_dir: PathBuf::from(text("runDir")),
+            log: PathBuf::from(text("log")),
+            user: text("user"),
+        })
     }
 
-    fn run(&self, launch: &Launch<'_>, limit: Duration) -> Result<(), String> {
-        // Not detached: a setup that runs past its limit is ended with its group on drop.
-        let mut child = self.command(launch)?.spawn().map_err(|e| e.to_string())?;
-        match child.wait_timeout(limit).map_err(|e| e.to_string())? {
-            Some(status) if status.success() => Ok(()),
-            Some(status) => Err(format!("exited with {status}")),
-            None => Err(format!("did not finish within {} s", limit.as_secs())),
-        }
+    fn alive(&self, slug: &str, version: u32) -> bool {
+        let line = json!({"apps.status": {"slug": slug, "version": version}});
+        self.agent
+            .ask(&line, LISTENER_BOUND)
+            .is_ok_and(|reply| reply.get("alive").and_then(Value::as_bool) == Some(true))
     }
 
-    fn alive(&self, pid: u32) -> bool {
-        let mut children = self.children.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(child) = children.get_mut(&pid) {
-            return matches!(child.try_wait(), Ok(None));
-        }
-        // SAFETY: signal 0 only checks that the process exists.
-        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
-    }
-
-    fn stop(&self, pid: u32) {
-        // SAFETY: the version's process leads its own session and group, so this ends only it.
-        unsafe {
-            libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
-        }
-        if let Some(mut child) =
-            self.children.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid)
-        {
-            let _ = child.try_wait();
-        }
+    fn stop(&self, slug: &str, version: u32) {
+        let line = json!({"apps.stop": {"slug": slug, "version": version}});
+        let _ = self.agent.ask(&line, LISTENER_BOUND);
     }
 
     fn free_port(&self) -> Result<u16, String> {
@@ -249,10 +187,6 @@ impl Procs for RealProcs {
 
     fn port_free(&self, port: u16) -> bool {
         TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok()
-    }
-
-    fn run_as(&self) -> Option<String> {
-        self.user.map(|_| APP_USER.to_owned())
     }
 }
 
@@ -285,17 +219,18 @@ impl Probe for LoopbackProbe {
         let mut head = [0u8; 64];
         let mut read = 0;
         while read < head.len() {
-            match stream.read(&mut head[read..]) {
+            let Some(rest) = head.get_mut(read..) else { break };
+            match stream.read(rest) {
                 Ok(0) => break,
-                Ok(n) => read += n,
+                Ok(n) => read = read.saturating_add(n),
                 Err(e) if read == 0 => return Err(e.to_string()),
                 Err(_) => break,
             }
-            if head[..read].contains(&b'\n') {
+            if head.get(..read).is_some_and(|h| h.contains(&b'\n')) {
                 break;
             }
         }
-        let line = String::from_utf8_lossy(&head[..read]);
+        let line = String::from_utf8_lossy(head.get(..read).unwrap_or_default());
         line.split_whitespace()
             .nth(1)
             .and_then(|code| code.parse().ok())
@@ -310,6 +245,8 @@ pub const AGENT_SOCKET: &str = "/run/cmux-vm-agent/agent.sock";
 /// An `apps.call`'s whole bound: the agent mints a token and the platform rechecks a promote.
 const CALL_BOUND: Duration = Duration::from_secs(90);
 const LISTENER_BOUND: Duration = Duration::from_secs(10);
+/// An `apps.spawn`: the agent unpacks the version's source before it starts it.
+const SPAWN_BOUND: Duration = Duration::from_secs(180);
 
 /// The agent on its socket: one JSON line out, one line back, per connection.
 pub struct AgentSocket {
@@ -329,7 +266,7 @@ fn unanswered(code: &str, message: impl Into<String>) -> Unanswered {
 impl AgentSocket {
     /// `Err` with `app.unreachable` when the line was sent and no answer came (it may have
     /// reached the platform), `app.agent` when the agent could not be reached at all.
-    fn ask(&self, line: &Value, bound: Duration) -> Result<Value, Unanswered> {
+    pub fn ask(&self, line: &Value, bound: Duration) -> Result<Value, Unanswered> {
         let mut stream = UnixStream::connect(&self.path).map_err(|e| {
             unanswered(
                 "app.agent",
@@ -400,7 +337,11 @@ impl Listeners for AgentSocket {
         let text =
             |key: &str| reply.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
         Ok(Inferred {
-            pid: reply.get("pid").and_then(Value::as_u64).unwrap_or_default() as u32,
+            pid: reply
+                .get("pid")
+                .and_then(Value::as_u64)
+                .and_then(|p| u32::try_from(p).ok())
+                .unwrap_or_default(),
             dir: PathBuf::from(text("dir")),
             argv: reply
                 .get("argv")

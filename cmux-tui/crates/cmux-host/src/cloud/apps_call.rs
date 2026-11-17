@@ -9,8 +9,11 @@
 //!   agent, which can see every process; answered only when that process belongs to the asking
 //!   user (the socket's peer credentials), so no user reads another's command line.
 
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt as _;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(unix)]
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -112,7 +115,7 @@ pub fn check_listener(value: &Value) -> Result<u16, String> {
 }
 
 /// The asking process's uid, from the socket's peer credentials.
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(unix, not(target_os = "linux")))]
 pub fn peer_uid(stream: &UnixStream) -> Option<u32> {
     use std::os::fd::AsRawFd as _;
     let (mut uid, mut gid) = (0, 0);
@@ -142,6 +145,7 @@ pub fn peer_uid(stream: &UnixStream) -> Option<u32> {
 
 /// The reply for `apps.listener`: the process on `port` under `proc_root`, when it is the
 /// asking user's (`peer_uid`; root may read any), else a refusal naming `--cmd` and `--dir`.
+#[cfg(unix)]
 pub fn listener_reply(proc_root: &Path, port: Result<u16, String>, peer_uid: Option<u32>) -> Value {
     let port = match port {
         Ok(port) => port,

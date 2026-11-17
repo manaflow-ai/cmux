@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use cmux_apps::infer::{Inferred, infer};
 use cmux_apps::io::{
-    Answered, AppsTransport, Clock, Fs, Git, Launch, Listeners, Probe, Procs, Unanswered,
+    Answered, AppsTransport, Clock, Fs, Git, Listeners, Probe, Procs, Start, Started, Unanswered,
 };
 use cmux_apps::platform::PlatformClient;
 use cmux_apps::publish::Host;
@@ -117,23 +117,31 @@ impl Git for FakeGit {
     }
 }
 
+/// One `apps.spawn` the agent got.
 #[derive(Debug, Clone)]
 pub struct Spawned {
+    pub slug: String,
+    pub version: u32,
+    pub version_dir: PathBuf,
+    pub subdir: String,
     pub command: String,
-    pub dir: PathBuf,
+    pub setup: Option<String>,
+    pub port: u16,
     pub env: Vec<(String, String)>,
-    pub log: PathBuf,
 }
 
+/// This machine's agent's `apps.spawn`, `apps.status` and `apps.stop`, by pid.
 pub struct FakeProcs {
     pub next_pid: Cell<u32>,
     pub port: Cell<u16>,
     pub spawned: RefCell<Vec<Spawned>>,
-    pub ran: RefCell<Vec<Spawned>>,
+    /// The pid each version was last started as.
+    pub pids: RefCell<BTreeMap<(String, u32), u32>>,
     pub stopped: RefCell<Vec<u32>>,
     pub dead: RefCell<BTreeSet<u32>>,
     pub taken_ports: RefCell<BTreeSet<u16>>,
-    pub user: Option<String>,
+    /// The agent's refusal of every start (it can't make or switch to the app user).
+    pub refusal: RefCell<Option<String>>,
 }
 
 impl Default for FakeProcs {
@@ -142,43 +150,55 @@ impl Default for FakeProcs {
             next_pid: Cell::new(500),
             port: Cell::new(41000),
             spawned: RefCell::default(),
-            ran: RefCell::default(),
+            pids: RefCell::default(),
             stopped: RefCell::default(),
             dead: RefCell::default(),
             taken_ports: RefCell::default(),
-            user: Some("cmux-app".into()),
+            refusal: RefCell::default(),
         }
     }
 }
 
-fn spawned(launch: &Launch<'_>) -> Spawned {
-    Spawned {
-        command: launch.command.to_owned(),
-        dir: launch.dir.to_path_buf(),
-        env: launch.env.to_vec(),
-        log: launch.log.to_path_buf(),
-    }
-}
-
 impl Procs for FakeProcs {
-    fn spawn_detached(&self, launch: &Launch<'_>) -> Result<u32, String> {
-        self.spawned.borrow_mut().push(spawned(launch));
+    fn start(&self, start: &Start<'_>) -> Result<Started, String> {
+        if let Some(refusal) = self.refusal.borrow().clone() {
+            return Err(refusal);
+        }
+        self.spawned.borrow_mut().push(Spawned {
+            slug: start.slug.to_owned(),
+            version: start.version,
+            version_dir: start.version_dir.to_path_buf(),
+            subdir: start.subdir.to_owned(),
+            command: start.command.to_owned(),
+            setup: start.setup.map(str::to_owned),
+            port: start.port,
+            env: start.env.to_vec(),
+        });
         let pid = self.next_pid.get();
         self.next_pid.set(pid + 1);
-        Ok(pid)
+        self.pids.borrow_mut().insert((start.slug.to_owned(), start.version), pid);
+        let run_dir =
+            PathBuf::from(format!("/var/lib/cmux-apps/1000/{}/v{}", start.slug, start.version));
+        Ok(Started {
+            pid,
+            start_time: u64::from(pid) * 10,
+            log: run_dir.join("app.log"),
+            run_dir,
+            user: "cmux-app".into(),
+        })
     }
 
-    fn run(&self, launch: &Launch<'_>, _limit: Duration) -> Result<(), String> {
-        self.ran.borrow_mut().push(spawned(launch));
-        Ok(())
+    fn alive(&self, slug: &str, version: u32) -> bool {
+        let pid = self.pids.borrow().get(&(slug.to_owned(), version)).copied();
+        pid.is_some_and(|pid| {
+            !self.dead.borrow().contains(&pid) && !self.stopped.borrow().contains(&pid)
+        })
     }
 
-    fn alive(&self, pid: u32) -> bool {
-        !self.dead.borrow().contains(&pid) && !self.stopped.borrow().contains(&pid)
-    }
-
-    fn stop(&self, pid: u32) {
-        self.stopped.borrow_mut().push(pid);
+    fn stop(&self, slug: &str, version: u32) {
+        if let Some(pid) = self.pids.borrow().get(&(slug.to_owned(), version)) {
+            self.stopped.borrow_mut().push(*pid);
+        }
     }
 
     fn free_port(&self) -> Result<u16, String> {
@@ -189,10 +209,6 @@ impl Procs for FakeProcs {
 
     fn port_free(&self, port: u16) -> bool {
         !self.taken_ports.borrow().contains(&port)
-    }
-
-    fn run_as(&self) -> Option<String> {
-        self.user.clone()
     }
 }
 
@@ -256,6 +272,8 @@ pub struct FakeAgent {
     pub promoted: Cell<u32>,
     /// The agent's refusal of every call (an unbound machine).
     pub refusal: RefCell<Option<Unanswered>>,
+    /// The platform's versions of the app, for `GET /v1/cloud/apps/{slug}`.
+    pub app_versions: RefCell<Vec<Value>>,
 }
 
 impl AppsTransport for FakeAgent {
@@ -301,6 +319,10 @@ impl AppsTransport for FakeAgent {
                 200,
                 json!({"app": app, "url": "https://a-web--team_abc.preview.example"}),
             );
+        }
+        if method == "GET" && path != "/v1/cloud/apps" {
+            let versions = self.app_versions.borrow().clone();
+            return answered(200, json!({"app": app, "versions": versions}));
         }
         if method == "GET" {
             return answered(200, json!({"items": []}));

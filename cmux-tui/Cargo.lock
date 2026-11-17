@@ -1694,6 +1694,7 @@ dependencies = [
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
+ "cmux-process",
  "cmux-server",
  "cmux-server-core",
  "cmux-supervise-core",

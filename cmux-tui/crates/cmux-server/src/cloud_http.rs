@@ -207,8 +207,7 @@ impl JsonPoster {
             method,
             url,
             body,
-            bearer,
-            headers,
+            transport::Sign { bearer, headers },
             deadline,
             &mut network,
         );

@@ -42,8 +42,12 @@
 #[cfg(target_os = "linux")]
 mod agent_socket;
 pub mod apps_call;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod apps_call_tests;
+#[cfg(unix)]
+pub mod apps_spawn;
+#[cfg(all(test, unix))]
+mod apps_spawn_tests;
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 #[cfg(unix)]

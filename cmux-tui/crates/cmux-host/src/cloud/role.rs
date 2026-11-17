@@ -1498,6 +1498,14 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
         let proc_root = paths.root().join("proc");
         return Some(Ask::AppsListener(super::apps_call::check_listener(ask), proc_root));
     }
+    use super::apps_spawn::{RUN_ROOT, RunPaths, SPAWN_KEY, STATUS_KEY, STOP_KEY, check_run};
+    for key in [SPAWN_KEY, STATUS_KEY, STOP_KEY] {
+        if let Some(ask) = msg.get(key) {
+            let run =
+                RunPaths { proc_root: paths.root().join("proc"), run_root: paths.at(RUN_ROOT) };
+            return Some(Ask::AppsRun(check_run(key, ask), run));
+        }
+    }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())
 }

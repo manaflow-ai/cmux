@@ -20,6 +20,14 @@ pub struct ApiError {
     pub message: String,
 }
 
+impl ApiError {
+    /// Whether the request may have been taken with its answer lost (retries ran out), or the
+    /// platform itself has the promote pending: neither is a refusal.
+    pub fn pending(&self) -> bool {
+        self.code.ends_with(".unreachable") || self.code == "cloud.app.promote_pending"
+    }
+}
+
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.status == 0 {
@@ -61,6 +69,8 @@ pub trait PlatformApi {
     fn rollback(&self, slug: &str, to: Option<u32>) -> Result<Moved, ApiError>;
     /// `PUT /v1/cloud/apps/{slug}/grants` `{kind: "team", id}`.
     fn share_team(&self, slug: &str, team: &str) -> Result<(), ApiError>;
+    /// `GET /v1/cloud/apps/{slug}`: `{app, versions}`, newest version first.
+    fn app(&self, slug: &str) -> Result<Value, ApiError>;
 }
 
 /// [`PlatformApi`] through this machine's agent (`apps.call`), which holds the `vm-self`
@@ -102,7 +112,7 @@ impl<'a> PlatformClient<'a> {
         for _ in 1..tries {
             match &sent {
                 Err(e) if e.lost() => {
-                    sent = self.transport.call(method, path, body, idempotency_key)
+                    sent = self.transport.call(method, path, body, idempotency_key);
                 }
                 _ => break,
             }
@@ -186,5 +196,9 @@ impl PlatformApi for PlatformClient<'_> {
     fn share_team(&self, slug: &str, team: &str) -> Result<(), ApiError> {
         let body = json!({"kind": "team", "id": team});
         self.call("PUT", &format!("{APPS}/{slug}/grants"), Some(&body), None, 1).map(|_| ())
+    }
+
+    fn app(&self, slug: &str) -> Result<Value, ApiError> {
+        self.call("GET", &format!("{APPS}/{slug}"), None, None, 1)
     }
 }
