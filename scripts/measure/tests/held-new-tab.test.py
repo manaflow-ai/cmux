@@ -1255,6 +1255,25 @@ class KeyWindow(Case):
         self.assertNotIn("key_window_refusals", record)
         self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence")])
 
+    def test_a_take_keeps_each_other_error_of_its_sequence_with_no_key(self):
+        """The app answers the take's sequence with no key with an error that is not a refusal of a key window. The
+        tool makes no second send of it, the keys go as before, and the take's record keeps the app's words."""
+        world, empty = World(chromium_pages=True), []
+        app = world.rpc
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.key" and (params or {}).get("sequence") == []:
+                empty.append(params.get("key_window"))
+                return {"error": "no event timestamp to start the sequence from"}
+            return app(method, params, timeout)
+
+        world.rpc = rpc
+        record = self.record(world, row="hold", form="activate")
+        self.assertEqual((empty, world.asked, record["errors"], record["invalid"]), (["shell"], ["shell"], [], []))
+        self.assertEqual(record["take"].get(EARLY), ["shell: no event timestamp to start the sequence from"])
+        self.assertNotIn("key_window_refusals", record)
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence")])
+
     def test_a_take_whose_word_the_app_refuses_after_its_frames_started_is_invalid_and_names_the_refusal(self):
         """The page gets the keys after the app took the take's word: the refused send and the tool's new read of the
         focus are inside the frames, so no frame number of that take is valid."""
