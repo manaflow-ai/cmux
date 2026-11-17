@@ -643,5 +643,9 @@ pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::ne
 mod tests;
 
 #[cfg(test)]
+#[path = "text_scale_bench.rs"]
+mod text_scale_bench;
+
+#[cfg(test)]
 #[path = "follow_tests.rs"]
 mod follow_tests;
