@@ -35,6 +35,8 @@ final class CEFRuntime {
     /// The pump's gate for requests from Chromium threads (read off the main thread).
     nonisolated let pumpGate = CEFPumpCrossThreadGate()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
+    /// This turn's window resize fences (fork API 32), one set for every hosted page of the process.
+    let resizeFences = CEFResizeFences()
 
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
