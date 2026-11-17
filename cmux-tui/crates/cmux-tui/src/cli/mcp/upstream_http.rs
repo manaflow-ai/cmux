@@ -23,7 +23,7 @@ const SESSION_HEADER: &str = "mcp-session-id";
 
 /// Where an HTTP upstream is: its url and the headers each request carries.
 #[derive(Clone, PartialEq, Eq)]
-pub(super) struct Http {
+pub(in super::super) struct Http {
     pub url: String,
     pub headers: Vec<(String, String)>,
 }
@@ -38,7 +38,7 @@ impl std::fmt::Debug for Http {
 
 impl Http {
     /// `{url, headers}` in a spec, or None when it is not that.
-    pub(super) fn from_json(item: &Value) -> Option<Self> {
+    pub(in super::super) fn from_json(item: &Value) -> Option<Self> {
         let url = item["url"].as_str()?.to_owned();
         let headers = item["headers"]
             .as_object()
@@ -55,7 +55,7 @@ impl Http {
 
 /// A url's parts this client needs, once it is known to be loopback.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Endpoint {
+pub(in super::super) struct Endpoint {
     /// The `host` header: the url's host and port as written.
     authority: String,
     /// The request target: path and query.
@@ -65,7 +65,7 @@ pub(super) struct Endpoint {
 
 /// The parts of `url` when it is a plain `http://` url on 127.0.0.1, ::1 or localhost, else why
 /// not (the same hosts as acpmux's `hosted_mcp::loopback_origin`).
-pub(super) fn endpoint(url: &str) -> Result<Endpoint, String> {
+pub(in super::super) fn endpoint(url: &str) -> Result<Endpoint, String> {
     let refused = || format!("{url} is not a loopback http URL (127.0.0.1, [::1] or localhost)");
     let rest = url.strip_prefix("http://").ok_or_else(refused)?;
     let (authority, target) = rest.find(['/', '?', '#']).map_or((rest, ""), |at| rest.split_at(at));
@@ -107,7 +107,7 @@ pub(super) fn endpoint(url: &str) -> Result<Endpoint, String> {
 }
 
 /// One HTTP upstream: its endpoint, headers and the session the server named.
-pub(super) struct Client {
+pub(in super::super) struct Client {
     url: String,
     endpoint: Endpoint,
     headers: Vec<(String, String)>,
@@ -117,7 +117,7 @@ pub(super) struct Client {
 
 impl Client {
     /// A client of `http`, or why there is none (not loopback, a header that is not one line).
-    pub(super) fn new(http: &Http) -> Result<Self, String> {
+    pub(in super::super) fn new(http: &Http) -> Result<Self, String> {
         let endpoint = endpoint(&http.url)?;
         let bad = |text: &str| text.contains(['\r', '\n']);
         if let Some((name, _)) =
@@ -134,13 +134,13 @@ impl Client {
         })
     }
 
-    pub(super) fn notify(&self, method: &str, timeout: Duration) -> Result<(), String> {
+    pub(in super::super) fn notify(&self, method: &str, timeout: Duration) -> Result<(), String> {
         let message = json!({"jsonrpc": "2.0", "method": method});
         self.post(method, &message, None, timeout).map(|_| ()).map_err(Failure::message)
     }
 
     /// One request, answered or not within `timeout`.
-    pub(super) fn request(
+    pub(in super::super) fn request(
         &self,
         method: &str,
         params: Value,
