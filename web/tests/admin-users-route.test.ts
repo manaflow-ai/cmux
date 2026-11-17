@@ -383,6 +383,19 @@ describe("admin users route", () => {
     });
   });
 
+  test("POST grants and removes a cmux NEXT plan", async () => {
+    const granted = await POST(postRequest({ userId: "u1", plan: "next_pro" }));
+    expect(granted.status).toBe(200);
+    const body = (await granted.json()) as { user: Record<string, unknown> };
+    expect(body.user).toMatchObject({ id: "u1", isPro: false, manualPlanId: "next_pro" });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_pro" });
+    expect(directory[0]?.serverMetadata.cmuxAdminPlanGrant).toMatchObject({ plan: "next_pro" });
+
+    const removed = await POST(postRequest({ userId: "u1", plan: null }));
+    expect(removed.status).toBe(200);
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({});
+  });
+
   test("POST removes a grant", async () => {
     const response = await POST(postRequest({ userId: "u2", plan: null }));
     expect(response.status).toBe(200);
@@ -447,6 +460,23 @@ describe("admin email grants route", () => {
       manualPlanId: "founders",
     });
     expect(pendingGrantRows).toEqual([]);
+  });
+
+  test("grants a cmux NEXT plan by email, directly or pending", async () => {
+    const direct = await POST_EMAIL_GRANTS(
+      postRequest({ email: "pat@example.com", plan: "next_max" }, {}, "/api/admin/email-grants"),
+    );
+    expect(direct.status).toBe(200);
+    expect(((await direct.json()) as { user: Record<string, unknown> }).user).toMatchObject({
+      id: "u1",
+      manualPlanId: "next_max",
+    });
+    const pending = await POST_EMAIL_GRANTS(
+      postRequest({ email: "later@example.com", plan: "next_pro" }, {}, "/api/admin/email-grants"),
+    );
+    expect(pending.status).toBe(200);
+    expect(((await pending.json()) as { pendingGrant: Record<string, unknown> }).pendingGrant)
+      .toMatchObject({ email: "later@example.com", plan: "next_pro" });
   });
 
   test("keeps the grant pending when the only matching account is unverified", async () => {

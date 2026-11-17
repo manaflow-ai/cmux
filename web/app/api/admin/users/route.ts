@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   return adminJsonResponse({ users, teams, pendingGrants });
 }
 
-/** POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | null } */
+/** POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | "next_pro" | "next_max" | null } */
 export async function POST(request: NextRequest) {
   const protection = enforceBrowserMutationProtection(request);
   if (protection) return protection;

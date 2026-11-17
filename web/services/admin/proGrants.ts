@@ -39,8 +39,17 @@ import {
   type ProMetadataJson,
   type StripeBillingStatus,
 } from "../billing/pro";
+import { NEXT_MAX_PLAN_ID, NEXT_PRO_PLAN_ID } from "../billing/nextPlans";
 
-export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+// `next_pro` / `next_max` grant a cmux NEXT Cloud plan (see
+// services/billing/nextPlans.ts); the classic app reads them as no plan.
+export const ADMIN_GRANTABLE_PLAN_IDS = [
+  PRO_PLAN_ID,
+  MAX_PLAN_ID,
+  FOUNDERS_PLAN_ID,
+  NEXT_PRO_PLAN_ID,
+  NEXT_MAX_PLAN_ID,
+] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
 
 export const ADMIN_USER_SEARCH_LIMIT = 25;
