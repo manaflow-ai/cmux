@@ -8204,7 +8204,6 @@ CmuxNextLayout	struct	CanvasPaneDrag	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextLayout	struct	CanvasPlacer	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Canvas/CanvasPlacer.swift	canvas layout math (arrangement, camera, handles, placer, resize edges); client-local
 CmuxNextLayout	struct	CanvasResizeEdges	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Canvas/CanvasResizeEdges.swift	canvas layout math (arrangement, camera, handles, placer, resize edges); client-local
 CmuxNextLayout	struct	CanvasScreen	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Canvas/CanvasScreen.swift	canvas layout math (arrangement, camera, handles, placer, resize edges); client-local
-CmuxNextLayout	class	MockLayoutSource	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Demo/MockLayoutSource.swift	demo/test mock daemon: Swift copy of a layout reducer applying intents to a tree
 CmuxNextLayout	enum	ColumnStripGeometry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ColumnGeometry.swift	strip/column geometry and column width ledger (R3b width rule)
 CmuxNextLayout	struct	ColumnCenterRequest	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ColumnGeometry.swift	from enum ColumnStripGeometry:5: strip/column geometry and column width ledger (R3b width rule)
 CmuxNextLayout	struct	ColumnWidthLedger	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ColumnWidthLedger.swift	strip/column geometry and column width ledger (R3b width rule)
