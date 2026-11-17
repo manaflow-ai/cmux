@@ -14,7 +14,10 @@ real key waits in the event queue) into:
   chat       the agent chat's composer, the webview a prompt is typed into: key to the frame that paints
              the character, from the page's own per-key samples (`page_paint_ms`, debug.agent_pane
              typing_stats), because the probe's `contents_ms` is the terminal's layer-contents mark and
-             nothing marks it for a Chromium page. Measured in one app on one host beside the terminal, so
+             nothing marks it for a Chromium page. Beside it `submitted_ms`, the mark chat and terminal share:
+             key to the frame handed on for display (the terminal's `contents_ms`; the chat's element timing
+             `presentationTime`, 4 ms steps, `submitted_floor_ms` its earliest; see SUBMITTED_PAGE).
+             Measured in one app on one host beside the terminal, so
              the pair is readable (Leo, 2026-11-17: "man the difference typing on terminal vs gui is def
              noticeable rn ... slow and sad comparatively on the latter")
 
@@ -568,16 +571,27 @@ def digest_sample(text):
 # (`debug.agent_pane typing_stats`, webviews perf.ts `AcpmuxPerf`), because the probe's `contents_ms` is
 # the terminal's layer-contents mark and nothing marks it for a Chromium page (TypingLatencyProbe).
 PAGE_PAINT = "page_paint_ms"
+# The mark chat and terminal compare on (`submitted_ms` in each run): the frame that shows the key handed on
+# for display. The terminal's is `contents_ms` (Ghostty's present callback: its echo frame became the layer's
+# contents, after its own Core Animation commit). A Chromium page's frames never pass through the app (its GPU
+# process commits them to its own CA context, which the app hosts), so the chat's is the page's element timing
+# `presentationTime` of the frame that draws the key (webviews keyPresentation.ts: Chromium's presentation
+# feedback of that frame), from the same key event time as `page_paint_ms`. On macOS Chromium's feedback is the
+# display time of the refresh its GPU process commits the frame for (its display link), so the chat's mark can sit
+# up to one refresh after its commit, where the terminal's is taken. Chromium rounds it up to a 4 ms step
+# on a page that is not cross-origin isolated (the agent page): `submitted_floor_ms` is the earliest it can be.
+SUBMITTED_PAGE = "page_submitted_ms"
 
 
-def page_key_to_frame(page):
+def page_key_to_frame(page, field="to_paint", mark=PAGE_PAINT, keys_field="keys"):
     """`pct`-shaped key-to-frame from the page's typing samples: each key's own event time to after the
-    frame that paints it (perf.ts `TypingSample.paint`). The page summarizes, so there is no p99 or mean."""
-    paint = (page or {}).get("to_paint") or {}
-    if not (page or {}).get("keys") or paint.get("p95_ms") is None:
+    frame that paints it (perf.ts `TypingSample.paint`), or another of its marks (`field`). The page
+    summarizes, so there is no p99 or mean."""
+    paint = (page or {}).get(field) or {}
+    if not (page or {}).get(keys_field) or paint.get("p95_ms") is None:
         return None
-    return {"n": page["keys"], "p50": paint.get("p50_ms"), "p95": paint.get("p95_ms"), "p99": None,
-            "max": paint.get("max_ms"), "mean": None, "from": PAGE_PAINT}
+    return {"n": page[keys_field], "p50": paint.get("p50_ms"), "p95": paint.get("p95_ms"), "p99": None,
+            "max": paint.get("max_ms"), "mean": None, "from": mark}
 
 
 KEY_TIMES = []  # each key's send time (perf_counter) in the current measure, for `stream_report`
@@ -694,6 +708,14 @@ def measure(surface, phase, params, column, pid, streams=(), page_stats=None, pr
         "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
                        "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
     }
+    if column == PAGE_PAINT:
+        # Null on an app without the page's presentation mark (perf.ts before keyPresentation.ts).
+        entry["submitted_ms"] = page_key_to_frame(page, "to_submitted", SUBMITTED_PAGE, "submitted_keys")
+        entry["submitted_floor_ms"] = page_key_to_frame(page, "to_submitted_floor", SUBMITTED_PAGE + "_floor",
+                                                        "submitted_keys")
+    elif column == "contents_ms":
+        k = entry["key_to_frame_ms"]
+        entry["submitted_ms"] = dict(k, **{"from": column}) if k else None
     entry.update(stream_report(surface, phase, streams))
     if sampler:
         try:
@@ -714,6 +736,10 @@ def measure(surface, phase, params, column, pid, streams=(), page_stats=None, pr
     k = entry["key_to_frame_ms"] or {}
     note(f"{SESSION} {surface}.{phase}: key-to-frame p50 {k.get('p50')} p95 {k.get('p95')} p99 {k.get('p99')} max {k.get('max')} ms "
          f"(n={k.get('n')}/{len(trips)}); hangs {(entry['hangs'] or {}).get('count') if isinstance(entry['hangs'], dict) else '?'}")
+    if column == PAGE_PAINT:
+        s, fl = entry.get("submitted_ms") or {}, entry.get("submitted_floor_ms") or {}
+        note(f"{SESSION} {surface}.{phase}: key-to-submitted p50 {s.get('p50')} p95 {s.get('p95')} max {s.get('max')} ms "
+             f"(floor p50 {fl.get('p50')} p95 {fl.get('p95')}; n={s.get('n')})")
     results["runs"].append(entry)
     if opts.json:
         json.dump(results, open(opts.json, "w"), indent=1)
@@ -954,6 +980,12 @@ def main():
         for r in results["runs"]:
             summary.setdefault(f"{r['session']}.{r['surface']}.{r['phase']}", []).append((r["key_to_frame_ms"] or {}).get("p95"))
         results["summary_p95_ms"] = summary
+        submitted = {}
+        for r in results["runs"]:
+            if "submitted_ms" in r:
+                submitted.setdefault(f"{r['session']}.{r['surface']}.{r['phase']}", []).append(
+                    (r["submitted_ms"] or {}).get("p95"))
+        results["summary_submitted_p95_ms"] = submitted
         results["stream_failures"] = STREAM_FAILURES
         if STREAM_FAILURES:
             note(f"FAIL: {len(STREAM_FAILURES)} load phase(s) measured with no reply streaming: {STREAM_FAILURES}")
