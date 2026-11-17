@@ -12,8 +12,13 @@ public nonisolated struct ThemeFileExceptionsSetting: Sendable {
     static let unexceptionable: Set<String> = ["appearance.themeEdits"]
 
     /// The dotted keys in `root`'s list, without repeats; a missing or bad value is none.
+    /// Entries that are no look setting a theme file may set, or that never take an exception
+    /// (``unexceptionable``), are ignored: a hand-written `"appearance"` must not switch the whole
+    /// file off.
     public static func keys(in root: JSONValue) -> Set<String> {
-        Set((root.value(at: configPath)?.arrayValue ?? []).compactMap(\.stringValue))
+        Set((root.value(at: configPath)?.arrayValue ?? []).compactMap(\.stringValue).filter { key in
+            !unexceptionable.contains(key) && SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: key)).map(ThemeFileOverlay.isLook) == true
+        })
     }
 
     /// The list edit for writing `writes` (dotted key, whether the write sets a value) while `overlay`

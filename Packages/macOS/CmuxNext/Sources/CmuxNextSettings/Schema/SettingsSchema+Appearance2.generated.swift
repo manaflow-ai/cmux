@@ -108,7 +108,7 @@ extension AppearanceSettingsSchema {
                 kind: .stringList,
                 default: .array(ThemeFileExceptionsSetting.fallback.map { .string($0) }),
                 keywords: ["theme file", "override", "exception"]
-            ).hiddenFromPalette("a Settings change to a row the theme file sets edits it: a list of setting keys"),
+            ).hiddenFromSettingsPage("bookkeeping of the rows changed over the theme file; each row's note says so").hiddenFromPalette("a Settings change to a row the theme file sets edits it: a list of setting keys"),
             SettingDescriptor(
                 HighlightColorSetting.configPath,
                 section: .appearance,

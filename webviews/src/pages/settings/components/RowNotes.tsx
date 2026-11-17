@@ -1,5 +1,5 @@
 import { Button } from "../../../ui/Button";
-import { useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { Icon } from "../icons";
 import type { RowNoteData } from "../ops";
 import { t } from "../strings";
@@ -24,6 +24,8 @@ export function RowNotes({ notes, disabled }: { notes: RowNoteData[]; disabled: 
 
 function RowNote({ note, disabled }: { note: RowNoteData; disabled: boolean }) {
   const store = useStore();
+  // Turn Off writes Plain Backgrounds itself: it is off-limits when that key is managed.
+  const plainManaged = useSettingsSelector((state) => state.managed.has(PLAIN_BACKGROUNDS_KEY));
   const file = note.file ?? "";
   switch (note.kind) {
     case "setByThemeFile":
@@ -58,7 +60,7 @@ function RowNote({ note, disabled }: { note: RowNoteData; disabled: boolean }) {
             variant="ghost"
             size="sm"
             className="link-button"
-            disabled={disabled}
+            disabled={disabled || plainManaged}
             data-row-note-action="plain-backgrounds-off"
             onClick={() => void store.set(PLAIN_BACKGROUNDS_KEY, false)}
           >

@@ -44,6 +44,8 @@ import Testing
         try await settings.setSetting(descriptor(Self.reduced), to: false, by: .user)
         #expect(!settings.snapshot.reducedBackgrounds)
         #expect(settings.fileRoot.value(at: Self.reduced) == false)
+        // At the default, the row still offers Reset back to the file's value.
+        #expect(try settings.isCustomized(descriptor(Self.reduced)))
 
         try await settings.setSetting(descriptor(Self.opacity), to: 0.5, by: .user)
         #expect(settings.snapshot.windowBackground.opacity == 0.5)

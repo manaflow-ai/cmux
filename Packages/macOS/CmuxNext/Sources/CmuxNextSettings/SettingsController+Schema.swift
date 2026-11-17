@@ -44,7 +44,9 @@ extension SettingsController {
         let overThemeFile = value != nil && setsInThemeFile(descriptor.id)
         if let written = value, !overThemeFile, isUnsetValue(written, of: descriptor) { value = nil }
         // The window background's opacity and material leave Ghostty, or return to it, together.
+        // A material the active theme file sets stays the file's: Opacity alone moved (#44894).
         var linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
+            .filter { !setsInThemeFile($0.path.joined(separator: ".")) }
         // A change to a key the active theme file sets applies over the file; a reset returns to it.
         if descriptor.path != ThemeFileExceptionsSetting.configPath {
             let writes = [(key: descriptor.id, sets: value != nil)] + linked.map { (key: $0.path.joined(separator: "."), sets: $0.value != nil) }
@@ -52,7 +54,8 @@ extension SettingsController {
             if let stored = try await file.value(at: ThemeFileExceptionsSetting.configPath) {
                 root = Self.replacing(ThemeFileExceptionsSetting.configPath, with: stored, in: root)
             }
-            if let exceptions = ThemeFileExceptionsSetting.edit(writing: writes, overlay: themeFile, in: root),
+            let sameThemeFile = descriptor.path == ThemeFileSetting.configPath && value?.stringValue == themeFile?.name
+            if !sameThemeFile, let exceptions = ThemeFileExceptionsSetting.edit(writing: writes, overlay: themeFile, in: root),
                managedKeys[ThemeFileExceptionsSetting.configPath.joined(separator: ".")] == nil {
                 linked.append((path: ThemeFileExceptionsSetting.configPath, value: exceptions))
             }

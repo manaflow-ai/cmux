@@ -396,7 +396,8 @@
             "override",
             "exception"
           ],
-          "palette_hidden": "a Settings change to a row the theme file sets edits it: a list of setting keys"
+          "palette_hidden": "a Settings change to a row the theme file sets edits it: a list of setting keys",
+          "page_hidden": "bookkeeping of the rows changed over the theme file; each row's note says so"
         },
         {
           "key": "appearance.highlightColor",
