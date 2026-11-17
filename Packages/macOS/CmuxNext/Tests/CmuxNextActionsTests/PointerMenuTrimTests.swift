@@ -30,7 +30,10 @@ struct PointerMenuTrimTests {
             "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
             "closeTabsToRight", "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
-            "home.messageAbout", "moveSurfaceLeft", "moveSurfaceRight",
+            "home.messageAbout",
+            // macScreen.open, macScreen.stopViewing: the Screen Sharing rows that #42789 put into the tab menu.
+            "macScreen.open", "macScreen.stopViewing",
+            "moveSurfaceLeft", "moveSurfaceRight",
             "moveSurfaceToNextPane", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft",
             "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPreviousPane",
             "newSurface", "newTab.atEnd", "newTab.atStart",
@@ -74,6 +77,8 @@ struct PointerMenuTrimTests {
             "pane.setTint", "pane.clearBackground", "reconnectPane", "palette.copyPaneID", "palette.copyPaneLink",
             "pane.screenshot", "equalizeSplits", "pane.toggleTabBar", "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
             "remote.openRemote",
+            // macScreen.open: Open Screen Sharing, the row that #42789 put into the pane menu.
+            "macScreen.open",
         ]
         // New ▸ Kind ▸ place: the four kind submenus and their forty places (NewPlacementActionCatalog).
         #expect(shown == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))
