@@ -209,9 +209,17 @@ impl RestoreGate {
     }
 
     fn release_one(&self) {
-        if self.pending.fetch_sub(1, Ordering::SeqCst) == 1 {
+        let left = self.pending.fetch_sub(1, Ordering::SeqCst) - 1;
+        if left == 0 || left <= self.lock().parked.len() {
             self.drained.notify_waiters();
         }
+    }
+
+    /// A deleted chat: nothing of it stays here.
+    pub(super) fn forget(&self, session_id: &str) {
+        let mut s = self.lock();
+        s.expedited.remove(session_id);
+        s.parked.retain(|p| p.session_id != session_id);
     }
 
     /// Waits until no restored prompt waits for its stage, so work that can wait (warm spares)
@@ -229,20 +237,20 @@ impl RestoreGate {
     }
 }
 
-/// Ends a driver however it ends: one that did not finish (its scope cancelled, a panic) drops
-/// its waiters' senders, so each prompt goes on unstaged rather than waiting for ever, and the
-/// next restored prompt starts a new driver.
-struct Driving<'a> {
-    gate: &'a RestoreGate,
+/// Ends a driver however it ends: one that did not finish (its scope cancelled, before or after
+/// it first ran, or a panic) drops its waiters' senders, so each prompt goes on unstaged rather
+/// than waiting for ever, and the next restored prompt starts a new driver.
+struct Driving {
+    hub: Arc<Hub>,
     finished: bool,
 }
 
-impl Drop for Driving<'_> {
+impl Drop for Driving {
     fn drop(&mut self) {
         if self.finished {
             return;
         }
-        let mut s = self.gate.lock();
+        let mut s = self.hub.restore_gate.lock();
         s.driving = false;
         s.queue.clear();
         s.parked.clear();
@@ -258,13 +266,12 @@ impl Hub {
         self.restore_gate.release_one();
     }
 
-    /// A new prompt came to `session_id` (`queue_slot`): its restored prompts waiting for a
-    /// stage go now, and any still on their way to the gate skip it.
+    /// A person's new prompt came to `session_id` (`queue_slot`): its restored prompts waiting
+    /// for a stage go now, and any still on their way to the gate (startup not yet done) skip it.
+    /// Another agent's message does not: lanes messaging each other after a restart would
+    /// start every parked chat at once.
     pub(super) fn expedite_restored(&self, session_id: &str) {
         let mut s = self.restore_gate.lock();
-        if s.started_at.is_none() {
-            return;
-        }
         s.expedited.insert(session_id.to_owned());
         let (go, stay): (VecDeque<Waiter>, VecDeque<Waiter>) =
             std::mem::take(&mut s.queue).into_iter().partition(|w| w.session.id == session_id);
@@ -293,23 +300,31 @@ impl Hub {
             !std::mem::replace(&mut s.driving, true)
         };
         if start {
-            let hub = self.clone();
-            self.scope
-                .spawn_until_cancelled("restore-stages", async move { hub.drive_restore().await });
+            // Made before the spawn: a scope already cancelled drops it unrun, and that too
+            // lets the waiters go.
+            let driving = Driving { hub: self.clone(), finished: false };
+            self.scope.spawn_until_cancelled("restore-stages", async move {
+                let hub = driving.hub.clone();
+                hub.drive_restore(driving).await;
+            });
         }
         // A dropped sender (the driver ended without it) lets the prompt go on: never stuck.
         let _ = rx.await;
     }
 
     /// The one driver: readiness first, then stages until the queue is empty.
-    async fn drive_restore(self: Arc<Self>) {
-        let mut driving = Driving { gate: &self.restore_gate, finished: false };
+    async fn drive_restore(self: Arc<Self>, mut driving: Driving) {
         self.wait_restore_ready().await;
         let mut last_start = Instant::now();
         loop {
             let waiting = {
                 let mut s = self.restore_gate.lock();
                 s.queue.retain(|w| !queue::closing(&w.session));
+                let queued: std::collections::HashSet<&str> =
+                    s.queue.iter().map(|w| w.session.id.as_str()).collect();
+                let parked = std::mem::take(&mut s.parked);
+                s.parked =
+                    parked.into_iter().filter(|p| queued.contains(p.session_id.as_str())).collect();
                 if s.queue.is_empty() {
                     s.driving = false;
                     s.holding = None;

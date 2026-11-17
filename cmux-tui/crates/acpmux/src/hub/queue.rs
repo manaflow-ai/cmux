@@ -352,10 +352,13 @@ impl Hub {
                 // queues and is accepted at once instead of waiting unanswered for the lock
                 // (fuzz row g, g1). Nothing is awaited under it.
                 let awaiting_owner = crate::author::awaits_owner(p.provenance);
-                // A prompt to a chat whose restored prompt waits for its stage: that one goes
-                // now, first in the queue as before, so this one never waits on the stage
-                // (`restore_gate.rs`). A restored prompt itself only gets here once let through.
-                self.expedite_restored(&session.id);
+                // A person's prompt to a chat whose restored prompt waits for its stage: that one
+                // goes now, first in the queue as before, so this one never waits on the stage
+                // (`restore_gate.rs`). Another agent's message waits with it, as any prompt
+                // queued behind a turn does.
+                if p.agent.is_none() {
+                    self.expedite_restored(&session.id);
+                }
                 let waiting = loop {
                     // A journal restore holds the chat (`journal_restore.rs`): it is admitted
                     // once the restore settled, never between its check and its settle.

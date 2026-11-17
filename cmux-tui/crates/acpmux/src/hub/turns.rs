@@ -2644,6 +2644,7 @@ impl Hub {
                 return Ok(());
             }
             self.child_tags.forget(&session.id);
+            self.restore_gate.forget(&session.id);
             // Its temporary folder goes with it (`agent/session_tmp.rs`).
             #[cfg(unix)]
             {

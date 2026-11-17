@@ -189,6 +189,19 @@ async fn a_prompt_to_a_parked_chat_lets_its_restored_prompt_go() {
     tokio::time::timeout(Duration::from_secs(1), hub.admit_restored(parked)).await.expect("skips");
 }
 
+/// A person's prompt that came before startup was done, before any restored prompt reached the
+/// gate: that chat's restored prompt still skips the stages when it gets there.
+#[tokio::test(start_paused = true)]
+async fn a_prompt_before_startup_is_done_still_lets_its_restored_prompt_go() {
+    let (hub, sessions) = hub_with(3);
+    fake(&hub, |_| reading(12, Some(12), &[]));
+    hub.expedite_restored(&sessions[0].id);
+    let through = restore_all(&hub, &sessions);
+    run_for(Duration::from_secs(30)).await;
+    assert_eq!(through.load(Ordering::SeqCst), 1, "only the person's chat, past the cap");
+    assert_eq!(hub.restore_gate.status()["parked"].as_array().unwrap().len(), 2);
+}
+
 /// A daemon-only restart: chats whose agent host still runs reattach at once, even at the cap.
 #[tokio::test(start_paused = true)]
 async fn chats_whose_agent_still_runs_reattach_outside_the_stages() {
