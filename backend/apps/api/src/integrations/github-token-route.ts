@@ -13,10 +13,12 @@ import { platformCloud } from "../platform-cloud.ts"
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
  * {team, repo, permissions, label?}, POST /token/revoke {team, install?}, GET /status?team=,
- * GET /repos?team=&query?&cursor? -> {repos: [{full_name, private, default_branch}], truncated, cursor}. Callers:
+ * GET /repos?team=&query?&cursor? -> {repos: [{full_name, private, default_branch}], truncated, cursor}. /status's
+ * connection carries `configure_url`, the installation's GitHub page for adding repositories, or null. Callers:
  * a `vm` install for its own live machine (vmGate's checks, through CloudDO's cloud.vm.self.get), a
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
- * and web installs are refused. Errors are `{error: {code, message}}` and never carry a token.
+ * and web installs are refused. Errors are `{error: {code, message, configure_url?}}` (configure_url only on a
+ * policy.denied GitHub answered for the repository) and never carry a token.
  */
 export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|machine-token|token\/revoke|status|repos)$/
 
@@ -26,8 +28,9 @@ const NO_STORE = { "cache-control": "no-store" }
 const REPO_PAGES_PER_ANSWER = 10
 const REPOS_PER_ANSWER = 100
 
-type Fail = { status: number; code: string; message: string; retry_after?: number }
-const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
+type Fail = { status: number; code: string; message: string; retry_after?: number; configure_url?: string }
+// `configure_url` rides in `error`, where the machine's git and gh read it (cmux-host github.rs reply_for).
+const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
 const no = (status: number, code: string, message: string): Fail => ({ status, code, message })
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 

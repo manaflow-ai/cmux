@@ -570,6 +570,47 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(await t("acme/api", { checks: "write" })).toEqual([403, "policy.denied"])
   })
 
+  it("status names the installation's configure page, asking GitHub once per installation; a lookup failure answers null", async () => {
+    const status = async (bearer: string, team: string) => ((await (await worker.fetch(`https://api.test/v1/integrations/github/status?team=${team}`, { headers: { authorization: `Bearer ${bearer}` } })).json()) as any).connection
+    const lookups = (gh: ReturnType<typeof fakeGitHub>) => gh.calls.filter((c) => c.url === "https://api.github.com/app/installations/99").length
+    for (const [sub, account, page] of [
+      ["gh-status-cfg-org", { login: "acme", type: "Organization" }, "https://github.com/organizations/acme/settings/installations/99"],
+      ["gh-status-cfg-user", { login: "acme", type: "User" }, "https://github.com/settings/installations/99"],
+      // An answer for another account is never turned into a page.
+      ["gh-status-cfg-other", { login: "someone-else", type: "Organization" }, null],
+    ] as const) {
+      const a = await signedInWithInstall(sub, "cli")
+      const { gh } = await linkGitHub(a.session, a.team)
+      gh.routes["https://api.github.com/app/installations/99"] = (req) => (req.headers.get("authorization")?.startsWith("Bearer ey") ? ok({ id: 99, account }) : ok({ message: "Bad credentials" }, 401))
+      expect(await status(a.installToken, a.team)).toMatchObject({ status: "active", configure_url: page })
+      // Cached: the picker reads status on every open, GitHub once.
+      expect(await status(a.session, a.team)).toMatchObject({ configure_url: page })
+      expect(lookups(gh)).toBe(1)
+    }
+    // GitHub failing: null, and the miss is remembered rather than retried on every open.
+    const b = await signedInWithInstall("gh-status-cfg-down", "cli")
+    const { gh } = await linkGitHub(b.session, b.team)
+    gh.routes["https://api.github.com/app/installations/99"] = () => ok({ message: "boom" }, 502)
+    expect(await status(b.session, b.team)).toMatchObject({ status: "active", configure_url: null })
+    expect(await status(b.session, b.team)).toMatchObject({ configure_url: null })
+    expect(lookups(gh)).toBe(1)
+    // No connection: no page and no GitHub read.
+    const c = await signedInWithInstall("gh-status-cfg-none", "cli")
+    expect(await status(c.session, c.team)).toBeNull()
+  })
+
+  it("a GitHub refusal of the repository names the installation's configure page in the error", async () => {
+    const a = await signedInWithInstall("gh-token-cfg-denied", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    gh.routes["https://api.github.com/app/installations/99"] = () => ok({ id: 99, account: { login: "acme", type: "Organization" } })
+    gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "There is at least one repository that does not exist or is not accessible to the parent installation." }, 422)
+    const denied = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
+    expect([denied.status, denied.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: "https://github.com/organizations/acme/settings/installations/99" }])
+    // A team-policy refusal is not fixed on GitHub's page: no configure_url there.
+    const policyDenied = await token(a.installToken, { team: a.team, repo: "acme/secret", permissions: { contents: "read" } })
+    expect([policyDenied.status, policyDenied.body.error.code, "configure_url" in policyDenied.body.error]).toEqual([403, "policy.denied", false])
+  })
+
   it("refuses an elevated, extra, or unverifiable GitHub token grant before handing it to a caller", async () => {
     const a = await signedInWithInstall("gh-token-grant-check", "cli")
     const { gh } = await linkGitHub(a.session, a.team)

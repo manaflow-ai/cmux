@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
 import { chiefJobsEvent } from "./chief-brain-cc/jobs-upstash.ts"
-import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import { connectionsDomain, expiredForgets, githubInstallationOf, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
@@ -15,9 +15,9 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
-import { githubConnectTarget, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
-import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import { github, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
@@ -68,6 +68,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createApprovalTable(sql)
     ghTokens.createGithubTokenTable(sql)
     createListenerTable(sql)
+    createConfigurePageTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -233,7 +234,14 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   async githubStatus(entity: string, principal: Principal) {
     if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
-    return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+    const state = this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()
+    const c = ghTokens.githubStatusConnection(state, principal)
+    const installation = c ? githubInstallationOf(c) : undefined
+    // Cached per installation (one GitHub read a day at most), so the picker's status read stays cheap.
+    const configureUrl = c?.account && installation !== undefined && github.configured(this.env)
+      ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
+      : null
+    return ghTokens.githubStatus(this.env, state, principal, configureUrl)
   }
 
   /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
