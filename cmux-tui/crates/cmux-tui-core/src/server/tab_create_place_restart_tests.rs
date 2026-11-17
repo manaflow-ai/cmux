@@ -1,9 +1,14 @@
 //! The order of a pane's tabs over a stop and a start of the daemon on one
 //! session folder (`tab-create-place-v1`, 2026-11-16). The list of the
-//! places that the creations took is in memory only: a start has the tabs
-//! that were committed, and these tests show that it has them in the order
-//! that the strip had at the stop. Each test compares the public ids of the
-//! tabs, because a start can give a tab another surface number.
+//! places that the creations took is in memory only. For the cases of this
+//! file, a start has the tabs that were committed, in the order that the
+//! strip had at the stop. Each test compares the public ids of the tabs,
+//! because a start can give a tab another surface number.
+//!
+//! The daemon of a test is a `Mux` object in the test's process, on a real
+//! session folder with its 2 locks: no socket server and no terminal host.
+//! The stop is `Mux::shutdown()` and the drop of the handle, with no
+//! `release_ownership`.
 
 use super::super::*;
 use super::tab_create_place_chain_tests::{HeldConnection, terminal};
@@ -41,10 +46,14 @@ impl Session {
         .unwrap()
     }
 
-    /// Stops `mux` and starts a daemon on the same folder.
+    /// Stops `mux` and starts a daemon on the same folder. A worker thread
+    /// of the stopped daemon can hold a handle of it for one more turn, and
+    /// the session's locks with it, so the start waits until they are free.
     fn restart(&self, mux: Arc<Mux>) -> Arc<Mux> {
         mux.shutdown();
+        let stopped = Arc::downgrade(&mux);
         drop(mux);
+        self.wait_until_free(&stopped);
         self.open()
     }
 
@@ -68,9 +77,11 @@ impl Session {
         locks
     }
 
-    /// Waits until the daemon `stopped` has let the session go. After a stop
-    /// in a test the process lives on, and a job of that daemon can hold the
-    /// daemon for a moment more; a stop of the real daemon ends its process.
+    /// Waits until the daemon `stopped` has let the session go. A thread or
+    /// a job of that daemon can hold the daemon, and the session's locks
+    /// with it, for a moment after `shutdown()` returned. These tests do not
+    /// call `release_ownership`, the step by which the real daemon lets the
+    /// session go after `shutdown()`.
     /// The wait is on the session's own locks: a thread takes each lock (it
     /// waits as long as another holder keeps it) and lets it go at once.
     fn wait_until_free(&self, stopped: &Weak<Mux>) {
@@ -229,9 +240,9 @@ struct HeldAtStop {
 /// Session 3, a stop with an open slot: a strip `[a, b]`; a terminal creation takes the slot after `a`
 /// and its launch is held; a page that names that creation commits. The
 /// daemon stops with the slot of the held creation open. The launch job
-/// ends after the stop began (in a test the process lives on, so the
-/// helper waits until the stopped daemon has let the session go before the
-/// folder opens again), then a daemon starts.
+/// ends after `shutdown()` returned. The helper then waits until the
+/// stopped daemon has let the session go, and a daemon starts on the
+/// folder.
 fn stop_with_a_held_launch(name: &'static str) -> HeldAtStop {
     let session = Session::new(name);
     let mux = session.open();
@@ -266,8 +277,13 @@ fn stop_with_a_held_launch(name: &'static str) -> HeldAtStop {
 }
 
 /// The tabs that were committed at a stop with an open slot keep their
-/// order over the start. The start has the tab of the held creation only if
-/// the daemon that stopped committed it, and then that tab is at its slot.
+/// order over the start. The `if` is on what the daemon that stopped did.
+/// Today that daemon commits the tab of the held creation each time (the
+/// pin test below), so the branch runs: the start must have that tab, right
+/// after the tab that it named. The two cases stay because the commit after
+/// the stop is not the rule: for a daemon that does not commit that tab,
+/// this test still shows that the start has the committed tabs in their
+/// order and no other tab.
 #[test]
 fn committed_tabs_keep_their_order_with_a_launch_held_at_the_stop_over_a_restart() {
     let HeldAtStop { before, named, late, after } = stop_with_a_held_launch("held-order");
@@ -284,13 +300,15 @@ fn committed_tabs_keep_their_order_with_a_launch_held_at_the_stop_over_a_restart
     }
 }
 
-/// Which of the two results the stop of
+/// A pin of what the daemon does today, NOT the rule: a launch job that
+/// ends after `shutdown()` returned commits its tab, and the start has that
+/// tab. Open question: the creation path does not check the stop. This test
+/// does not read the terminal of that tab. It says which of the two cases of
 /// [`committed_tabs_keep_their_order_with_a_launch_held_at_the_stop_over_a_restart`]
-/// gives: the launch job that ends after the stop began commits its tab,
-/// and the start has that tab.
+/// runs today.
 #[test]
-fn a_launch_that_ends_after_the_stop_began_commits_its_tab() {
+fn pin_of_a_launch_that_ends_after_the_stop_returned_commits_its_tab() {
     let HeldAtStop { late, after, .. } = stop_with_a_held_launch("held-commit");
-    let late = late.expect("the daemon that stopped did not commit the tab of the held creation");
+    let late = late.expect("the pin: the stopped daemon committed no tab of the held creation");
     assert!(after.contains(&late), "the start has no tab {late:?}: {after:?}");
 }
