@@ -2422,7 +2422,8 @@ impl LocalOwnerEventLoop {
         if let Some(stop) = self.stop.take() {
             stop.close();
         }
-        let end = self.thread.take().and_then(|t| Mux::join_within_stop("owner event loop", t));
+        let Some(thread) = self.thread.take() else { return Ok(()) };
+        let end = Mux::join_within_stop("owner event loop", thread);
         end.map_or(Ok(()), |e| e.map_err(|_| anyhow::anyhow!("local owner event loop panicked")))
     }
 }

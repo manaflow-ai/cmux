@@ -414,7 +414,7 @@ impl DaemonRuntimeHandle {
         let _ = self.shutdown.send(true);
         let thread = self.thread.take().expect("daemon runtime thread is present");
         let end = cmux_tui_core::Mux::join_within_stop("remote runtime", thread);
-        let Some(end) = end else { return Ok(()) }; // No end in the bound: stderr has the line.
+        let Some(end) = end else { return Ok(()) };
         end.unwrap_or_else(|_| Err(anyhow!("remote daemon runtime thread panicked")))
     }
 }
