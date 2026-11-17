@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43999048587",
+  "recorded_at": "2026-11-17T02:07:24Z",
+  "reason": "cmux-tui d5be932e7dc1 changes the image's cmux-tui (pinned bf7d09b2bd4b)",
+  "dry_run": false,
+  "cmux_tui": "d5be932e7dc10c41d061a346831ca42fc1fd0855",
+  "fixes": [
+    {
+      "sha": "d5be932e7dc10c41d061a346831ca42fc1fd0855",
+      "mergedAt": "2026-11-16T17:41:56-08:00",
+      "subject": "cmux-tui: decide the credential-like names every_credential_env_name_is_stripped_or_allowed found undecided (#44925)"
+    },
+    {
+      "sha": "9ab407868effffd21a7176d463a42d90533d3c17",
+      "mergedAt": "2026-11-16T17:37:57-08:00",
+      "subject": "test(mux): the point reads test holds the terminal publisher while it compares the cursor (#44912)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T02:07:24Z",
+    "snapshot_id": "sh-f3b3932c8d6c4403b53b9451de466ccb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43999048587): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e808d69f379ae8ae0331a146cf9be6cf41124c83",
+    "image": "cloud-native-auto-d5be932e-43999048587-1",
+    "revision": "ci-43999048587-1",
+    "at": "2026-11-17T02:07:24Z"
+  },
+  "rolled_back": false
+}
