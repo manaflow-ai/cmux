@@ -3582,11 +3582,17 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
 
 
 def next_attempt(target: Target) -> str:
-    """Where a re-run of failed jobs goes next."""
+    """Where a re-run of failed jobs goes next. A cmux-next.yml re-run past LAST_OWNED_ATTEMPT leaves the minis only
+    while vars.CI_BLACKSMITH_MACOS is `on`; otherwise its Mac jobs take `target.rerun_side` (rerun_side_label()) again,
+    and the line names that label (cmux#45612: with the switch off, run 44067209239's attempt 4 was logged as "takes
+    Blacksmith: a mini refused attempt 3" and queued on glaeda-side-std-xcode-26.6)."""
     following = target.attempt + 1
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
         if following <= LAST_OWNED_ATTEMPT:
             return f"attempt {following} stays on the side lane's owned label"
+        if target.rerun_side:
+            return (f"attempt {following} rejoins {target.rerun_side}: vars.CI_BLACKSMITH_MACOS is not on, so "
+                    "cmux-next.yml's Mac fallback is the side label")
         if following > REFUSAL_RESCUE_ATTEMPT:
             return f"attempt {following} takes Blacksmith: a mini refused attempt {target.attempt}"
         return f"attempt {following} takes the side lane's Blacksmith overflow after the long mini queue"
@@ -6788,7 +6794,8 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
     attempt = int(run.get("run_attempt") or 0)
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if attempt < 1 or actor in RESCUE_ACTORS and attempt > REFUSAL_RESCUE_ATTEMPT:
-        return f"attempt {attempt} takes Blacksmith"
+        # where it runs depends on vars.CI_BLACKSMITH_MACOS (next_attempt()); either way no stall move re-runs it again
+        return f"attempt {attempt} is a bot's re-run past attempt {REFUSAL_RESCUE_ATTEMPT}"
     if dispatch:
         # Judged as its pull request's run: rescue() re-checks that the pull request is open at this head
         # (pull_moved()) before any cancel, as for a pull_request run.
