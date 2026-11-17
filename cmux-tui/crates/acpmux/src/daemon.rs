@@ -903,6 +903,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
+    // The pages freed by the startup burst go back to the system once it settles: one call on a
+    // thread of its own (cmux-tui-platform free_pages.rs), as the cmux-tui daemon does.
+    let _free_pages =
+        cmux_tui_platform::free_pages::release_after(cmux_tui_platform::free_pages::SETTLE);
     // Remote ssh handshakes are background work. Give the first local initialize and chat attach
     // a turn before dialing them; otherwise a god-sized peer fan-out can starve the pane after
     // the socket is already ready.
