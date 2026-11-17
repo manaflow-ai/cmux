@@ -17,7 +17,10 @@ fn indexed(sessions: &Path) -> Option<Vec<u32>> {
     let bytes = std::fs::read(events(sessions).join(ONE)).ok()?;
     let doc: serde_json::Value = serde_json::from_slice(&bytes).expect("the index reads");
     let segments = doc["segments"].as_object().expect("a map of segments");
-    Some(segments.keys().map(|k| k.parse().unwrap()).collect())
+    // JSON keys come back in string order ("10" before "2"): in segment order here.
+    let mut indexes: Vec<u32> = segments.keys().map(|k| k.parse().unwrap()).collect();
+    indexes.sort_unstable();
+    Some(indexes)
 }
 
 /// The per-segment index files in `events/` (`NNNNNN.cold.idx`, the layout before one index).
