@@ -608,6 +608,14 @@ jobs:
           warm() { ../scripts/ci/machine-channel-warm-target.sh "$1" "$disk" "$t"; }
           warm restore || echo "warning: warm target restore failed; building as is" >&2
           trap 'warm record || echo "warning: warm target record failed" >&2' EXIT
+          # lto=thin builds only group 1: the channel ships cmux-tui and cmux-tui-hook alone
+          # (scripts/ci/cmux-machine-channel.py NAMES), and acpmux-standalone, which it never ships,
+          # ended every warm leg 49-93 s after group 1 (runs 43984596960 to 44024715027).
+          if [[ "$LTO" == thin ]]; then
+            ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
+              "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host"
+            exit 0
+          fi
           # The shipping features (hub carrier) for acpmux-standalone, which passes them to acpmux.
           # The script prints one `--features=...` argument or nothing.
           acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t")"
@@ -822,11 +830,19 @@ jobs:
         env:
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           STAGE_TARGET: ${{ matrix.target }}
+          LTO: ${{ inputs.lto }}
         shell: bash
         run: |
           mkdir -p dist
           binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
           hook_binary="dist/cmux-tui-hook-${{ matrix.target }}${{ matrix.ext }}"
+          # lto=thin built group 1 only: the binaries the machine channel reads.
+          if [[ "$LTO" == thin ]]; then
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
+            ls -la dist
+            exit 0
+          fi
           relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           # Published as cmux-tui-app-host-<target> so it rides the cmux-tui
           # artifact, checksums and manifest; install it as cmux-app-host next
@@ -960,6 +976,8 @@ jobs:
           if-no-files-found: error
 
       - name: Upload relay binary artifact
+        # lto=thin builds no relays (Build cmux-tui (Linux cross)).
+        if: inputs.lto != 'thin'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
@@ -968,6 +986,8 @@ jobs:
           if-no-files-found: error
 
       - name: Upload chatmux relay binary artifact
+        # lto=thin builds no relays (Build cmux-tui (Linux cross)).
+        if: inputs.lto != 'thin'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
