@@ -44,7 +44,7 @@
   height: var(--qt-row-height);
   padding: 0 12px;
   border: 1px solid color-mix(in srgb, var(--cv-text) 14%, transparent);
-  border-radius: 10px;
+  border-radius: var(--ds-radius-control);
   font-size: var(--text-body);
 }
 

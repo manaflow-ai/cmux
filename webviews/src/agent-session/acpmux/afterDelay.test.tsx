@@ -1,5 +1,5 @@
 import { afterEach, expect, jest, test } from "bun:test";
-import { act } from "react";
+import { act, useCallback } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { TRANSIENT_SHOW_MS, useAfterDelay, useSettledItems } from "./afterDelay";
@@ -95,7 +95,8 @@ const itemId = (item: Item) => item.id;
 const drawn: (readonly Item[])[] = [];
 
 function ListProbe({ items, scope, immediate }: { items: readonly Item[]; scope: string; immediate?: string }) {
-  const shown = useSettledItems(items, itemId, scope, TRANSIENT_SHOW_MS, (item) => item.id === immediate);
+  const isImmediate = useCallback((item: Item) => item.id === immediate, [immediate]);
+  const shown = useSettledItems(items, itemId, scope, TRANSIENT_SHOW_MS, isImmediate);
   drawn.push(shown);
   return <span>{shown.map((item) => item.id).join(",")}</span>;
 }

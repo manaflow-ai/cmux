@@ -4,7 +4,7 @@
 // much at all just a tiny bit of extra time that you mostly perceive as "thinking" / But it's all
 // still responsive on the ui side"). Every resume note in the pane (the composer queue's "Waking the
 // machine…", the peer copy's banner, the paused card and its spinner) waits on this one threshold.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /// How long a pause or resume stays invisible before the pane says anything about it.
 export const RESUME_NOTE_DELAY_MS = 1_500;
@@ -76,21 +76,18 @@ export function useLinkDownSaid(down: boolean, since?: number, ms: number = link
 /// between a turn's end and the queue's drain, and under what reads as a lag after a send.
 export const TRANSIENT_SHOW_MS = 200;
 
-type SettledState = {
+type Settled = {
   scope: unknown;
   /// Ids that have stayed `ms`, or were there when the list (or its scope) was first drawn.
-  settled: Set<string>;
-  /// One timer per id still waiting.
-  timers: Map<string, ReturnType<typeof setTimeout>>;
-  last: readonly unknown[] | undefined;
+  ids: ReadonlySet<string>;
 };
 
 /// `items` less the ones that have not stayed present for `ms` yet: an entry added and removed
 /// within `ms` never shows, one that stays shows `ms` after it came. Items there at the first render,
 /// or when `scope` changes (another chat shown), show at once, as does any `immediate` one (an entry
-/// that waits on the person, never a transient). The same array comes back while nothing shown
-/// changed (`items` itself when all show), so memos downstream keep their identity. One timer per
-/// waiting id, cleared when it goes or the component does: nothing runs at idle.
+/// that waits on the person, never a transient). `items` itself comes back when all show, so memos
+/// downstream keep their identity. Each waiting id keeps the time it came across renders; its timer
+/// is cleared when the list changes or the component goes: nothing runs at idle.
 export function useSettledItems<T>(
   items: readonly T[],
   id: (item: T) => string,
@@ -98,50 +95,41 @@ export function useSettledItems<T>(
   ms: number = TRANSIENT_SHOW_MS,
   immediate?: (item: T) => boolean,
 ): readonly T[] {
-  const [, redraw] = useState(0);
-  const state = useRef<SettledState | undefined>(undefined);
-  let current = state.current;
-  if (!current || current.scope !== scope) {
-    current?.timers.forEach(clearTimeout);
-    current = { scope, settled: new Set(items.map(id)), timers: new Map(), last: undefined };
-    state.current = current;
-  }
-  const now = current;
+  const [settled, setSettled] = useState<Settled>(() => ({ scope, ids: new Set(items.map(id)) }));
+  // When each waiting id came, read and written in effects only.
+  const cameAt = useRef(new Map<string, number>());
+  const present = useMemo(() => new Set(items.map(id)), [items, id]);
+  // Another chat: what it holds shows at once. An id gone from the list is forgotten, so one that
+  // comes again waits again (state adjusted while rendering, as React's docs do for a changed prop).
+  if (settled.scope !== scope) setSettled({ scope, ids: present });
+  else if ([...settled.ids].some((key) => !present.has(key)))
+    setSettled({ scope, ids: new Set([...settled.ids].filter((key) => present.has(key))) });
   useEffect(() => {
-    const present = new Set(items.map(id));
-    for (const [key, timer] of now.timers)
-      if (!present.has(key)) {
-        clearTimeout(timer);
-        now.timers.delete(key);
-      }
-    for (const key of now.settled) if (!present.has(key)) now.settled.delete(key);
-    if (ms <= 0) return;
+    const came = cameAt.current;
+    for (const key of came.keys()) if (!present.has(key) || settled.ids.has(key)) came.delete(key);
+    if (ms <= 0) return undefined;
+    const now = Date.now();
+    const timers: ReturnType<typeof setTimeout>[] = [];
     for (const item of items) {
       const key = id(item);
-      if (now.settled.has(key) || now.timers.has(key) || immediate?.(item)) continue;
-      now.timers.set(
-        key,
-        setTimeout(() => {
-          now.timers.delete(key);
-          now.settled.add(key);
-          redraw((count) => count + 1);
-        }, ms),
+      if (settled.ids.has(key) || immediate?.(item)) continue;
+      const at = came.get(key) ?? now;
+      came.set(key, at);
+      timers.push(
+        setTimeout(
+          () =>
+            setSettled((was) =>
+              was.scope !== scope || was.ids.has(key) ? was : { scope, ids: new Set([...was.ids, key]) },
+            ),
+          Math.max(0, ms - (now - at)),
+        ),
       );
     }
-  });
-  useEffect(
-    () => () => {
-      // Cleared and forgotten, so a remount (React's strict double mount) sets them again.
-      state.current?.timers.forEach(clearTimeout);
-      state.current?.timers.clear();
-    },
-    [],
-  );
-  if (ms <= 0) return items;
-  const shown = items.filter((item) => now.settled.has(id(item)) || immediate?.(item) === true);
-  if (shown.length === items.length) return (now.last = items);
-  const last = now.last;
-  if (last && last.length === shown.length && last.every((item, index) => item === shown[index]))
-    return last as readonly T[];
-  return (now.last = shown);
+    return () => timers.forEach(clearTimeout);
+  }, [items, id, scope, ms, immediate, present, settled]);
+  return useMemo(() => {
+    if (ms <= 0 || settled.scope !== scope) return items;
+    const shown = items.filter((item) => settled.ids.has(id(item)) || immediate?.(item) === true);
+    return shown.length === items.length ? items : shown;
+  }, [items, id, scope, ms, immediate, settled]);
 }
