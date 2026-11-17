@@ -114,6 +114,7 @@
     "key.jumpToUnread": ["shift+cmd+u"],
     "key.list.next": ["ctrl+j when listFocus", "ctrl+n when listFocus"],
     "key.list.previous": ["ctrl+k when listFocus", "ctrl+p when listFocus"],
+    "key.macScreen.open": ["shift+cmd+s"],
     "key.markOldestUnreadAndJumpNext": ["ctrl+cmd+u"],
     "key.markWorkspaceDone": ["cmd+;"],
     "key.markdownBack": ["cmd+["],
