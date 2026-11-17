@@ -69,6 +69,12 @@ import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, 
 if "--bench=new-pane-start-state" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-pane-start-state-bench.py")
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
+# `--bench=cmd-n-paint`: scripts/cmux-next/cmd-n-paint-e2e.py on the same tagged app (a display worker: `cmux-ci run
+# --display`), Cmd-N and Cmd-T judged from the window server's own frames, each opening's blank and intermediate frames
+# in its warm, quick and cold arms.
+if "--bench=cmd-n-paint" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmd-n-paint-e2e.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmd-n-paint"]])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
