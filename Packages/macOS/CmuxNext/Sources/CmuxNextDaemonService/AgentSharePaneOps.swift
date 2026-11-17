@@ -27,14 +27,17 @@ extension AgentShareActions {
             host.shareOpenSettings(route: sharedLinksRoute)
             return .value([:])
         }
-        guard let found = host.shareTab(id: tab), let session = AgentShareChat.session(of: found), host.shareIsOnThisMac(found) else {
+        guard let found = host.shareTab(id: tab), let session = AgentShareChat.session(of: found) else {
             return .refused(code: "unavailable", message: paneUnavailable)
         }
+        let isLocal = host.shareIsOnThisMac(found)
+        let cloudOwner = isLocal ? nil : host.shareCloudOwner(found)
+        guard isLocal || cloudOwner != nil else { return .refused(code: "unavailable", message: paneUnavailable) }
         if let pinned, pinned != session {
             return .refused(code: "unavailable", message: AgentShareStrings.reason("share.chat_moved") ?? paneUnavailable)
         }
         let chat = AgentShareChat(surface: found.surface.rawValue, session: session, connection: host.shareConnection(holding: found),
-                                  isLocal: true, title: found.titleText)
+                                  isLocal: isLocal, title: found.titleText, cloudOwner: cloudOwner)
         do {
             switch op {
             case .state:

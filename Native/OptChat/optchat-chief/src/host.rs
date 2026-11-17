@@ -1518,6 +1518,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Redescribe(notes) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Redescribe { notes, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
