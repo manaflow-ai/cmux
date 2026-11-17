@@ -826,7 +826,7 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
-import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { promptMatchesChatSnapshot, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -976,6 +976,9 @@ const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => 
 
 /// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
 /// session daemon's agent-session-start). A trust refusal has its own question.
+/// The live composer's box, whose prompt text the draft-settle hold watches (draftSettleHold.ts).
+const composerPromptRoot = (): Node | null => document.querySelector("#root .acpmux-composer-box");
+
 function isStartRefusal(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" && code.startsWith("agent_session.") && !isTrustRefusal(error);
@@ -7109,7 +7112,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A chat read from a kept tail before its connect answers has no draft in its prompt yet: the
   // copy, which shows the draft, waits for the read, at most DRAFT_SETTLE_HOLD_MS (draftSettleHold.ts).
   const rowsReadFor = clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
-  const draftWaitOver = useDraftWaitOver(rowsReadFor, draftSettled);
+  // Not while the prompt already shows the copy's (draftSettleHold.ts): the transcript goes live then.
+  const draftWaitOver = useDraftWaitOver(rowsReadFor, draftSettled, promptMatchesChatSnapshot, composerPromptRoot);
   // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
   // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
   const [adoptingSession, setAdoptingSession] = useState<string>();
