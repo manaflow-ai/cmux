@@ -3658,3 +3658,11 @@ inventory` step, in `.github/workflows/cmux-next.yml`.
 As note-389: a feat-cmux-next run whose generated files this job checks (path routing's
 generated_host; a base tier dispatch always) uploads its commit's fresh action exports for the pull
 requests on that base.
+
+## note-391
+
+Above `AWS_ACCESS_KEY_ID` in the swift-test job's `Check generated action catalog, surfaces and
+inventory` step, in `.github/workflows/cmux-next.yml`.
+
+As note-389: a feat-cmux-next dispatch whose generated files this job checks (path routing's
+generated_host) uploads its commit's fresh action exports for the pull requests on that base.

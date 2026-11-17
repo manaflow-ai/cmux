@@ -4199,6 +4199,10 @@ jobs:
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
           CMUX_NEXT_JOB_BUILT: plain
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-391
+          AWS_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' && inputs.same_tree_sha == '' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' && inputs.same_tree_sha == '' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
         run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       - name: Check the settings exports
