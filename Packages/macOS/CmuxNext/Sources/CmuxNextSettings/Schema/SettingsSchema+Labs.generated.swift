@@ -43,7 +43,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.voiceRoom", "Voice Room"),
-                help: SettingsText.keyed("settings.labs.voiceRoom.help", "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."),
+                help: SettingsText.keyed("settings.labs.voiceRoom.help", "While a room is open, cmux sends a transcript of your mic and your screen's text to it."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.voiceRoomDefault),
                 keywords: ["labs", "voice", "room", "call", "meeting", "transcribe", "screen", "record", "chief"]
@@ -63,7 +63,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.machineJoin", "Screen Sharing for Joined Machines"),
-                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."),
+                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows Screen sharing and Control in Settings > Devices once this Mac joins."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.machineJoinDefault),
                 keywords: ["labs", "machine", "join", "add", "device", "line", "curl", "remote", "mesh"]
@@ -73,7 +73,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.liveCode", "Live Code"),
-                help: SettingsText.keyed("settings.labs.liveCode.help", "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."),
+                help: SettingsText.keyed("settings.labs.liveCode.help", "Swift changes you compile apply to the running app. Takes effect after cmux restarts."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
@@ -83,7 +83,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.bundledCodexAppServer", "Use Bundled Codex App Server"),
-                help: SettingsText.keyed("settings.labs.bundledCodexAppServer.help", "New Codex chats use the Codex app server that comes with cmux instead of the one you installed. If it is missing or does not check out, cmux uses your installed Codex and shows why in Settings > Agents."),
+                help: SettingsText.keyed("settings.labs.bundledCodexAppServer.help", "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.bundledCodexAppServerDefault),
                 keywords: ["labs", "codex", "bundled", "app-server", "harness", "runtime"]

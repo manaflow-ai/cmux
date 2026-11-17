@@ -138,7 +138,7 @@
           },
           "help": {
             "key": "settings.labs.bundledCodexAppServer.help",
-            "text": "New Codex chats use the Codex app server that comes with cmux instead of the one you installed. If it is missing or does not check out, cmux uses your installed Codex and shows why in Settings > Agents."
+            "text": "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex."
           },
           "kind": "toggle",
           "default": false,
