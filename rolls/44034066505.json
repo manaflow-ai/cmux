@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44034066505",
+  "recorded_at": "2026-11-17T06:58:43Z",
+  "reason": "cmux-tui fc0b5a42960b changes the image's cmux-tui (pinned 4c3e263e70fa)",
+  "dry_run": false,
+  "cmux_tui": "fc0b5a42960b5ae2ad839294254f1b445638d22c",
+  "fixes": [
+    {
+      "sha": "fc0b5a42960b5ae2ad839294254f1b445638d22c",
+      "mergedAt": "2026-11-17T06:29:46Z",
+      "subject": "Sidebar extensions: scale harness (N = 1..200); apps-list reads no file; oversize manifests refused unread (#45015)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T06:58:43Z",
+    "snapshot_id": "sh-e467ec1232744a87af209d641c4beb79",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44034066505): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8a0a21c33a50cd6f8580b367b6ba765d3d8232ff",
+    "image": "cloud-native-auto-fc0b5a42-44034066505-1",
+    "revision": "ci-44034066505-1",
+    "at": "2026-11-17T06:58:43Z"
+  },
+  "rolled_back": false
+}
