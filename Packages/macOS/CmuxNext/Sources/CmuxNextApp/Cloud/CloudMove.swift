@@ -48,6 +48,7 @@ struct CloudMove {
 
     static func hiddenMenuItems(_ record: AgentSessionRef?) -> Set<ActionID> {
         let back = CloudBringBack.hiddenMenuItems(record, movedChats: CloudMovedChats.app)
+            .union(CloudTransferLocal.hiddenMenuItems(record, movedChats: CloudMovedChats.app))
         guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return back.union([action]) }
         return back
     }
@@ -355,14 +356,9 @@ struct CloudMove {
         let up = await session.linkUp(within: CloudStartSession.connectWait)
         if let failure = session.resumeFailure { throw Failure(message: failure, retry: .move(machineID: session.machineID)) }
         guard up, session.daemon.connection != nil, AgentTabStore.registryHost(of: session.daemon) != nil else {
-            throw Failure(message: notConnected(session), retry: .move(machineID: session.machineID))
+            throw Failure(message: CloudMoveStrings.notConnected(session.machine.title, because: session.linkEnded == nil ? nil : session.linkRefusal.reason), retry: .move(machineID: session.machineID))
         }
         return session
-    }
-
-    /// Why `session` did not connect, in the person's words.
-    static func notConnected(_ session: CloudMachineSession) -> String {
-        CloudMoveStrings.notConnected(session.machine.title)
     }
 
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
