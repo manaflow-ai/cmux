@@ -909,11 +909,8 @@ def main(argv: list[str] | None = None) -> int:
                 env = smoke.fresh_env(root, root / "s.sock", -1)
                 env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
                 ui.login_keychain(env)
-                folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
-                folder.mkdir(parents=True, exist_ok=True)
-                (folder / f"{HARNESS}.toml").write_text(
-                    f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
-                    f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
+                # A DEV-kind (tagged) build reads its own acpmux home unless the env names the config root.
+                l5.prepare_harness(env, str(gamut.fake), HARNESS, "Gamut test agent")
                 gamut.boot(bundle, env)
                 gamut.app.cli("setup", "trust", str(gamut.work))
                 gamut.run(bundle, env, newer, previous)

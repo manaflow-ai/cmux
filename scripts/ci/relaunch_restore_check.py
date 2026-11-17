@@ -181,17 +181,17 @@ def wait(probe, seconds: float, every: float = 0.25):
 
 # ---- seed -----------------------------------------------------------------------------------
 
-def write_harness(home: str, fake_agent: str) -> None:
-    """The acpmux test agent as harness `l5fake`, a profile in the instance's own HOME (cmux reads it live)."""
+def write_harness(home: str, fake_agent: str, harness: str = HARNESS, name: str = "L5 test agent") -> None:
+    """The acpmux test agent as harness `l5fake` (or `harness`), a profile in the instance's own HOME."""
     folder = Path(home) / ".config" / "cmux" / "harnesses"
     folder.mkdir(parents=True, exist_ok=True)
-    profile = folder / f"{HARNESS}.toml"
-    profile.write_text(f'schema = 1\nid = "{HARNESS}"\nname = "L5 test agent"\nprotocol = "acp"\n'
+    profile = folder / f"{harness}.toml"
+    profile.write_text(f'schema = 1\nid = "{harness}"\nname = "{name}"\nprotocol = "acp"\n'
                        f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(fake_agent))}]\n')
     profile.chmod(0o600)
 
 
-def prepare_harness(env: dict, fake_agent: str) -> None:
+def prepare_harness(env: dict, fake_agent: str, harness: str = HARNESS, name: str = "L5 test agent") -> None:
     """Before the launch: the harness profile, in the folder the launched app's acpmux reads.
 
     A DEV build (a tagged bench build, bundle id com.cmuxterm.app.debug.<tag>) keeps its user harness folder in its
@@ -201,7 +201,7 @@ def prepare_harness(env: dict, fake_agent: str) -> None:
     it to the instance's own HOME/.config; every launch of the run (the relaunches too) starts from this env.
     """
     env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
-    write_harness(env["HOME"], fake_agent)
+    write_harness(env["HOME"], fake_agent, harness, name)
 
 
 def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True) -> dict:

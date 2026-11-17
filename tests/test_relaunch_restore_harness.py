@@ -31,6 +31,23 @@ class PrepareHarness(unittest.TestCase):
             self.assertIn(f'id = "{l5.HARNESS}"', profile.read_text())
             self.assertTrue(str(profile).startswith(str(home)), "the profile stays inside the instance's HOME")
 
+    def test_other_harness_id_and_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"HOME": tmp}
+            l5.prepare_harness(env, "/tmp/a.py", "gamutfake", "Gamut test agent")
+            text = (Path(env["XDG_CONFIG_HOME"]) / "cmux" / "harnesses" / "gamutfake.toml").read_text()
+            self.assertIn('id = "gamutfake"', text)
+            self.assertIn('name = "Gamut test agent"', text)
+
+
+class RunsCallThePreparer(unittest.TestCase):
+    """The launch hooks of both checks go through prepare_harness, not a bare write to HOME/.config."""
+
+    def test_hooks_use_prepare_harness(self) -> None:
+        for name in ("relaunch_restore_check.py", "quit_gamut_check.py"):
+            text = (ROOT / "scripts" / "ci" / name).read_text()
+            self.assertIn("prepare_harness(env, ", text.replace("l5.", ""), name)
+
 
 if __name__ == "__main__":
     unittest.main()
