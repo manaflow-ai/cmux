@@ -441,6 +441,12 @@ jobs:
           fi
           echo "::error title=hot verify::the fleet step (${step:-none}, exit $status) returned no out.tar"
           echo "result=failed" >> "$GITHUB_OUTPUT"
+          # A client that stops waiting (exit 75 after --queue-timeout) leaves its step queued, and `look again`
+          # queues another: the first would run later with nobody to post it (23 of 49 queued looks were such
+          # orphans, 2026-11-17 13:49Z). Cancel it; a step that already ended is not cancelled again.
+          if [[ -n "$step" ]]; then
+            "$client" cancel "$step" --reason "hot verify: the look's client stopped waiting (exit $status)" || true
+          fi
           # A look with no result is never green.
           exit 1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
