@@ -68,20 +68,25 @@ fn the_known_params_are_the_macos_hosts() {
     assert_eq!(rust, swift, "policy.json known_params vs AcpmuxPaneMethods.knownParams");
 }
 
+/// Sending never needs the person's own key press or click (Leo, 2026-11-17): no send method of
+/// the composer, Retry, Approve, `/btw`, `/side`, a race or Fix from a link has a
+/// gesture rule on either side.
 #[test]
-fn the_act_as_me_covers_are_the_macos_hosts() {
-    let swift: BTreeSet<String> = strings(&block(
-        &read("AgentPaneActAsMe.swift"),
-        "public nonisolated static let covers: Set<String> = [",
-        "\n    ]",
-    ))
-    .into_iter()
-    .collect();
-    assert_eq!(
-        policy().act_as_me_covers,
-        swift,
-        "policy.json act_as_me_covers vs AgentPaneActAsMe.covers"
-    );
+fn no_send_needs_a_gesture() {
+    for method in [
+        "session/prompt",
+        "chat.fix_from_link",
+        "_acpmux/queue_approve",
+        "_acpmux/review_verdict",
+        "_acpmux/btw",
+        "_acpmux/side_chat",
+        "_acpmux/agent_pair_resume",
+        "_acpmux/agent_hold",
+        "_acpmux/app_reply",
+        "_acpmux/race/start",
+    ] {
+        assert!(!policy().gesture_rules.contains_key(method), "{method} needs a gesture");
+    }
 }
 
 /// The method sets of one Swift `Set<String>` table, `// comments` dropped.

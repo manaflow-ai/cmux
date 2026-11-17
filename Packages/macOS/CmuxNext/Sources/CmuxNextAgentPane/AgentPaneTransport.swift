@@ -126,27 +126,15 @@ import CmuxNextCompat
     var remoteMediaRange: (@Sendable (String, Int, Int, String?) async throws -> Data)?
     /// Cloud repository actions use the current machine/attachment daemon frame connection.
     public var cloudRepository: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)?
-    /// A `session/new` took the person's send gesture: the first `session/prompt` on that
-    /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
-    /// that gesture; on this Mac it needs none but carries one it finds.
-    var startCredit = AgentPaneGestureCredit()
     /// Starts and opens of a chat here that may still replace an unstarted new chat: while any is
     /// out, a Sandboxed send (`sandbox.run`) is refused (``AcpmuxPaneReplacements``).
     public let replacements = AcpmuxPaneReplacements()
-    /// A trusting `acp.trust.set` on a remote wire took the person's Trust click: it also allows
-    /// one `session/new` on that connection (the start the trust question held, cx-1bhjj).
-    var remoteTrustCredit = AgentPaneGestureCredit()
-    /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
-    /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
-    var pickCredit = AgentPaneGestureCredit()
     /// A Cloud chat's Sign in took the person's click (`_acpmux/agent_login/start`): it also opens
     /// that sign-in's page once (``takeSignInPage(_:)``), so Sign in is one click.
     var signInPageCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
-    /// How long a start's gesture waits for its first prompt (the start may take 75 s).
-    static let startCreditLifetime: TimeInterval = 120
     /// Told when an allow went to another daemon run without the person's proof: that daemon
     /// holds no key of this app for that run, so it refuses the allow.
     public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
@@ -182,13 +170,10 @@ import CmuxNextCompat
         if !addedRoots.contains(folder) { addedRoots.append(folder) }
     }
 
-    /// `folder` the person's gesture picked (`workspace.useFolder`): made a root, and the gesture it
-    /// spent goes on to the chat that starts there (``pickCredit``), then its first prompt. The New
-    /// Tab page asks for the folder in the same turn as the Send, so the pick took the Send's only
-    /// gesture and the chat's first prompt was refused ("Not sent. Press Retry to send it.").
-    func grantPicked(_ folder: String, carryGesture: Bool = true, trust: Bool = true) async {
+    /// `folder` the person's gesture picked (`workspace.useFolder`): made a root, and trusted
+    /// unless `trust` is false.
+    func grantPicked(_ folder: String, trust: Bool = true) async {
         grant(folder)
-        if carryGesture, socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
         if trust { await trustPicked(folder) }
     }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
@@ -319,8 +304,6 @@ import CmuxNextCompat
             cloudRepository = nil
         }
         if !remoteWire { remoteHomeChosen = [] }
-        startCredit.clear()
-        pickCredit.clear()
         signInPageCredit.clear()
         decisions.reset()
         sentFirst = false
@@ -410,9 +393,9 @@ import CmuxNextCompat
     }
 
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
-    /// `personOnly`: only the person's own gesture pays for it, never input another process posted under
-    /// "Computer use can act as me" (a credential transfer rides on a Send ticket, but the grant never covers it).
-    public func reserveGesture(_ intent: AgentPaneGestureIntent, personOnly: Bool = false) -> String? {
+    /// A send's pick (a prompt, Fix from a link, a Cloud start) takes no gesture: sending needs none,
+    /// so its ticket only carries the pick and the uploads it holds.
+    public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
         // A send ticket bound to a chat only for a chat of this pane.
         if let session = intent.sessionId, !sessions.contains(session) { return nil }
@@ -429,13 +412,7 @@ import CmuxNextCompat
         // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
         // right after the person's own click, as an answer (its chat is bound above).
         if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
-        // A prompt held for the trust answer after a new chat's start takes the start's credit; a Cloud start sent from a
-        // folder pick's acceptance (#40957's too-big card) takes the pick's (``grantPicked(_:)`` spent the click). Tickets outlive both.
-        if !gestures.isAvailable, let fresh = intent.method == "session/prompt" ? startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime)
-            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil {
-            return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
-        }
-        return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
+        return gestures.reserve(connection: current, intent: intent, paid: AcpmuxPaneMethods.gestureRules[intent.method] == nil)
     }
 
     /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds

@@ -829,7 +829,7 @@ public final class AgentPaneModel {
                   let socketPath = transport.acpmuxSocket ?? transport.socketPath else {
                 return Self.unsupported("chat.btw.inline")
             }
-            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            // A `/btw` question is a send: it needs no gesture (Leo, 2026-11-17).
             do {
                 let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/btw",
                     params: ["sessionId": sessionId, "question": question, "inline": true, "_meta": ["acpmux": ["via": "app"]]], deadline: .seconds(120), detailed: true)
@@ -913,7 +913,6 @@ public final class AgentPaneModel {
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
-            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consumeUpload() { return Self.transportFailure(.gestureRequired) }
             return await stageHeld(stage, stager)
         case .uploadStageForSend(let stage, let ticket):
             return await beginSendUpload(stage, ticket: ticket)

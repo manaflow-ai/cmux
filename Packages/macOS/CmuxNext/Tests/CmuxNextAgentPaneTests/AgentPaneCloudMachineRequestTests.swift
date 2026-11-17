@@ -202,7 +202,7 @@ struct AgentPaneCloudMachineRequestTests {
         machines.attach = { _ in true }
         gestures.record()
         #expect(await AgentPaneCloudMachineRequest.attach(id: "vm-1").reply(machines, gestures: gestures)["ok"] as? Bool == true)
-        #expect(gestures.consumeForSend())
+        #expect(gestures.consume())
     }
 
     /// Review of cmux#27031: a refresh that was superseded or failed leaves the earlier registry in

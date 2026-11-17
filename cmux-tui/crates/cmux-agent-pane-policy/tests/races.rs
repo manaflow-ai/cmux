@@ -1,5 +1,5 @@
-//! Model-race requests use their parent session as the pane scope and only
-//! starting a race consumes a user gesture.
+//! Model-race requests use their parent session as the pane scope. No race
+//! method needs a user gesture: starting one is a send (Leo, 2026-11-17).
 
 use cmux_agent_pane_policy::gesture::needs_gesture;
 use cmux_agent_pane_policy::params::session_refusal;
@@ -46,13 +46,14 @@ fn every_race_method_is_parent_scoped() {
 }
 
 #[test]
-fn only_race_start_requires_a_gesture() {
-    let start = frame("_acpmux/race/start", json!({"parent": "s"}));
-    assert!(needs_gesture(&start, |_, _| false));
-
-    for method in
-        ["_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats"]
-    {
+fn no_race_method_requires_a_gesture() {
+    for method in [
+        "_acpmux/race/start",
+        "_acpmux/race/get",
+        "_acpmux/race/list",
+        "_acpmux/race/cancel",
+        "_acpmux/race/stats",
+    ] {
         let request = frame(method, json!({"parent": "s"}));
         assert!(!needs_gesture(&request, |_, _| false), "{method} should not need a gesture");
     }

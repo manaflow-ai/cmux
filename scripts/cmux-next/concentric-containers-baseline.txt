@@ -1,8 +1,6 @@
 # Containers with buttons that predate the concentric rule (check-concentric-containers.py).
 # This list may only shrink: fix a surface (Metrics.buttonContainer / calc(var(--ds-radius-control) + pad))
 # and remove its line.
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift: let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift: let glass = Glass.makeSurface(.toast, content: row, cornerRadius: Metrics.surfaceCornerRadius)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift: glass.cornerRadius = Metrics.panelCornerRadius
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift: private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/PageUnresponsiveView.swift: glass.cornerRadius = BrowserMetrics.overlayCornerRadius

@@ -282,7 +282,7 @@
     "other_meta": false,
     "pick": null,
     "session_id": null,
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_click": false,
     "needs_path_check": false,
     "setting": null,
@@ -564,7 +564,7 @@
     "other_meta": false,
     "pick": null,
     "session_id": null,
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_click": false,
     "needs_path_check": false,
     "setting": null,
@@ -609,7 +609,7 @@
     "other_meta": false,
     "pick": null,
     "session_id": null,
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_click": false,
     "needs_path_check": false,
     "setting": null,
@@ -618,7 +618,7 @@
     "handoff_id": null,
     "harness_enable": false,
     "starts_local_session": false,
-    "free": false
+    "free": true
    }
   }
  },
@@ -1332,7 +1332,7 @@
      }
     },
     "session_id": "s1",
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_click": false,
     "needs_path_check": false,
     "setting": null,
@@ -1961,7 +1961,7 @@
   }
  },
  {
-  "name": "btw about the pane's session passes and needs a gesture",
+  "name": "btw about the pane's session passes",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"_acpmux/btw\",\"params\":{\"sessionId\":\"s1\",\"question\":\"why did it flake?\"}}",
   "state": {
    "first": false,
@@ -1990,7 +1990,7 @@
     "other_meta": false,
     "pick": null,
     "session_id": null,
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_click": false,
     "needs_path_check": false,
     "setting": null,
@@ -1999,7 +1999,7 @@
     "handoff_id": null,
     "harness_enable": false,
     "starts_local_session": false,
-    "free": false
+    "free": true
    }
   }
  },

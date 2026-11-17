@@ -56,12 +56,6 @@
     "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict"
   ],
   "gesture_rules": {
-    "session/prompt": "always",
-    "chat.fix_from_link": "always",
-    "_acpmux/queue_approve": "always",
-    "_acpmux/review_verdict": "always",
-    "_acpmux/btw": "always",
-    "_acpmux/side_chat": "when_prompting",
     "_acpmux/context_override": "always",
     "_acpmux/memory_resolve": "always",
     "session/set_mode": "always",
@@ -71,13 +65,9 @@
     "_acpmux/permission_respond": "when_option_allows",
     "_acpmux/permission_group_respond": "when_decision_allows",
     "_acpmux/secret_submit": "always",
-    "_acpmux/agent_pair_resume": "always",
-    "_acpmux/agent_hold": "always",
-    "_acpmux/app_reply": "always",
     "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always",
     "_acpmux/plan/build": "always",
-    "_acpmux/race/start": "always",
     "_acpmux/presets": "always",
     "_acpmux/run_elsewhere/start": "always"
   },
@@ -88,7 +78,6 @@
     "_acpmux/presets"
   ],
   "click_window_ms": 1500,
-  "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
@@ -115,7 +104,7 @@
     "_acpmux/prewarm": {"params": ["harness", "cwd", "release"], "acpmux": []},
     "_acpmux/start_mode": {"params": ["harness", "cwd"], "acpmux": []},
     "_acpmux/project_new": {"params": ["name"], "acpmux": []},
-    "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
+    "_acpmux/harnesses": {"params": ["cwd", "_meta"], "acpmux": ["peer"]},
     "_acpmux/models": {"params": ["refresh", "localOnly"], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
     "_acpmux/peers": {"params": [], "acpmux": []},

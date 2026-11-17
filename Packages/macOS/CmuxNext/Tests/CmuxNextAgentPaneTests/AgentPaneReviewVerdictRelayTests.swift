@@ -30,13 +30,11 @@ struct AgentPaneReviewVerdictRelayTests {
         transport.sessions.add("s")
         let sent = { server.peers.first?.frames.filter { $0.contains("_acpmux/review_verdict") } ?? [] }
 
-        // No click: neither the pane's own chat nor another one.
-        #expect(await transport.send(connection: id, frames: [Self.verdict(id: 1, session: "s")]) == .gestureRequired)
+        // No click: a chat outside the scope still needs the click's scope credit.
         #expect(await transport.send(connection: id, frames: [Self.verdict(id: 2, session: "b")]) == .gestureRequired)
         #expect(sent().isEmpty, "a refused verdict reached acpmux: \(sent())")
 
-        // The pane's own chat: the click's grant is enough.
-        transport.gestures.record(click: true)
+        // The pane's own chat: a verdict is a send, so it needs no click (Leo, 2026-11-17).
         #expect(await transport.send(connection: id, frames: [Self.verdict(id: 3, session: "s")]) == nil,
                 "the relay refused a verdict for the pane's own chat")
         _ = await inbox.frame(containing: #""id":3"#)

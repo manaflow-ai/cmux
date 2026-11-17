@@ -1,6 +1,6 @@
 [
  {
-  "name": "fix from link always",
+  "name": "fix from link needs no gesture",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -10,10 +10,10 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
-  "name": "prompt always",
+  "name": "prompt needs no gesture",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -23,7 +23,7 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
   "name": "set_mode always",
@@ -291,7 +291,7 @@
   "needs": true
  },
  {
-  "name": "agent_pair_resume always",
+  "name": "agent_pair_resume needs no gesture",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -301,7 +301,7 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
   "name": "retry never",
@@ -317,7 +317,7 @@
   "needs": false
  },
  {
-  "name": "btw always",
+  "name": "btw needs no gesture",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -328,10 +328,10 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
-  "name": "side_chat with a prompt runs a turn",
+  "name": "side_chat with a prompt needs no gesture",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -343,7 +343,7 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
   "name": "side_chat without a prompt only forks",
@@ -360,7 +360,7 @@
   "needs": false
  },
  {
-  "name": "app_reply always",
+  "name": "app_reply needs no gesture",
   "frame": {
    "jsonrpc": "2.0",
    "id": 4,
@@ -375,10 +375,10 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
-  "name": "agent_hold always",
+  "name": "agent_hold needs no gesture",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -389,7 +389,7 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
   "name": "a preset approval always needs a gesture",

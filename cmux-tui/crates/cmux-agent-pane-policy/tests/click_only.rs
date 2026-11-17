@@ -188,7 +188,7 @@ fn a_deny_needs_no_click() {
     }
 }
 
-/// The rule is for the answer methods only: a send still goes on a key press.
+/// The rule is for the answer methods only: a send needs no gesture at all.
 #[test]
 fn a_frame_of_another_method_needs_no_click() {
     let params = json!({"sessionId": "own", "prompt": []});
@@ -196,7 +196,7 @@ fn a_frame_of_another_method_needs_no_click() {
         let Checked::Frame { facts, .. } = check("session/prompt", params.clone(), gesture) else {
             panic!("a prompt was refused with {gesture:?}")
         };
-        assert!(facts.needs_gesture, "{gesture:?}: the host still decides the gesture");
+        assert!(!facts.needs_gesture, "{gesture:?}: a send needs no gesture");
         assert!(!facts.needs_click, "{gesture:?}");
     }
 }

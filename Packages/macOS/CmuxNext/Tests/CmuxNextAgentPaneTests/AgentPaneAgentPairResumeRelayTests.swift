@@ -4,7 +4,7 @@ import Testing
 
 /// Resuming a paused agent pair at the relay boundary (the page's frames into
 /// ``AgentPaneTransport``, out to acpmux; acpmux `hub/agent_pairs.rs`): the pause row's Resume
-/// reaches acpmux only for a chat in the pane's scope, with a fresh gesture, and only in the shape
+/// reaches acpmux only for a chat in the pane's scope, with or without a gesture, and only in the shape
 /// the pane sends. `peerSessionId` picks one of that chat's pairs and is not scoped itself: acpmux
 /// resumes no pair the named chat is not in.
 @Suite(.serialized)
@@ -14,7 +14,7 @@ struct AgentPaneAgentPairResumeRelayTests {
         #"{"jsonrpc":"2.0","id":\#(id),"method":"_acpmux/agent_pair_resume","params":\#(params)}"#
     }
 
-    @Test func aResumeGoesOutOnlyForTheChatInScopeWithAGesture() async throws {
+    @Test func aResumeGoesOutOnlyForTheChatInScope() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
@@ -37,7 +37,7 @@ struct AgentPaneAgentPairResumeRelayTests {
                 "no chat named")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
 
-        transport.gestures.record()
+        _ = transport.gestures.consume()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, params: #"{"sessionId":"s","peerSessionId":"other"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":4"#)
         let frames = sent()
@@ -48,8 +48,9 @@ struct AgentPaneAgentPairResumeRelayTests {
         #expect(params["peerSessionId"] as? String == "other")
     }
 
-    @Test func aResumeNeedsAGesture() {
+    /// Resume sends the held messages: a send needs no gesture (Leo, 2026-11-17).
+    @Test func aResumeNeedsNoGesture() {
         let frame = Self.frame(id: 1, params: #"{"sessionId":"s"}"#)
-        #expect(AcpmuxPaneMethods.needsGesture(frame, options: AcpmuxPermissionOptions()))
+        #expect(!AcpmuxPaneMethods.needsGesture(frame, options: AcpmuxPermissionOptions()))
     }
 }

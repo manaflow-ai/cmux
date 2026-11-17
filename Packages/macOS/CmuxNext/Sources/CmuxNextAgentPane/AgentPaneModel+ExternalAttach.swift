@@ -26,7 +26,6 @@ extension AgentPaneModel {
         let taken = read.map(\.url)
         droppedPaths.stash(taken, kind: .external)
         droppedPaths.stashSource(taken, items: taken.count, claimed: held.claimed, kind: .external)
-        transport.gestures.recordUpload()
         return AgentPaneReply.success(["files": read.map { ["name": $0.url.lastPathComponent, "type": $0.type, "data": $0.data] }])
     }
 

@@ -30,7 +30,6 @@ pub fn needs_gesture(object: &Map<String, Value>, is_deny: impl Fn(&str, &str) -
             _ => true,
         },
         GestureRule::WhenDecisionAllows => text("decision") != Some("deny"),
-        GestureRule::WhenPrompting => params.contains_key("prompt"),
     }
 }
 

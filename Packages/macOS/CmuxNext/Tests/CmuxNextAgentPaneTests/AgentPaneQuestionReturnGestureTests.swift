@@ -131,7 +131,7 @@ struct AgentPaneQuestionReturnGestureTests {
         #expect(await transport.send(connection: connection, frames: [answer]) == nil)
         _ = await inbox.frame(containing: #""id":7"#)
         #expect(redeemed == 1)
-        #expect(!transport.gestures.consumeForSend())
+        #expect(!transport.gestures.consume())
         #expect(await transport.send(connection: connection, frames: [answer]) == .gestureRequired)
         let responses = server.peers.first?.frames.filter { $0.contains("permission_respond") } ?? []
         #expect(responses.count == 1)
@@ -147,7 +147,7 @@ struct AgentPaneQuestionReturnGestureTests {
         #expect(!AcpmuxPaneMethods.answerAllowed("_acpmux/permission_respond", gestures))
         #expect(gestures.consumeQuestionReturn(witness))
         #expect(!gestures.consumeQuestionReturn(witness))
-        #expect(!gestures.consumeForSend())
+        #expect(!gestures.consume())
     }
 
     @Test func nativeReturnRepliesAreAnnouncedBeforeLocalAndDaemonRefusals() async throws {

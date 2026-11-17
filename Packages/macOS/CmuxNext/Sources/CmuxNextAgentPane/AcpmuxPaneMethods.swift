@@ -402,20 +402,15 @@ nonisolated enum AcpmuxPaneMethods {
         case whenOptionAllows
         /// `_acpmux/permission_group_respond` whose `decision` is not `deny`.
         case whenDecisionAllows
-        /// A frame that carries a `prompt` (`/side <prompt>`: its side chat runs a turn).
-        case whenPrompting
     }
 
+    /// Sending never needs one (Leo, 2026-11-17: the "Not sent: it needs your own key press or
+    /// click" gate is gone). A prompt, a Retry, an Approve of a queued prompt, `/btw`, `/side`, a
+    /// race, a review verdict, a hand back, an app reply, Run elsewhere and Fix from a link go out
+    /// whoever pressed Send: a person, computer use, a script, MCP or the CLI, which reach acpmux
+    /// without the pane anyway. What is left grants something past a send: an agent's permission,
+    /// a permissive mode, a folder trust, a secret, a sign-in, standing guidance.
     public static let gestureRules: [String: GestureRule] = [
-        "session/prompt": .always,
-        // Fixing a GitHub link creates a worktree and starts an agent turn; it is a person click,
-        // never a scriptable background launch.
-        "chat.fix_from_link": .always,
-        // A side session's question is its first prompt.
-        "_acpmux/btw": .always,
-        // `/side <prompt>`'s prompt runs a turn in the side chat, as `session/prompt` would; a side
-        // chat with no prompt only forks, as `acp.session.fork` does (no gesture).
-        "_acpmux/side_chat": .whenPrompting,
         // A saved guidance edit reaches every new chat's agent.
         "_acpmux/context_override": .always,
         // An accepted memory fact reaches every later chat's agent in that folder, and acpmux does not
@@ -434,35 +429,21 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Approve lets agents start chats from the preset on other machines with no prompts.
         "_acpmux/presets": .always,
-        // Resume runs turns: the held messages go to both chats of the pair.
-        "_acpmux/agent_pair_resume": .always,
-        // Racing starts additional agent turns; the launch button supplies a fresh click.
-        "_acpmux/race/start": .always,
-        // Hand back delivers held messages, which runs turns.
-        "_acpmux/agent_hold": .always,
-        "_acpmux/app_reply": .always,
-        // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
-        "_acpmux/queue_approve": .always,
-        // A verdict on a pull request may send its chat a prompt (Request changes).
-        "_acpmux/review_verdict": .always,
         // A Cloud sign-in changes the machine's provider identity, so it starts only on the person's
         // click (Sign in), and a key is saved only on theirs (Save). Finish completes only a login
-        // such a click started (acpmux keeps the login by its id); its Continue keeps its gesture
-        // for the failed prompt's resend. Cancel stops work: none.
+        // such a click started (acpmux keeps the login by its id). Cancel stops work: none.
         "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
         // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
         // need none: Keep only archives chats the person's Build started.
         "_acpmux/plan/build": .always,
-        // Run on a bigger machine's Run sends the chat's command, and the files the person ticked, to
-        // another machine: only on the person's click or Return in its panel.
+        // Run on a bigger machine's Run sends the chat's command, the files the person ticked and
+        // maybe its secrets to another machine: not a message send, so only on the person's click or
+        // Return in its panel.
         "_acpmux/run_elsewhere/start": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
-        // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
-        // Start begins is its session/prompt, which has one).
-        // _acpmux/retry: no gesture. It runs again only the turn or subagent that failed, which acpmux
-        // retries on its own anyway; the click's grant stays for runRetry's fallback (the prompt
-        // sent again, or the ask to the chat's agent, when the daemon lacks the method).
+        // _acpmux/offer_respond declines, or links the page's own new chat: no gesture.
+        // _acpmux/retry: no gesture. It runs again only the turn or subagent that failed.
         // _acpmux/set_tools: no gesture. It only turns off, or back on, an MCP server the chat
         // already had from the person's own config; it adds none.
     ]
@@ -497,8 +478,6 @@ nonisolated enum AcpmuxPaneMethods {
             return !options.isDeny(permissionId: permission, optionId: option)
         case .whenDecisionAllows:
             return params["decision"] as? String != "deny"
-        case .whenPrompting:
-            return params["prompt"] != nil
         }
     }
 

@@ -77,7 +77,6 @@
     }
   },
   "native": {
-    "CmuxNextAgentPane/AgentPaneActAsMeCard.swift": "native-overlay",
     "CmuxNextAgentPane/AgentPaneSessionInfoPanel.swift": "web-host",
     "CmuxNextAgentPane/AgentPaneView+HostGlass.swift": "web-host",
     "CmuxNextAgentPermissions/UI/PermissionRequestPanel.swift": "native-overlay",
