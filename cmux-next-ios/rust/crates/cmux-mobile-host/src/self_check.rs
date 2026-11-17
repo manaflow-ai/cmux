@@ -935,7 +935,8 @@ mod tests {
             drop(command);
         };
         let mut out = Vec::new();
-        let ((), result) = tokio::join!(phone, run(&registry, &json!({}), QUICK, &mut out));
+        let request = json!({});
+        let ((), result) = tokio::join!(phone, run(&registry, &request, QUICK, &mut out));
         result.unwrap();
         assert_eq!(answer_lines(&out)[0]["error"], "closed");
     }
