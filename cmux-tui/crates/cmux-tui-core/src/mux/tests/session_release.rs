@@ -858,3 +858,132 @@ fn a_record_file_past_the_read_bound_does_not_go_into_the_next_owners_start_line
         keys(&line)
     );
 }
+
+/// The longest wait for a thread of these tests to say that a call of the
+/// owner returned. A bound for a call that never returns, not a time the
+/// test measures: each wait that the owner has for a thread of its own is a
+/// few seconds.
+const OWNER_CALL_WAIT: Duration = Duration::from_secs(30);
+/// What an owner names when its release did not have the registry's lock in
+/// its wait.
+const REGISTRY_HOLD: &str = "a hold of the registry's lock";
+
+/// A thread of the owner holds the registry's lock when the owner releases
+/// the session, and does not give it back: a pass of a background thread
+/// waits there for a slow commit. The release has one bound for each of its
+/// waits, and this lock is one of them. It returns while that thread holds
+/// the lock; the owner keeps the session until its exit and names the lock,
+/// in what it returns and in its record; the next owner's open is refused
+/// with that reason.
+#[test]
+fn a_release_returns_while_a_thread_of_its_owner_holds_the_registry_lock() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-lock-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-lock";
+    let mux = open_owner(&root, session);
+    let folder = session_folder(&mux);
+    mux.shutdown();
+    let (took, holder_has_the_lock) = mpsc::sync_channel(1);
+    let (give_back, held) = mpsc::sync_channel::<()>(1);
+    let holder_mux = Arc::clone(&mux);
+    let holder = std::thread::spawn(move || {
+        let registry = holder_mux.workspace_registry.lock();
+        let _ = took.send(());
+        // Until the test drops its end of the channel.
+        let _ = held.recv();
+        drop(registry);
+    });
+    holder_has_the_lock
+        .recv_timeout(OWNER_CALL_WAIT)
+        .expect("setup: the holder's thread did not take the registry's lock");
+    let (said, release_said) = mpsc::sync_channel(1);
+    let releasing = Arc::clone(&mux);
+    let socket = root.join("control.sock");
+    let releaser = std::thread::spawn(move || {
+        let _ = said.send(releasing.release_ownership(&socket));
+    });
+    // The holder gives the lock back only after the lines below: a release
+    // that the test has here returned while the lock was held.
+    let release = release_said.recv_timeout(OWNER_CALL_WAIT).ok();
+    let record = std::fs::read_to_string(folder.join(RELEASE_RECORD_FILE)).unwrap_or_default();
+    // The owner never gives the session up here: a small bound for the wait
+    // of the open that it refuses.
+    let _ = set_owner_wait(SHORT_OWNER_WAIT);
+    let refused = refusal(&root, session);
+    drop(give_back);
+    let _ = holder.join();
+    let _ = releaser.join();
+    drop(mux);
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let _ = std::fs::remove_dir_all(&root);
+    let Some(release) = release else {
+        panic!(
+            "the owner's release did not return while a thread of the owner held the registry's \
+             lock: its wait for that lock has no bound (the test waited {} s for the release; \
+             the next owner's open in that time: {refused})",
+            OWNER_CALL_WAIT.as_secs()
+        );
+    };
+    let names = match &release {
+        lifecycle::OwnershipRelease::KeptUntilExit { alive, .. } => alive.clone(),
+        lifecycle::OwnershipRelease::Released => Vec::new(),
+    };
+    assert!(
+        names == [REGISTRY_HOLD],
+        "an owner whose release did not have the registry's lock in its wait did not say that \
+         it keeps the session because of that lock: its release: {release:?}"
+    );
+    assert!(
+        record.contains(KEPT_RELEASE) && record.contains(REGISTRY_HOLD),
+        "an owner that keeps its session because of the registry's lock did not write that in \
+         its record: the record file: {record:?}"
+    );
+    assert!(
+        refused.contains("already owned by another daemon") && refused.contains(KEPT_REASON),
+        "the next owner's open was not refused because the owner before it keeps the session: \
+         its open: {refused}"
+    );
+}
+
+/// A tick of the owner's maintenance worker is in flight when the owner
+/// shuts down, and it does not end: it waits for a slow commit. The stop of
+/// that worker has a bound, as the stop of the owner's other workers has:
+/// the shutdown returns while the tick still runs, and the release comes
+/// after it.
+#[test]
+fn a_shutdown_returns_while_a_maintenance_tick_of_its_owner_does_not_end() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-tick-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-tick";
+    let mux = open_owner(&root, session);
+    let (began, tick_began) = mpsc::sync_channel(1);
+    let (end_the_tick, tick_runs) = mpsc::sync_channel::<()>(1);
+    journal_maintenance::worker_tests::put_a_worker_in_a_tick(&mux, move || {
+        let _ = began.send(());
+        // Until the test drops its end of the channel.
+        let _ = tick_runs.recv();
+    });
+    tick_began
+        .recv_timeout(OWNER_CALL_WAIT)
+        .expect("setup: the worker's thread did not begin its tick");
+    let (said, shutdown_said) = mpsc::sync_channel(1);
+    let stopping = Arc::clone(&mux);
+    let stopper = std::thread::spawn(move || {
+        stopping.shutdown();
+        let _ = said.send(());
+    });
+    // The tick ends only after the next line: a shutdown that the test has
+    // here returned while the tick ran.
+    let returned = shutdown_said.recv_timeout(OWNER_CALL_WAIT).is_ok();
+    drop(end_the_tick);
+    let _ = stopper.join();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        returned,
+        "the owner's shutdown did not return while a tick of its maintenance worker ran: its \
+         stop of that worker waits for the tick's end with no bound (the test waited {} s for \
+         the shutdown)",
+        OWNER_CALL_WAIT.as_secs()
+    );
+}

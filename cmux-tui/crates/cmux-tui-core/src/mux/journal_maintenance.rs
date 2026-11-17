@@ -920,6 +920,22 @@ impl Mux {
 }
 
 #[cfg(test)]
+pub(super) mod worker_tests {
+    use super::*;
+
+    /// Gives `mux` a maintenance worker that is in a tick: its thread runs
+    /// `tick` and ends. The owner's own worker ends at its stop first: it
+    /// waits out its first interval, so it is in no tick.
+    pub(in crate::mux) fn put_a_worker_in_a_tick(mux: &Mux, tick: impl FnOnce() + Send + 'static) {
+        mux.stop_journal_maintenance();
+        let control = Arc::new(JournalMaintenanceControl::default());
+        let thread = std::thread::spawn(tick);
+        *mux.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(JournalMaintenance { control, thread: Some(thread) });
+    }
+}
+
+#[cfg(test)]
 mod maintenance_steps_tests {
     use super::*;
 
