@@ -11,6 +11,7 @@
 //   renders   `acpmuxPerf.renders`: the pane root (AcpmuxPane), the transcript, the composer, every row and row frame
 //   layout    the page's layouts and style recalcs (CDP Performance.getMetrics LayoutCount, RecalcStyleCount)
 //   script    main-thread script, layout and style time (ScriptDuration, LayoutDuration, RecalcStyleDuration), ms
+//   to_work   keydown to the key's edit and its render done (p50 / p95), the cron's typing.to_work row
 //   to_frame  the page's own typingStats (keydown to the next frame, p50 / p95 / max), as the Mac bench reads it
 //   long_tasks  main-thread tasks of 50 ms or more while the keys are typed (PerformanceObserver longtask), and
 //             longest_task_ms the longest (0 when none)
@@ -64,6 +65,8 @@ const ARM_METRICS = [
   "to_frame_p95",
   "to_frame_max",
   "to_listener_p95",
+  "to_work_p50",
+  "to_work_p95",
   "longest_task_ms",
   "long_tasks",
 ] as const;
@@ -324,6 +327,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       style_ms: per(delta("RecalcStyleDuration") * 1000),
       task_ms: per(delta("TaskDuration") * 1000),
       to_listener_p95: typing.to_listener?.p95_ms,
+      to_work_p50: typing.to_work?.p50_ms,
       to_work_p95: typing.to_work?.p95_ms,
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
