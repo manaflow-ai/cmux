@@ -200,6 +200,7 @@ mod tests {
             user_plugin_dir: None,
             displays: None,
             project_servers: Default::default(),
+            http: Default::default(),
         }
     }
 
