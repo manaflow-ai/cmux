@@ -104,9 +104,9 @@ final class TerminalProjectionUITests: XCTestCase {
                 "mac PTY resizes \(mac), claims+releases \(claims), replay bytes \(replayBytes), settle \(settleMs) ms, "
                     + "frames at a grid not final \(unsettled), zoom gestures \(gestures), zoom \(zoom)%, columns \(columns)"
             }
-            static func - (a: Alt, b: Alt) -> Alt {
-                Alt(mac: a.mac - b.mac, claims: a.claims - b.claims, replayBytes: a.replayBytes - b.replayBytes, settleMs: a.settleMs,
-                    unsettled: a.unsettled - b.unsettled, gestures: a.gestures - b.gestures, zoom: a.zoom, columns: a.columns)
+            func since(_ b: Alt) -> Alt {
+                Alt(mac: mac - b.mac, claims: claims - b.claims, replayBytes: replayBytes - b.replayBytes, settleMs: settleMs,
+                    unsettled: unsettled - b.unsettled, gestures: gestures - b.gestures, zoom: zoom, columns: columns)
             }
         }
         func parse(_ label: String) -> (stage: String, Alt)? {
@@ -152,7 +152,7 @@ final class TerminalProjectionUITests: XCTestCase {
         var last = attached
         func step(_ name: String) {
             guard let counts = now() else { return }
-            rows.append((name, counts - last))
+            rows.append((name, counts.since(last)))
             last = counts
         }
         guard wait(for: "gestures", timeout: 20) != nil else { return XCTFail("no gestures stage: \(probe.label)") }
@@ -176,20 +176,20 @@ final class TerminalProjectionUITests: XCTestCase {
         step("pinch in (fit width)")
         shot("fit-width-again")
         guard let gestured = wait(for: "gestured") else { return XCTFail("the demo never left the gestures stage: \(probe.label)") }
-        rows.append(("(stage end)", gestured - last))
+        rows.append(("(stage end)", gestured.since(last)))
         last = gestured
         guard let keyboard = wait(for: "kb") else { return XCTFail("the keyboard toggles never ended: \(probe.label)") }
-        rows.append(("keyboard show and hide", keyboard - last))
+        rows.append(("keyboard show and hide", keyboard.since(last)))
         last = keyboard
         guard let typed = wait(for: "typed") else { return XCTFail("typing never settled: \(probe.label)") }
-        rows.append(("type abc into htop", typed - last))
+        rows.append(("type abc into htop", typed.since(last)))
         last = typed
         shot("typed-fitted")
         guard let quit = wait(for: "quit") else { return XCTFail("q never landed: \(probe.label)") }
-        rows.append(("q (htop exits)", quit - last))
+        rows.append(("q (htop exits)", quit.since(last)))
         last = quit
         guard let again = wait(for: "again") else { return XCTFail("htop never started again: \(probe.label)") }
-        rows.append(("htop again (remembered)", again - last))
+        rows.append(("htop again (remembered)", again.since(last)))
         shot("again-remembered")
 
         for (name, counts) in rows {
