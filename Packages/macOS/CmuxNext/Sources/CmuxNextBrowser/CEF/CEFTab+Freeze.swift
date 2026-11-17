@@ -10,8 +10,6 @@ extension CEFTab: BrowserFreezing {
     @discardableResult
     public func setFrozen(_ frozen: Bool) -> Bool {
         guard let browserID, !isClosed, let shim = runtime.shim else { return false }
-        // A hidden cmux page that freezes also gets cheaper: Chromium's memory purge, nothing reloaded (CEFHiddenPageTrim).
-        if frozen, CEFPageRendererGC.isCmuxPage(state.url) { runtime.hiddenPageTrim.pageFroze(self) }
         // In the tab's DevTools call order (`CEFDevToolsCallOrder`): now when no call waits, else right after the
         // last one, so a script still encoding never runs on a page frozen after it was called, and an agent call
         // made right after a thaw never reaches a frozen page.

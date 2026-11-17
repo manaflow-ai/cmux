@@ -8,8 +8,8 @@ import Testing
     @Test func aBurstWaitsTheDelayAndALaterOneWaitsOutTheGap() {
         let start = ContinuousClock.now
         #expect(CEFHiddenPageTrim.nextDelay(since: nil, now: start) == CEFHiddenPageTrim.delay)
-        #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(10)) == CEFHiddenPageTrim.minimumGap - .seconds(10))
-        #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(59)) == CEFHiddenPageTrim.delay)
+        #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(20)) == CEFHiddenPageTrim.minimumGap - .seconds(20))
+        #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(55)) == CEFHiddenPageTrim.delay)
         #expect(CEFHiddenPageTrim.nextDelay(since: start, now: start + .seconds(600)) == CEFHiddenPageTrim.delay)
     }
 

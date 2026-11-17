@@ -5,25 +5,25 @@ import Foundation
 /// "we cannot trade off instant loads. instant > memory", so a hidden chat keeps its page and its switch back draws
 /// it at once; what goes is what Chromium can rebuild: its caches, and the frames and tiles of pages no one sees.
 ///
-/// When a cmux page freezes (hidden `browser.freezeHiddenTabs` seconds, 30 by default: ``CEFTab/setFrozen(_:)``),
-/// Chromium gets one memory-pressure notice (`Memory.simulatePressureNotification`, ``level``), ``delay`` after the
-/// first freeze of a burst and at most once per ``minimumGap``. The notice reaches the browser and every renderer:
-/// V8 collects and shrinks its heap, Blink drops decoded images, fonts and resources it can read again, and the
-/// browser evicts the saved frames of hidden pages. Nothing is reloaded: the page keeps its DOM, scroll and state.
-/// A chat looked at again within the freeze wait is never touched.
+/// ``delay`` (10 s) after the newest hide of a cmux page, while a cmux page is still hidden, Chromium gets one
+/// memory-pressure notice (`Memory.simulatePressureNotification`, ``level``), at most one per ``minimumGap``. A hide
+/// inside the wait moves it to 10 s after that hide, so a burst of switches costs one notice. The notice reaches the
+/// browser and every renderer: V8 collects and shrinks its heap, Blink drops decoded images, fonts and resources it
+/// can read again, and the browser evicts the saved frames of hidden pages. Nothing is reloaded: every page keeps
+/// its DOM, scroll and state.
 @MainActor
 final class CEFHiddenPageTrim {
     /// Chromium's pressure level the notice names.
     nonisolated static let level = "critical"
-    /// From the first freeze of a burst to the notice: one notice serves every page frozen together.
-    nonisolated static let delay: Duration = .seconds(2)
+    /// From the newest hide to the notice.
+    nonisolated static let delay: Duration = .seconds(10)
     /// The least time between two notices.
     nonisolated static let minimumGap: Duration = .seconds(60)
 
     private let timer = DemandTimer(owner: "CEFHiddenPageTrim")
     private let notify: @MainActor (CEFTab) async -> Void
     private let now: () -> ContinuousClock.Instant
-    /// The page the next notice goes through: the newest frozen one still open.
+    /// The page the next notice goes through: the newest hidden one.
     private weak var target: CEFTab?
     private var lastNotice: ContinuousClock.Instant?
     /// Notices sent (tests).
@@ -34,10 +34,10 @@ final class CEFHiddenPageTrim {
         self.notify = notify
     }
 
-    /// A cmux page froze: a notice goes out within ``nextDelay(since:now:)``.
-    func pageFroze(_ tab: CEFTab) {
+    /// A cmux page hid: the notice goes out ``nextDelay(since:now:)`` from now (each hide moves it).
+    func pageHidden(_ tab: CEFTab) {
         target = tab
-        timer.scheduleIfIdle(after: Self.nextDelay(since: lastNotice, now: now())) { @MainActor [weak self] in await self?.trim() }
+        timer.schedule(after: Self.nextDelay(since: lastNotice, now: now())) { @MainActor [weak self] in await self?.trim() }
     }
 
     /// The notice itself, through `tab`'s DevTools (the runtime's `hiddenPageTrim` sends it).
@@ -45,9 +45,9 @@ final class CEFHiddenPageTrim {
         _ = try? await tab.devTools(method: "Memory.simulatePressureNotification", params: ["level": level], timeout: .seconds(10))
     }
 
-    /// Sends the notice through the newest frozen page, when it is still open.
+    /// Sends the notice through the newest hidden page, when it is still open and still hidden.
     func trim() async {
-        guard let tab = target, !tab.isClosed else { return }
+        guard let tab = target, !tab.isClosed, tab.isContentHidden else { return }
         target = nil
         lastNotice = now()
         notices += 1
