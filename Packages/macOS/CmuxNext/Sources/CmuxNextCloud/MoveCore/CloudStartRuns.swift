@@ -55,6 +55,8 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     private var forgets = 0
     /// Called when an ask joins a creation already going on (tests wait on it).
     public var joinedCreation: @MainActor (String) -> Void = { _ in }
+    /// Called as a new run starts, before its work: the App warms the person's spare there (a Cloud start is coming).
+    public var began: @MainActor (Key) -> Void = { _ in }
     public var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// The caller's wait: a one-shot sleep, cancelled when the run ends first.
     public var sleep: @MainActor (Duration) async -> Void = { duration in
@@ -114,6 +116,7 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     public func answer(_ key: Key, within: Duration, pending: Fields, forgotten: any Error, early: Bool = false,
                 _ work: @escaping @MainActor () async throws -> Fields) async throws -> Fields {
         let (run, started) = take(key, work)
+        if started { began(key) }
         if let outcome = run.outcome { return try outcome.get() }
         let caller = UUID()
         let (ends, continuation) = AsyncStream<Outcome?>.makeStream(bufferingPolicy: .bufferingOldest(1))
