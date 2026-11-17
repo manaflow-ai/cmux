@@ -11,6 +11,17 @@
 //! When no candidate overlaps the source: the nearest edge, then the nearest centre, then the top-left one. A key
 //! to the left or to the right that goes into another column gives that column's most recently focused pane,
 //! wherever it stands in the column.
+//!
+//! **The rule with floating panes** (1 or more floating panes have a frame). The tiled rule stays the rule between
+//! tiled panes, and a floating pane is a stop on the way. From a tiled pane the tiled rule gives the target; a
+//! floating pane stands between when its centre is after the centre of the source and before the centre of the
+//! target on the axis of the key, and it overlaps the source on the other axis: the nearest such pane gets the
+//! focus. With no tiled target, the nearest floating pane after the source gets it. From a floating pane the same
+//! key goes on: to the next floating pane between the tiled pane that had the focus before it and that pane's
+//! target, then to that target, so a floating pane never keeps the focus. The opposite key goes back the same way.
+//! Another key, or no tiled pane in the history, gives the nearest pane after the source by centres, one that
+//! overlaps the source on the other axis first. A tiled pane that one floating pane covers wholly is never a
+//! target: it does not show.
 
 use std::cmp::Ordering;
 
@@ -48,6 +59,28 @@ impl FocusFrame {
 
     fn mid_y(self) -> f64 {
         self.y + self.h / 2.0
+    }
+
+    /// The centre on the axis that a key of `direction` moves on.
+    fn centre(self, direction: FocusDirection) -> f64 {
+        if direction.is_horizontal() { self.mid_x() } else { self.mid_y() }
+    }
+
+    /// How much the frame and `other` share on the axis that a key of `direction` does not move on.
+    fn cross_overlap(self, other: FocusFrame, direction: FocusDirection) -> f64 {
+        if direction.is_horizontal() {
+            self.max_y().min(other.max_y()) - self.y.max(other.y)
+        } else {
+            self.max_x().min(other.max_x()) - self.x.max(other.x)
+        }
+    }
+
+    /// Whether no part of `inner` is out of the frame.
+    fn covers(self, inner: FocusFrame) -> bool {
+        self.x <= inner.x
+            && self.y <= inner.y
+            && self.max_x() >= inner.max_x()
+            && self.max_y() >= inner.max_y()
     }
 }
 
@@ -120,7 +153,16 @@ pub fn is_valid(panes: &[FocusPane]) -> bool {
 /// The index of the pane that `direction` gives from the pane at `source`, or `None`: no pane is on that side,
 /// or the source has no row or no frame.
 pub fn neighbor(panes: &[FocusPane], source: usize, direction: FocusDirection) -> Option<usize> {
-    tiled_neighbor(panes, source, direction, &|index| frame_of(panes, index).is_some(), &|_| true)
+    match FloatingRule::of(panes) {
+        Some(rule) => rule.neighbor(source, direction),
+        None => tiled_neighbor(
+            panes,
+            source,
+            direction,
+            &|index| frame_of(panes, index).is_some(),
+            &|_| true,
+        ),
+    }
 }
 
 fn frame_of(panes: &[FocusPane], index: usize) -> Option<FocusFrame> {
@@ -280,6 +322,195 @@ fn tiled_neighbor(
         }
     }
     Some(chosen)
+}
+
+/// The rule of a screen that has floating panes.
+struct FloatingRule<'a> {
+    panes: &'a [FocusPane],
+    /// The floating panes that have a frame, back to front.
+    floating: Vec<usize>,
+    /// For each row of a pane of `floating`: its place there.
+    rank: Vec<Option<usize>>,
+    /// For each row: whether the pane is a tiled pane that can get the focus. It has a frame, and no floating pane
+    /// covers it wholly.
+    shows: Vec<bool>,
+}
+
+impl<'a> FloatingRule<'a> {
+    /// The rule of `panes`, or `None` when no floating pane has a frame: the tiled rule is then the whole rule.
+    fn of(panes: &'a [FocusPane]) -> Option<FloatingRule<'a>> {
+        let mut places = panes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, pane)| Some((pane.floating?, pane.order, index, pane.frame?)))
+            .collect::<Vec<_>>();
+        if places.is_empty() {
+            return None;
+        }
+        places.sort_by_key(|(place, order, index, _)| (*place, *order, *index));
+        let mut rank = vec![None; panes.len()];
+        for (at, (_, _, index, _)) in places.iter().enumerate() {
+            if let Some(slot) = rank.get_mut(*index) {
+                *slot = Some(at);
+            }
+        }
+        let shows = panes
+            .iter()
+            .zip(&rank)
+            .map(|(pane, rank)| {
+                rank.is_none()
+                    && pane.frame.is_some_and(|frame| {
+                        !places.iter().any(|(_, _, _, cover)| cover.covers(frame))
+                    })
+            })
+            .collect();
+        let floating = places.iter().map(|(_, _, index, _)| *index).collect();
+        Some(FloatingRule { panes, floating, rank, shows })
+    }
+
+    fn frame(&self, index: usize) -> Option<FocusFrame> {
+        frame_of(self.panes, index)
+    }
+
+    fn rank(&self, index: usize) -> Option<usize> {
+        self.rank.get(index).copied().flatten()
+    }
+
+    fn shows(&self, index: usize) -> bool {
+        self.shows.get(index).copied().unwrap_or(false)
+    }
+
+    /// The pane that `direction` gives from the pane at `pane`.
+    fn neighbor(&self, pane: usize, direction: FocusDirection) -> Option<usize> {
+        self.frame(pane)?;
+        if self.rank(pane).is_none() {
+            let (members, target) = self.way(pane, direction);
+            return members.first().copied().or(target).or_else(|| {
+                let after = self
+                    .floating
+                    .iter()
+                    .copied()
+                    .filter(|other| self.is_after(*other, pane, direction));
+                after.min_by(|first, second| self.way_order(*first, *second, direction))
+            });
+        }
+        let tiled = (0..self.panes.len()).filter(|other| *other != pane && self.shows(*other));
+        if let Some(origin) = most_recent(self.panes, tiled) {
+            let (members, target) = self.way(origin, direction);
+            if let Some(at) = members.iter().position(|member| *member == pane) {
+                let next = members.get(at + 1).copied();
+                return next.or(target).or_else(|| self.nearest(pane, direction));
+            }
+            let (back, _) = self.way(origin, direction.opposite());
+            if let Some(at) = back.iter().position(|member| *member == pane) {
+                let before = at.checked_sub(1).and_then(|at| back.get(at)).copied();
+                return Some(before.unwrap_or(origin));
+            }
+        }
+        self.nearest(pane, direction)
+    }
+
+    /// The tiled target of `origin` in `direction`, and the floating panes that stand between the 2, the nearest
+    /// to `origin` first. The origin is a source also when a floating pane covers it wholly.
+    fn way(&self, origin: usize, direction: FocusDirection) -> (Vec<usize>, Option<usize>) {
+        let Some(source) = self.frame(origin) else { return (Vec::new(), None) };
+        let around = |index: usize| index == origin || self.shows(index);
+        let target = tiled_neighbor(self.panes, origin, direction, &around, &around);
+        let mut members = self
+            .floating
+            .iter()
+            .copied()
+            .filter(|pane| {
+                self.is_after(*pane, origin, direction)
+                    && self
+                        .frame(*pane)
+                        .is_some_and(|frame| frame.cross_overlap(source, direction) > 0.0)
+                    && target.is_none_or(|target| self.is_after(target, *pane, direction))
+            })
+            .collect::<Vec<_>>();
+        members.sort_by(|first, second| self.way_order(*first, *second, direction));
+        (members, target)
+    }
+
+    /// The nearest pane after `pane` in `direction` by centres: one that overlaps it on the other axis first.
+    fn nearest(&self, pane: usize, direction: FocusDirection) -> Option<usize> {
+        let source = self.frame(pane)?;
+        let beside = |other: usize| {
+            self.frame(other).is_some_and(|frame| frame.cross_overlap(source, direction) > 0.0)
+        };
+        let candidates = (0..self.panes.len())
+            .filter(|other| {
+                *other != pane
+                    && (self.shows(*other) || self.rank(*other).is_some())
+                    && self.is_after(*other, pane, direction)
+            })
+            .collect::<Vec<_>>();
+        let any_beside = candidates.iter().any(|other| beside(*other));
+        candidates
+            .iter()
+            .copied()
+            .filter(|other| !any_beside || beside(*other))
+            .filter_map(|other| Some((self.nearness(other, source, direction)?, other)))
+            .min_by(|(first, _), (second, _)| {
+                lists_in_order(&first.0, &second.0).then(first.1.cmp(&second.1))
+            })
+            .map(|(_, other)| other)
+    }
+
+    /// How near the pane at `index` is to `source`: between the centres on the axis of the key, then on the other
+    /// axis; then a tiled pane first, the floating panes back to front, and the order of the rows.
+    fn nearness(
+        &self,
+        index: usize,
+        source: FocusFrame,
+        direction: FocusDirection,
+    ) -> Option<([f64; 2], (usize, usize, u32))> {
+        let frame = self.frame(index)?;
+        let other_axis = if direction.is_horizontal() {
+            (frame.mid_y() - source.mid_y()).abs()
+        } else {
+            (frame.mid_x() - source.mid_x()).abs()
+        };
+        let rank = self.rank(index);
+        Some((
+            [(frame.centre(direction) - source.centre(direction)).abs(), other_axis],
+            (usize::from(rank.is_some()), rank.unwrap_or(0), self.panes.get(index)?.order),
+        ))
+    }
+
+    /// The place of a pane in the order of a key: the centre on the axis of the key, then a floating pane after a
+    /// tiled one, then the pane more to the front. No 2 panes with a frame are equal in it, but 2 tiled panes
+    /// with one centre.
+    fn place(&self, index: usize, direction: FocusDirection) -> (f64, usize, usize) {
+        let rank = self.rank(index);
+        (
+            self.frame(index).map_or(0.0, |frame| frame.centre(direction)),
+            usize::from(rank.is_some()),
+            rank.unwrap_or(0),
+        )
+    }
+
+    /// Whether `first` is after `second` for a key of `direction`.
+    fn is_after(&self, first: usize, second: usize, direction: FocusDirection) -> bool {
+        let (first, second) = (self.place(first, direction), self.place(second, direction));
+        let order =
+            in_order(first.0, second.0).then(first.1.cmp(&second.1)).then(first.2.cmp(&second.2));
+        match direction {
+            FocusDirection::Right | FocusDirection::Down => order.is_gt(),
+            FocusDirection::Left | FocusDirection::Up => order.is_lt(),
+        }
+    }
+
+    /// 2 panes in the order that a key of `direction` reaches them: the pane that the other one is after first.
+    fn way_order(&self, first: usize, second: usize, direction: FocusDirection) -> Ordering {
+        if self.is_after(second, first, direction) {
+            Ordering::Less
+        } else if self.is_after(first, second, direction) {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
 }
 
 #[cfg(test)]
