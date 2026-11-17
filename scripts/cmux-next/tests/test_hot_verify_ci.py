@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-ci.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml"
 WEB_PUBLISH = ROOT / ".github" / "workflows" / "cmux-next-web-bundle-publish.yml"
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): the fetch fixture's
+# repositories get git's auto maintenance off, so no detached writer is left when the temp folder goes.
 _git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
 git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
@@ -342,11 +343,8 @@ class Comment(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, text, "")
             return run
 
-        def page(*bodies):
-            return json.dumps([{"body": text} for text in bodies])
-
-        for body, comments, want in (("no marker\n", page("lgtm", None), False), (f"text\n{MARKER}\n", page(), True),
-                                     ("", page("lgtm", f"{MARKER}x -->"), True), ("", page(), False)):
+        for body, comments, want in (("no marker\n", "false\nfalse\n", False), (f"text\n{MARKER}\n", "", True),
+                                     ("", "false\ntrue\n", True), ("", "", False)):
             with self.subTest(body=body, comments=comments), \
                     mock.patch.object(hr.subprocess, "run", side_effect=answer(body, comments)) as run:
                 self.assertEqual(hr.has_receipt(7), want)

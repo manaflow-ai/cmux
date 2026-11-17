@@ -10,7 +10,6 @@ note-388).
 
 from __future__ import annotations
 
-import importlib.util
 import io
 import os
 import shutil
@@ -27,10 +26,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_merge_carry as carry  # noqa: E402
-
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
-git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): git's auto maintenance
+# off in the fixture repositories and in the scratch bare repository clean_merge_tree makes.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
