@@ -39,9 +39,16 @@ extension CEFTab: BrowserOmniboxPreloading {
     }
 
     /// Whether a tab whose store has `navigationGuard` may preload `url` (its default match). The
-    /// fork keeps a prerender's navigations from the shim's OnBeforeBrowse, so the guard never sees them.
+    /// fork keeps a prerender's navigations from the shim's OnBeforeBrowse, so the guard never sees
+    /// them: a tab of this Mac (`exceptCloudDesktop`, every local tab: RemoteLocalhostStorePlan)
+    /// preloads anything but an Open Desktop page, which its guard reroutes to that machine's store;
+    /// a remote machine's stores never preload.
     static func preloads(under navigationGuard: BrowserNavigationGuard, opening url: URL) -> Bool {
-        navigationGuard == .none
+        switch navigationGuard {
+        case .none: true
+        case .exceptCloudDesktop: !BrowserNavigationGuard.isCloudDesktop(url)
+        case .loopbackOnly, .noLoopback: false
+        }
     }
 
     /// The first fork API with omnibox preloading (manaflow-ai/cef CMUX-API.md).
