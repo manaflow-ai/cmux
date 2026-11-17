@@ -11,7 +11,7 @@ public nonisolated enum HomeEngineStrings {
         String(localized: "home.engine.allChiefSettings", defaultValue: "All Chief Settings…", table: "Home", bundle: .module)
     }
     static var brainFormat: String {
-        String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
+        String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the agent's own.", table: "Home", bundle: .module)
     }
     /// "Runs on the paired server cmux-lawrence."
     static var runsOnServerFormat: String {
@@ -61,7 +61,7 @@ public nonisolated enum HomeEngineStrings {
     static var errorRefusedFormat: String {
         String(localized: "home.engine.error.refused", defaultValue: "The change failed: %@", table: "Home", bundle: .module)
     }
-    static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
+    static var harness: String { String(localized: "home.engine.harness", defaultValue: "Agent", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }
     static var speed: String { String(localized: "home.engine.speed", defaultValue: "Speed", table: "Home", bundle: .module) }
@@ -108,7 +108,7 @@ public nonisolated enum HomeEngineStrings {
     static var reactionsOn: String { String(localized: "home.engine.reactions.on", defaultValue: "On", table: "Home", bundle: .module) }
     static var reactionsOff: String { String(localized: "home.engine.reactions.off", defaultValue: "Off", table: "Home", bundle: .module) }
     static var reactionClassifier: String { String(localized: "home.engine.reactions.classifier", defaultValue: "Classifier", table: "Home", bundle: .module) }
-    static var reactionHarness: String { String(localized: "home.engine.reactions.harness", defaultValue: "Classifier Harness", table: "Home", bundle: .module) }
+    static var reactionHarness: String { String(localized: "home.engine.reactions.harness", defaultValue: "Classifier Agent", table: "Home", bundle: .module) }
     static var reactionModel: String { String(localized: "home.engine.reactions.model", defaultValue: "Classifier Model", table: "Home", bundle: .module) }
     static var reactionPrompt: String { String(localized: "home.engine.reactions.prompt", defaultValue: "Instructions", table: "Home", bundle: .module) }
     /// The harness field's placeholder while neither this Chief nor cmux.json names one.

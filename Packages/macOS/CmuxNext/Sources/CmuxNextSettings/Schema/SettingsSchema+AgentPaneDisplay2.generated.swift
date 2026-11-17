@@ -317,7 +317,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 AgentPaneDisplaySettingsSchema.harnessPlacementPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
+                title: SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Agent Placement"),
                 kind: .choice([
                     SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),
                     SettingChoice("left", SettingsText.keyed("settings.choice.harnessLeft", "Left Rail with Names")),

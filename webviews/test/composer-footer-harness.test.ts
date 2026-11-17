@@ -130,7 +130,7 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       modes: element.querySelectorAll(".acpmux-mode, .acpmux-access").length,
       text: element.querySelector(".acpmux-add-harness")?.textContent?.trim(),
     }));
-    expect(foot).toEqual({ harness: 0, modes: 0, text: "Add harness" });
+    expect(foot).toEqual({ harness: 0, modes: 0, text: "Add agent" });
     await page.close();
   });
 

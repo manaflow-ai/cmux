@@ -272,7 +272,7 @@
         {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
-          "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
+          "help": "Find agent chat folders automatically. When off, only the listed folders are used.",
           "kind": "toggle",
           "default": true,
           "group": "Chats"
@@ -1878,7 +1878,7 @@
         },
         {
           "key": "agentPane.display.harnessPlacement",
-          "title": "Model Picker Harness Placement",
+          "title": "Model Picker Agent Placement",
           "help": "",
           "kind": "choice",
           "default": "symbols",
@@ -5820,7 +5820,7 @@
         },
         {
           "key": "chief.reactionClassifier.harness",
-          "title": "Reaction Classifier Harness",
+          "title": "Reaction Classifier Agent",
           "help": "The agent that reads reactions, such as claude or codex. Empty uses the Chief's.",
           "kind": "text",
           "default": "",

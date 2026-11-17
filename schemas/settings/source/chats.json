@@ -36,7 +36,7 @@
           },
           "help": {
             "key": "settings.chats.discovery.help",
-            "text": "Find harness chat folders automatically. When off, only the listed folders are used."
+            "text": "Find agent chat folders automatically. When off, only the listed folders are used."
           },
           "kind": "toggle",
           "default": true,

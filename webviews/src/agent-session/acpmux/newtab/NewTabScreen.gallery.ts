@@ -618,7 +618,7 @@ export default agentPaneEntry({
     },
     // The model button opens its columns menu, whole: the card does not clip it (Lawrence
     // 2026-10-13). Points near its top and bottom edges hit the menu, not the page. The models
-    // column ends on its Legacy models, with no caption; Add harness… ends the rail.
+    // column ends on its Legacy models, with no caption; Add agent… ends the rail.
     "computer-first-setup": {
       note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Sign in for Cloud (signed out: the one Cloud row signs in, in Cloud's place); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
@@ -641,7 +641,7 @@ export default agentPaneEntry({
       },
     },
     "model-picker-open": {
-      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones with no caption, and the rail ends on Add harness….",
+      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones with no caption, and the rail ends on Add agent….",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
@@ -658,11 +658,11 @@ export default agentPaneEntry({
         const models = ctx.find({ selector: '.acpmux-cols [role="listbox"]' });
         if (models.querySelector(".acpmux-cols-caption"))
           throw new Error("the models column must be one plain list: no tab or Legacy models caption");
-        if (models.querySelector('[aria-label="Add harness…"]'))
+        if (models.querySelector('[aria-label="Add agent…"]'))
           throw new Error("the models column must contain models only; Add harness belongs in the rail");
         const rail = ctx.find({ selector: '.acpmux-cols [role="tablist"]' });
-        if (rail.lastElementChild?.getAttribute("aria-label") !== "Add harness…")
-          throw new Error("the model menu's harness rail must end on Add harness…");
+        if (rail.lastElementChild?.getAttribute("aria-label") !== "Add agent…")
+          throw new Error("the model menu's harness rail must end on Add agent…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its

@@ -30,7 +30,7 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 help: SettingsText.keyed("settings.agents.defaultPermissionMode.help", "What a new chat may do without asking. A mode you pick in a chat applies to that chat only."),
                 kind: .choice([
                     SettingChoice("fullAccess", SettingsText.keyed("settings.choice.permissionFullAccess", "Full Access")),
-                    SettingChoice("standard", SettingsText.keyed("settings.choice.permissionStandard", "Harness Default")),
+                    SettingChoice("standard", SettingsText.keyed("settings.choice.permissionStandard", "Agent Default")),
                     SettingChoice("ask", SettingsText.keyed("settings.choice.permissionAsk", "Ask Before Changes")),
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.permissionModeDefault),

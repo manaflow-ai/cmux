@@ -35,7 +35,7 @@ extension AgentPaneView {
 
     /// `%@` is the profile's id.
     static var harnessEnableTitle: String {
-        String(localized: "agentPane.enableHarness.title", defaultValue: "Enable harness %@?", bundle: .module)
+        String(localized: "agentPane.enableHarness.title", defaultValue: "Enable agent %@?", bundle: .module)
     }
 
     /// `%@` is the folder.
@@ -93,6 +93,6 @@ extension AgentPaneView {
     }
 
     static var harnessEnableButton: String {
-        String(localized: "agentPane.enableHarness.enable", defaultValue: "Enable Harness", bundle: .module)
+        String(localized: "agentPane.enableHarness.enable", defaultValue: "Enable Agent", bundle: .module)
     }
 }

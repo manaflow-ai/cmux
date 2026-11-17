@@ -202,7 +202,7 @@ import Testing
             NativePopupRow(id: "tab-\(index)", kind: .action, label: "Tab \(index)", checked: index == 1,
                            mark: index == 0 ? "claude" : nil, monogram: index == 0 ? nil : "T")
         }
-        rail.append(NativePopupRow(id: "add", kind: .action, label: "Add harness", icon: "action.add"))
+        rail.append(NativePopupRow(id: "add", kind: .action, label: "Add agent", icon: "action.add"))
         return NativePopupModel(schemaVersion: 1, id: "picker", revision: 1,
                                 anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                 side: .bottom, align: .start, width: 320,

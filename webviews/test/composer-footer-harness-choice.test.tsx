@@ -168,5 +168,5 @@ test("with no harness installed the row names no harness and draws no mode chip,
   await render([]);
   expect(foot().querySelector(".acpmux-foot-harness")).toBeNull();
   expect(foot().querySelector(".acpmux-mode, .acpmux-access")).toBeNull();
-  expect(foot().textContent?.trim()).toBe("Add harness");
+  expect(foot().textContent?.trim()).toBe("Add agent");
 });

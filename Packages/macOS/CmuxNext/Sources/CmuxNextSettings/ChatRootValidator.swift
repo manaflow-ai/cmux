@@ -130,7 +130,7 @@ public nonisolated struct ChatRootValidator: Sendable {
             return SettingsText.keyed("settings.chats.root.system", "The root folder cannot be a chat folder.").text
         }
         if final && homes.contains(folded) {
-            return SettingsText.keyed("settings.chats.root.home", "Choose a harness data folder, not your home folder.").text
+            return SettingsText.keyed("settings.chats.root.home", "Choose an agent data folder, not your home folder.").text
         }
         func under(_ root: String) -> Bool { folded == root || folded.hasPrefix(root + "/") }
         // The one protected-folder list: cmux-tui/crates/acpmux/data/protected-folders.json.

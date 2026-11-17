@@ -127,7 +127,7 @@ public nonisolated enum AgentPaneHarnessPlacement: String, Sendable, CaseIterabl
     public var tunableTitle: String {
         switch self {
         case .symbols:
-            String(localized: "agentPane.harnessPlacement.symbols", defaultValue: "Top row of harness symbols", bundle: .module)
+            String(localized: "agentPane.harnessPlacement.symbols", defaultValue: "Top row of agent symbols", bundle: .module)
         case .left:
             String(localized: "agentPane.harnessPlacement.left", defaultValue: "Left rail with names", bundle: .module)
         case .top:
@@ -276,7 +276,7 @@ public nonisolated struct AgentPaneTunables {
 
     public static let harnessPlacement = Tunable<AgentPaneHarnessPlacement>.choice(
         "agent.harnessPlacement", PageTunables.section,
-        String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker harness placement", bundle: .module),
+        String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker agent placement", bundle: .module),
         help: String(localized: "agentPane.harnessPlacement.help",
                      defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
         default: .symbols, code: "AgentPaneTunables.harnessPlacement")

@@ -262,7 +262,7 @@ const modelNames = (popup: HTMLElement) => modelRows(popup).map(nameOf);
 const tune = () => cols()!.querySelector<HTMLElement>(".acpmux-cols-tune")!;
 const levels = () => [...tune().querySelectorAll<HTMLElement>('[role="radio"]')];
 const fastSwitch = () => tune().querySelector<HTMLElement>('[role="switch"]');
-/// The harness rail's tabs (Add harness… is a button, not a tab).
+/// The harness rail's tabs (Add agent… is a button, not a tab).
 const railTabs = () => [...cols()!.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]')];
 const railTab = (name: string) => railTabs().find((tab) => tab.getAttribute("aria-label") === name)!;
 const captions = () =>
@@ -541,7 +541,7 @@ test("every harness tab on the rail is a mark with no visible text, its name onl
   }
   expect(railTab("Glyph harness").querySelector(".acpmux-cols-initial")?.textContent).toBe("G");
   const add = cols()!.querySelector<HTMLElement>(".acpmux-cols-tab-add")!;
-  expect(add.getAttribute("aria-label")).toBe("Add harness…");
+  expect(add.getAttribute("aria-label")).toBe("Add agent…");
   expect(add.textContent).toBe("");
 });
 
@@ -584,7 +584,7 @@ test("the current machine profile keeps its compact model list without a rail", 
 
 // More models is no submenu now: the Legacy models follow the tab's own in one plain list, with no
 // caption between them (#41212, standup 2026-11-12: "we don't need labels").
-test("Add harness… is the last item in the harness strip, and Legacy models sit under the tab's own", async () => {
+test("Add agent… is the last item in the harness strip, and Legacy models sit under the tab's own", async () => {
   const { added } = await mount({ routes: [] });
   await open();
   const listbox = cols()!.querySelector<HTMLElement>('[role="listbox"]')!;
@@ -595,12 +595,12 @@ test("Add harness… is the last item in the harness strip, and Legacy models si
   // The tab's models and its Legacy ones, each once: a Legacy row never repeats a top model.
   expect(names.length).toBeGreaterThan(1);
   expect(new Set(names).size).toBe(names.length);
-  expect(listbox.textContent).not.toContain("Add harness…");
+  expect(listbox.textContent).not.toContain("Add agent…");
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rail = cols()!.querySelector<HTMLElement>(".acpmux-cols-rail")!;
   const add = rail.lastElementChild as HTMLElement;
   expect(add.classList.contains("acpmux-cols-tab-add")).toBe(true);
-  expect(add.getAttribute("aria-label")).toBe("Add harness…");
+  expect(add.getAttribute("aria-label")).toBe("Add agent…");
   await click(add);
   expect(added).toEqual(["add"]);
   expect(cols()).toBeNull();
@@ -878,10 +878,10 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
   expect(cols()).toBeNull();
 });
 
-// Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….
+// Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add agent….
 // Once a chat has a message its harness is fixed, as in Claude Code: the compact menu lists its
 // models with no rail, and More models opens the full picker, which has no rail either.
-test("a started chat's compact menu has no harness rail and no Add harness…", async () => {
+test("a started chat's compact menu has no harness rail and no Add agent…", async () => {
   const { added } = await mount({ routes: [] }, { turnCount: 1 });
   await open();
   expect(cols()).toBeNull();

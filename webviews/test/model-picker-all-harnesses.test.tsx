@@ -201,13 +201,7 @@ describe("harnesses this machine does not have", () => {
     const doc = dom.window.document;
     const tabs = [...doc.querySelectorAll<HTMLElement>(".acpmux-cols-tab")].map((tab) => tab.title);
     // Starred always first, installed next, then the rest in catalog order.
-    expect(tabs).toEqual([
-      "Starred",
-      "Claude Code",
-      "Gemini CLI · Not installed",
-      "Pi · Not installed",
-      "Add harness…",
-    ]);
+    expect(tabs).toEqual(["Starred", "Claude Code", "Gemini CLI · Not installed", "Pi · Not installed", "Add agent…"]);
     const geminiTab = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Gemini CLI"]')!;
     await act(async () => geminiTab.click());
     await settle();

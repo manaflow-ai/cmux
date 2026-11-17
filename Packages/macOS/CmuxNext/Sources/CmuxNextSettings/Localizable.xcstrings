@@ -6476,7 +6476,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model Picker Harness Placement"
+            "value": "Model Picker Agent Placement"
           }
         },
         "ar": {
@@ -6499,8 +6499,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Anordnung der Agent-Umgebungen in der Modellauswahl"
+            "state": "needs_review",
+            "value": "Anordnung der Agenten in der Modellauswahl"
           }
         },
         "es": {
@@ -6612,122 +6612,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "صف علوي من رموز الحزم"
+            "state": "needs_review",
+            "value": "صف علوي من رموز الوكلاء"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Gornji red simbola alata"
+            "state": "needs_review",
+            "value": "Gornji red simbola agenata"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Øverste række med harness-symboler"
+            "state": "needs_review",
+            "value": "Øverste række med agentsymboler"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Obere Reihe mit Harness-Symbolen"
+            "state": "needs_review",
+            "value": "Obere Reihe mit Agentensymbolen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fila superior de símbolos de harness"
+            "state": "needs_review",
+            "value": "Fila superior de símbolos de agentes"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Rangée de symboles de harness en haut"
+            "state": "needs_review",
+            "value": "Rangée de symboles d’agents en haut"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Riga in alto di simboli degli harness"
+            "state": "needs_review",
+            "value": "Riga in alto di simboli degli agenti"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "上部のハーネス記号の行"
+            "state": "needs_review",
+            "value": "上部のエージェント記号の行"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ជួរខាងលើនៃនិមិត្តសញ្ញា harness"
+            "state": "needs_review",
+            "value": "ជួរខាងលើនៃនិមិត្តសញ្ញាភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "상단 하네스 기호 행"
+            "state": "needs_review",
+            "value": "상단 에이전트 기호 행"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Øverste rad med harness-symboler"
+            "state": "needs_review",
+            "value": "Øverste rad med agentsymboler"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Górny wiersz symboli harnessów"
+            "state": "needs_review",
+            "value": "Górny wiersz symboli agentów"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Linha superior de símbolos de harness"
+            "state": "needs_review",
+            "value": "Linha superior de símbolos de agentes"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Верхний ряд символов харнессов"
+            "state": "needs_review",
+            "value": "Верхний ряд символов агентов"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "แถวสัญลักษณ์ harness ด้านบน"
+            "state": "needs_review",
+            "value": "แถวสัญลักษณ์เอเจนต์ด้านบน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness simgelerinden oluşan üst satır"
+            "state": "needs_review",
+            "value": "Ajan simgelerinden oluşan üst satır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Верхній ряд символів харнесів"
+            "state": "needs_review",
+            "value": "Верхній ряд символів агентів"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hàng ký hiệu harness ở trên cùng"
+            "state": "needs_review",
+            "value": "Hàng ký hiệu tác nhân ở trên cùng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "顶部的 harness 图标行"
+            "state": "needs_review",
+            "value": "顶部的智能体图标行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "頂部的 harness 圖示列"
+            "state": "needs_review",
+            "value": "頂部的代理程式圖示列"
           }
         }
       }
@@ -93366,7 +93366,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Find harness chat folders automatically. When off, only the listed folders are used."
+            "value": "Find agent chat folders automatically. When off, only the listed folders are used."
           }
         },
         "ar": {
@@ -93473,14 +93473,14 @@
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tự động tìm thư mục trò chuyện của công cụ tác tử. Khi tắt, chỉ dùng các thư mục trong danh sách."
+            "state": "needs_review",
+            "value": "Tự động tìm thư mục trò chuyện của công cụ tác nhân. Khi tắt, chỉ dùng các thư mục trong danh sách."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "自动查找代理工具的聊天文件夹。关闭后仅使用列出的文件夹。"
+            "state": "needs_review",
+            "value": "自动查找智能体工具的聊天文件夹。关闭后仅使用列出的文件夹。"
           }
         },
         "zh-Hant": {
@@ -94021,7 +94021,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a harness data folder, not your home folder."
+            "value": "Choose an agent data folder, not your home folder."
           }
         },
         "ar": {
@@ -94128,14 +94128,14 @@
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chọn thư mục dữ liệu công cụ tác tử, không phải thư mục nhà."
+            "state": "needs_review",
+            "value": "Chọn thư mục dữ liệu công cụ tác nhân, không phải thư mục nhà."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "请选择代理工具的数据文件夹，而不是主文件夹。"
+            "state": "needs_review",
+            "value": "请选择智能体工具的数据文件夹，而不是主文件夹。"
           }
         },
         "zh-Hant": {
@@ -134058,127 +134058,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness Default"
+            "value": "Agent Default"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ハーネスの既定"
+            "state": "needs_review",
+            "value": "エージェントの既定"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness-Standard"
+            "state": "needs_review",
+            "value": "Agent-Standard"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Par défaut du harness"
+            "state": "needs_review",
+            "value": "Par défaut de l’agent"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "الافتراضي للأداة"
+            "state": "needs_review",
+            "value": "الافتراضي للوكيل"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Predeterminado del harness"
+            "state": "needs_review",
+            "value": "Predeterminado del agente"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness 預設"
+            "state": "needs_review",
+            "value": "代理程式預設"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness 默认"
+            "state": "needs_review",
+            "value": "智能体默认"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "하네스 기본값"
+            "state": "needs_review",
+            "value": "에이전트 기본값"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zadano za harness"
+            "state": "needs_review",
+            "value": "Zadano za agenta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnessens standard"
+            "state": "needs_review",
+            "value": "Agentens standard"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Predefinito dell’harness"
+            "state": "needs_review",
+            "value": "Predefinito dell’agente"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "លំនាំដើមរបស់ harness"
+            "state": "needs_review",
+            "value": "លំនាំដើមរបស់ភ្នាក់ងារ"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnessens standard"
+            "state": "needs_review",
+            "value": "Agentens standard"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Domyślny dla harnessu"
+            "state": "needs_review",
+            "value": "Domyślny dla agenta"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Padrão do harness"
+            "state": "needs_review",
+            "value": "Padrão do agente"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "По умолчанию для harness"
+            "state": "needs_review",
+            "value": "По умолчанию для агента"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ค่าเริ่มต้นของ harness"
+            "state": "needs_review",
+            "value": "ค่าเริ่มต้นของเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness varsayılanı"
+            "state": "needs_review",
+            "value": "Ajan varsayılanı"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Типово для harness"
+            "state": "needs_review",
+            "value": "Типово для агента"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mặc định của harness"
+            "state": "needs_review",
+            "value": "Mặc định của tác nhân"
           }
         }
       }
@@ -190397,127 +190397,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reaction Classifier Harness"
+            "value": "Reaction Classifier Agent"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "リアクション分類のハーネス"
+            "state": "needs_review",
+            "value": "リアクション分類のエージェント"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حزمة مصنِّف التفاعلات"
+            "value": "وكيل مصنِّف التفاعلات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness klasifikatora reakcija"
+            "value": "Agent klasifikatora reakcija"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness til reaktionsklassifikator"
+            "value": "Agent til reaktionsklassifikator"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness des Reaktionsklassifikators"
+            "value": "Agent des Reaktionsklassifikators"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness del clasificador de reacciones"
+            "value": "Agente del clasificador de reacciones"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness du classificateur de réactions"
+            "value": "Agent du classificateur de réactions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness del classificatore di reazioni"
+            "value": "Agente del classificatore di reazioni"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness សម្រាប់ចំណាត់ថ្នាក់ប្រតិកម្ម"
+            "value": "ភ្នាក់ងារសម្រាប់ចំណាត់ថ្នាក់ប្រតិកម្ម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "반응 분류기 하네스"
+            "value": "반응 분류기 에이전트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness for reaksjonsklassifisering"
+            "value": "Agent for reaksjonsklassifisering"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness klasyfikatora reakcji"
+            "value": "Agent klasyfikatora reakcji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness do classificador de reações"
+            "value": "Agente do classificador de reações"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness классификатора реакций"
+            "value": "Агент классификатора реакций"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness ตัวจำแนกรีแอคชัน"
+            "value": "เอเจนต์ตัวจำแนกรีแอคชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tepki sınıflandırıcı harness'ı"
+            "value": "Tepki sınıflandırıcı ajanı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness класифікатора реакцій"
+            "value": "Агент класифікатора реакцій"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness bộ phân loại cảm xúc"
+            "value": "Tác nhân bộ phân loại cảm xúc"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "回应分类器 Harness"
+            "value": "回应分类器智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "回應分類器 Harness"
+            "value": "回應分類器代理程式"
           }
         }
       }

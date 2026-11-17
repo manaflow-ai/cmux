@@ -157,7 +157,7 @@ export function startupChecklist(
   start: CloudStartProgress,
   t: Translate = (key, values = {}) =>
     (DEFAULT_STARTUP_STRINGS[key] ?? key)
-      .replace("{harness}", String(values.harness ?? "Harness"))
+      .replace("{harness}", String(values.harness ?? "Agent"))
       .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole)),
   now = Date.now(),
   language: string = paneLanguage(),
@@ -239,7 +239,7 @@ export function startupChecklist(
     id: "harness",
     // "Started Claude" only once it has; before that the row says what it will do.
     label: t(harnessStatus === "done" ? "cloudStartup.harness" : "cloudStartup.harnessStarting", {
-      harness: start.agent || "Harness",
+      harness: start.agent || "Agent",
     }),
     status: harnessStatus,
     duration: elapsed(start.harnessStartedAt, start.harnessFinishedAt, now),
