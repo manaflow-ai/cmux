@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import Foundation
 
 /// What `cmux cloud start-session` says (``CloudStartSession``, ``CloudStartSessionAsks``): the
@@ -88,6 +89,17 @@ public struct CloudStartSessionStrings {
 
     public static func fromFolderSecret(_ folder: String, secret: String) -> String {
         String(format: String(localized: "cloud.startSession.fromFolderSecret", defaultValue: "%1$@ is or holds %2$@, a folder of keys and credentials that is never copied to a Cloud machine. Pass a project folder with --from-folder.", table: "CloudSessions", bundle: .module), folder, secret)
+    }
+
+    /// Why a create was refused for its size (``CloudSizeLocked``), as ``createFailed(_:quoted:agent:reason:)``'s reason: the
+    /// size the folder needs and the plan that includes it; nil when the size it needed is not known.
+    public static func sizeLocked(_ locked: CloudSizeLocked) -> String? {
+        guard let size = locked.needed else { return nil }
+        let (name, cpu, memory) = (size.rawValue, String(size.cpu), String(size.memoryMb / 1024))
+        guard let plan = locked.upgrade else {
+            return String(format: String(localized: "cloud.startSession.sizeLockedNoUpgrade", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes", table: "CloudSessions", bundle: .module), name, cpu, memory)
+        }
+        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .module), name, cpu, memory, plan == "max" ? "Max" : "Pro")
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the

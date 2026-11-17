@@ -1239,6 +1239,14 @@ export default agentPaneEntry({
         await typePrompt(ctx, "fix the flaky upload test");
       },
     },
+    "typed-command": {
+      note: "A shell command typed with no ! first: Run in Terminal leads (Return's, highlighted), Ask the agent second.",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typePrompt(ctx, "git status");
+      },
+    },
     "typed-hover": {
       note: '"helo" typed, the pointer resting on the web search suggestion. Ask Claude Code keeps Return\'s highlight, so Return sends the prompt.',
       ready: newTab({ projects: [CWD] }),
