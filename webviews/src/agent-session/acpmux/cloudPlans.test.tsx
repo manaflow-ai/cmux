@@ -166,6 +166,7 @@ test("the pricing card offers the plans a refusal names: cmux NEXT's own by defa
   expect(html).toContain('data-plan="max"');
   expect(html).toContain("$50 / month");
   expect(html).not.toContain("next_pro");
+  expect(html).not.toContain("cmux NEXT");
   const next = cloudStartEnded(begun, "k", {
     ok: false,
     code: "cloud_plan_required",
