@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44059269098",
+  "recorded_at": "2026-11-17T09:59:57Z",
+  "reason": "cmux-tui fa87637d313e changes the image's cmux-tui (pinned 4094cf6d7ee1)",
+  "dry_run": false,
+  "cmux_tui": "fa87637d313e9d9a4b9da1473de88d697a838cf7",
+  "fixes": [
+    {
+      "sha": "fa87637d313e9d9a4b9da1473de88d697a838cf7",
+      "mergedAt": "2026-11-17T01:37:30-08:00",
+      "subject": "cmux-window-rules: a bulk close with no window left asks only for incognito workspaces (step A) (#45358)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T09:59:57Z",
+    "snapshot_id": "sh-46fa31ed11cc41a89a3a6fc0ba497f25",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44059269098): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f3bf52f6f0b010a9827ef3f86854c75129597b52",
+    "image": "cloud-native-auto-fa87637d-44059269098-1",
+    "revision": "ci-44059269098-1",
+    "at": "2026-11-17T09:59:57Z"
+  },
+  "rolled_back": false
+}
