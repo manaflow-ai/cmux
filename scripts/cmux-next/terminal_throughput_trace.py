@@ -270,6 +270,43 @@ def hop_lines(summary):
                                           f"running {t['running_pct']}%"))
     return [line for _, line in sorted(lines, reverse=True)]
 
+# Bounds on the recording's end: xctrace gets this long after SIGINT to write its trace, and every export together
+# gets this long, so a hung recorder ends the run with a failure line instead of silence.
+STOP_GRACE_S = 180
+EXPORT_BUDGET_S = 900
+
+
+class Budget:
+    """A shared time budget: left() is what remains (at least 1 s) for the next bounded call."""
+
+    def __init__(self, seconds, clock=time.monotonic):
+        self.clock, self.end = clock, clock() + seconds
+
+    def left(self):
+        return max(1.0, self.end - self.clock())
+
+
+def end_recording(proc, grace_s):
+    """SIGINT `proc` (an xctrace this module started in its own session) and wait `grace_s`; past that, SIGKILL its
+    whole group. True when it stopped on its own."""
+    try:
+        proc.send_signal(signal.SIGINT)
+    except OSError:
+        pass
+    try:
+        proc.wait(grace_s)
+        return True
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)  # the recorder's own session group (start_new_session)
+        except OSError:
+            proc.kill()
+        try:
+            proc.wait(15)
+        except subprocess.TimeoutExpired:
+            pass
+        return False
+
 
 class Recorder:
     """xcrun xctrace record over every process until stop(); then the exported tables, summarized."""
@@ -318,15 +355,19 @@ class Recorder:
     def stop(self, keep, writer_match):
         if not self.proc:
             return {"error": self.error}
-        self.proc.send_signal(signal.SIGINT)
-        try:
-            self.proc.wait(600)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        if not end_recording(self.proc, STOP_GRACE_S):
+            # An xctrace that ignores SIGINT left a half-written trace: nothing to export, so say so and end the run
+            # (a measurement that went silent here used to be killed by the step's 45 min silence limit, no result).
+            summary = {"template": self.template, "error": f"xctrace did not stop within {STOP_GRACE_S}s of SIGINT; killed",
+                       "recorder_log": self.log[-8:]}
+            print("TERMINAL-THROUGHPUT-TRACE-FAILED " + summary["error"], flush=True)
+            shutil.rmtree(self.tmp, ignore_errors=True)
+            return summary
         summary = {"template": self.template}
         try:
+            budget = Budget(EXPORT_BUDGET_S)
             toc = subprocess.run(["xcrun", "xctrace", "export", "--input", self.path, "--toc"], capture_output=True,
-                                 text=True, timeout=600).stdout
+                                 text=True, timeout=budget.left()).stdout
             schemas = sorted(set(re.findall(r'schema="([^"]+)"', toc)))
             summary["schemas"] = schemas
             exports = {}
@@ -338,12 +379,14 @@ class Recorder:
                 with open(xml, "w") as f:
                     subprocess.run(["xcrun", "xctrace", "export", "--input", self.path, "--xpath",
                                     f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'],
-                                   stdout=f, stderr=subprocess.DEVNULL, timeout=1200)
+                                   stdout=f, stderr=subprocess.DEVNULL, timeout=budget.left())
+                print(f"TERMINAL-THROUGHPUT-TRACE exported {schema} ({budget.left():.0f}s of the export budget left)", flush=True)
                 exports[schema] = xml
                 summary.setdefault("export_mb", {})[schema] = round(os.path.getsize(xml) / 1e6, 1)
             summary.update(summarize_exports(exports, keep, writer_match))
         except (subprocess.TimeoutExpired, OSError, ET.ParseError) as e:
             summary["error"] = f"{type(e).__name__}: {e}"[:400]
+            print("TERMINAL-THROUGHPUT-TRACE-FAILED " + summary["error"], flush=True)
         finally:
             summary["recorder_log"] = self.log[-8:]
             shutil.rmtree(self.tmp, ignore_errors=True)
