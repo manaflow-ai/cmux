@@ -80,6 +80,11 @@ export function removeChatRowsHost(host: ChatRowsHost): void {
   hosts.delete(host);
 }
 
+/// Tests: how many host clients the document's receiver holds.
+export function chatRowsHostCount(): number {
+  return hosts.size;
+}
+
 /// Keeps a batch for the frame lane and returns. Each store applies its own changes even when
 /// another's throws; the first throw is reported after `taken` is posted.
 export function receiveChatRows(event: ChatRowsBatch, lanes: Lanes = documentLanes ?? pageLanes()): void {

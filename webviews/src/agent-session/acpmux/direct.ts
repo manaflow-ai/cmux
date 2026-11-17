@@ -3919,8 +3919,10 @@ export class AcpmuxDirectClient {
     const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
     client.closed = true;
     client.fedMode = true;
-    // Not this page's chat to hand over or to read again when shown: no page listeners.
+    // Not this page's chat to hand over or to read again when shown: no page listeners, and no chat
+    // source on the store (its visibility listener and its host in the document's receiver go).
     client.stopPageListeners();
+    client.chatRows.dispose();
     return client;
   }
 
@@ -3953,6 +3955,7 @@ export class AcpmuxDirectClient {
     this.disposed = true;
     this.frameSnapshot = undefined;
     this.stopPageListeners();
+    this.chatRows.dispose();
   }
 
   /// Folds one chat's records into a `fed` client (the source carries no other chat, so each is

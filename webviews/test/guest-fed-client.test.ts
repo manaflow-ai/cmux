@@ -5,6 +5,8 @@
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { chatRowsHostCount } from "../src/agent-session/acpmux/rows/receiver";
+import type { KeptTail } from "../src/agent-session/acpmux/tailCache";
 
 const say = (seq: number, text: string): EventRecord => ({
   sessionId: "owner-session",
@@ -96,4 +98,52 @@ test("a fed client has no socket, yet every feed reaches its listener", () => {
       ?.rows.map((row) => row.text ?? "")
       .join("|"),
   ).toContain("Working");
+});
+
+/// The page's document, counting the listeners on it, for the length of `run`.
+function withCountedDocument(run: (listening: () => number) => void): void {
+  const scope = globalThis as Record<string, unknown>;
+  const listening = new Set<unknown>();
+  const target = {
+    addEventListener: (_type: string, handler: unknown) => listening.add(handler),
+    removeEventListener: (_type: string, handler: unknown) => listening.delete(handler),
+    visibilityState: "visible",
+  };
+  const saved = { document: scope.document, window: scope.window };
+  scope.document = target;
+  scope.window = target;
+  try {
+    run(() => listening.size);
+  } finally {
+    scope.document = saved.document;
+    scope.window = saved.window;
+  }
+}
+
+test("a fed client leaves no host in the document's receiver once made", () => {
+  withCountedDocument(() => {
+    const hosts = chatRowsHostCount();
+    const client = AcpmuxDirectClient.fed("guest-chat", () => {});
+    expect(chatRowsHostCount()).toBe(hosts);
+    client.dispose();
+    expect(chatRowsHostCount()).toBe(hosts);
+  });
+});
+
+test("a restored tab's retained draws leave no page listener and no receiver host, however many", () => {
+  const tail: KeptTail = {
+    events: [prompt(1, "Ask"), prompt(2, "Again")],
+    summary: undefined,
+    turnOpener: undefined,
+    historyExhausted: true,
+    queue: [],
+    configSeq: 0,
+    usageFromSeq: 0,
+  };
+  for (const draws of [1, 50])
+    withCountedDocument((listening) => {
+      const before = { listeners: listening(), hosts: chatRowsHostCount() };
+      for (let draw = 0; draw < draws; draw += 1) AcpmuxDirectClient.retainedSnapshot("guest-chat", tail);
+      expect({ listeners: listening(), hosts: chatRowsHostCount() }).toEqual(before);
+    });
 });
