@@ -1024,7 +1024,7 @@ async fn prewarm_on(
     let timeline = Timeline::new();
     let key = SocketKey { base_url: base_url.clone(), team_id, device_id };
     let socket = async {
-        if let Some(socket) = pool.pooled(&key).await {
+        if let Some(socket) = pool.reusable(&key, &timeline).await {
             if socket.client.probe(STALE_PROBE).await {
                 timeline.mark("signaling_alive");
                 return;
@@ -1050,8 +1050,8 @@ async fn network_changed_on(
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id };
-    if let Some(socket) = pool.pooled(&key).await {
-        if socket.client.probe(NETWORK_PROBE).await {
+    if let Some(socket) = pool.reusable(&key, &timeline).await {
+        if socket.client.probe(network_probe(socket.client.rtt())).await {
             timeline.mark("alive");
         } else {
             timeline.mark("stale");
@@ -1106,6 +1106,21 @@ impl Warm {
         pool.iter().rev().find(|s| s.key == *key && s.client.closed_reason().is_none()).cloned()
     }
 
+    /// The pooled socket for `key` while it has heard from the service within one keepalive
+    /// ([`SignalingClient::is_fresh`]). One that missed a pong (the phone slept, or the app was
+    /// suspended past a keepalive) is dropped here instead of reused: a dial on it waited
+    /// [`STALE_PROBE`] (2.5 s) for an answer a half-open socket never sends, and only then
+    /// opened the socket it could have opened at once (ask-48f698fc26).
+    async fn reusable(&self, key: &SocketKey, timeline: &Timeline) -> Option<Arc<WarmSocket>> {
+        let socket = self.pooled(key).await?;
+        if socket.client.is_fresh() {
+            return Some(socket);
+        }
+        timeline.mark("signaling_quiet");
+        self.evict(&socket).await;
+        None
+    }
+
     /// The pooled socket for `key` (true), else a new one (false), waiting
     /// for one already opening.
     async fn pooled_or_open(
@@ -1114,11 +1129,11 @@ impl Warm {
         token: &str,
         timeline: &Timeline,
     ) -> Result<(Arc<WarmSocket>, bool), CmuxMobileError> {
-        if let Some(socket) = self.pooled(key).await {
+        if let Some(socket) = self.reusable(key, timeline).await {
             return Ok((socket, true));
         }
         let _opening = self.opening.lock().await;
-        if let Some(socket) = self.pooled(key).await {
+        if let Some(socket) = self.reusable(key, timeline).await {
             timeline.mark("signaling_joined");
             return Ok((socket, true));
         }
@@ -1211,6 +1226,29 @@ pub fn keepalive_beat_delay_ms(period_ms: u64) -> u64 {
 /// change before a new one is opened (the old network's socket is usually
 /// dead, and `bye` and new dials need a live one).
 const NETWORK_PROBE: Duration = Duration::from_millis(1000);
+/// The shortest wait for that answer: a few round trips of a fast network, plus scheduling.
+const NETWORK_PROBE_FLOOR: Duration = Duration::from_millis(300);
+
+/// How long to wait for the old socket after a network change: four of its measured round
+/// trips (a live socket answers in one), between [`NETWORK_PROBE_FLOOR`] and [`NETWORK_PROBE`].
+/// A flat 1 s was 90% of a roam's reconnect at an 80 ms round trip (ask-48f698fc26); a socket
+/// that never timed a pong keeps the full second.
+fn network_probe(rtt: Option<Duration>) -> Duration {
+    rtt.map_or(NETWORK_PROBE, |rtt| (rtt * 4).clamp(NETWORK_PROBE_FLOOR, NETWORK_PROBE))
+}
+
+#[cfg(test)]
+mod network_probe_tests {
+    use super::*;
+
+    #[test]
+    fn the_wait_after_a_network_change_follows_the_sockets_round_trip() {
+        assert_eq!(network_probe(None), NETWORK_PROBE);
+        assert_eq!(network_probe(Some(Duration::from_millis(10))), NETWORK_PROBE_FLOOR);
+        assert_eq!(network_probe(Some(Duration::from_millis(100))), Duration::from_millis(400));
+        assert_eq!(network_probe(Some(Duration::from_secs(2))), NETWORK_PROBE);
+    }
+}
 
 /// The device's network changed or came back (iOS `NWPathMonitor`): every
 /// WireGuard link moves onto the new network at once without a redial, and
