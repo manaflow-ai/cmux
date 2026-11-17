@@ -145,10 +145,9 @@ test("a fling up the chat writes the rail's list offset at most twice, then plac
       [...list().querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')].map((tick) =>
         Number(tick.dataset.tick),
       );
-    // The band followed the reader to the top, while the list wrote its offset only for the fling's
-    // first frames (base: once a frame, 20 forced layouts).
+    // The list wrote its offset only for the fling's first frames (base: once a frame, 20 forced
+    // layouts), and is still where those left it: the band's ticks at the top are not in its view yet.
     expect(frames).toBeGreaterThanOrEqual(19);
-    expect(lit()).toContain(0);
     expect(listWrites - before).toBeLessThanOrEqual(2);
     expect(list().scrollTop).toBeGreaterThan(0);
     // At rest the list is placed once, where the band at the chat's top puts it: its own top.
@@ -161,6 +160,7 @@ test("a fling up the chat writes the rail's list offset at most twice, then plac
     );
     expect(listWrites - atRest).toBe(1);
     expect(list().scrollTop).toBe(0);
+    expect(lit()).toContain(0);
   } finally {
     await act(async () => root.unmount());
   }
