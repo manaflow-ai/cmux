@@ -180,14 +180,18 @@ def quit_app(app: App, path: str) -> tuple[str | None, int | None]:
         why = press_cmd_q(app)
         if why:
             return why, None
-    elif path == "scripted":
-        reply = l5.call(app.sock, "action.run", {"action": "quit"}, timeout=10)
+    elif path == "scripted" or path in KEEP_SESSIONS:
+        action = "quit" if path == "scripted" else "quitKeepSessions"
+        reply = l5.call(app.sock, "action.run", {"action": action}, timeout=10)
+        # A quit may end the app before its answer (the update run: "did not finish within 1999 ms", not_run), so
+        # an error is the round's only when the app is still running 20 s later.
         if reply.get("error"):
-            return f"action.run quit: {reply['error']}", None
-    elif path in KEEP_SESSIONS:
-        reply = l5.call(app.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
-        if reply.get("error"):
-            return f"action.run quitKeepSessions: {reply['error']}", None
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                return f"action.run {action}: {reply['error']}", None
+            app.close_marks()
+            return None, round((time.monotonic() - asked) * 1000)
     elif path == "kill":
         os.kill(process.pid, signal.SIGKILL)
     elif path == "term":
