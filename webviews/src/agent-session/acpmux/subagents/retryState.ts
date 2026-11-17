@@ -99,7 +99,14 @@ const SETTLING: RetryPhase = { kind: "settling" };
 
 /// What a sub-session's own session row says of its retry (subsessions.ts ``SubsessionInfo``).
 /// `error`: why its turn failed, which its end line says (SubagentDoneLine.tsx).
-export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; state?: string; error?: string };
+/// `rateLimitedUntil`: acpmux holds the chat on its account's rate limit until then (``heldLabel``).
+export type SessionRetryFields = {
+  retry?: RetryState;
+  retryDeciding?: true;
+  state?: string;
+  error?: string;
+  rateLimitedUntil?: number;
+};
 
 /// A subagent's phase. `child`: a sub-session's own session row, whose retry acpmux keeps there.
 /// `capabilities`: what acpmux's `initialize` named, undefined from one that names none (its
@@ -151,6 +158,7 @@ export function retryKey(agent: Pick<Subagent, "retry" | "retriedOut" | "retryab
 
 const REASON: Record<string, StringKey> = {
   capacity: "retry.waiting.capacity",
+  rate_limit: "retry.waiting.rateLimit",
   transport: "retry.waiting.transport",
   agent_exited: "retry.waiting.agentExited",
 };
@@ -159,6 +167,24 @@ const REASON: Record<string, StringKey> = {
 export function retryLabel(t: Translate, retry: RetryState): string {
   const values = { attempt: retry.attempt, of: retry.of };
   return t((retry.reason && REASON[retry.reason]) || "retry.waiting", values);
+}
+
+/// acpmux's `rateLimitedUntil` (session/list, Unix ms): set only while the chat's account rate limit
+/// holds every turn until that time (`hub/rate_hold.rs`).
+export function readRateLimitedUntil(raw: unknown): number | undefined {
+  // A Date holds at most 8.64e15 ms; past it `toISOString` throws.
+  return typeof raw === "number" && raw > 0 && raw <= 8.64e15 ? raw : undefined;
+}
+
+/// "rate-limited until 14:05Z": the reset in UTC, as `acpmux ls` says it (`until_line`).
+export function rateLimitedLabel(t: Translate, until: number): string {
+  return t("retry.rateLimitedUntil", { time: `${new Date(until).toISOString().slice(11, 16)}Z` });
+}
+
+/// A session row's state while acpmux holds it on a rate limit, which reads before its retry or
+/// state; undefined while none holds it.
+export function heldLabel(t: Translate, session: Pick<SessionRetryFields, "rateLimitedUntil">): string | undefined {
+  return session.rateLimitedUntil === undefined ? undefined : rateLimitedLabel(t, session.rateLimitedUntil);
 }
 
 /// Whether a prompt record is acpmux's continuation of a failed turn or subagent, never the

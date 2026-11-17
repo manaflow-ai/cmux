@@ -11165,7 +11165,7 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       ...(this.replayThrough === undefined
-        ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt) }
+        ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt, summary?.rateLimitedUntil) }
         : {}),
       rows: publishedRows,
       ...(this.supersededRowIds.size > 0

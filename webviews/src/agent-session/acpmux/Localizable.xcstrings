@@ -90264,6 +90264,270 @@
         }
       }
     },
+    "retry.waiting.rateLimit": {
+      "comment": "Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed on the account's rate limit, HTTP 429 (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retrying ({attempt}/{of}) after a rate limit"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة المحاولة ({attempt}/{of}) بعد تجاوز حد المعدل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovni pokušaj ({attempt}/{of}) nakon ograničenja zahtjeva"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøver igen ({attempt}/{of}) efter en hastighedsbegrænsning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer Versuch ({attempt}/{of}) nach einem Ratenlimit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reintentando ({attempt}/{of}) tras un límite de uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvelle tentative ({attempt}/{of}) après une limite de débit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo tentativo ({attempt}/{of}) dopo un limite di frequenza"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レート制限のため再試行中（{attempt}/{of}）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីការកំណត់អត្រា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용량 제한으로 재시도 중 ({attempt}/{of})"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøver igjen ({attempt}/{of}) etter en hastighetsbegrensning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponawianie ({attempt}/{of}) po limicie żądań"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentando novamente ({attempt}/{of}) após um limite de uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторная попытка ({attempt}/{of}) после лимита запросов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังลองใหม่ ({attempt}/{of}) หลังถูกจำกัดอัตรา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hız sınırı sonrası yeniden deneniyor ({attempt}/{of})"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторна спроба ({attempt}/{of}) після ліміту запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang thử lại ({attempt}/{of}) sau khi bị giới hạn tốc độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "因速率限制正在重试（{attempt}/{of}）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "因速率限制正在重試（{attempt}/{of}）"
+          }
+        }
+      }
+    },
+    "retry.rateLimitedUntil": {
+      "comment": "Agent pane: a chat's state on its session row and in the composer's notice while acpmux holds every turn on its account's rate limit (subagents/retryState.ts rateLimitedLabel); {time} is the reset in UTC, like 14:05Z, as `acpmux ls` says it. Keep it lowercase in English, as `acpmux ls` prints it",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rate-limited until {time}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محدود المعدل حتى {time}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ograničenje zahtjeva do {time}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hastighedsbegrænset indtil {time}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ratenlimit bis {time}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "con límite de uso hasta las {time}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "limite de débit jusqu’à {time}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "limite di frequenza fino alle {time}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} までレート制限中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រូវបានកំណត់អត្រារហូតដល់ {time}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time}까지 사용량 제한"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hastighetsbegrenset til {time}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "limit żądań do {time}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "limite de uso até {time}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "лимит запросов до {time}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถูกจำกัดอัตราจนถึง {time}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} saatine kadar hız sınırında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ліміт запитів до {time}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bị giới hạn tốc độ đến {time}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "速率受限，直到 {time}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "速率受限，直到 {time}"
+          }
+        }
+      }
+    },
     "retry.waiting.transport": {
       "comment": "Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed on a connection error (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes",
       "extractionState": "manual",

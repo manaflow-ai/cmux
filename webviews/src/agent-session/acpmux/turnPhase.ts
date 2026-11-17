@@ -30,11 +30,11 @@ export function stuckNotice(
 /// What the automatic retry's line may say: the daemon's wait for its next attempt while the pane
 /// hears the daemon (a frozen wait counts down to an attempt nobody makes), and the attempt it sent
 /// only while that attempt's turn runs (after it, the turn's own reply says how it went).
-export function liveAutoResume<T extends { retry?: unknown; attempt?: number }>(
+export function liveAutoResume<T extends { retry?: unknown; attempt?: number; rateLimitedUntil?: number }>(
   phase: TurnPhase,
   state: T | undefined,
 ): T | undefined {
   if (!state || phase === "offline") return undefined;
-  if (state.retry) return state;
+  if (state.retry || state.rateLimitedUntil !== undefined) return state;
   return phase === "working" || phase === "stopping" ? state : undefined;
 }

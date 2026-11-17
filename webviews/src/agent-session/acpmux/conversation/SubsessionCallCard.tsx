@@ -20,7 +20,7 @@ import {
   useSubsessionInfos,
   waitingLine,
 } from "../subagents/subsessions";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { heldLabel, retryLabel, sessionRetry } from "../subagents/retryState";
 import { ResumeControl } from "../subagents/ResumeControl";
 import { subsessionResumeRow } from "../subagents/resumeState";
 import { TurnActionsContext } from "./turnActions";
@@ -168,6 +168,8 @@ function SessionCard({
   const phase = live ? sessionRetry(live) : undefined;
   const retry = phase?.kind === "retrying" ? phase.retry : undefined;
   const state = retry ? "working" : (live?.state ?? fallback?.state);
+  // A chat acpmux holds on its account's rate limit says until when, before anything else.
+  const held = live && heldLabel(t, live);
   // A stopped one says so and offers Resume, as a stopped helper's every row does (resumeState.ts):
   // acpmux carries its chat on from where it stopped.
   const stopped = !retry && live ? subsessionResumeRow(live) : undefined;
@@ -183,6 +185,7 @@ function SessionCard({
       state={state}
       {...(retry && { stateLabel: retryLabel(t, retry) })}
       {...(stopped && { stateLabel: t("subagents.state.cancelled") })}
+      {...(held && { stateLabel: held })}
       actions={stopped && <ResumeControl agent={stopped} actions={actions} />}
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}

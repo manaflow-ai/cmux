@@ -49,6 +49,8 @@ export type SubsessionInfo = {
   retry?: RetryState;
   /// acpmux settles, starts or runs its failed turn's retry: no Retry meanwhile.
   retryDeciding?: true;
+  /// acpmux holds it on its account's rate limit until this time (Unix ms, retryState.ts ``heldLabel``).
+  rateLimitedUntil?: number;
   /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
   error?: string;
   /// When its last turn ended stopped, while it is done: it offers Resume (resumeState.ts).
@@ -183,6 +185,7 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     // Read through retryState.ts ``sessionRetry``, which ignores them on a row that isn't failed.
     ...(entry.retry ? { retry: entry.retry } : {}),
     ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),
+    ...(entry.rateLimitedUntil !== undefined ? { rateLimitedUntil: entry.rateLimitedUntil } : {}),
     ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
     // Only a sub-session's stop resumes (hub/subsession_resume.rs): one its parent started.
     ...(state === "done" && entry.startedBy && entry.stoppedAt !== undefined ? { stoppedAt: entry.stoppedAt } : {}),

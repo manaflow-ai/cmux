@@ -3,7 +3,7 @@
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
-import { readRetry, type RetryState } from "./subagents/retryState";
+import { readRateLimitedUntil, readRetry, type RetryState } from "./subagents/retryState";
 import { senderSessionName } from "./senderIdentity";
 import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -121,6 +121,9 @@ export type AcpmuxSessionEntry = {
   /** acpmux is settling whether its failed turn is retried, or that retry starts or runs
    *  (session/list `retryDeciding`): no Retry is offered meanwhile. */
   retryDeciding?: true;
+  /** acpmux holds every turn on its account's rate limit until this time, Unix ms (session/list
+   *  `rateLimitedUntil`, subagents/retryState.ts ``heldLabel``); absent while none holds it. */
+  rateLimitedUntil?: number;
   /** Why its failed or lost turn failed, as acpmux's lane says it (`lane.error`, secrets masked):
    *  a retry acpmux refused before its turn started leaves it failed with this. */
   laneError?: string;
@@ -375,6 +378,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     trustPending: trustPending(session.tags),
     retry: readRetry(session.retry) ?? undefined,
     ...(session.retryDeciding === true && { retryDeciding: true as const }),
+    rateLimitedUntil: readRateLimitedUntil(session.rateLimitedUntil),
     laneError: text(session.lane?.error),
     usageStats: usageStatsOf(session.usageStats),
   };

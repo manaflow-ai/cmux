@@ -95,7 +95,7 @@ import {
   subagentStateText,
   subagentStatus,
 } from "../summary/subagentStatusListModel";
-import { retrying, retryLabel, sessionRetry } from "./retryState";
+import { heldLabel, retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity } from "./AgentIdentity";
@@ -1147,7 +1147,10 @@ export const SubagentTray = memo(function SubagentTray({
           icon="agent.chat"
           status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
           working={sessionRetrying !== undefined || item.session.state === "running"}
-          state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+          state={
+            heldLabel(t, item.session) ??
+            (sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]]))
+          }
           quiet={!sessionRetrying && (item.session.state === "running" || item.session.state === "idle")}
           trayColumns
           expanded={isOpen}
@@ -1260,7 +1263,7 @@ function loneHeadOf(
     title: item.session.title,
     latest: showLatest && status === "running" && !retry ? item.session.doing : undefined,
     status,
-    state: retry ? retryLabel(t, retry) : t(STATUS_LABEL[status]),
+    state: heldLabel(t, item.session) ?? (retry ? retryLabel(t, retry) : t(STATUS_LABEL[status])),
     retry: retry !== undefined,
   };
 }
