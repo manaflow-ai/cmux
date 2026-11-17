@@ -318,11 +318,12 @@ fn a_turn_end_idles_the_sessions_of_its_terminal_only() {
 #[test]
 fn a_preview_watch_gets_the_card_of_an_active_session() {
     let f = fixture("pw", None);
+    let mut client = Client::connect(&f.path);
+    // The session's first action comes before the daemon's watch (which its activity starts).
+    look(&mut client, 2, "s");
     let mut watch = Client::connect(&f.path);
     watch.send(&json!({"id": 1, "method": "preview/watch"}));
     assert_eq!(watch.recv()["ok"], true);
-    let mut client = Client::connect(&f.path);
-    look(&mut client, 2, "s");
     assert!(eventually(|| f.engine.preview().streaming() == vec!["1".to_string()]));
     f.engine.preview().frame("1", b"jpeg");
     let line = watch.recv();

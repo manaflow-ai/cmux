@@ -165,13 +165,6 @@ impl PreviewHub {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).enabled
     }
 
-    /// Whether a window is worth resolving for a card now (someone watches
-    /// and the preview is on).
-    pub fn wanted(&self) -> bool {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.enabled && !state.watchers.is_empty()
-    }
-
     /// A new watcher: it gets every card shown now, then each change.
     /// Returns its id for [`Self::unwatch`].
     pub fn watch(&self, watcher: Watcher) -> u64 {

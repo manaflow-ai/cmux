@@ -491,9 +491,10 @@ impl Engine {
     }
 
     /// The window of a call that passed the policy, for its session's
-    /// preview card; nothing while nobody watches or the preview is off.
+    /// preview card (also before anyone watches: the daemon's watch starts
+    /// with the session's first action); nothing while the preview is off.
     fn note_preview_window(&self, ctx: &CallContext, window_id: &str, app: Option<&TargetApp>) {
-        if !self.preview.wanted() {
+        if !self.preview.enabled() {
             return;
         }
         let Ok(Some(window)) = self.desktop.window(window_id) else { return };
