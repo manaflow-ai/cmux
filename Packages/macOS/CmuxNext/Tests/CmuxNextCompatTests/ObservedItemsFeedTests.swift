@@ -153,6 +153,53 @@ import Testing
         #expect(feed.observedItems == places.list.map(\.title), "the feed's items are not the map of the list after the change of one item")
     }
 
+    @MainActor final class Heard {
+        var values: [[String]?] = []
+    }
+
+    /// A reader that tracks the feed's items (``ObservedItemsFeed/observedItems``) hears the change of one item one
+    /// time, with the changed item in its place, and hears the end of the list one time. An owner that reads the
+    /// items so and takes no `changed` has no other signal of a change.
+    ///
+    /// The sign that the reader runs is a condition of the setup: the last items that it heard are the first ones.
+    @Test func aTrackedReaderOfTheItemsHearsTheChangeOfOneItemOneTime() async throws {
+        let places = Places(40)
+        let counts = Counts()
+        let feed = feed(places, counts)
+        feed.start()
+        defer { feed.stop() }
+        let heard = Heard()
+        let reading = Task {
+            for await items in ObservationStream({ ObservationTrigger(feed.observedItems) }) {
+                heard.values.append(items.value)
+            }
+        }
+        defer { reading.cancel() }
+        await drain()
+        await drain()
+        let first: [String]? = heard.values.last ?? nil
+        try #require(first == places.list.map(\.title), "setup: the reader's last items are not the first ones: \(String(describing: first))")
+
+        var before = heard.values.count
+        let changed = places.list[17]
+        changed.title = "renamed"
+        await drain()
+        await drain()
+        let afterChange = heard.values.count - before
+        let renamed: [String]? = heard.values.last ?? nil
+        #expect(afterChange == 1, "the reader heard \(afterChange) values after the change of one item, want 1")
+        #expect(renamed == places.list.map(\.title), "the reader's last items do not have the changed item: \(String(describing: renamed))")
+
+        before = heard.values.count
+        places.open = false
+        await drain()
+        await drain()
+        let afterEnd = heard.values.count - before
+        let ended: [String]? = heard.values.last ?? nil
+        #expect(afterEnd == 1, "the reader heard \(afterEnd) values after the end of the list, want 1")
+        #expect(ended == nil, "the reader's last items after the end of the list are not nil: \(String(describing: ended))")
+    }
+
     /// A model that the list has at 2 places has its change at each of them, and at its one place after the list
     /// has it once again: the feed writes no item by its place while the list has one id at 2 places.
     ///
@@ -192,20 +239,38 @@ import Testing
     /// the next pass over the list. While the list has 2 models under one id, each change of an observed item
     /// makes that pass (the feed writes no item by its place then), so each model is mapped again.
     ///
+    /// Each seed makes 2 runs. The first has the second model under one id, which stays in the list, so most of
+    /// its changes of an item make a pass. The second has each id once (its kind 9 is a change of one item), more
+    /// kinds that change items only, and a list that ended comes again in the next step: there a change of items
+    /// only puts them in place with no pass. The row counts the steps of each path with the module's own work
+    /// counter (``ObservationWork``), set around the feed's start, and prints them; with each id once, more than
+    /// half of the steps put their items in place.
+    ///
     /// This row has no red first: it holds what must stay when a change of one item makes no pass.
     @Test func theItemsFollowTheListThroughEachStepOfARunFromASeed() async throws {
-        for seed in 1...8 {
+        // The steps that put items in place with no pass, and the steps that made a pass, by the kind of run.
+        var inPlaceOnce = 0
+        var passedOnce = 0
+        var inPlaceTwice = 0
+        var passedTwice = 0
+        for run in 0..<16 {
+            let seed = run / 2 + 1
+            // The second run of a seed: each id of the list has one place for the whole run.
+            let once = run % 2 == 1
             var random = Seed(state: UInt64(seed))
             let places = Places(12)
             let counts = Counts()
+            let work = ObservationWork()
             let feed = feed(places, counts)
-            feed.start()
+            ObservationWork.$current.withValue(work) { feed.start() }
             defer { feed.stop() }
             await drain()
             var made = 12
             var want: [String]? = places.list.map(\.title)
             for step in 0..<160 {
-                let kind = random.next(below: 12)
+                var kind = random.next(below: once ? 24 : 12)
+                // With each id once, kind 9 and each kind from 12 are a change of one item or of 2 items.
+                if once, kind == 9 || kind >= 12 { kind %= 4 }
                 let pick = places.list[random.next(below: places.list.count)]
                 let other = places.list[random.next(below: places.list.count)]
                 let title = "s\(seed)-\(step)"
@@ -213,6 +278,13 @@ import Testing
                 func observed(_ place: Place) -> Bool { places.list.last(where: { $0.id == place.id }) === place }
                 // True when the step makes the feed pass over its list: the list changed, or an observed item did.
                 var pass = observed(pick)
+                // With each id once, a list that ended comes again here, in the turn of this step's change.
+                if once, !places.open, kind < 10 {
+                    places.open = true
+                    pass = true
+                }
+                let before = feed.observedItems
+                work.reset()
                 switch kind {
                 case 0, 1, 2:
                     pick.title = title
@@ -272,9 +344,25 @@ import Testing
                 }
                 let has = feed.observedItems
                 try #require(has == want, """
-                    seed \(seed), step \(step), kind \(kind): the feed has \(String(describing: has)), want \(String(describing: want))
+                    seed \(seed), each id once \(once), step \(step), kind \(kind): the feed has \(String(describing: has)),
+                    want \(String(describing: want))
                     """)
+                // The path of the step: a pass visits the list's models; items that changed with no visit went in place.
+                let listed = work.byStep["ObservedItems.list"] ?? 0
+                var inPlace = false
+                if listed == 0, let before, let has { inPlace = has != before }
+                if once {
+                    passedOnce += listed > 0 ? 1 : 0
+                    inPlaceOnce += inPlace ? 1 : 0
+                } else {
+                    passedTwice += listed > 0 ? 1 : 0
+                    inPlaceTwice += inPlace ? 1 : 0
+                }
             }
         }
+        print("observed items feed, 160 steps from each of 8 seeds: with each id once \(inPlaceOnce) steps put items in place and "
+            + "\(passedOnce) made a pass over the list; with a second model under one id \(inPlaceTwice) and \(passedTwice)")
+        #expect(inPlaceOnce * 2 > 8 * 160,
+                "with each id once \(inPlaceOnce) of \(8 * 160) steps put their items in place with no pass, want more than half")
     }
 }

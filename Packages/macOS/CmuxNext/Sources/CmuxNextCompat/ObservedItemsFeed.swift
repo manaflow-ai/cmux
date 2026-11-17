@@ -50,7 +50,9 @@ import Observation
     /// - Parameters:
     ///   - list: The models in order; nil while the items are not needed.
     ///   - id: A model's stable id.
-    ///   - item: One model's item (nil: the model is gone).
+    ///   - item: One model's item (nil: the model is gone). A listed model whose item is nil has no observation:
+    ///     it is mapped again at the next pass over the list (a change of the list), not at the change of the
+    ///     item of another model.
     ///   - changed: Runs after the items changed from the last ones (not for the baseline).
     ///   - update: Runs at once after the items changed, the baseline included and before `changed`, with what
     ///     they became: an owner that keeps the items sets its one item at one item's change. It does not run
