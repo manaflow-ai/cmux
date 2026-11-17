@@ -528,7 +528,7 @@ async fn hold(
                     );
                 }
                 Err(_) => {
-                    event(json!({"event": "redial-failed", "error": "timeout 10 s", "epoch_ms": epoch_ms()}))
+                    event(json!({"event": "redial-failed", "error": "timeout 10 s", "epoch_ms": epoch_ms()}));
                 }
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
