@@ -3,6 +3,7 @@
 //! no frame reordering, infinite GOP with IDR on request; output converted from the
 //! length-prefixed (AVCC) form to Annex-B with SPS/PPS before every IDR.
 
+use crate::frame_guard::{FrameGuard, keyframe_max_bytes, next_keyframe_floor};
 use crate::{H264Encoder, I420, Res};
 
 mod surface;
@@ -240,6 +241,17 @@ pub struct VideoToolbox {
     ultra_min_qp: i32,
     /// The next frame is ultra's refinement of a still screen ([`ULTRA_REFINE_BUDGETS`]).
     refine_next: bool,
+    /// Ultra's frame-size guard: each frame's QP floor from its damage and budget.
+    guard: FrameGuard,
+    /// Pixels of damage in the next frame (the whole picture until the caller says).
+    changed_next: Option<u64>,
+    /// Ultra runs the frame-size guard (`CMUX_RD_VT_ULTRA_GUARD=off` turns it off for a sweep).
+    guard_on: bool,
+    /// Ultra's keyframe floor: [`ULTRA_IDR_MIN_QP`], raised after a keyframe over
+    /// [`keyframe_max_bytes`] ([`next_keyframe_floor`]).
+    idr_floor: i32,
+    /// The MinAllowedFrameQP last set on the session.
+    applied_min_qp: i32,
     /// The session was created with low-latency rate control (standard); an ultra session is
     /// not ([`create_session`]).
     session_low_latency: bool,
@@ -506,6 +518,14 @@ impl VideoToolbox {
             ultra: false,
             ultra_min_qp: ultra_min_qp(std::env::var("CMUX_RD_VT_ULTRA_MIN_QP").ok().as_deref()),
             refine_next: false,
+            guard: FrameGuard::default(),
+            changed_next: None,
+            idr_floor: ULTRA_IDR_MIN_QP,
+            guard_on: !matches!(
+                std::env::var("CMUX_RD_VT_ULTRA_GUARD").as_deref().map(str::trim),
+                Ok("off")
+            ),
+            applied_min_qp: NO_MIN_QP,
             session_low_latency: true,
         };
         this.apply_bitrate(this.kbps);
@@ -531,7 +551,8 @@ impl VideoToolbox {
         self.session_low_latency = low_latency;
         self.color = None;
         self.apply_bitrate(self.kbps);
-        if self.ultra {
+        self.applied_min_qp = NO_MIN_QP;
+        if self.ultra_min_qp != NO_MIN_QP && self.ultra {
             self.apply_min_qp(self.ultra_min_qp);
         }
         Ok(true)
@@ -546,7 +567,26 @@ impl VideoToolbox {
         }
         self.ultra = on;
         self.refine_next = false;
+        self.guard = FrameGuard::default();
+        self.idr_floor = ULTRA_IDR_MIN_QP;
         self.name = session_name(self.baseline, on);
+    }
+
+    /// Pixels of damage in the next frame, for ultra's frame-size guard. Without it the guard
+    /// takes the whole picture as changed.
+    pub fn set_changed_pixels(&mut self, pixels: u64) {
+        self.changed_next = Some(pixels);
+    }
+
+    /// Turns ultra's frame-size guard on (the default) or off, for a measurement.
+    pub fn set_guard(&mut self, on: bool) {
+        self.guard_on = on;
+    }
+
+    /// Ultra's frame-size guard: the floor it set for the last frame and its learned bytes per
+    /// changed pixel at QP 0.
+    pub fn guard(&self) -> &FrameGuard {
+        &self.guard
     }
 
     /// Ultra only: the next frame refines a still screen with [`ULTRA_REFINE_BUDGETS`] frame
@@ -585,6 +625,9 @@ impl VideoToolbox {
             CFRelease(value);
             s
         };
+        if status == 0 {
+            self.applied_min_qp = qp;
+        }
         status == 0
     }
 
@@ -738,18 +781,35 @@ impl VideoToolbox {
         let idr = force_idr && self.ultra;
         // Ultra's refinement: this frame alone with a larger budget and no floor, then back.
         let refine = std::mem::take(&mut self.refine_next) && self.ultra && !idr;
-        if idr {
-            self.apply_min_qp(ULTRA_IDR_MIN_QP.max(self.ultra_min_qp));
+        let pixels = self.session_size.0 * self.session_size.1;
+        let changed = self.changed_next.take().unwrap_or(pixels as u64).min(pixels as u64);
+        // Every other ultra frame: the floor the guard picks from its damage and budget (it
+        // only ever makes a frame smaller), never under a configured floor.
+        let guarded = self.ultra && self.guard_on && !idr && !refine;
+        let floor = if idr {
+            self.idr_floor.max(self.ultra_min_qp)
         } else if refine {
             self.apply_rate(self.kbps, ULTRA_REFINE_BUDGETS);
-            self.apply_min_qp(NO_MIN_QP);
+            NO_MIN_QP
+        } else if guarded {
+            let budget = ultra_frame_budget(self.kbps, self.fps, pixels, 1).0 as usize;
+            self.guard.before(changed, budget).max(self.ultra_min_qp)
+        } else {
+            self.applied_min_qp
+        };
+        if self.ultra && floor != self.applied_min_qp {
+            self.apply_min_qp(floor);
         }
         let result = self.encode_buffer_at(pixel_buffer, force_idr, pts, out);
         if refine {
             self.apply_bitrate(self.kbps);
         }
-        if idr || refine {
-            self.apply_min_qp(self.ultra_min_qp);
+        if guarded && result.is_ok() {
+            self.guard.after(changed, out.len());
+        }
+        if idr && result.is_ok() && !out.is_empty() {
+            let max = keyframe_max_bytes(pixels);
+            self.idr_floor = next_keyframe_floor(self.idr_floor, out.len(), max, ULTRA_IDR_MIN_QP);
         }
         result
     }
