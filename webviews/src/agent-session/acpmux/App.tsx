@@ -11765,9 +11765,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   earlier={
                                                                     !childRows ? snapshot.earlierPrompts : undefined
                                                                   }
-                                                                  later={
-                                                                    !childRows ? snapshot.laterPrompts : undefined
-                                                                  }
+                                                                  later={!childRows ? snapshot.laterPrompts : undefined}
                                                                   promptCount={
                                                                     !childRows ? snapshot.promptCount : undefined
                                                                   }
