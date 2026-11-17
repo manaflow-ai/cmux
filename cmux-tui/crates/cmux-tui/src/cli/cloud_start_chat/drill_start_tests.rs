@@ -36,3 +36,44 @@ fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
     assert!(fake.called.is_empty(), "nothing after the start: {:?}", fake.called);
     assert_eq!(fake.ran.len(), 2, "no exec, no send: {:?}", fake.ran);
 }
+
+/// The drill asks its relay ticket in the team its machine is in, as the app's own dial does (the machine record's
+/// `team`), never in the app's active team: the app makes and lists its Cloud machines in the install's team, so a
+/// credential minted for an active sign-up team asked the ticket where no such machine is (404
+/// cloud.machine.not_found "no such machine of yours in this team", cmuxterm-hq run 44086216741, 2026-11-17).
+#[test]
+fn a_drill_mints_its_credential_for_the_team_its_machine_is_in() {
+    use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
+    const MACHINE_TEAM: &str = "team_d9753ae7bf17ea2f6eaf";
+    let mut fake = Fake::new(vec![signed_in(), started()]);
+    fake.app_answers = vec![
+        (
+            "cloud.machines",
+            Ok(json!({"loaded": true, "machines": [
+                {"id": "vm-other", "team": "team_aaaaaaaaaaaaaaaaaaaa"},
+                {"id": "vm-1", "team": MACHINE_TEAM},
+            ]})),
+        ),
+        // Refused, so the drill stops at its credential and dials nothing.
+        ("auth.token", Err(json!({"code": "unavailable", "message": "no token in this test"}))),
+    ];
+    let asked = request(&["--prompt", "count", "--wait", "--timeout", "600"]);
+    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
+    let spec = FaultSpec { kill: Route::Relay, after_events: 3 };
+    let plan = FaultPlan::new(spec, vec![Route::Relay, Route::Ssh], &caps).unwrap();
+    let until = fake.now() + Duration::from_secs(600);
+    let global = GlobalArgs::default();
+    let Err(Outcome::Failed { error, .. }) =
+        fault::drill_source(&mut fake, &global, &asked, false, (&plan, &caps, until))
+    else {
+        panic!("a refused credential went on: {:?}", fake.called)
+    };
+    assert_eq!(error["code"], "carrier_fault.no_credential", "{error}");
+    let minted: Vec<&Value> = fake
+        .called
+        .iter()
+        .filter(|(method, _)| method == "auth.token")
+        .map(|(_, params)| params)
+        .collect();
+    assert_eq!(minted, vec![&json!({"team": MACHINE_TEAM})], "{:?}", fake.called);
+}

@@ -245,6 +245,8 @@ struct Fake {
     slow: Vec<(usize, Duration)>,
     /// The app's link stream socket (`cloud.machine_stream`); None: no app answers.
     stream: Option<Result<Value, Value>>,
+    /// Per app method, its answer, before `stream`.
+    app_answers: Vec<(&'static str, Result<Value, Value>)>,
     /// The link waits' answers, in order.
     pushes: VecDeque<Result<Value, link_wait::Failure>>,
     /// The app calls and link waits asked: what and its params.
@@ -265,6 +267,7 @@ impl Fake {
             costs: Vec::new(),
             slow: Vec::new(),
             stream: None,
+            app_answers: Vec::new(),
             pushes: VecDeque::new(),
             called: Vec::new(),
             until: None,
@@ -307,6 +310,9 @@ impl Runner for Fake {
     ) -> Option<Result<Value, Value>> {
         self.called.push((method.to_owned(), params));
         self.clock += Duration::from_millis(5);
+        if let Some((_, answer)) = self.app_answers.iter().find(|(name, _)| *name == method) {
+            return Some(answer.clone());
+        }
         self.stream.clone()
     }
     fn observe(
