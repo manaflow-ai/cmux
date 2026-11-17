@@ -23,6 +23,48 @@ def p(d, key="p50", scale=1000.0, unit="ms"):
     return f"{d[key] * scale:.0f} {unit}" if scale != 1 else f"{d[key]}"
 
 
+def jobs_table(title, rs):
+    rs = [r for r in rs if r.get("stage") in ("jobs", "jobs-host")]
+    if not rs:
+        return []
+    lines = ["", f"## {title}", ""]
+    for r in rs:
+        if r.get("stage") == "jobs-host":
+            lines.append(f"Grants {r.get('grants')}, {r.get('ncpu')} CPU, displays online {r.get('displays_online')}.")
+    lines += ["",
+              "| mode | N | up | isolated | AXPress ok, p50/p99 | AX set value ok | key to pid ok | stamped click ok | raw pixel click ok | token wait p50/p99 | token hold p50/p99 | capture window p50/p99 | capture display p50/p99 | leaks click/key/field/capture | actions/s/job | host cores | footprint MB |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for r in rs:
+        if r.get("stage") != "jobs":
+            continue
+        if r.get("skipped"):
+            lines.append(f"| {r.get('mode')} | {r.get('n')} | skipped: {r['skipped']} |" + " |" * 14)
+            continue
+        ro, tk, lk = r.get("routes", {}), r.get("token", {}), r.get("leaks", {})
+
+        def rate(route, lat=False):
+            x = ro.get(route)
+            if not x:
+                return "-"
+            t = f"{x['delivered']}/{x['n']}"
+            if lat and x.get("latency_s"):
+                t += f", {p(x['latency_s'])}/{p(x['latency_s'], 'p99')}"
+            return t
+        cw, cd = ro.get("capture-window", {}), ro.get("capture-display", {})
+        leaks = (f"{lk.get('click_jobs')}/{lk.get('key_jobs')}/{lk.get('field_jobs')}/"
+                 f"{(lk.get('capture_window_jobs') or 0) + (lk.get('capture_display_jobs') or 0)}")
+        lines.append(
+            f"| {r.get('mode')} | {r.get('n')} | {r.get('up')} | {r.get('isolated')} | {rate('ax-press', True)} | {rate('ax-setvalue')} | "
+            f"{rate('cg-key')} | {rate('stamped-cg')} | {rate('hid-click')} | {p(tk.get('wait_s'))}/{p(tk.get('wait_s'), 'p99')} | "
+            f"{p(tk.get('hold_s'))}/{p(tk.get('hold_s'), 'p99')} | {p(cw.get('latency_s'))}/{p(cw.get('latency_s'), 'p99')} | "
+            f"{p(cd.get('latency_s'))}/{p(cd.get('latency_s'), 'p99')} | {leaks} | {round(r.get('actions_per_s_per_job') or 0, 1)} | "
+            f"{round(r.get('host_cores_busy') or 0, 2)} | {r.get('footprint_total_mb')} |")
+    bad = [r for r in rs if r.get("stage") == "jobs" and r.get("first_error")]
+    for r in bad:
+        lines.append(f"\n{r.get('mode')} N={r.get('n')}: first error: {r.get('first_error')}")
+    return lines
+
+
 def main(out):
     lines = ["# macOS computer-use density", ""]
     host = {}
@@ -83,6 +125,8 @@ def main(out):
     for r in g:
         if r.get("stage") == "evict":
             lines.append(f"\nEvict: `{json.dumps({k: v for k, v in r.items() if k != 'trace'}, sort_keys=True)[:1500]}`")
+    lines += jobs_table("Concurrent GUI jobs in the guest's session", g)
+    lines += jobs_table("Concurrent GUI jobs in the worker's own console session", rows(os.path.join(out, "host-jobs", "results.jsonl")))
     print("\n".join(lines))
 
 

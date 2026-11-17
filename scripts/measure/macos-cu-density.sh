@@ -14,6 +14,14 @@
 #     place a fleet step's own executables can hold Screen Recording and Accessibility (tcc-grant.sh);
 #     no fleet worker's step does. The guest's console session is the "one macOS GUI session".
 #     CGVirtualDisplay is also tried on the worker itself, which needs no grant.
+#     The jobs stage (cud jobs; cmuxterm-hq docs/research/gui-ci-partitioning/virtual-display.md)
+#     runs N concurrent GUI test jobs (jobs_ns=1,2,4,8,16) for jobs_s seconds each, every job its own
+#     app on its own CGVirtualDisplay (mode display) or its own window on one big virtual display
+#     (mode window), driven at once through AX, key and stamped-click events to its pid, and
+#     ScreenCaptureKit captures, with raw pixel clicks serialised on one console-input token; it
+#     checks that no job's clicks, keys or field values reach another job's app and that no capture
+#     holds another job's pixels. It runs in the guest, and on the worker's own console session
+#     (host_jobs=1), where it reports the step's grants and runs only what they allow.
 #  2. One Virtualization.framework guest per slot (macos-cu-density/cudvz.m): three APFS clones of
 #     the image, boot to sshd, host RAM per VM, saveMachineStateTo / restoreMachineStateFrom times,
 #     and whether a saved VM still holds one of the two macOS VM slots. Never more than two macOS
@@ -22,7 +30,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure --label macos-26 \
 #     --script scripts/measure/macos-cu-density.sh --ref SHA --artifact artifacts/macos-cu-density.tgz \
 #     [--target-worker W] [--arg=ns=1,4,8,16,32] [--arg=ballast=64] [--arg=loop_s=60] [--arg=vz=1] \
-#     [--arg=vz_mem=4096] [--arg=guest_mem=12] [--arg=guest_cpu=6] --timeout 7200
+#     [--arg=vz_mem=4096] [--arg=guest_mem=12] [--arg=guest_cpu=6] [--arg=bench=1] \
+#     [--arg=jobs_ns=1,2,4,8,16] [--arg=jobs_s=30] [--arg=jobs_modes=display,window] [--arg=host_jobs=1] --timeout 7200
 #
 # Lume, the image and its cache are cu-driver-bench.sh's (cu-driver-eval/pins.json, the same lume
 # home), so a worker that ran the bench does not pull the 23 GB image again. Output: CUD lines, and
@@ -34,6 +43,7 @@
 #   mem PID | slot release PID   (the header of macos-cu-density/cud.m).
 set -uo pipefail
 ns=1,4,8,16,32 ballast=64 loop_s=60 vz=1 vz_mem=4096 guest_mem=12 guest_cpu=6
+bench=1 jobs_ns=1,2,4,8,16 jobs_s=30 jobs_modes=display,window host_jobs=1
 for arg in "$@"; do
   case "$arg" in
     ns=*) ns="${arg#ns=}" ;;
@@ -43,11 +53,19 @@ for arg in "$@"; do
     vz_mem=*) vz_mem="${arg#vz_mem=}" ;;
     guest_mem=*) guest_mem="${arg#guest_mem=}" ;;
     guest_cpu=*) guest_cpu="${arg#guest_cpu=}" ;;
+    bench=*) bench="${arg#bench=}" ;;
+    jobs_ns=*) jobs_ns="${arg#jobs_ns=}" ;;
+    jobs_s=*) jobs_s="${arg#jobs_s=}" ;;
+    jobs_modes=*) jobs_modes="${arg#jobs_modes=}" ;;
+    host_jobs=*) host_jobs="${arg#host_jobs=}" ;;
     *) echo "macos-cu-density.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$ns" =~ ^[0-9]{1,3}(,[0-9]{1,3})*$ ]] || { echo "macos-cu-density.sh: ns= is a comma list of agent counts" >&2; exit 2; }
 [[ "$ballast" =~ ^[0-9]{1,4}$ && "$loop_s" =~ ^[0-9]{1,4}$ && "$vz" =~ ^[01]$ ]] || { echo "macos-cu-density.sh: ballast= MB, loop_s= s, vz= 0|1" >&2; exit 2; }
+[[ "$jobs_ns" =~ ^([0-9]{1,2}(,[0-9]{1,2})*)?$ && "$jobs_s" =~ ^[0-9]{1,4}$ && "$bench" =~ ^[01]$ && "$host_jobs" =~ ^[01]$ ]] ||
+  { echo "macos-cu-density.sh: jobs_ns= a comma list (empty: no jobs stage), jobs_s= s, bench= 0|1, host_jobs= 0|1" >&2; exit 2; }
+[[ "$jobs_modes" =~ ^(display|window)(,(display|window))?$ ]] || { echo "macos-cu-density.sh: jobs_modes= display,window" >&2; exit 2; }
 [[ "$vz_mem" =~ ^[0-9]{4,5}$ && "$guest_mem" =~ ^[0-9]{1,2}$ && "$guest_cpu" =~ ^[0-9]{1,2}$ ]] || { echo "macos-cu-density.sh: vz_mem= MB, guest_mem= GB, guest_cpu= count" >&2; exit 2; }
 started_at=$(date +%s)
 root="$(git rev-parse --show-toplevel)"
@@ -126,6 +144,11 @@ cat "$out/host.json"
 perl -e 'alarm 30; exec @ARGV' "$b/cud" grants >"$out/host-grants.json" 2>&1 || true
 perl -e 'alarm 180; exec @ARGV' "$b/cud" vdisplay 64 1280 800 >"$out/host-vdisplay.json" 2>"$out/host-vdisplay.err" || true
 note "host grants $(cat "$out/host-grants.json"); host virtual displays $(head -c 600 "$out/host-vdisplay.json")"
+if [[ "$host_jobs" == 1 && -n "$jobs_ns" ]]; then
+  # The worker's own console session: what a job gets with the step's own grants, no VM.
+  perl -e 'alarm 1800; exec @ARGV' "$b/cud" jobs "$out/host-jobs" "$jobs_ns" "$jobs_s" 0 "$jobs_modes" >"$out/host-jobs.log" 2>&1 || true
+  note "host jobs: $(cut -c1-300 "$out/host-jobs/results.jsonl" 2>/dev/null | head -12)"
+fi
 
 note "STAGE lume"
 lume_sum=$(pin lume sha256)
@@ -245,8 +268,12 @@ guest() { ssh "${ssh_opts[@]}" "lume@$ip" "$@"; }
 guest_n() { ssh -n "${ssh_opts[@]}" "lume@$ip" "$@"; }
 guest_n true || { finish "ssh with the run's key failed"; exit 4; }
 # The image's user is lume, so the guest's tree is /Users/lume/cud.
-printf '#!/bin/bash\ncd /Users/lume/cud\n./cud bench /Users/lume/cud/out %q %q %q >bench.log 2>&1\necho $? >bench.status\n' \
-  "$ns" "$ballast" "$loop_s" >"$b/run.sh"
+{
+  printf '#!/bin/bash\ncd /Users/lume/cud\nst=0\n'
+  [[ -n "$jobs_ns" ]] && printf './cud jobs /Users/lume/cud/out %q %q 0 %q >jobs.log 2>&1 || st=$?\n' "$jobs_ns" "$jobs_s" "$jobs_modes"
+  [[ "$bench" == 1 ]] && printf './cud bench /Users/lume/cud/out %q %q %q >bench.log 2>&1 || st=$?\n' "$ns" "$ballast" "$loop_s"
+  printf 'echo $st >bench.status\n'
+} >"$b/run.sh"
 cat >"$b/agent.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -272,7 +299,7 @@ for _ in $(seq 1 30); do
   sleep 5
 done
 [[ $started == 1 ]] || { finish "could not start the bench in the guest's login session"; exit 4; }
-note "the bench is running in the guest's session (ns=$ns ballast=$ballast MB loop_s=$loop_s)"
+note "the bench is running in the guest's session (jobs_ns=$jobs_ns jobs_s=$jobs_s jobs_modes=$jobs_modes; bench=$bench ns=$ns ballast=$ballast MB loop_s=$loop_s)"
 deadline=$(( started_at + 6900 ))
 finished=0
 next=$(( $(date +%s) + 240 ))
@@ -286,6 +313,7 @@ while (( $(date +%s) < deadline )); do
 done
 guest_n 'cat ~/cud/out/results.jsonl' >"$out/guest/results.jsonl" 2>/dev/null
 guest_n 'cat ~/cud/bench.log' >"$out/guest/bench.log" 2>/dev/null
+guest_n 'cat ~/cud/jobs.log' >"$out/guest/jobs.log" 2>/dev/null
 guest_n 'sysctl -n hw.ncpu hw.memsize; sw_vers -productVersion; vm_stat' >"$out/guest/facts.txt" 2>/dev/null
 [[ $finished == 1 ]] || { finish "the bench did not finish in the guest in the time left"; exit 4; }
 note "bench exit $(guest_n 'cat ~/cud/bench.status' 2>/dev/null)"

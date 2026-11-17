@@ -16,6 +16,8 @@
 //       cud resume PID [bg]           SIGCONT (bg: taskpolicy -B): {"ok","ms"}
 //       cud mem PID                   {"footprint","resident"} bytes (proc_pid_rusage)
 //       cud slot release PID          terminate it
+//   - N concurrent GUI test jobs with cross-job checks: `cud jobs OUT NS SECONDS BALLAST_MB MODES`
+//     (one virtual display per job, or one window per job on one big display; see jobs_round);
 //   - helpers: `cud vdisplay MAX W H` (virtual displays until one fails), `cud hog MB` (memory
 //     pressure), `cud grants`.
 //
@@ -165,9 +167,23 @@ static int run_cmd(NSString *path, NSArray *args) {
 @property int agentId;
 @property long clicks;
 @property NSRect frameTopLeft;
+@property int hue;                    // job colour index (jobs stage), -1 for none
+@property(strong) NSTextField *keys;  // every key event the app received, in order (jobs stage)
+@property(strong) NSMutableString *keyLog;
 @end
 
 static volatile long agent_ticks;
+
+// Job colours: 16 hues 22.5 degrees apart at saturation and brightness 0.85 (sRGB). Neighbours
+// differ by at least ~70 in one channel, so a pixel is attributed to one job or to none.
+#define JOB_HUES 16
+static void job_rgb(int i, double rgb[3]) {
+  double h = (double)(i % JOB_HUES) / JOB_HUES * 6.0, s = 0.85, v = 0.85;
+  int k = (int)h;
+  double f = h - k, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+  double r[6][3] = {{v, t, p}, {q, v, p}, {p, v, t}, {p, q, v}, {t, p, v}, {v, p, q}};
+  for (int c = 0; c < 3; c++) rgb[c] = r[k % 6][c];
+}
 static char *ballast;
 static size_t ballast_bytes;
 
@@ -194,6 +210,34 @@ static size_t ballast_bytes;
   NSTextField *label = [NSTextField labelWithString:[NSString stringWithFormat:@"agent %d, %zu MB ballast", self.agentId, ballast_bytes >> 20]];
   label.frame = NSMakeRect(20, 140, 400, 24);
   [v addSubview:label];
+  // Jobs stage: a job colour fills the window, so a capture shows whose pixels it holds, and every
+  // key event that reaches the app (a local monitor: dispatched to this app, key window or not) is
+  // appended to a label whose AX value the driver reads.
+  if (self.hue >= 0) {
+    double rgb[3];
+    job_rgb(self.hue, rgb);
+    v.wantsLayer = YES;
+    CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGFloat comps[4] = {rgb[0], rgb[1], rgb[2], 1};
+    CGColorRef c = CGColorCreate(srgb, comps);
+    v.layer.backgroundColor = c;
+    CGColorRelease(c);
+    CGColorSpaceRelease(srgb);
+  }
+  self.keyLog = [NSMutableString string];
+  self.keys = [NSTextField labelWithString:@""];
+  self.keys.frame = NSMakeRect(20, 180, 580, 24);
+  self.keys.accessibilityIdentifier = @"cud-keys";
+  [v addSubview:self.keys];
+  __weak CudAgent *weakSelf = self;
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *e) {
+    CudAgent *me = weakSelf;
+    if (me && e.characters.length) {
+      [me.keyLog appendString:e.characters];
+      me.keys.stringValue = me.keyLog;
+    }
+    return nil;  // consumed: the log is the only place a key lands
+  }];
   // setFrame: after creation, so a window on a virtual display is not constrained back to the main one.
   [self.window setFrame:[self.window frameRectForContentRect:cocoa] display:YES];
   [self.window orderFront:nil];
@@ -228,6 +272,7 @@ static int agent_main(int argc, const char **argv) {
   NSRect fr = NSMakeRect(argc > 3 ? atof(argv[3]) : 100, argc > 4 ? atof(argv[4]) : 100, argc > 5 ? atof(argv[5]) : 640,
                          argc > 6 ? atof(argv[6]) : 400);
   fill_ballast(argc > 7 ? (size_t)atol(argv[7]) : 0);
+  int hue = argc > 8 ? atoi(argv[8]) : -1;
   NSString *dir = @"/tmp/cud";
   [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
   // SIGUSR1: write the tick count; SIGUSR2: touch every ballast page and write how long it took.
@@ -255,6 +300,7 @@ static int agent_main(int argc, const char **argv) {
   CudAgent *d = [CudAgent new];
   d.agentId = aid;
   d.frameTopLeft = fr;
+  d.hue = hue;
   NSApp.delegate = d;
   [NSApp run];
   return 0;
@@ -397,13 +443,13 @@ static BOOL agent_resolve(Agent *a, double timeout) {
 
 static NSString *app_path;  // CudAgent.app
 
-static Agent *launch_agent(int aid, CGRect f, size_t ballast_mb, BOOL activate, NSString **err) {
+static Agent *launch_agent_hue(int aid, CGRect f, size_t ballast_mb, BOOL activate, int hue, NSString **err) {
   NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration configuration];
   c.createsNewApplicationInstance = YES;
   c.activates = activate;
   c.addsToRecentItems = NO;
   c.arguments = @[ @"agent", @(aid).stringValue, @(f.origin.x).stringValue, @(f.origin.y).stringValue, @(f.size.width).stringValue,
-                   @(f.size.height).stringValue, @(ballast_mb).stringValue ];
+                   @(f.size.height).stringValue, @(ballast_mb).stringValue, @(hue).stringValue ];
   __block NSRunningApplication *ra = nil;
   __block NSError *e = nil;
   dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -420,6 +466,9 @@ static Agent *launch_agent(int aid, CGRect f, size_t ballast_mb, BOOL activate, 
   a.app = ra;
   a.pid = ra.processIdentifier;
   return a;
+}
+static Agent *launch_agent(int aid, CGRect f, size_t ballast_mb, BOOL activate, NSString **err) {
+  return launch_agent_hue(aid, f, ballast_mb, activate, -1, err);
 }
 
 static pid_t focused_pid(void) {
@@ -825,6 +874,418 @@ static void stage_loop(NSArray<Agent *> *agents, double seconds, NSMutableDictio
                     @"footprint_total_mb": pct(fpS), @"ncpu": @(ncpu())};
 }
 
+// ---------------------------------------------------------------- jobs: N concurrent GUI test jobs
+// `cud jobs OUT NS SECONDS BALLAST_MB MODES` (cmuxterm-hq docs/research/gui-ci-partitioning/virtual-display.md).
+// Each job is one agent app (its own process and window, filled with its own colour) driven by its own
+// thread, all N at once for SECONDS. MODES is a comma list:
+//   display  one 1280x800 CGVirtualDisplay per job, the job's window alone on it
+//   window   one 5120x2880 virtual display, every job's window on it, overlapping its neighbours
+// Each job loops: AXPress (no focus), AX set value of its field to a job token, a key event to its
+// pid carrying a job token (CGEventPostToPid), a stamped CGEventPostToPid click, a ScreenCaptureKit
+// capture of its window (and, in display mode, of its display), and every 4th round a raw pixel
+// click (CGEventPost at the HID tap after raising the window), which holds the session's one
+// console-input token (a mutex here) from raise to the title change.
+// Cross-job checks at the end, per job: the app's click count is never above the clicks its own job
+// sent; its key log holds only its own job's tokens; its field holds its own value; no capture holds
+// another job's colour (window capture: above 0.2% of pixels; display capture: above 0.5%).
+static pthread_mutex_t console_token = PTHREAD_MUTEX_INITIALIZER;
+
+static void post_keys(Agent *a, NSString *text) {
+  UniChar buf[20];
+  NSUInteger n = MIN(text.length, (NSUInteger)20);
+  [text getCharacters:buf range:NSMakeRange(0, n)];
+  for (int down = 1; down >= 0; down--) {
+    CGEventRef e = CGEventCreateKeyboardEvent(NULL, 0, down);
+    if (!e) continue;
+    CGEventKeyboardSetUnicodeString(e, n, buf);
+    CGEventPostToPid(a.pid, e);
+    CFRelease(e);
+  }
+}
+
+static void hid_click(Agent *a) {
+  CGRect b = ax_frame(a.button);
+  CGPoint p = CGPointMake(CGRectGetMidX(b), CGRectGetMidY(b));
+  CGEventType types[3] = {kCGEventMouseMoved, kCGEventLeftMouseDown, kCGEventLeftMouseUp};
+  for (int i = 0; i < 3; i++) {
+    CGEventRef e = CGEventCreateMouseEvent(NULL, types[i], p, kCGMouseButtonLeft);
+    if (!e) continue;
+    CGEventPost(kCGHIDEventTap, e);
+    CFRelease(e);
+    usleep(10000);
+  }
+}
+
+// Fractions of sampled pixels that are this job's colour and another job's colour, and which job.
+static NSDictionary *classify(CGImageRef im, int own, int njobs) {
+  size_t w = CGImageGetWidth(im) / 4, h = CGImageGetHeight(im) / 4;
+  if (w < 4 || h < 4) return @{@"own": @0, @"foreign": @0, @"foreign_job": @(-1)};
+  CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  uint8_t *px = calloc(w * h, 4);
+  CGContextRef ctx = CGBitmapContextCreate(px, w, h, 8, w * 4, srgb, kCGImageAlphaPremultipliedLast);
+  CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
+  CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), im);
+  int nh = MIN(njobs, JOB_HUES);
+  double pal[JOB_HUES][3];
+  for (int j = 0; j < nh; j++) { job_rgb(j, pal[j]); for (int c = 0; c < 3; c++) pal[j][c] *= 255; }
+  long ownN = 0, foreignN = 0;
+  long per[JOB_HUES] = {0};
+  for (size_t i = 0; i < w * h; i++) {
+    uint8_t *q = px + i * 4;
+    int best = -1;
+    double bd = 35 * 35;
+    for (int j = 0; j < nh; j++) {
+      double d = 0;
+      for (int c = 0; c < 3; c++) d += (q[c] - pal[j][c]) * (q[c] - pal[j][c]);
+      if (d < bd) { bd = d; best = j; }
+    }
+    if (best < 0) continue;
+    if (best == own % JOB_HUES) ownN++;
+    else { foreignN++; per[best]++; }
+  }
+  int fj = -1;
+  for (int j = 0; j < nh; j++) if (per[j] && (fj < 0 || per[j] > per[fj])) fj = j;
+  CGContextRelease(ctx);
+  CGColorSpaceRelease(srgb);
+  free(px);
+  double total = (double)(w * h);
+  return @{@"own": @(ownN / total), @"foreign": @(foreignN / total), @"foreign_job": @(fj)};
+}
+
+static double capture_filter_sync(SCContentFilter *f, size_t pw, size_t ph, CGImageRef *out) {
+  SCStreamConfiguration *c = [SCStreamConfiguration new];
+  c.width = pw;
+  c.height = ph;
+  c.showsCursor = NO;
+  __block double secs = -1;
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  double t = now_s();
+  [SCScreenshotManager captureImageWithFilter:f configuration:c completionHandler:^(CGImageRef im, NSError *e) {
+    if (im) { secs = now_s() - t; if (out) *out = CGImageRetain(im); }
+    dispatch_semaphore_signal(sem);
+  }];
+  if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC))) return -1;
+  return secs;
+}
+
+@interface Job : NSObject
+@property int jid;
+@property(strong) Agent *agent;
+@property CGDirectDisplayID display;
+@property(strong) SCWindow *scWindow;
+@property(strong) SCDisplay *scDisplay;
+@property(strong) NSMutableDictionary<NSString *, NSMutableArray *> *lat;  // route -> seconds
+@property(strong) NSMutableDictionary<NSString *, NSNumber *> *sent;       // route -> count
+@property(strong) NSMutableDictionary<NSString *, NSNumber *> *ok;         // route -> delivered
+@property(strong) NSMutableArray *tokenWait, *tokenHold, *raises;
+@property long clicksSent;
+@property double captureWindowForeignMax, captureDisplayForeignMax, captureWindowOwnMin;
+@property int captureWindowLeaks, captureDisplayLeaks, captureWindowForeignJob, captureDisplayForeignJob;
+@property(strong) NSString *lastValue;
+@end
+@implementation Job
+@end
+
+static void job_note(Job *j, NSString *route, double s) {
+  @synchronized(j) {
+    j.sent[route] = @(j.sent[route].intValue + 1);
+    if (s >= 0) {
+      j.ok[route] = @(j.ok[route].intValue + 1);
+      if (!j.lat[route]) j.lat[route] = [NSMutableArray array];
+      [j.lat[route] addObject:@(s)];
+    }
+  }
+}
+
+static NSString *ax_value(AXUIElementRef e) { return ax_string(e, kAXValueAttribute); }
+
+static void job_run(Job *j, double end, int njobs, BOOL displayCapture, NSArray *excludedApps) {
+  Agent *a = j.agent;
+  AXUIElementRef keysEl = ax_find(a.window, @"AXStaticText", @"cud-keys", 0);
+  SCContentFilter *wf = j.scWindow ? [[SCContentFilter alloc] initWithDesktopIndependentWindow:j.scWindow] : nil;
+  SCContentFilter *df = (displayCapture && j.scDisplay)
+                            ? [[SCContentFilter alloc] initWithDisplay:j.scDisplay excludingApplications:excludedApps exceptingWindows:@[]]
+                            : nil;
+  j.captureWindowOwnMin = 1;
+  for (int seq = 1; now_s() < end; seq++) {
+    j.clicksSent++;
+    job_note(j, @"ax-press", act(a, @"ax-press", 1.0));
+
+    NSString *val = [NSString stringWithFormat:@"j%d-%d", j.jid, seq];
+    double t = now_s(), s = -1;
+    if (a.field && AXUIElementSetAttributeValue(a.field, kAXValueAttribute, (__bridge CFTypeRef)val) == kAXErrorSuccess)
+      while (now_s() - t < 1.0) { if ([ax_value(a.field) isEqualToString:val]) { s = now_s() - t; break; } usleep(1000); }
+    if (s >= 0) j.lastValue = val;
+    job_note(j, @"ax-setvalue", s);
+
+    NSString *tok = [NSString stringWithFormat:@"<%d.%d>", j.jid, seq];
+    t = now_s();
+    s = -1;
+    post_keys(a, tok);
+    if (keysEl)
+      while (now_s() - t < 1.0) { if ([ax_value(keysEl) containsString:tok]) { s = now_s() - t; break; } usleep(1000); }
+    job_note(j, @"cg-key", s);
+
+    j.clicksSent++;
+    job_note(j, @"stamped-cg", act(a, @"stamped-cg", 1.0));
+
+    if (wf) {
+      CGImageRef im = NULL;
+      size_t pw = (size_t)MAX(64, j.scWindow.frame.size.width * wf.pointPixelScale), ph = (size_t)MAX(64, j.scWindow.frame.size.height * wf.pointPixelScale);
+      s = capture_filter_sync(wf, pw, ph, &im);
+      job_note(j, @"capture-window", s);
+      if (im) {
+        NSDictionary *c = classify(im, j.jid, njobs);
+        double fr = [c[@"foreign"] doubleValue];
+        if (fr > j.captureWindowForeignMax) { j.captureWindowForeignMax = fr; j.captureWindowForeignJob = [c[@"foreign_job"] intValue]; }
+        j.captureWindowOwnMin = MIN(j.captureWindowOwnMin, [c[@"own"] doubleValue]);
+        if (fr > 0.002) j.captureWindowLeaks++;
+        CGImageRelease(im);
+      }
+    }
+    if (df) {
+      CGImageRef im = NULL;
+      s = capture_filter_sync(df, (size_t)j.scDisplay.width, (size_t)j.scDisplay.height, &im);
+      job_note(j, @"capture-display", s);
+      if (im) {
+        NSDictionary *c = classify(im, j.jid, njobs);
+        double fr = [c[@"foreign"] doubleValue];
+        if (fr > j.captureDisplayForeignMax) { j.captureDisplayForeignMax = fr; j.captureDisplayForeignJob = [c[@"foreign_job"] intValue]; }
+        if (fr > 0.005) j.captureDisplayLeaks++;
+        CGImageRelease(im);
+      }
+    }
+
+    if (seq % 4 == 0) {
+      // A raw pixel click: the one cursor and key window are the session's, so it holds the token.
+      double tw = now_s();
+      pthread_mutex_lock(&console_token);
+      double th = now_s();
+      AXUIElementSetAttributeValue(a.ax, kAXFrontmostAttribute, kCFBooleanTrue);
+      AXUIElementPerformAction(a.window, kAXRaiseAction);
+      [a.app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+      for (int i = 0; i < 50 && focused_pid() != a.pid; i++) usleep(2000);
+      double raised = now_s() - th;
+      NSString *before = ax_string(a.window, kAXTitleAttribute);
+      j.clicksSent++;
+      hid_click(a);
+      s = -1;
+      while (now_s() - th < 1.5) {
+        NSString *after = ax_string(a.window, kAXTitleAttribute);
+        if (after && before && ![after isEqualToString:before]) { s = now_s() - th; break; }
+        usleep(1000);
+      }
+      pthread_mutex_unlock(&console_token);
+      double hold = now_s() - th;
+      @synchronized(j) {
+        [j.tokenWait addObject:@(th - tw)];
+        [j.tokenHold addObject:@(hold)];
+        [j.raises addObject:@(raised)];
+      }
+      job_note(j, @"hid-click", s);
+    }
+  }
+  if (keysEl) CFRelease(keysEl);
+}
+
+static NSDictionary *job_checks(Job *j) {
+  Agent *a = j.agent;
+  NSString *title = ax_string(a.window, kAXTitleAttribute) ?: @"";
+  NSRange r = [title rangeOfString:@": " options:NSBackwardsSearch];
+  long clicks = r.location == NSNotFound ? -1 : [[title substringFromIndex:r.location + 2] longLongValue];
+  AXUIElementRef keysEl = ax_find(a.window, @"AXStaticText", @"cud-keys", 0);
+  NSString *keys = keysEl ? (ax_value(keysEl) ?: @"") : @"";
+  if (keysEl) CFRelease(keysEl);
+  NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"<(\\d+)\\.\\d+>" options:0 error:nil];
+  __block int own = 0, foreign = 0;
+  __block NSUInteger covered = 0;
+  [re enumerateMatchesInString:keys options:0 range:NSMakeRange(0, keys.length)
+                    usingBlock:^(NSTextCheckingResult *m, NSMatchingFlags f, BOOL *stop) {
+                      covered += m.range.length;
+                      if ([[keys substringWithRange:[m rangeAtIndex:1]] intValue] == j.jid) own++; else foreign++;
+                    }];
+  NSString *field = ax_value(a.field) ?: @"";
+  NSString *prefix = [NSString stringWithFormat:@"j%d-", j.jid];
+  BOOL fieldOwn = field.length == 0 || [field hasPrefix:prefix];
+  return @{@"job": @(j.jid), @"clicks_seen": @(clicks), @"clicks_sent": @(j.clicksSent),
+           @"click_leak_in": @(clicks > j.clicksSent), @"keys_own": @(own), @"keys_foreign": @(foreign),
+           @"keys_garbage_chars": @(keys.length - covered), @"field_own": @(fieldOwn),
+           @"capture_window_foreign_max": @(j.captureWindowForeignMax), @"capture_window_foreign_job": @(j.captureWindowForeignJob),
+           @"capture_window_own_min": @(j.captureWindowOwnMin), @"capture_window_leaks": @(j.captureWindowLeaks),
+           @"capture_display_foreign_max": @(j.captureDisplayForeignMax), @"capture_display_foreign_job": @(j.captureDisplayForeignJob),
+           @"capture_display_leaks": @(j.captureDisplayLeaks)};
+}
+
+static NSDictionary *jobs_round(NSString *mode, int n, double seconds, size_t ballast_mb) {
+  NSMutableDictionary *row = [NSMutableDictionary dictionaryWithDictionary:@{@"stage": @"jobs", @"mode": mode, @"n": @(n)}];
+  if (!AXIsProcessTrusted()) { row[@"skipped"] = @"Accessibility not granted"; return row; }
+  BOOL perDisplay = [mode isEqualToString:@"display"];
+  NSMutableArray *displays = [NSMutableArray array];
+  NSMutableArray<Job *> *jobs = [NSMutableArray array];
+  NSString *err = nil, *firstErr = nil;
+  double t0 = now_s();
+  CGRect big = CGRectNull;
+  if (perDisplay) {
+    for (int i = 0; i < n; i++) {
+      CGVirtualDisplay *v = make_display(200 + i, 1280, 800, &err);
+      if (!v) { firstErr = firstErr ?: [NSString stringWithFormat:@"display %d: %@", i, err]; break; }
+      [displays addObject:v];
+      spin(0.05);
+    }
+  } else {
+    CGVirtualDisplay *v = make_display(150, 5120, 2880, &err);
+    if (v) [displays addObject:v]; else firstErr = [@"big display: " stringByAppendingString:err ?: @"?"];
+  }
+  spin(1.5);
+  row[@"displays_made"] = @(displays.count);
+  row[@"displays_s"] = @(now_s() - t0);
+  if (!perDisplay && displays.count) big = CGDisplayBounds([(CGVirtualDisplay *)displays[0] displayID]);
+  int cols = CGRectIsNull(big) ? 1 : MAX(1, (int)((big.size.width - 620) / 400) + 1);
+  NSMutableArray *ready = [NSMutableArray array];
+  for (int i = 0; i < n; i++) {
+    CGRect f;
+    CGDirectDisplayID did = 0;
+    if (perDisplay) {
+      if ((NSUInteger)i >= displays.count) break;
+      did = [(CGVirtualDisplay *)displays[i] displayID];
+      CGRect b = CGDisplayBounds(did);
+      f = CGRectMake(b.origin.x + 40, b.origin.y + 60, 620, 360);
+    } else {
+      if (CGRectIsNull(big)) break;
+      did = [(CGVirtualDisplay *)displays[0] displayID];
+      f = CGRectMake(big.origin.x + (i % cols) * 400, big.origin.y + 30 + (i / cols) * 300, 620, 360);  // overlaps its neighbours
+    }
+    double t = now_s();
+    Agent *a = launch_agent_hue(i, f, ballast_mb, NO, i, &err);
+    if (!a) { firstErr = firstErr ?: err; continue; }
+    if (!agent_resolve(a, 20) || !a.field) { firstErr = firstErr ?: @"no AX window/button/field in 20 s"; [a.app forceTerminate]; continue; }
+    [ready addObject:@(now_s() - t)];
+    Job *j = [Job new];
+    j.jid = i;
+    j.agent = a;
+    j.display = did;
+    j.lat = [NSMutableDictionary dictionary];
+    j.sent = [NSMutableDictionary dictionary];
+    j.ok = [NSMutableDictionary dictionary];
+    j.tokenWait = [NSMutableArray array];
+    j.tokenHold = [NSMutableArray array];
+    j.raises = [NSMutableArray array];
+    j.captureWindowForeignJob = j.captureDisplayForeignJob = -1;
+    [jobs addObject:j];
+  }
+  spin(1.0);
+  // Capture targets, once: the job's window and its display.
+  NSArray *excluded = @[];
+  BOOL canCapture = CGPreflightScreenCaptureAccess();
+  if (canCapture) {
+    double ls = 0;
+    SCShareableContent *sc = shareable(&ls, &err);
+    row[@"shareable_s"] = @(ls);
+    NSMutableArray *ex = [NSMutableArray array];
+    for (SCRunningApplication *app in sc.applications)
+      if ([@[ @"com.apple.dock", @"com.apple.wallpaper.agent", @"com.apple.WindowManager", @"com.apple.controlcenter" ] containsObject:app.bundleIdentifier ?: @""])
+        [ex addObject:app];
+    excluded = ex;
+    for (Job *j in jobs) {
+      j.scWindow = sc_window(sc, j.agent.pid);
+      for (SCDisplay *d in sc.displays) if (d.displayID == j.display) j.scDisplay = d;
+    }
+  } else row[@"capture_skipped"] = @"Screen Recording not granted";
+  row[@"up"] = @(jobs.count);
+  row[@"to_ax_ready_s"] = pct(ready);
+  row[@"first_error"] = nn(firstErr);
+  // All jobs at once.
+  uint64_t b0, tt0, b1, tt1;
+  cpu_ticks(&b0, &tt0);
+  double start = now_s(), end = start + seconds;
+  dispatch_group_t g = dispatch_group_create();
+  for (Job *j in jobs) {
+    dispatch_group_enter(g);
+    [NSThread detachNewThreadWithBlock:^{
+      job_run(j, end, n, perDisplay, excluded);
+      dispatch_group_leave(g);
+    }];
+  }
+  while (dispatch_group_wait(g, DISPATCH_TIME_NOW)) spin(0.2);
+  double wall = now_s() - start;
+  cpu_ticks(&b1, &tt1);
+  spin(1.0);
+  // Merge.
+  NSMutableDictionary *routes = [NSMutableDictionary dictionary];
+  NSMutableArray *checks = [NSMutableArray array];
+  NSMutableArray *tw = [NSMutableArray array], *th = [NSMutableArray array], *rz = [NSMutableArray array];
+  long actions = 0;
+  uint64_t fp = 0;
+  int clickLeaks = 0, keyLeaks = 0, fieldLeaks = 0, capWinLeakJobs = 0, capDispLeakJobs = 0;
+  double capWinForeignMax = 0, capDispForeignMax = 0;
+  for (NSString *route in @[ @"ax-press", @"ax-setvalue", @"cg-key", @"stamped-cg", @"hid-click", @"capture-window", @"capture-display" ]) {
+    NSMutableArray *lat = [NSMutableArray array];
+    long sent = 0, ok = 0;
+    for (Job *j in jobs) { sent += j.sent[route].intValue; ok += j.ok[route].intValue; if (j.lat[route]) [lat addObjectsFromArray:j.lat[route]]; }
+    actions += sent;
+    if (sent) routes[route] = @{@"n": @(sent), @"delivered": @(ok), @"delivered_rate": @((double)ok / sent), @"latency_s": pct(lat)};
+  }
+  for (Job *j in jobs) {
+    NSDictionary *c = job_checks(j);
+    [checks addObject:c];
+    clickLeaks += [c[@"click_leak_in"] boolValue];
+    keyLeaks += [c[@"keys_foreign"] intValue] > 0;
+    fieldLeaks += ![c[@"field_own"] boolValue];
+    capWinLeakJobs += j.captureWindowLeaks > 0;
+    capDispLeakJobs += j.captureDisplayLeaks > 0;
+    capWinForeignMax = MAX(capWinForeignMax, j.captureWindowForeignMax);
+    capDispForeignMax = MAX(capDispForeignMax, j.captureDisplayForeignMax);
+    [tw addObjectsFromArray:j.tokenWait];
+    [th addObjectsFromArray:j.tokenHold];
+    [rz addObjectsFromArray:j.raises];
+    fp += [mem_of(j.agent.pid)[@"footprint"] unsignedLongLongValue];
+  }
+  row[@"seconds"] = @(wall);
+  row[@"routes"] = routes;
+  row[@"token"] = @{@"wait_s": pct(tw), @"hold_s": pct(th), @"raise_s": pct(rz),
+                    @"held_fraction": @(wall > 0 ? [[th valueForKeyPath:@"@sum.self"] doubleValue] / wall : 0)};
+  row[@"actions_per_s_per_job"] = @(jobs.count && wall > 0 ? actions / wall / jobs.count : 0);
+  row[@"host_cores_busy"] = @(tt1 > tt0 ? (double)(b1 - b0) / (double)(tt1 - tt0) * ncpu() : 0);
+  row[@"ncpu"] = @(ncpu());
+  row[@"footprint_total_mb"] = @(fp >> 20);
+  row[@"leaks"] = @{@"click_jobs": @(clickLeaks), @"key_jobs": @(keyLeaks), @"field_jobs": @(fieldLeaks),
+                    @"capture_window_jobs": @(capWinLeakJobs), @"capture_window_foreign_max": @(capWinForeignMax),
+                    @"capture_display_jobs": @(capDispLeakJobs), @"capture_display_foreign_max": @(capDispForeignMax)};
+  BOOL up = (int)jobs.count == n;
+  BOOL noLeak = clickLeaks + keyLeaks + fieldLeaks + capWinLeakJobs + capDispLeakJobs == 0;
+  row[@"isolated"] = @(up && noLeak && canCapture);
+  row[@"checks"] = checks;
+  for (Job *j in jobs) [j.agent.app forceTerminate];
+  [displays removeAllObjects];
+  spin(2.0);
+  return row;
+}
+
+static int jobs_main(int argc, const char **argv) {
+  // cud jobs OUT NS SECONDS BALLAST_MB MODES
+  NSString *out = argc > 2 ? @(argv[2]) : @"/tmp/cud-out";
+  NSString *nsArg = argc > 3 ? @(argv[3]) : @"1,2,4,8,16";
+  double seconds = argc > 4 ? atof(argv[4]) : 30;
+  size_t ballast = argc > 5 ? (size_t)atol(argv[5]) : 0;
+  NSString *modes = argc > 6 ? @(argv[6]) : @"display,window";
+  [[NSFileManager defaultManager] createDirectoryAtPath:out withIntermediateDirectories:YES attributes:nil error:nil];
+  results_file = fopen([out stringByAppendingPathComponent:@"results.jsonl"].UTF8String, "a");
+  [NSApplication sharedApplication];
+  [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+  emit(@{@"stage": @"jobs-host", @"ncpu": @(ncpu()), @"grants": grants(), @"displays_online": @(online_displays())});
+  for (NSString *mode in [modes componentsSeparatedByString:@","]) {
+    for (NSString *ns in [nsArg componentsSeparatedByString:@","]) {
+      int n = ns.intValue;
+      if (n <= 0) continue;
+      NSDictionary *row = jobs_round(mode, n, seconds, ballast);
+      emit(row);
+      if (row[@"skipped"] || [row[@"up"] intValue] * 2 < n) break;  // most jobs did not come up: larger N will not either
+    }
+  }
+  if (results_file) fclose(results_file);
+  return 0;
+}
+
 static int bench_main(int argc, const char **argv) {
   // cud bench OUT NS BALLAST_MB LOOP_S
   NSString *out = argc > 2 ? @(argv[2]) : @"/tmp/cud-out";
@@ -918,6 +1379,7 @@ int main(int argc, const char **argv) {
     NSString *cmd = argc > 1 ? @(argv[1]) : @"";
     if ([cmd isEqualToString:@"agent"]) return agent_main(argc, argv);
     if ([cmd isEqualToString:@"bench"]) return bench_main(argc, argv);
+    if ([cmd isEqualToString:@"jobs"]) return jobs_main(argc, argv);
     if ([cmd isEqualToString:@"hog"]) return hog_main(argc, argv);
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
@@ -976,7 +1438,7 @@ int main(int argc, const char **argv) {
       if (im) CGImageRelease(im);
       return im ? 0 : 1;
     }
-    fprintf(stderr, "usage: cud agent|bench|hog|grants|vdisplay|slot lease|slot release|act|shot|suspend|resume|mem (see the header of cud.m)\n");
+    fprintf(stderr, "usage: cud agent|bench|jobs|hog|grants|vdisplay|slot lease|slot release|act|shot|suspend|resume|mem (see the header of cud.m)\n");
     return 2;
   }
 }
