@@ -107,6 +107,7 @@
  *
  * Secrets are read from the environment or files, sent only in headers or request bodies, and never printed.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -234,12 +235,15 @@ export class Journey {
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
+    // Notes the API client adds while this step runs (a retried answer), so a retry stays visible in the step's detail.
+    const notes: string[] = [];
+    const withNotes = (detail: string) => (notes.length ? `${detail}; ${[...new Set(notes)].join("; ")}` : detail);
     try {
-      const { value, detail } = await fn();
-      this.record({ step: name, status: "pass", ms: Date.now() - t0, detail });
+      const { value, detail } = await stepNotes.run(notes, fn);
+      this.record({ step: name, status: "pass", ms: Date.now() - t0, detail: withNotes(detail) });
       return value;
     } catch (error) {
-      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 1000) });
+      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: withNotes(String((error as Error)?.message ?? error)).slice(0, 1000) });
       throw error;
     }
   }
@@ -341,18 +345,41 @@ const OP_ATTEMPTS = 3;
 const DELETE_BUDGET_MS = 180_000;
 /** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
 export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
+/**
+ * The platform says the request's owner was reset or cut off mid-call (owner.unreachable, retryable), for example
+ * HTTP 503 `{"code":"owner.unreachable","message":"Error: Network connection lost.","retryable":true}` or a
+ * CallTimedOut. A real client sends the same request once more. The error sits under `error` or at the top.
+ */
+export const ownerUnreachable = (body: any): boolean => {
+  if (body?.ok === true) return false;
+  const e = body?.error && typeof body.error === "object" ? body.error : body;
+  return e?.code === "owner.unreachable" && e?.retryable === true;
+};
+/** The pause before that one retry. */
+const OWNER_RETRY_MS = 1000;
+const OWNER_RETRY_NOTE = "retried once after owner.unreachable";
+/** The running Journey step's notes; the API client adds a note here when it retries. */
+const stepNotes = new AsyncLocalStorage<string[]>();
 
-class Api {
+export class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   async op(op: string, params: unknown, key?: string): Promise<any> {
+    let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
+      // An owner reset: once more, under the same key so the op cannot apply twice.
+      if (key && !ownerRetried && ownerUnreachable(r.body)) {
+        ownerRetried = true;
+        stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
+        await sleep(OWNER_RETRY_MS);
+        continue;
+      }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
@@ -372,7 +399,13 @@ class Api {
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+    let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+    // A read changes nothing, so an owner reset is read once more.
+    if (ownerUnreachable(r.body)) {
+      stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
+      await sleep(OWNER_RETRY_MS);
+      r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+    }
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
@@ -1010,6 +1043,19 @@ export function markRanOnGuest(runs: ExecProbeRun[], nonces: string | null): Exe
 }
 
 /**
+ * The acpmux daemon a first ensure would reach: each acpmux or cmux-tui process with its parent and start, and its PATH,
+ * HOME, ACPMUX_* and CMUX_* (never a token, key or secret); the login-env cache; the binary `$c` runs; `acp status`;
+ * where `claude` is; and the store's bin directories.
+ */
+export const ensureBenchDaemonFacts = (): string => `${GUEST}` +
+  `for d in /proc/[0-9]*; do case "$(cat "$d/comm" 2>/dev/null)" in acpmux*|cmux-tui*) ;; *) continue;; esac; p=\${d#/proc/}; echo "== pid $p"; ps -o pid=,ppid=,lstart=,user=,args= -p "$p" 2>/dev/null | cut -c1-300; ` +
+  `pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$pp" ] && ps -o pid=,args= -p "$pp" 2>/dev/null | cut -c1-200; ` +
+  `tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -E '^(PATH|HOME|USER|ACPMUX_[A-Z_]+|CMUX_[A-Z_]+)=' | grep -viE 'TOKEN|KEY|SECRET|PASS' | cut -c1-300; done; ` +
+  `echo "== login-env"; ls -la "$HOME/.acpmux/login-env.json" 2>&1; echo "== binary"; readlink -f "$(command -v "$c")" 2>&1; "$c" --version 2>&1 | head -2; ` +
+  `echo "== status"; timeout 20 "$c" acp status --json 2>&1 | head -c 2000; echo; echo "== claude"; command -v claude 2>&1; ls -d /opt/cmux/store/*/bin 2>&1 | head -5; ` +
+  `systemctl list-units 'cmux*' --no-pager --plain 2>&1 | head -10; true`;
+
+/**
  * --ensure-bench N: one fresh machine created as a cold claim is, its Claude login installed as a cold claim's is, then N
  * timed ensures right after it runs (first-boot work still going), N once boot settles (systemctl is-system-running
  * --wait), and N with both cores busy. Public table to the out dir; outputs and slow-run journals to the private rows.
@@ -1021,6 +1067,8 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
   const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
   const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
   if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+  // A create may take a spare (CloudDO.ts claim path): its daemon was started before this bench.
+  boot.create_answer = short({ spare: spareFields(answer), claimed: answer?.claimed ?? answer?.spare ?? answer?.lease ?? null, status: answer?.machine?.status ?? answer?.status ?? null });
   const write = () => {
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
     const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
@@ -1045,6 +1093,9 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     await sweep("boot");
     boot.jobs_at_running = (await exec("systemctl list-jobs --no-pager 2>&1 | head -20; systemctl is-system-running 2>&1", 60_000)).stdout;
     await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
+    // Run 43931369542: every ensure answered `unknown harness "claude"; families: chief, unii` in ~13 ms from a daemon
+    // already up, while the run before cold-started its own. Which daemon serves the first ensure, and with what PATH.
+    boot.daemon_before_ensure = (await exec(ensureBenchDaemonFacts(), 60_000).catch((e) => ({ stdout: `read failed: ${String((e as Error)?.message ?? e)}` }))).stdout;
     const timed = async (condition: EnsureBenchCondition) => {
       for (let i = 0; i < args.n; i++) {
         const result = await exec(ensureBenchCommand(`bench-${args.tag}-${condition}-${i}`, condition === "loaded"), 300_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error)?.message ?? e) }));

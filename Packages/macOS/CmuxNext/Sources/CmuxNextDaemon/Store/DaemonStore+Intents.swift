@@ -141,9 +141,7 @@ extension DaemonStore {
         recordMirror()
         workspaceListMayHaveChanged()
         // Observers see the visible state with the other intents on it.
-        let settled = intentSettlements
-        intentSettlements.removeAll()
-        for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
+        OverlayReports.send(from: self)
         CancelledCreation.requestCloses(in: self)
         // A create waiting for a stand-in's daemon pane goes on once this apply made or refused it.
         resolveStandInWaits()
