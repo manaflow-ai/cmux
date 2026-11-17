@@ -140,6 +140,9 @@ struct Args {
     rd_deadline_ms: u64,
     /// `--loss-rule on|off`: the selector's loss rule in `wg-relay-race`.
     loss_rule: bool,
+    /// `--mtu N`: the tunnel MTU on both ends of `wg-tcp` and
+    /// `wg-relay-race` (0: the test pair's 1200).
+    mtu: u16,
 }
 
 fn args() -> Args {
@@ -165,6 +168,7 @@ fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
         rd_frames_in_flight: 0,
         rd_deadline_ms: 200,
         loss_rule: true,
+        mtu: 0,
     };
     let mut iter = flags.into_iter();
     while let Some(flag) = iter.next() {
@@ -198,6 +202,7 @@ fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
             "--rd-frames-in-flight" => parsed.rd_frames_in_flight = number() as u32,
             "--rd-deadline-ms" => parsed.rd_deadline_ms = number(),
             "--loss-rule" => parsed.loss_rule = value != "off",
+            "--mtu" => parsed.mtu = u16::try_from(number()).unwrap_or(0),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -574,7 +579,7 @@ async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAd
     let shaped = args.rtt_ms > 0 || args.loss_pct > 0.0;
     let dial =
         if shaped { impair(server_addr, args.rtt_ms, args.loss_pct).await? } else { server_addr };
-    let pair = config_pair(dial);
+    let pair = with_mtu(config_pair(dial), args.mtu);
     let viewer = WgNet::start(pair.client, client_socket).await.map_err(err)?;
     // `CMUX_WG_ULTRA_HOST` starts the host in its own mode (`off`: only the
     // viewer turned ultra mode on, as with an app setting).
@@ -1320,7 +1325,7 @@ async fn start_relay_race(
     };
     let (viewer_underlay, viewer_control, direct, relay) = end(viewer_udp, host_addr, viewer_tcp)?;
     let (host_underlay, _host_control, _, _) = end(host_udp, viewer_addr, host_tcp)?;
-    let pair = config_pair(host_addr);
+    let pair = with_mtu(config_pair(host_addr), args.mtu);
     let viewer = WgNet::start_with_underlay(pair.client, viewer_underlay).map_err(err)?;
     let host = WgNet::start_with_underlay(pair.server, host_underlay).map_err(err)?;
     let labels = vec![(direct, "direct".to_owned()), (relay, "relay".to_owned())];
@@ -1349,4 +1354,13 @@ async fn run_relay_race(args: &Args, clock: Arc<Clock>, record: Shared) -> io::R
     viewer_net.shutdown().await;
     host_net.shutdown().await;
     Ok(())
+}
+
+/// `pair` with tunnel MTU `mtu` on both ends (0 keeps its own).
+fn with_mtu(mut pair: cmux_wg::testing::ConfigPair, mtu: u16) -> cmux_wg::testing::ConfigPair {
+    if mtu > 0 {
+        pair.client.mtu = mtu;
+        pair.server.mtu = mtu;
+    }
+    pair
 }

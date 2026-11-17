@@ -1139,6 +1139,10 @@ impl Underlay for UltraUnderlay {
         self.inner.take_path_change()
     }
 
+    fn take_loss_escape(&mut self) -> bool {
+        self.inner.take_loss_escape()
+    }
+
     fn peer_hint(&self) -> Option<SocketAddr> {
         self.inner.peer_hint()
     }

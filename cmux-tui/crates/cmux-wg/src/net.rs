@@ -675,6 +675,9 @@ impl Driver {
     /// bytes between sockets and streams, then poll again so anything the
     /// streams produced leaves in the same pass.
     fn service(&mut self) {
+        if self.underlay.take_loss_escape() {
+            self.stack.link_repairs_losses();
+        }
         if self.underlay.take_path_change() {
             self.stack.path_changed();
         }

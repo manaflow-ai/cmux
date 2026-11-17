@@ -173,6 +173,14 @@ pub trait Underlay: Send + 'static {
     fn take_path_change(&mut self) -> bool {
         false
     }
+
+    /// Whether the carrier left a lossy path for one that repairs its own
+    /// loss (a relay on kernel TCP) since the last call. The losses the
+    /// tunnel's TCP took on the old path then cut no window: the driver
+    /// tells its stack the link repairs losses from here on.
+    fn take_loss_escape(&mut self) -> bool {
+        false
+    }
 }
 
 /// A datagram socket: Tokio's UDP socket, or a simulated one in tests.

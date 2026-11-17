@@ -85,8 +85,11 @@ pub struct LossRule {
     pub segment_bytes: u64,
     /// A path turns lossy when its loss-limited throughput is below this.
     pub lossy_below_kbps: u64,
-    /// Datagrams the estimate needs before it may turn a path lossy.
+    /// Datagrams the estimate needs before it may turn a path lossy...
     pub min_samples: u32,
+    /// ...and losses among them, so one unlucky drop in a short sample
+    /// never decides.
+    pub min_lost: u32,
     /// Each datagram weighs `1 / window` of the estimate (exponential decay).
     pub window: u32,
     /// Answered probes on a lossy path before its verdict is retried...
@@ -104,8 +107,11 @@ impl Default for LossRule {
         Self {
             segment_bytes: 1160,
             lossy_below_kbps: 3_000,
-            min_samples: 512,
-            window: 2048,
+            // At 2 % a 60 fps stream (about 200 datagrams a second) reaches
+            // 128 datagrams and 4 losses in about a second.
+            min_samples: 128,
+            min_lost: 4,
+            window: 512,
             retry_after_answers: 2,
             max_retry_after_answers: 32,
         }
@@ -219,7 +225,7 @@ impl LossEstimate {
     }
 
     fn judged(&self, rule: &LossRule) -> bool {
-        self.samples >= u64::from(rule.min_samples)
+        self.samples >= u64::from(rule.min_samples) && self.lost >= f64::from(rule.min_lost)
     }
 
     fn retry_after(&self, rule: &LossRule) -> u32 {
@@ -565,7 +571,15 @@ impl Selector {
 /// Updates a path that is not lossy from its estimate and RTT; true when it
 /// turned lossy.
 fn judge_loss(rule: &LossRule, path: &mut Path) -> bool {
-    if path.view.lossy || !path.loss.judged(rule) {
+    if path.view.lossy {
+        return false;
+    }
+    if path.loss.demotions > 0 && path.loss.samples >= 4 * u64::from(rule.window) {
+        // Healthy for four windows since its last demotion: the backoff
+        // starts over.
+        path.loss.demotions = 0;
+    }
+    if !path.loss.judged(rule) {
         return false;
     }
     let p = path.loss.ratio();
@@ -577,11 +591,6 @@ fn judge_loss(rule: &LossRule, path: &mut Path) -> bool {
         path.loss.answers_while_lossy = 0;
         path.loss.demotions = path.loss.demotions.saturating_add(1);
         return true;
-    }
-    if path.loss.demotions > 0 && path.loss.samples >= 4 * u64::from(rule.window) {
-        // Healthy for four windows since its last demotion: the backoff
-        // starts over.
-        path.loss.demotions = 0;
     }
     false
 }
@@ -785,8 +794,8 @@ mod tests {
     #[test]
     fn too_few_datagrams_never_judge_a_path() {
         let mut selector = wan_and_relay();
-        // 50 % loss, but only 400 datagrams.
-        assert_eq!(traffic(&mut selector, LAN, 400, 50), None);
+        // 50 % loss, but only 100 datagrams.
+        assert_eq!(traffic(&mut selector, LAN, 100, 50), None);
         assert_eq!(selector.current(), Some(LAN));
         assert!(!selector.path(LAN).unwrap().lossy);
     }
@@ -870,5 +879,14 @@ mod tests {
         answer(&mut selector, LAN, 50_000);
         answer(&mut selector, LAN, 50_000);
         assert_eq!(selector.current(), Some(LAN), "retried like any lossy path");
+    }
+
+    #[test]
+    fn three_losses_never_decide() {
+        let mut selector = wan_and_relay();
+        // 3 in 150 is 2 %, but too few losses to tell from bad luck.
+        selector.on_loss_sample(LAN, 147, 3).unwrap();
+        assert_eq!(selector.current(), Some(LAN));
+        assert!(!selector.path(LAN).unwrap().lossy);
     }
 }

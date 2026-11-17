@@ -59,7 +59,7 @@ const TRANSIENT_RETRIES: usize = 8;
 /// Path events go out at least this often while the session carries traffic.
 const EVENT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 /// Datagrams counted on a path before the count goes to the selector.
-const LOSS_REPORT_EVERY: u64 = 64;
+const LOSS_REPORT_EVERY: u64 = 32;
 /// A counter gap wider than this is the peer sending elsewhere for a while
 /// (another path, a spray that ended), not loss.
 const MAX_COUNTED_GAP: u64 = 16;
@@ -228,6 +228,8 @@ struct Shared {
     /// The peer's transport datagrams in a row that came on a relay while
     /// the current path is direct ([`FOLLOW_PEER_AFTER`]).
     peer_elsewhere: u32,
+    /// The session left a lossy path since the last `take_loss_escape`.
+    loss_escape: bool,
 }
 
 impl Shared {
@@ -329,10 +331,21 @@ impl Shared {
         self.peer_elsewhere += 1;
         if self.peer_elsewhere >= FOLLOW_PEER_AFTER {
             self.peer_elsewhere = 0;
-            if let Ok(Some(_)) = self.selector.on_peer_left(current) {
-                self.publish();
+            if let Ok(Some(switch)) = self.selector.on_peer_left(current) {
+                self.escaped(switch);
             }
         }
+    }
+
+    /// The loss rule moved the session: to a path, the tunnel's TCP resends
+    /// what was in flight there at once and takes back the window the old
+    /// path's losses cut.
+    fn escaped(&mut self, switch: Switch) {
+        if switch.to.is_some() {
+            self.loss_escape = true;
+            self.left_path = true;
+        }
+        self.publish();
     }
 
     fn probe(&mut self, id: PathId, outcome: ProbeOutcome) {
@@ -414,6 +427,7 @@ impl Multipath {
             networks: local_networks(),
             left_path: false,
             peer_elsewhere: 0,
+            loss_escape: false,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -716,9 +730,10 @@ impl Underlay for Multipath {
                         let origin = Origin { path: id, addr: received.origin.addr };
                         shared.next_poll = index + 1;
                         if let Some((delivered, lost)) = counts
-                            && let Ok(Some(_)) = shared.selector.on_loss_sample(id, delivered, lost)
+                            && let Ok(Some(switch)) =
+                                shared.selector.on_loss_sample(id, delivered, lost)
                         {
-                            shared.publish();
+                            shared.escaped(switch);
                         }
                         if transport {
                             shared.follow_peer(id);
@@ -767,6 +782,10 @@ impl Underlay for Multipath {
             roamed |= slot.carrier.take_path_change();
         }
         std::mem::take(&mut shared.left_path) || roamed
+    }
+
+    fn take_loss_escape(&mut self) -> bool {
+        std::mem::take(&mut lock(&self.shared).loss_escape)
     }
 
     fn peer_hint(&self) -> Option<SocketAddr> {
