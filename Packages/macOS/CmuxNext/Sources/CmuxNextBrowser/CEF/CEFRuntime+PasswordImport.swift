@@ -8,7 +8,7 @@ extension CEFRuntime {
 
     /// Whether the running fork can write passwords, under cmux's own Keychain key.
     var canImportPasswords: Bool {
-        guard let shim, state == .ready, !PasswordImportKey.storesUnderMockKey() else { return false }
+        guard let shim, state == .ready, !PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: chromiumUsesMockKeychain) else { return false }
         return shim.passwordImportAvailable() == 1 && Int(shim.passwordEntrySize()) == ChromiumPasswordRows.stride
     }
 
@@ -32,7 +32,7 @@ enum PasswordImportKey {
     /// mock Keychain, whose key is a public constant: passwords stored there
     /// are as good as plaintext on disk, so the import is off. Debug builds may
     /// allow it for throwaway test data only (CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY=throwaway).
-    static func storesUnderMockKey(bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+    static func storesUnderMockKey(chromiumUsesMockKeychain: Bool?, bundleIdentifier: String? = Bundle.main.bundleIdentifier,
                                    environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         guard CEFSwitches.current(forkAPIVersion: 0, bundleIdentifier: bundleIdentifier, environment: environment).useMockKeychain else { return false }
         #if DEBUG
