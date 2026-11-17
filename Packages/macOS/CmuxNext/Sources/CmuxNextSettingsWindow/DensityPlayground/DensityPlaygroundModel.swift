@@ -53,10 +53,10 @@ public final class DensityPlaygroundModel {
     }
 
     /// Whether a policy manages the density keys: changes still apply live, but none is saved, and the window says so.
-    public var savesBlocked: Bool { false }
+    public var savesBlocked: Bool { isManaged() }
 
     /// What the window says under its header about saving: why nothing saves, or nil.
-    public var statusNotice: String? { nil }
+    public var statusNotice: String? { savesBlocked ? DensityPlaygroundStrings.managedNotice : nil }
 
     /// Picks up the app's density and list again (the window reopening after a Settings change).
     public func refresh() {
@@ -86,7 +86,7 @@ public final class DensityPlaygroundModel {
         draft = density
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
     }
 
     /// A new custom density made from the draft, named `name` (default: "<draft> Custom"), selected.
@@ -98,7 +98,7 @@ public final class DensityPlaygroundModel {
         draft = made
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
         return made
     }
 
@@ -125,7 +125,7 @@ public final class DensityPlaygroundModel {
         draft = DensityTokenCatalog.base(of: draft)
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
     }
 
     // MARK: Values
@@ -219,7 +219,7 @@ public final class DensityPlaygroundModel {
         draft = first
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
         return added.count
     }
 
@@ -230,6 +230,12 @@ public final class DensityPlaygroundModel {
         saveTimer.cancel()
         guard hasUnsavedChanges else { return }
         hasUnsavedChanges = false
+        save()
+    }
+
+    /// Writes the list and the draft, unless a policy manages the density keys (``savesBlocked``).
+    private func save() {
+        guard !savesBlocked else { return }
         persist(customs, draft)
     }
 
@@ -257,6 +263,7 @@ public final class DensityPlaygroundModel {
     }
 
     private func scheduleSave() {
+        guard !savesBlocked else { return }
         hasUnsavedChanges = true
         saveTimer.schedule(after: saveDelay) { @MainActor [weak self] in self?.flush() }
     }
