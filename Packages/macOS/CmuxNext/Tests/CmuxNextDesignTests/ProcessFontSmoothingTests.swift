@@ -27,13 +27,27 @@ import Testing
         #expect(ProcessFontSmoothing(defaults: defaults) == applied, "what AppKit reads is what apply reports")
     }
 
-    @Test func systemRemovesTheAppValueSoTheMacsChoiceApplies() throws {
+    @Test func autoRemovesTheAppValueSoTheMacsChoiceApplies() throws {
         let defaults = try defaults()
         defer { defaults.removePersistentDomain(forName: suite) }
+        let auto = try #require(FontSmoothing(rawValue: "auto"))
         ProcessFontSmoothing.apply(.antialiased, to: defaults)
-        let applied = ProcessFontSmoothing.apply(.system, to: defaults)
+        let applied = ProcessFontSmoothing.apply(auto, to: defaults)
         #expect(defaults.persistentDomain(forName: suite)?[ProcessFontSmoothing.defaultsKey] == nil)
         #expect(applied.smoothsStems == Self.globalSmooths)
+    }
+
+    /// `subpixel` turns smoothing on in cmux even where the Mac turned it off for every app: the
+    /// app's own value wins over the global one (measured on cmux-lawrence-2: global 0, app 2 draws
+    /// the smoothed weight).
+    @Test func subpixelWritesSmoothingOnOverAZero() throws {
+        let defaults = try defaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let subpixel = try #require(FontSmoothing(rawValue: "subpixel"))
+        defaults.set(0, forKey: ProcessFontSmoothing.defaultsKey)
+        let applied = ProcessFontSmoothing.apply(subpixel, to: defaults)
+        #expect(applied.smoothsStems)
+        #expect(defaults.integer(forKey: ProcessFontSmoothing.defaultsKey) != 0)
     }
 
     @Test func onlyZeroTurnsSmoothingOff() {

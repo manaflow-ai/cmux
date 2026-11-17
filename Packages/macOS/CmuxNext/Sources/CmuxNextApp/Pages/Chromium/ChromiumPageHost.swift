@@ -66,20 +66,17 @@ final class ChromiumPageHost: PageChromiumHosting {
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
+        DebugTimings.markLaunch("chromium_page.make_start")
         let made = try await cef.makeTab(configuration)
-        guard let tab = made as? CEFTab else {
-            made.close()
-            throw Failure.notChromium
-        }
-        tab.pageThemeSurface = .internalPage
-        tab.keyRouter = keyRouter; tab.onReadyForKeys = { [weak keyRouter] in keyRouter?.creationInputCoordinator.pageArrived(nil) } // its grant ends a key hold that waited for it
+        for mark in cef.startReport.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
+        guard let tab = made as? CEFTab else { made.close(); throw Failure.notChromium }
+        (tab.pageThemeSurface, tab.keyRouter) = (.internalPage, keyRouter)
+        tab.onReadyForKeys = { [weak keyRouter] in keyRouter?.creationInputCoordinator.pageArrived(nil) } // its grant ends a key hold that waited for it
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
-        guard await tab.agentRelay.browserCreated() else {
-            tab.close()
-            throw Failure.browserNotCreated
-        }
+        guard await tab.agentRelay.browserCreated() else { tab.close(); throw Failure.browserNotCreated }
+        DebugTimings.markLaunch("chromium_page.browser_created")
         return chromiumPage
     }
 }
