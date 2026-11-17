@@ -94,7 +94,7 @@
           },
           "help": {
             "key": "settings.terminal.linkOpener.default.help",
-            "text": "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+            "text": "Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>."
           },
           "kind": "text",
           "default": "cmux",
@@ -126,7 +126,7 @@
           },
           "help": {
             "key": "settings.terminal.linkOpener.rules.help",
-            "text": "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+            "text": "<match> -> <target>, first match wins. Example: caller:gh github.com -> safari"
           },
           "summary": {
             "key": "settings.terminal.linkOpener.rules.summary",
@@ -173,7 +173,7 @@
           },
           "help": {
             "key": "settings.terminal.term.help",
-            "text": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."
+            "text": "xterm-ghostty needs Ghostty's terminfo on every host you ssh to."
           },
           "kind": "choice",
           "choices": [
