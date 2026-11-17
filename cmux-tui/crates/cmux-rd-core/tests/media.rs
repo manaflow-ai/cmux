@@ -582,15 +582,15 @@ fn a_gap_exposed_after_the_frames_first_nack_is_requested_without_the_retry_wait
         r.push(&h, payload, at(i));
         if at(i) == 5_000 {
             // The first NACK, due 5 ms after the first shard, carries the early gap.
-            let first = r.take_nacks(5_000, 5_000, 50_000);
+            let first = r.take_nacks(5_000);
             assert_eq!(first.len(), 1);
             assert_eq!(first[0].indexes, vec![3]);
         }
     }
     // Shard 13 arrived at 6.5 ms and proved 12 missing.
     let exposed = at(13);
-    let due = r.next_nack_us(5_000, 50_000).expect("frame still incomplete");
+    let due = r.next_nack_us().expect("frame still incomplete");
     assert!(due <= exposed + 5_000, "late gap NACK due at {due} us, exposed at {exposed} us");
-    let late = r.take_nacks(exposed + 5_000, 5_000, 50_000);
+    let late = r.take_nacks(exposed + 5_000);
     assert!(late.iter().any(|n| n.indexes.contains(&12)), "{late:?}");
 }
