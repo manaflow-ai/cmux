@@ -238,7 +238,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
-        let engine = MediaEngine::new(
+        let mut engine = MediaEngine::new(
             EngineConfig {
                 width: w,
                 height: h,
@@ -252,6 +252,9 @@ impl MediaSession {
                 ..EngineConfig::default()
             },
             now_us(),
+        );
+        engine.set_fec_blocks(
+            negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::FEC_BLOCKS),
         );
         Ok(Self {
             desktop,

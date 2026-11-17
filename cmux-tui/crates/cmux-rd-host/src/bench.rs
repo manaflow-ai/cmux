@@ -822,11 +822,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks.
         caps: if upstream.is_some() {
-            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
+            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into(), caps::FEC_BLOCKS.into()]
         } else {
-            Vec::new()
+            vec![caps::FEC_BLOCKS.into()]
         },
     })?;
     v.io.send_control(&Control::Start {

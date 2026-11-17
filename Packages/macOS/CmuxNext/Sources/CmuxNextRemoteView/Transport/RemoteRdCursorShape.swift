@@ -37,4 +37,8 @@ public nonisolated extension RemoteRdHello {
     /// The cap a viewer offers when it draws the remote cursor itself (cmux-rd-core
     /// `caps::CURSOR`): the host then leaves the cursor out of its pictures.
     static let cursorCap = "cursor"
+    /// The cap a viewer offers to take frames larger than one FEC block (cmux-rd-core
+    /// `caps::FEC_BLOCKS`): the host splits them across interleaved FEC blocks and the Rust
+    /// reassembler (`RemoteRdCore`) rebuilds them.
+    static let fecBlocksCap = "fec.blocks"
 }

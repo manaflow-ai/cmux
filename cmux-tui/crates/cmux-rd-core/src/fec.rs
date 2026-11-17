@@ -143,6 +143,79 @@ pub fn reconstruct(shards: &mut [Option<Vec<u8>>], k: usize) -> Result<(), FecEr
     Ok(())
 }
 
+/// The shard indexes of block `block` of a frame of `k` data and `m` parity
+/// shards in `blocks` interleaved blocks (cmux-rd-proto `fec_blocks`): its data
+/// shards, then its parity shards, in frame order.
+fn block_indexes(k: usize, m: usize, blocks: usize, block: usize) -> (Vec<usize>, Vec<usize>) {
+    let data = (block..k).step_by(blocks).collect();
+    let parity = (block..m).step_by(blocks).map(|p| k + p).collect();
+    (data, parity)
+}
+
+/// Computes `m` parity shards for equally long data shards split into `blocks`
+/// interleaved blocks; parity shard `p` covers block `p % blocks`. One block is
+/// [`encode`]. Every block needs at most [`MAX_SHARDS`] shards.
+pub fn encode_blocks(data: &[&[u8]], m: usize, blocks: usize) -> Result<Vec<Vec<u8>>, FecError> {
+    let (k, blocks) = (data.len(), blocks.max(1));
+    if blocks == 1 {
+        return encode(data, m);
+    }
+    if k == 0 || blocks > k {
+        return Err(FecError::BlockSize);
+    }
+    let mut parity = vec![Vec::new(); m];
+    for block in 0..blocks {
+        let (d, p) = block_indexes(k, m, blocks, block);
+        let refs: Vec<&[u8]> = d.iter().map(|&i| data[i]).collect();
+        for (shard, &at) in encode(&refs, p.len())?.into_iter().zip(&p) {
+            parity[at - k] = shard;
+        }
+    }
+    Ok(parity)
+}
+
+/// True when every block of the frame has at least as many shards present as
+/// it has data shards, so [`reconstruct_blocks`] rebuilds all data.
+pub fn decodable_blocks(shards: &[Option<Vec<u8>>], k: usize, blocks: usize) -> bool {
+    let (m, blocks) = (shards.len().saturating_sub(k), blocks.max(1));
+    (0..blocks).all(|block| {
+        let (d, p) = block_indexes(k, m, blocks, block);
+        let present = d.iter().chain(&p).filter(|&&i| shards[i].is_some()).count();
+        present >= d.len()
+    })
+}
+
+/// [`reconstruct`] for a frame in `blocks` interleaved blocks: each block is
+/// rebuilt from its own parity.
+pub fn reconstruct_blocks(
+    shards: &mut [Option<Vec<u8>>],
+    k: usize,
+    blocks: usize,
+) -> Result<(), FecError> {
+    let blocks = blocks.max(1);
+    if blocks == 1 {
+        return reconstruct(shards, k);
+    }
+    if k == 0 || k > shards.len() || blocks > k {
+        return Err(FecError::BlockSize);
+    }
+    let m = shards.len() - k;
+    for block in 0..blocks {
+        let (d, p) = block_indexes(k, m, blocks, block);
+        if d.iter().all(|&i| shards[i].is_some()) {
+            continue;
+        }
+        let order: Vec<usize> = d.iter().chain(&p).copied().collect();
+        let mut sub: Vec<Option<Vec<u8>>> = order.iter().map(|&i| shards[i].take()).collect();
+        let result = reconstruct(&mut sub, d.len());
+        for (&i, shard) in order.iter().zip(sub) {
+            shards[i] = shard;
+        }
+        result?;
+    }
+    Ok(())
+}
+
 /// Gauss-Jordan inversion of a `k x k` matrix over GF(2^8).
 fn invert(matrix: &mut [Vec<u8>], k: usize) -> Option<Vec<Vec<u8>>> {
     let mut out: Vec<Vec<u8>> =

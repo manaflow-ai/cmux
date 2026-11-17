@@ -395,6 +395,13 @@ impl MediaEngine {
         }
     }
 
+    /// The viewer offered cap `fec.blocks`: frames over one FEC block keep their parity,
+    /// split across interleaved blocks (design D6). Off by default, since a viewer without
+    /// it refuses those headers.
+    pub fn set_fec_blocks(&mut self, on: bool) {
+        self.packetizer.set_fec_blocks(on);
+    }
+
     /// Adds a display stream (a popup surface) of `width` x `height`. Its
     /// first damage covers the whole stream and is an IDR.
     pub fn add_stream(&mut self, stream: u16, width: u32, height: u32) -> Result<(), StreamError> {
@@ -608,7 +615,10 @@ impl MediaEngine {
         let data_shards =
             (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
         // Tile frames are standalone, so they get keyframe-grade protection.
-        let parity = parity_for(data_shards, loss, enc.idr || tile);
+        // While the link is away (the controller is frozen through an outage), parity
+        // only adds bytes to the burst that waits for the link to come back.
+        let parity =
+            if self.cc.frozen() { 0 } else { parity_for(data_shards, loss, enc.idr || tile) };
         let flags = if tile {
             flags::TILE
         } else if enc.idr {

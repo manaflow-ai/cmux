@@ -28,7 +28,8 @@ pub use cursor::{
     cursor_seq_newer, shape_id,
 };
 pub use datagram::{
-    DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
+    DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION,
+    fec_block_of, fec_blocks, flags,
 };
 pub use error::DecodeError;
 pub use feedback::{Arrival, Feedback, MAX_ARRIVALS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack};

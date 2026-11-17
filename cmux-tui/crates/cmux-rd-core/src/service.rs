@@ -35,9 +35,14 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// Frames over one FEC block (255 shards) keep their parity, split across interleaved
+    /// blocks (cmux-rd-proto `fec_blocks`); the viewer rebuilds each block on its own. A
+    /// viewer that does not offer it refuses such headers, so it gets those frames with
+    /// only the parity one block holds.
+    pub const FEC_BLOCKS: &str = "fec.blocks";
     /// Every named cap.
-    pub const ALL: [&str; 8] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
+    pub const ALL: [&str; 9] =
+        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR, FEC_BLOCKS];
 }
 
 /// Why a hello is refused.
