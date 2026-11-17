@@ -72,11 +72,11 @@ public nonisolated struct CloudSizeLocked: Error, Equatable, Sendable {
 
     /// The refusal's `details` (the platform's, or cmux-tui's `size_locked` from a workspace machine's ensure):
     /// `needed`, `allowed` and `upgrade_plan` (null, or cmux-tui's `nothing`: no plan lifts it); an older platform's
-    /// `plan` and `memory_mb` stand in for the last and the first.
+    /// `memory_mb` stands in for the first. `plan` is the team's own plan, never the upgrade.
     public init(details: JSONValue?) {
         let size = { (key: String) in details?[key]?.stringValue.flatMap(CloudChatSize.init(rawValue:)) }
         let memory = details?["memory_mb"]?.doubleValue.flatMap { $0.isFinite && $0 > 0 && $0 < 1e9 ? Int($0) : nil }
-        let upgrade = details?["upgrade_plan"] ?? details?["plan"]
+        let upgrade = details?["upgrade_plan"]
         self.init(upgradePlan: upgrade?.stringValue.flatMap { ["pro", "max"].contains($0) ? $0 : nil },
                   upgradeNamed: upgrade.map { $0 == .null || $0.stringValue != nil } ?? false,
                   needed: size("needed") ?? memory.flatMap { asked in CloudChatSize.allCases.first { $0.memoryMb >= asked } },

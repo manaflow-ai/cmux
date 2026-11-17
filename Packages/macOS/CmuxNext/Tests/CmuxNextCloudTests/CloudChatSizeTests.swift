@@ -52,8 +52,10 @@ import Testing
         #expect(locked.allowed(planMax: nil) == .lg)
         #expect(locked.allowed(planMax: .md) == .md)
         // A plan no upgrade lifts says so (null), never a guessed plan.
-        let top = try #require(CloudSizeLocked.of(CloudAppOpFailure(code: "cloud.size.locked", message: "", details: .object(["plan": .null]))))
+        let top = try #require(CloudSizeLocked.of(CloudAppOpFailure(code: "cloud.size.locked", message: "", details: .object(["upgrade_plan": .null]))))
         #expect(top.upgrade == nil)
+        // The team's own plan is never read as the upgrade: a Pro team past its sizes is offered Max.
+        #expect(CloudSizeLocked(details: .object(["needed": .string("xl"), "plan": .string("pro")])).upgrade == "max")
         // No server plan: the plan whose machines reach the size.
         #expect(CloudSizeLocked(needed: .lg).upgrade == "pro" && CloudSizeLocked(needed: .xl).upgrade == "max")
         #expect(CloudSizeLocked.of(CloudAppOpFailure(code: "cmux.cloud.plan_required", message: "")) == nil)
