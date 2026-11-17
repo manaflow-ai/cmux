@@ -68,7 +68,7 @@
           },
           "help": {
             "key": "settings.agents.promptCache.help",
-            "text": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+            "text": "One hour keeps replies after a pause cheap; its cache writes cost a little more."
           },
           "kind": "choice",
           "choices": [
@@ -109,7 +109,7 @@
           },
           "help": {
             "key": "settings.agents.modelRouter.model.help",
-            "text": "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."
+            "text": "The model new cmux model router chats start on."
           },
           "kind": "choice",
           "choices": [

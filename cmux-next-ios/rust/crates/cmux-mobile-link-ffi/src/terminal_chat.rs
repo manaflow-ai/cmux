@@ -49,7 +49,7 @@ pub struct TerminalChatFacts {
 /// What a tab offers.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct TerminalChatFaces {
-    /// The tab shows the Chat | Terminal control and its page menu's Toggle row.
+    /// The tab offers its page menu's Show Chat / Show Terminal row.
     pub offered: bool,
     /// The face the tab opens on when the person chose none: the tab's own kind (a
     /// terminal on its terminal, a chat on its chat).

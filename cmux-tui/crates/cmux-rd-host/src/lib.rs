@@ -19,6 +19,9 @@
 //!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
 //!            device hub screen host a Mac views: its own device key, the hub link and
 //!            consent, driving `serve` per approved session (src/linux_host/)
+//!   windows-host enable|run|status|share off   (Windows) this PC on the device hub as a
+//!            `windows` device with the same hub client (src/screen_host/, src/windows_host.rs);
+//!            it lists and captures, and serves no session until `serve` has a Windows port
 //!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
 //!   request-permission screen-recording|accessibility   macOS's prompt for that one grant,
 //!            then the snapshot (src/permissions.rs; the Screen Sharing helper's)
@@ -84,6 +87,9 @@ mod pipewire_capture;
 mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
+// The device hub client of the desktop hosts (`linux-host`, `windows-host`).
+#[cfg(any(all(feature = "link", target_os = "linux"), windows))]
+mod screen_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
@@ -109,6 +115,8 @@ mod view;
 mod vtdecode;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
@@ -139,7 +147,7 @@ pub fn is_launch_services_open(args: &[String], executable: &std::path::Path) ->
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -147,6 +155,10 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(feature = "link", target_os = "linux"))]
     if cmd == "linux-host" {
         return linux_host::run_cli(&args[1..]);
+    }
+    #[cfg(windows)]
+    if cmd == "windows-host" {
+        return windows_host::run_cli(&args[1..]);
     }
     #[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
     if cmd == "view" {

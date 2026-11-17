@@ -14,12 +14,16 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-/// The answer for `local`: `{"ok":true}` for any absolute folder.
+/// The answer for `local`: `{"ok":true,"estimate":{...}}` for any absolute folder, the copy's
+/// estimate and decision (whole, first pass or seed) made here, before any machine
+/// ([`estimate`]); `estimate` is `null` for a folder it could not read, and the start goes on.
+///
+/// [`estimate`]: super::super::sync_cli::estimate
 pub(super) fn run(local: &str) -> Value {
     if !Path::new(local).is_absolute() {
         return super::refused("usage.invalid", "--local must be an absolute folder");
     }
-    json!({"ok": true})
+    json!({"ok": true, "estimate": super::super::sync_cli::estimate::answer(Path::new(local))})
 }
 
 #[cfg(test)]

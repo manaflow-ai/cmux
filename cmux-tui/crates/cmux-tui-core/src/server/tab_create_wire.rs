@@ -144,3 +144,7 @@ mod tab_create_place_chain_tests;
 #[cfg(test)]
 #[path = "tab_create_place_fuzz_tests.rs"]
 mod tab_create_place_fuzz_tests;
+
+#[cfg(test)]
+#[path = "tab_create_place_restart_tests.rs"]
+mod tab_create_place_restart_tests;
