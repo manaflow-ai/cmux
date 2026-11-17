@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44102323383",
+  "recorded_at": "2026-11-17T14:35:08Z",
+  "reason": "cmux-tui 552378baa193 changes the image's cmux-tui (pinned 36d32da4f2b5)",
+  "dry_run": false,
+  "cmux_tui": "552378baa19376c3e704a9914d608214a461f50c",
+  "fixes": [
+    {
+      "sha": "552378baa19376c3e704a9914d608214a461f50c",
+      "mergedAt": "2026-11-17T05:59:16-08:00",
+      "subject": "test(cmux-tui): keep is_held_by_current_thread for the registry read test (PL-daemon b5)"
+    },
+    {
+      "sha": "9557ab16897a85a193399abd997623d31b2f14ef",
+      "mergedAt": "2026-11-17T05:59:16-08:00",
+      "subject": "test(cmux-tui): the rename lock-order test waits behind a writer commit, not a receipt; drop two dead helpers (PL-daemon b5)"
+    },
+    {
+      "sha": "ff92c0dab3f216db3e9c931ce9419c487012f52c",
+      "mergedAt": "2026-11-17T05:59:16-08:00",
+      "subject": "fix(cmux-tui): durable-lane check and terminal savepoints after the b5 port (PL-daemon)"
+    },
+    {
+      "sha": "3da949d5dc36acfde0f51d4a4c143ce1cc949495",
+      "mergedAt": "2026-11-17T05:59:15-08:00",
+      "subject": "perf(cmux-tui): registry commits run on the request thread; the writer-intent path and late-receipt settling go (PL-daemon b5)"
+    },
+    {
+      "sha": "0d9d892adb59a8500954892e30f6986c0b2a63cb",
+      "mergedAt": "2026-11-17T05:59:15-08:00",
+      "subject": "perf(cmux-tui): registry commits run on the request thread; no request waits for the journal writer (PL-daemon b5, ported)"
+    },
+    {
+      "sha": "9bf92c8eb4c315b71e5c7e6a4aa080a2945f697b",
+      "mergedAt": "2026-11-17T05:59:15-08:00",
+      "subject": "test(cmux-tui): no request waits for a stalled journal writer (red, PL-daemon)"
+    },
+    {
+      "sha": "c88ee021cf8cbd3da534f859ebdf5b8895b3265c",
+      "mergedAt": "2026-11-17T05:51:37-08:00",
+      "subject": "acpmux: a policy-refused chat says which command runs it, and is not restarted every wake (#45317)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-17T14:35:08Z",
+    "snapshot_id": "sh-07a7266219444655844b2507a8b06af7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44102323383): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6ee3a28e064a9d2a81cdae3770f46fdfe7035087",
+    "image": "cloud-native-auto-552378ba-44102323383-1",
+    "revision": "ci-44102323383-1",
+    "at": "2026-11-17T14:35:08Z"
+  },
+  "rolled_back": false
+}
