@@ -14,8 +14,8 @@ import {
   resetChatRowsState,
 } from "./chatSource";
 import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, CHAT_ROWS_SLOW, OPEN_ANSWER_MS } from "./host";
-import type { Lanes } from "../schedule";
 import { receiveChatRows, resetChatRowsReceiver, listenForChatRows } from "./receiver";
+import { syncLanes } from "../../../../test/support/chatRowsFeed";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
 const HOLDS: ReadonlySet<string> = new Set([HOLD_ATTACH_CAPABILITY]);
@@ -70,20 +70,7 @@ function source(answer?: (post: Post) => Promise<unknown> | undefined, prefix = 
   return { rows, posts, drawn, fell, feed, opens };
 }
 
-/// Lanes that run a frame task at once, in the receiving task: these tests are about where changes
-/// go, not when (receiver.test.ts covers the frame pacing).
-function syncLanes(): Lanes {
-  const slice = { timeLeft: () => Number.POSITIVE_INFINITY, shouldYield: () => false };
-  return {
-    frame: (_key, fn) => void fn(slice),
-    idle: (_key, fn) => void fn(slice),
-    inputPending: () => false,
-    yield: () => Promise.resolve(),
-    flush: () => {},
-    dispose: () => {},
-  };
-}
-
+// These tests are about where changes go, not when (receiver.test.ts covers the frame pacing).
 beforeEach(() => listenForChatRows(syncLanes()));
 
 afterEach(() => {
