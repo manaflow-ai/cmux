@@ -12,15 +12,15 @@ public protocol PaneFirstPaintGated: AnyObject {
     var neverPainted: Bool { get }
     /// Runs `body` once the content has painted (now if it has).
     func whenFirstPainted(_ body: @escaping () -> Void)
-    /// A hold gave up on it before it painted (its limit passed) and shows it now: it shows the picture it keeps of
-    /// itself (a chat's or New Tab page's last frame) until it paints, never a clear or empty frame. One with no
-    /// picture (a brand-new chat) shows as it is.
-    func standInUntilPainted()
+    /// A hold's short limit passed before it painted: it shows the picture it keeps of itself (a chat's or New Tab page's
+    /// last frame) under it until it paints, and says true. False: it has none (a brand-new chat), and the hold keeps
+    /// what it showed for it, as long as before (``PanePaintHold/limit``), rather than show a clear or empty frame.
+    func standInUntilPainted() -> Bool
 }
 
 extension PaneFirstPaintGated {
     public var neverPainted: Bool { awaitsFirstPaint }
-    public func standInUntilPainted() {}
+    public func standInUntilPainted() -> Bool { false }
 }
 
 /// The outgoing view a container (a pane, or the window's content area
@@ -75,18 +75,18 @@ public final class PanePaintHold {
         let autoresizingMask: NSView.AutoresizingMask
     }
 
-    /// `frames`: a hold lasts that many frames of its host's screen at most (two for the window's workspace swap: 33 ms at
-    /// 60 Hz, 17 ms at 120 Hz); nil keeps ``limit``. Past it the incoming view shows, and a page in it that has not
-    /// painted stands in with its picture (``PaneFirstPaintGated/standInUntilPainted()``).
+    /// `frames`: a hold ends after that many frames of its host's screen (two for the window's workspace swap: 33 ms at
+    /// 60 Hz, 17 ms at 120 Hz) when every page still waiting in the incoming view then shows its picture
+    /// (``PaneFirstPaintGated/standInUntilPainted()``); one without a picture keeps it to ``limit``. Nil: ``limit``.
     public init(owner: String, frames: Int? = nil) {
         self.owner = owner
         self.frames = frames
         deadline = DemandTimer(owner: owner)
     }
 
-    /// The longest a hold in `host` keeps the outgoing view.
-    private func limit(in host: NSView) -> Duration {
-        frames.map { Self.frames($0, at: displayFramesPerSecond(host)) } ?? Self.limit
+    /// The short limit of a hold in `host` (``limit`` without `frames`).
+    private func firstLimit(in host: NSView) -> Duration {
+        frames.map { min(Self.limit, Self.frames($0, at: displayFramesPerSecond(host))) } ?? Self.limit
     }
 
     /// Whether `view` replacing `hosted` waits for its first frame. Content
@@ -124,18 +124,41 @@ public final class PanePaintHold {
         // A later hold replaces this deadline; the token keeps it to its own hold. A hand-off to the next swap starts the
         // next one's own limit: a run of swaps faster than the limit keeps one view on screen and never shows the views it
         // passes over (ending holds mid-burst showed each one and started a new hold on it, cmux#44329).
-        deadline.schedule(after: limit(in: host)) { @MainActor [weak self] in
-            self?.endAtLimit(token)
+        let first = firstLimit(in: host)
+        deadline.schedule(after: first) { @MainActor [weak self] in
+            self?.firstLimitPassed(token, rest: Self.limit - first)
         }
     }
 
-    /// The limit passed before `incoming` painted: it, or each shown page in it that has not painted (a workspace's chats
-    /// and New Tab pages, ``UnpaintedPages``), stands in with its picture, in the frame the hold ends.
-    private func endAtLimit(_ token: UInt64) {
-        guard holding, self.token == token, let incoming else { return end(token) }
-        (incoming as? PaneFirstPaintGated)?.standInUntilPainted()
-        for page in UnpaintedPages(in: incoming).pages { page.standInUntilPainted() }
+    /// The short limit passed before `incoming` painted: the pages still waiting in it stand in with their pictures
+    /// (``standsIn(_:)``) and it shows now, in one frame. When one has no picture, it shows when it paints or after `rest`.
+    private func firstLimitPassed(_ token: UInt64, rest: Duration) {
+        guard holding, self.token == token, let incoming else { return }
+        guard Self.standsIn(incoming) || rest <= .zero else {
+            return deadline.schedule(after: rest) { @MainActor [weak self] in self?.end(token) }
+        }
         end(token)
+    }
+
+    /// Whether every page still waiting in `view` shows a picture of itself now (asking each that never painted,
+    /// ``PaneFirstPaintGated/standInUntilPainted()``); `view` itself when it holds no such page (a pane's incoming tab).
+    /// A chat that drew before and waits to draw at a new size has no picture at that size (Leo 2026-10-20: "we
+    /// shouldn't be having these wild-ass layout shifts"): false.
+    static func standsIn(_ view: NSView) -> Bool {
+        var pages: [any PaneFirstPaintGated] = [], resized = false
+        let clips = !view.bounds.isEmpty
+        func visit(_ parent: NSView) {
+            for child in parent.subviews where !child.isHidden && child.alphaValue > 0 {
+                guard let page = child as? any PaneFirstPaintGated else { visit(child); continue }
+                guard page.awaitsFirstPaint, !clips || child.convert(child.bounds, to: view).intersects(view.bounds) else { continue }
+                if page.neverPainted { pages.append(page) } else { resized = true }
+            }
+        }
+        visit(view)
+        guard !resized else { return false }
+        guard !pages.isEmpty else { return (view as? any PaneFirstPaintGated)?.standInUntilPainted() ?? false }
+        // Every page is asked, so each one with a picture shows it even when another has none.
+        return pages.map { $0.standInUntilPainted() }.allSatisfy { $0 }
     }
 
     /// The view this hold keeps on screen, while it holds.
@@ -333,10 +356,10 @@ extension NSView {
 extension AgentPaneView {
     /// Its page drew no frame yet (``PaneFirstPaintGated/neverPainted``); a redraw at a new size is not this.
     public var neverPainted: Bool { !model.hasPainted }
-    /// A hold gave up on it before it painted: its pane draws its picture under it (``drawsLastPage``). A chat with none
-    /// (a brand-new one) shows its loading state, as before.
-    public func standInUntilPainted() {
-        if !model.hasPainted { drawsLastPage?() }
+    /// A hold's short limit passed before it painted: its pane draws its picture under it (``drawsLastPage``), true when
+    /// one shows. False for a chat with none (a brand-new one): the hold keeps what it showed for it.
+    public func standInUntilPainted() -> Bool {
+        model.hasPainted || drawsLastPage?() == true
     }
 }
 

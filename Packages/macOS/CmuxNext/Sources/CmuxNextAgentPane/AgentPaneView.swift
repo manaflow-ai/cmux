@@ -74,8 +74,8 @@ public final class AgentPaneView: NSView {
     /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
     public var onPageFocusLost: PageFocusLoss?
     /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold
-    /// gave up on it before it painted (``standInUntilPainted()``); set by the pane that shows it.
-    public var drawsLastPage: (() -> Void)?
+    /// gave up on it before it painted (``standInUntilPainted()``), true when a picture shows; set by its pane.
+    public var drawsLastPage: (() -> Bool)?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
