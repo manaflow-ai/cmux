@@ -104,7 +104,7 @@ struct AgentPaneSlowStartPromptTests {
         pane.clock.now += 300
         let frame = #"{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s-new","prompt":[{"type":"text","text":"Add a remove command"}],"_meta":{"acpmux":{"promptId":"p-1"},"cmuxGesture":"\#(ticket)"}}}"#
         #expect(await pane.transport.send(connection: pane.id, frames: [frame]) == nil)
-        // The credit went into the ticket: a second ticket needs a new gesture.
-        #expect(pane.transport.reserveGesture(intent) == nil)
+        // A Send needs no gesture (Leo, 2026-11-17): a later send still gets a ticket for its uploads.
+        #expect(pane.transport.reserveGesture(intent) != nil)
     }
 }

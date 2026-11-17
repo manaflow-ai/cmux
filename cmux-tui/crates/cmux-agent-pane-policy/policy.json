@@ -56,7 +56,6 @@
     "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict"
   ],
   "gesture_rules": {
-    "session/prompt": "always",
     "chat.fix_from_link": "always",
     "_acpmux/queue_approve": "always",
     "_acpmux/review_verdict": "always",

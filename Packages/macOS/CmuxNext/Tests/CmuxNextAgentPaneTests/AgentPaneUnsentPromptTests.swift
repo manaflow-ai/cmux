@@ -117,6 +117,31 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.prompts(daemon, peer: 2).isEmpty, "a prompt acpmux answered went again at the next launch")
     }
 
+    /// A Send needs no key press or click (Leo, 2026-11-17, on "Not sent: it needs your own key
+    /// press or click": "go remove this"), but a prompt sent with no gesture and no ticket is still
+    /// the person's: it goes on disk first and goes again after a relaunch, as one with a gesture does.
+    @Test func aPromptSentWithNoGestureIsJournaledAndGoesAgainAfterARelaunch() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let first = AcpmuxStandInServer()
+        try await first.start()
+        defer { first.stop() }
+        first.hold("session/prompt")
+        let run1 = try await Self.pane(first, journal: AgentPanePromptJournal(url: url))
+        #expect(await run1.transport.send(connection: run1.id, frames: [Self.prompt(id: 1, promptId: "p-1")]) == nil)
+        #expect(await first.wait { _ in Self.prompts(first, peer: 0).count == 1 })
+
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let run2 = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        await Self.barrier(run2, id: 2)
+        let resent = Self.prompts(daemon, peer: 0)
+        #expect(resent.count == 1, "a prompt sent with no gesture was not journaled")
+        #expect(resent.first.flatMap(Self.mux)?["resend"] as? Bool == true)
+    }
+
     /// An app relaunch while the daemon is still holding a compose keeps the prompt in the host
     /// journal. The replacement pane receives it once, without making the person retype it.
     @Test func anAppRelaunchMidComposeKeepsThePromptAndRecovers() async throws {

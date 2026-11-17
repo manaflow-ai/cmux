@@ -64,7 +64,8 @@ struct AgentPaneDelayedSendGestureTests {
         let request: [String: Any] = ["method": "session/prompt", "params": ["promptId": "p-1"] as [String: Any]]
         let intent = try #require(AgentPaneGestureIntent(gestureParams: ["intent": request]))
         #expect(pane.transport.reserveGesture(intent) != nil, "the delayed Enter gave its send no ticket")
-        #expect(pane.transport.reserveGesture(intent) == nil, "one gesture gave two send tickets")
+        // A Send needs no gesture (Leo, 2026-11-17): a second send still gets a ticket for its uploads.
+        #expect(pane.transport.reserveGesture(intent) != nil, "a send with no gesture got no ticket")
     }
 
     @Test func aCloudStartTicketSurvivesAReserveSlowerThanTheLiveGesture() throws {

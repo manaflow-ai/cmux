@@ -432,10 +432,17 @@ import CmuxNextCompat
         // A prompt held for the trust answer after a new chat's start takes the start's credit; a Cloud start sent from a
         // folder pick's acceptance (#40957's too-big card) takes the pick's (``grantPicked(_:)`` spent the click). Tickets outlive both.
         if !gestures.isAvailable, let fresh = intent.method == "session/prompt" ? startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime)
-            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil {
+            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil,
+            fresh || intent.method != "session/prompt" {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
-        return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
+        let reserved = gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
+        // A Send needs no key press or click (Leo, 2026-11-17: "go remove this"): it always gets its
+        // ticket, which its large attachments' uploads ride on. A credential transfer's (`personOnly`) does not.
+        if reserved == nil, intent.method == "session/prompt", !personOnly {
+            return gestures.reserve(connection: current, intent: intent, paid: true)
+        }
+        return reserved
     }
 
     /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds

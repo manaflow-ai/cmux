@@ -49,9 +49,10 @@ extension AgentPaneTransport {
         var startsLocalSession = false
 
         /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
+        /// A prompt never is: it goes on disk first (the prompt journal) and ends its tickets and credits.
         var free: Bool {
             ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil && !foreignSource
-                && !harnessEnable && !startsLocalSession
+                && !harnessEnable && !startsLocalSession && method != "session/prompt"
         }
     }
 
