@@ -144,7 +144,6 @@
     "CmuxNextRemoteView/Pane/RemoteUpstreamIndicator.swift": "native-overlay",
     "CmuxNextRemoteView/Tab/RemoteViewUnavailableView.swift": "native-overlay",
     "CmuxNextServer/AddDevice/AddDeviceCardPanel.swift": "native-overlay",
-    "CmuxNextServer/AddDevice/JoinConsentAskPanel.swift": "native-overlay",
     "CmuxNextSidebar/Views/DragLiftView.swift": "native-overlay",
     "CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": "native-overlay",
     "CmuxNextSidebar/Views/SidebarContainerView.swift": "window-chrome",
