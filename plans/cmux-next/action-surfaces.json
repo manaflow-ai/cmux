@@ -7068,6 +7068,37 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "room unpin",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.unpinFromSpace",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Unpin Workspace from Space",
+      "title_key" : "action.workspace.unpinFromSpace",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "args" : [
         {
           "kind" : "target",
           "name" : "space",
@@ -11139,7 +11170,13 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "s",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
       "id" : "macScreen.open",
       "main_menu" : "file",
       "mcp" : "offered",
@@ -11176,11 +11213,11 @@
       "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
-        "id" : "category.tab",
-        "order" : 104,
-        "title" : "Tabs",
-        "title_key" : "category.tab",
-        "title_table" : "Localizable"
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
       "title" : "Stop Sharing This Mac",
@@ -11238,11 +11275,11 @@
       "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
-        "id" : "category.tab",
-        "order" : 104,
-        "title" : "Tabs",
-        "title_key" : "category.tab",
-        "title_table" : "Localizable"
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
       "title" : "Revoke This Device",
@@ -19608,6 +19645,99 @@
       "palette_suggested" : null,
       "title" : "Run Last Command Again",
       "title_key" : "action.terminal.runLastCommandAgain",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "terminal fix-last-command",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.fixLastCommand",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fix Last Command with Agent",
+      "title_key" : "action.terminal.fixLastCommand",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "terminal send-last-output-to-chat",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.sendLastOutputToChat",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Send Last Output to Chat",
+      "title_key" : "action.terminal.sendLastOutputToChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "liveInput",
+      "cli_name" : "terminal send-selection-to-chat",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.sendSelectionToChat",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Send Selection to Chat",
+      "title_key" : "action.terminal.sendSelectionToChat",
       "title_table" : "ActionCatalog"
     },
     {
@@ -33857,6 +33987,41 @@
     {
       "args" : [
         {
+          "kind" : "string",
+          "name" : "path",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud transfer-local",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudTransferLocal",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Transfer to This Mac",
+      "title_key" : "action.cloudTransferLocal",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
           "kind" : "target",
           "name" : "machine",
           "required" : false,
@@ -36721,11 +36886,6 @@
         },
         {
           "kind" : "string",
-          "name" : "login",
-          "required" : false
-        },
-        {
-          "kind" : "string",
           "name" : "model",
           "required" : false
         }
@@ -36756,6 +36916,476 @@
       "title" : "Start Agent Session on Cloud Machine…",
       "title_key" : "action.cloudStartSession",
       "title_table" : "CloudSessionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "enum",
+          "name" : "scope",
+          "required" : false,
+          "values" : [
+            "mine",
+            "team",
+            "following"
+          ]
+        },
+        {
+          "kind" : "string",
+          "name" : "by",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "archived",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "cursor",
+          "required" : false
+        },
+        {
+          "kind" : "int",
+          "max" : 200,
+          "min" : 1,
+          "name" : "limit",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud team-sessions",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.sessions",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Team Cloud Sessions",
+      "title_key" : "action.cloud.team.sessions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud team-session",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.session",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Team Cloud Session",
+      "title_key" : "action.cloud.team.session",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud copy-session-link",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow",
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.copyLink",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Cloud Session Link",
+      "title_key" : "action.cloud.team.copyLink",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud follow",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.follow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Follow",
+      "title_key" : "action.cloud.team.follow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud unfollow",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.unfollow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Unfollow",
+      "title_key" : "action.cloud.team.unfollow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "to",
+          "required" : true
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud reassign",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.reassign",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reassign to…",
+      "title_key" : "action.cloud.team.reassign",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "archived",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud archive-session",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.archive",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Cloud Session",
+      "title_key" : "action.cloud.team.archive",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud show-team-section",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.showSection",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Team Section",
+      "title_key" : "action.cloud.team.showSection",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud team-members",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.members",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Team Members",
+      "title_key" : "action.cloud.team.members",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "group",
+          "required" : true
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud group-members",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.group.members",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Cloud Group Members",
+      "title_key" : "action.cloud.group.members",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "group",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "user",
+          "required" : true
+        },
+        {
+          "kind" : "enum",
+          "name" : "role",
+          "required" : true,
+          "values" : [
+            "owner",
+            "edit",
+            "view"
+          ]
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud group-member-set",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.group.memberSet",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Cloud Group Member",
+      "title_key" : "action.cloud.group.memberSet",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "group",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "user",
+          "required" : true
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud group-member-remove",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.group.memberRemove",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Cloud Group Member",
+      "title_key" : "action.cloud.group.memberRemove",
+      "title_table" : "ActionCatalog"
     },
     {
       "args" : [
@@ -37784,6 +38414,72 @@
       "palette_suggested" : null,
       "title" : "Install an Earlier Nightly…",
       "title_key" : "action.updates.installEarlierBuild",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "target",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action app-try-run",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.try.run",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Run a PR as This App…",
+      "title_key" : "action.app.try.run",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action app-try-undo",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.try.undo",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Undo Last PR Run",
+      "title_key" : "action.app.try.undo",
       "title_table" : "ActionCatalog"
     },
     {
@@ -39314,6 +40010,37 @@
 
       ],
       "cli" : "devOnly",
+      "cli_name" : "action debug-keycap-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.keycapPlayground",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Keycap Playground",
+      "title_key" : "action.debug.keycapPlayground",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "devOnly",
       "cli_name" : "action debug-tab-bar-playground",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -40196,6 +40923,37 @@
       "palette_suggested" : null,
       "title" : "Copy Logs",
       "title_key" : "action.help.copyLogs",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "errors clear",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "errors.clear",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Error Journal",
+      "title_key" : "action.errors.clear",
       "title_table" : "ActionCatalog"
     },
     {
@@ -44737,6 +45495,121 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "host",
+          "required" : true
+        },
+        {
+          "kind" : "bool",
+          "name" : "confirm",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "history remove-site",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "history.removeSite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Site from History…",
+      "title_key" : "action.history.removeSite",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "bool",
+          "name" : "confirm",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "closed clear",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "closed.clear",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Recently Closed…",
+      "title_key" : "action.history.closedClear",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "closed",
+          "required" : true
+        },
+        {
+          "kind" : "bool",
+          "name" : "confirm",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "closed delete",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "closed.delete",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Delete Recently Closed Item…",
+      "title_key" : "action.history.closedDelete",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "offered",
@@ -48145,7 +49018,7 @@
       "id" : "machine.joined.check",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -48176,7 +49049,7 @@
       "id" : "machine.joined.rotate",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -48207,7 +49080,7 @@
       "id" : "machine.joined.revoke",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -60425,14 +61298,53 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "terminal.sendSelectionToChat",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "terminalFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "terminal.sendLastOutputToChat",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "terminalFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "terminal.fixLastCommand",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "terminalFocused"
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 1
+              "order" : 4
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.terminalOpenDirectory",
               "kind" : "action",
-              "order" : 2,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -60443,13 +61355,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 3
+              "order" : 6
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.copyIdentifiers",
               "kind" : "action",
-              "order" : 4,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -60462,7 +61374,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.copySurfaceLink",
               "kind" : "action",
-              "order" : 5,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

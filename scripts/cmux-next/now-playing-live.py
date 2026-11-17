@@ -41,6 +41,8 @@ parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 parser.add_argument("--engines", default="chromium,webkit")
 opts = parser.parse_args()
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("now-playing-live")  # it posts real input (CGEventPost): never on a person's Mac
 os.makedirs(opts.out, exist_ok=True)
 
 if not opts.socket and not opts.tag:

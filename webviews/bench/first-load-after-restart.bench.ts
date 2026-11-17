@@ -21,7 +21,11 @@
 //               down       the socket is refused (HTTP 503, no upgrade), as while acpmux restarts;
 //               slow-init  the socket opens but `initialize` answers only then, as a slow daemon does;
 //               native-ready       native ready waits, with the saved HTML copy;
-//               native-ready-tail  native ready waits, no HTML copy, retained event tail only.
+//               native-ready-tail  native ready waits, no HTML copy, retained event tail only;
+//               refused            native ready refuses with a coded error (the line with Retry above the
+//                                  composer, HostError.tsx) until then, with the copy;
+//               refused-no-copy    the same with no copy (one written at another size or theme, or by
+//                                  another build): the live page draws the kept tail under that line.
 //             Every painted frame until ACPMUX_DOWN_MS + 4000 ms is read after it painted
 //             (test/support/paintedFrames.ts) from the layer on top: the copy's shadow root while it
 //             shows, else the live page.
@@ -35,10 +39,22 @@
 //                               the place); timed from that event, not from the spare's own load.
 //             Not in MODE=all: MODE=reopen (or reopen-no-copy, reopen-spare) runs one; MODE=reopen-both runs reopen
 //             and reopen-no-copy, MODE=reopen-all all three; the rounds' p50 and p95 are printed too.
+//             refused and refused-no-copy are not in MODE=all either: MODE=refused, refused-no-copy or nightly.
+// What a NIGHTLY restart has that the default rounds do not (Leo, 2026-11-16, cosmic-gray: "the chat appeared
+// in 3 seconds and then it said something went wrong with a retry button just above the composer ... and then
+// it layout shifted as it drew and tried to settle"), each a knob:
+//   CONTENT=rich       replies with code blocks, tables whose cells wrap and long paragraphs (the height
+//                      index estimates them: model.ts), not one line each;
+//   HEIGHT_DELTA=N     the relaunch's window is N px shorter than the one the copy was written at (within
+//                      shared.ts SNAPSHOT_HEIGHT_SLACK, so the copy still draws): a tab row or toolbar that
+//                      came back at another height;
+//   PAGES=N            N-1 other restored chat pages load beside the recorded one, at once.
+// MODE=nightly runs down, refused and refused-no-copy (RUNNING, CONTENT, HEIGHT_DELTA, PAGES as given).
 // Per round (bench/firstLoadFrames.ts): blank frames after the first content, shift frames (the composer
 // or the bottom-most row in view moved, or that row was replaced), when the final state first painted,
 // when content first painted; and the layout-shift entries' sum.
-//   [MODE=all|down|slow-init|native-ready|native-ready-tail] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
+//   [MODE=all|nightly|down|slow-init|native-ready|native-ready-tail|refused|refused-no-copy] [RUNNING=1]
+//     [CONTENT=rich] [HEIGHT_DELTA=28] [PAGES=6] [CPU=4] [ENGINE=webkit] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
 //     bun bench/first-load-after-restart.bench.ts
 // GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
 // mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
@@ -48,7 +64,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "./browsers";
+import { chromium, webkit } from "./browsers";
 import type { Browser, Page } from "playwright";
 import {
   PAGE_STYLE_ID,
@@ -67,9 +83,11 @@ import { newestPage } from "./daemonPage";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
-type Mode = (typeof MODES_ALL)[number] | (typeof REOPEN_MODES)[number];
+const REFUSED_MODES = ["refused", "refused-no-copy"] as const;
+type Mode = (typeof MODES_ALL)[number] | (typeof REOPEN_MODES)[number] | (typeof REFUSED_MODES)[number];
 const MODE = process.env.MODE ?? "all";
-const NAMED: readonly string[] = [...MODES_ALL, ...REOPEN_MODES, "reopen-both", "reopen-all"];
+const NIGHTLY_MODES: readonly Mode[] = ["down", ...REFUSED_MODES];
+const NAMED: readonly string[] = [...MODES_ALL, ...REOPEN_MODES, ...REFUSED_MODES, "reopen-both", "reopen-all", "nightly"];
 if (MODE !== "all" && !NAMED.includes(MODE)) throw new Error(`MODE must be all, ${NAMED.join(" or ")}`);
 const MODES: readonly Mode[] =
   MODE === "all"
@@ -78,7 +96,10 @@ const MODES: readonly Mode[] =
       ? ["reopen", "reopen-no-copy"]
       : MODE === "reopen-all"
         ? REOPEN_MODES
-        : [MODE as Mode];
+        : MODE === "nightly"
+          ? NIGHTLY_MODES
+          : [MODE as Mode];
+const isRefused = (mode: Mode) => (REFUSED_MODES as readonly string[]).includes(mode);
 const isReopen = (mode: Mode) => (REOPEN_MODES as readonly string[]).includes(mode);
 const ROUNDS = Number(process.env.ROUNDS ?? 3);
 const TURNS = Number(process.env.TURNS ?? 120);
@@ -92,6 +113,9 @@ for (const [name, value] of [
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
 const RECORD_MS = DOWN_MS + 4000;
+/// A refused handshake backs off to 30 s (hostRetry.ts `REFUSED_RETRY_MAX_MS`): 250 ms doubling with jitter,
+/// so the ask after DOWN_MS can come up to that long again later.
+const recordMs = (mode: Mode) => (isRefused(mode) ? 2 * DOWN_MS + 5000 : RECORD_MS);
 /// The warm page is settled once the newest answer painted and nothing in view changed this long.
 const SETTLE_QUIET_MS = 600;
 /// How the page reaches acpmux. `bridge` (the default) is the app's: the host owns the socket
@@ -113,11 +137,61 @@ const PROFILE = process.env.PROFILE === "1";
 const THEME = "bench-theme";
 /// The copy is drawn only at the viewport it was written at (shared.ts `misfit`): both loads use this.
 const VIEWPORT = { width: 1200, height: 800 };
+/// HEIGHT_DELTA=N: the relaunch's viewport is N px shorter than the warm one (0, the default, is the same).
+const HEIGHT_DELTA = Number(process.env.HEIGHT_DELTA ?? 0);
+if (!Number.isFinite(HEIGHT_DELTA) || Math.abs(HEIGHT_DELTA) > 64) throw new Error("HEIGHT_DELTA must be within 64");
+const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEIGHT_DELTA };
+/// PAGES=N: the recorded page and N-1 other restored chat pages load at once, as a restart restores every
+/// workspace's chats (1, the default, is the recorded page alone).
+const PAGES = Number(process.env.PAGES ?? 1);
+if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whole number of at least 1");
 const LATEST = `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
-const { events, session } = papercutEvents({ turns: TURNS, running: false });
+/// RUNNING=1: the chat's last turn is still running when the app restarts, as a working agent's is.
+const RUNNING = process.env.RUNNING === "1";
+/// CPU=N slows each relaunched page's CPU N times (CDP Emulation.setCPUThrottlingRate), as a loaded
+/// Mac does after an update (Leo's cosmic-gray, 2026-11-16: load1 150 on 15 cores, 100-570 ms frames for
+/// 40 s after the restart): a settle that takes several frames then shows each of them. 1 (the default) is off.
+const CPU = Number(process.env.CPU ?? 1);
+if (!Number.isFinite(CPU) || CPU < 1) throw new Error("CPU must be a number of at least 1");
+/// ENGINE=webkit draws the chat in WebKit, as the app does when its Chromium did not start (Leo's NIGHTLY,
+/// 2026-11-16: 394 of 415 chat pages ran as `webkit:chromium-failed`). WebKit reports no layout-shift
+/// entries, so there the frame-by-frame shift count is the measure. CPU throttling is Chromium's (CDP).
+const ENGINE = process.env.ENGINE ?? "chromium";
+if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error("ENGINE must be chromium or webkit");
+if (ENGINE === "webkit" && CPU > 1) throw new Error("CPU throttling needs ENGINE=chromium");
+/// CONTENT=rich: replies whose heights the height index estimates (model.ts `blockHeight`): a code block
+/// every fourth turn, a table whose cells wrap the next, then a list and long paragraphs, then one line.
+const CONTENT = process.env.CONTENT ?? "plain";
+if (CONTENT !== "plain" && CONTENT !== "rich") throw new Error("CONTENT must be plain or rich");
+const richAnswer = (n: number): string => {
+  const head = `Answer ${n}:`;
+  switch (n % 4) {
+    case 0:
+      return `${head} the build failed in two places.\n\n\`\`\`ts\n${Array.from(
+        { length: 6 + (n % 9) },
+        (_, at) =>
+          `const step${at} = await run("check-${n}-${at}", { retries: ${at % 3}, timeoutMs: ${1000 * (at + 1)} });`,
+      ).join("\n")}\n\`\`\`\n\nBoth come from the same flaky fixture.`;
+    case 1:
+      return `${head} here is where each check stands.\n\n| Check | State | Why |\n| --- | --- | --- |\n${Array.from(
+        { length: 3 + (n % 4) },
+        (_, at) =>
+          `| check ${at} | ${at % 2 ? "red" : "green"} | ${"the runner lost its cache and rebuilt every crate from scratch, ".repeat(1 + (at % 3))}|`,
+      ).join("\n")}`;
+    case 2:
+      return `${head} three things changed.\n\n- ${"The pane keeps its place across a restart. ".repeat(3)}\n- ${"The copy is drawn before the socket opens. ".repeat(2)}\n- The composer keeps its draft.\n\n${"A long paragraph that wraps over several lines at this width, so its height depends on the font and the column. ".repeat(4)}`;
+    default:
+      return `${head} the checks on the merged head are green.`;
+  }
+};
+const { events, session } = papercutEvents({
+  turns: TURNS,
+  running: RUNNING,
+  ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
+});
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
@@ -202,7 +276,17 @@ type BenchWindow = {
 /// place (`chat.scrollAnchor.get`: null, the chat opens at its newest message). The page assigns its own
 /// `window.cmuxAcpmuxActions` once its client is up (App.tsx); these stay beside its own, as the app's
 /// host keeps answering them. Runs in the page, so it closes over nothing.
-function installHost({ tail, readyDelayMs, bridge }: { tail: unknown; readyDelayMs: number; bridge: boolean }) {
+function installHost({
+  tail,
+  readyDelayMs,
+  refuseUntilMs,
+  bridge,
+}: {
+  tail: unknown;
+  readyDelayMs: number;
+  refuseUntilMs: number;
+  bridge: boolean;
+}) {
   /// `asks`: when the page asked for a socket to acpmux (ms from navigation): each `transport.open` over
   /// the bridge, each `new WebSocket` to it on the dev slot's transport.
   const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[] };
@@ -234,7 +318,7 @@ function installHost({ tail, readyDelayMs, bridge }: { tail: unknown; readyDelay
     set: (next) => {
       for (const name of ["agentSession", "cmuxPage"]) {
         const handler = next?.messageHandlers?.[name];
-        if (!handler || (readyDelayMs <= 0 && !bridge)) continue;
+        if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge)) continue;
         const post = handler.postMessage.bind(handler);
         const envelope = name === "cmuxPage";
         handler.postMessage = async (request: {
@@ -258,6 +342,14 @@ function installHost({ tail, readyDelayMs, bridge }: { tail: unknown; readyDelay
               : { ok: false, error: { code: reply.code, message: reply.message, origin: "native" } };
           }
           if (!["ready", "handshake"].includes(method)) return post(request);
+          // A refusal the host names (a coded error, not a recovery): the pane says it at once, with Retry.
+          if (performance.now() < refuseUntilMs) {
+            const code = "acpmux.unavailable";
+            const message = "acpmux is not running";
+            return envelope
+              ? { t: "err", id: request.id, code, message, details: { origin: "native" } }
+              : { ok: false, error: { code, message, origin: "native" } };
+          }
           if (readyDelayMs > 0) {
             // fixed-wait: the withheld native handshake is the condition measured by this mode.
             await new Promise((done) => setTimeout(done, Math.max(0, readyDelayMs - performance.now())));
@@ -687,11 +779,14 @@ try {
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
   /// The prewarmed spare: a New Tab page with no chat yet (dev-host `newtab`; `new`: a new chat, not the latest one).
   const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&newtab&new`;
-  const browser: Browser = await chromium.launch({
-    headless: true,
-    // A released chat opens again in the renderer the app's other chat pages share (one per site).
-    args: MODES.some(isReopen) ? ["--process-per-site"] : [],
-  });
+  const browser: Browser =
+    ENGINE === "webkit"
+      ? await webkit.launch({ headless: true })
+      : await chromium.launch({
+          headless: true,
+          // A released chat opens again in the renderer the app's other chat pages share (one per site).
+          args: MODES.some(isReopen) ? ["--process-per-site"] : [],
+        });
   releases.push(["browser", () => browser.close()]);
   /// The reopen modes' warm renderer: one context with another chat page open in it for the whole run.
   let warmContext: Awaited<ReturnType<Browser["newContext"]>> | undefined;
@@ -758,10 +853,10 @@ try {
     });
   };
 
-  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0) => {
+  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0, refuseUntilMs = 0) => {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
-    await page.addInitScript(installHost, { tail, readyDelayMs, bridge: BRIDGE });
+    await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -951,25 +1046,34 @@ try {
   };
 
   const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = mode === "native-ready-tail" || mode === "reopen-no-copy" ? null : copy;
+    servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
-    const context = isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: VIEWPORT });
-    const page = await context.newPage();
+    const context =
+      isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
+    // The recorded page first, then the other restored chats' pages (PAGES), all navigated at once.
+    const pages = await Promise.all(Array.from({ length: PAGES }, () => context.newPage()));
+    if (context === warmContext) for (const one of pages) await one.setViewportSize(RELAUNCH_VIEWPORT);
+    const page = pages[0]!;
+    const windowMs = recordMs(mode);
     try {
-      await prepare(
-        page,
-        mode === "reopen-no-copy" ? null : keptTail,
-        RECORD_MS,
-        mode.startsWith("native-ready") ? DOWN_MS : 0,
-      );
+      for (const one of pages) {
+        if (CPU > 1) await (await context.newCDPSession(one)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+        await prepare(
+          one,
+          mode === "reopen-no-copy" ? null : keptTail,
+          windowMs,
+          mode.startsWith("native-ready") ? DOWN_MS : 0,
+          isRefused(mode) ? DOWN_MS : 0,
+        );
+      }
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
-      // acpmux is up for a reopen: only the page is new.
-      downMode = isReopen(mode) ? undefined : mode;
+      // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
+      downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
-      await page.goto(url, { waitUntil: "commit" });
+      await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
-        timeout: RECORD_MS + 60_000,
+        timeout: windowMs + 60_000,
         polling: 250,
       });
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
@@ -1017,7 +1121,7 @@ try {
       downMode = undefined;
       downUntil = 0;
       servedCopy = null;
-      if (context === warmContext) await page.close();
+      if (context === warmContext) for (const one of pages) await one.close();
       else await context.close();
     }
   };
@@ -1048,10 +1152,10 @@ try {
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
-      `first-load-after-restart [${mode}]: ${TURNS} turns, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${RECORD_MS} ms, ${rounds.length} rounds`,
+      `first-load-after-restart [${mode}]: ${TURNS} turns, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
     );
     console.log(
-      "round | blank after content | shift frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms",
+      "round | blank after content | shift frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
     );
     rounds.forEach((r, at) =>
       console.log(
@@ -1071,6 +1175,7 @@ try {
           ms(r.socketOpenedMs),
           ms(r.initializeAnsweredMs),
           ms(r.attachAnsweredMs),
+          ms(r.liveLatestMs),
         ].join(" | "),
       ),
     );
@@ -1134,6 +1239,19 @@ try {
         asksP50: pct(asks, 0.5),
       };
     }
+    // Where the time to a live chat goes, medians in ms from navigation: daemon ready (acpmux answers or
+    // the host stops refusing), the attach (socket open, attach answered), first content, live.
+    const split = {
+      daemonReady: median(numbers(rounds, (r) => (isReopen(r.mode) ? null : r.acpmuxUpMs))),
+      socket: median(numbers(rounds, (r) => r.socketOpenedMs)),
+      attach: median(numbers(rounds, (r) => r.attachAnsweredMs)),
+      firstContent: median(numbers(rounds, (r) => r.metrics.firstContentMs)),
+      live: median(numbers(rounds, (r) => r.liveLatestMs)),
+    };
+    console.log(
+      `restart split [${mode}] (medians, ms from navigation): daemon ready ${ms(split.daemonReady)}, socket open ${ms(split.socket)}, attach answered ${ms(split.attach)}, first content ${ms(split.firstContent)}, live ${ms(split.live)}`,
+    );
+    json[`${mode}.split`] = split;
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.

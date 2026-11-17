@@ -527,8 +527,8 @@ class SeedCacheTests(unittest.TestCase):
     def peer_chats(self):
         return self.last_peer.chats
 
-    def run_seed(self, *flags):
-        bench = load_bench("--conditions", "idle", "--cases", "big", "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
+    def run_seed(self, *flags, cases="big,subagent"):
+        bench = load_bench("--conditions", "idle", "--cases", cases, "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
         bench.icl = self.fake_icl()
         real = self.Peer.__init__
         test = self
@@ -606,10 +606,69 @@ class SeedCacheTests(unittest.TestCase):
         self.assertIn("before its spawn", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
         self.assertIn("spawned 5 of 6", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
 
+    def test_relaunched_alone_seeds_no_subagent_chat(self):
+        # 2026-11-16: the seed agent spawned 0 of 5 subagents, and a `--cases=relaunched` A/B, which opens no
+        # subagent chat, stopped as "seed invalid" on both arms. A seed agent whose subagent turns are all bad
+        # must not stop a run that never opens one.
+        self.Peer.bad = 99
+        _home, per, seeded = self.run_seed("--no-seed-cache", cases="relaunched")
+        self.assertNotIn("subagent", seeded["seed_cache"])
+        self.assertNotIn("subagent", seeded["template_bytes"])
+        self.assertEqual(seeded["subagent_template"], "ok")
+        self.assertEqual(self.Peer.bad, 99)  # no subagents turn was ever sent
+        self.assertEqual(len(per["idle"]["relaunched"]), 1)
+        self.assertEqual(per["idle"]["subagent"], [])
+
     def test_a_new_turn_count_seeds_only_the_big_chat(self):
         self.run_seed()
         _home, _per, seeded = self.run_seed("--turns", "6")
         self.assertEqual(seeded["seed_cache"], {"small": "hit", "subagent": "hit", "big": "miss", "store": "hit"})
+
+
+def seed_agent_prompt(text, first=False):
+    """A prompt as the bundled acpmux stores it (seen in a seeding daemon's log, 2026-11-16). `acpmux send` from a
+    program: a sender line marked `attribution` (hub/prompt_attribution.rs), then the text. A first turn
+    (`acpmux new ... TEXT`): the text, then the context blocks acpmux adds."""
+    if first:
+        blocks = [{"type": "text", "text": text},
+                  {"_meta": {"acpmux": {"context": True, "contextSource": "cmux-default"}}, "type": "text",
+                   "text": "<cmux-default-context>Before each tool step, list what you need next.</cmux-default-context>"},
+                  {"_meta": {"acpmux": {"context": True, "contextSource": "cmux-guidance"}}, "type": "text"}]
+    else:
+        blocks = [{"_meta": {"acpmux": {"attribution": True}}, "type": "text",
+                   "text": "From the program chat-open-bench.py on a Mac (acpmux checked its process), not the person:"},
+                  {"type": "text", "text": text}]
+    return {"sessionId": "chat-1", "prompt": blocks}
+
+
+class SeedAgentTests(unittest.TestCase):
+    """chat_open_agent.py, the seed agent, answers its commands as acpmux sends them: past the sender line ahead of a
+    program's prompt and the context beside a first turn."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("chat_open_agent", HERE / "chat_open_agent.py")
+        self.agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.agent)
+        self.out = []
+        self.agent.fake.send = self.out.append
+
+    def kinds(self):
+        return [((m.get("params") or {}).get("update") or {}).get("sessionUpdate") for m in self.out]
+
+    def test_a_sent_subagents_prompt_spawns_its_subagents(self):
+        # 2026-11-16: every seed of the subagent chat answered "echo: subagents: 5" and spawned none, so a
+        # chat-open run stopped as "seed invalid" (spawned 0 of 5 subagents).
+        self.agent.handle_prompt(7, seed_agent_prompt("subagents: 5"))
+        self.assertEqual(self.kinds().count("subagent_spawned"), 5)
+
+    def test_a_sent_turn_prompt_is_a_whole_turn(self):
+        self.agent.handle_prompt(7, seed_agent_prompt("turn: 3"))
+        self.assertGreaterEqual(self.kinds().count("tool_call"), 2)
+        self.assertNotIn("echo:", "".join(str(m) for m in self.out))
+
+    def test_a_first_turn_with_acpmux_context_is_a_whole_turn(self):
+        self.agent.handle_prompt(7, seed_agent_prompt("turn: 0", first=True))
+        self.assertGreaterEqual(self.kinds().count("tool_call"), 2)
 
 
 if __name__ == "__main__":

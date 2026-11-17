@@ -33,6 +33,9 @@
  *   On the machine the socket is not a boundary against the agent: the agent already reaches
  *   `:99` (its own display) and has sudo. It keeps everyone else out, and keeps the host's files
  *   (cookie copy, state) out of the agent's reach. The host exits when idle.
+ * - Desktop session: the host's unit wants DESKTOP_SESSION_UNIT, openbox and a terminal on the
+ *   agent display (1920x1080), so a viewer sees a desktop, not an empty black root window. Its
+ *   start fails loudly when the display still shows no window (DESKTOP_CHECK_SCRIPT).
  */
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_UID, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { firstUseInstallPhases } from "./browser-probe";
@@ -119,6 +122,9 @@ function waitForFile(path: string, seconds: number): string {
   return `/bin/sh -c 'for i in $(seq 1 ${seconds * 10}); do [ -s ${path} ] && exit 0; sleep 0.1; done; echo "no ${path}" >&2; exit 1'`;
 }
 
+/** The agent displays' size: a common monitor size, so a person's view of the desktop is not a small box. */
+export const AGENT_DISPLAY_SIZE = "1920x1080";
+
 /** Xvfb as the work user, X11 over its Unix socket only, with a per-start cookie in `xauthority`. */
 function xvfbUnit(description: string, display: string, xauthority: string, extraArgs = ""): string {
   return [
@@ -131,7 +137,7 @@ function xvfbUnit(description: string, display: string, xauthority: string, extr
     `Group=${DEVBOX_WORK_USER}`,
     `Environment=HOME=${DEVBOX_WORK_HOME}`,
     `ExecStartPre=/bin/sh -c 'install -d -m 0700 ${AGENT_DISPLAY_DIR} && rm -f ${xauthority} && xauth -q -f ${xauthority} add ${display} . "$(mcookie)" && chmod 0600 ${xauthority}'`,
-    `ExecStart=/usr/bin/Xvfb ${display} -screen 0 1280x800x24 -nolisten tcp -auth ${xauthority} -s 0 -dpms${extraArgs}`,
+    `ExecStart=/usr/bin/Xvfb ${display} -screen 0 ${AGENT_DISPLAY_SIZE}x24 -nolisten tcp -auth ${xauthority} -s 0 -dpms${extraArgs}`,
     `ExecStartPost=${waitForSocket(`/tmp/.X11-unix/X${display.slice(1)}`)}`,
     "Restart=on-failure",
     "RestartSec=2",
@@ -257,7 +263,26 @@ export function rootPropertyScript(): string {
   return `#!/usr/bin/python3 -I
 # cmux VM agent tools (images/cmux-vm, managed, do not edit): sets one STRING property on the
 # root window of $DISPLAY (Unix socket) with the MIT-MAGIC-COOKIE-1 in $XAUTHORITY.
-import os, socket, struct, sys
+${X11_CLIENT_PY}
+def main():
+    name, value = sys.argv[1].encode(), sys.argv[2].encode()
+    sock, root, _, _ = connect()
+    sock.sendall(struct.pack("<BBHHxx", 16, 0, 2 + len(pad(name)) // 4, len(name)) + pad(name))
+    (atom,) = struct.unpack_from("<I", reply(sock), 8)
+    sock.sendall(struct.pack("<BBHIIIB3xI", 18, 0, 6 + len(pad(value)) // 4, root, atom, 31, 8, len(value)) + pad(value))
+    sock.sendall(struct.pack("<BxH", 43, 1))
+    reply(sock)
+
+main()
+`;
+}
+
+/**
+ * A minimal X11 client for the scripts above and below: `connect()` opens $DISPLAY's Unix socket
+ * with the MIT-MAGIC-COOKIE-1 in $XAUTHORITY and returns the socket, the root window and the
+ * screen's width and height. python3 only: x11-utils is not on every image.
+ */
+const X11_CLIENT_PY = `import os, socket, struct, sys
 
 def pad(b):
     return b + b"\\0" * (-len(b) % 4)
@@ -294,8 +319,7 @@ def reply(sock):
         if head[0] == 1:
             return head + recv(sock, 4 * struct.unpack_from("<I", head, 4)[0])
 
-def main():
-    name, value = sys.argv[1].encode(), sys.argv[2].encode()
+def connect():
     number = os.environ["DISPLAY"].split(":", 1)[1].split(".")[0]
     auth_name, auth_data = cookie(number)
     sock = socket.socket(socket.AF_UNIX)
@@ -306,15 +330,126 @@ def main():
     if head[0] != 1:
         sys.exit("x11: connection refused: " + body[:head[1]].decode(errors="replace"))
     vendor = struct.unpack_from("<H", body, 16)[0]
-    (root,) = struct.unpack_from("<I", body, 32 + len(pad(b"v" * vendor)) + 8 * body[21])
-    sock.sendall(struct.pack("<BBHHxx", 16, 0, 2 + len(pad(name)) // 4, len(name)) + pad(name))
-    (atom,) = struct.unpack_from("<I", reply(sock), 8)
-    sock.sendall(struct.pack("<BBHIIIB3xI", 18, 0, 6 + len(pad(value)) // 4, root, atom, 31, 8, len(value)) + pad(value))
-    sock.sendall(struct.pack("<BxH", 43, 1))
-    reply(sock)
+    screen = 32 + len(pad(b"v" * vendor)) + 8 * body[21]
+    (root,) = struct.unpack_from("<I", body, screen)
+    width, height = struct.unpack_from("<HH", body, screen + 20)
+    return sock, root, width, height
+`;
+
+/**
+ * The person's desktop on the agent display (ask-da398bba67, Leo 2026-11-16): before it, the display
+ * was a bare Xvfb, and a viewer saw its empty black root window. DESKTOP_SESSION_UNIT runs a window
+ * manager (openbox, role display-wm, baked with the agent tools) and a terminal (xterm) on it as the
+ * work user, so the first frame a viewer sees has a window in it. The remote desktop host's unit
+ * wants it, so the first desktop connection starts it; nothing runs while nobody looks.
+ */
+export const DESKTOP_SESSION_UNIT = "cmux-agent-desktop-session.service";
+/** The session's ExecStart (desktopSessionScript). */
+export const DESKTOP_SESSION_SCRIPT = `${AGENT_TOOLS_DIR}/cmux-agent-desktop-session`;
+/** Checks that a display shows something (desktopCheckScript): the session's ExecStartPost and the image probe. */
+export const DESKTOP_CHECK_SCRIPT = `${AGENT_TOOLS_DIR}/cmux-agent-desktop-check`;
+/** How long the session's start waits for a window on the display before it fails. */
+export const DESKTOP_CHECK_SECONDS = 20;
+
+/**
+ * DESKTOP_SESSION_SCRIPT: openbox, then a terminal in the work user's home; it stays in the
+ * foreground with the window manager and exits 1 when that exits, so the unit restarts. Closing
+ * the terminal leaves the desktop (openbox's right-click menu opens another).
+ */
+export function desktopSessionScript(): string {
+  return [
+    "#!/bin/sh",
+    "# cmux VM agent tools (images/cmux-vm, managed, do not edit): the desktop session on the agent display.",
+    "# Run by cmux-agent-desktop-session.service, which sets DISPLAY and XAUTHORITY.",
+    "set -u",
+    'cd "$HOME" || exit 1',
+    "openbox --sm-disable &",
+    "wm=$!",
+    "xterm -title Terminal -geometry 120x36+60+60 -fa Monospace -fs 11 -bg '#1d1f21' -fg '#c5c8c6' &",
+    'wait "$wm"',
+    'echo "<3>cmux-agent-desktop-session: openbox exited on $DISPLAY" >&2',
+    "exit 1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * DESKTOP_CHECK_SCRIPT `[--wait SECONDS]`: prints `windows=N viewable=N nonblack=N` for $DISPLAY
+ * (top-level windows, those mapped and viewable, and how many of a sample of the root's pixels are
+ * not black) and exits 0 when there is a viewable window and a non-black pixel. Otherwise, after
+ * up to SECONDS, it says on stderr at error level that the display is black and exits 1.
+ */
+export function desktopCheckScript(): string {
+  return `#!/usr/bin/python3 -I
+# cmux VM agent tools (images/cmux-vm, managed, do not edit): fails loudly when $DISPLAY shows nothing.
+${X11_CLIENT_PY}
+import time
+
+def look(sock, root, width, height):
+    sock.sendall(struct.pack("<BxHI", 15, 2, root))
+    r = reply(sock)
+    (n,) = struct.unpack_from("<H", r, 16)
+    children = struct.unpack_from("<%dI" % n, r, 32)
+    viewable = 0
+    for w in children:
+        sock.sendall(struct.pack("<BxHI", 3, 2, w))
+        if reply(sock)[26] == 2:
+            viewable += 1
+    nonblack = 0
+    rows = 8
+    for i in range(rows):
+        y = (2 * i + 1) * height // (2 * rows)
+        sock.sendall(struct.pack("<BBHIhhHHI", 73, 2, 5, root, 0, y, width, 1, 0xFFFFFFFF))
+        line = reply(sock)[32:32 + 4 * width]
+        nonblack += sum(1 for (p,) in struct.iter_unpack("<I", line) if p & 0xFFFFFF)
+    return n, viewable, nonblack
+
+def main():
+    wait = float(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[1] == "--wait" else 0.0
+    sock, root, width, height = connect()
+    deadline = time.monotonic() + wait
+    while True:
+        n, viewable, nonblack = look(sock, root, width, height)
+        if (viewable and nonblack) or time.monotonic() >= deadline:
+            break
+        time.sleep(0.5)
+    print("windows=%d viewable=%d nonblack=%d size=%dx%d" % (n, viewable, nonblack, width, height))
+    if not (viewable and nonblack):
+        print("<3>cmux-agent-desktop-check: display %s shows a black screen: %d window(s), %d viewable, no lit pixel after %ds" % (os.environ["DISPLAY"], n, viewable, wait), file=sys.stderr)
+        sys.exit(1)
 
 main()
 `;
+}
+
+/**
+ * DESKTOP_SESSION_SCRIPT as the work user on the agent display. BindsTo the display: it stops with
+ * it, and the next desktop connection starts both again. ExecStartPost is the check: a session that
+ * shows no window within DESKTOP_CHECK_SECONDS fails the unit with an error-level journal line, and
+ * after 5 such starts in 2 minutes the unit stays failed.
+ */
+export function desktopSessionUnit(): string {
+  return [
+    "[Unit]",
+    `Description=cmux agent desktop session (openbox and a terminal) on the agent display ${AGENT_DISPLAY}, started with the remote desktop host`,
+    `BindsTo=${DISPLAY_UNIT}`,
+    `After=${DISPLAY_UNIT}`,
+    "StartLimitIntervalSec=120",
+    "StartLimitBurst=5",
+    "",
+    "[Service]",
+    "Type=simple",
+    `User=${DEVBOX_WORK_USER}`,
+    `Group=${DEVBOX_WORK_USER}`,
+    `Environment=HOME=${DEVBOX_WORK_HOME}`,
+    `Environment=DISPLAY=${AGENT_DISPLAY}`,
+    `Environment=XAUTHORITY=${AGENT_XAUTHORITY}`,
+    `ExecStart=${DESKTOP_SESSION_SCRIPT}`,
+    `ExecStartPost=${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS}`,
+    "Restart=on-failure",
+    "RestartSec=2",
+    "",
+  ].join("\n");
 }
 
 /** A refusing stand-in for `name` on the driver's PATH (see CUA_REFUSE_DIR). */
@@ -571,6 +706,9 @@ export function rdStartScript(
     `[ -S ${sq(x11)} ] || drain "display ${AGENT_DISPLAY} is not running"`,
     `[ -s ${sq(xauthority)} ] || drain "no copy of the display cookie at ${xauthority}"`,
     `[ -e ${sq(marker)} ] || drain "OpenH264 is not installed (${RD_OPENH264_UNIT} failed; the next connection tries again)"`,
+    // The host streams whatever the display shows; when the desktop session never puts a window on it,
+    // the host's own journal says so at error level (the check's stderr), next to the session unit's failure.
+    `( XAUTHORITY=${sq(xauthority)} DISPLAY=${AGENT_DISPLAY} ${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS + 10} >/dev/null || echo "<3>cmux-rd-start: display ${AGENT_DISPLAY} has no windows; the viewer sees a black screen (systemctl status ${DESKTOP_SESSION_UNIT})" >&2 ) &`,
     `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun ${RD_LINK_STUN}`,
     "",
   ].join("\n");
@@ -603,6 +741,10 @@ export function rdUnit(): string {
     `BindsTo=${DISPLAY_UNIT}`,
     // OpenH264 first, but its failure does not fail the start (the marker check in RD_START_SCRIPT).
     `Wants=${RD_OPENH264_UNIT}`,
+    // The person's desktop on the display, so a viewer never streams an empty root window. Wants
+    // without After: the host does not wait for it, and a session that fails its check fails
+    // loudly on its own (desktopSessionUnit) without failing the host's start.
+    `Wants=${DESKTOP_SESSION_UNIT}`,
     `After=${RD_OPENH264_UNIT} ${RD_SOCKET_UNIT}`,
     `Requires=${RD_SOCKET_UNIT}`,
     // Every start takes its connection (RD_START_SCRIPT), so systemd never starts the host again
@@ -642,7 +784,7 @@ export function rdUnit(): string {
  * own), then the socket enabled and listening (in the snapshot too) with the host not running.
  */
 export function rdSetupCommand(): string {
-  const units = [RD_SOCKET_UNIT, RD_UNIT, RD_OPENH264_UNIT].map((u) => `/etc/systemd/system/${u}`).join(" ");
+  const units = [RD_SOCKET_UNIT, RD_UNIT, RD_OPENH264_UNIT, DESKTOP_SESSION_UNIT].map((u) => `/etc/systemd/system/${u}`).join(" ");
   return [
     `{ id -u ${RD_USER} >/dev/null 2>&1 || useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ${RD_USER}; }`,
     `test "$(id -nG ${RD_USER})" = ${RD_USER}`,
@@ -655,6 +797,9 @@ export function rdSetupCommand(): string {
     `test "$(id -u ${DEVBOX_WORK_USER})" = ${RD_PEER_UID}`,
     // The start script's drain runs python3; without it a failed start could not close its connection.
     `sh -n ${RD_START_SCRIPT} && test -x ${RD_START_SCRIPT} && test -x /usr/bin/python3`,
+    // The desktop session's programs (role display-wm, baked by displayWmBakePhases) and its scripts.
+    `command -v openbox >/dev/null && command -v xterm >/dev/null && sh -n ${DESKTOP_SESSION_SCRIPT} && test -x ${DESKTOP_SESSION_SCRIPT}`,
+    `python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${DESKTOP_CHECK_SCRIPT} && test -x ${DESKTOP_CHECK_SCRIPT}`,
     `systemd-analyze verify ${units}`,
     "systemctl daemon-reload",
     `command -v setpriv >/dev/null`,
@@ -662,6 +807,7 @@ export function rdSetupCommand(): string {
     `test -S ${RD_SOCKET} && test "$(stat -c '%a %U %G' ${RD_SOCKET})" = '660 root ${DEVBOX_WORK_USER}'`,
     `! systemctl is-active --quiet ${RD_UNIT}`,
     `! systemctl is-active --quiet ${RD_OPENH264_UNIT}`,
+    `! systemctl is-active --quiet ${DESKTOP_SESSION_UNIT}`,
     `echo agent-desktop-ready`,
   ].join(" && ");
 }
@@ -707,14 +853,27 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
     { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(), mode: 0o644 },
     { path: RD_START_SCRIPT, text: rdStartScript(rd), mode: 0o755 },
     { path: `/etc/systemd/system/${RD_OPENH264_UNIT}`, text: rdOpenh264Unit(rd), mode: 0o644 },
+    { path: `/etc/systemd/system/${DESKTOP_SESSION_UNIT}`, text: desktopSessionUnit(), mode: 0o644 },
+    { path: DESKTOP_SESSION_SCRIPT, text: desktopSessionScript(), mode: 0o755 },
+    { path: DESKTOP_CHECK_SCRIPT, text: desktopCheckScript(), mode: 0o755 },
     ...CUA_REFUSED.map((name) => ({ path: `${CUA_REFUSE_DIR}/${name}`, text: cuaRefuseScript(name), mode: 0o755 })),
   ];
 }
 
-/** The browser role's first-use install at bake (apt closure from the dated snapshot, then programs), then its apt lists go. */
+/** The role whose closure the desktop session runs (openbox, xterm), baked with the agent tools. */
+export const DISPLAY_WM_ROLE = "display-wm";
+/** The first-use roles the agent tools bake in: their closures are installed, not refused (bake.ts refusedFirstUsePackages). */
+export const AGENT_TOOLS_BAKED_ROLES = [BROWSER_ROLE, DISPLAY_WM_ROLE] as const;
+
+/**
+ * The browser role's and role display-wm's first-use installs at bake (each closure's .debs by
+ * content, then programs), then the fetched files go.
+ */
 export function browserRoleBakePhases(lock: InputsLock): Array<{ name: string; command: string }> {
+  const manifest = rolesManifest(lock);
   return [
-    ...firstUseInstallPhases(rolesManifest(lock), BROWSER_ROLE).map((p) => ({ name: `agent-tools-browser-${p.name}`, command: p.command })),
+    ...firstUseInstallPhases(manifest, BROWSER_ROLE).map((p) => ({ name: `agent-tools-browser-${p.name}`, command: p.command })),
+    ...firstUseInstallPhases(manifest, DISPLAY_WM_ROLE).map((p) => ({ name: `agent-tools-display-wm-${p.name}`, command: p.command })),
     { name: "agent-tools-browser-lists", command: "rm -rf /var/lib/cmux/apt-snapshot && echo browser-role-baked" },
   ];
 }

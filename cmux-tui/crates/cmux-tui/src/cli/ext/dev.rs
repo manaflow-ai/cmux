@@ -242,20 +242,15 @@ pub(super) fn load_package_unbuilt(dir: &Path, builds: bool) -> Result<Package, 
         field: Some("/id".into()),
         ..Problem::message(message)
     };
-    // The daemon's local folder only holds `local/` apps (catalog.rs), and
-    // `local/customize` loads only from the customize folder.
-    let Some(name) = id.strip_prefix("local/").map(str::to_string) else {
-        return Err(vec![field(format!(
-            "{id}: an extension in development is a local/ app; use \"local/{}\"",
-            id.split('/').nth(1).unwrap_or("name")
-        ))]);
-    };
+    // The daemon's local folder holds only `local/` apps (catalog.rs), `local/customize` only from
+    // its own folder; a published `OWNER/NAME` (publish.rs) loads as `local/NAME`.
+    let name = super::publish::dev_name(&id, &manifest).map_err(|message| vec![field(message)])?;
     if name == "customize" {
         return Err(vec![field(
             "local/customize is your customize folder (~/.config/cmux/customize), which cmux already reloads on save; pick another name".into(),
         )]);
     }
-    Ok(Package { dir: dir.to_path_buf(), manifest, id, name })
+    Ok(Package { dir: dir.to_path_buf(), manifest, id: format!("local/{name}"), name })
 }
 
 /// How the folder is built.
@@ -622,6 +617,7 @@ pub(super) fn sync(pkg: &Package, target: &Path) -> Result<bool, Problem> {
     for rel in &files {
         let from = pkg.dir.join(rel);
         let bytes = std::fs::read(&from).map_err(|e| io("cannot read", &from, e))?;
+        let bytes = super::publish::as_loaded(pkg, rel, bytes);
         total += bytes.len() as u64;
         if total > MAX_BYTES {
             return Err(Problem::message(format!("the package is over {} MiB", MAX_BYTES >> 20)));
@@ -1273,7 +1269,9 @@ impl Session {
     /// know the request still reloads on its watch, waited for as before.
     fn pickup(&mut self, id: &str, target: &Path) -> Result<Result<(), Problem>, Stop> {
         let folder = target.display().to_string();
-        let asked = self.daemon.send(json!({ "cmd": "apps-reload-local" }))?;
+        // It names the folder, so the pass reads only it (an older daemon reads all).
+        let asked =
+            self.daemon.send(json!({ "cmd": "apps-reload-local", "folders": [&folder] }))?;
         self.daemon.wait(Instant::now() + PICKUP_DEADLINE, |value| {
             if value.get("id").and_then(Value::as_str) == Some(asked.as_str()) {
                 if value.field("ok").as_bool() != Some(true) {
