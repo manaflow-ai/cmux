@@ -1,0 +1,147 @@
+diff --git a/webviews/src/agent-session/acpmux/App.tsx b/webviews/src/agent-session/acpmux/App.tsx
+index acda0c7bc0a..401aa8364a2 100644
+--- a/webviews/src/agent-session/acpmux/App.tsx
++++ b/webviews/src/agent-session/acpmux/App.tsx
+@@ -6903,6 +6903,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
+     )
+       releaseCalls();
+   }, []);
++  /// The oldest row the followed transcript draws: the client sheds no held record above it (direct.ts `setKeepFrom`).
++  const onTranscriptKeepFrom = useCallback((rowId: string | null) => directClient.current?.setKeepFrom(rowId), []);
+   const composerRef = useCallback((handle: ComposerHandle | null) => {
+     composerHandle.current = handle;
+     if (handle && pendingWake.current) {
+@@ -11745,6 +11747,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
+                                                                         ? undefined
+                                                                         : onTranscriptFollowingChange
+                                                                     }
++                                                                    onKeepFrom={
++                                                                      childRows ? undefined : onTranscriptKeepFrom
++                                                                    }
+                                                                     onAnchor={
+                                                                       quick || childRows || !shownSessionId
+                                                                         ? undefined
+diff --git a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+index 3e1023d3321..7593024c68a 100644
+--- a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
++++ b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
+@@ -1655,6 +1655,7 @@ function TranscriptView({
+   onLoadOlder,
+   sends = 0,
+   onFollowingChange,
++  onKeepFrom,
+   onJumpShownChange,
+   coldOpen,
+   onColdOpenShown,
+@@ -1738,6 +1739,9 @@ function TranscriptView({
+   sends?: number;
+   /// Keeps the parent send path in sync with the reader's current follow state.
+   onFollowingChange?: (following: boolean) => void;
++  /// The oldest row the view draws while it follows the latest row, else null: the client lets go of no held record
++  /// above it (direct.ts `setKeepFrom`).
++  onKeepFrom?: (rowId: string | null) => void;
+   /// Jump to latest (or the Needs your input pill) shows or hides: the pane lifts its bottom toast
+   /// deck above it while it shows (toastLayer.css). Told `false` when the transcript goes.
+   onJumpShownChange?: (shown: boolean) => void;
+@@ -6639,8 +6643,23 @@ function TranscriptView({
+   // scroll back to the top could land in the same frame, so the rendered offset never changed
+   // and a check that ran only on a change of it never asked for the next page (the scroll to the
+   // first message stalled at the top after a few pages, perf100).
++  const keptFrom = useRef<string | null | undefined>(undefined);
++  /// Tells the client the oldest row in view while the view follows (null once it does not): a chat streaming under
++  /// load sheds its oldest records only below it, so what it keeps still fills the view and no older page is read
++  /// back at the latest row. Runs where `checkOlder` does (each scroll event and commit); says only a change.
++  const keepFromInView = (node: HTMLElement | null) => {
++    if (!onKeepFrom) return;
++    const id =
++      node && followingRef.current && node.clientHeight > 0
++        ? (rows[visibleLayoutRange(layout, layoutScrollTop(node), 0, 0).first]?.id ?? null)
++        : null;
++    if (id === keptFrom.current) return;
++    keptFrom.current = id;
++    onKeepFrom(id);
++  };
+   const checkOlder = () => {
+     const node = ref.current;
++    keepFromInView(node);
+     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
+       clearTimeout(olderRecheck.current);
+       olderRecheck.current = undefined;
+@@ -6651,7 +6670,13 @@ function TranscriptView({
+     }
+     // Measured from the loaded rows' top, under the room held for the history above them.
+     const ahead = olderAhead.ahead(node.clientHeight * OLDER_AHEAD_VIEWPORTS, node.clientHeight, performance.now());
+-    if (node.scrollTop - (layout.origin ?? 0) >= ahead) {
++    // A view that follows the latest row reads no older page while its rows fill it: the reader is not moving up.
++    // A chat streaming under load lets go of its oldest records (direct.ts `shedOlderHeld`), and what it keeps can
++    // be a few screens of one call's output; read back at once, the page brought the shed records back, the next
++    // streamed record shed them again, and every page refolded the held window (about 7 a second at 60 chunks and
++    // 2,000 lines a second, a third of the main thread). A scroll up stops following, and its scroll asks here.
++    const fills = node.scrollHeight - (layout.origin ?? 0) > node.clientHeight;
++    if (node.scrollTop - (layout.origin ?? 0) >= ahead || (followingRef.current && fills)) {
+       // Allow the next visit to the threshold to request the next page, even when the first row
+       // did not change while the reader was away from the top.
+       olderLoadRequested.current = undefined;
+diff --git a/webviews/src/agent-session/acpmux/direct.ts b/webviews/src/agent-session/acpmux/direct.ts
+index ea66494e2bc..4cdd2b98a22 100644
+--- a/webviews/src/agent-session/acpmux/direct.ts
++++ b/webviews/src/agent-session/acpmux/direct.ts
+@@ -3653,6 +3653,8 @@ export class AcpmuxDirectClient {
+   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
+   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
+   private following = true;
++  /// The oldest row the following view draws (`setKeepFrom`): no shed cuts above it.
++  private keepFromRow?: string;
+   /// How many records the chat holds when it next tries to shed inside a turn (`apply`, `HELD_RETRY`).
+   private shedRetryAt = 0;
+   /// The seq of the record that opened the running turn (its prompt, or its `turn_started` with none open): a turn
+@@ -7898,6 +7900,12 @@ export class AcpmuxDirectClient {
+     this.following = following;
+   }
+ 
++  /// The oldest row the pane's view draws while it follows the latest row (VirtualTranscript), or null: the oldest
++  /// held records are let go only below it (`shedOlderHeld`). A row no longer held names nothing.
++  setKeepFrom(rowId: string | null): void {
++    this.keepFromRow = rowId ?? undefined;
++  }
++
+   /// A chat left open lets go of its oldest records once it holds more than `HELD_RECORDS`, as a chat opened on
+   /// its newest page holds only those: what it holds, and the work of each streamed update over the rows drawn
+   /// from it, stay the same however long the chat runs (Leo, 2026-11-12: "even if a chat is long, there should
+@@ -7943,13 +7951,29 @@ export class AcpmuxDirectClient {
+     // end comes later, a subagent that goes on): the cut goes back to where it began, until none does, so the rows
+     // kept are what a fold of the records kept draws, and none is folded again.
+     const chosen = cut;
+-    while (cut > 0) {
+-      const { seq } = this.events[cut]!;
+-      let from = this.rows.spanningFrom(seq);
+-      for (const [id, first] of this.subagentFirstSeen)
+-        if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
+-      if (from >= seq) break;
+-      cut = firstHeldFrom(this.events, from);
++    const unspanned = (at: number) => {
++      while (at > 0) {
++        const { seq } = this.events[at]!;
++        let from = this.rows.spanningFrom(seq);
++        for (const [id, first] of this.subagentFirstSeen)
++          if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
++        if (from >= seq) break;
++        at = firstHeldFrom(this.events, from);
++      }
++      return at;
++    };
++    cut = unspanned(cut);
++    // Never above the oldest row the view draws (`setKeepFrom`): a cut past it left less than a screen of rows, the
++    // view read the shed records back as an older page at once, and the next streamed record shed them again (about
++    // 7 times a second at 60 chunks and 2,000 lines a second, each page refolding the held window). Held only while
++    // it keeps at most `HELD_KEPT` records more than the count would: a view whose top row is older than that (one
++    // row drawn from a long run of records) is cut by the count, as with nothing named, never kept whole.
++    // The held index of the oldest record of the row in view; undefined when none is named or held.
++    const keepSeq = this.keepFromRow === undefined ? Infinity : this.rows.orderOf(this.keepFromRow);
++    const keepAt = keepSeq === Infinity ? undefined : firstHeldFrom(this.events, keepSeq);
++    if (keepAt !== undefined && cut > 0 && keepAt < cut) {
++      const kept = unspanned(keepAt);
++      if (cut - kept <= HELD_KEPT) cut = kept;
+     }
+     if (cut <= 0) return;
+     // Moved, the cut starts a turn the one before it ended, or the kept rows open under their turn's prompt.
