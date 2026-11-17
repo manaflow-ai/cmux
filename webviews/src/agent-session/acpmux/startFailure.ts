@@ -1,6 +1,7 @@
 import { agentName } from "./agents";
 import { failureCopy, failureKind } from "./failureCopy";
-import { startErrorMessage } from "./transportErrors";
+import { isRawDaemonText, peerLinkFailure, peerLinkLine } from "./hostLine";
+import { knownRefusalText, startErrorMessage } from "./transportErrors";
 import type { Translate } from "./i18n";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import {
@@ -131,32 +132,55 @@ export function logStartFailure(harness: string, sessionId: string | undefined, 
   console.error(`agent pane: couldn't start ${harness} session=${sessionId ?? "none"}: ${cause ?? "no error"}`);
 }
 
-/// The codes of a start that waited for acpmux and gave up: the pane's host line already says the
-/// agent service is away, so a sessionless send's start says nothing more there (sendFailure.ts
-/// `host-away`, Leo 2026-11-12); the log still has it.
-const HOST_AWAY = new Set(["native.not_connected", "native.timed_out", START_CONNECTION_LOST]);
+/// The codes of a start that never reached the agent because acpmux was away or went away: the
+/// pane's host line already says the agent service is away, so a sessionless send's start says
+/// nothing more there (sendFailure.ts `host-away`, Leo 2026-11-12); the log still has it.
+const HOST_AWAY = new Set(["native.timed_out", ...SERVICE_UNREACHABLE]);
+
+/// A sessionless chat's start that another chat's selection (or the page closing) overtook
+/// (direct.ts `ensureSession`): no failure of the chat now shown.
+export function isStartSuperseded(error: unknown): boolean {
+  return (error as { superseded?: unknown } | null)?.superseded === true;
+}
+
+/// Words an agent or acpmux wrote for people, safe as a notice's reason: one short line, no code,
+/// path, stack or protocol text (`hostLine.ts` `isRawDaemonText`, `MACHINERY`). acpmux's own
+/// refusals often end without a period ("agent launch is disabled in this build session").
+function plainReason(text: string | undefined): string | undefined {
+  const words = text?.trim();
+  if (!words || words.length > 160 || words.includes("\n") || words.split(" ").length < 4) return undefined;
+  return MACHINERY.test(words) || isRawDaemonText(words) ? undefined : words;
+}
 
 /// A chat's first send that started its session itself (direct.ts `ensureSession`, no HarnessSwitch)
 /// and failed: logs the cause, and returns the line the pane's notice says, or nothing for a start
-/// that waited for acpmux (`HOST_AWAY`) or was cancelled. Before, that start put the prompt back with
-/// no word of why (#44964). `harness`: the chat's agent, when the pane knows it.
+/// that waited for acpmux (`HOST_AWAY`). Before, that start put the prompt back with no word of why
+/// (#44964). The notice row has no Details, so the line carries the reason itself when it is plain
+/// words; raw text stays in the log. `harness`: the agent the send started, when the pane knows it.
 export function startFailureNotice(t: Translate, harness: string | undefined, error: unknown): string | undefined {
   const cause = startFailureCause(error);
   logStartFailure(harness ?? "agent", undefined, cause);
   const code = startFailureCode(error);
   if (code && HOST_AWAY.has(code)) return undefined;
+  // A peer chat whose machine is down says which machine, as its sends do.
+  const peer = peerLinkFailure(error);
+  if (peer) return peerLinkLine(peer, t);
+  const known = knownRefusalText(error, "transport.intentInvalidStart");
+  if (!harness) {
+    const reason = known ?? plainReason(startErrorMessage(error));
+    return reason ? t("switch.failedUnnamed", { reason }) : t("chat.newFailed");
+  }
+  const name = agentName(harness);
   const view = startFailureView(t, {
-    harness: harness ?? "",
-    name: harness ? agentName(harness) : t("turn.failure.theAgent"),
+    harness,
+    name,
     error: startErrorMessage(error) || t("switch.unknownError"),
     ...(code ? { code } : {}),
     ...(cause ? { cause } : {}),
   });
-  // The notice has no Details: an unexplained start says its reason in the line itself.
-  if (!view.unexplained || !view.detail) return view.sentence;
-  return harness
-    ? t("switch.failed", { agent: agentName(harness), reason: view.detail })
-    : t("switch.failedUnnamed", { reason: view.detail });
+  if (!view.unexplained) return view.sentence;
+  const reason = plainReason(view.detail);
+  return reason ? t("switch.failed", { agent: name, reason }) : view.sentence;
 }
 
 function startFailureSentence(t: Translate, switching: StartFailure): StartFailureView {
