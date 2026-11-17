@@ -196,6 +196,7 @@ pub mod peer_last_good;
 pub mod peer_link;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
+pub mod peer_path_stats;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
