@@ -34,8 +34,8 @@ shows none (no key presses it).
 - Settings approval (`UserOnlySettingConfirmation`) and every `DestructiveConfirmation`
   prompt: Cloud kill machine, delete snapshot, remove file, delete firewall rule; close
   workspace / group workspaces / bulk closes (`WorkspaceBulkClose`); browser profile delete;
-  agent extension access; delete space (`RoomStrings`); remote install
-  (`RemoteConfirmation`); tab group close (`TabCloseGuard`); delete command history;
+  agent extension access; delete space (`RoomStrings`); tab group
+  close (`TabCloseGuard`); delete command history;
   workspace localhost (`RemoteLocalhostHandlers`); incognito window close.
 - Quit: `QuitAlert`, `QuitFailureAlert`, `QuitUnsavedStep` (Don't Save ⌘D).
 - `RenamePrompt`, `DebugDialog`, `CloudPresenter`, daemon pairing approval, daemon recovery

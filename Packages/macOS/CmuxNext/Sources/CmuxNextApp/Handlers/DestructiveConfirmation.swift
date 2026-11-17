@@ -21,8 +21,9 @@ import os
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
-/// no question. The Cloud deletes, Remove Git Worktree, profile delete, Delete Chief, agent extension access,
-/// remote install and Roll Back (it quits into the kept build) still ask.
+/// no question. The Cloud deletes, Remove Git Worktree, profile delete, Delete Chief, agent extension access
+/// and Roll Back (it quits into the kept build) still ask; Install or Update on an SSH machine is
+/// not destructive and runs on the click.
 /// A target that does not resolve is not asked about: the handler then
 /// refuses it with the usual typed reason.
 enum DestructiveConfirmation {
@@ -99,8 +100,6 @@ enum DestructiveConfirmation {
             return await RoomConfirmation.prompt(invocation, context)
         case .spaceClearDefaults?:
             return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
-        case .remoteInstall?:
-            return await RemoteConfirmation.prompt(for: id, invocation, context)
         case .updateRollback?: // palette, menu and the pulled-build banner's Roll Back
             return Prompt(title: UpdateDropBack.confirmation.title, body: UpdateDropBack.confirmation.body, button: UpdateDropBack.confirmation.button)
         case .tabGroupClose?:

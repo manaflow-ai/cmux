@@ -2685,8 +2685,6 @@ CmuxNextApp	extension	JoinConsentModel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextApp	extension	JoinConsentServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift	Join consent wiring via acpmux CLI and presenter
 CmuxNextApp	struct	MachineConsentChanges	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift	from extension JoinConsentServices:19: Join consent wiring via acpmux CLI and presenter
 CmuxNextApp	enum	PeerApprovalsApp	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/PeerApprovals+App.swift	Peer approvals wiring
-CmuxNextApp	enum	DaemonLauncherBinary	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteConfirmation.swift	from enum RemoteConfirmation:8: Install confirmation dialog
-CmuxNextApp	enum	RemoteConfirmation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteConfirmation.swift	Install confirmation dialog
 CmuxNextApp	enum	RemoteForgetUndo	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteForgetUndo.swift	from enum RemoteForgetUndo:13: Forget undo toast
 CmuxNextApp	enum	RemoteStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteStrings.swift	Localized string accessors
 CmuxNextApp	class	RemoteTerminalPlaceholderView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteTerminalPlaceholderView.swift	Placeholder view

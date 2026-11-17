@@ -29,7 +29,7 @@ final class SSHService {
     @ObservationIgnored private let installer: RemoteInstaller
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
-    /// Runs `remote.install` through the registry's confirmation (set by the handlers).
+    /// Runs `remote.install` (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
     /// The acting window (`WindowManager.active`): a connect records it as `connectingWindow`.
     @ObservationIgnored var actingWindow: () -> String? = { nil }
@@ -330,7 +330,7 @@ final class SSHService {
     }
 
     /// A daemon that answers but is too old for this app (a refused
-    /// handshake, or limited features) gets the same install offer as a
+    /// handshake, or limited features) is installed over, as a
     /// missing binary, once per user-initiated connect.
     private func offerInstallWhenOld(_ session: SSHMachineSession) {
         let machines = machines
