@@ -83,8 +83,9 @@ extension NewTabKeySessionWalkTests {
     ///
     /// A print with no bound (decision of 2026-11-17): it is the count at the decision's date, not a rule. At that
     /// date the store takes the stand-in tab of each waiting creation out of its pane and puts it in again at each
-    /// store event. The 3 sizes show by a run how the counts grow with the hold. No frame runs here, so no page view
-    /// is made: the counts are the store's and the strip's.
+    /// store event. The 3 sizes show by a run how the counts grow with the hold. The row has no frame step of its own,
+    /// and a display frame can run in a drain: the print gives the New Tab pages that have a view after the keys and
+    /// after the answers, so a reader sees how much of a frame's work is in the counts.
     ///
     /// The conditions are of the model only: each key's creation waits, each answer names its tab, and after the last
     /// answer the pane has no stand-in tab and one tab more for each key.
@@ -106,7 +107,8 @@ extension NewTabKeySessionWalkTests {
             }
             let writes = TabListWrites(model)
             let tabsBefore = model.tabs.count
-            let head = "new tab hold, \(start.workspaces) workspaces, \(keys) keys with the answers held, no frame"
+            let tabs = start.services.agentTabs
+            let head = "new tab hold, \(start.workspaces) workspaces, \(keys) keys with the answers held"
 
             // The keys, each in its own turn.
             _ = start.visits.takeByWorkspace()
@@ -123,9 +125,11 @@ extension NewTabKeySessionWalkTests {
             let keyFeed = start.visits.takeByWorkspace()[workspace.id] ?? 0
             let standIns = model.tabs.filter { ProvisionalTab.isProvisional(surface: $0.surface) }.count
             let keyMaps = start.pane.debugSnapshotRuns - mapsAtKeys
+            let viewsAtKeys = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }.count
             let keyWrites = "\(writes.count - writesAtKeys) times (the first key \(eachKey.first ?? -1), the last key \(eachKey.last ?? -1))"
             print("\(head): the keys added \(made) tabs and \(answers.asks.count) creations wait with \(standIns) stand-in tabs; "
                 + "the keys wrote the pane's tab list \(keyWrites) and mapped its strip \(keyMaps) times; "
+                + "New Tab pages with a view after the keys: \(viewsAtKeys); "
                 + "the strip maps by call site: \(Self.stripMapSites(since: sitesAtKeys))")
             #expect(made == keys && answers.asks.count == keys,
                     "the model: \(keys) New Tab keys added \(made) tabs and \(answers.asks.count) creations wait")
@@ -168,18 +172,19 @@ extension NewTabKeySessionWalkTests {
             let applySum = String(format: "%.2f", applyTimes.reduce(0, +))
             let applyFirst = String(format: "%.2f", applyTimes.first ?? -1), applyLast = String(format: "%.2f", applyTimes.last ?? -1)
             let answerMaps = start.pane.debugSnapshotRuns - mapsAtAnswers
+            let viewsAtAnswers = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }.count
             let firstAnswer = "the first answer \(eachAnswer.first ?? -1), of them \(eachEvent.first ?? -1) in its event's apply"
             let lastAnswer = "the last answer \(eachAnswer.last ?? -1), of them \(eachEvent.last ?? -1) in its event's apply"
             print("\(head): the \(eachAnswer.count) answers one by one wrote the pane's tab list \(writes.count - writesAtAnswers) times "
                 + "(\(firstAnswer); \(lastAnswer)) and mapped its strip \(answerMaps) times; "
+                + "New Tab pages with a view after the answers: \(viewsAtAnswers); "
                 + "the strip maps by call site: \(Self.stripMapSites(since: sitesAtAnswers))")
             let applies = "\(applySum) ms in sum (the first \(applyFirst) ms, the last \(applyLast) ms; a Debug build, no daemon, no page)"
             print("\(head): the store's apply of the answers' events took \(applies); the places feed mapped the pane's workspace "
                 + "\(keyFeed) times at the keys and \(answerFeed) times at the answers; stand-in tabs left: \(left); "
                 + "the pane has \(more) tabs more than before the hold; answers with no tab to name: \(unnamed)")
             #expect(left == 0 && more == keys && unnamed == 0,
-                    "the model: after the answers the pane has \(left) stand-in tabs and \(more) tabs more for \(keys) keys; "
-                        + "\(unnamed) answers named no tab")
+                    "the model: \(left) stand-in tabs left, \(more) tabs more for \(keys) keys, \(unnamed) answers named no tab")
         }
     }
 }

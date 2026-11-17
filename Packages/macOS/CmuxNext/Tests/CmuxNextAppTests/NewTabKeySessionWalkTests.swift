@@ -374,9 +374,9 @@ struct NewTabKeySessionWalkTests {
                 let sameRows = keptBefore.first(where: { $0.id == id }) == keptAfter.first(where: { $0.id == id })
                 return !(id == own && ownWaits && afterTitle[id] == 1 && sameRows)
             }
+            let want = "want the tab's own, and the workspace of a pane with a waiting creation 1 time with equal rows"
             #expect(notAllowed.isEmpty,
-                    "a title change of one tab mapped \(afterTitle.count) workspaces in \(titleMaps) maps; not allowed: \(notAllowed) "
-                        + "(want the tab's own, and the workspace of a pane with a waiting creation 1 time with equal rows)")
+                    "a title change of one tab mapped \(afterTitle.count) workspaces in \(titleMaps) maps; not allowed: \(notAllowed) (\(want))")
         }
     }
 
