@@ -126,7 +126,7 @@ extension SidebarViewComponents {
     public func renderNow() { render(RenderState(model, design)) }
 
     /// The first run of a new window's rows pass is part of the window's making: its rows show in that turn, in one
-    /// step with no motion, also while the pointer is over the rows (decision of 2026-11-16). Before a window's
+    /// step with no motion, also while the pointer is over the rows. Before a window's
     /// seed wrote its space, that run was the window's space change, which reloads the list with no condition. The
     /// window's passes call this after that run, one time for a window (`SidebarSameTurn.observe`); each later change
     /// that nobody in this window asked for waits while the pointer is over the rows (`SidebarListView.showModelChange`).

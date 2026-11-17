@@ -35,10 +35,6 @@ final class PaneHostView: NSView, RestingPlacement {
     /// Whether content keeps its size while the host is on a split, close or zoom spring: the provider's rule (an agent
     /// chat holds: page pixels, S5/S6), live resize otherwise. Injected so tests pin it.
     private var holdsContentInMotion: () -> Bool
-    /// True only for a content handoff: its first spring frame already has the narrower
-    /// destination size, so the held page must start at that target. Ordinary moves (including
-    /// an unzooming chat) keep their painted size even when their rest offset is nonzero.
-    var isContentHandoff = false
 
     init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { false }) {
         self.pane = pane
@@ -67,10 +63,6 @@ final class PaneHostView: NSView, RestingPlacement {
         self.pane = pane
         self.holdsContentInMotion = holdsContentInMotion
     }
-
-    /// Whether the provider holds this pane's content at its rest size while a spring moves it (an agent chat): a pane
-    /// opening on its right slides in (``PaneArrival/slidingIn(target:clipMaxX:)``).
-    var holdsContentWhileMoving: Bool { holdsContentInMotion() }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -120,7 +112,7 @@ final class PaneHostView: NSView, RestingPlacement {
                     heldContentSize = nil
                     return
                 }
-                // The content takes its rest size for the whole spring (`contentFrame`), a handoff's too: its first frame
+                // The content takes its rest size for the whole spring (`contentFrame`): its first frame
                 // is already at its final size, so nothing replays a resize at the landing.
                 heldContentSize = restContentSize ?? content.frame.size
                 heldTakesNextRest = false
@@ -159,7 +151,6 @@ final class PaneHostView: NSView, RestingPlacement {
         heldTakesNextRest = false
         layOutLetGoContent()
         content.notifyPaneMotionSettled()
-        isContentHandoff = false
     }
 
     /// Let-go content lays out its whole subtree now (a terminal measures from its host: D1), at a real size in a window.
@@ -263,12 +254,22 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     func applyDockFill() {
-        guard !showsClosingGround else { return }
         clipView.layer?.backgroundColor = isDocked ? performWithTheme { Palette.surfaceOverride(.docks)?.cgColor } : nil
     }
 
-    /// FRAME OWNER S3c: the host shows only its pane's ground on its close spring (`PaneHostView+ClosingGround`).
-    var showsClosingGround = false
+    /// The pane left its screen's layout (a close, or a zoom of another pane) in a change that has not shown yet
+    /// (`LayoutViewContext.retire`): the host shows as it was, at the stacking rank it had (this value), until that
+    /// change shows, and takes no clicks. Nil for a pane of the layout.
+    var leavingRank: Int?
+    var isLeaving: Bool { leavingRank != nil }
+
+    /// The pane's layout change showed before a producer in its content had drawn at the pane's new size
+    /// (`ScreenContentView.presentHeldSnap`, `PaneCommitSurface`): the pane shows its content's own ground over its
+    /// content area, under its tabs, until that producer reports. It never shows the producer's old picture at the new
+    /// size. The one designed late state of a layout change.
+    var showsLateGround = false {
+        didSet { if showsLateGround != oldValue { applyChromeShape() } }
+    }
 
     /// Height of the content's header (tab strip, toolbar); 0 without one.
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
@@ -331,8 +332,7 @@ final class PaneHostView: NSView, RestingPlacement {
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
         let content = contentFrame(in: clipView.bounds)
-        // A closing pane's hidden content keeps its frame: only its ground follows the collapsing frame.
-        if !showsClosingGround, self.content.frame != content { self.content.frame = content }
+        if self.content.frame != content { self.content.frame = content }
         syncHeldArea()
         applyChromeShape()
     }
@@ -395,9 +395,7 @@ final class PaneHostView: NSView, RestingPlacement {
         let (header, footer) = roundedBands
         let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
         let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
-        if showsClosingGround {
-            clipView.setCornerRadius(radius) // a closing pane's ground keeps its pane's rounded corners (FRAME OWNER S3c)
-        } else if let reporter, !wholeCard {
+        if let reporter, !wholeCard {
             clipView.setCornerRadius(0)
             reporter.setPaneContentCornerRadius(radius)
         } else {
@@ -409,10 +407,11 @@ final class PaneHostView: NSView, RestingPlacement {
             (superview as? ScreenContentView)?.paneFramingDidChange()
         }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
+        applyLateGround()
         // Content held at its rest size does not fill a pane still larger than that rest (the pane a split halves): the
         // pane shows that content's own ground where the content does not reach, in this same frame (SPLIT OPEN CHAT).
-        // A key hold and a closing pane have their own rules.
-        guard heldContentSize != nil, !holdsUntilAfterLanding, !showsClosingGround else { return clipView.showHeldGround(nil) }
+        // A key hold has its own rule.
+        guard heldContentSize != nil, !holdsUntilAfterLanding else { return clipView.showHeldGround(nil) }
         // From where the content is, with its tabs (a strip at its top or bottom edge, a list at its leading edge): no
         // backing behind the tabs, in a whole card too (Leo 2026-11-03). The clip rounds a whole card. The tabs' rows
         // are the rows above the content's area, not `headerHeight`: a chat with no strip reports a header for
@@ -504,7 +503,7 @@ final class PaneHostView: NSView, RestingPlacement {
     var areaHitClip: CGRect?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if showsClosingGround { return nil }
+        if isLeaving { return nil }
         if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
         return super.hitTest(point)
     }

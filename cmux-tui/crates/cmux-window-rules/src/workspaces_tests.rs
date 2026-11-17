@@ -43,14 +43,24 @@ fn a_running_program_asks_with_dont_ask_again() {
 }
 
 #[test]
-fn several_closes_with_no_window_left_ask_without_dont_ask_again() {
+fn several_incognito_closes_with_no_window_left_ask_without_dont_ask_again() {
     let facts =
         CloseFacts { count: 3, ask_without_undo: true, incognito: true, ..CloseFacts::default() };
     let prompt = close_prompt(&facts).unwrap();
     assert_eq!(prompt.body, CloseBody::NoUndo { incognito: true });
     assert!(!prompt.suppresses_warning);
     assert_eq!(
-        close_prompt(&CloseFacts { count: 1, ask_without_undo: true, ..CloseFacts::default() }),
+        close_prompt(&CloseFacts {
+            count: 1,
+            ask_without_undo: true,
+            incognito: true,
+            ..CloseFacts::default()
+        }),
+        None
+    );
+    // Reopen Closed Workspace and History bring ordinary workspaces back: no question.
+    assert_eq!(
+        close_prompt(&CloseFacts { count: 3, ask_without_undo: true, ..CloseFacts::default() }),
         None
     );
     assert_eq!(close_prompt(&CloseFacts { count: 2, ..CloseFacts::default() }), None);
