@@ -58,13 +58,18 @@ if sys.argv[1:] == ["--flags"]:
     sys.exit(0)
 with open(os.environ["RATCHET_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
+if "--list-allows" in sys.argv:
+    print("[]")
+    sys.exit(0)
 sys.exit(int(os.environ.get("RATCHET_RC", "0")))
 """
 LINT = ["--all-targets", "--", "-D", "warnings"]
 PANIC = ["--message-format=json", "--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing"]
 
 
-class ClippyChangedTests(unittest.TestCase):
+class ClippyHarness(unittest.TestCase):
+    """A scratch repository with a fake cargo; the tests are in its subclasses."""
+
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.repo = self.tmp / "repo"
@@ -169,6 +174,8 @@ class ClippyChangedTests(unittest.TestCase):
         result = self.run_check(*args, "--panic-ratchet", str(out), env_extra={"RATCHET_RC": str(rc)})
         return result, out
 
+
+class ClippyChangedTests(ClippyHarness):
     def test_a_changed_integration_test_lints_its_package_with_all_targets(self) -> None:
         # #23163's shape: only a file under the package's tests/ changed.
         self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
@@ -391,7 +398,9 @@ class ClippyChangedTests(unittest.TestCase):
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
         strict = self.judged(out)
-        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
+        listing = ["--repo", str(self.repo.resolve()), "--list-allows"]
+        self.assertEqual(self.ratchet_calls(), [strict, listing, [*strict, "--base-clippy-json", str(base_out),
+                                                                   "--base-allows", f"{out}.base-allows.json"]])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")
@@ -519,6 +528,157 @@ class RatchetAgainstBaseTests(unittest.TestCase):
     def test_without_a_base_run_every_count_over_the_row_is_red(self) -> None:
         self.assertEqual(self.judge(clippy_jsonl(700)).returncode, 1)
         self.assertEqual(self.judge(clippy_jsonl(693)).returncode, 0)
+
+
+# A cargo whose clippy JSON counts each `// HIT` line of a selected crate's src/lib.rs as one
+# indexing_slicing hit, so the base and the head checkouts lint to their own counts.
+FAKE_COUNTING_CARGO = """#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[:1] == ["metadata"]:
+    sys.stdout.write(Path(os.environ["CARGO_METADATA"]).read_text())
+    sys.exit(0)
+with open(os.environ["CARGO_LOG"], "a") as log:
+    log.write(" ".join(args) + "\\n")
+crates = sorted(p.name for p in Path("crates").iterdir() if (p / "src/lib.rs").exists())
+if "--workspace" not in args:
+    crates = [c for c in crates if f"pkg-{c}" in args]
+for crate in crates:
+    pid = f"path+file:///w/cmux-tui/crates/{crate}#0.1.0"
+    print(json.dumps({"reason": "compiler-artifact", "package_id": pid, "target": {"kind": ["lib"]}}))
+    lines = Path(f"crates/{crate}/src/lib.rs").read_text().splitlines()
+    for number, line in enumerate(lines, 1):
+        if "// HIT" in line:
+            print(json.dumps({"reason": "compiler-message", "package_id": pid, "target": {"kind": ["lib"]},
+                              "message": {"code": {"code": "clippy::indexing_slicing"},
+                                          "spans": [{"is_primary": True, "file_name": f"crates/{crate}/src/lib.rs",
+                                                     "line_start": number, "column_start": 1}]}}))
+print(json.dumps({"reason": "build-finished", "success": True}))
+"""
+
+
+class MergedRegressionTests(ClippyHarness):
+    """The real ratchet behind the wrapper, on a base that a merged change already put over the
+    checked-in baseline (#45304's red: 61 crates over their rows at base 5c25b3e). A pull request
+    is red only for what it adds; one that adds nothing is green whatever the base carries."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.write("scripts/cmux-next/rust_panic_ratchet.py", RATCHET.read_text())
+        self.write("scripts/cmux-next/rust-panic-baseline.json", json.dumps({"crates": {
+            name: {"indexing_slicing": 2} for name in ("a", "b", "c", "d")}}) + "\n")
+        self.write("cmux-tui/crates/a/src/lib.rs", "pub fn a() {} // HIT\npub fn a2() {} // HIT\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "baseline: a at its row")
+        # The merged regression: a third hit in a, and an allow without a reason in b.
+        self.change("cmux-tui/crates/a/src/lib.rs", "pub fn a() {} // HIT\npub fn a2() {} // HIT\npub fn a3() {} // HIT\n")
+        self.change("cmux-tui/crates/b/src/lib.rs", "#[allow(clippy::unwrap_used)]\npub fn b() {}\n")
+        self.base = self.git("rev-parse", "HEAD").strip()
+        (self.tmp / "bin/cargo").write_text(FAKE_COUNTING_CARGO)
+
+    def judge_pr(self) -> subprocess.CompletedProcess[str]:
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base")
+        return result
+
+    def test_the_base_is_over_its_baseline(self) -> None:
+        # Pushes judge strictly: the merged regression is red there, so the fixture is a real base red.
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--panic-ratchet", str(out))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("a: clippy::indexing_slicing 3 > baseline 2", result.stderr)
+        self.assertIn("allow(unwrap_used) needs reason", result.stderr)
+
+    def test_a_change_touching_no_crate_passes(self) -> None:
+        self.change("README.md", "docs\n")
+        result = self.judge_pr()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_change_to_another_crate_passes(self) -> None:
+        self.change("cmux-tui/crates/d/src/lib.rs", "pub fn d() {}\npub fn d2() {}\n")
+        result = self.judge_pr()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_change_to_the_over_crate_that_adds_no_hit_passes(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs",
+                    "// moved\npub fn a() {} // HIT\npub fn a2() {} // HIT\npub fn a3() {} // HIT\n")
+        result = self.judge_pr()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("(base red)::a: clippy::indexing_slicing 3 > baseline 2, and the base has 3", result.stderr)
+        self.assertIn("(base red)::cmux-tui/crates/b/src/lib.rs:1: allow(unwrap_used) needs reason", result.stderr)
+
+    def test_a_workspace_wide_change_that_adds_nothing_passes(self) -> None:
+        self.change("cmux-tui/Cargo.lock", "# lock 2\n")
+        result = self.judge_pr()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--workspace", self.calls()[0])
+
+    def test_a_change_that_adds_a_hit_fails(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs",
+                    "pub fn a() {} // HIT\npub fn a2() {} // HIT\npub fn a3() {} // HIT\npub fn a4() {} // HIT\n")
+        result = self.judge_pr()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("a: clippy::indexing_slicing 4 > baseline 2", result.stderr)
+
+    def test_a_change_that_adds_a_hit_to_a_crate_at_its_row_fails(self) -> None:
+        self.change("cmux-tui/crates/c/src/lib.rs", "pub fn c() {} // HIT\npub fn c2() {} // HIT\npub fn c3() {} // HIT\n")
+        result = self.judge_pr()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("c: clippy::indexing_slicing 3 > baseline 2", result.stderr)
+
+    def test_a_change_that_adds_an_allow_without_a_reason_fails(self) -> None:
+        self.change("cmux-tui/crates/b/src/lib.rs",
+                    "#[allow(clippy::unwrap_used)]\npub fn b() {}\n#[allow(clippy::expect_used)]\npub fn b2() {}\n")
+        result = self.judge_pr()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("lib.rs:3: allow(expect_used) needs reason", result.stderr)
+
+
+class RaiseTrackedTests(unittest.TestCase):
+    """--update-baseline --raise-tracked: a refresh after merged code grew a tracked lint."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        here = self.tmp / "scripts/cmux-next"
+        here.mkdir(parents=True)
+        (here / "rust_panic_ratchet.py").write_text(RATCHET.read_text())
+        (self.tmp / "cmux-tui/crates/acpmux/src").mkdir(parents=True)
+        self.baseline = here / "rust-panic-baseline.json"
+        self.baseline.write_text(json.dumps({"crates": {"acpmux": {
+            "indexing_slicing": 10, "arithmetic_side_effects": 5, "cast_possible_truncation": 9}}}))
+
+    def run_ratchet(self, *args: str, head: str) -> subprocess.CompletedProcess[str]:
+        (self.tmp / "head.jsonl").write_text(head)
+        return subprocess.run([sys.executable, str(self.tmp / "scripts/cmux-next/rust_panic_ratchet.py"),
+                               "--repo", str(self.tmp), "--clippy-json", str(self.tmp / "head.jsonl"), *args],
+                              capture_output=True, text=True, cwd=self.tmp)
+
+    def row(self) -> dict:
+        return json.loads(self.baseline.read_text())["crates"]["acpmux"]
+
+    def test_raise_tracked_sets_tracked_rows_and_only_lowers_deny_rows(self) -> None:
+        head = clippy_jsonl(8) + clippy_jsonl(7, lint="arithmetic_side_effects", file_name="crates/acpmux/src/m.rs")
+        result = self.run_ratchet("--update-baseline", "--raise-tracked", head=head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        row = self.row()
+        self.assertEqual((row["indexing_slicing"], row["arithmetic_side_effects"], row["cast_possible_truncation"]),
+                         (8, 7, 0))
+
+    def test_without_raise_tracked_a_grown_tracked_row_stays(self) -> None:
+        head = clippy_jsonl(7, lint="arithmetic_side_effects")
+        self.assertEqual(self.run_ratchet("--update-baseline", head=head).returncode, 0)
+        self.assertEqual(self.row()["arithmetic_side_effects"], 5)
+
+    def test_raise_tracked_refuses_a_red_run(self) -> None:
+        result = self.run_ratchet("--update-baseline", "--raise-tracked", head=clippy_jsonl(11))
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.row()["indexing_slicing"], 10)
+
+    def test_raise_tracked_needs_update_baseline(self) -> None:
+        self.assertEqual(self.run_ratchet("--raise-tracked", head=clippy_jsonl(1)).returncode, 2)
 
 
 if __name__ == "__main__":
