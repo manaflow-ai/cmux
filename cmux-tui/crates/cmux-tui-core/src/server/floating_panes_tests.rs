@@ -7,6 +7,7 @@
 use cmux_layout_reducer::floating_panes::is_normal;
 
 use super::super::*;
+use crate::mux::tests::floating_panes::{open_restart_mux, seed as seeded_store};
 
 struct Wire {
     mux: Arc<Mux>,
@@ -19,10 +20,8 @@ impl Wire {
     /// One workspace whose screen has `count` panes side by side. Returns the
     /// panes from left to right.
     fn with_panes(count: usize) -> (Self, Vec<PaneId>) {
-        let mux = Mux::new_for_test("floating-panes", crate::SurfaceOptions::default());
-        let outbound = Arc::new(BoundedOutbound::default());
-        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-        let mut wire = Self { mux, outbound, writer, next_id: 1 };
+        let mut wire =
+            Self::on(Mux::new_for_test("floating-panes", crate::SurfaceOptions::default()));
         let first = wire.mux.new_workspace(None, Some((80, 22))).unwrap();
         let mut panes = vec![wire.mux.with_state(|state| state.pane_of(first.id).unwrap())];
         for _ in 1..count {
@@ -30,6 +29,13 @@ impl Wire {
             panes.push(wire.new_pane_right(last));
         }
         (wire, panes)
+    }
+
+    /// A wire to the server of `mux`.
+    fn on(mux: Arc<Mux>) -> Self {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        Self { mux, outbound, writer, next_id: 1 }
     }
 
     fn new_pane_right(&mut self, target: PaneId) -> PaneId {
@@ -79,6 +85,19 @@ impl Wire {
         self.floating()
             .iter()
             .map(|entry| serde_json::from_value(entry["pane"].clone()).unwrap())
+            .collect()
+    }
+
+    /// The `floating` member of the screen with the public id of each pane in place of its
+    /// number: a restart keeps the public id of a pane and can give the pane another number.
+    fn floating_by_public_id(&self) -> Vec<Value> {
+        self.floating()
+            .into_iter()
+            .map(|mut entry| {
+                let pane: PaneId = serde_json::from_value(entry["pane"].clone()).unwrap();
+                entry["pane"] = self.mux.with_state(|state| json!(state.panes[&pane].public_id));
+                entry
+            })
             .collect()
     }
 
@@ -210,6 +229,91 @@ fn floating_pane_refuses_a_pane_of_a_docked_column() {
     let response = wire.send(json!({"cmd": "float-pane", "pane": panes[2], "mode": "on"}));
     refused(&response, "floating-pane-fixed");
     assert!(wire.floating().is_empty());
+}
+
+/// A pane of a column with rows does not float: the request is refused and changes nothing.
+#[test]
+fn floating_pane_refuses_a_pane_of_a_column_with_rows() {
+    let (mut wire, panes) = Wire::with_panes(3);
+    wire.mux.new_row_with_options(panes[0], 500, Default::default(), Some((38, 10)), None).unwrap();
+    let response = wire.send(json!({"cmd": "float-pane", "pane": panes[0], "mode": "on"}));
+    refused(&response, "floating-pane-fixed");
+    assert!(wire.floating().is_empty());
+}
+
+/// A frame is used only when the pane floats after the request: `off`, and a `toggle` that puts
+/// the pane back, take no frame from the request.
+#[test]
+fn floating_pane_that_goes_back_takes_no_frame() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    for mode in ["off", "toggle"] {
+        wire.float(panes[0], "on");
+        let data = wire.ok(json!({
+            "cmd": "float-pane", "pane": panes[0], "mode": mode,
+            "x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5,
+        }));
+        assert_eq!(data["floating"], false, "{mode}: {data}");
+        assert!(data.get("frame").is_none(), "{mode}: a tiled pane has no frame: {data}");
+        assert!(wire.floating().is_empty(), "{mode}: the pane is tiled");
+    }
+}
+
+/// A restart of the server keeps the list that `float-pane` requests made: the same panes in the
+/// same order with the same frames, and a pane that a request put back stays tiled. The store is
+/// the restore fixture of the mux tests: its first screen has 2 panes of a stack, which do not
+/// float, and 2 panes that float.
+#[test]
+fn floating_pane_list_of_wire_requests_survives_a_restart() {
+    let (root, session) = seeded_store("wire-restart", |_| {});
+    let mut wire = Wire::on(open_restart_mux(&root, &session));
+    let (fixed, free) = wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let panes = screen.root.pane_ids_vec();
+        panes.into_iter().partition::<Vec<_>, _>(|pane| screen.pane_never_floats(*pane))
+    });
+    assert_eq!(
+        (fixed.len(), free.len()),
+        (2, 2),
+        "the fixture: {fixed:?} do not float, {free:?} float"
+    );
+    for pane in &fixed {
+        let response = wire.send(json!({"cmd": "float-pane", "pane": pane, "mode": "on"}));
+        refused(&response, "floating-pane-fixed");
+    }
+
+    // The later pane of the tree floats first, so the list is not in the order of the tree.
+    let answer = wire.float_at(free[1], [0.1, 0.2, 0.4, 0.5]);
+    wire.float(free[0], "on");
+    assert_eq!(wire.floating_panes(), vec![free[1], free[0]], "the last float is the front");
+    let before = wire.floating_by_public_id();
+    for member in ["x", "y", "w", "h"] {
+        assert_eq!(
+            before[0][member], answer["frame"][member],
+            "the list has the frame of the answer"
+        );
+    }
+    wire.mux.shutdown();
+    drop(wire);
+
+    let mut wire = Wire::on(open_restart_mux(&root, &session));
+    let after = wire.floating_by_public_id();
+    assert_eq!(after, before, "a restart keeps the panes, the order and the frames");
+    wire.assert_rules("after the first restart");
+    let back = wire.floating_panes()[0];
+    let data = wire.float(back, "off");
+    assert_eq!(data["floating"], false, "{data}");
+    let before = wire.floating_by_public_id();
+    assert_eq!(before, after[1..].to_vec(), "the other pane keeps its place and its frame");
+    wire.mux.shutdown();
+    drop(wire);
+
+    let wire = Wire::on(open_restart_mux(&root, &session));
+    assert_eq!(wire.floating_by_public_id(), before, "a pane that a request put back stays tiled");
+    assert_eq!(wire.panes().len(), 4, "each pane is a pane of the screen after the two restarts");
+    wire.assert_rules("after the second restart");
+    wire.mux.shutdown();
+    drop(wire);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

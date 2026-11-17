@@ -12,7 +12,7 @@ mod acts;
 mod follow;
 mod load;
 
-fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
+pub(crate) fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
     Mux::from_workspace_registry(
         session.into(),
         SurfaceOptions::default(),
@@ -24,7 +24,7 @@ fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
 }
 
 /// Seeds the restore fixture with its first screen changed by `edit`.
-fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String) {
+pub(crate) fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String) {
     seed_screens(name, |screens| {
         let first = restore_screen_id(1);
         edit(screens.iter_mut().find(|screen| screen.public_id == first).unwrap());
