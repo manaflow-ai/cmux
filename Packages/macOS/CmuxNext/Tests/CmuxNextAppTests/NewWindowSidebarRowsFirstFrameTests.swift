@@ -286,8 +286,8 @@ import Testing
 
     /// The same create and the same pointer, with the first run of the rows pass inside a draw of the turn
     /// (`syncNow(rows: true)`, the call of a window's content swap) and not in a task. A guard that was not red
-    /// first: by a read the run shows its rows at once there too (`SidebarView.showRowsOfTheMaking`, called by the
-    /// run itself), so the list draws the create's row under the pointer and holds no change back. The test calls
+    /// first: the run's show comes there too (`SidebarView.showRowsOfTheMaking`, which `syncNow` calls after its
+    /// own draw), so the list draws the create's row under the pointer and holds no change back. The test calls
     /// `syncNow` itself: no row here makes a window whose content swap runs that first run with a create in flight.
     @Test func theFirstRowsPassInsideADrawOfTheTurnShowsACreatesRowUnderThePointer() throws {
         let created = "rows-first-frame-created-in-turn"
