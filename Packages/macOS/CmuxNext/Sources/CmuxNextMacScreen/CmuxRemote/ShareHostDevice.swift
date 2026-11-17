@@ -12,7 +12,8 @@ private let shareHostLogger = Logger(subsystem: "com.cmuxterm.app.next", categor
 /// Remote Screen Sharing worker's JSON lines, so ``CmuxRemoteDevices`` is its client unchanged. The
 /// daemon decides who serves each host ticket and says so in the relayed push (`servedBy`); the app
 /// only follows it (``MacScreenHubHost``).
-public nonisolated enum ShareHostDevice {
+public nonisolated struct ShareHostDevice {
+    public nonisolated init() {}
     /// `<acpmux home>/share-host/device.sock`.
     public static func socketPath(acpmuxHome: URL) -> String {
         acpmuxHome.appending(path: "share-host/device.sock", directoryHint: .notDirectory).path

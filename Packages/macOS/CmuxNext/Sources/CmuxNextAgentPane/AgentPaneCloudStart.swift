@@ -4,7 +4,7 @@ public import CmuxNextSettings
 public import Foundation
 import os
 
-/// `cloud.startChat {task, cwd?, harness?, model?, mode?, key}`: a new chat's first send with Cloud picked
+/// `cloud.startChat {task, cwd?, harness?, model?, mode?, effort?, account?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
 /// machine sized for the chat, copies the chat's folder there, starts the chat there with this
 /// prompt and shows it, with no machine, size or environment prompt (``AgentPaneModel/onCloudStartChat``).
@@ -18,11 +18,20 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The page said the chat has no project (cloudRun.ts `cloudStartFolder`): nothing is copied,
     /// and the chat starts in the machine's own folder for chats. Never with ``cwd``.
     public var home = false
+    /// The GitHub repository (`owner/name`) the page named as the chat's folder (`cwd: github:owner/name`): the
+    /// machine clones it and the chat starts there (``cloneRepository(on:machineName:size:report:)``). Never with ``cwd``.
+    public var repository: String?
     public var harness: String?
     public var model: String?
     /// The permission mode the person picked for the chat before its first send; nil: the machine's
     /// own start mode. The chat's machine applies it only when it is the caller's own (``seed(cwd:draft:)``).
     public var mode: String?
+    /// The picker's effort for that model; nil keeps the agent's default.
+    public var effort: String?
+    /// The connection the picker's Account menu chose (a connection id of this Mac's acpmux); nil is
+    /// the family's first Cloud-serving one (``CloudSetup/choose(harness:model:account:)``,
+    /// cmux-tui/docs/model-connections.md, Revision 2).
+    public var account: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
@@ -35,6 +44,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The team to switch to before this send (the plan card's Switch to <team>): a team id of the
     /// person's, switched to by the App as the team picker does; nil keeps the active team.
     public var team: String?
+    /// The page's empty chat this start replaces (a new chat whose local session opened before its
+    /// first send, webviews App.tsx `emptyLocalChat`): the start is taken from a pane that shows that
+    /// chat, and the App closes the tab with it once the Cloud chat opens. Nil: a pane with no chat.
+    public var replacesChat: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -74,19 +87,25 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment"),
-              let team = name("team"), let mode = name("mode") else { return nil }
+              let team = name("team"), let mode = name("mode"), let effort = name("effort"), let account = name("account"),
+              let replacesChat = name("replacesChat") else { return nil }
+        // A connection id only (``CloudSetup/isConnectionID(_:)``).
+        if let account, !CloudSetup.isConnectionID(account) { return nil }
         let reservationKey = params?["reservationKey"]
         if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let gestureTicket = params?["gestureTicket"]
         if let gestureTicket, (gestureTicket as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let cwd = params?["cwd"]
-        if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
+        let repository = (cwd as? String).flatMap(AgentPaneGitHubFolder.repository)
+        if let cwd, repository == nil, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
-        self.home = home as? Bool ?? false
+        self.init(task: task, cwd: repository == nil ? cwd as? String : nil, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
+        (self.home, self.repository) = (home as? Bool ?? false, repository)
         self.team = team
+        self.replacesChat = replacesChat
         self.mode = mode
+        (self.effort, self.account) = (effort, account)
         self.attachments = attachments
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
@@ -150,11 +169,13 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
-    /// prompt, sent once with the Send's gesture, on the agent and model the page picked. `draft`: what
-    /// the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
+    /// prompt, sent once with the Send's gesture, on the agent, model and effort the page picked.
+    /// `draft`: what the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
     public func seed(cwd: String?, draft: String? = nil) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
-                      promptBy: .person, harness: harness, model: model, mode: mode)
+        var seed = AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
+                                 promptBy: .person, harness: harness, model: model, mode: mode)
+        seed.effort = effort
+        return seed
     }
 }
 
@@ -272,7 +293,9 @@ struct AgentPaneHandOff {
         // The send again after a sign-in: the click that sign-in kept for this key authorizes it,
         // taken in `held` right before `run`, so a `cloud.signInCancel` the page sent first always wins.
         let grantKey = start.signedIn ? start.key : nil
-        return await held("cloud.startChat", gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
+        // The empty chat it replaces: its sign-in and set-up are this start's too (``AgentPaneModel/cloudStartReplaces``).
+        if let chat = start.replacesChat, chat == model.sessionId { model.cloudStartReplaces = chat }
+        return await held("cloud.startChat", replacing: start.replacesChat, gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
                           signInGrant: grantKey) { [start] replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
@@ -283,11 +306,14 @@ struct AgentPaneHandOff {
     }
 
     /// The shared guards, then `body` with the replacements held (it ends the hold).
+    /// `replacing`: the page's empty chat a Cloud start replaces (``AgentPaneCloudStart/replacesChat``): a pane
+    /// showing that chat may start, and the chat it opened does not hold the start back; nil: only a pane with none.
     /// `signInGrant`: the start's key, authorized only by the click its sign-in kept (no gesture);
     /// without that click (withdrawn, spent or stale) the send is `cloud_sign_in_cancelled`.
-    private func held(_ method: String, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil, signInGrant: String? = nil,
+    private func held(_ method: String, replacing chat: String? = nil, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil,
+                      signInGrant: String? = nil,
                       _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
-        guard model.sessionId == nil else { return AgentPaneModel.unsupported(method) }
+        guard model.sessionId == nil || (chat != nil && model.sessionId == chat) else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         let transport = model.transport
         // A start waits for the line while it moves (a busy daemon sends slowly); a fixed 5 s refused
@@ -295,7 +321,7 @@ struct AgentPaneHandOff {
         guard await transport.lineDrained(quiet: .seconds(5), limit: Self.lineDrainLimit) else { return notNow }
         if let refusal = model.sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let replacements = transport.replacements
-        guard replacements.beginSandbox() else { return notNow }
+        guard replacements.beginSandbox(replacingOpened: chat != nil) else { return notNow }
         let authorized: Bool
         if let signInGrant {
             // No await from here to `body`'s `run`: the check and the start are one turn.
@@ -377,7 +403,7 @@ extension AgentPaneModel {
     /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`). The page owns
     /// the rest: the card's waiting state, the wait's deadline and its cancel (webviews cloudSignIn.ts).
     func signInToCloud(key: String) async -> [String: Any] {
-        guard onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil else { return Self.unsupported("cloud.signIn") }
+        guard onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces else { return Self.unsupported("cloud.signIn") }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
         let generation = cloudSignInGeneration
         var signedIn = onCloudSignedIn?() == true
@@ -398,6 +424,30 @@ extension AgentPaneModel {
         return AgentPaneReply.success(["signedIn": true])
     }
 
+    /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button, on its click. Runs that way
+    /// in (Settings > Models' own op), waits for a connection serving `family` and keeps the click for
+    /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
+    /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
+    /// withdraws it (the page left Cloud, or gave up).
+    func setUpCloud(key: String, action: String, family: String) async -> [String: Any] {
+        guard let onCloudSetUp, let way = CloudSetup.Action(rawValue: action),
+              onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces else {
+            return Self.unsupported("cloud.setUp")
+        }
+        guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        let generation = cloudSignInGeneration
+        cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
+        let wait = Task { await onCloudSetUp(way, family) } // the model's own actor: it only awaits the App's wait
+        cloudSetUpWait = wait
+        let ready = await wait.value
+        if cloudSetUpWait == wait { cloudSetUpWait = nil }
+        guard ready, cloudSignInGeneration == generation else {
+            return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+        }
+        keepCloudSignInGrant(key, generation: generation)
+        return AgentPaneReply.success(["ready": true])
+    }
+
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud, or
     /// its deadline passed), so the kept click goes and a sign-in still out keeps none. An expired one
     /// also ends its browser sign-in (the App's sign-in ends its auth attempt on that), so the card's
@@ -405,6 +455,8 @@ extension AgentPaneModel {
     func cancelCloudSignIn(expired: Bool) -> [String: Any] {
         cloudSignInGeneration += 1
         cloudSignInGrant = nil
+        cloudSetUpWait?.cancel()
+        cloudSetUpWait = nil
         if expired {
             cloudSignInBrowser?.cancel()
             cloudSignInBrowser = nil
