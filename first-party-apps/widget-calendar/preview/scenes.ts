@@ -1,6 +1,7 @@
 // Draws the packed widget in the fake host at a fixed instant with a fake calendar and returns the
 // scene ops it sends, for the tests and the gallery fixtures (preview/build.ts).
-// The instant: Tuesday, November 17, 2026, 1:12 PM in Los Angeles. Run with TZ=America/Los_Angeles.
+// The instant: Tuesday, November 17, 2026, 1:12 PM in Los Angeles (PST, UTC-8 on both days), whatever the
+// process zone: the widget is mounted with timeZone America/Los_Angeles and reads it through cmux.time.zone.
 import { FakeHost, type Op } from "cmux-extension-sdk/testing"
 
 export const AT = Date.UTC(2026, 10, 17, 21, 12, 0)
@@ -12,13 +13,14 @@ export interface Render {
   day: Day
   settings?: Record<string, unknown>
   place?: "newtab" | "sidebar"
+  locale?: string
+  timeZone?: string
 }
 
 const HOUR = 3_600_000
-/** Local wall time on the fixed day (offset 0 today, 1 tomorrow), in Los Angeles. */
+/** Wall time in Los Angeles on the fixed day (offset 0 today, 1 tomorrow): PST is UTC-8. */
 const at = (dayOffset: number, hour: number, minute = 0) => {
-  const d = new Date(AT)
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + dayOffset, hour, minute).getTime()
+  return Date.UTC(2026, 10, 17 + dayOffset, hour + 8, minute)
 }
 const midnight = (dayOffset: number) => at(dayOffset, 0)
 
@@ -94,6 +96,8 @@ export async function renderScene(source: string, render: Render): Promise<{ ops
     place: render.place ?? "newtab",
     instance: `preview-${render.size}`,
     settings: render.settings ?? {},
+    locale: render.locale ?? "en-US",
+    timeZone: render.timeZone ?? "America/Los_Angeles",
     now: undefined
   })
   await host.settle()

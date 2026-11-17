@@ -8,7 +8,7 @@ marker, no `BUNDLED`).
 | --- | --- |
 | small | the weekday in red over the big day number, then the next one or two events (one keeps its place line) |
 | medium | the same on the left; the rest of today and then `TOMORROW` on the right |
-| large | the rest of today on the left (up to five events, then "N more"), tomorrow on the right |
+| large | Apple's hour grid: today from the current hour under the date, with the red now line; tomorrow from an hour before its first event. Overlapping events share the width. As a list (setting): the rest of today on the left (up to five, then "N more"), tomorrow on the right |
 
 Each event is a block tinted with its calendar's color, with a bar of that color on its leading edge:
 title, place and time (`4:00–5:00 PM`). All-day events come first, title only. Events that have ended
@@ -24,15 +24,17 @@ Calendars). Off the Mac (no cmux Mac app connected) it says the calendar shows i
 
 ## Data
 
-Only the public SDK (`cmux-extension-sdk`) and the host ops `cmux.system_calendar.events({days, limit})`
-and `cmux.system_calendar.request_access()` (scope `system_calendar:read`). The Mac app reads EventKit;
+Only the public SDK (`cmux-extension-sdk`): the watch source `cmux.watch("system_calendar.events", {days, limit})`
+and the op `cmux.system_calendar.request_access()` (scope `system_calendar:read`). The Mac app reads EventKit;
 the daemon bounds the read (31 days, 50 events) and caches granted answers for 30 s, so every tile on New
-Tab and in the sidebar of every window costs one EventKit read per window of time. The widget reads the
-next two days once, again every 5 minutes and when the day changes; the minute tick only drops ended
+Tab and in the sidebar of every window costs one EventKit read per window of time. EventKit's change notice
+(`EKEventStoreChanged`) reaches the daemon as `system_calendar.changed`: the daemon drops its cache and every watch reads again at once, with no timer. The minute tick only drops ended
 events. A read never prompts. Each event carries its calendar's color; without one it draws in
 Calendar's default blue.
 
-Settings: `hourCycle` (`system`, `12h`, `24h`).
+Times are in the person's zone (`ctx.timeZone` through `cmux.time.zone`, since the sandbox has no Intl) and clock (`ctx.locale`). Colors are hex: Calendar's red `#ff3b30` for the weekday and the now line, each calendar's own color for its events.
+
+Settings: `hourCycle` (`system`, `12h`, `24h`), `largeLayout` (`grid`, `list`).
 
 ## Development
 
@@ -44,13 +46,11 @@ cmux ext dev first-party-apps/widget-calendar             # live in a running cm
 ```
 
 Gallery: `apps.calendar-widget` draws `preview/scenes.json` (a fixed Tuesday 1:12 PM in Los Angeles with
-a fake calendar: busy, clear, all-day, empty, ask, denied, 24-hour) with the real scene renderer, light and
+a fake calendar: busy, clear, all-day, empty, ask, denied, 24-hour, the large grid and list) with the real scene renderer, light and
 dark. Compared with Apple's references in cmux-design-references (`apple-widgets/web/hig-calendar-*`).
 
 ## Gaps
 
-- The host has no `cmux.watch` signal source for the calendar yet: the widget reads with the op on its
-  own 5-minute rhythm, and the daemon's cache shares the reads. A `system_calendar.events` signal with
-  an EventKit change push would make it instant and drop the rhythm.
-- The large size is a list per day, not Apple's hour grid with a now line: the scene DSL has no
-  absolute placement for hour rows.
+- The hour grid is fixed at 36 points an hour and seven hours, which fits the New Tab large tile
+  (312 points); a taller tile leaves room below it, since the widget does not know its height in points.
+- The live EventKit prompt and change push have not been tried on a signed Mac build yet.

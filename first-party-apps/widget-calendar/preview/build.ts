@@ -14,6 +14,7 @@ export const VARIANTS: Record<string, Render> = {
   small: { size: "small", day: "busy" },
   medium: { size: "medium", day: "busy" },
   large: { size: "large", day: "busy" },
+  "large-list": { size: "large", day: "busy", settings: { largeLayout: "list" } },
   "small-clear": { size: "small", day: "clear" },
   "medium-clear": { size: "medium", day: "clear" },
   "medium-all-day": { size: "medium", day: "allDay" },

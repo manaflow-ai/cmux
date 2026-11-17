@@ -112,6 +112,11 @@ class AppSceneNodeNSView: NSView {
 
     func contentHeight(width: CGFloat) -> CGFloat { 0 }
     var contentNaturalWidth: CGFloat? { nil }
+    /// The first text baseline's distance below the node's top, laid out `width` wide; nil without text
+    /// (an HStack's `firstTextBaseline` then aligns the node's bottom, as SwiftUI does).
+    func firstBaseline(width: CGFloat) -> CGFloat? { nil }
+    /// The last text baseline's distance above the node's bottom; nil without text.
+    func lastBaselineFromBottom(width: CGFloat) -> CGFloat? { nil }
     /// Lays the content out in `rect` (the bounds less the padding).
     func layoutContent(in rect: CGRect) {}
 

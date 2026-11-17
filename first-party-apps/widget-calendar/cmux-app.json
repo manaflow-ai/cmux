@@ -74,6 +74,16 @@
           "24h"
         ],
         "default": "system"
+      },
+      "largeLayout": {
+        "type": "string",
+        "title": "Large size",
+        "description": "The hour grid of today and tomorrow, as Calendar draws it, or a list of the next events.",
+        "enum": [
+          "grid",
+          "list"
+        ],
+        "default": "grid"
       }
     }
   },

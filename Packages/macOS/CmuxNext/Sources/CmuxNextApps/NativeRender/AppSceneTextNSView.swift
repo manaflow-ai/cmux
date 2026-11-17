@@ -2,8 +2,9 @@ import AppKit
 import CmuxNextDesign
 
 /// `Text`: a chrome label in the chrome type scale (`font`: a text style name or a point size;
-/// `weight`, `italic`, `monospaced`, `strikethrough`), the `color` tone (primary by default), `lineLimit` lines (no
-/// limit by default) and `truncation`.
+/// `weight`, `italic`, `monospaced`, `strikethrough`, `fontDesign` `rounded`/`serif`/`monospaced`), the `color` tone
+/// (primary by default), `lineLimit` lines (no limit by default) and `truncation`. With a `date` it is a host-ticking
+/// Text (`dateStyle`, ``AppSceneDateText``): its string comes from the date and ``AppSceneClock`` ticks it.
 final class AppSceneTextNSView: AppSceneNodeNSView {
     let label = ChromeLabel(wrappingLabelWithString: "")
 
@@ -12,9 +13,17 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         addSubview(label)
     }
 
+    /// The ticking date this Text shows, if any.
+    private var dateText: AppSceneDateText?
+
+    /// The text the label shows now: the date's at this second, or the app's `text`.
+    private var shownText: String { dateText?.text(at: Date()) ?? node.string("text") ?? "" }
+
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
-        label.stringValue = node.string("text") ?? ""
+        dateText = AppSceneDateText(node)
+        updateTicking()
+        label.stringValue = shownText
         label.font = Self.font(node)
         let lines = node.number("lineLimit").map { max(1, Int($0)) } ?? 0
         label.maximumNumberOfLines = lines
@@ -29,7 +38,43 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { performWithTheme { paintContent() } }
+        updateTicking()
+        if window != nil {
+            if dateText != nil { label.stringValue = shownText }
+            performWithTheme { paintContent() }
+        }
+    }
+
+    /// The scene clock this Text ticks on while it is in a window.
+    private weak var clock: AppSceneClock?
+
+    /// Ticks only while a ticking Text is in a window, on its mounted scene's clock.
+    private func updateTicking() {
+        var host = superview
+        while let view = host, !(view is AppSceneNativeView) { host = view.superview }
+        let next = dateText != nil && window != nil ? (host as? AppSceneNativeView)?.clock : nil
+        guard next !== clock else { return }
+        clock?.remove(self)
+        clock = next
+        next?.add(self)
+    }
+
+    /// One second of the shared clock: a new string re-lays the scene only when its length changes.
+    func tick(_ now: Date) {
+        guard let dateText else { return }
+        let text = dateText.text(at: now)
+        guard text != label.stringValue else { return }
+        let resize = text.count != label.stringValue.count
+        label.stringValue = text
+        performWithTheme { paintContent() }
+        guard resize else { return }
+        var view: NSView? = self
+        while let current = view {
+            current.needsLayout = true
+            current.invalidateIntrinsicContentSize()
+            if current is AppSceneNativeView { break }
+            view = current.superview
+        }
     }
 
     override func paint() {
@@ -47,7 +92,7 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = label.maximumNumberOfLines == 1 ? label.lineBreakMode : .byWordWrapping
         label.attributedStringValue = NSAttributedString(
-            string: node.string("text") ?? "",
+            string: label.stringValue,
             attributes: [
                 .font: label.font ?? Typography.body,
                 .foregroundColor: color,
@@ -63,6 +108,18 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override func layoutContent(in rect: CGRect) { label.frame = rect }
 
+    /// The first line's baseline below the node's top (an HStack's `firstTextBaseline`).
+    override func firstBaseline(width: CGFloat) -> CGFloat? {
+        guard let font = label.font else { return nil }
+        return padding.top + ceil(font.ascender)
+    }
+
+    /// The last line's baseline above the node's bottom (an HStack's `lastTextBaseline`).
+    override func lastBaselineFromBottom(width: CGFloat) -> CGFloat? {
+        guard let font = label.font else { return nil }
+        return padding.bottom + ceil(-font.descender)
+    }
+
     /// The node's font: a text style name (chrome sizes for body, caption and headline) or a point size.
     @MainActor
     static func font(_ node: AppSceneNode) -> NSFont {
@@ -73,10 +130,10 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         }
         var font = base
         let chosen = Self.weight(node.string("weight"))
-        let monospaced = node.flag("monospaced")
-        if chosen != nil || monospaced {
+        let design = Self.design(node)
+        if chosen != nil || design != .default {
             let fallback: NSFont.Weight = node.string("font") == "headline" ? .semibold : .regular
-            font = Typography.system(monospaced ? .monospaced : .default, size: base.pointSize, weight: chosen ?? fallback)
+            font = Typography.system(design, size: base.pointSize, weight: chosen ?? fallback)
         }
         if node.flag("italic") { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
         return font
@@ -95,6 +152,16 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         case "caption": Typography.caption
         case "caption2": NSFont.preferredFont(forTextStyle: .caption2)
         default: Typography.body
+        }
+    }
+
+    /// `fontDesign` (`rounded`, `serif`, `monospaced`), else `monospaced`; the type scale keeps the size.
+    static func design(_ node: AppSceneNode) -> Typography.Design {
+        switch node.string("fontDesign") {
+        case "rounded": .rounded
+        case "serif": .serif
+        case "monospaced": .monospaced
+        default: node.flag("monospaced") ? .monospaced : .default
         }
     }
 

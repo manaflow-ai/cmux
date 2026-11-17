@@ -69,7 +69,7 @@ export default componentEntry<Props>({
       props: { variant: "medium" },
     },
     large: {
-      note: "Large, a busy day: the rest of today on the left with a count of what does not fit; tomorrow on the right.",
+      note: "Large, a busy day: Apple's hour grid. Today from the current hour under the date, the red now line at 1:12, each event a tinted block at its time; tomorrow from an hour before its first event.",
       props: { variant: "large" },
     },
     "small-clear": {
@@ -85,11 +85,11 @@ export default componentEntry<Props>({
       props: { variant: "medium-all-day" },
     },
     "large-all-day": {
-      note: "All-day events today and tomorrow, large.",
+      note: "All-day events today and tomorrow, large: a row above the hour grid in both columns, so the hours stay level.",
       props: { variant: "large-all-day" },
     },
     "large-empty": {
-      note: "Empty today and tomorrow, large.",
+      note: "Empty today and tomorrow, large: the hour grid with No more events today and No events.",
       props: { variant: "large-empty" },
     },
     "small-ask": {
@@ -100,8 +100,12 @@ export default componentEntry<Props>({
       note: "Access turned off: it says where to turn it on (Privacy & Security > Calendars); macOS cannot ask twice.",
       props: { variant: "medium-denied" },
     },
+    "large-list": {
+      note: "Settings, large as a list: the rest of today on the left with a count of what does not fit; tomorrow on the right.",
+      props: { variant: "large-list" },
+    },
     "large-24h": {
-      note: "Settings: a 24-hour clock.",
+      note: "Settings: a 24-hour clock on the hour grid.",
       props: { variant: "large-24h" },
     },
     "all-sizes": {

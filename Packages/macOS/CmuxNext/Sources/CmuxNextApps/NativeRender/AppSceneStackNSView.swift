@@ -6,7 +6,8 @@ import CmuxNextDesign
 /// height is the sum plus `spacing`. Horizontal: children keep their natural widths, filling children
 /// share what is left (spacers last), text shrinks when the row is too narrow (lowest `layoutPriority` first,
 /// never a `fixedSize` text), and each child sits at the row's `alignment` (`top`, `bottom`; centered by default)
-/// on the row's height. A section is a short list (budget 4096 nodes), so every child is laid out:
+/// on the row's height, or with `firstTextBaseline` / `lastTextBaseline` on one shared text baseline (a child
+/// with no text aligns its bottom there, as in SwiftUI: AM/PM beside a big time). A section is a short list (budget 4096 nodes), so every child is laid out:
 /// `LazyVStack` draws as a `VStack`.
 final class AppSceneStackNSView: AppSceneNodeNSView {
     private var isHorizontal: Bool { node.type == .hStack }
@@ -25,7 +26,9 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
     override func contentHeight(width: CGFloat) -> CGFloat {
         guard !childViews.isEmpty else { return 0 }
         if isHorizontal {
-            return zip(childViews, widths(for: width)).map { $0.height(width: $1) }.max() ?? 0
+            let childWidths = widths(for: width)
+            if let placed = baselinePlacement(childWidths) { return placed.height }
+            return zip(childViews, childWidths).map { $0.height(width: $1) }.max() ?? 0
         }
         return childViews.reduce(0) { $0 + $1.height(width: width) } + spacing * CGFloat(childViews.count - 1)
     }
@@ -33,13 +36,17 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
     override func layoutContent(in rect: CGRect) {
         if isHorizontal {
             var x = rect.minX
-            for (child, width) in zip(childViews, widths(for: rect.width)) {
+            let childWidths = widths(for: rect.width)
+            let placed = baselinePlacement(childWidths)
+            for (index, (child, width)) in zip(childViews, childWidths).enumerated() {
                 let height = child.height(width: width)
-                // `alignment` top, center (the default) or bottom, as SwiftUI's HStack (the view is flipped).
-                let y: CGFloat = switch node.string("alignment") {
-                case "top": rect.minY
-                case "bottom": rect.maxY - height
-                default: rect.minY + (rect.height - height) / 2
+                // `alignment` top, center (the default), bottom or a text baseline, as SwiftUI's HStack (the view is flipped).
+                let y: CGFloat = if let placed { rect.minY + placed.tops[index] } else {
+                    switch node.string("alignment") {
+                    case "top": rect.minY
+                    case "bottom": rect.maxY - height
+                    default: rect.minY + (rect.height - height) / 2
+                    }
                 }
                 child.frame = CGRect(x: x, y: y, width: width, height: height).integral
                 x += width + spacing
@@ -58,6 +65,50 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
             child.frame = CGRect(x: x, y: y, width: width, height: height)
             y += height + spacing
         }
+    }
+
+    /// With `firstTextBaseline` or `lastTextBaseline`: each child's top below the row's top, so every
+    /// child's baseline (its bottom when it has no text) is on one line, and the row's height.
+    private func baselinePlacement(_ widths: [CGFloat]) -> (tops: [CGFloat], height: CGFloat)? {
+        let last: Bool
+        switch node.string("alignment") {
+        case "firstTextBaseline": last = false
+        case "lastTextBaseline": last = true
+        default: return nil
+        }
+        let measured = zip(childViews, widths).map { child, width -> (height: CGFloat, baseline: CGFloat) in
+            let height = child.height(width: width)
+            let baseline = last
+                ? height - (child.lastBaselineFromBottom(width: width) ?? 0)
+                : child.firstBaseline(width: width) ?? height
+            return (height, baseline)
+        }
+        let line = measured.map(\.baseline).max() ?? 0
+        let tops = measured.map { line - $0.baseline }
+        let height = zip(tops, measured).map { $0 + $1.height }.max() ?? 0
+        return (tops, height)
+    }
+
+    override func firstBaseline(width: CGFloat) -> CGFloat? {
+        let p = padding
+        let inner = max(0, width - p.left - p.right)
+        if isHorizontal {
+            guard let placed = baselinePlacement(widths(for: inner)), node.string("alignment") == "firstTextBaseline" else { return nil }
+            let childWidths = widths(for: inner)
+            for (index, child) in childViews.enumerated() {
+                if let baseline = child.firstBaseline(width: childWidths[index]) { return p.top + placed.tops[index] + baseline }
+            }
+            return nil
+        }
+        guard let first = childViews.first else { return nil }
+        return first.firstBaseline(width: min(first.naturalWidth ?? inner, inner)).map { $0 + p.top }
+    }
+
+    override func lastBaselineFromBottom(width: CGFloat) -> CGFloat? {
+        guard !isHorizontal, let last = childViews.last else { return nil }
+        let p = padding
+        let inner = max(0, width - p.left - p.right)
+        return last.lastBaselineFromBottom(width: min(last.naturalWidth ?? inner, inner)).map { $0 + p.bottom }
     }
 
     /// The horizontal stack's child widths in `width`.
