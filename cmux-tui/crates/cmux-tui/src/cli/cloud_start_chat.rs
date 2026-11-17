@@ -644,8 +644,8 @@ impl Runner for SelfRunner {
     }
 
     fn fresh_name(&mut self) -> String {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("chat-{}", id.chars().take(16).collect::<String>())
+        // The app reads this shape as generated (`record::is_generated_name`), never as a title.
+        cmux_cloud_machine::record::chat_machine_name(&uuid::Uuid::new_v4().simple().to_string())
     }
 
     fn app(

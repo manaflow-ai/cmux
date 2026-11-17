@@ -5,7 +5,7 @@ use std::io::Write;
 const SID: &str = "01a18ad5-89bc-7a02-905f-8f4fbef7fed2";
 
 fn ms(text: &str) -> u64 {
-    crate::server::machine_health::rfc3339_ms(text).unwrap()
+    crate::clock_text::rfc3339_ms(text).unwrap()
 }
 
 fn models() -> Models {

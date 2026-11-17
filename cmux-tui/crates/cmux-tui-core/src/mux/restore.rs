@@ -238,6 +238,17 @@ pub(super) fn restore_resource_state(
             })?]
             .id,
         );
+        // `floating-panes-v1`: an entry of a pane the store no longer has is dropped, not an error.
+        let floating = screen
+            .floating
+            .iter()
+            .filter_map(|entry| {
+                let pane = *pane_slots.get(&entry.pane)?;
+                Some(cmux_layout_reducer::floating_panes::Floating { pane, frame: entry.frame })
+            })
+            .collect::<Vec<_>>();
+        let floating = Screen::settled_floating_panes(&root, &layout_columns, &floating);
+        let zoomed_pane = Screen::zoom_beside_floating_panes(zoomed_pane, &floating);
         let restored_screen = Screen {
             id,
             public_id: screen.public_id.clone(),
@@ -250,6 +261,7 @@ pub(super) fn restore_resource_state(
             viewport_base_width,
             layout_columns,
             layout_revision: 0,
+            floating,
             layout_undo: Default::default(),
         };
         anyhow::ensure!(
@@ -341,6 +353,7 @@ pub(super) fn restore_resource_state(
             ),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
+            tab_places: Default::default(),
         },
         next_id,
         contents,

@@ -4,7 +4,7 @@
 # 1. key=value arguments: the frame-judged harness (scripts/cmux-next/tab_switch_frames.py, through
 #    bench_tab_switch.py --frames) on a display Mac. A long chat, a terminal and a Chromium page switched away and
 #    back, a new tab and a close, idle, under CPU load and with agents streaming; every switch judged from the
-#    screen's own frames (scripts/measure/tab-switch-frames/recorder.swift, ScreenCaptureKit at display rate) against
+#    screen's own frames (CuaDriver's display recording, synced by a marker window: tab_switch_capture.py) against
 #    the frame it must end on, with budgets (content within one display frame, 0 blank, 0 wrong, 0 px shift, the new
 #    tab's insert and its animation's end right). Works on a shipped NIGHTLY (no debug.* commands needed):
 #      cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
@@ -17,10 +17,20 @@
 #    build=head     an app built at this checkout
 #    dmg=https://   one DMG instead of the feed
 #    rounds=N       switches per scenario and load (1 to 20, default 5)
-#    load=LIST      idle,cpu,agents (default all)
-#    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default all)
+#    load=LIST      idle,cpu,agents (default), or the instant-at-any-load modes L0 (idle), L1 (the focused chat
+#                   streams 60 chunks/s and 2,000 tool-output lines/s), L2 (10 other chats streaming, 3 in a split
+#                   pane), L3 (the focused chat is a 100k-row chat, streaming), L4 (every core pinned), L5 (all of
+#                   them plus STRESS: 60 workspaces, 20 printing terminals; run last); also cpu-max, agents-N,
+#                   chat-100k, tabs-N, and any of them joined with + (L4+tabs-40)
+#    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default), or all: also
+#                   webkit-return, new-workspace, switch-workspace, close-workspace, rapid-open-5, rapid-close-3,
+#                   open-while-close
+#    record=S       seconds recorded after each action (default 1.2); settled needs 300 ms still inside it
+#    rows=N         rows of the 100k-row chat (default 100000)
 #    turns=N        answered turns in the long chat (default 200); agents=N streaming chats (default 4)
 #    gate=0         exit 0 once the report is written, budgets or not (an artifact comes back only from a passing step)
+#    Every action also gets settled_ms (the window still for 300 ms) and an oddity log (tab_switch_settle.py),
+#    printed as TSW-ODD lines, with a summary table (TSW-TABLE, table.md).
 #    Writes .build/tab-switch/report.json (schema tab-switch/v1), contact sheets of failing switches in
 #    .build/tab-switch/sheets/, and both in .build/tab-switch/report.tgz. Prints TSW and TSW-FAIL lines.
 #    Exit: 0 every budget held (or gate=0), 1 a budget failed, 3 could not measure.
@@ -60,6 +70,7 @@ prepare_build() {
 
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
+  local record="" rows=""
   for arg in "$@"; do
     case "$arg" in
       build=*) build="${arg#build=}" ;;
@@ -71,24 +82,42 @@ frames_main() {
       agents=*) agents="${arg#agents=}" ;;
       dmg=https://*) dmg="${arg#dmg=}" ;;
       config=release|config=bench) config="${arg#config=}" ;;
+      record=*) record="${arg#record=}" ;;
+      rows=*) rows="${arg#rows=}" ;;
       *) echo "tab-switch: unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$rounds" =~ ^([1-9]|1[0-9]|20)$ ]] || { echo "tab-switch: rounds= takes 1 to 20" >&2; exit 2; }
   [[ "$turns" =~ ^[0-9]+$ && "$agents" =~ ^[0-9]+$ ]] || { echo "tab-switch: turns= and agents= take numbers" >&2; exit 2; }
+  [[ -z "$record" || "$record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: record= takes seconds" >&2; exit 2; }
+  [[ -z "$rows" || "$rows" =~ ^[0-9]+$ ]] || { echo "tab-switch: rows= takes a number" >&2; exit 2; }
+  [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
   local root="$PWD" out="$PWD/.build/tab-switch" tmp
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   tmp="$(mktemp -d)"
-  chmod 0755 "$tmp" # the harness runs as the console user (console-session.sh): it reads the recorder and the DMG here
+  # Every exit (a failed build, a missing tool, a TERM) removes this folder and the worktree in it: the build
+  # holds 13 to 18 GB, and leaked ones filled a bench Mac's disk. By its own path, never by name or glob.
+  TSW_ROOT="$root" TSW_TMP="$tmp"
+  trap 'git -C "$TSW_ROOT" worktree remove --force "$TSW_TMP/src" >/dev/null 2>&1 || true; rm -rf -- "$TSW_TMP"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  chmod 0755 "$tmp" # the harness runs as the console user (console-session.sh): it reads the tools and the DMG here
   echo "TSW host chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername) load=\"$(sysctl -n vm.loadavg)\""
-  swiftc -O -o "$tmp/tab-switch-recorder" scripts/measure/tab-switch-frames/recorder.swift 2>&1 | tail -n 40 \
-    || true
-  [ -x "$tmp/tab-switch-recorder" ] || { echo "TSW the recorder did not compile"; exit 3; }
+  # The pixels come from CuaDriver, the recorder the fleet grants Screen Recording to (a binary compiled here never holds
+  # that grant); the marker and the decoder below need none.
+  [ -x /Applications/CuaDriver.app/Contents/MacOS/cua-driver ] || { echo "TSW no CuaDriver on this Mac: cannot record"; exit 3; }
+  # Before the build, as the console user the harness records as: a Mac whose CuaDriver cannot start or has no Screen
+  # Recording grant exits 3 in seconds, not after an hour-long build on an exclusive display worker (2026-11-16:
+  # three display Macs built every pull request's app, then died in cua-driver's `initialize`).
+  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" \
+    preflight || exit 3
+  swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
+  [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
   local app_args=() label=""
   if [[ "$build" == nightly ]]; then
     if [[ -z "$dmg" ]]; then
-      dmg="$(curl -fsSL --proto '=https' --retry 3 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors --connect-timeout 20 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
         | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
     fi
     [[ "$dmg" == https://* ]] || { echo "TSW no nightly DMG in the feed"; exit 3; }
@@ -101,12 +130,14 @@ frames_main() {
   else
     local src="$root"
     if [[ "$build" != head && "$build" != "$(git rev-parse HEAD)" ]]; then
-      # The warm checkout has no origin: the commit comes from the explicit URL.
+      # The warm checkout has no origin: the commit comes from the explicit URL. Never into submodules: a warm
+      # checkout whose ghostty an earlier build populated made git fetch ghostty's new pointer too, which GitHub
+      # refuses ("upload-pack: not our ref"), so every step on two display Macs exited 3 (2026-11-16).
       git cat-file -e "$build^{commit}" 2>/dev/null \
-        || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$build" \
+        || git -c submodule.recurse=false fetch --quiet --no-recurse-submodules https://github.com/manaflow-ai/cmux.git "$build" \
         || { echo "TSW cannot fetch $build" >&2; exit 3; }
       src="$tmp/src"
-      git worktree add --quiet --detach "$src" "$build" || exit 3
+      git -c submodule.recurse=false worktree add --quiet --detach "$src" "$build" || exit 3
     fi
     label="$(git -C "$src" rev-parse HEAD)"
     local configuration=(--release)
@@ -128,10 +159,12 @@ frames_main() {
   [[ "$gate" == 0 ]] && gate_args=(--no-gate)
   local scenario_args=()
   [[ -n "$scenarios" ]] && scenario_args=(--scenarios "$scenarios")
+  [[ -n "$record" ]] && scenario_args+=(--record "$record")
+  [[ -n "$rows" ]] && scenario_args+=(--chat-rows "$rows")
   local rc=0
   set +e
   GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
-    --frames "${app_args[@]}" --build "$label" --recorder "$tmp/tab-switch-recorder" --rounds "$rounds" --loads "$load" \
+    --frames "${app_args[@]}" --build "$label" --tools "$tmp/tab-switch-tools" --rounds "$rounds" --loads "$load" \
     --chat-turns "$turns" --agents "$agents" --out "$out" ${scenario_args[@]+"${scenario_args[@]}"} \
     ${gate_args[@]+"${gate_args[@]}"} 2>&1 | tee "$out/run.log"
   rc=${PIPESTATUS[0]}
@@ -143,12 +176,16 @@ frames_main() {
   exit "$rc"
 }
 
-if [[ "${1:-}" =~ ^(build|rounds|load|scenarios|gate|turns|agents|dmg|config)= ]]; then
+if [[ "${1:-}" =~ ^(build|rounds|load|scenarios|gate|turns|agents|dmg|config|record|rows)= ]]; then
   frames_main "$@"
 fi
 
 tag="tabswitch"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 prepare_build "$out"
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
@@ -167,4 +204,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
-exec python3 scripts/cmux-next/tab-switch-stages.py --tag "$tag" --app "$app" --out "$out" "$@"
+python3 scripts/cmux-next/tab-switch-stages.py --tag "$tag" --app "$app" --out "$out" "$@"

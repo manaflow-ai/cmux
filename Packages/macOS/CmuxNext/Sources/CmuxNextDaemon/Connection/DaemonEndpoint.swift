@@ -318,6 +318,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
     /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
     case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// Opt into the authenticated screen-device UUID replay and lifecycle events.
+    case screenDeviceIdentity = "screen-device-identity-v1"
     /// A selection change that rides with a tree delta comes as `selection-changed` (the workspace's whole
     /// selection), not as a `tree-changed` that makes the store read the whole tree again (#32408).
     case treeSelectionDeltas = "tree-selection-deltas-v1"
@@ -508,6 +510,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserFitWidth = "browser-fit-width-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     case keybindings = "keybindings-v1"
+    /// `settings.edit` (with `settings.snapshot`): cmux-next.json owned by the daemon (cmux-config);
+    /// the app sends every write of the file there (plans/cmux-next/settings-react.md section 1).
+    /// v2: the `set_exact` edit and the `file` check; an older owner cannot take the app's writes.
+    case settingsEdit = "settings-edit-v2"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
     /// icon values naming a stored asset on workspace, screen, room and profile icons.
     case iconAssets = "icon-assets-v1"
@@ -616,7 +622,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .screenDeviceIdentity, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
@@ -628,7 +634,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceGroupIcon, .workspaceGroupPin, .screenGroupIcon, .tabGroupIcon, .sessionIcon,
              .localAttachments, .linkPreview, .chiefInspect, .terminalPendingSequence, .terminalCommandHistory,
              .sidebarLayout, .sidebarDoc, .placementShift, .paletteUsage, .browserDevices, .browserFit,
-             .browserFitWidth, .keybindings, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
+             .browserFitWidth, .keybindings, .settingsEdit, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
              .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,

@@ -64,10 +64,102 @@ impl Handle {
     }
 }
 
-fn corpus() -> Result<Value, String> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/corpus/palette-corpus.json");
+fn read_json(path: &str) -> Result<Value, String> {
     let text = std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
     serde_json::from_str(&text).map_err(|error| format!("{path}: {error}"))
+}
+
+const CHANGES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/corpus/rust-changes.json");
+
+/// The corpus with each deliberate change applied: `tests/corpus/rust-changes.json` lists the
+/// requests whose answer this crate changed on purpose after the port (each with why), and its
+/// answer replaces the TypeScript ranker's for that request. The TypeScript answers stay as
+/// they were recorded.
+fn corpus() -> Result<Value, String> {
+    let mut corpus =
+        read_json(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/corpus/palette-corpus.json"))?;
+    let changes = read_json(CHANGES)?;
+    let mut changed = std::collections::HashMap::new();
+    for change in changes["changes"].as_array().ok_or("rust-changes.json has no changes")? {
+        let name = change["name"].as_str().ok_or("a change without a name")?;
+        if change["why"].as_str().is_none_or(str::is_empty) {
+            return Err(format!("{CHANGES}: {name:?} says no why"));
+        }
+        changed.insert(name.to_owned(), change["expected"].clone());
+    }
+    for case in corpus["cases"].as_array_mut().into_iter().flatten() {
+        let Some(name) = case["name"].as_str() else { continue };
+        if let Some(expected) = changed.remove(name) {
+            case["typescript"] = case["expected"].take();
+            case["expected"] = expected;
+        }
+    }
+    if !changed.is_empty() {
+        return Err(format!("{CHANGES} names requests the corpus has not: {:?}", changed.keys()));
+    }
+    // A candidate rust-changes.json for the requests that differ: CMUX_PALETTE_CORPUS_CHANGES=PATH.
+    if let Ok(out) = std::env::var("CMUX_PALETTE_CORPUS_CHANGES") {
+        write_candidate_changes(&corpus, &out)?;
+    }
+    Ok(corpus)
+}
+
+/// The rows' titles of one answer, best first.
+fn titles(entries: &Value, answer: &Value, count: usize) -> Vec<String> {
+    answer
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["rows"].as_array().cloned().unwrap_or_default())
+        .filter_map(|row| row["index"].as_u64())
+        .filter_map(|index| entries[index as usize]["title"].as_str().map(str::to_owned))
+        .take(count)
+        .collect()
+}
+
+fn write_candidate_changes(corpus: &Value, out: &str) -> Result<(), String> {
+    let sets = corpus["sets"].as_object().ok_or("corpus has no sets")?;
+    let handle = Handle(cmux_palette_ranker_new());
+    let mut changes = Vec::new();
+    for case in corpus["cases"].as_array().into_iter().flatten() {
+        let set = &sets[case["set"].as_str().ok_or("case without set")?];
+        let version = set["version"].as_i64().ok_or("set without version")?;
+        if case["inline"].as_bool() != Some(true) {
+            handle.install(version, &set["entries"])?;
+        }
+        let (_, body) = handle.rank(&case["request"])?;
+        let actual: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+        if actual == case["expected"] {
+            continue;
+        }
+        let entries = case["request"]
+            .get("entries")
+            .filter(|entries| entries.is_array())
+            .unwrap_or(&set["entries"]);
+        changes.push(serde_json::json!({
+            "name": case["name"], "query": case["request"]["query"], "why": "",
+            "before": titles(entries, &case["expected"], 5), "after": titles(entries, &actual, 5),
+            "expected": actual,
+        }));
+    }
+    let text = serde_json::to_string_pretty(&serde_json::json!({ "changes": changes }))
+        .map_err(|error| error.to_string())?;
+    std::fs::write(out, text).map_err(|error| format!("{out}: {error}"))
+}
+
+#[test]
+fn every_deliberate_change_differs_from_the_typescript_answer() -> Result<(), String> {
+    let corpus = corpus()?;
+    let changed: Vec<&str> = corpus["cases"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|case| case.get("typescript").is_some())
+        .filter(|case| case["typescript"] == case["expected"])
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    assert!(changed.is_empty(), "rust-changes.json repeats the TypeScript answer: {changed:?}");
+    Ok(())
 }
 
 #[test]

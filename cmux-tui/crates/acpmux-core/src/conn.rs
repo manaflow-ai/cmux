@@ -418,8 +418,8 @@ enum Control {
 /// What a frame is, read once off the socket.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Class {
-    /// A chat stream's `page` or `blob`: its source may answer it later, and it holds its
-    /// reply's room until then.
+    /// A chat stream's `page` or `blob`, or a list `page` that names another origin (row 8b):
+    /// its source may answer it later, and it holds its reply's room until then.
     Later,
     Other,
 }
@@ -437,14 +437,35 @@ fn classify(frame: &Frame) -> Class {
     struct Params<'a> {
         #[serde(borrow, default)]
         stream: Option<std::borrow::Cow<'a, str>>,
+        // Read only for a list page, so a chat request's params never fail to parse here.
+        #[serde(borrow, default)]
+        filter: Option<&'a serde_json::value::RawValue>,
+        #[serde(borrow, default)]
+        keys: Option<&'a serde_json::value::RawValue>,
     }
+    // A filter or a row key, by the origin it names.
+    #[derive(serde::Deserialize)]
+    struct Named<'a> {
+        #[serde(borrow, default)]
+        origin: Option<std::borrow::Cow<'a, str>>,
+    }
+    let other = |named: &Named<'_>| named.origin.as_deref().is_some_and(|origin| origin != "local");
     let later = frame.kind == FrameKind::Request
         && serde_json::from_slice::<Head<'_>>(frame.payload()).is_ok_and(|head| {
-            matches!(head.method.as_ref(), "page" | "blob")
-                && head
-                    .params
-                    .and_then(|params| params.stream)
-                    .is_some_and(|stream| stream.starts_with("chat:"))
+            let Some(params) = head.params else { return false };
+            match (head.method.as_ref(), params.stream.as_deref()) {
+                ("page" | "blob", Some(stream)) if stream.starts_with("chat:") => true,
+                ("page", Some("list")) => {
+                    params.filter.is_some_and(|filter| {
+                        serde_json::from_str::<Named<'_>>(filter.get())
+                            .is_ok_and(|named| other(&named))
+                    }) || params.keys.is_some_and(|keys| {
+                        serde_json::from_str::<Vec<Named<'_>>>(keys.get())
+                            .is_ok_and(|keys| keys.iter().any(other))
+                    })
+                }
+                _ => false,
+            }
         });
     if later { Class::Later } else { Class::Other }
 }
@@ -483,6 +504,9 @@ fn process_frame(
     let value: serde_json::Value = frame.decode_json()?;
     validate_identifiers(&value)?;
     let request: Request = frame.decode_json()?;
+    if let Request::Act(act) = &request {
+        act.validate().map_err(|message| ConnError::InvalidRequest(message.into()))?;
+    }
     if role == Role::Peer {
         validate_peer_request(&request)?;
     }
@@ -493,6 +517,7 @@ fn process_frame(
         Request::Sub(sub) => require_surface(&sub.stream, surfaces)?,
         Request::Page(page) => require_surface(&page.stream, surfaces)?,
         Request::Blob(blob) => require_surface(&blob.stream, surfaces)?,
+        Request::Act(act) => require_surface(&act.chat, surfaces)?,
         _ => {}
     }
     match request {
@@ -590,6 +615,11 @@ fn process_frame(
                 ));
             }
         }
+        // The wire shape is additive, but execution remains explicitly
+        // default-off until the action surface is wired to a daemon writer.
+        Request::Act(_) => {
+            return Err(ConnError::InvalidRequest("act is disabled".into()));
+        }
     }
     Ok(())
 }
@@ -619,6 +649,9 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
             Ok(())
         }
         Request::Blob(_) => {
+            Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
+        }
+        Request::Act(_) => {
             Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
         }
         // Decision 266: the mirror's `live` walk, or this machine's rows by `all` or `keys`.

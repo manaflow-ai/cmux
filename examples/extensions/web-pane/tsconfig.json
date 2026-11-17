@@ -1,0 +1,15 @@
+{
+  "//": "In this repository the SDK resolves from source, so the example builds with no install. Outside it, `npm install cmux-extension-sdk` and drop `paths`.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM"],
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "paths": { "cmux-extension-sdk/web": ["../../../cmux-tui/crates/cmux-extension-sdk/typescript/src/web.ts"] }
+  },
+  "include": ["src"]
+}

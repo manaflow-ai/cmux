@@ -67,7 +67,7 @@
       "safetyPollSeconds": 900
     },
     "github.changes": {
-      "docs": "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag).",
+      "docs": "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live.",
       "scopes": ["integration:github:read", "net:api.github.com"],
       "params": {
         "type": "object",
@@ -126,9 +126,10 @@
           { "op": "net.fetch", "scope": "net:api.github.com", "docs": "The same reads on the public API when the gateway refuses, each with If-None-Match from the runtime's own ETag cache." }
         ]
       },
-      "push": [],
+      "push": ["github.changed"],
       "pollFloorSeconds": 30,
-      "staleAfterSeconds": 60
+      "staleAfterSeconds": 60,
+      "safetyPollSeconds": 900
     },
     "workspace.list": {
       "docs": "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",

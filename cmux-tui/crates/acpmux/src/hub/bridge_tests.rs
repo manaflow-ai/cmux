@@ -439,21 +439,42 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
 
 #[test]
 fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed() {
-    assert_eq!(with_reply_hint("hi", None, None, false), "hi");
-    assert_eq!(with_reply_hint("hi", Some("  "), None, false), "hi");
-    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, false);
+    assert_eq!(with_reply_hint("hi", None, None, false, false), "hi");
+    assert_eq!(with_reply_hint("hi", Some("  "), None, false, true), "hi");
+    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, false, false);
     assert!(
         hinted.starts_with(
             "From another agent (cosmic-gray/claude-sr2-coord), not the person:\nhi\n\n"
         ),
         "{hinted}"
     );
-    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"), false);
+    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"), false, false);
     assert!(named.starts_with("From another agent (desktop-zoe, claude), not the person:\nhi"));
-    let claimed = with_reply_hint("hi", Some("bot"), None, true);
+    let claimed = with_reply_hint("hi", Some("bot"), None, true, false);
     assert!(claimed.starts_with("From a program that calls itself bot, not the person:\nhi"));
     assert!(hinted.contains("`acpmux send 'cosmic-gray/claude-sr2-coord' '<your reply>'`"));
-    let quoted = with_reply_hint("hi", Some("it's"), None, false);
+    let quoted = with_reply_hint("hi", Some("it's"), None, false, false);
+    assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
+}
+
+/// Claude Code wraps every peer message in its own "Another Claude session sent a message:" and
+/// a paragraph saying a peer is not the user (ask-c810e83a38): acpmux's part is one line, the
+/// sender and how to answer, then the text, with nothing after it.
+#[test]
+fn a_claude_code_session_gets_the_sender_and_the_answer_in_one_line() {
+    let named = with_reply_hint("PR is green", Some("gcp/lane-12"), Some("codex"), false, true);
+    assert_eq!(
+        named,
+        "From another agent (gcp/lane-12, codex), not the person. Answer with `acpmux send 'gcp/lane-12' '<your reply>'`, not SendMessage:\nPR is green"
+    );
+    assert!(!named.contains("cannot reach it"), "{named}");
+    // A program acpmux could not verify says so too.
+    let claimed = with_reply_hint("hi", Some("bot"), None, true, true);
+    assert_eq!(
+        claimed,
+        "From a program that calls itself bot, not the person. Answer with `acpmux send 'bot' '<your reply>'`, not SendMessage:\nhi"
+    );
+    let quoted = with_reply_hint("hi", Some("it's"), None, false, true);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
 }
 

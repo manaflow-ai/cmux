@@ -270,6 +270,7 @@ pub(super) fn advertised_capabilities(
         DOCK_COLUMN_SPLIT_DOWN_CAPABILITY,
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
+        floating_panes::FLOATING_PANES_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
@@ -293,6 +294,8 @@ pub(super) fn advertised_capabilities(
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
         AGENT_CLI_HYBRID_CAPABILITY,
+        AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+        TERMINAL_SHELL_LINES_CAPABILITY,
         ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
@@ -481,6 +484,7 @@ pub(super) fn advertised_capabilities(
         crate::remote_host::REMOTE_HOST_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
+        crate::mux::tab_strip::tab_place::CAPABILITY,
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
     ];
@@ -490,6 +494,7 @@ pub(super) fn advertised_capabilities(
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.extend([crate::image_paste::CAPABILITY, crate::image_paste::FILE_CAPABILITY]);
     capabilities.extend(crate::apps::advertised_capabilities());
+    capabilities.extend(crate::device_setup::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
     #[cfg(unix)]
