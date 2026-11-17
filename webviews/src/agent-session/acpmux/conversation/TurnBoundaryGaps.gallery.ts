@@ -7,7 +7,7 @@
 // inbox notice, then each message on its own line) and loads a tool's schema (a hidden call).
 // test/transcript-turn-boundary-gaps.test.ts measures every variant.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
-import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import { received } from "../incomingFixture";
 import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
@@ -73,10 +73,12 @@ const notice = (minutes: number): AcpmuxRow =>
     },
   });
 
-/// A completed ToolSearch: discovery plumbing the transcript hides (hiddenTools.ts).
+/// The agent's thought over the messages and a completed ToolSearch: discovery plumbing the
+/// transcript hides (hiddenTools.ts). No work the run's line names.
 const toolSearch = (minutes: number, id: string): AcpmuxRow =>
   activity(
     [
+      thought("Two messages: the land queue and the owners' table. Loading the PR tools."),
       tool("ToolSearch", "other", "completed", {
         provenance: { claudeTool: "ToolSearch" },
         output: "loaded 2 tools",
@@ -134,9 +136,8 @@ export const BOUNDARY_MESSAGES = [COORD.body, ARCH.body];
 
 /// Marks the divider read, as reaching the latest message after seeing it does (unreadState.ts).
 const readDivider: Play = async (ctx) => {
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-since")), {
-    capMs: 10_000,
-  });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-since, .cv-turn-actions")), { capMs: 10_000 });
+  if (!ctx.document.querySelector(".cv-since")) return;
   markUnreadRead(BOUNDARY_SINCE_KEY);
   await ctx.waitFor(
     () => Boolean(ctx.document.querySelector(".cv-since[data-read]")) || !ctx.document.querySelector(".cv-since"),
