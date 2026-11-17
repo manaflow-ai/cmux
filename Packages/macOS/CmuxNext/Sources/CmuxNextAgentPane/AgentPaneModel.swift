@@ -716,6 +716,8 @@ public final class AgentPaneModel {
         case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.
         case .cloudSignInCancel(let expired): return cancelCloudSignIn(expired: expired)
+        // Opens the plan's checkout in the browser on the person's click (one gesture).
+        case .cloudPlanSubscribe(let plan): return subscribeToCloudPlan(plan)
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         // Only a chat on another machine, on the person's own pick (one gesture).
         case .cloudRepickChat(let repick):

@@ -119,4 +119,12 @@ import Testing
         o.markPending("pro")
         #expect(o.observe(planID: "pro", account: "u2") == PaidPlanOnboarding.Welcome(plan: "pro"))
     }
+
+    /// The pricing card's Subscribe names its plan through the one upgrade action (`palette.pro.upgrade {plan}`): Max
+    /// asks Max's checkout, anything else Pro's.
+    @Test func theUpgradeActionTakesThePlanItNames() {
+        #expect(PaidPlanUpgrade.plan("max") == "max")
+        #expect(PaidPlanUpgrade.plan("pro") == "pro")
+        #expect(PaidPlanUpgrade.plan(nil) == "pro" && PaidPlanUpgrade.plan("team") == "pro")
+    }
 }

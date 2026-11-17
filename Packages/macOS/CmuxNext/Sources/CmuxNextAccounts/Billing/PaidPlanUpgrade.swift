@@ -37,6 +37,9 @@ package struct PaidPlanUpgrade {
         self.pricing = pricing
     }
 
+    /// The plan an upgrade action names (the pricing card's Subscribe, `cloud.plan.subscribe`): `max`, else `pro`.
+    package static func plan(_ named: String?) -> String { named == "max" ? "max" : "pro" }
+
     @discardableResult
     package func start(plan: String = "pro", source: Source, fallback: URL? = nil) async -> Outcome {
         onboarding.markPending(plan)
