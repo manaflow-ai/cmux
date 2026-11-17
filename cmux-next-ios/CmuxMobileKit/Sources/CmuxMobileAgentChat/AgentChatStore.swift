@@ -295,6 +295,8 @@ public final class AgentChatStore {
     public static let terminalNotTakingPromptNotice = "Not sent: the terminal isn't connected. Try again in a moment."
     /// Attachments on a terminal's Chat face: the terminal's own composer uploads them.
     public static let terminalAttachmentsNotice = "Not sent: attach files from the Terminal face."
+    /// `/fork` or `/continue` on a terminal's Chat face: the terminal runs the session.
+    public static let terminalCommandNotice = "This chat runs in its terminal: fork or continue it from the Terminal face."
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
     /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
     /// chat act without asking first (a message to a chat in such a mode, or a switch to one).

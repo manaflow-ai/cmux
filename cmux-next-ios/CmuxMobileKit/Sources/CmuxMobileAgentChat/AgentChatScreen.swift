@@ -97,6 +97,8 @@ public final class AgentChatSurface {
     /// here; nil when it ran (or opened its screen), else the refusal to show (the draft stays).
     func run(_ command: CmuxSlashCommand, args: String, store: AgentChatStore) async -> String? {
         let canFork = tabActions != nil
+        // A terminal's Chat face: its session runs in the terminal, which neither forks nor hands off from here.
+        if store.terminalRoute != nil, command != .status { return AgentChatStore.terminalCommandNotice }
         switch command {
         case .status:
             showStatus = true
@@ -779,9 +781,9 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 // A terminal's Chat face forks nothing: its session runs in the terminal.
+                                 // A terminal's Chat face forks and hands off nothing: its session runs in the terminal.
                                  cmuxCommands: CmuxSlashCommand.allCases.filter {
-                                     $0 != .fork || (surface.tabActions != nil && store.terminalRoute == nil)
+                                     store.terminalRoute == nil ? ($0 != .fork || surface.tabActions != nil) : $0 == .status
                                  },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
