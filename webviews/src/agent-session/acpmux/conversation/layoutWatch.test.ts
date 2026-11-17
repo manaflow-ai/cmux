@@ -330,19 +330,19 @@ describe("layout watch: the other per-frame invariants", () => {
 });
 
 describe("layout watch: the settled tick", () => {
-  test("ticks once things stop, after an expect() closes; I1 flags a gap over 32 px at rest", () => {
+  test("ticks once things stop, after an expect() closes; I1 flags a gap over 32 px at rest (under the 40 px band I3 flags)", () => {
     const { page, watch } = settledPage();
     const ticks = watch.settledCount();
     watch.expect("fold-toggle", { ms: 200 });
     page.mutate(() => {
-      page.rows = page.rows.map((row) => (row.id === "user-1003" ? { ...row, top: row.top + 50 } : row));
+      page.rows = page.rows.map((row) => (row.id === "user-1003" ? { ...row, top: row.top + 36 } : row));
     });
     page.advanceTo(300);
     expect(watch.settledCount()).toBe(ticks);
     page.advanceTo(600);
     expect(watch.settledCount()).toBe(ticks + 1);
     expect(watch.unexplained()).toEqual([
-      expect.objectContaining({ invariant: "I1", rowId: "user-1003", selector: "gap", deltaPx: 50 }),
+      expect.objectContaining({ invariant: "I1", rowId: "user-1003", selector: "gap", deltaPx: 36 }),
     ]);
   });
 });

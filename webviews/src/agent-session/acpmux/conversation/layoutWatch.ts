@@ -154,7 +154,7 @@ export class LayoutWatcher {
   private causes: { cause: ShiftCause; stack?: string } | undefined;
   private frameHandle: number | undefined;
   private posted = false;
-  private expectTimer: ReturnType<typeof setTimeout> | undefined;
+  private expectTimer: number | undefined;
   private settled = true;
   private expectSinceSettle = false;
   private observedRows = new Set<Element>();
