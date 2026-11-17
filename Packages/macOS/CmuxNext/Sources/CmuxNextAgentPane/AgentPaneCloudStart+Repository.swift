@@ -18,12 +18,16 @@ extension AgentPaneCloudStart {
         report(row("running"))
         let bootstrap = CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript,
                                               repo: CloudMachineRepo(owner: String(repository[..<slash]), name: name))
-        let ended: CloudMachineBootstrap.Run
-        if await bootstrap.start(name: nil, on: machine).status == "failed" {
-            ended = .repoFailed(repo: repository)
-        } else {
-            ended = await bootstrap.waitForRun(on: machine, bound: Self.cloneBound)
+        // `running` is another start's run (a reused machine): this start's files were dropped, and that run's
+        // answer names its own repository or none. Wait it out, then start this clone once more; a machine
+        // still busy after that fails here, with Retry.
+        var started = await bootstrap.start(name: nil, on: machine).status
+        if started == "running" {
+            _ = await bootstrap.waitForRun(on: machine, bound: Self.cloneBound)
+            started = await bootstrap.start(name: nil, on: machine).status
         }
+        let ended: CloudMachineBootstrap.Run = Self.clonesHere(started)
+            ? await bootstrap.waitForRun(on: machine, bound: Self.cloneBound) : .repoFailed(repo: repository)
         guard case .finished(let path?) = ended else {
             report(row("failed"))
             if case .needsGitHub = ended { throw AgentPaneCloudRepositoryRefusal.needsGitHub(repository) }
@@ -32,6 +36,10 @@ extension AgentPaneCloudStart {
         report(row("done"))
         return path
     }
+
+    /// Whether a bootstrap start's status means the run to wait for is this start's own clone: `started`, or
+    /// `skipped` (this same repository step already finished here). Never `running` (another start's run) or `failed`.
+    nonisolated static func clonesHere(_ status: String) -> Bool { status == "started" || status == "skipped" }
 
     /// How long a start waits for its clone: a large repository's clone, never the bootstrap's three hours.
     static let cloneBound: Duration = .seconds(20 * 60)

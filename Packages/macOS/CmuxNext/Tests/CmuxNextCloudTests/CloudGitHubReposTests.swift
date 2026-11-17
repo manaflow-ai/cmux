@@ -41,6 +41,13 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubRepos.parse(status: status, body: Self.body(text)) == .failure(expected))
     }
 
+    @Test func aFullNameFollowsGitHubsRules() {
+        for name in ["acme/api", "a-b/x.y_z", "A1/repo.js"] { #expect(CloudGitHubRepos.isFullName(name), "\(name)") }
+        for name in ["-acme/api", "acme-/api", "acme/.git", "acme/..", "acme/a/b", "acme/", "/api", "acme/a b", "acme/a;b"] {
+            #expect(!CloudGitHubRepos.isFullName(name), "\(name)")
+        }
+    }
+
     @Test func onlyATeamAndAnEncodedQueryReachTheURL() {
         #expect(CloudGitHubRepos.path(team: "team_01HZX9", query: nil) == "/v1/integrations/github/repos?team=team_01HZX9")
         #expect(CloudGitHubRepos.path(team: "team_01HZX9", query: "  ") == "/v1/integrations/github/repos?team=team_01HZX9")

@@ -77,4 +77,13 @@ struct AgentPaneCloudStartRepositoryTests {
         #expect(!CloudMoveCLI.StartChatPlan.strands(AgentPaneCloudRepositoryRefusal.needsGitHub("acme/api")))
         #expect(!CloudMoveCLI.StartChatPlan.strands(AgentPaneCloudRepositoryRefusal.failed("acme/api")))
     }
+
+    /// A reused machine can answer `running`: another start's run, whose answer names its own repository
+    /// or none. Only this start's own run (or this same step, already finished) is waited for as its clone.
+    @Test func onlyThisStartsOwnRunIsItsClone() {
+        #expect(AgentPaneCloudStart.clonesHere("started"))
+        #expect(AgentPaneCloudStart.clonesHere("skipped"))
+        #expect(!AgentPaneCloudStart.clonesHere("running"))
+        #expect(!AgentPaneCloudStart.clonesHere("failed"))
+    }
 }

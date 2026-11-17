@@ -49,11 +49,11 @@ public struct CloudGitHubRepos: Equatable, Sendable {
     }
 
     /// GitHub's `owner/name`: an owner of letters, digits and `-`, and a name of letters, digits, `.`, `_` and `-`
-    /// (never `.` or `..`).
+    /// (never `.`, `..` or `.git`; an owner neither starts nor ends with `-`).
     public static func isFullName(_ text: String) -> Bool {
         let parts = text.split(separator: "/", omittingEmptySubsequences: false)
         guard parts.count == 2, (1...39).contains(parts[0].utf8.count), (1...100).contains(parts[1].utf8.count),
-              parts[1] != ".", parts[1] != ".." else { return false }
+              parts[1] != ".", parts[1] != "..", parts[1] != ".git", !parts[0].hasPrefix("-"), !parts[0].hasSuffix("-") else { return false }
         return parts[0].utf8.allSatisfy(ownerBytes.contains) && parts[1].utf8.allSatisfy(nameBytes.contains)
     }
 
