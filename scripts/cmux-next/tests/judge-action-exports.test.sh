@@ -19,6 +19,8 @@ src=Packages/macOS/CmuxNext/Sources/actions.txt
 out=plans/cmux-next/action-surfaces.json
 pkg=Packages/macOS/CmuxNext
 
+# Hermetic: no bucket.
+export CMUX_ACTION_EXPORTS_R2_URL="" CMUX_LAN_CACHE_SOCKET=/nonexistent
 export CMUX_ACTION_EXPORTS_BUILD="mkdir -p $pkg/.build && cp $src $pkg/.build/actions.txt"
 gen='sed "s/^/action: /" '"$pkg"'/.build/actions.txt'
 export CMUX_ACTION_EXPORTS_REGEN="$gen > $out"
@@ -141,4 +143,72 @@ repo 's/^a$/A/' no 's/^e$/E/' yes
 CMUX_ACTION_EXPORTS_BUILD="$counted" judge || fail "(j) failed without the variable: $(cat "$tmp/out.txt")"
 [[ "$(wc -l < "$tmp/builds")" -eq 2 ]] || fail "(j) built $(wc -l < "$tmp/builds") times without a kept build, not twice"
 products_are_heads "(j)"
+
+# (k) CMUX_ACTION_EXPORTS_CACHE: a run that builds the base keeps its fresh export under the base's
+# inputs key, and the next run on the same base inputs reads it instead of building, with the same
+# verdicts (base drift passes, the change's own stale export fails) and HEAD's products after.
+cache="$tmp/cache"
+rm -rf "$cache"
+repo 's/^a$/A/' no 's/^e$/E/' yes
+: > "$tmp/builds"; : > "$tmp/gh-output"
+CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" GITHUB_OUTPUT="$tmp/gh-output" judge \
+  || fail "(k) failed: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(k) built $(wc -l < "$tmp/builds") times, not once (the base's)"
+base_key="$(bash "$script" --inputs-key HEAD^1)"
+head_key="$(bash "$script" --inputs-key HEAD)"
+[[ -n "$base_key" && "$base_key" != "$head_key" ]] || fail "(k) keys: base '$base_key' head '$head_key'"
+grep -qx "base_key=$base_key" "$tmp/gh-output" || fail "(k) no base_key output: $(cat "$tmp/gh-output")"
+grep -qx "head_key=$head_key" "$tmp/gh-output" || fail "(k) no head_key output: $(cat "$tmp/gh-output")"
+grep -qx "base_built=true" "$tmp/gh-output" || fail "(k) no base_built output: $(cat "$tmp/gh-output")"
+[[ -f "$cache/$base_key/.complete" && -f "$cache/$head_key/.complete" ]] || fail "(k) the cache lacks a key: $(ls -a "$cache")"
+grep -q "action: A" "$cache/$base_key/$out" || fail "(k) the base key does not hold the base's fresh export"
+if grep -q "action: E" "$cache/$base_key/$out"; then fail "(k) the base key holds HEAD's export"; fi
+grep -q "action: E" "$cache/$head_key/$out" || fail "(k) the head key does not hold HEAD's fresh export"
+products_are_heads "(k)"
+# The same base again: no build, the same verdict.
+repo 's/^a$/A/' no 's/^e$/E/' yes
+[[ "$(bash "$script" --inputs-key HEAD^1)" == "$base_key" ]] || fail "(k) the same base inputs gave another key"
+: > "$tmp/builds"
+CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
+  || fail "(k) failed from the cache: $(cat "$tmp/out.txt")"
+[[ ! -s "$tmp/builds" ]] || fail "(k) built $(wc -l < "$tmp/builds") times with the base's export in the cache"
+grep -q 'came from the cache' "$tmp/out.txt" || fail "(k) no cache notice: $(cat "$tmp/out.txt")"
+grep -q 'base drift' "$tmp/out.txt" || fail "(k) no base drift warning from the cache"
+products_are_heads "(k)"
+# A change's own stale export on that base still fails from the cache.
+repo 's/^a$/A/' no 's/^e$/E/' no
+: > "$tmp/builds"
+if CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge; then
+  fail "(k) a change's own stale export passed from the cache"
+fi
+grep -q "leaves action exports stale.*$out" "$tmp/out.txt" || fail "(k) no error naming $out: $(cat "$tmp/out.txt")"
+[[ ! -s "$tmp/builds" ]] || fail "(k) built with the base's export in the cache"
+# An incomplete entry (no .complete) is not read: the base is built.
+rm -f "$cache/$base_key/.complete"
+repo 's/^a$/A/' no 's/^e$/E/' yes
+: > "$tmp/builds"
+CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
+  || fail "(k) failed on an incomplete entry: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(k) an incomplete entry was read"
+# In CI the base's key comes from the bucket (a file:// stand-in for its public URL) into a fresh
+# directory: no build. Without CI (GITHUB_ACTIONS unset) the bucket is never read.
+complete="$cache/$base_key/.complete"
+: > "$complete"
+bucket="$tmp/bucket/v1/cmux-next-action-exports/objects"
+mkdir -p "$bucket" && tar -czf "$bucket/v1.$base_key.tar.gz" -C "$cache/$base_key" .
+repo 's/^a$/A/' no 's/^e$/E/' yes
+: > "$tmp/builds"
+GITHUB_ACTIONS=true CMUX_ACTION_EXPORTS_R2_URL="file://$tmp/bucket" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
+  || fail "(k) failed from the bucket: $(cat "$tmp/out.txt")"
+[[ ! -s "$tmp/builds" ]] || fail "(k) built with the base's export in the bucket: $(cat "$tmp/out.txt")"
+grep -q 'came from the cache' "$tmp/out.txt" || fail "(k) no cache notice from the bucket: $(cat "$tmp/out.txt")"
+: > "$tmp/builds"
+GITHUB_ACTIONS= CMUX_ACTION_EXPORTS_R2_URL="file://$tmp/bucket" CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge \
+  || fail "(k) failed outside CI: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(k) read the bucket outside CI"
+# A base whose regenerate fails keeps nothing.
+rm -rf "$cache"
+repo 's/^a$/A/' no 's/^e$/E/' no
+CMUX_ACTION_EXPORTS_CACHE="$cache" CMUX_ACTION_EXPORTS_REGEN="grep -q '^E\$' $src || exit 1; $CMUX_ACTION_EXPORTS_REGEN" judge || true
+[[ ! -e "$cache/$base_key" ]] || fail "(k) a failed base regenerate was kept"
 echo "judge-action-exports: ok"

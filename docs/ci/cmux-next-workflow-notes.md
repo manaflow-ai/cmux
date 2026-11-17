@@ -3630,3 +3630,27 @@ success, and the PR has no `full-ci`, the fast tier, generated files, daemon tes
 and Swift canary outputs are set false (appended after the router's: the last value wins) and the summary names
 H and its run. The native tier stays as routed. Anything unread is no carry. `CMUX_NEXT_BASE_MERGE_CARRY=0`
 turns it off. tests/test_cmux_next_base_merge_carry.py is the detector.
+
+## note-389
+
+Above `AWS_ACCESS_KEY_ID` in the daemon-test job's `Check generated action catalog, surfaces and
+inventory` step, in `.github/workflows/cmux-next.yml`.
+
+The base's fresh action exports, kept in R2 by their generator inputs' key
+(scripts/cmux-next/judge-action-exports.sh). When a pull request's committed exports are stale and it
+changed a generator input, the judge needs the base parent's fresh export, and built the base for it:
+16 to 32 min of this job in 28 of the 68 pull request runs that checked the generated files here
+(2026-11-16T08:27Z..11-17T08:27Z), which with the job's cold build ran the job past its 60 min timeout
+in 12 of them. A feat-cmux-next push's run already has its commit's fresh export (the check passes, or
+the cheap regenerate makes it), so it uploads it under that commit's key; a pull request on that base
+reads it from the public URL and builds nothing. Only a feat-cmux-next push gets the bucket's
+credentials (the expressions), and the script uploads only on such a push: a pull request never writes.
+The detector is scripts/cmux-next/tests/judge-action-exports.test.sh case (k).
+
+## note-390
+
+Above `AWS_ACCESS_KEY_ID` in the generated-files job's `Check generated action catalog, surfaces and
+inventory` step, in `.github/workflows/cmux-next.yml`.
+
+As note-389: a feat-cmux-next push whose generated files this job checks (path routing's
+generated_host) uploads its commit's fresh action exports for the pull requests on that base.
