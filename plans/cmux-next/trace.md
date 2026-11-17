@@ -178,7 +178,7 @@ counts them (`flow records dropped` in the summary). The app's hops are `key.flo
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
 | `daemon.send.read` (optional: drawn when emitted) | daemon `mux-conn` reader, right after the `send` line is parsed | flow id |
 | `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
-| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
+| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself); marked after the write, only for bytes that reached the PTY | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
 | `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
 | `daemon.output.host` or `daemon.output.holder` | `surface-<id>-host` / `surface-<id>-reader` | terminal |
 | `daemon.output.attach` | the same thread (`broadcast_attach_output`) | terminal |
