@@ -187,8 +187,8 @@ final class HomeHostView: PaneMotionFollowingView {
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
         }
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
-        // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
-        settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
+        // Every harness this Mac's acpmux has that a Chief can run on, after the official engines.
+        settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.chiefEngines()) ?? [] }
         // One rename path for every Chief (HomeService.renameChief): every surface shows the new name at once.
         settingsView.onRename = { [weak service] name in
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
