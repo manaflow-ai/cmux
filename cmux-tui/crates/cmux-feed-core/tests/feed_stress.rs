@@ -119,7 +119,7 @@ fn notice(n: usize) -> Notice {
         at_ms: T0 + n as u64,
         read: false,
         // Every third notice coalesces into its terminal's newest unread item.
-        coalesce: n % 3 == 0,
+        coalesce: n.is_multiple_of(3),
     }
 }
 
@@ -161,15 +161,15 @@ fn client_item(n: usize, now: i64) -> FeedItem {
         now - (n as i64) * 7_000,
     );
     item.body = format!("Body {n}");
-    item.thread = (n % 5 == 0).then(|| format!("thread_{}", n % 97));
+    item.thread = n.is_multiple_of(5).then(|| format!("thread_{}", n % 97));
     item.context.insert("workspace".into(), json!(format!("ws_{:02}", n % WORKSPACES)));
     item.context.insert("terminal".into(), json!(format!("term_{:03}", n % TERMINALS)));
-    if n % 11 == 0 {
+    if n.is_multiple_of(11) {
         item.kind = "question".into();
         item.priority = Priority::High;
         item.prompt = json!({"question": "Ship?"});
     }
-    if n % 4 == 0 {
+    if n.is_multiple_of(4) {
         item.read_at = Some(item.created_at);
     }
     item
@@ -347,7 +347,7 @@ fn degenerate_inputs_post_and_view() {
     let mut huge = notice(1);
     huge.body = "é✅".repeat(200_000);
     daemon_post(&mut feed, huge.clone());
-    let mut dup = huge.clone();
+    let mut dup = huge;
     dup.id = "fl_other".into();
     daemon_post(&mut feed, dup);
     assert_eq!(feed.items().len(), 1, "a duplicate dedupe key makes no item");
@@ -430,7 +430,7 @@ fn stress_bench_integration_owner() {
                     MIRROR_NOW + n as i64,
                 );
                 let started = Instant::now();
-                std::hint::black_box(owner.commit(&intent));
+                std::hint::black_box(owner.commit(&intent).1);
                 if n >= sample_from {
                     read.push(started);
                 }
@@ -493,7 +493,7 @@ fn stress_bench_mirror_and_view() {
                 json!({"layout": "inbox", "limit": 50}),
             ));
             inbox.push(started);
-            if round % 20 == 0 {
+            if round.is_multiple_of(20) {
                 let started = Instant::now();
                 std::hint::black_box(view(&mirror, MIRROR_NOW, json!({})));
                 full.push(started);

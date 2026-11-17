@@ -257,7 +257,7 @@ impl Mux {
         // same transaction and its ring clears, as `ack-tab-notifications`
         // would do.
         let unread_left = |matches: &dyn Fn(&Item) -> bool| {
-            next.items().iter().any(|item| item.is_unread() && matches(item))
+            next.items().any(|item| item.is_unread() && matches(item))
         };
         let mut terminals: Vec<TerminalPublicId> = Vec::new();
         let mut tabs: Vec<String> = Vec::new();
@@ -426,7 +426,7 @@ impl Mux {
         let mut feed = lock(&self.feed_local);
         let selection = resolve();
         let matches = |item: &Item| matches(&selection, item);
-        if !feed.items().iter().any(|item| item.is_unread() && matches(item)) {
+        if !feed.items().any(|item| item.is_unread() && matches(item)) {
             commit(&selection, None, &feed)?;
             return Ok(false);
         }
@@ -520,7 +520,7 @@ impl Mux {
         let (changes, refused) = next.read_where(now_ms(), of_tab);
         // Rings follow unread items (9.1 rule 6): an item another owner holds
         // stays unread here, and so does its ring.
-        let unread_left = next.items().iter().any(|item| item.is_unread() && of_tab(item));
+        let unread_left = next.items().any(|item| item.is_unread() && of_tab(item));
         let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
         let extra: Option<crate::workspace_registry::RegistryTransactionWrite<'_>> =
             (!changes.is_empty()).then_some(&write);
