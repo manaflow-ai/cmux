@@ -664,3 +664,25 @@ fn an_older_frame_arrival_cannot_replace_a_newer_delay_sample() {
     assert_eq!(cc.target_bps(), before, "a reordered old shard is not a new path sample");
     assert_ne!(cc.usage(), Usage::Overuse);
 }
+
+#[test]
+fn a_frame_in_repair_frees_its_slot_and_the_ones_before_it() {
+    let mut g = FrameGate::new(2, 1_000);
+    assert!(matches!(g.damage(R, 0), FlowAction::Encode { frame: 1, .. }));
+    assert!(matches!(g.damage(R, 2_000), FlowAction::Encode { frame: 2, .. }));
+    assert_eq!(g.damage(R, 4_000), FlowAction::Wait);
+    assert_eq!(g.next_deadline_us(), None);
+    // A NACK for a frame not sent, or already acknowledged, changes nothing.
+    g.repairing(7);
+    assert_eq!(g.poll(5_000), FlowAction::Wait);
+    // Frame 2 is in repair: it and frame 1 hold no slot.
+    g.repairing(2);
+    assert!(matches!(g.poll(5_000), FlowAction::Encode { frame: 3, .. }));
+    assert!(matches!(g.damage(R, 7_000), FlowAction::Encode { frame: 4, .. }));
+    // Four unacknowledged: twice the bound, whatever else is in repair.
+    g.repairing(4);
+    assert_eq!(g.damage(R, 9_000), FlowAction::Wait);
+    assert_eq!(g.next_deadline_us(), None);
+    // The repair's ack opens the gate as before.
+    assert!(matches!(g.ack(2, 10_000), FlowAction::Encode { frame: 5, .. }));
+}

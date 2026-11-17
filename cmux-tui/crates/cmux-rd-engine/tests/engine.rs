@@ -467,3 +467,74 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
+
+/// Detector for the gate holding the newest frame behind a stale one: with two frames in flight
+/// and the older one's shard lost (its ack never comes until the repair lands), the newer frame
+/// waiting on the gate goes as soon as the viewer's NACK arrives, not after the repair's ack.
+#[test]
+fn a_nacked_frame_frees_its_slot_for_the_newest_frame() {
+    let mut e = engine();
+    e.set_frames_in_flight(2);
+    let damage = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let stale = e.damage(0, damage, 20_000).expect("stale frame");
+    send(&mut e, &stale, false, 3_000, 20_000);
+    let next = e.damage(0, damage, 40_000).expect("second in flight");
+    send(&mut e, &next, false, 1_000, 40_000);
+    assert!(e.damage(0, damage, 60_000).is_none(), "two in flight: the gate is full");
+
+    let nack = Feedback {
+        acked_frame: first.frame,
+        nacks: vec![Nack { frame: stale.frame, indexes: vec![0] }],
+        ..Feedback::default()
+    };
+    let out = e.on_datagram(&feedback(&nack), true, 62_000);
+    assert!(!out.datagrams.is_empty(), "the lost shard is resent");
+    let newest = out.encode.expect("the NACKed frame is in repair: the newest frame goes now");
+    assert!(newest.frame > next.frame);
+}
+
+/// Frames in repair never let more than twice the bound go unacknowledged, however many NACKs
+/// arrive: a run of losses is not a licence to send without acks.
+#[test]
+fn frames_in_repair_free_at_most_twice_the_bound() {
+    let mut e = engine();
+    e.set_frames_in_flight(2);
+    let damage = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let mut now = 20_000;
+    let mut sent = Vec::new();
+    for _ in 0..10 {
+        let req = match e.damage(0, damage, now) {
+            Some(req) => Some(req),
+            None => {
+                let nacks = sent
+                    .iter()
+                    .map(|&frame| Nack { frame, indexes: vec![0] })
+                    .rev()
+                    .take(4)
+                    .collect();
+                let fb = Feedback { acked_frame: first.frame, nacks, ..Feedback::default() };
+                e.on_datagram(&feedback(&fb), true, now + 1_000).encode
+            }
+        };
+        if let Some(req) = req {
+            send(&mut e, &req, false, 1_000, now);
+            sent.push(req.frame);
+        }
+        now += 20_000;
+    }
+    assert_eq!(sent.len(), 4, "two in flight, at most two more in repair: {sent:?}");
+}
