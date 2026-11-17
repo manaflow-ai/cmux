@@ -33,8 +33,13 @@ pub(super) struct HeldConnection {
 }
 
 impl Drop for HeldConnection {
-    /// Ends the thread that takes the connection's lines.
+    /// The end of the connection, as the server ends one that closed: the
+    /// scheduler closes, so the thread that runs the connection's requests
+    /// ends and lets its handle of the daemon go, and then the thread that
+    /// takes the connection's lines ends. The drop waits for neither thread:
+    /// a test that needs the daemon gone waits on a signal of its own.
     fn drop(&mut self) {
+        self.scheduler.close();
         self.outbound.close();
     }
 }
