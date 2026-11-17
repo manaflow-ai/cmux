@@ -11,7 +11,7 @@ import Foundation
 /// volatile registration domain (never `defaults write`), so a user's own
 /// setting still wins.
 struct CrashOnExceptions {
-    static let key = "NSApplicationCrashOnExceptions"
+    nonisolated static let key = "NSApplicationCrashOnExceptions"
 
     /// The registration for a build: every channel crashes on exceptions.
     static func defaults(bundleID: String?, isDebugBuild: Bool) -> [String: Any] {
