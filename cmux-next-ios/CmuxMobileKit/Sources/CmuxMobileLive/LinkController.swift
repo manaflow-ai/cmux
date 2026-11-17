@@ -373,29 +373,43 @@ public final class LinkController {
     }
 
     /// The app left the screen with a live link: ask the Mac to hold it while
-    /// iOS suspends the app (PROTOCOL.md "Parked link"). Until it answers the
-    /// background heartbeat runs as before; once parked, nothing probes the
-    /// link until the app is back. A link that cannot be parked (WebRTC, an
-    /// older Mac) closes on silence and is redialed on return, as before.
+    /// iOS suspends the app (PROTOCOL.md "Parked link"). Nothing probes the
+    /// link from here until the Mac answers: a ping the Mac reads after it
+    /// parked ends the park, and the Mac then keepalives a suspended phone.
+    /// So the heartbeat stops, new probes wait (`probe` and `startHeartbeat`
+    /// skip while `parkTask` is set), and a probe already sent finishes
+    /// first: its FFI ping ignores cancellation, so cancelling its task does
+    /// not take the ping back. That wait is bounded by the probe's own race
+    /// (its timeout plus `probeGrace`). A link that cannot be parked (WebRTC,
+    /// an older Mac) closes on silence and is redialed on return, as before.
     private func park(generation: Int) {
         guard let link = link as? any ParkableMacLink, phase.isConnected, generation == machine.generation else { return }
         parkTask?.cancel()
+        heartbeatTask?.cancel()
+        let inFlight = probeTask
         parkTask = Task { [weak self] in
             // The answer needs a round trip; keep the process up for it.
             let release = Self.beginBackgroundTask?("link-park")
             defer { release?() }
+            await inFlight?.value
+            guard !Task.isCancelled else { return }
             let parked = await link.park(hold: Self.parkHold, timeout: Self.parkTimeout)
             guard let self, !Task.isCancelled, generation == self.machine.generation else { return }
             self.parkTask = nil
             log.info("park \(parked ? "accepted" : "refused", privacy: .public)")
-            guard parked else { return }
-            guard self.machine.isBackgrounded else {
-                // Back in front before the answer came: end the park at once.
-                if link.resumeParked() { self.probe(generation: generation, timeout: Self.parkedResumeProbeTimeout) }
+            guard parked, self.machine.isBackgrounded else {
+                // Refused (an older Mac), or back in front before the answer
+                // came: a park the Mac took ends at once, and the probe and
+                // heartbeat the park held off run again.
+                if parked { _ = link.resumeParked() }
+                if !self.machine.isBackgrounded {
+                    let timeout = parked ? Self.parkedResumeProbeTimeout : Self.foregroundProbeTimeout
+                    self.probe(generation: generation, timeout: timeout)
+                }
+                self.startHeartbeat(generation: generation)
                 return
             }
             self.parkedAt = ContinuousClock.now
-            self.heartbeatTask?.cancel()
             self.probeTask?.cancel()
             self.probeTask = nil
             self.send(.parked(generation: generation))
@@ -403,7 +417,8 @@ public final class LinkController {
     }
 
     private func probe(generation: Int, timeout: Duration) {
-        guard let link, phase.isConnected, generation == machine.generation, probeTask == nil else { return }
+        // No probe while the park is being asked for (see `park`).
+        guard let link, phase.isConnected, generation == machine.generation, probeTask == nil, parkTask == nil else { return }
         let clock = clock
         probeTask = Task { [weak self] in
             // The link's probe: the pong, or any frame from the Mac within the
@@ -474,8 +489,9 @@ public final class LinkController {
     /// the controller disappears or a newer link generation takes over.
     private func startHeartbeat(generation: Int) {
         heartbeatTask?.cancel()
-        // A ping would end the Mac's park while the app is suspended.
-        guard !machine.isParked else { return }
+        // A ping would end the Mac's park while the app is suspended, or
+        // while the park is being asked for (`park` restarts it if refused).
+        guard !machine.isParked, parkTask == nil else { return }
         let clock = clock
         let beat = beat
         // Align Keepalives keeps the 2.5 s foreground beat and moves the
