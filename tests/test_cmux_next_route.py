@@ -519,6 +519,16 @@ class PullRequestTiers(unittest.TestCase):
                 self.assertEqual(result["scheme"], "true")
                 self.assertEqual(result["native"], "false")
 
+    def test_a_build_phase_names_its_own_crate_and_the_router_follows_its_path_dependencies(self):
+        """A phase that named all of cmux-tui/crates (the Screen Sharing helper's, #44069) made every daemon change
+        look bundled into the app, so no daemon PR took the daemon lane or stayed hot-only."""
+        import cmux_next_route as route_module
+        inputs = route_module.scheme_phase_rust_inputs(ROOT)
+        self.assertNotIn("cmux-tui/crates/", inputs)
+        self.assertIn("cmux-tui/crates/cmux-rd-host/", inputs)
+        self.assertIn("cmux-tui/crates/cmux-transport/", inputs, "a path dependency of cmux-rd-host")
+        self.assertFalse([p for p in inputs if p.startswith("cmux-tui/crates/cmux-tui-core/")])
+
     def test_a_file_a_test_reads_selects_that_test(self):
         # CmuxNextSettingsTests reads the schema. The schema is also a web-bundle input, but
         # no suite reads a built bundle (BundleInputs), so only the targets that read it run.
