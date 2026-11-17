@@ -603,7 +603,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// line 1, so the phone never holds the Mac's whole history.
     @discardableResult
     public func loadOlderHistory() -> Bool {
-        guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
+        guard attached, !attaching, replacing == nil, !awaitingReplay, tailReplay, historyRowsOmitted > 0,
               inputInFlight == 0, let client else { return false }
         if windowReplay, historyWindowStart != nil
             || (historyAllowance ?? 0) + Self.historyChunkRows > Self.maxTailHistoryRows {
@@ -631,7 +631,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reader came up from the screen to the window): the newest rows at once.
     @discardableResult
     public func loadNewerHistory(toTheScreen: Bool) -> Bool {
-        guard attached, !attaching, replacing == nil, let start = historyWindowStart, historyRowsSkipped > 0,
+        guard attached, !attaching, replacing == nil, !awaitingReplay, let start = historyWindowStart, historyRowsSkipped > 0,
               inputInFlight == 0, let client else { return false }
         if toTheScreen {
             historyWindowStart = nil
@@ -676,6 +676,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func attach() async {
         guard !attaching else { return }
         attaching = true
+        awaitingReplay = false
         defer { attaching = false }
         do {
             let client = try await open()
@@ -862,6 +863,10 @@ public final class DaemonTerminalSession: TerminalSession {
             // after it are held too: what was held before is superseded.
             reclaimHold.restart(alternate: isAlternateScreen)
             show(.output(TerminalReclaimHold.reset))
+            // The reply often lands before its own `vt-state` (that line is
+            // decoded off the main actor): until the replay is applied, the
+            // rows the Mac left out are the last attach's.
+            awaitingReplay = true
             let held = heldEvents ?? []
             heldEvents = nil
             for event in held { apply(event) }
@@ -1006,6 +1011,7 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+            awaitingReplay = false
         case .historyRowsSkipped(let rows):
             historyRowsSkipped = rows
             if rows == 0, historyWindowStart != nil {
@@ -1022,6 +1028,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // and the newest rows of its size come instead.
             historyRowsOmitted = 0
             historyRowsSkipped = 0
+            awaitingReplay = false
             if historyWindowStart != nil {
                 historyWindowStart = nil
                 historyAllowance = Self.historyWindowRows
@@ -1468,6 +1475,14 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Events that arrived before the Mac confirmed the attach (nil: none held).
     private var heldEvents: [DaemonTerminalInbound]?
+    /// The Mac confirmed the attach and its replay (`vt-state`, which names
+    /// the rows it left out) is not applied yet. No history fetch starts
+    /// until it is: one started earlier asked again for the window just sent
+    /// (``historyRowsOmitted`` was still the last attach's) and its attach
+    /// dropped that replay on the way (a new attach closes the old event
+    /// inbox). The load bench's 100,000-row scroll to line 1 took 491
+    /// fetches at a 40 ms round trip for about 64 windows.
+    private var awaitingReplay = false
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
     /// The reattach retries ran out; the next keystroke tries again.
