@@ -55,13 +55,6 @@ impl End {
             Self::Server => Self::Client,
         }
     }
-
-    fn index(self) -> usize {
-        match self {
-            Self::Client => 0,
-            Self::Server => 1,
-        }
-    }
 }
 
 /// The first broken promise, with enough to locate it in a trace.
@@ -96,10 +89,10 @@ struct Direction {
 /// The two byte streams of one connection. See the module docs.
 #[derive(Debug, Clone)]
 pub struct StreamOracle {
-    /// Indexed by the writing end: `directions[Client]` is client to server.
-    directions: [Direction; 2],
+    client_to_server: Direction,
+    server_to_client: Direction,
     /// An end saw a read or write fail.
-    errored: [bool; 2],
+    errored: bool,
     resets_allowed: bool,
 }
 
@@ -108,9 +101,25 @@ impl StreamOracle {
     /// write a violation: no end aborts and nothing times out in the run.
     pub fn new(resets_allowed: bool) -> Self {
         Self {
-            directions: [Direction::default(), Direction::default()],
-            errored: [false, false],
+            client_to_server: Direction::default(),
+            server_to_client: Direction::default(),
+            errored: false,
             resets_allowed,
+        }
+    }
+
+    /// The direction `writer` writes into.
+    fn written_by(&self, writer: End) -> &Direction {
+        match writer {
+            End::Client => &self.client_to_server,
+            End::Server => &self.server_to_client,
+        }
+    }
+
+    fn written_by_mut(&mut self, writer: End) -> &mut Direction {
+        match writer {
+            End::Client => &mut self.client_to_server,
+            End::Server => &mut self.server_to_client,
         }
     }
 
@@ -120,7 +129,7 @@ impl StreamOracle {
 
     /// `end`'s write call accepted `bytes`.
     pub fn wrote(&mut self, end: End, bytes: &[u8]) -> Result<(), Violation> {
-        let direction = &mut self.directions[end.index()];
+        let direction = self.written_by_mut(end);
         if direction.shut && !bytes.is_empty() {
             return Self::violation(
                 end,
@@ -133,45 +142,44 @@ impl StreamOracle {
 
     /// `end` half-closed its write side.
     pub fn shutdown(&mut self, end: End) {
-        self.directions[end.index()].shut = true;
+        self.written_by_mut(end).shut = true;
     }
 
     /// `end`'s read call returned `bytes` (non-empty).
     pub fn read(&mut self, end: End, bytes: &[u8]) -> Result<(), Violation> {
-        let direction = &mut self.directions[end.peer().index()];
+        let direction = self.written_by_mut(end.peer());
         if direction.eof {
             return Self::violation(end, format!("read {} bytes after EOF", bytes.len()));
         }
         let start = direction.read;
-        let available = direction.written.len() - start;
-        if bytes.len() > available {
+        let unread = direction.written.get(start..).unwrap_or_default();
+        if bytes.len() > unread.len() {
             return Self::violation(
                 end,
                 format!(
-                    "read {} bytes at offset {start}, but the peer had written only {available} more",
-                    bytes.len()
+                    "read {} bytes at offset {start}, but the peer had written only {} more",
+                    bytes.len(),
+                    unread.len()
                 ),
             );
         }
-        let expected = &direction.written[start..start + bytes.len()];
-        if let Some(at) = expected.iter().zip(bytes).position(|(want, got)| want != got) {
+        let mismatch = unread.iter().zip(bytes).enumerate().find(|(_, (want, got))| want != got);
+        if let Some((at, (want, got))) = mismatch {
             return Self::violation(
                 end,
                 format!(
-                    "byte at offset {} is {:#04x}, the peer wrote {:#04x}",
-                    start + at,
-                    bytes[at],
-                    expected[at]
+                    "byte at offset {} is {got:#04x}, the peer wrote {want:#04x}",
+                    start.saturating_add(at)
                 ),
             );
         }
-        direction.read += bytes.len();
+        direction.read = start.saturating_add(bytes.len());
         Ok(())
     }
 
     /// `end`'s read call returned end of stream.
     pub fn eof(&mut self, end: End) -> Result<(), Violation> {
-        let direction = &mut self.directions[end.peer().index()];
+        let direction = self.written_by_mut(end.peer());
         if !direction.shut {
             return Self::violation(end, "EOF before the peer shut down".into());
         }
@@ -191,7 +199,7 @@ impl StreamOracle {
 
     /// `end`'s read or write failed (a reset or timeout).
     pub fn error(&mut self, end: End, what: &str) -> Result<(), Violation> {
-        self.errored[end.index()] = true;
+        self.errored = true;
         if self.resets_allowed {
             return Ok(());
         }
@@ -200,13 +208,13 @@ impl StreamOracle {
 
     /// Bytes `end` has read so far, and bytes its peer has written.
     pub fn progress(&self, end: End) -> (usize, usize) {
-        let direction = &self.directions[end.peer().index()];
+        let direction = self.written_by(end.peer());
         (direction.read, direction.written.len())
     }
 
     /// Whether `end` has seen EOF.
     pub fn saw_eof(&self, end: End) -> bool {
-        self.directions[end.peer().index()].eof
+        self.written_by(end.peer()).eof
     }
 
     /// The run is over: every end that kept reading, whose peer shut down
@@ -214,10 +222,10 @@ impl StreamOracle {
     /// ends kept reading to the end (an end that dropped its reader owes
     /// nothing).
     pub fn finish(&self, reading: [bool; 2]) -> Result<(), Violation> {
-        for end in [End::Client, End::Server] {
-            let direction = &self.directions[end.peer().index()];
-            let errored = self.errored[0] || self.errored[1];
-            if !reading[end.index()] || !direction.shut || errored {
+        let [client_reading, server_reading] = reading;
+        for (end, kept_reading) in [(End::Client, client_reading), (End::Server, server_reading)] {
+            let direction = self.written_by(end.peer());
+            if !kept_reading || !direction.shut || self.errored {
                 continue;
             }
             if !direction.eof {
