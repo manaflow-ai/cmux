@@ -13,9 +13,7 @@
 //! Run (from `cmux-tui/`):
 //! `cargo test -p cmux-tui-core --lib machine_catalog_scale -- --nocapture`.
 
-use super::{Publisher, dispatch, mux};
-use crate::ResourceOperation;
-use crate::server::ClientTransport;
+use super::{ClientTransport, Publisher, ResourceOperation, dispatch, mux};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
