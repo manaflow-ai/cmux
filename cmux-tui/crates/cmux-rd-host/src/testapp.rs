@@ -58,6 +58,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     let fd = conn.stream().as_raw_fd();
     let interval = painter.interval_ns();
     let mut next_tick = interval.map(|iv| now_ns() + iv);
+    // Diagnostic: one line per paint (k = key, t = tick) with its times in µs.
+    let mut tick_log = std::env::var_os("CMUX_RD_TESTAPP_LOG")
+        .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
     loop {
         let mut dirty_marker = false;
         let mut redraw = false;
@@ -71,6 +74,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                 _ => {}
             }
         }
+        let woke = now_ns();
         if redraw {
             painter.full_redraw(counter)?;
         } else if dirty_marker {
@@ -78,12 +82,26 @@ pub fn run(opts: &Opts) -> Res<()> {
         }
         if redraw || dirty_marker {
             conn.flush()?;
+            if let Some(f) = tick_log.as_mut() {
+                let _ =
+                    writeln!(f, "k {} {} {}", woke / 1000, painter.put_ns / 1000, now_ns() / 1000);
+            }
         }
         if let (Some(iv), Some(t)) = (interval, next_tick) {
             let now = now_ns();
             if now >= t {
                 painter.tick(counter)?;
                 conn.flush()?;
+                if let Some(f) = tick_log.as_mut() {
+                    let _ = writeln!(
+                        f,
+                        "t {} {} {} {}",
+                        t / 1000,
+                        now / 1000,
+                        painter.put_ns / 1000,
+                        now_ns() / 1000
+                    );
+                }
                 // Keep cadence; if we fell behind by more than a tick, resynchronize.
                 next_tick = Some(if now - t > iv { now + iv } else { t + iv });
                 continue;

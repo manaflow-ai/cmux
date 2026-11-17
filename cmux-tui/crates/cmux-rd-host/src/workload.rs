@@ -72,6 +72,8 @@ pub struct Painter<'c, C: Connection> {
     gray: Gcontext,
     text: Option<TextState>,
     motion: Option<MotionState>,
+    /// Diagnostic: when the last motion tick handed its image to the server (ns).
+    pub put_ns: u64,
 }
 
 fn solid_gc(conn: &impl Connection, win: Window, pixel: u32) -> Res<Gcontext> {
@@ -126,6 +128,7 @@ impl<'c, C: Connection> Painter<'c, C> {
             gray: solid_gc(conn, win, GRAY)?,
             text,
             motion,
+            put_ns: 0,
         })
     }
 
@@ -260,6 +263,7 @@ impl<'c, C: Connection> Painter<'c, C> {
             }
             marker::paint_bgrx(buf, stride, counter);
         }
+        self.put_ns = crate::clock::now_ns();
         let fmt = u8::from(ImageFormat::Z_PIXMAP);
         self.conn.shm_put_image(
             self.win, self.gray, self.w, self.h, 0, 0, self.w, self.h, 0, 0, self.depth, fmt,
