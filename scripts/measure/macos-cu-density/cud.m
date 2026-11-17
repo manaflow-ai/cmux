@@ -923,7 +923,7 @@ static NSDictionary *classify(CGImageRef im, int own, int njobs) {
   if (w < 4 || h < 4) return @{@"own": @0, @"foreign": @0, @"foreign_job": @(-1)};
   CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
   uint8_t *px = calloc(w * h, 4);
-  CGContextRef ctx = CGBitmapContextCreate(px, w, h, 8, w * 4, srgb, kCGImageAlphaPremultipliedLast);
+  CGContextRef ctx = CGBitmapContextCreate(px, w, h, 8, w * 4, srgb, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
   CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
   CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), im);
   int nh = MIN(njobs, JOB_HUES);
@@ -980,6 +980,7 @@ static double capture_filter_sync(SCContentFilter *f, size_t pw, size_t ph, CGIm
 @property(strong) NSMutableDictionary<NSString *, NSNumber *> *ok;         // route -> delivered
 @property(strong) NSMutableArray *tokenWait, *tokenHold, *raises;
 @property long clicksSent;
+@property int raiseMissed;  // raw pixel clicks sent while the job's app was not frontmost
 @property double captureWindowForeignMax, captureDisplayForeignMax, captureWindowOwnMin;
 @property int captureWindowLeaks, captureDisplayLeaks, captureWindowForeignJob, captureDisplayForeignJob;
 @property(strong) NSString *lastValue;
@@ -1067,6 +1068,7 @@ static void job_run(Job *j, double end, int njobs, BOOL displayCapture, NSArray 
       [a.app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
       for (int i = 0; i < 50 && focused_pid() != a.pid; i++) usleep(2000);
       double raised = now_s() - th;
+      if (focused_pid() != a.pid) @synchronized(j) { j.raiseMissed++; }
       NSString *before = ax_string(a.window, kAXTitleAttribute);
       j.clicksSent++;
       hid_click(a);
@@ -1217,7 +1219,7 @@ static NSDictionary *jobs_round(NSString *mode, int n, double seconds, size_t ba
   NSMutableArray *tw = [NSMutableArray array], *th = [NSMutableArray array], *rz = [NSMutableArray array];
   long actions = 0;
   uint64_t fp = 0;
-  int clickLeaks = 0, keyLeaks = 0, fieldLeaks = 0, capWinLeakJobs = 0, capDispLeakJobs = 0;
+  int clickLeaks = 0, keyLeaks = 0, fieldLeaks = 0, capWinLeakJobs = 0, capDispLeakJobs = 0, capUnchecked = 0;
   double capWinForeignMax = 0, capDispForeignMax = 0;
   for (NSString *route in @[ @"ax-press", @"ax-setvalue", @"cg-key", @"stamped-cg", @"hid-click", @"capture-window", @"capture-display" ]) {
     NSMutableArray *lat = [NSMutableArray array];
@@ -1234,6 +1236,8 @@ static NSDictionary *jobs_round(NSString *mode, int n, double seconds, size_t ba
     fieldLeaks += ![c[@"field_own"] boolValue];
     capWinLeakJobs += j.captureWindowLeaks > 0;
     capDispLeakJobs += j.captureDisplayLeaks > 0;
+    // A job none of whose captures came back was never checked: no leak there is not isolation.
+    capUnchecked += j.ok[@"capture-window"].intValue == 0 || (perDisplay && j.ok[@"capture-display"].intValue == 0);
     capWinForeignMax = MAX(capWinForeignMax, j.captureWindowForeignMax);
     capDispForeignMax = MAX(capDispForeignMax, j.captureDisplayForeignMax);
     [tw addObjectsFromArray:j.tokenWait];
@@ -1243,7 +1247,9 @@ static NSDictionary *jobs_round(NSString *mode, int n, double seconds, size_t ba
   }
   row[@"seconds"] = @(wall);
   row[@"routes"] = routes;
-  row[@"token"] = @{@"wait_s": pct(tw), @"hold_s": pct(th), @"raise_s": pct(rz),
+  int raiseMissed = 0;
+  for (Job *j in jobs) raiseMissed += j.raiseMissed;
+  row[@"token"] = @{@"wait_s": pct(tw), @"hold_s": pct(th), @"raise_s": pct(rz), @"raise_missed": @(raiseMissed),
                     @"held_fraction": @(wall > 0 ? [[th valueForKeyPath:@"@sum.self"] doubleValue] / wall : 0)};
   row[@"actions_per_s_per_job"] = @(jobs.count && wall > 0 ? actions / wall / jobs.count : 0);
   row[@"host_cores_busy"] = @(tt1 > tt0 ? (double)(b1 - b0) / (double)(tt1 - tt0) * ncpu() : 0);
@@ -1254,7 +1260,11 @@ static NSDictionary *jobs_round(NSString *mode, int n, double seconds, size_t ba
                     @"capture_display_jobs": @(capDispLeakJobs), @"capture_display_foreign_max": @(capDispForeignMax)};
   BOOL up = (int)jobs.count == n;
   BOOL noLeak = clickLeaks + keyLeaks + fieldLeaks + capWinLeakJobs + capDispLeakJobs == 0;
-  row[@"isolated"] = @(up && noLeak && canCapture);
+  row[@"capture_unchecked_jobs"] = @(capUnchecked);
+  NSDictionary *keyRoute = routes[@"cg-key"];
+  BOOL keysChecked = [keyRoute[@"delivered"] longValue] > 0;
+  row[@"keys_checked"] = @(keysChecked);
+  row[@"isolated"] = @(up && noLeak && canCapture && capUnchecked == 0 && keysChecked);
   row[@"checks"] = checks;
   for (Job *j in jobs) [j.agent.app forceTerminate];
   [displays removeAllObjects];
