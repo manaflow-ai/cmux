@@ -80,6 +80,11 @@
       "message": "Ta maszyna się uruchamia, wstrzymuje albo nie działa, więc nie może teraz tego zrobić.",
       "action": "Poczekaj chwilę i spróbuj ponownie. Sprawdź stan maszyny za pomocą cmux vm ls i najpierw ją wznów, jeśli jest wstrzymana."
     },
+    "hostRecovery": {
+      "title": "Host maszyny jest przywracany",
+      "message": "Dysk tej maszyny znajduje się na hoście Cloud, który jest przywracany, więc nie może się jeszcze uruchomić. Jej pliki są zachowane.",
+      "action": "Spróbuj ponownie za kilka minut. Nie usuwaj ani nie twórz maszyny od nowa: jej dysk jest zachowany i wróci razem z nią. Jeśli po godzinie nadal się nie uruchamia, skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
+    },
     "networkRuleCapacity": {
       "title": "Osiągnięto limit reguł sieciowych",
       "message": "Twoja polityka sieciowa została zapisana, ale nie została zastosowana: cmux Cloud osiągnął limit reguł sieciowych.",
