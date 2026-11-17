@@ -34,8 +34,11 @@ extension WorkspaceTabsSource {
         }
     }
 
+    /// Each part escaped (`\` to `\\`, `|` to `\|`), so an id that holds a `|` never makes two keys one.
     private static func openKey(_ macID: String, _ harness: String, _ session: String) -> String {
-        "\(macID)|\(harness)|\(session)"
+        [macID, harness, session]
+            .map { $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "|", with: "\\|") }
+            .joined(separator: "|")
     }
 
     /// The acpmux chat that shows terminal `tab`'s session: one of the Mac's (a View Only chat
@@ -136,6 +139,17 @@ extension WorkspaceTabsSource {
         guard faces.chatEnabled, pairing?.chat == nil, !terminalChatRefusingMacs.contains(macID) else { return }
         let key = Self.openKey(macID, harness, session)
         guard openingTerminalChats.insert(key).inserted else { return }
+        guard backend.keptTerminalChatsLoaded else {
+            // The kept pairings are read off the main thread at launch; until the read lands a kept
+            // chat looks missing, and asking a Mac out of reach would drop the tab to its terminal.
+            // Wait for the read, then decide again.
+            Task { @MainActor [weak self] in
+                await backend.loadKeptTerminalChats()
+                self?.openingTerminalChats.remove(key)
+                self?.openTerminalChatIfNeeded(tabID)
+            }
+            return
+        }
         Task { @MainActor [weak self] in
             defer { self?.openingTerminalChats.remove(key) }
             do {

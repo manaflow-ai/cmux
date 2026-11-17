@@ -58,6 +58,10 @@ public final class DeviceHub {
     @ObservationIgnored let now: @Sendable () -> Date
     /// Makes a new identity when the hub refuses this one (`device_removed`, `device_key_mismatch`).
     @ObservationIgnored let renewIdentity: (@Sendable () throws -> DeviceIdentity)?
+    /// False when another process owns this device: the acpmux daemon's share host registers it
+    /// (with its join's settings) and holds its sign-in, so this hub neither registers it
+    /// (``start()``) nor signs it out (``signOut(ending:reason:)``). Set before ``start()``.
+    @ObservationIgnored public var ownsDevice = true
     @ObservationIgnored private var socketTask: Task<Void, Never>?
     /// Relays this device saved that no listing has shown yet (kept from pruning).
     @ObservationIgnored var savedNotListed: Set<String> = []
@@ -136,7 +140,7 @@ public final class DeviceHub {
         status = .starting
         do {
             do {
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform) }
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -378,6 +382,18 @@ public final class DeviceHub {
     public func signOutDevice() async throws {
         try await perform { try await $0.signOutDevice() }
         tickets = [:]
+    }
+
+    /// This app signs out: a device it owns is signed out (``signOutDevice()``); when that fails, or
+    /// another process owns the device (``ownsDevice``: its shares go on under the join), only `ids`,
+    /// this app's own sessions, end with `reason`. Then ``stopAndWait()``.
+    public func signOut(ending ids: Set<String>, reason: String) async {
+        if ownsDevice, (try? await signOutDevice()) != nil { return }
+        await withTaskGroup(of: Void.self) { group in
+            for id in ids {
+                group.addTask { try? await self.endSession(id, reason: reason) }
+            }
+        }
     }
 
     public func endSession(_ id: String, reason: String) async throws {

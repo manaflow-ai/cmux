@@ -98,9 +98,15 @@ public final class MacScreenHubHost {
 
     // MARK: Pushes
 
-    /// `session.ticket` for the host role: serve it once this Mac's consent allows it.
+    /// `session.ticket` for the host role: serve it once this Mac's consent allows it. A ticket the
+    /// acpmux daemon's share host serves (its relay says `servedBy: "daemon"`) is the daemon's alone:
+    /// no consent read, no host, no `/end` here, and it never becomes this app's ``session``.
     func serve(_ ticket: SessionTicket) {
         guard ticket.role == .host, hub() != nil else { return }
+        guard !ticket.isServedByDaemon else {
+            logger.info("session ticket served by the acpmux daemon")
+            return
+        }
         ticketArrivals += 1
         let arrival = ticketArrivals
         // The person's own device, as the hub authenticated it, serves at once: a machine joined to your

@@ -55,16 +55,26 @@ public struct SessionTicket: Codable, Sendable, Equatable {
     /// Whose devices the session joins, as the hub authenticated them (PROTOCOL.md): `user` is one account,
     /// both devices signed in to it. Nil from a hub that does not say, which counts as not shown to be own.
     public var ownerKind: String?
+    /// Who serves a host ticket on this Mac, as the acpmux daemon's share host relays it
+    /// (``servedByDaemon`` or `"app"`); nil from the hub itself or an older relay (the app serves).
+    /// A string, so a value this build does not know never drops the ticket.
+    public var servedBy: String?
+
+    /// `servedBy` of a ticket the acpmux daemon serves: the app neither serves nor ends it.
+    public static let servedByDaemon = "daemon"
 
     public init(sessionId: String, ticket: String, signalURL: URL, ice: [DeviceHubICEServer], peer: Peer, role: Role, scope: SessionScope,
-                ownerKind: String? = nil) {
+                ownerKind: String? = nil, servedBy: String? = nil) {
         self.sessionId = sessionId; self.ticket = ticket; self.signalURL = signalURL; self.ice = ice
-        self.peer = peer; self.role = role; self.scope = scope; self.ownerKind = ownerKind
+        self.peer = peer; self.role = role; self.scope = scope; self.ownerKind = ownerKind; self.servedBy = servedBy
     }
 
     /// The hub says both devices are signed in to one account: the person reaching their own machine.
     /// Read from the hub's own push, never from anything the viewer sends.
     public var isOwnAccount: Bool { ownerKind == "user" }
+
+    /// The acpmux daemon serves this ticket (the daemon decides who serves, once per ticket).
+    public var isServedByDaemon: Bool { servedBy == Self.servedByDaemon }
 
     /// `signalURL` with `?ticket=<jws>`, the URL the device opens.
     public var signalSocketURL: URL {
