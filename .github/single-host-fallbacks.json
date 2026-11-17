@@ -18,6 +18,10 @@
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
     },
+    "glaeda-promote-trusted-light-xcode-26.6": {
+      "fallback": "Blacksmith macOS after the owned-pool grace",
+      "after_minutes": 5
+    },
     "glaeda-promote-trusted-std-xcode-26.6": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
       "after_minutes": 5
@@ -73,6 +77,10 @@
     "CI_RELEASE_PIN_SLOT": {
       "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-26.6, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
       "after_minutes": 5
+    },
+    "CI_FFI_RELEASE_POOL": {
+      "fallback": "unset falls back to the build's earlier routes (the promote pool, vars.CI_SIDE_LANE_RUNNER, Blacksmith); set, a build no runner took in 20 minutes is re-dispatched to Blacksmith macOS by the workflow's rescue job",
+      "after_minutes": 20
     },
     "CI_NEXT_PROMOTE_POOL": {
       "fallback": "Blacksmith macOS after the owned-pool grace",
