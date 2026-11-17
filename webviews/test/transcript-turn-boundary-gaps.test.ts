@@ -22,6 +22,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/TurnBoundaryGaps.gallery";
 import { LONE_SYSTEM_ROWS } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
@@ -204,26 +205,27 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
+    await installPaintedFrames(page);
     await page.locator(".cv-since__line").click({ button: "right" });
     const item = page.getByRole("menuitem", { name: /mark/i }).first();
     await item.waitFor();
-    // Sample every frame from the click on until the row has settled.
+    // Sample every painted frame from the click on until the row has settled.
     const sampling = page.evaluate(
       () =>
         new Promise<{ height: number; next: number }[]>((resolve) => {
           const samples: { height: number; next: number }[] = [];
           const start = performance.now();
-          const frame = () => {
+          window.cmuxAfterPaint(() => {
             const row = document.querySelector<HTMLElement>("[data-row-id='sinceDivider']");
             const next = row?.nextElementSibling?.getBoundingClientRect().top ?? NaN;
             samples.push({
               height: row?.getBoundingClientRect().height ?? 0,
               next,
             });
-            if (performance.now() - start < 1200) requestAnimationFrame(frame);
-            else resolve(samples);
-          };
-          requestAnimationFrame(frame);
+            if (performance.now() - start < 1200) return true;
+            resolve(samples);
+            return false;
+          });
         }),
     );
     await item.click();
