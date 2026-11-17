@@ -885,7 +885,7 @@ fn phone_jpeg() -> Vec<u8> {
 /// A 1 px black and white checkerboard PNG, `n` px on a side.
 fn checker_png(n: u32) -> Vec<u8> {
     let data: Vec<u8> =
-        (0..n * n).map(|i| if (i % n + i / n) % 2 == 0 { 255 } else { 0 }).collect();
+        (0..n * n).map(|i| if (i % n + i / n).is_multiple_of(2) { 255 } else { 0 }).collect();
     let mut out = Vec::new();
     let mut e = png::Encoder::new(&mut out, n, n);
     e.set_color(png::ColorType::Grayscale);

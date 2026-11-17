@@ -63,7 +63,20 @@ afterEach(() => {
 
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /// SOI, an APP1 (EXIF) of 14 bytes, then a baseline frame header (SOF0) giving its size.
-const JPEG = [0xff, 0xd8, 0xff, 0xe1, 0x00, 0x10, ...new Array(14).fill(0x45), 0xff, 0xc0, 0x00, 0x11, 0x08];
+const JPEG = [
+  0xff,
+  0xd8,
+  0xff,
+  0xe1,
+  0x00,
+  0x10,
+  ...Array.from({ length: 14 }, () => 0x45),
+  0xff,
+  0xc0,
+  0x00,
+  0x11,
+  0x08,
+];
 
 /// A file of `size` bytes starting with `signature`, then its `side` where its header says it.
 function picture(name: string, type: string, signature: number[], size = 64 * 1024, side = [5120, 2880]) {

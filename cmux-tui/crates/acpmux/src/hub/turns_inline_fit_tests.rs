@@ -24,7 +24,7 @@ async fn chat() -> (Arc<Hub>, Arc<Session>) {
 /// An `n`x`n` grey PNG of a 1 px black and white checkerboard, as the composer now sends it.
 fn checkerboard(n: u32) -> String {
     let data: Vec<u8> =
-        (0..n * n).map(|i| if (i % n + i / n) % 2 == 0 { 255 } else { 0 }).collect();
+        (0..n * n).map(|i| if (i % n + i / n).is_multiple_of(2) { 255 } else { 0 }).collect();
     let mut out = Vec::new();
     let mut e = png::Encoder::new(&mut out, n, n);
     e.set_color(png::ColorType::Grayscale);

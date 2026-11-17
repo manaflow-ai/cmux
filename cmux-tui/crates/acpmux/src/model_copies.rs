@@ -594,7 +594,7 @@ pub(crate) mod tests {
         let mut previous = 0i32;
         for by in 0..n / 8 {
             for bx in 0..n / 8 {
-                let dc = if (bx + by) % 2 == 0 { 8 * 127 } else { -8 * 128 };
+                let dc = if (bx + by).is_multiple_of(2) { 8 * 127 } else { -8 * 128 };
                 let diff = dc - previous;
                 previous = dc;
                 let size = (32 - diff.unsigned_abs().leading_zeros()) as u8;
