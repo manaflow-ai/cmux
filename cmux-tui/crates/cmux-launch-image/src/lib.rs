@@ -218,6 +218,20 @@ impl Store {
         self.publish_at(window_id, png, now_nanos())
     }
 
+    /// [`Self::publish`], calling `hand_off` with the new image before any old one is dropped: the
+    /// launch record names the path there, so the caps never remove a path a record is about to
+    /// name.
+    pub fn publish_with(
+        &self,
+        window_id: &str,
+        png: &[u8],
+        hand_off: impl FnOnce(&Image),
+    ) -> Result<Image, PublishError> {
+        let image = self.publish_at(window_id, png, now_nanos())?;
+        hand_off(&image);
+        Ok(image)
+    }
+
     /// [`Self::publish`] with the clock's nanoseconds given (tests).
     pub fn publish_at(
         &self,

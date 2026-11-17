@@ -110,6 +110,54 @@ fn each_window_keeps_its_newest_images_only() {
 }
 
 #[test]
+fn a_path_handed_to_the_record_survives_overlapping_publishes() {
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+    let dir = fresh_dir("handoff");
+    let store = Arc::new(Store::new(&dir, Caps { keep_per_window: 2, ..Caps::default() }));
+    let record: Arc<Mutex<Option<PathBuf>>> = Arc::default();
+    let (in_hand_off, entered) = mpsc::channel();
+    let first = {
+        let (store, record) = (Arc::clone(&store), Arc::clone(&record));
+        std::thread::spawn(move || {
+            store
+                .publish_with("win", &png(1, 1, 40), |image| {
+                    in_hand_off.send(()).unwrap();
+                    // Two newer publishes of the window try to run while this record write is slow.
+                    std::thread::sleep(Duration::from_millis(300));
+                    assert!(
+                        image.path.exists(),
+                        "{:?} was pruned before the record named it",
+                        image.path
+                    );
+                    *record.lock().unwrap() = Some(image.path.clone());
+                })
+                .unwrap()
+        })
+    };
+    entered.recv().unwrap();
+    let later: Vec<_> = (2..=3)
+        .map(|w| {
+            let (store, record) = (Arc::clone(&store), Arc::clone(&record));
+            std::thread::spawn(move || {
+                store
+                    .publish_with("win", &png(w, w, 40), |image| {
+                        *record.lock().unwrap() = Some(image.path.clone());
+                    })
+                    .unwrap()
+            })
+        })
+        .collect();
+    first.join().unwrap();
+    for thread in later {
+        thread.join().unwrap();
+    }
+    let named = record.lock().unwrap().clone().unwrap();
+    assert!(named.exists(), "the record names {named:?}, which is gone: {:?}", files(&dir));
+    assert_eq!(files(&dir).len(), 2, "{:?}", files(&dir));
+}
+
+#[test]
 fn the_window_count_cap_evicts_the_least_recently_published() {
     let dir = fresh_dir("count");
     let store = Store::new(&dir, Caps { max_windows: 3, keep_per_window: 1, ..Caps::default() });
