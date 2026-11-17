@@ -111,9 +111,11 @@ cmux.app (the person's app; holds no Accessibility or Screen Recording grant)
 - **Staged, verified, outside the app.** macOS 26 checks Screen Recording for
   a process that runs from inside an app bundle as the outermost app. The
   daemon copies the embedded Computer Use helper to
-  `~/Library/Application Support/cmux/remote/<scope>/` (one per app build,
-  replaced atomically when the embedded copy changes; never followed through a
-  symlink), verifies the copy's designated requirement (identifier
+  `~/Library/Application Support/cmux-next/screen-sharing/<helper id>/daemon/<digest>/`
+  (`cmux-signed-bundle`'s `computer_use::stage`: one copy per helper build,
+  keyed by every file in `Contents/MacOS`, the seal and Info.plist; stages take
+  turns on a file lock; never followed through a symlink). The acpmux share
+  host runs `cmux-screen-sharing` from that same copy. It verifies the copy's designated requirement (identifier
   `com.cmuxterm.cua`, DEV `com.cmuxterm.cua.dev`, and team 7WLXT3NR37), and runs
   `Contents/MacOS/cmux-remote host` from it.
 - **Responsibility.** The daemon starts the host with
@@ -181,7 +183,10 @@ one User DO socket of this device, the approval banner (top right, never
 activating), and the menu bar indicator. It serves Mac Screen sessions: the
 app asks the host over its app socket channel, and the worker serves WebRTC
 (`ScreenStreamHost`) and `cmux.rd/1` (running `cmux-screen-sharing serve`, from
-the same helper, as its own child). Sharing continues with the app quit:
+the same helper, as its own child). That is the target of the attached-capture
+move into this worker, a separate change; until it lands the app still runs the
+attached Mac Screen capture and spawns `cmux-screen-sharing serve` itself, from
+its own staged copy of the same helper. Sharing continues with the app quit:
 
 - Its hub session comes from the app's sign-in while the app runs, and from
   **device-key renewal** when it does not: `POST /v1/auth/device`, signed by
