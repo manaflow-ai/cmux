@@ -11,6 +11,7 @@ better than just rsync -- what did we figure out? what solulus did we have?").
     sync-bench compare BASE HEAD [--layout L] [--rtt-ms N]   the before/after table of two recorded runs
     sync-bench show SHA                                     the recorded table of one run
     sync-bench info                                         the tree's spec, sizes and what is recorded
+    sync-bench build --commit SHA [--build]                 fetch or build that commit's binary now, under the lock
 
 The tree (`--layout projects`) is shaped like a person's ~/Projects: a parent folder of several real git
 repositories (public ones, pinned by commit, some shallow and some with full history), plus folders that are not
@@ -313,8 +314,17 @@ def build_here(commit: str) -> Path:
         run(["git", "-C", str(src), "remote", "add", "origin", CMUX_REPO])
     run(["git", "-C", str(src), "fetch", "-q", "--depth", "1", "origin", commit])
     run(["git", "-C", str(src), "checkout", "-q", "--force", commit])
-    run(["cargo", "build", "--release", "-p", "cmux-tui", "--bin", "cmux-tui"], cwd=src / "cmux-tui",
-        env=dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target")))
+    # ghostty-vt-sys builds libghostty-vt from the ghostty-next submodule with the repository's pinned zig.
+    run(["git", "-C", str(src), "submodule", "update", "--init", "--depth", "1", "ghostty-next"])
+    zig_env = ROOT / "bin" / f".zig-{commit}.env"
+    zig_env.parent.mkdir(parents=True, exist_ok=True)
+    zig_env.write_text("")
+    run(["bash", str(src / "scripts/install-zig-ci.sh")], cwd=src,
+        env=dict(os.environ, ZIG_FORCE_LOCAL_INSTALL="1", GITHUB_ENV=str(zig_env)))
+    zig = dict(line.split("=", 1) for line in zig_env.read_text().splitlines() if "=" in line).get("CMUX_ZIG")
+    zig_env.unlink()
+    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target"), **({"CMUX_ZIG": zig} if zig else {}))
+    run(["cargo", "build", "--release", "-p", "cmux-tui", "--bin", "cmux-tui"], cwd=src / "cmux-tui", env=env)
     out.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "target/release/cmux-tui", out)
     return out
@@ -694,6 +704,15 @@ def cmd_show(args):
         print(table(load(path)) + "\n")
 
 
+def cmd_build(args):
+    if not HEX40.fullmatch(args.commit):
+        raise SystemExit("sync-bench: --commit takes a full 40-character sha")
+    # Under the lock: a cargo build beside a run would skew its numbers.
+    with bench_lock(f"build {args.commit[:12]}"):
+        binary, source = binary_for(args.commit, args.build)
+    print(json.dumps({"commit": args.commit, "binary": str(binary), "binary_source": source}))
+
+
 def cmd_info(_args):
     print(json.dumps({"root": str(ROOT), "tree": tree_id(), "repos": REPOS,
                       "media_gib": round(sum(s for _, s in MEDIA) / GIB, 2),
@@ -722,8 +741,12 @@ def main(argv=None):
     s = sub.add_parser("show")
     s.add_argument("commit")
     sub.add_parser("info")
+    b = sub.add_parser("build")
+    b.add_argument("--commit", required=True)
+    b.add_argument("--build", action="store_true")
     args = p.parse_args(argv)
-    {"gen": cmd_gen, "run": cmd_run, "compare": cmd_compare, "show": cmd_show, "info": cmd_info}[args.cmd](args)
+    {"gen": cmd_gen, "run": cmd_run, "compare": cmd_compare, "show": cmd_show, "info": cmd_info,
+     "build": cmd_build}[args.cmd](args)
 
 
 if __name__ == "__main__":
