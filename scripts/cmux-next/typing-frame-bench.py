@@ -235,6 +235,30 @@ def chat_stream(pane):
     return Streamer(step, 3.0)
 
 
+def activate_app(pid):
+    """Bring the measured app to the front, by its own pid, so its windows can hold the keyboard.
+
+    Measured, not assumed: with the app launched unactivated, `composer_focused` reports
+    `{"focused": true, "native": false}` in every round — the page has the caret and no view of that pane
+    holds the keyboard. `KeyRouter+TypeAhead.typesIntoPrimaryInput` claims a printable key exactly then
+    ("while none of the screen's text inputs has the keyboard"), hands it to `beginTyping`, and the page's
+    keydown listener never runs, which is the `handled_by: "app"`, empty-trace, 0-keys result of the first
+    three runs. A person types with cmux in front, so the chat surface measures with it in front.
+
+    By unix id (`debug.agent_pane pid`), never by bundle id: a tagged bench app must not pull the person's
+    own cmux forward. Returns what osascript said, so a round that measures says whether this worked.
+    """
+    if not pid:
+        return {"activated": False, "why": "no pid"}
+    script = f'tell application "System Events" to set frontmost of (first process whose unix id is {pid}) to true'
+    done = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, timeout=30)
+    out = {"activated": done.returncode == 0, "code": done.returncode,
+           "error": (done.stderr or "").strip()[:200] or None}
+    note(f"chat: activate pid {pid}: {json.dumps(out)}")
+    time.sleep(0.4)  # the app comes forward and its window becomes key
+    return out
+
+
 def focus_chat_composer(pane):
     """Re-assert the composer's focus right before the keys, and read both halves of what focus means.
 
@@ -640,6 +664,9 @@ def surface_chat(phase, pid):
     if phase == "load":
         make_load(LOAD["chat_ws"])
     pane = LOAD.get("chat_pane")
+    # Before any focus call: the keyboard follows the front app, and the router's type-ahead decides on
+    # whether a text input holds the keyboard, not on the page's caret (`activate_app`).
+    LOAD["chat_activate"] = activate_app(pid)
     focused = rpc("debug.agent_pane", {"action": "focus_composer", **({"pane": pane} if pane else {})}, timeout=20)
     if not (isinstance(focused, dict) and focused.get("focused")):
         state = rpc("debug.agent_pane", {"action": "composer_focused", **({"pane": pane} if pane else {})})
