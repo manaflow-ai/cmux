@@ -47,7 +47,7 @@ const zoneOf: ZoneOf = (zone, at) => cmux.time.zone(zone, at)
 /** The time with its AM/PM beside it, small, on the baseline (the Lock Screen drops it; a widget keeps it). */
 function bigTime(time: () => string, period: () => string, hasPeriod: () => boolean, size: Size): View {
   return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
-    Text(time).font(TIME_FONT[size]).weight("heavy").lineLimit(1).fixedSize("horizontal"),
+    Text(time).font(TIME_FONT[size]).weight("heavy").lineLimit(1).fixedSize("horizontal").contentTransition("numericText"),
     () => (hasPeriod() ? Text(period).font("headline").weight("bold").secondary() : null)
   ])
 }
@@ -60,7 +60,7 @@ function cityRow(c: () => City, hasPeriod: () => boolean): View {
     ]),
     Spacer(),
     HStack({ spacing: 2, alignment: "lastTextBaseline" }, [
-      Text(() => c().time).font("title3").weight("semibold").lineLimit(1),
+      Text(() => c().time).font("title3").weight("semibold").lineLimit(1).contentTransition("numericText"),
       () => (hasPeriod() ? Text(() => c().period).font("caption2").weight("semibold").secondary() : null)
     ])
   ])
@@ -75,6 +75,7 @@ function hand(dial: number, length: number, width: number, angle: () => number, 
   ])
     .frame({ width: dial, height: dial })
     .rotation(angle)
+    .animation("smooth")
 }
 
 function tick(dial: number, angle: number, major: boolean): View {

@@ -116,9 +116,13 @@ function relative(minutes: number): string {
   return `${minutes > 0 ? "+" : "−"}${Math.floor(abs / 60)}${rest ? `:${two(rest)}` : ""}h`
 }
 
+/**
+ * Hand angles in degrees clockwise from 12. They only grow (whole turns are kept, not wrapped), so
+ * a hand the host animates moves forward from :59 to :00 instead of spinning back a full turn.
+ */
 export function handAngles(clock: Date): { hourAngle: number; minuteAngle: number } {
-  const minutes = clock.getUTCMinutes()
-  return { hourAngle: ((clock.getUTCHours() % 12) + minutes / 60) * 30, minuteAngle: minutes * 6 }
+  const minutes = Math.floor(clock.getTime() / 60_000)
+  return { hourAngle: minutes * 0.5, minuteAngle: minutes * 6 }
 }
 
 export function city(zone: string, at: number, twelve: boolean, zoneOf: ZoneOf): City {

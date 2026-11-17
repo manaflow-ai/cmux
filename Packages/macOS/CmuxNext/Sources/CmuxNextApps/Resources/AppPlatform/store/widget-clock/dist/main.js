@@ -2418,8 +2418,8 @@
     return `${minutes > 0 ? "+" : "−"}${Math.floor(abs / 60)}${rest ? `:${two(rest)}` : ""}h`;
   }
   function handAngles(clock) {
-    const minutes = clock.getUTCMinutes();
-    return { hourAngle: (clock.getUTCHours() % 12 + minutes / 60) * 30, minuteAngle: minutes * 6 };
+    const minutes = Math.floor(clock.getTime() / 60000);
+    return { hourAngle: minutes * 0.5, minuteAngle: minutes * 6 };
   }
   function city(zone, at, twelve, zoneOf) {
     const name = cityName(zone);
@@ -2459,7 +2459,7 @@
   var zoneOf = (zone, at) => cmux.time.zone(zone, at);
   function bigTime(time, period, hasPeriod, size) {
     return HStack({ spacing: 3, alignment: "lastTextBaseline" }, [
-      Text(time).font(TIME_FONT[size]).weight("heavy").lineLimit(1).fixedSize("horizontal"),
+      Text(time).font(TIME_FONT[size]).weight("heavy").lineLimit(1).fixedSize("horizontal").contentTransition("numericText"),
       () => hasPeriod() ? Text(period).font("headline").weight("bold").secondary() : null
     ]);
   }
@@ -2471,7 +2471,7 @@
       ]),
       Spacer(),
       HStack({ spacing: 2, alignment: "lastTextBaseline" }, [
-        Text(() => c().time).font("title3").weight("semibold").lineLimit(1),
+        Text(() => c().time).font("title3").weight("semibold").lineLimit(1).contentTransition("numericText"),
         () => hasPeriod() ? Text(() => c().period).font("caption2").weight("semibold").secondary() : null
       ])
     ]);
@@ -2481,7 +2481,7 @@
       VStack([]).frame({ width, height: dial / 2 - length }),
       VStack([]).frame({ width, height: length }).background(tone).cornerRadius(width / 2),
       VStack([]).frame({ width, height: dial / 2 })
-    ]).frame({ width: dial, height: dial }).rotation(angle);
+    ]).frame({ width: dial, height: dial }).rotation(angle).animation("smooth");
   }
   function tick(dial, angle, major) {
     const width = major ? 2 : 1.5;

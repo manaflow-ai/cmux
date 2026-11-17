@@ -55,9 +55,15 @@ describe("time and date", () => {
     }
   })
 
+  const turn = (a: { hourAngle: number; minuteAngle: number }) => ({ hourAngle: a.hourAngle % 360, minuteAngle: a.minuteAngle % 360 })
   test("analog hands", () => {
-    expect(handAngles(wall(Date.UTC(2026, 0, 1, 3, 0), 0))).toEqual({ hourAngle: 90, minuteAngle: 0 })
-    expect(handAngles(wall(Date.UTC(2026, 0, 1, 21, 30), 0))).toEqual({ hourAngle: 285, minuteAngle: 180 })
+    expect(turn(handAngles(wall(Date.UTC(2026, 0, 1, 3, 0), 0)))).toEqual({ hourAngle: 90, minuteAngle: 0 })
+    expect(turn(handAngles(wall(Date.UTC(2026, 0, 1, 21, 30), 0)))).toEqual({ hourAngle: 285, minuteAngle: 180 })
+    // They only grow, so the host animates :59 to :00 forward.
+    const before = handAngles(wall(Date.UTC(2026, 0, 1, 11, 59), 0))
+    const after = handAngles(wall(Date.UTC(2026, 0, 1, 12, 0), 0))
+    expect(after.minuteAngle - before.minuteAngle).toBe(6)
+    expect(after.hourAngle - before.hourAngle).toBe(0.5)
   })
 
   test("the next tick lands just after the minute starts", () => {

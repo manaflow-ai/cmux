@@ -41,7 +41,7 @@ describe("clock widget", () => {
 
   test("analog: a dial with its hands at the time", async () => {
     const { ops } = await renderScene(source, { size: "small", settings: { face: "analog" } })
-    const rotations = ops.filter((op) => typeof op.props?.rotation === "number").map((op) => op.props!.rotation)
+    const rotations = ops.filter((op) => typeof op.props?.rotation === "number").map((op) => (op.props!.rotation as number) % 360)
     // 9:41: the hour hand at 290.5 degrees, the minute hand at 246.
     expect(rotations).toContain(290.5)
     expect(rotations).toContain(246)
