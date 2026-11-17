@@ -358,8 +358,10 @@ final class TerminalFlickerTrace: NSObject {
             swapAwaited = now.gridRows != now.pageRows || now.held
             swapRowsAtStart = now.gridRows
         }
-        if !swapAwaited, now.gridRows != swapRowsAtStart || now.gridRows != now.pageRows { swapAwaited = true }
-        if swapAwaited, swapped, swapLog.count < 12 {
+        // A swap is awaited from the step's start while the page asks for
+        // other rows than the grid on screen has (or a still is up).
+        if !swapAwaited, swapRowsAtStart >= 0, now.gridRows != now.pageRows || now.held { swapAwaited = true }
+        if swapAwaited, swapped, swapLog.count < 24 {
             swapLog.append(String(format: "%@:%.0f", now.demo, (t - swapStart) * 1000))
             swapAwaited = false
             swapRowsAtStart = -1

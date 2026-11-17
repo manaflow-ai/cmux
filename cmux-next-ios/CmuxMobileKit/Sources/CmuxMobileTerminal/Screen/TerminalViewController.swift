@@ -3704,8 +3704,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         } else {
             // No animation (a hardware keyboard, an input view reload): the
-            // keyboard is at its end already.
+            // keyboard is at its end already (settled just below).
+            keyboardLiftSettledAtStop = false
             keyboardStopped()
+            keyboardLiftSettledAtStop = true
         }
         guard model.isTUI else { return }
         view.layoutIfNeeded()
@@ -3720,7 +3722,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// held back while it moved (`replayHold`) goes to the screen.
     private func keyboardStopped() {
         apply(replayHold.keyboardStopped())
+        // The rows of where the keyboard really ended: a toggle interrupted by
+        // another (a double toggle) can end where no did-show settles (its
+        // did-show is stale), on a predicted or mid-way lift. The same rows
+        // send nothing; other rows go at once.
+        guard model.isTUI, view.window != nil, keyboardLiftSettledAtStop else { return }
+        view.layoutIfNeeded()
+        settleKeyboardLift()
+        keyboardClaim = true
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        keyboardClaim = false
     }
+
+    /// Off while a will-show or will-hide is being handled (it stops a
+    /// previous movement before the stack is laid out at the new end).
+    private var keyboardLiftSettledAtStop = true
 
     /// A keyboard hold ended (`TerminalKeyboardReplayHold.Release`): a reset
     /// behind the held grid gets its held frame now, before its replay is
