@@ -81,7 +81,10 @@ struct TerminalLoadBench {
                 if replay { _vtStates += 1 }
             }
         }
-        func noteAttach() { lock.withLock { _attaches += 1 } }
+        private(set) var lastAsked = "-"
+        func noteAttach(asked: Int?, start: Int?) {
+            lock.withLock { _attaches += 1; lastAsked = "\(asked.map(String.init) ?? "all")\(start.map { " from \($0)" } ?? "")" }
+        }
 
         /// The base64 replay of history rows `rows` and the screen.
         func replay(_ rows: Range<Int>) -> String {
@@ -190,7 +193,7 @@ struct TerminalLoadBench {
                     if let terminal = object["expected_terminal_id"] as? String, terminal != "term_load_bench" {
                         return [(Self.line(["id": id, "ok": false, "error": "attachment_terminal_mismatch"]), false)]
                     }
-                    mac.noteAttach()
+                    mac.noteAttach(asked: object["replay_history_rows"] as? Int, start: object["replay_history_start"] as? Int)
                     if let columns = object["cols"] as? Int, let rows = object["rows"] as? Int { grid = (columns, rows) }
                     allowance = object["replay_history_rows"] as? Int
                     let event = replayEvent("vt-state", rows: allowance, start: object["replay_history_start"] as? Int)
@@ -408,7 +411,7 @@ struct TerminalLoadBench {
         sample.steps = steps
         sample.reached = rig.daemon.historyRowsOmitted == 0
         if !sample.reached { sample.ms = (CFAbsoluteTimeGetCurrent() - start.wall) * 1000 }
-        sample.note = " (attaches \(rig.mac.attaches - start.attaches), replays \(rig.mac.vtStates - start.replays), rows still on the Mac \(rig.daemon.historyRowsOmitted), allowance \(rig.daemon.historyAllowance.map(String.init) ?? "all"))"
+        sample.note = " (attaches \(rig.mac.attaches - start.attaches), replays \(rig.mac.vtStates - start.replays), rows still on the Mac \(rig.daemon.historyRowsOmitted), allowance \(rig.daemon.historyAllowance.map(String.init) ?? "all"), last attach asked \(rig.mac.lastAsked))"
         return sample
     }
 
