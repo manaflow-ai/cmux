@@ -3828,21 +3828,22 @@ impl Mux {
     /// Complete an adopted template terminal (complete_template_adoption),
     /// retrying in the background until it succeeds or the daemon shuts down.
     /// Adoption itself has already committed, so a failure here must neither
-    /// abort startup nor leave the terminal without its public placement and
-    /// binding.
+    /// abort startup nor leave the terminal without its public placement.
+    /// The shell's binding is best-effort (complete_template_adoption).
     #[cfg(unix)]
     fn ensure_template_adoption_completed(self: &Arc<Self>, terminal_id: &str) {
         let Err(error) = self.complete_template_adoption(terminal_id) else {
             return;
         };
-        eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error:#}");
+        let error = format!("{error:#}");
+        eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error}");
+        let mut log = RetryLog::after(error);
         let mux = Arc::clone(self);
         let terminal_id = terminal_id.to_string();
         let spawned = std::thread::Builder::new()
             .name(format!("template-complete-{terminal_id}"))
             .spawn(move || {
                 let mut delay = Duration::from_millis(100);
-                let mut log = RetryLog::default();
                 loop {
                     std::thread::sleep(delay);
                     if mux.shutting_down.load(Ordering::Acquire) {
@@ -18861,7 +18862,6 @@ fn template_terminal_launch_spec() -> Value {
 /// machines. The first failure, any change of error, and the 2nd, 4th, 8th...
 /// failure of the same error are logged.
 #[cfg(unix)]
-#[derive(Default)]
 struct RetryLog {
     attempts: u64,
     last_error: String,
@@ -18869,6 +18869,11 @@ struct RetryLog {
 
 #[cfg(unix)]
 impl RetryLog {
+    /// The log of a loop whose first attempt failed with `error`, already logged.
+    fn after(error: String) -> Self {
+        Self { attempts: 0, last_error: error }
+    }
+
     /// Record one failed attempt; `Some(attempts so far)` when it is logged.
     fn failed(&mut self, error: &str) -> Option<u64> {
         self.attempts += 1;
@@ -34546,7 +34551,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn retry_log_reports_a_lasting_failure_on_a_doubling_schedule() {
-        let mut log = RetryLog::default();
+        let mut log = RetryLog::after("tab slot 5".to_string());
         let logged: Vec<u64> = (0..720).filter_map(|_| log.failed("tab slot 5")).collect();
         assert_eq!(logged, vec![1, 2, 4, 8, 16, 32, 64, 128, 256, 512]);
         assert_eq!(log.failed("Permission denied (os error 13)"), Some(721));
