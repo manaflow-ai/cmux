@@ -75,6 +75,9 @@ pub struct Answer {
     /// `link start-chat plan`'s `cloud.size.locked`: `{needed, allowed, upgrade_plan}` as the platform named them
     /// (`upgrade_plan` `"nothing"`: no plan lifts it).
     pub size_locked: Option<Value>,
+    /// `link start-chat plan`'s `seed_refused` for a machine too small for the folder (`machine.too_small`): the
+    /// machine's name, for "more than <machine> has room for".
+    pub machine_title: Option<String>,
 }
 
 impl Answer {
@@ -174,6 +177,7 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         copy_bytes: object.get("copy_bytes").and_then(Value::as_u64),
         left_on_mac: left_on_mac(&object),
         size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
+        machine_title: string(&object, "machine_title"),
     };
     (answer, Some(object))
 }

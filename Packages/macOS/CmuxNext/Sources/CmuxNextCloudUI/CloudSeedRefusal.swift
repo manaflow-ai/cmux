@@ -13,6 +13,9 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     public static let code = "seed_refused"
     /// The seed plan's code for a private repository the machine can't read without the cmux GitHub App.
     public static let needsGitHub = "seed.needs_github"
+    /// The start plan's code for a machine whose disk is smaller than the size the folder needs (cmux-tui
+    /// `preflight::too_small`): the workspace already had that machine, so nothing is cloned or copied there.
+    public static let machineTooSmall = "machine.too_small"
 
     /// cmux-tui's words: why the machine can't clone it, and the copy's files and size.
     public let message: String
@@ -64,6 +67,14 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
             ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .module)
             : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .module)
         return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
+    }
+
+    /// The start plan's refusal of a machine too small for the folder (``machineTooSmall``) as the copy's own: the folder's
+    /// size and the machine's name, no Retry (the workspace's machine stays the same). Nil for any other answer.
+    public static func planRefusal(_ answer: CloudMoveCLI.Answer) -> CloudMoveFailure? {
+        guard answer.fallbackCode == machineTooSmall, answer.copyBytes != nil,
+              let refusal = CloudSeedRefusal(answer, machine: answer.machineTitle ?? "") else { return nil }
+        return CloudMoveFailure(message: refusal.tooLarge, code: refusal.pageCode)
     }
 
     /// `copy` seeding first (`.ask`); a refused seed copies the folder (`.copy`) with no question. A copy that

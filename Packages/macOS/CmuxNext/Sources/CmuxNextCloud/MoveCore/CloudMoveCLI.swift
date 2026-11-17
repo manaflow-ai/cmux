@@ -39,6 +39,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var leftOnMac: Int64?
         /// `link start-chat plan`'s `cloud.size.locked`: the sizes and the upgrade the platform named (``CloudSizeLocked``).
         public var sizeLocked: JSONValue?
+        /// `link start-chat plan`'s `seed_refused` for a machine smaller than the size asked (`machine.too_small`): its name.
+        public var machineTitle: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,

@@ -166,7 +166,7 @@ fn send(key: &str) -> Send {
 }
 
 fn machine(id: &str, title: &str) -> Candidate {
-    Candidate { id: id.into(), title: title.into() }
+    Candidate { id: id.into(), title: title.into(), disk_mb: None }
 }
 
 fn key() -> String {

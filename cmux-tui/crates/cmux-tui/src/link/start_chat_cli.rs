@@ -328,6 +328,9 @@ struct PlanRequest {
     /// `sm` is the platform's chat size. A larger one is never a warm spare: those are all `sm`.
     #[serde(default)]
     size: Option<String>,
+    /// The bytes the chat's folder or repository puts on the machine (`preflight`'s `estimate_bytes`), for a refusal.
+    #[serde(default)]
+    bytes: Option<u64>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -449,6 +452,20 @@ fn plan_with_calls(
                 Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             };
+            // A pinned machine whose disk the App's list names smaller than the size asked: nothing goes there.
+            let listed = request.machines.iter().find(|machine| machine.id == id);
+            let machine = preflight::Machine {
+                id: &id,
+                title: listed.map_or(id.as_str(), |machine| machine.title.as_str()),
+                disk_bytes: listed
+                    .and_then(|machine| u64::try_from(machine.disk_mb?).ok())
+                    .map(|mb| mb.saturating_mul(1024 * 1024)),
+            };
+            if let Some(refusal) =
+                preflight::too_small(request.size.as_deref(), request.bytes, &machine)
+            {
+                return refusal;
+            }
             json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
@@ -480,6 +497,11 @@ fn plan_with_calls(
             };
             match answer {
                 Ok(body) => {
+                    let disk = preflight::ensured_disk_bytes(&body);
+                    let body_title = ["/machine/name", "/machine/title", "/machine/slug"]
+                        .iter()
+                        .find_map(|pointer| body.pointer(pointer).and_then(Value::as_str))
+                        .map(str::to_owned);
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
                     let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
@@ -490,6 +512,18 @@ fn plan_with_calls(
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
+                    }
+                    // The platform answers the workspace's machine at whatever size it is: one smaller than the size
+                    // asked takes no clone or copy (pinned above, so a retry reaches the same machine, never another).
+                    let machine = preflight::Machine {
+                        id,
+                        title: body_title.as_deref().unwrap_or(id),
+                        disk_bytes: disk,
+                    };
+                    if let Some(refusal) =
+                        preflight::too_small(ask.size.as_deref(), request.bytes, &machine)
+                    {
+                        return refusal;
                     }
                     json!({"ok": true, "machine": id, "ensured": {
                         "created": line.get("created"), "snapshot": line.get("snapshot"),

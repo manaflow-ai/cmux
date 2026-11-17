@@ -56,6 +56,66 @@ pub(super) fn needed_size(bytes: u64) -> Option<&'static str> {
     LADDER.iter().find(|(_, room)| disk <= *room).map(|(name, _)| *name)
 }
 
+/// The least a machine is taken to have room for, whatever its disk (the App's `CloudSeedRefusal.leastRoomBytes`).
+const LEAST_ROOM_BYTES: u64 = 4 * GIB;
+/// The seed refusal's code the App turns into "This folder is X, more than Y has room for" (`CloudSeedRefusal`).
+pub(super) const SEED_REFUSED: &str = "seed_refused";
+/// Its `fallback_code` for a machine whose disk is smaller than the size the start asked.
+pub(super) const MACHINE_TOO_SMALL: &str = "machine.too_small";
+
+/// The machine a start runs on, as far as the start knows its disk.
+pub(super) struct Machine<'a> {
+    pub(super) id: &'a str,
+    pub(super) title: &'a str,
+    /// The machine's disk in bytes; None when the platform or the App's list named none.
+    pub(super) disk_bytes: Option<u64>,
+}
+
+/// The refusal of a start that asked `size` (the folder's `needed_size`) for `bytes` of folder when `machine` has a
+/// smaller disk than that size's: an existing machine the platform answered at its own size (the workspace already had
+/// it) or a pinned one. Nothing is cloned or copied there: the clone would fill its disk. A plan upgrade does not help,
+/// the workspace's machine is fixed, so it is the folder too big for this machine, never `cloud.size.locked`. None for
+/// the chat size or none asked, a size off the ladder, a machine whose disk is unknown (an older platform) or a disk at
+/// least the size's.
+pub(super) fn too_small(
+    size: Option<&str>,
+    bytes: Option<u64>,
+    machine: &Machine<'_>,
+) -> Option<Value> {
+    let size = size.filter(|size| *size != "sm")?;
+    let (_, asked) = LADDER.iter().find(|(name, _)| *name == size)?;
+    let disk = machine.disk_bytes?;
+    if disk >= *asked {
+        return None;
+    }
+    let room = disk.saturating_sub(RESERVED_BYTES).max(LEAST_ROOM_BYTES);
+    let mut line = super::refused(
+        SEED_REFUSED,
+        format!(
+            "{} has a {} GiB disk, too small for this folder: it needs a {size} machine ({} GiB)",
+            machine.title,
+            disk / GIB,
+            asked / GIB
+        ),
+    );
+    if let Value::Object(object) = &mut line {
+        object.insert("fallback_code".into(), json!(MACHINE_TOO_SMALL));
+        object.insert("copy_bytes".into(), json!(bytes));
+        object.insert("room_bytes".into(), json!(room));
+        object.insert("needed".into(), json!(size));
+        object.insert("machine_id".into(), json!(machine.id));
+        object.insert("machine_title".into(), json!(machine.title));
+    }
+    Some(line)
+}
+
+/// The disk an ensure answer names for its machine (`machine.shape.diskGiB`), in bytes; None when it names none.
+pub(super) fn ensured_disk_bytes(body: &Value) -> Option<u64> {
+    body.pointer("/machine/shape/diskGiB")
+        .and_then(Value::as_u64)
+        .map(|gib| gib.saturating_mul(GIB))
+}
+
 #[cfg(test)]
 #[path = "preflight_tests.rs"]
 mod tests;

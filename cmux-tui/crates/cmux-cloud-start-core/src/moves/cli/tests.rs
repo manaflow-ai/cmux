@@ -544,4 +544,17 @@ fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
     )
     .unwrap();
     assert_eq!(locked["sizeLocked"], json!({"needed": "xl"}));
+    let small = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"seed_refused","fallback_code":"machine.too_small","copy_bytes":5,"machine_title":"cloud-chats"}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(
+        (&small["fallbackCode"], &small["copyBytes"], &small["machineTitle"]),
+        (&json!("machine.too_small"), &json!(5), &json!("cloud-chats"))
+    );
 }
