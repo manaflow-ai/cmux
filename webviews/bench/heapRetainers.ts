@@ -208,6 +208,28 @@ export function retainers(s: Snapshot, { minBytes = 512 * 1024, depth = 14 } = {
     row.self += selfOf(v);
     byPlace.set(key, row);
   }
+  // HEAP_INSPECT=Class,...: each instance's own fields, with what each holds (its retained size, an array's slots).
+  for (const wanted of (process.env.HEAP_INSPECT ?? "").split(",").filter(Boolean)) {
+    for (let v = 0; v < n; v++) {
+      if (!seen[v] || nameOf(v) !== wanted || typeOf(v) !== "object") continue;
+      lines.push(`inspect ${wanted} @${nodes[v * nf + 2]}:`);
+      for (let e = firstEdge[v]!; e < firstEdge[v + 1]!; e += ef) {
+        const t = edgeTypes[edges[e]!];
+        if (t !== "property") continue;
+        const w = target(e);
+        const p = order[w]!;
+        const kept = p >= 0 ? retained[p]! : 0;
+        const slots = typeOf(w) === "array" ? ` slots~${Math.round(selfOf(w) / 8)}` : "";
+        const kind = typeOf(w);
+        let inner = "";
+        if (kind === "object" && (nameOf(w) === "Array" || nameOf(w) === "Map" || nameOf(w) === "Set"))
+          for (let f = firstEdge[w]!; f < firstEdge[w + 1]!; f += ef)
+            if (edgeName(f) === "elements" || edgeName(f) === "table")
+              inner = ` ${edgeName(f)}~${Math.round(selfOf(target(f)) / 8)} slots`;
+        lines.push(`  .${edgeName(e)} = ${label(w).slice(0, 40)} ${(kept / 1024).toFixed(0)} KB${slots}${inner}`);
+      }
+    }
+  }
   return { total, byClass, byPlace, lines };
 }
 
