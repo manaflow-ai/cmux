@@ -199,4 +199,31 @@ struct TabMovePlaceTests {
         store.rejectIntent(first)
         #expect(try Self.order(store) == "tabcNM")
     }
+
+    /// EXPECTED RED UNTIL THE LIMIT ABOVE IS MENDED: the same wrong order by a way with no refusal.
+    ///
+    /// Pane `t a b`; `t` is the first tab of a pinned column that takes tabs. `t` moves to the end (`a b t`), then
+    /// `a` moves to the end, right after `t` (`b t a`; its command has the index 2). The daemon does not move `t`
+    /// (the pinned column keeps its first tab at the first place) and answers `moved: false`, not an error, with no
+    /// event. The app refuses its move for that answer only when the tab goes to another pane, so the move of `t`
+    /// settles (`DaemonStore.noteSettled`) and leaves the log. The daemon's list is `t a b`, and its move of `a` to
+    /// index 2 gives `t b a`: the wanted order, which the store showed at once before the rule of this type. With
+    /// the rule the store shows `t a b` (`a` directly after `t`) until the answer of `a`'s move settles.
+    ///
+    /// Who reaches it, by a read of 2026-11-17: a person who drags the column's first tab inside its strip, or moves
+    /// it with Move Tab Right, and moves a second tab to the place right of it before the first answer comes.
+    ///
+    /// Limits: the row sends no command, as each row here. It does not prove the daemon's answer: that is the
+    /// daemon's row `pinned_column_refuses_moves_in_and_the_pinned_tab_moving_out_or_back`.
+    @Test func aNeighboursMoveThatSettlesNotMadeLeavesTheLaterMovedTabAtTheDaemonsPlace() throws {
+        let store = Self.store("tab")
+        let first = try Self.move("t", to: 2, in: store)
+        try #require(try Self.commandIndex("a", to: 2, in: store) == 2, "setup: the command's index is not 2")
+        try Self.move("a", to: 2, in: store)
+        try #require(try Self.order(store) == "bta", "setup: the two moves did not give b t a")
+
+        store.noteSettled(first, at: store.appliedSequence)
+        try #require(store.pendingIntents.count == 1, "setup: the move of t did not leave the log")
+        #expect(try Self.order(store) == "tba")
+    }
 }
