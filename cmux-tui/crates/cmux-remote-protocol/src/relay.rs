@@ -67,7 +67,7 @@ impl RelayTicketClaims {
     }
 
     /// Stable bytes shared by native and Durable Object ticket issuers.
-    pub fn signing_payload(&self) -> Vec<u8> {
+    pub fn signing_payload(&self, _version: u8) -> Vec<u8> {
         let permission = match self.permission {
             RelayPermission::Register => "register",
             RelayPermission::Connect => "connect",
