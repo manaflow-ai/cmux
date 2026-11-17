@@ -34,7 +34,9 @@ import Testing
         // shift 2 (zigzag 4), no spans.
         let frame = try #require(AgentCLIHybridFrame(event(frame: 2, base: 1, data: Data([0, 0, 4, 0]), cursor: (0, 0, false))))
         let text = String(decoding: try #require(frame.terminalBytes), as: UTF8.self)
-        #expect(text.contains("\u{1b}[4;1H\n\n"))
+        // Its own region first: on a taller mirror (or one a resize reset) the line feeds on
+        // the frame's last row scroll the frame's rows (cmux-tui `vt::frame_bytes`, #45266).
+        #expect(text.contains("\u{1b}[1;4r\u{1b}[4;1H\n\n"))
         #expect(!text.contains("\u{1b}[2J"))
         #expect(!text.contains("\u{1b}[?25h"), "a hidden cursor stays hidden")
     }

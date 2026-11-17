@@ -1464,61 +1464,6 @@ fn the_phones_parity_fixtures_hold_and_are_current() {
     }
 }
 
-#[test]
-fn diag_lean_on_a_taller_alternate_screen() {
-    let decode =
-        |v: &Value| base64::engine::general_purpose::STANDARD.decode(v.as_str().unwrap()).unwrap();
-    let sized = |cols: u16, rows: u16| {
-        let mut term =
-            ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
-                .unwrap();
-        term.resize(cols, rows, 8, 16).unwrap();
-        term
-    };
-    for (dir_name, still) in [(OPENCODE, 22_819u64), (OPENCODE, 17_419), (CODEX, 25_195)] {
-        let out = export(&load(dir_name));
-        // (label, terminal rows, bytes after the switch)
-        for (label, rows, setup) in [
-            ("exact 32", 32u16, String::new()),
-            ("40 rows, margins 1;40", 40, "\x1b7\x1b[1;40r\x1b8".to_owned()),
-            ("150 rows, full margins", 150, String::new()),
-            ("150 rows, margins 1;32", 150, "\x1b7\x1b[1;32r\x1b8".to_owned()),
-            ("53x150 margins 1;32, then resized to 100x150", 150, "resize".to_owned()),
-        ] {
-            let mut phone = sized(if setup == "resize" { 53 } else { COLS }, rows);
-            let mut decoder = LeanDecoder::new();
-            let mut feed = |phone: &mut ghostty_vt::Terminal, event: &Value| {
-                if event["event"] == "output" {
-                    phone.vt_write(&decode(&event["data"]));
-                    return;
-                }
-                let lean = decode(&event["f"]);
-                let d = decoder.decode(&lean).unwrap();
-                phone.vt_write(&vt::frame_bytes(&d.frame, ROWS, d.cursor).unwrap());
-            };
-            if let Some(before) = out["attach"]["before"].as_str() {
-                phone.vt_write(&decode(&Value::String(before.to_owned())));
-            }
-            if setup == "resize" {
-                phone.vt_write(b"\x1b7\x1b[1;32r\x1b8");
-                phone.resize(COLS, rows, 8, 16).unwrap();
-            } else {
-                phone.vt_write(setup.as_bytes());
-            }
-            feed(&mut phone, &out["attach"]["lean"]);
-            for entry in out["lean_frames"].as_array().unwrap() {
-                if entry[0].as_u64().unwrap() > still {
-                    break;
-                }
-                feed(&mut phone, &entry[1]);
-            }
-            let text = phone.viewport_text().unwrap();
-            let top: Vec<&str> = text.lines().take(usize::from(ROWS)).collect();
-            println!("=== DIAG {dir_name} {still} {label}\n{}", top.join("\n"));
-        }
-    }
-}
-
 /// The bench's lean stream (`export`: the attach's switch to the alternate screen, its keyframe,
 /// every frame after it) drawn on terminals the phone's mirror can be, against the same stream
 /// drawn on a terminal of exactly the frame's grid, after every frame. The phone's Ghostty

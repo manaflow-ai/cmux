@@ -61,6 +61,16 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         guard let delta else { return nil }
         var out = "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m"
         if base == nil { out += "\u{1b}[H\u{1b}[2J" }
+        if delta.shift != 0 {
+            // A scroll moves the frame's rows: its own scroll region first (DECSTBM; it homes
+            // the cursor). The mirror is taller than the frame and keeps whatever region it
+            // last had (the phone's own rows, or the whole mirror after a resize): a line feed
+            // on the frame's last row then only moved the cursor, and the rows the frame did not
+            // rewrite stayed where they were (#45266, opencode and Codex stills under load).
+            // `TerminalRowShift` maps the region to the mirror (the whole mirror on the primary
+            // screen, so scrolled rows still reach the scrollback).
+            out += "\u{1b}[1;\(rows)r"
+        }
         if delta.shift > 0 {
             // Line feeds on the last row: the rows that leave the top reach the scrollback.
             out += "\u{1b}[\(rows);1H" + String(repeating: "\n", count: delta.shift)

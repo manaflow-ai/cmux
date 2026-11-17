@@ -243,6 +243,12 @@ struct HybridScreenModel {
             let count = min(max(number(0, 1), 1), rows)
             cells.removeLast(count)
             cells.insert(contentsOf: Array(repeating: Array(repeating: Self.blank(style), count: columns), count: count), at: 0)
+        case "r" where !isPrivate:
+            // DECSTBM: a frame sets its own region, its whole grid (the only one it scrolls
+            // here), and the cursor goes home.
+            x = 0
+            y = 0
+            pendingWrap = false
         case "m":
             sgr(numbers.map { $0 ?? 0 })
         case "h" where isPrivate, "l" where isPrivate:
