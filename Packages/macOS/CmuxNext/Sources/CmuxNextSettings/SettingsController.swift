@@ -477,7 +477,11 @@ public final class SettingsController {
             previewSnapshot = nil
             diagnostics = applier.apply(loaded.snapshot)
             // For the next launch: AppKit keeps this launch's text weight (ProcessFontSmoothing).
-            if appliesFontSmoothing { ProcessFontSmoothing.apply(loaded.snapshot.fontSmoothing, to: .standard) }
+            // The chrome text cmux draws itself (the sidebar, tabs) takes the new weight now, as
+            // web pages do (https://github.com/manaflow-ai/cmux/issues/44844).
+            if appliesFontSmoothing {
+                ProcessFontSmoothing.applyLive(loaded.snapshot.fontSmoothing)
+            }
             let effective = loaded.effective
             snapshot = loaded.snapshot
             themeFile = loaded.themes.overlay

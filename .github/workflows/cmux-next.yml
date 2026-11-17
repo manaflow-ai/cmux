@@ -202,6 +202,9 @@ on:
       - schemas/settings/source/**
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
+      - scripts/cmux-next/check-launch-stages.py
+      - cmux-tui/crates/cmux-launch-record/src/lib.rs
+      - Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchStageRegistry.swift
       - scripts/cmux-next/check-default-cursor.py
       - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
@@ -552,6 +555,9 @@ on:
       - schemas/settings/source/**
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
+      - scripts/cmux-next/check-launch-stages.py
+      - cmux-tui/crates/cmux-launch-record/src/lib.rs
+      - Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchStageRegistry.swift
       - scripts/cmux-next/check-default-cursor.py
       - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
@@ -1826,6 +1832,7 @@ jobs:
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-react-pages.test.sh
             bash scripts/cmux-next/tests/check-no-swiftui.test.sh
+            bash scripts/cmux-next/tests/check-launch-stages.test.sh
             bash scripts/cmux-next/tests/check-default-cursor.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
@@ -2016,6 +2023,11 @@ jobs:
             git cat-file -e "$BEFORE^{commit}" 2>/dev/null && base=(--base "$BEFORE")
           fi
           python3 -I scripts/cmux-next/check-no-swiftui.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
+      - name: Launch stages (stage 0 is only the shell, docs/design/launch-shell-first.md)
+        id: launch-stages
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-launch-stages.py "$GITHUB_WORKSPACE"
 
       - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
         id: no-process-scan
@@ -2536,6 +2548,7 @@ jobs:
             ${{ steps.react-pages.outcome }}|React pages are listed (native chrome and Home are Swift)
             ${{ steps.ui-text-budget.outcome }}|UI text says only what you can act on
             ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
+            ${{ steps.launch-stages.outcome }}|Launch stages (stage 0 is only the shell, docs/design/launch-shell-first.md)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.default-cursor.outcome }}|Default cursor (no pointing hand in app UI)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
