@@ -98,10 +98,34 @@ import UIKit
         let reasons = Dictionary(list.weighReasons.map { ($0, 1) }, uniquingKeysWith: +).sorted { $0.value > $1.value }
             .map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         print("CHATOPENCOST weighed-again \(reasons) applies=\(list.applies)")
-        // A row whose content changed meanwhile (an edit row when its diff lands, off the main thread)
-        // is weighed for its new content; no other row is weighed again.
-        let again = list.weighReasons.filter { !$0.hasPrefix("changed:") }
-        #expect(again.isEmpty, "rows weighed again when the layouts landed: \(again.count) of \(list.layout.items.count): \(reasons)")
+        // A turn whose rows changed meanwhile (its diff landed, off the main thread: an edited-files
+        // row and an actions row come in) weighs the rows it added or moved. No turn is weighed whole
+        // again because a layout landed (`noPrevious`), and nothing near the whole history is.
+        let whole = list.weighReasons.filter { $0.hasPrefix("noPrevious:") }
+        #expect(whole.isEmpty, "rows of dropped turns weighed again: \(whole.count) of \(list.layout.items.count): \(reasons)")
+        #expect(list.weighReasons.count * 4 < list.layout.items.count, "rows weighed again: \(list.weighReasons.count) of \(list.layout.items.count): \(reasons)")
+    }
+
+    /// The open's weighing grows with the history, not with its square: 4x the turns costs well under
+    /// 16x the time. Each row written through the list's row table copied the whole table (a get/set
+    /// computed property), so an open of N rows copied N tables of N rows.
+    @Test func openWeighingGrowsLinearly() {
+        func firstReload(_ turns: Int) -> Double {
+            let store = AgentChatStore(source: SmoothChatTests.Silent())
+            store.nextFrame = nil
+            store.apply(.batch(Self.stressTurns(turns)))
+            let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+            list.collectionView.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            let before = list.reloadTime
+            list.boundsMayHaveChanged()
+            let took = list.reloadTime - before
+            return Double(took.components.seconds) * 1000 + Double(took.components.attoseconds) / 1e15
+        }
+        _ = firstReload(20)
+        let small = min(firstReload(100), firstReload(100))
+        let large = min(firstReload(400), firstReload(400))
+        print("CHATOPENCOST weigh 100 turns \(String(format: "%.1f", small)) ms, 400 turns \(String(format: "%.1f", large)) ms")
+        #expect(large < small * 8, "400 turns took \(large) ms against \(small) ms for 100")
     }
 
     @Test func reportsTheOpensMainThreadWork() async {
