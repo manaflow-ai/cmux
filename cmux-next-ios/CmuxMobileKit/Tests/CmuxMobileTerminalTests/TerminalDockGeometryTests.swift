@@ -117,18 +117,21 @@ import UIKit
     }
 
     /// The real owner lookup: a focused text view owns a keyboard, nothing
-    /// focused owns none.
+    /// focused owns none, a focused view that takes no text owns none. (The
+    /// test window has no scene, so it is searched by name; the app's
+    /// windows are its scenes'.)
     @Test func theOwnerIsTheFirstResponderThatTakesText() {
         let rig = Rig(tracker: MobileKeyboardFrameTracker(notificationCenter: NotificationCenter()))
         defer { rig.close() }
         let field = UITextView(frame: CGRect(x: 0, y: 100, width: 200, height: 40))
         rig.view.addSubview(field)
-        #expect(!MobileKeyboardOwner.isPresent)
-        if field.becomeFirstResponder() {
-            #expect(MobileKeyboardOwner.isPresent)
-            _ = field.resignFirstResponder()
-        }
-        #expect(!MobileKeyboardOwner.isPresent)
+        #expect(!MobileKeyboardOwner.isPresent(in: [rig.window]))
+        #expect(field.becomeFirstResponder())
+        #expect(MobileKeyboardOwner.firstResponder(in: [rig.window]) === field)
+        #expect(MobileKeyboardOwner.isPresent(in: [rig.window]))
+        _ = field.resignFirstResponder()
+        #expect(!MobileKeyboardOwner.isPresent(in: [rig.window]))
+        #expect(!MobileKeyboardOwner.takesText(UIView()))
     }
 
     // MARK: Reattach
