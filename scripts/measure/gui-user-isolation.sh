@@ -37,6 +37,7 @@ root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 out="$root/artifacts/gui-user-isolation"
 rm -rf "$out" "$root/artifacts/gui-user-isolation.tgz"
 mkdir -p "$out/shots"
+chmod 1777 "$out/shots" # the computer-use driver writes the captures here, possibly as another user
 work="$(mktemp -d "${TMPDIR:-/tmp}/gup-iso.XXXXXX")"
 chmod 711 "$work"
 mkdir -p "$work/status"; chmod 1777 "$work/status"
@@ -283,10 +284,10 @@ for (( k = 0; k < n; k++ )); do
   tokens+=("$tok")
   # the job's shell: a login keychain if it has none, its old items gone, then its defaults and keychain item
   if ! sudo -n -H -u "$u" /usr/bin/security default-keychain 2>/dev/null | grep -q keychain; then
-    sudo -n -H -u "$u" /usr/bin/security create-keychain -p "" login.keychain >/dev/null 2>&1
-    sudo -n -H -u "$u" /usr/bin/security default-keychain -s login.keychain >/dev/null 2>&1
+    sudo -n -H -u "$u" /usr/bin/security create-keychain -p "" "/Users/$u/Library/Keychains/login.keychain-db" >/dev/null 2>&1
+    sudo -n -H -u "$u" /usr/bin/security default-keychain -s "/Users/$u/Library/Keychains/login.keychain-db" >/dev/null 2>&1
   fi
-  sudo -n -H -u "$u" /usr/bin/security unlock-keychain -p "" login.keychain >/dev/null 2>&1
+  sudo -n -H -u "$u" /usr/bin/security unlock-keychain -p "" "/Users/$u/Library/Keychains/login.keychain-db" >/dev/null 2>&1
   while sudo -n -H -u "$u" /usr/bin/security delete-generic-password -s "$SVC" >/dev/null 2>&1; do :; done
   sudo -n -H -u "$u" /usr/bin/defaults delete "$SVC" >/dev/null 2>&1
   sudo -n -H -u "$u" /usr/bin/defaults write "$SVC" shellToken "$tok"
@@ -326,6 +327,12 @@ for e in s.get("elements") or []:
     "$CUA" call click "{\"pid\":$pid,\"window_id\":$wid,\"element_token\":\"$tok\",\"action\":\"press\"}" >>"$out/press$k.txt" 2>&1
   done
 }
+# The presses and captures run only once the simulator is booted, so it is up beside every job while they run
+# (bounded: a simulator that never boots fails sim-alongside-jobs instead of holding the test).
+if [[ -n "${sim_pid:-}" ]]; then
+  end=$(( $(date +%s) + 300 ))
+  while ! grep -q "^boot_at " "$sim_log" 2>/dev/null && kill -0 "$sim_pid" 2>/dev/null && (( $(date +%s) < end )); do sleep 0.5; done
+fi
 t_press=$(date +%s)
 press_pids=()
 for (( k = 0; k < n; k++ )); do press_job "$k" $(( k + 1 )) & press_pids+=($!); done
@@ -390,7 +397,7 @@ if [[ "$sim" == 1 ]]; then
   boot_at=$(awk '/^boot_at /{print $2}' "$sim_log"); done_at=$(awk '/^done_at /{print $2}' "$sim_log")
   check "sim-answered" "$(grep -q 'sim_defaults gupiso-sim' "$sim_log" && echo 1 || echo 0)" "$(grep sim_defaults "$sim_log")"
   check "sim-own-device-set" "$(grep -q '^in_default_set 0' "$sim_log" && echo 1 || echo 0)" "$(grep in_default_set "$sim_log")"
-  check "sim-alongside-jobs" "$([[ -n "$boot_at" && "$sim_t0" -le "$t_end" && "$alive" == "$n" ]] && echo 1 || echo 0)" "sim started $sim_t0 (presses $t_press..$t_end), booted ${boot_at:-never}, answered ${done_at:-never}; $alive of $n job apps still up at $t_sim_waited"
+  check "sim-alongside-jobs" "$([[ -n "$boot_at" && "$boot_at" -le "$t_press" && "$alive" == "$n" ]] && echo 1 || echo 0)" "sim started $sim_t0 (presses $t_press..$t_end), booted ${boot_at:-never}, answered ${done_at:-never}; $alive of $n job apps still up at $t_sim_waited"
 fi
 say "{\"stage\":\"verdict\",\"checks\":$checks,\"failed\":$fails}"
 if (( fails == 0 )); then echo "ISO-VERDICT PASS ($checks checks, $n jobs$([[ "$sim" == 1 ]] && echo ', 1 simulator'))"; exit 0; fi

@@ -50,7 +50,10 @@ done
 PREFIX=cmuxci-gui-
 MARK="cmuxci gui pool probe"
 UID0=5100
-WORK="/Users/Shared/gup-probe.$$"
+# A fresh directory mktemp makes (mode 0700, owned by the caller), never a predictable name: in root mode the probe
+# runs $WORK/gup as root, so no other user may have made or be able to change anything in it (later 755: readable,
+# not writable, by the pool accounts).
+WORK=$(mktemp -d /Users/Shared/gup-probe.XXXXXXXX) || { echo "gui-user-per-job: no work dir" >&2; exit 4; }
 CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
 failed=0
 made=0
@@ -289,7 +292,7 @@ if [[ ! -x "$APP/Contents/MacOS/gup" ]]; then
   rm -rf "$WORK"; exit 4
 fi
 codesign -s - -f "$APP" >/dev/null 2>&1
-ln -s "$APP/Contents/MacOS/gup" "$WORK/gup"
+ln -s "$APP/Contents/MacOS/gup" "$WORK/gup" || { say "{\"stage\":\"build\",\"ok\":false,\"why\":\"link\"}"; rm -rf "$WORK"; exit 4; }
 chmod -R a+rX "$WORK/Gup.app"
 say "{\"stage\":\"build\",\"ok\":true,\"s\":$(( $(date +%s) - t_build ))}"
 
@@ -432,9 +435,9 @@ for (( i = 1; i <= pool_n; i++ )); do
   t0=$(now); hout=$(createhomedir -c -u "$u" 2>&1); home_ms=$(ms_since "$t0")
   home_kb=$(du -sk "/Users/$u" 2>/dev/null | awk '{print $1}')
   t0=$(now)
-  kout=$(as_pool "$u" console security create-keychain -p "$pw" login.keychain 2>&1 &&
-         as_pool "$u" console security default-keychain -s login.keychain 2>&1 &&
-         as_pool "$u" console security login-keychain -s login.keychain 2>&1)
+  kout=$(as_pool "$u" console security create-keychain -p "$pw" "/Users/$u/Library/Keychains/login.keychain-db" 2>&1 &&
+         as_pool "$u" console security default-keychain -s "/Users/$u/Library/Keychains/login.keychain-db" 2>&1 &&
+         as_pool "$u" console security login-keychain -s "/Users/$u/Library/Keychains/login.keychain-db" 2>&1)
   kc_rc=$?
   kc_ms=$(ms_since "$t0")
   tok=$(sysadminctl -secureTokenStatus "$u" 2>&1 | sed 's/.*Secure token is //' | head -1)
