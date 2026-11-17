@@ -209,10 +209,6 @@ pub fn recover_inactive_daemon_state(
     if !state_dir.try_exists().context(catalog().remote.inspect_authorization_state)? {
         return Ok(Vec::new());
     }
-    // RED: recovers nothing yet.
-    if !link_socket.as_os_str().is_empty() {
-        return Ok(Vec::new());
-    }
     build_remote_runtime("cmux-remote-startup-recovery")?.block_on(recover_state_dir(
         &state_dir,
         session,

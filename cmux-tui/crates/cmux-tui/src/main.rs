@@ -1100,8 +1100,8 @@ fn reopen_after_registry_damage(
     error: anyhow::Error,
     session: &str,
     root: &Path,
-    reopen: impl FnOnce() -> anyhow::Result<std::sync::Arc<Mux>>,
-) -> anyhow::Result<std::sync::Arc<Mux>> {
+    reopen: impl FnOnce() -> anyhow::Result<Arc<Mux>>,
+) -> anyhow::Result<Arc<Mux>> {
     match cmux_tui_core::recover_registry_after_failed_open(root, session, &error) {
         None => Err(error),
         Some(Ok((damage, recovery_dir))) => {

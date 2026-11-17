@@ -30,7 +30,7 @@ use super::{
 use crate::platform;
 
 /// The directory inside a session directory that keeps quarantined registries.
-pub const REGISTRY_RECOVERY_DIR: &str = "registry-recovery";
+pub(crate) const REGISTRY_RECOVERY_DIR: &str = "registry-recovery";
 
 /// The sidecars SQLite keeps next to a database, moved after the database.
 const SIDECAR_SUFFIXES: [&str; 3] = ["-wal", "-journal", "-shm"];
@@ -86,8 +86,22 @@ impl RegistryStartupDamage {
 /// may get past or that must keep its data in place (a newer schema, a busy
 /// lock, a missing directory, a malformed schema a newer SQLite may parse).
 pub fn registry_startup_damage(error: &anyhow::Error) -> Option<RegistryStartupDamage> {
-    // RED: recognizes nothing yet.
-    let _ = error;
+    if error.chain().any(|cause| cause.is::<UnsupportedWorkspaceRegistrySchema>()) {
+        return None;
+    }
+    for cause in error.chain() {
+        if let Some(failure) = cause.downcast_ref::<RegistryIntegrityFailure>() {
+            return Some(RegistryStartupDamage::Unreadable(failure.to_string()));
+        }
+        if let Some(failure) = cause.downcast_ref::<UnrecoverableInterruptedCreations>() {
+            return Some(RegistryStartupDamage::InterruptedCreations(failure.to_string()));
+        }
+        if let Some(sqlite) = cause.downcast_ref::<rusqlite::Error>()
+            && sqlite_reports_damage(sqlite)
+        {
+            return Some(RegistryStartupDamage::Unreadable(sqlite.to_string()));
+        }
+    }
     None
 }
 
