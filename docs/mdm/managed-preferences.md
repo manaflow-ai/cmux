@@ -473,6 +473,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.log` | boolean | `false` |  | Log. The newest line agents and scripts log: cmux workspace log append <text>. |
 | `sidebar.workspaceRow.notification` | boolean | `false` |  | Latest Notification. The text of the workspace's newest unread notification. |
 | `sidebar.workspaceRow.secondLineOrder` | array | `["notification","directory","branch","process","agentStatus","ports","lastActivity"]` | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
+| `sidebar.workspaceRow.lines` | array |  |  | Row Layout. The lines each workspace row shows, as lists of items, such as [["icon", "name", "branch"], ["agentStatus"]]. Up to 3 lines of 6 items; the name always leads the first line. Nested; see `cmux settings schema` for its shape. |
+| `sidebar.workspaceRow.linesByKind` | dictionary |  |  | Row Layout by Kind. A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout. Nested; see `cmux settings schema` for its shape. |
+| `sidebar.workspaceRow.linesByAgent` | dictionary |  |  | Row Layout by Agent. A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts. Nested; see `cmux settings schema` for its shape. |
 | `sidebar.workspaceRow.terminal.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.terminal.directory` | boolean |  |  | Folder |
 | `sidebar.workspaceRow.terminal.branch` | boolean |  |  | Git Branch |
